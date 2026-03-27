@@ -1,0 +1,19 @@
+{
+  "name": "isomux",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run build:ui && bun run server/index.ts",
+    "build:ui": "bun build ui/index.tsx --outdir ui/dist && cp ui/index.html ui/dist/index.html",
+    "server": "bun run server/index.ts"
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.9.0"
+  }
+}
