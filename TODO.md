@@ -11,3 +11,4 @@
 - [ ] All TODO items in the backlog should have descriptive names/titles
 - [ ] Office view: character SVGs overlap the tooltip text tail (z-index issue)
 - [ ] Character SVGs never show arms/typing animation — working state looks same as idle posture
+- [ ] Server reload button: wrapper script that restarts the server on exit(0), UI button to trigger it. Would enable agents to self-improve server code (UI changes already work without restart)
