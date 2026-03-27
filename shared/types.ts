@@ -54,7 +54,7 @@ export type ServerMessage =
 
 // Browser → Server commands
 export type ClientCommand =
-  | { type: "spawn"; name: string; cwd: string; permissionMode: AgentInfo["permissionMode"] }
+  | { type: "spawn"; name: string; cwd: string; permissionMode: AgentInfo["permissionMode"]; desk: number }
   | { type: "kill"; agentId: string }
   | { type: "send_message"; agentId: string; text: string }
   | { type: "new_conversation"; agentId: string }

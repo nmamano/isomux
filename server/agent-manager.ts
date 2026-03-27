@@ -16,12 +16,15 @@ mkdirSync(LAUNCHERS_DIR, { recursive: true });
 
 const CLI_PATH = join(import.meta.dir, "..", "node_modules", "@anthropic-ai", "claude-agent-sdk", "cli.js");
 
-// Create a launcher script that sets cwd before running the CLI
-function createLauncher(agentId: string, cwd: string): string {
+// Create a launcher script that sets cwd and injects system prompt before running the CLI
+function createLauncher(agentId: string, cwd: string, agentName: string): string {
   const launcherPath = join(LAUNCHERS_DIR, `${agentId}.mjs`);
+  const systemPrompt = `Your name is ${agentName}. When asked who you are, introduce yourself as ${agentName}. You are one of several agents in an isometric office managed by Isomux.`;
   writeFileSync(
     launcherPath,
-    `process.chdir(${JSON.stringify(cwd)});\nawait import(${JSON.stringify(CLI_PATH)});\n`
+    `process.chdir(${JSON.stringify(cwd)});\n` +
+    `process.argv.push("--append-system-prompt", ${JSON.stringify(systemPrompt)});\n` +
+    `await import(${JSON.stringify(CLI_PATH)});\n`
   );
   return launcherPath;
 }
@@ -81,7 +84,7 @@ function persistAll() {
 export async function restoreAgents() {
   const persisted = loadAgents();
   for (const p of persisted) {
-    const launcherPath = createLauncher(p.id, p.cwd);
+    const launcherPath = createLauncher(p.id, p.cwd, p.name);
     const info: AgentInfo = {
       id: p.id,
       name: p.name,
@@ -301,17 +304,22 @@ function createSession(managed: ManagedAgent, resumeSessionId?: string) {
     : unstable_v2_createSession(opts);
 }
 
-export async function spawn(name: string, cwd: string, permissionMode: AgentInfo["permissionMode"]): Promise<AgentInfo | null> {
+export async function spawn(name: string, cwd: string, permissionMode: AgentInfo["permissionMode"], desk?: number): Promise<AgentInfo | null> {
   const taken = new Set([...agents.values()].map((a) => a.info.desk));
-  let desk = -1;
-  for (let i = 0; i < 8; i++) {
-    if (!taken.has(i)) { desk = i; break; }
+  if (desk !== undefined && !taken.has(desk)) {
+    // Use the requested desk
+  } else {
+    // Find first free desk
+    desk = -1;
+    for (let i = 0; i < 8; i++) {
+      if (!taken.has(i)) { desk = i; break; }
+    }
   }
   if (desk === -1) return null;
 
   const resolvedCwd = resolveCwd(cwd);
   const id = `agent-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-  const launcherPath = createLauncher(id, resolvedCwd);
+  const launcherPath = createLauncher(id, resolvedCwd, name);
 
   const info: AgentInfo = {
     id,

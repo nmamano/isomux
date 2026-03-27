@@ -21,6 +21,7 @@ export function SpawnDialog({
       name: name || `Agent ${deskIndex + 1}`,
       cwd,
       permissionMode,
+      desk: deskIndex,
     });
     onClose();
   }

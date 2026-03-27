@@ -20,7 +20,7 @@ AgentManager.onEvent((event) => {
 async function handleCommand(cmd: ClientCommand) {
   switch (cmd.type) {
     case "spawn":
-      await AgentManager.spawn(cmd.name, cmd.cwd, cmd.permissionMode);
+      await AgentManager.spawn(cmd.name, cmd.cwd, cmd.permissionMode, cmd.desk);
       break;
     case "kill":
       await AgentManager.kill(cmd.agentId);

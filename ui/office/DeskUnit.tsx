@@ -35,7 +35,7 @@ export function DeskUnit({
       style={{
         position: "absolute",
         left: `calc(50% + ${x}px - 90px)`,
-        top: `${y + 80}px`,
+        top: `${y + 95}px`,
         width: 180,
         cursor: "pointer",
         zIndex: z,
