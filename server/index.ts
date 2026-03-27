@@ -66,11 +66,16 @@ const server = Bun.serve({
   websocket: {
     open(ws) {
       browsers.add(ws);
-      const msg: ServerMessage = {
-        type: "full_state",
-        agents: AgentManager.getAllAgents(),
-      };
-      ws.send(JSON.stringify(msg));
+      // Send current agent list
+      const agents = AgentManager.getAllAgents();
+      ws.send(JSON.stringify({ type: "full_state", agents } as ServerMessage));
+      // Send cached log history for each agent
+      for (const agent of agents) {
+        const logs = AgentManager.getAgentLogs(agent.id);
+        for (const entry of logs) {
+          ws.send(JSON.stringify({ type: "log_entry", entry } as ServerMessage));
+        }
+      }
     },
     message(ws, data) {
       try {
@@ -84,6 +89,13 @@ const server = Bun.serve({
       browsers.delete(ws);
     },
   },
+});
+
+// Restore persisted agents on startup
+AgentManager.restoreAgents().then((restored) => {
+  if (restored.length > 0) {
+    console.log(`Restored ${restored.length} agent(s): ${restored.map((a) => a.name).join(", ")}`);
+  }
 });
 
 console.log(`Isomux running at http://localhost:${server.port}`);

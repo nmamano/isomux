@@ -5,7 +5,7 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentInfo, AgentState, LogEntry } from "../shared/types.ts";
 import { generateOutfit } from "./outfit.ts";
-import { appendLog, loadLog } from "./persistence.ts";
+import { appendLog, loadLog, loadAgents, saveAgents, type PersistedAgent } from "./persistence.ts";
 import { resolve, join } from "path";
 import { homedir } from "os";
 import { writeFileSync, mkdirSync } from "fs";
@@ -44,13 +44,78 @@ type AgentEvent =
 type EventHandler = (event: AgentEvent) => void;
 
 const agents = new Map<string, ManagedAgent>();
+const logCache = new Map<string, LogEntry[]>(); // agentId → entries
 let eventHandler: EventHandler = () => {};
 
 export function onEvent(handler: EventHandler) {
   eventHandler = handler;
 }
 
+// Get cached logs for an agent (used when browser connects after restore)
+export function getAgentLogs(agentId: string): LogEntry[] {
+  return logCache.get(agentId) ?? [];
+}
+
 export function getAllAgents(): AgentInfo[] {
+  return [...agents.values()].map((a) => a.info);
+}
+
+function persistAll() {
+  const persisted: PersistedAgent[] = [...agents.values()].map((a) => ({
+    id: a.info.id,
+    name: a.info.name,
+    desk: a.info.desk,
+    cwd: a.info.cwd,
+    outfit: a.info.outfit,
+    permissionMode: a.info.permissionMode,
+    lastSessionId: a.sessionId,
+  }));
+  saveAgents(persisted);
+}
+
+// Restore agents from disk on startup. Creates sessions and loads log history.
+export async function restoreAgents() {
+  const persisted = loadAgents();
+  for (const p of persisted) {
+    const launcherPath = createLauncher(p.id, p.cwd);
+    const info: AgentInfo = {
+      id: p.id,
+      name: p.name,
+      desk: p.desk,
+      cwd: p.cwd,
+      outfit: p.outfit,
+      permissionMode: p.permissionMode,
+      state: "idle",
+    };
+    const managed: ManagedAgent = {
+      info,
+      session: null,
+      sessionId: p.lastSessionId,
+      streaming: false,
+      launcherPath,
+    };
+    agents.set(p.id, managed);
+
+    // Load log history into cache (browsers connect later, so we cache it)
+    if (p.lastSessionId) {
+      const history = loadLog(p.id, p.lastSessionId);
+      if (history.length > 0) {
+        logCache.set(p.id, [...history]);
+      }
+    }
+
+    // Auto-resume session
+    try {
+      if (p.lastSessionId) {
+        managed.session = createSession(managed, p.lastSessionId);
+      } else {
+        managed.session = createSession(managed);
+      }
+    } catch (err: any) {
+      console.error(`Failed to restore session for ${p.name}:`, err.message);
+      managed.info.state = "error";
+    }
+  }
   return [...agents.values()].map((a) => a.info);
 }
 
@@ -78,6 +143,11 @@ function addLogEntry(agentId: string, kind: LogEntry["kind"], content: string, m
     content,
     metadata,
   };
+  // Cache locally
+  const cached = logCache.get(agentId) ?? [];
+  cached.push(entry);
+  logCache.set(agentId, cached);
+
   emit({ type: "log_entry", entry });
 
   const managed = agents.get(agentId);
@@ -129,6 +199,7 @@ function processMessage(agentId: string, msg: SDKMessage) {
             }
           }
           managed.sessionId = sessionId;
+          persistAll();
         }
       }
       break;
@@ -257,6 +328,7 @@ export async function spawn(name: string, cwd: string, permissionMode: AgentInfo
   };
   agents.set(id, managed);
   emit({ type: "agent_added", agent: info });
+  persistAll();
 
   // Create V2 session
   try {
@@ -297,7 +369,9 @@ export async function kill(agentId: string) {
   if (!managed) return;
   try { managed.session?.close(); } catch {}
   agents.delete(agentId);
+  logCache.delete(agentId);
   emit({ type: "agent_removed", agentId });
+  persistAll();
 }
 
 export async function newConversation(agentId: string) {
@@ -311,6 +385,7 @@ export async function newConversation(agentId: string) {
     managed.streaming = false;
     updateState(agentId, "idle");
     addLogEntry(agentId, "system", "New conversation started.");
+    persistAll();
   } catch (err: any) {
     addLogEntry(agentId, "error", `Failed to start new conversation: ${err.message}`);
     updateState(agentId, "error");
@@ -328,6 +403,7 @@ export async function resume(agentId: string, sessionId: string) {
     managed.streaming = false;
     updateState(agentId, "idle");
     addLogEntry(agentId, "system", `Resumed session ${sessionId.slice(0, 8)}...`);
+    persistAll();
   } catch (err: any) {
     addLogEntry(agentId, "error", `Failed to resume: ${err.message}`);
     updateState(agentId, "error");

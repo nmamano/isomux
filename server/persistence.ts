@@ -1,10 +1,11 @@
 import { join } from "path";
 import { homedir } from "os";
-import { mkdirSync, appendFileSync, readFileSync, existsSync, readdirSync } from "fs";
-import type { LogEntry } from "../shared/types.ts";
+import { mkdirSync, appendFileSync, readFileSync, writeFileSync, existsSync, readdirSync } from "fs";
+import type { AgentInfo, LogEntry } from "../shared/types.ts";
 
 const ISOMUX_DIR = join(homedir(), ".isomux");
 const LOGS_DIR = join(ISOMUX_DIR, "logs");
+const AGENTS_FILE = join(ISOMUX_DIR, "agents.json");
 
 // Ensure directories exist
 try {
@@ -52,5 +53,34 @@ export function findLatestSession(agentId: string): string | null {
     return files[0]?.name ?? null;
   } catch {
     return null;
+  }
+}
+
+// Persisted agent config (subset of AgentInfo + session tracking)
+export interface PersistedAgent {
+  id: string;
+  name: string;
+  desk: number;
+  cwd: string;
+  outfit: AgentInfo["outfit"];
+  permissionMode: AgentInfo["permissionMode"];
+  lastSessionId: string | null;
+}
+
+export function loadAgents(): PersistedAgent[] {
+  try {
+    if (!existsSync(AGENTS_FILE)) return [];
+    const content = readFileSync(AGENTS_FILE, "utf-8");
+    return JSON.parse(content) as PersistedAgent[];
+  } catch {
+    return [];
+  }
+}
+
+export function saveAgents(agents: PersistedAgent[]) {
+  try {
+    writeFileSync(AGENTS_FILE, JSON.stringify(agents, null, 2));
+  } catch (err) {
+    console.error("Failed to save agents:", err);
   }
 }
