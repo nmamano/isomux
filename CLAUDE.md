@@ -97,10 +97,36 @@ isomux/
 
 ## Implementation Status
 
-- **Phase 1** (in progress): Static office + WebSocket skeleton + mock agents
-- **Phase 2** (next): Real SDK integration
-- **Phase 3**: Structured log view
-- **Phase 4**: Agent lifecycle (kill, new conversation, persistence)
-- **Phase 5**: Resume, notifications, polish
+All 5 phases complete:
+- **Phase 1**: Static office + WebSocket skeleton
+- **Phase 2**: Real SDK integration (V2 sessions with launcher script for cwd)
+- **Phase 3**: Structured log view (markdown, collapsible tool calls)
+- **Phase 4**: Agent lifecycle (kill, new conversation, persistence across restarts)
+- **Phase 5**: Resume, notifications, monitor preview
 
-See `plans/isomux.md` for full phase details.
+See `plans/isomux.md` for full phase details. See `TODO.md` for backlog.
+
+## Dev Workflow
+
+**Don't ask the user to run commands — just do it.** Run the dev server in a background process and tell the user the URL.
+
+### Build and test cycle
+1. Make changes to server (`server/`) or UI (`ui/`)
+2. Kill old server: `pkill -f "bun run server/index.ts"`
+3. Rebuild and restart: `bun run build:ui && bun run server/index.ts` (run in background)
+4. Tell user to refresh http://localhost:4000
+5. User tests and reports back
+6. Read agent conversation logs at `~/.isomux/logs/<agentId>/<sessionId>.jsonl` to debug — don't ask the user to copy-paste conversations
+
+### Key paths
+- Agent configs persist at `~/.isomux/agents.json`
+- Agent logs at `~/.isomux/logs/`
+- Launcher scripts (for cwd workaround) at `~/.isomux/launchers/`
+- UI builds to `ui/dist/` (gitignored)
+- Default port: 4000 (override with `PORT` env var)
+
+### Minor issues go in TODO.md
+Don't fix minor UI issues inline during feature work. Add them to `TODO.md` and move on. The user will prioritize them later.
+
+### Commit after each milestone
+Commit and push after completing each phase, feature, or batch of fixes. Keep commits focused.
