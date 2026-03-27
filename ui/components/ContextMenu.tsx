@@ -1,5 +1,6 @@
 import { useRef, useEffect } from "react";
-import type { AgentInfo } from "../../shared/types.ts";
+import type { AgentInfo, SessionInfo } from "../../shared/types.ts";
+import { useAppState } from "../store.tsx";
 import { send } from "../ws.ts";
 
 interface ContextMenuProps {
@@ -11,6 +12,8 @@ interface ContextMenuProps {
 
 export function ContextMenu({ x, y, agent, onClose }: ContextMenuProps) {
   const ref = useRef<HTMLDivElement>(null);
+  const { sessionsList } = useAppState();
+  const sessions = sessionsList.get(agent.id) ?? [];
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -20,10 +23,18 @@ export function ContextMenu({ x, y, agent, onClose }: ContextMenuProps) {
     return () => document.removeEventListener("mousedown", handleClick);
   }, [onClose]);
 
-  function handleAction(action: string) {
+  // Request sessions list when menu opens
+  useEffect(() => {
+    send({ type: "list_sessions", agentId: agent.id });
+  }, [agent.id]);
+
+  function handleAction(action: string, sessionId?: string) {
     switch (action) {
       case "new_conversation":
         send({ type: "new_conversation", agentId: agent.id });
+        break;
+      case "resume":
+        if (sessionId) send({ type: "resume", agentId: agent.id, sessionId });
         break;
       case "kill":
         send({ type: "kill", agentId: agent.id });
@@ -45,7 +56,9 @@ export function ContextMenu({ x, y, agent, onClose }: ContextMenuProps) {
         border: "1px solid rgba(255,255,255,0.08)",
         borderRadius: 12,
         padding: 5,
-        minWidth: 180,
+        minWidth: 200,
+        maxHeight: 320,
+        overflowY: "auto",
         boxShadow: "0 12px 40px rgba(0,0,0,0.5)",
         animation: "hudIn 0.12s ease-out",
       }}
@@ -63,6 +76,24 @@ export function ContextMenu({ x, y, agent, onClose }: ContextMenuProps) {
         {agent.name}
       </div>
       <MenuItem label="New Conversation" onClick={() => handleAction("new_conversation")} />
+
+      {sessions.length > 1 && (
+        <>
+          <div style={{ height: 1, background: "rgba(255,255,255,0.05)", margin: "3px 8px" }} />
+          <div style={{ padding: "4px 10px", fontSize: 9, color: "#3a4a6a", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+            Resume
+          </div>
+          {sessions.slice(0, 5).map((s) => (
+            <MenuItem
+              key={s.sessionId}
+              label={`${s.sessionId.slice(0, 8)}... ${formatTime(s.lastModified)}`}
+              small
+              onClick={() => handleAction("resume", s.sessionId)}
+            />
+          ))}
+        </>
+      )}
+
       <div style={{ height: 1, background: "rgba(255,255,255,0.05)", margin: "3px 8px" }} />
       <MenuItem label="Kill Agent" danger onClick={() => handleAction("kill")} />
     </div>
@@ -72,10 +103,12 @@ export function ContextMenu({ x, y, agent, onClose }: ContextMenuProps) {
 function MenuItem({
   label,
   danger,
+  small,
   onClick,
 }: {
   label: string;
   danger?: boolean;
+  small?: boolean;
   onClick: () => void;
 }) {
   return (
@@ -90,12 +123,12 @@ function MenuItem({
         alignItems: "center",
         gap: 8,
         width: "100%",
-        padding: "7px 10px",
+        padding: small ? "5px 10px" : "7px 10px",
         border: "none",
         background: "transparent",
         color: danger ? "#E85D75" : "#8a9ab8",
-        fontFamily: "'DM Sans',sans-serif",
-        fontSize: 13,
+        fontFamily: small ? "'JetBrains Mono',monospace" : "'DM Sans',sans-serif",
+        fontSize: small ? 11 : 13,
         borderRadius: 6,
         cursor: "pointer",
         textAlign: "left",
@@ -104,4 +137,13 @@ function MenuItem({
       {label}
     </button>
   );
+}
+
+function formatTime(timestamp: number): string {
+  const d = new Date(timestamp);
+  const now = new Date();
+  if (d.toDateString() === now.toDateString()) {
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+  return d.toLocaleDateString([], { month: "short", day: "numeric" });
 }

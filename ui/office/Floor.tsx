@@ -20,7 +20,7 @@ export function Floor() {
   }
   return (
     <svg
-      style={{ position: "absolute", left: "50%", top: "46%", transform: "translate(-50%,-50%)", pointerEvents: "none" }}
+      style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-50%,-50%)", pointerEvents: "none" }}
       width="900"
       height="600"
       viewBox="-360 -60 900 600"
@@ -34,7 +34,7 @@ export function Floor() {
 export function Walls() {
   return (
     <svg
-      style={{ position: "absolute", left: "50%", top: "46%", transform: "translate(-50%,-50%)", pointerEvents: "none" }}
+      style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-50%,-50%)", pointerEvents: "none" }}
       width="900"
       height="600"
       viewBox="-360 -60 900 600"

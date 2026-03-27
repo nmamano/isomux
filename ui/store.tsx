@@ -1,5 +1,5 @@
-import { createContext, useContext, useReducer, useEffect, type ReactNode, type Dispatch } from "react";
-import type { AgentInfo, LogEntry, ServerMessage } from "../shared/types.ts";
+import { createContext, useContext, useReducer, useEffect, useRef, type ReactNode, type Dispatch } from "react";
+import type { AgentInfo, LogEntry, SessionInfo, ServerMessage } from "../shared/types.ts";
 import { connect } from "./ws.ts";
 
 export interface AppState {
@@ -7,6 +7,10 @@ export interface AppState {
   logs: Map<string, LogEntry[]>; // agentId → entries
   focusedAgentId: string | null;
   connected: boolean;
+  needsAttention: Set<string>; // agentIds with unread state changes
+  latestText: Map<string, string>; // agentId → last text snippet (for monitor preview)
+  sessionsList: Map<string, SessionInfo[]>; // agentId → available sessions
+  soundTrigger: number; // increments when any agent finishes work (for sound regardless of focus)
 }
 
 type Action =
@@ -16,7 +20,11 @@ type Action =
   | { type: "agent_updated"; agentId: string; changes: Partial<AgentInfo> }
   | { type: "log_entry"; entry: LogEntry }
   | { type: "focus"; agentId: string | null }
-  | { type: "connected" };
+  | { type: "connected" }
+  | { type: "sessions_list"; agentId: string; sessions: SessionInfo[] };
+
+// States that warrant attention
+const ATTENTION_STATES = new Set(["idle", "error", "waiting_permission"]);
 
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
@@ -27,30 +35,67 @@ function reducer(state: AppState, action: Action): AppState {
     case "agent_removed": {
       const logs = new Map(state.logs);
       logs.delete(action.agentId);
+      const needsAttention = new Set(state.needsAttention);
+      needsAttention.delete(action.agentId);
+      const latestText = new Map(state.latestText);
+      latestText.delete(action.agentId);
       return {
         ...state,
         agents: state.agents.filter((a) => a.id !== action.agentId),
         logs,
+        needsAttention,
+        latestText,
         focusedAgentId: state.focusedAgentId === action.agentId ? null : state.focusedAgentId,
       };
     }
-    case "agent_updated":
-      return {
-        ...state,
-        agents: state.agents.map((a) =>
-          a.id === action.agentId ? { ...a, ...action.changes } : a
-        ),
-      };
+    case "agent_updated": {
+      const newAgents = state.agents.map((a) =>
+        a.id === action.agentId ? { ...a, ...action.changes } : a
+      );
+      const needsAttention = new Set(state.needsAttention);
+      // Mark as needing attention if state changed to an attention state
+      // and the user is not currently viewing this agent
+      if (action.changes.state && ATTENTION_STATES.has(action.changes.state)) {
+        const prevAgent = state.agents.find((a) => a.id === action.agentId);
+        const wasWorking = prevAgent && !ATTENTION_STATES.has(prevAgent.state);
+        let soundTrigger = state.soundTrigger;
+        if (wasWorking) {
+          // Sound: always trigger when tab is hidden
+          soundTrigger = state.soundTrigger + 1;
+          // Badge: only when not viewing this agent
+          if (state.focusedAgentId !== action.agentId) {
+            needsAttention.add(action.agentId);
+          }
+        }
+        return { ...state, agents: newAgents, needsAttention, soundTrigger };
+      }
+      return { ...state, agents: newAgents, needsAttention };
+    }
     case "log_entry": {
       const logs = new Map(state.logs);
       const entries = logs.get(action.entry.agentId) ?? [];
       logs.set(action.entry.agentId, [...entries, action.entry]);
-      return { ...state, logs };
+      // Track latest text for monitor preview
+      const latestText = new Map(state.latestText);
+      if (action.entry.kind === "text") {
+        latestText.set(action.entry.agentId, action.entry.content);
+      }
+      return { ...state, logs, latestText };
     }
-    case "focus":
-      return { ...state, focusedAgentId: action.agentId };
+    case "focus": {
+      const needsAttention = new Set(state.needsAttention);
+      if (action.agentId) {
+        needsAttention.delete(action.agentId);
+      }
+      return { ...state, focusedAgentId: action.agentId, needsAttention };
+    }
     case "connected":
       return { ...state, connected: true };
+    case "sessions_list": {
+      const sessionsList = new Map(state.sessionsList);
+      sessionsList.set(action.agentId, action.sessions);
+      return { ...state, sessionsList };
+    }
     default:
       return state;
   }
@@ -61,10 +106,46 @@ const initialState: AppState = {
   logs: new Map(),
   focusedAgentId: null,
   connected: false,
+  needsAttention: new Set(),
+  latestText: new Map(),
+  sessionsList: new Map(),
+  soundTrigger: 0,
 };
 
 const StateCtx = createContext<AppState>(initialState);
 const DispatchCtx = createContext<Dispatch<Action>>(() => {});
+
+// Notification sound — AudioContext initialized on first user interaction
+let audioCtx: AudioContext | null = null;
+
+function ensureAudioContext() {
+  if (!audioCtx) {
+    audioCtx = new AudioContext();
+  }
+  return audioCtx;
+}
+
+// Initialize audio on first click anywhere
+if (typeof document !== "undefined") {
+  document.addEventListener("click", () => ensureAudioContext(), { once: true });
+}
+
+function playNotificationSound() {
+  try {
+    const ctx = ensureAudioContext();
+    if (ctx.state === "suspended") ctx.resume();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.frequency.setValueAtTime(800, ctx.currentTime);
+    osc.frequency.setValueAtTime(600, ctx.currentTime + 0.1);
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.3);
+  } catch {}
+}
 
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
@@ -75,6 +156,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (msg.type === "full_state") dispatch({ type: "connected" });
     });
   }, []);
+
+  // Sound notification when tab is hidden and any agent finishes work
+  const prevSoundTrigger = useRef(0);
+  useEffect(() => {
+    if (state.soundTrigger > prevSoundTrigger.current && document.hidden) {
+      playNotificationSound();
+    }
+    prevSoundTrigger.current = state.soundTrigger;
+  }, [state.soundTrigger]);
 
   return (
     <StateCtx.Provider value={state}>

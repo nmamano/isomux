@@ -8,7 +8,7 @@ import { StatusLight } from "./StatusLight.tsx";
 import type { AgentInfo } from "../../shared/types.ts";
 
 export function OfficeView({ onSpawn, onContextMenu }: { onSpawn: (deskIndex: number) => void; onContextMenu: (x: number, y: number, agent: AgentInfo) => void }) {
-  const { agents } = useAppState();
+  const { agents, needsAttention, latestText } = useAppState();
   const dispatch = useDispatch();
 
   const counts = {
@@ -130,6 +130,8 @@ export function OfficeView({ onSpawn, onContextMenu }: { onSpawn: (deskIndex: nu
                   agent={agent}
                   onClick={() => dispatch({ type: "focus", agentId: agent.id })}
                   onContextMenu={(e) => onContextMenu(e.clientX, e.clientY, agent)}
+                  needsAttention={needsAttention.has(agent.id)}
+                  previewText={latestText.get(agent.id)}
                 />
               );
             }

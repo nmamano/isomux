@@ -5,7 +5,7 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentInfo, AgentState, LogEntry } from "../shared/types.ts";
 import { generateOutfit } from "./outfit.ts";
-import { appendLog, loadLog, loadAgents, saveAgents, type PersistedAgent } from "./persistence.ts";
+import { appendLog, loadLog, loadAgents, saveAgents, listAgentSessions, type PersistedAgent } from "./persistence.ts";
 import { resolve, join } from "path";
 import { homedir } from "os";
 import { writeFileSync, mkdirSync } from "fs";
@@ -54,6 +54,10 @@ export function onEvent(handler: EventHandler) {
 // Get cached logs for an agent (used when browser connects after restore)
 export function getAgentLogs(agentId: string): LogEntry[] {
   return logCache.get(agentId) ?? [];
+}
+
+export function listSessions(agentId: string) {
+  return listAgentSessions(agentId);
 }
 
 export function getAllAgents(): AgentInfo[] {

@@ -38,6 +38,23 @@ export function loadLog(agentId: string, sessionId: string): LogEntry[] {
   }
 }
 
+// List all sessions for an agent (sorted by most recent first)
+export function listAgentSessions(agentId: string): { sessionId: string; lastModified: number }[] {
+  try {
+    const agentDir = join(LOGS_DIR, agentId);
+    if (!existsSync(agentDir)) return [];
+    return readdirSync(agentDir)
+      .filter((f) => f.endsWith(".jsonl"))
+      .map((f) => ({
+        sessionId: f.replace(".jsonl", ""),
+        lastModified: Bun.file(join(agentDir, f)).lastModified,
+      }))
+      .sort((a, b) => b.lastModified - a.lastModified);
+  } catch {
+    return [];
+  }
+}
+
 // Find the most recent session log for an agent (by file modification time)
 export function findLatestSession(agentId: string): string | null {
   try {

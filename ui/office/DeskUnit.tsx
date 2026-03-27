@@ -9,10 +9,14 @@ export function DeskUnit({
   agent,
   onClick,
   onContextMenu,
+  needsAttention,
+  previewText,
 }: {
   agent: AgentInfo;
   onClick: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
+  needsAttention?: boolean;
+  previewText?: string;
 }) {
   const [hov, setHov] = useState(false);
   const pos = DESK_SLOTS[agent.desk];
@@ -31,7 +35,7 @@ export function DeskUnit({
       style={{
         position: "absolute",
         left: `calc(50% + ${x}px - 90px)`,
-        top: `${y + 50}px`,
+        top: `${y + 80}px`,
         width: 180,
         cursor: "pointer",
         zIndex: z,
@@ -76,14 +80,15 @@ export function DeskUnit({
           alignItems: "center",
           gap: 6,
           padding: "3px 10px 3px 7px",
-          background: "rgba(10,14,25,0.88)",
+          background: needsAttention ? "rgba(245,166,35,0.15)" : "rgba(10,14,25,0.88)",
           backdropFilter: "blur(10px)",
           borderRadius: 20,
-          border: "1px solid rgba(255,255,255,0.07)",
+          border: needsAttention ? "1px solid rgba(245,166,35,0.3)" : "1px solid rgba(255,255,255,0.07)",
           whiteSpace: "nowrap",
           zIndex: 100,
           opacity: hov ? 1 : 0.8,
-          transition: "opacity 0.2s",
+          transition: "opacity 0.2s, background 0.3s, border 0.3s",
+          animation: needsAttention ? "dotPulse 2s ease-in-out infinite" : undefined,
         }}
       >
         <StatusLight state={agent.state} size={8} />
@@ -91,6 +96,35 @@ export function DeskUnit({
           {agent.name}
         </span>
       </div>
+
+      {/* Monitor preview text */}
+      {previewText && !hov && (
+        <div
+          style={{
+            position: "absolute",
+            top: 4,
+            left: 68,
+            width: 44,
+            height: 24,
+            overflow: "hidden",
+            zIndex: 3,
+            pointerEvents: "none",
+          }}
+        >
+          <div
+            style={{
+              fontSize: 5.5,
+              fontFamily: "'JetBrains Mono',monospace",
+              color: "rgba(160,200,255,0.5)",
+              lineHeight: 1.3,
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-all",
+            }}
+          >
+            {previewText.slice(0, 80)}
+          </div>
+        </div>
+      )}
 
       {/* Tooltip on hover */}
       {hov && (

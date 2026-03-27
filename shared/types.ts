@@ -37,13 +37,20 @@ export interface LogEntry {
   metadata?: Record<string, unknown>;
 }
 
+// Session info for resume feature
+export interface SessionInfo {
+  sessionId: string;
+  lastModified: number;
+}
+
 // Server → Browser messages
 export type ServerMessage =
   | { type: "full_state"; agents: AgentInfo[] }
   | { type: "agent_added"; agent: AgentInfo }
   | { type: "agent_removed"; agentId: string }
   | { type: "agent_updated"; agentId: string; changes: Partial<AgentInfo> }
-  | { type: "log_entry"; entry: LogEntry };
+  | { type: "log_entry"; entry: LogEntry }
+  | { type: "sessions_list"; agentId: string; sessions: SessionInfo[] };
 
 // Browser → Server commands
 export type ClientCommand =
@@ -51,4 +58,5 @@ export type ClientCommand =
   | { type: "kill"; agentId: string }
   | { type: "send_message"; agentId: string; text: string }
   | { type: "new_conversation"; agentId: string }
-  | { type: "resume"; agentId: string; sessionId: string };
+  | { type: "resume"; agentId: string; sessionId: string }
+  | { type: "list_sessions"; agentId: string };

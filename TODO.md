@@ -6,3 +6,4 @@
 - [ ] Investigate: some git commands blocked even with bypassPermissions (Claude Code built-in security rules for compound cd&&git and --git-dir flags)
 - [ ] Customizable system prompt for agents, including their name (so they identify as "Bob" not "Claude Opus")
 - [ ] Spawn dialog: "retry" button to randomize outfit instead of deterministic name hash (save chosen outfit in persisted state)
+- [ ] Resume menu: show more info on hover (e.g. first message of session) instead of just hash + timestamp
