@@ -109,8 +109,8 @@ export function SpawnDialog({
             cursor: "pointer",
           }}
         >
-          <option value="default">Default (ask for everything)</option>
-          <option value="acceptEdits">Accept Edits (auto-approve file changes)</option>
+          <option value="default" disabled>Default (ask for everything) — not supported yet</option>
+          <option value="acceptEdits" disabled>Accept Edits (auto-approve file changes) — not supported yet</option>
           <option value="bypassPermissions">Bypass (auto-approve all)</option>
         </select>
 
