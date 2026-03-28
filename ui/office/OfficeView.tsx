@@ -5,6 +5,7 @@ import { RoomProps } from "./RoomProps.tsx";
 import { DeskUnit } from "./DeskUnit.tsx";
 import { EmptySlot } from "./EmptySlot.tsx";
 import { StatusLight } from "./StatusLight.tsx";
+import { SCENE_W, SCENE_H } from "./grid.ts";
 import type { AgentInfo } from "../../shared/types.ts";
 
 export function OfficeView({ onSpawn, onContextMenu }: { onSpawn: (deskIndex: number) => void; onContextMenu: (x: number, y: number, agent: AgentInfo) => void }) {
@@ -115,12 +116,20 @@ export function OfficeView({ onSpawn, onContextMenu }: { onSpawn: (deskIndex: nu
           }}
         />
 
-        <Walls />
-        <Floor />
-        <RoomProps />
-
-        {/* Desks */}
-        <div style={{ position: "absolute", inset: 0 }}>
+        {/* Single scene container — floor, walls, and desks share the same coordinate space */}
+        <div
+          style={{
+            position: "absolute",
+            left: "50%",
+            top: "50%",
+            transform: "translate(-50%, -50%)",
+            width: SCENE_W,
+            height: SCENE_H,
+          }}
+        >
+          <Walls />
+          <Floor />
+          <RoomProps />
           {Array.from({ length: 8 }, (_, i) => {
             const agent = agents.find((a) => a.desk === i);
             if (agent) {

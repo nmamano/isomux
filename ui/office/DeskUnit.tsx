@@ -3,7 +3,7 @@ import type { AgentInfo } from "../../shared/types.ts";
 import { DeskSprite } from "./DeskSprite.tsx";
 import { Character } from "./Character.tsx";
 import { StatusLight } from "./StatusLight.tsx";
-import { isoXY, DESK_SLOTS } from "./grid.ts";
+import { deskPixelPos, DESK_SLOTS } from "./grid.ts";
 
 export function DeskUnit({
   agent,
@@ -20,7 +20,7 @@ export function DeskUnit({
 }) {
   const [hov, setHov] = useState(false);
   const pos = DESK_SLOTS[agent.desk];
-  const { x, y } = isoXY(pos.row, pos.col);
+  const { left: pxLeft, top: pxTop } = deskPixelPos(pos.row, pos.col);
   const z = (pos.row * 2 + pos.col + 1) * 10;
 
   return (
@@ -34,8 +34,8 @@ export function DeskUnit({
       onMouseLeave={() => setHov(false)}
       style={{
         position: "absolute",
-        left: `calc(50% + ${x}px - 90px)`,
-        top: `calc(52% + ${y}px - 290px)`,
+        left: pxLeft,
+        top: pxTop,
         width: 180,
         cursor: "pointer",
         zIndex: z,
@@ -69,32 +69,37 @@ export function DeskUnit({
         <DeskSprite state={agent.state} />
       </div>
 
-      {/* Floating nametag */}
+      {/* Floating nametag — outer div handles positioning, inner handles animation */}
       <div
         style={{
           position: "absolute",
           top: -48,
           left: "50%",
           transform: "translateX(-50%)",
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-          padding: "3px 10px 3px 7px",
-          background: needsAttention ? "rgba(245,166,35,0.15)" : "rgba(10,14,25,0.88)",
-          backdropFilter: "blur(10px)",
-          borderRadius: 20,
-          border: needsAttention ? "1px solid rgba(245,166,35,0.3)" : "1px solid rgba(255,255,255,0.07)",
-          whiteSpace: "nowrap",
           zIndex: 100,
-          opacity: hov ? 1 : 0.8,
-          transition: "opacity 0.2s, background 0.3s, border 0.3s",
-          animation: needsAttention ? "dotPulse 2s ease-in-out infinite" : undefined,
+          whiteSpace: "nowrap",
         }}
       >
-        <StatusLight state={agent.state} size={8} />
-        <span style={{ fontSize: 11, fontWeight: 600, color: "#e0e8f5", letterSpacing: "-0.01em" }}>
-          {agent.name}
-        </span>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "3px 10px 3px 7px",
+            background: needsAttention ? "rgba(245,166,35,0.15)" : "rgba(10,14,25,0.88)",
+            backdropFilter: "blur(10px)",
+            borderRadius: 20,
+            border: needsAttention ? "1px solid rgba(245,166,35,0.3)" : "1px solid rgba(255,255,255,0.07)",
+            opacity: hov ? 1 : 0.8,
+            transition: "opacity 0.2s, background 0.3s, border 0.3s",
+            animation: needsAttention ? "dotPulse 2s ease-in-out infinite" : undefined,
+          }}
+        >
+          <StatusLight state={agent.state} size={8} />
+          <span style={{ fontSize: 11, fontWeight: 600, color: "#e0e8f5", letterSpacing: "-0.01em" }}>
+            {agent.name}
+          </span>
+        </div>
       </div>
 
       {/* Monitor preview text */}

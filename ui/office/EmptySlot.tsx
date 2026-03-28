@@ -1,70 +1,74 @@
 import { useState } from "react";
-import { isoXY, DESK_SLOTS } from "./grid.ts";
+import { deskPixelPos, DESK_SLOTS } from "./grid.ts";
 
 export function EmptySlot({ deskIndex, onClick }: { deskIndex: number; onClick: () => void }) {
   const [hov, setHov] = useState(false);
   const pos = DESK_SLOTS[deskIndex];
-  const { x, y } = isoXY(pos.row, pos.col);
+  const { left: pxLeft, top: pxTop } = deskPixelPos(pos.row, pos.col);
 
   return (
     <div
-      onClick={onClick}
-      onMouseEnter={() => setHov(true)}
-      onMouseLeave={() => setHov(false)}
       style={{
         position: "absolute",
-        left: `calc(50% + ${x}px - 90px)`,
-        top: `calc(52% + ${y}px - 290px)`,
+        left: pxLeft,
+        top: pxTop,
         width: 180,
-        height: 140,
-        cursor: "pointer",
+        height: 160,
         zIndex: (pos.row * 2 + pos.col + 1) * 10,
+        pointerEvents: "none",
       }}
     >
-      <svg
-        width="180"
-        height="140"
-        viewBox="0 0 180 140"
-        overflow="visible"
-        style={{ opacity: hov ? 0.7 : 0.18, transition: "opacity 0.3s" }}
-      >
+      <svg width="180" height="160" viewBox="0 0 180 160" overflow="visible" style={{ pointerEvents: "none" }}>
+        {/* Invisible hit area — only the diamond shape triggers hover/click */}
         <path
-          d="M20 62 L90 28 L160 62 L90 96 Z"
-          fill="none"
+          d="M40 126 L90 101 L140 126 L90 151 Z"
+          fill="transparent"
+          stroke="none"
+          style={{ pointerEvents: "fill", cursor: "pointer" }}
+          onClick={onClick}
+          onMouseEnter={() => setHov(true)}
+          onMouseLeave={() => setHov(false)}
+        />
+        {/* Visible dashed outline */}
+        <path
+          d="M40 126 L90 101 L140 126 L90 151 Z"
+          fill={hov ? "rgba(126,184,255,0.06)" : "none"}
           stroke={hov ? "#7eb8ff" : "#5a6f8f"}
-          strokeWidth="1.5"
-          strokeDasharray="8 5"
+          strokeWidth="1"
+          strokeDasharray="6 4"
+          style={{ opacity: hov ? 0.8 : 0.2, transition: "opacity 0.3s", pointerEvents: "none" }}
         />
       </svg>
       {hov && (
         <div
           style={{
             position: "absolute",
-            top: 40,
+            top: 100,
             left: "50%",
             transform: "translateX(-50%)",
             textAlign: "center",
+            pointerEvents: "none",
             animation: "hudIn 0.12s ease-out",
           }}
         >
           <div
             style={{
-              width: 36,
-              height: 36,
+              width: 30,
+              height: 30,
               borderRadius: "50%",
               border: "2px solid #7eb8ff",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              fontSize: 20,
+              fontSize: 18,
               color: "#7eb8ff",
-              margin: "0 auto 6px",
+              margin: "0 auto 5px",
               background: "rgba(126,184,255,0.06)",
             }}
           >
             +
           </div>
-          <div style={{ fontSize: 11, color: "#7eb8ff", fontWeight: 500 }}>New Agent</div>
+          <div style={{ fontSize: 10, color: "#7eb8ff", fontWeight: 500 }}>New Agent</div>
         </div>
       )}
     </div>

@@ -1,9 +1,16 @@
+import { SCENE_W, SCENE_H, VB_X, VB_Y } from "./grid.ts";
+
+const SVG_STYLE: React.CSSProperties = {
+  position: "absolute", top: 0, left: 0, pointerEvents: "none",
+};
+const VB = `${VB_X} ${VB_Y} ${SCENE_W} ${SCENE_H}`;
+
 export function Floor() {
   // Floor diamond matches wall bottom edges (2:1 isometric ratio):
-  // back=(120,40), left=(-200,200), right=(440,200), front=(120,360)
+  // back=(120,40), left=(-260,230), right=(500,230), front=(120,420)
   const backX = 120, backY = 40;
-  const rowDx = -40, rowDy = 20;   // toward left corner, 2:1 ratio
-  const colDx = 40, colDy = 20;    // toward right corner, 2:1 ratio
+  const rowDx = -47.5, rowDy = 23.75;
+  const colDx = 47.5, colDy = 23.75;
   const N = 8;
 
   const tiles = [];
@@ -24,13 +31,7 @@ export function Floor() {
     }
   }
   return (
-    <svg
-      style={{ position: "absolute", left: "50%", top: "52%", transform: "translate(-50%,-50%)", pointerEvents: "none" }}
-      width="900"
-      height="600"
-      viewBox="-360 -60 900 600"
-      overflow="visible"
-    >
+    <svg style={SVG_STYLE} width={SCENE_W} height={SCENE_H} viewBox={VB} overflow="visible">
       {tiles}
     </svg>
   );
@@ -38,17 +39,11 @@ export function Floor() {
 
 export function Walls() {
   return (
-    <svg
-      style={{ position: "absolute", left: "50%", top: "52%", transform: "translate(-50%,-50%)", pointerEvents: "none" }}
-      width="900"
-      height="600"
-      viewBox="-360 -60 900 600"
-      overflow="visible"
-    >
+    <svg style={SVG_STYLE} width={SCENE_W} height={SCENE_H} viewBox={VB} overflow="visible">
       {/* Left wall (2:1 iso ratio) */}
-      <path d="M-200 200 L-200 -40 L120 -200 L120 40 Z" fill="#111825" stroke="rgba(255,255,255,0.025)" strokeWidth="0.5" />
+      <path d="M-260 230 L-260 -10 L120 -200 L120 40 Z" fill="#111825" stroke="rgba(255,255,255,0.025)" strokeWidth="0.5" />
       {/* Right wall (2:1 iso ratio) */}
-      <path d="M120 -200 L120 40 L440 200 L440 -40 Z" fill="#0f1520" stroke="rgba(255,255,255,0.025)" strokeWidth="0.5" />
+      <path d="M120 -200 L120 40 L500 230 L500 -10 Z" fill="#0f1520" stroke="rgba(255,255,255,0.025)" strokeWidth="0.5" />
       {/* Whiteboard on left wall */}
       <path d="M-100 30 L40 -40 L40 -110 L-100 -40 Z" fill="#1a2236" stroke="rgba(255,255,255,0.05)" strokeWidth="0.8" />
       <path d="M-90 25 L30 -40 L30 -100 L-90 -35 Z" fill="#1e2840" />
@@ -63,7 +58,7 @@ export function Walls() {
         <line x1="0" y1="0" x2="8" y2="4" stroke="rgba(255,255,255,0.1)" strokeWidth="0.8" />
       </g>
       {/* Poster on right wall */}
-      <rect x="360" y="-120" width="50" height="65" rx="2" fill="#1a2236" stroke="rgba(255,255,255,0.04)" strokeWidth="0.5" transform="skewY(27)" />
+      <rect x="400" y="-90" width="50" height="65" rx="2" fill="#1a2236" stroke="rgba(255,255,255,0.04)" strokeWidth="0.5" transform="skewY(27)" />
     </svg>
   );
 }

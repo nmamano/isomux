@@ -1,16 +1,12 @@
+import { SCENE_W, SCENE_H, VB_X, VB_Y } from "./grid.ts";
+
 export function RoomProps() {
   return (
     <svg
-      style={{
-        position: "absolute",
-        left: "50%",
-        top: "52%",
-        transform: "translate(-50%,-50%)",
-        pointerEvents: "none",
-      }}
-      width="900"
-      height="600"
-      viewBox="-360 -60 900 600"
+      style={{ position: "absolute", top: 0, left: 0, pointerEvents: "none" }}
+      width={SCENE_W}
+      height={SCENE_H}
+      viewBox={`${VB_X} ${VB_Y} ${SCENE_W} ${SCENE_H}`}
       overflow="visible"
     >
       {/* Potted plant — near left wall inside office */}
