@@ -85,9 +85,11 @@ export function EmptySlot({
           style={{
             position: "absolute",
             top: 100,
-            left: "50%",
-            transform: "translateX(-50%)",
-            textAlign: "center",
+            left: 0,
+            right: 0,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
             pointerEvents: "none",
             animation: "hudIn 0.12s ease-out",
           }}
