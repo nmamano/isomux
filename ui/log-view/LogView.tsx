@@ -129,6 +129,10 @@ export function LogView({
   const setInput = (text: string) => dispatch({ type: "set_draft", agentId: agent.id, text });
   const [autoScroll, setAutoScroll] = useState(true);
   const [selectedIdx, setSelectedIdx] = useState(0);
+  const [editingTopic, setEditingTopic] = useState(false);
+  const [topicDraft, setTopicDraft] = useState("");
+  const topicInputRef = useRef<HTMLInputElement>(null);
+  const topicSavedRef = useRef(false);
 
   // Build merged command list for autocomplete
   const agentCmds = slashCommands.get(agent.id);
@@ -286,6 +290,94 @@ export function LogView({
           <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>{agent.name}</span>
           {STATE_LABELS[agent.state] && (
             <HeaderTimer state={agent.state} stateChangedAt={stateChangedAt.get(agent.id)} />
+          )}
+          {agent.topic && agent.topic !== "..." && !editingTopic && (
+            <>
+              <span style={{ color: "var(--text-ghost)" }}>&middot;</span>
+              <span
+                onClick={() => {
+                  setEditingTopic(true);
+                  setTopicDraft(agent.topic ?? "");
+                  setTimeout(() => topicInputRef.current?.focus(), 0);
+                }}
+                style={{
+                  color: "var(--text-secondary)",
+                  fontSize: 13,
+                  cursor: "text",
+                }}
+                title="Click to edit topic"
+              >
+                {agent.topic}
+              </span>
+              <button
+                onClick={() => send({ type: "reset_topic", agentId: agent.id })}
+                disabled={!agent.topicStale}
+                title={agent.topicStale ? "Regenerate topic from conversation" : "No new messages since last generation"}
+                style={{
+                  background: "none",
+                  border: "none",
+                  cursor: agent.topicStale ? "pointer" : "default",
+                  color: "var(--text-secondary)",
+                  fontSize: 15,
+                  padding: "0 4px",
+                  opacity: agent.topicStale ? 0.8 : 0.3,
+                  transition: "opacity 0.2s",
+                  lineHeight: 1,
+                }}
+              >
+                ↻
+              </button>
+            </>
+          )}
+          {agent.topic === "..." && (
+            <>
+              <span style={{ color: "var(--text-ghost)" }}>&middot;</span>
+              <span style={{ color: "var(--text-ghost)", fontSize: 13 }}>...</span>
+            </>
+          )}
+          {editingTopic && (
+            <input
+              ref={topicInputRef}
+              value={topicDraft}
+              onChange={(e) => setTopicDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  const trimmed = topicDraft.trim();
+                  if (trimmed && trimmed !== agent.topic) {
+                    send({ type: "set_topic", agentId: agent.id, topic: trimmed });
+                  }
+                  topicSavedRef.current = true;
+                  setEditingTopic(false);
+                }
+                if (e.key === "Escape") {
+                  topicSavedRef.current = true;
+                  setEditingTopic(false);
+                }
+              }}
+              onBlur={() => {
+                if (topicSavedRef.current) {
+                  topicSavedRef.current = false;
+                  setEditingTopic(false);
+                  return;
+                }
+                const trimmed = topicDraft.trim();
+                if (trimmed && trimmed !== agent.topic) {
+                  send({ type: "set_topic", agentId: agent.id, topic: trimmed });
+                }
+                setEditingTopic(false);
+              }}
+              style={{
+                background: "transparent",
+                border: "1px solid var(--border-medium)",
+                borderRadius: 4,
+                color: "var(--text-muted)",
+                fontSize: 12,
+                padding: "1px 6px",
+                fontFamily: "'DM Sans',sans-serif",
+                outline: "none",
+                width: 200,
+              }}
+            />
           )}
           <span style={{ color: "var(--text-ghost)" }}>&middot;</span>
           <span

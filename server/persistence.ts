@@ -82,6 +82,7 @@ export interface PersistedAgent {
   outfit: AgentInfo["outfit"];
   permissionMode: AgentInfo["permissionMode"];
   lastSessionId: string | null;
+  topic: string | null;
 }
 
 export function loadAgents(): PersistedAgent[] {

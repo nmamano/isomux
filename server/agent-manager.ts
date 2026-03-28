@@ -1,6 +1,7 @@
 import {
   unstable_v2_createSession,
   unstable_v2_resumeSession,
+  unstable_v2_prompt,
   type SDKMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentInfo, AgentState, LogEntry } from "../shared/types.ts";
@@ -88,6 +89,9 @@ interface ManagedAgent {
   // Timing: track when phases start for duration_ms computation
   thinkingStartedAt: number;
   toolCallTimestamps: Map<string, number>; // toolUseId → start timestamp
+  // Topic generation
+  topicGenerating: boolean;
+  topicMessageCount: number; // text entry count when topic was last generated
 }
 
 type AgentEvent =
@@ -184,6 +188,7 @@ function persistAll() {
     outfit: a.info.outfit,
     permissionMode: a.info.permissionMode,
     lastSessionId: a.sessionId,
+    topic: a.info.topic,
   }));
   saveAgents(persisted);
 }
@@ -201,6 +206,8 @@ export async function restoreAgents() {
       outfit: p.outfit,
       permissionMode: p.permissionMode,
       state: "idle",
+      topic: p.topic ?? null,
+      topicStale: false,
     };
     const managed: ManagedAgent = {
       info,
@@ -213,6 +220,8 @@ export async function restoreAgents() {
       skills: [...discoverUserSkills(), ...discoverProjectSkills(p.cwd)],
       thinkingStartedAt: 0,
       toolCallTimestamps: new Map(),
+      topicGenerating: false,
+      topicMessageCount: 0,
     };
     agents.set(p.id, managed);
 
@@ -276,6 +285,74 @@ function addLogEntry(agentId: string, kind: LogEntry["kind"], content: string, m
   const managed = agents.get(agentId);
   if (managed?.sessionId) {
     appendLog(agentId, managed.sessionId, entry);
+  }
+
+  // Track topicStale: new text entries after topic was generated
+  if ((kind === "text" || kind === "user_message") && managed && managed.info.topic !== null && managed.info.topic !== "...") {
+    const textCount = (logCache.get(agentId) ?? []).filter(e => e.kind === "user_message" || e.kind === "text").length;
+    if (textCount > managed.topicMessageCount) {
+      managed.info.topicStale = true;
+      emit({ type: "agent_updated", agentId, changes: { topicStale: true } });
+    }
+  }
+}
+
+// Generate a short topic description for an agent's conversation
+async function generateTopic(agentId: string) {
+  const managed = agents.get(agentId);
+  if (!managed || managed.topicGenerating) return;
+
+  managed.topicGenerating = true;
+  managed.info.topic = "...";
+  managed.info.topicStale = false;
+  emit({ type: "agent_updated", agentId, changes: { topic: "...", topicStale: false } });
+
+  // Build context: first user message + last 5 text entries
+  const logs = logCache.get(agentId) ?? [];
+  const textEntries = logs.filter(e => e.kind === "user_message" || e.kind === "text");
+  const firstUserMsg = textEntries.find(e => e.kind === "user_message");
+  if (!firstUserMsg) {
+    managed.topicGenerating = false;
+    managed.info.topic = null;
+    emit({ type: "agent_updated", agentId, changes: { topic: null } });
+    return;
+  }
+
+  const lastFive = textEntries.slice(-5);
+  let context: string;
+  if (textEntries.length <= 1) {
+    context = `User message: ${firstUserMsg.content}`;
+  } else {
+    // Deduplicate if first message is already in lastFive
+    const recent = lastFive.filter(e => e.id !== firstUserMsg.id);
+    context = `First message: ${firstUserMsg.content}\n\nRecent conversation:\n` +
+      recent.map(e => `${e.kind === "user_message" ? "User" : "Assistant"}: ${e.content.slice(0, 200)}`).join("\n");
+  }
+
+  const prompt = `${context}\n\nRespond with ONLY a short topic description for this conversation, max 8 words. No quotes, no punctuation at the end.`;
+
+  try {
+    const result = await unstable_v2_prompt(prompt, {
+      model: "claude-sonnet-4-20250514",
+      permissionMode: "plan",
+    });
+    if (result.subtype === "success" && agents.has(agentId)) {
+      const topic = result.result.trim().slice(0, 80);
+      managed.info.topic = topic;
+      managed.info.topicStale = false;
+      managed.topicMessageCount = textEntries.length;
+      emit({ type: "agent_updated", agentId, changes: { topic, topicStale: false } });
+      persistAll();
+    }
+  } catch (err: any) {
+    console.error(`Topic generation failed for ${agentId}:`, err.message);
+    // Silently fail — clear the "..." placeholder
+    if (agents.has(agentId)) {
+      managed.info.topic = null;
+      emit({ type: "agent_updated", agentId, changes: { topic: null } });
+    }
+  } finally {
+    managed.topicGenerating = false;
   }
 }
 
@@ -495,6 +572,8 @@ export async function spawn(name: string, cwd: string, permissionMode: AgentInfo
     outfit: generateOutfit(name),
     permissionMode,
     state: "idle",
+    topic: null,
+    topicStale: false,
   };
 
   const managed: ManagedAgent = {
@@ -508,6 +587,8 @@ export async function spawn(name: string, cwd: string, permissionMode: AgentInfo
     skills: [...discoverUserSkills(), ...discoverProjectSkills(resolvedCwd)],
     thinkingStartedAt: 0,
     toolCallTimestamps: new Map(),
+    topicGenerating: false,
+    topicMessageCount: 0,
   };
   agents.set(id, managed);
   emit({ type: "agent_added", agent: info });
@@ -548,6 +629,11 @@ export async function sendMessage(agentId: string, text: string) {
   addLogEntry(agentId, "user_message", text);
   updateState(agentId, "thinking");
 
+  // Auto-generate topic on first user message in a conversation
+  if (managed.info.topic === null && !managed.topicGenerating) {
+    generateTopic(agentId); // fire-and-forget
+  }
+
   try {
     await managed.session.send(text);
     await consumeStream(agentId, managed);
@@ -566,8 +652,13 @@ async function handleSlashCommand(agentId: string, managed: ManagedAgent, cmd: s
       managed.session = createSession(managed);
       managed.sessionId = null;
       managed.streaming = false;
+      managed.topicGenerating = false;
+      managed.topicMessageCount = 0;
+      managed.info.topic = null;
+      managed.info.topicStale = false;
       logCache.set(agentId, []);
       emit({ type: "clear_logs", agentId } as any);
+      emit({ type: "agent_updated", agentId, changes: { topic: null, topicStale: false } });
       addLogEntry(agentId, "system", "Conversation cleared.");
       updateState(agentId, "idle");
       persistAll();
@@ -685,6 +776,11 @@ export async function newConversation(agentId: string) {
     managed.session = createSession(managed);
     managed.sessionId = null;
     managed.streaming = false;
+    managed.topicGenerating = false;
+    managed.topicMessageCount = 0;
+    managed.info.topic = null;
+    managed.info.topicStale = false;
+    emit({ type: "agent_updated", agentId, changes: { topic: null, topicStale: false } });
     updateState(agentId, "idle");
     addLogEntry(agentId, "system", "New conversation started.");
     persistAll();
@@ -703,11 +799,38 @@ export async function resume(agentId: string, sessionId: string) {
     managed.session = createSession(managed, sessionId);
     managed.sessionId = sessionId;
     managed.streaming = false;
+    managed.info.topic = null;
+    managed.info.topicStale = false;
+    managed.topicMessageCount = 0;
+    // Pre-load resumed session's logs into cache so generateTopic can read them
+    const history = loadLog(agentId, sessionId);
+    if (history.length > 0) {
+      logCache.set(agentId, [...history]);
+    }
     updateState(agentId, "idle");
     addLogEntry(agentId, "system", `Resumed session ${sessionId.slice(0, 8)}...`);
     persistAll();
+    // Regenerate topic from resumed session's logs
+    generateTopic(agentId); // fire-and-forget
   } catch (err: any) {
     addLogEntry(agentId, "error", `Failed to resume: ${err.message}`);
     updateState(agentId, "error");
   }
+}
+
+export function setTopic(agentId: string, topic: string) {
+  const managed = agents.get(agentId);
+  if (!managed) return;
+  managed.info.topic = topic.slice(0, 80);
+  managed.info.topicStale = false;
+  const textCount = (logCache.get(agentId) ?? []).filter(e => e.kind === "user_message" || e.kind === "text").length;
+  managed.topicMessageCount = textCount;
+  emit({ type: "agent_updated", agentId, changes: { topic, topicStale: false } });
+  // Manual edits are not persisted (ephemeral per design)
+}
+
+export function resetTopic(agentId: string) {
+  const managed = agents.get(agentId);
+  if (!managed) return;
+  generateTopic(agentId); // fire-and-forget
 }

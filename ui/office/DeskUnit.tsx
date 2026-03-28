@@ -10,7 +10,6 @@ export function DeskUnit({
   onClick,
   onContextMenu,
   needsAttention,
-  previewText,
   onSwap,
   stateChangedAt,
 }: {
@@ -18,7 +17,6 @@ export function DeskUnit({
   onClick: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
   needsAttention?: boolean;
-  previewText?: string;
   onSwap?: (sourceDesk: number, targetDesk: number) => void;
   stateChangedAt?: number;
 }) {
@@ -104,11 +102,13 @@ export function DeskUnit({
       <div
         style={{
           position: "absolute",
-          top: -48,
+          top: agent.topic ? -58 : -48,
           left: "50%",
           transform: "translateX(-50%)",
           zIndex: 100,
-          whiteSpace: "nowrap",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
         }}
       >
         <div
@@ -124,6 +124,7 @@ export function DeskUnit({
             opacity: hov ? 1 : 0.8,
             transition: "opacity 0.2s, background 0.3s, border 0.3s",
             animation: needsAttention ? "dotPulse 2s ease-in-out infinite" : undefined,
+            whiteSpace: "nowrap",
           }}
         >
           <StatusLight state={agent.state} size={8} elapsedMs={elapsedMs} />
@@ -131,36 +132,25 @@ export function DeskUnit({
             {agent.name}
           </span>
         </div>
-      </div>
-
-      {/* Monitor preview text */}
-      {previewText && !hov && (
-        <div
-          style={{
-            position: "absolute",
-            top: 4,
-            left: 68,
-            width: 44,
-            height: 24,
-            overflow: "hidden",
-            zIndex: 3,
-            pointerEvents: "none",
-          }}
-        >
+        {agent.topic && agent.topic !== "..." && (
           <div
             style={{
-              fontSize: 5.5,
-              fontFamily: "'JetBrains Mono',monospace",
-              color: "var(--monitor-text)",
-              lineHeight: 1.3,
-              whiteSpace: "pre-wrap",
-              wordBreak: "break-all",
+              fontSize: 11,
+              color: "var(--text-secondary)",
+              textAlign: "center",
+              marginTop: 2,
+              maxWidth: 160,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              opacity: hov ? 0.9 : 0.7,
+              transition: "opacity 0.2s",
             }}
           >
-            {previewText.slice(0, 80)}
+            {agent.topic}
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Tooltip on hover */}
       {hov && (

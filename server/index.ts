@@ -47,6 +47,12 @@ async function handleCommand(cmd: ClientCommand) {
     case "swap_desks":
       AgentManager.swapDesks(cmd.deskA, cmd.deskB);
       break;
+    case "set_topic":
+      AgentManager.setTopic(cmd.agentId, cmd.topic);
+      break;
+    case "reset_topic":
+      AgentManager.resetTopic(cmd.agentId);
+      break;
     case "list_sessions": {
       const sessions = AgentManager.listSessions(cmd.agentId);
       // Send back to the requesting browser only

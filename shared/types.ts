@@ -25,6 +25,8 @@ export interface AgentInfo {
   outfit: AgentOutfit;
   permissionMode: "default" | "acceptEdits" | "bypassPermissions";
   state: AgentState;
+  topic: string | null;
+  topicStale: boolean;
 }
 
 // Log entry in the conversation view
@@ -64,4 +66,6 @@ export type ClientCommand =
   | { type: "resume"; agentId: string; sessionId: string }
   | { type: "list_sessions"; agentId: string }
   | { type: "edit_agent"; agentId: string; name?: string; cwd?: string; outfit?: AgentOutfit }
-  | { type: "swap_desks"; deskA: number; deskB: number };
+  | { type: "swap_desks"; deskA: number; deskB: number }
+  | { type: "set_topic"; agentId: string; topic: string }
+  | { type: "reset_topic"; agentId: string };

@@ -8,7 +8,6 @@ export interface AppState {
   focusedAgentId: string | null;
   connected: boolean;
   needsAttention: Set<string>; // agentIds with unread state changes
-  latestText: Map<string, string>; // agentId → last text snippet (for monitor preview)
   sessionsList: Map<string, SessionInfo[]>; // agentId → available sessions
   soundTrigger: number; // increments when any agent finishes work (for sound regardless of focus)
   drafts: Map<string, string>; // agentId → unsent chat input
@@ -44,14 +43,11 @@ function reducer(state: AppState, action: Action): AppState {
       logs.delete(action.agentId);
       const needsAttention = new Set(state.needsAttention);
       needsAttention.delete(action.agentId);
-      const latestText = new Map(state.latestText);
-      latestText.delete(action.agentId);
       return {
         ...state,
         agents: state.agents.filter((a) => a.id !== action.agentId),
         logs,
         needsAttention,
-        latestText,
         focusedAgentId: state.focusedAgentId === action.agentId ? null : state.focusedAgentId,
       };
     }
@@ -86,12 +82,7 @@ function reducer(state: AppState, action: Action): AppState {
       const logs = new Map(state.logs);
       const entries = logs.get(action.entry.agentId) ?? [];
       logs.set(action.entry.agentId, [...entries, action.entry]);
-      // Track latest text for monitor preview
-      const latestText = new Map(state.latestText);
-      if (action.entry.kind === "text") {
-        latestText.set(action.entry.agentId, action.entry.content);
-      }
-      return { ...state, logs, latestText };
+      return { ...state, logs };
     }
     case "focus": {
       const needsAttention = new Set(state.needsAttention);
@@ -124,9 +115,7 @@ function reducer(state: AppState, action: Action): AppState {
     case "clear_logs": {
       const logs = new Map(state.logs);
       logs.set(action.agentId, []);
-      const latestText = new Map(state.latestText);
-      latestText.delete(action.agentId);
-      return { ...state, logs, latestText };
+      return { ...state, logs };
     }
     default:
       return state;
@@ -139,7 +128,6 @@ const initialState: AppState = {
   focusedAgentId: null,
   connected: false,
   needsAttention: new Set(),
-  latestText: new Map(),
   sessionsList: new Map(),
   soundTrigger: 0,
   drafts: new Map(),
