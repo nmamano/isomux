@@ -52,6 +52,7 @@ export function LogView({
   onBack: () => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { drafts } = useAppState();
   const dispatch = useDispatch();
   const input = drafts.get(agent.id) ?? "";
@@ -64,6 +65,13 @@ export function LogView({
     }
   }, [logs, autoScroll, agent.state]);
 
+  // Auto-resize textarea when draft is restored
+  useEffect(() => {
+    if (textareaRef.current && input) {
+      autoResize(textareaRef.current);
+    }
+  }, []);
+
   function handleScroll() {
     if (!scrollRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
@@ -72,12 +80,20 @@ export function LogView({
 
   const isBusy = agent.state === "thinking" || agent.state === "tool_executing" || agent.state === "starting";
 
+  function autoResize(el: HTMLTextAreaElement) {
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, 200) + "px";
+  }
+
   function handleSend() {
     const text = input.trim();
     if (!text) return;
     if (isBusy) return;
     send({ type: "send_message", agentId: agent.id, text });
     setInput("");
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+    }
     setAutoScroll(true);
   }
 
@@ -184,16 +200,24 @@ export function LogView({
           background: "rgba(15,20,32,0.95)",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ color: isBusy ? "#3a4a6a" : "#50B86C", fontWeight: 600 }}>&#10095;</span>
-          <input
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+          <span style={{ color: isBusy ? "#3a4a6a" : "#50B86C", fontWeight: 600, lineHeight: "20px" }}>&#10095;</span>
+          <textarea
+            ref={textareaRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => {
+              setInput(e.target.value);
+              autoResize(e.target);
+            }}
             onKeyDown={(e) => {
-              if (e.key === "Enter") handleSend();
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                handleSend();
+              }
             }}
             placeholder={isBusy ? "Agent is busy — wait for the current task to finish..." : "Type a message to the agent..."}
             autoFocus
+            rows={1}
             style={{
               flex: 1,
               background: "transparent",
@@ -203,6 +227,10 @@ export function LogView({
               fontFamily: "'JetBrains Mono',monospace",
               fontSize: 13,
               caretColor: "#50B86C",
+              resize: "none",
+              lineHeight: "20px",
+              maxHeight: 200,
+              overflowY: "auto",
             }}
           />
         </div>
