@@ -28,6 +28,7 @@ export function App() {
         const deskIndex = parseInt(e.key) - 1;
         const agent = agents.find((a) => a.desk === deskIndex);
         if (agent) {
+          e.preventDefault();
           dispatch({ type: "focus", agentId: agent.id });
         }
       }
