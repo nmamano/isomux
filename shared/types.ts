@@ -50,7 +50,9 @@ export type ServerMessage =
   | { type: "agent_removed"; agentId: string }
   | { type: "agent_updated"; agentId: string; changes: Partial<AgentInfo> }
   | { type: "log_entry"; entry: LogEntry }
-  | { type: "sessions_list"; agentId: string; sessions: SessionInfo[] };
+  | { type: "sessions_list"; agentId: string; sessions: SessionInfo[] }
+  | { type: "slash_commands"; agentId: string; commands: string[]; skills: string[] }
+  | { type: "clear_logs"; agentId: string };
 
 // Browser → Server commands
 export type ClientCommand =

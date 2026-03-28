@@ -8,13 +8,59 @@ import { generateOutfit } from "./outfit.ts";
 import { appendLog, loadLog, loadAgents, saveAgents, listAgentSessions, type PersistedAgent } from "./persistence.ts";
 import { resolve, join } from "path";
 import { homedir } from "os";
-import { writeFileSync, mkdirSync } from "fs";
+import { writeFileSync, mkdirSync, readdirSync, existsSync, readFileSync } from "fs";
 
 // Directory for per-agent launcher scripts
 const LAUNCHERS_DIR = join(homedir(), ".isomux", "launchers");
 mkdirSync(LAUNCHERS_DIR, { recursive: true });
 
 const CLI_PATH = join(import.meta.dir, "..", "node_modules", "@anthropic-ai", "claude-agent-sdk", "cli.js");
+
+// Built-in CLI commands that the SDK doesn't report in slash_commands
+const BUILTIN_COMMANDS = ["clear", "compact", "cost", "context", "help", "init", "login", "logout", "memory", "review", "status", "fast"];
+
+// Scan disk for user-defined skills and commands that the SDK doesn't report
+function discoverUserSkills(): string[] {
+  const skills: string[] = [];
+  // Global user skills: ~/.claude/skills/skills/<name>/SKILL.md
+  const globalSkillsDir = join(homedir(), ".claude", "skills");
+  if (existsSync(globalSkillsDir)) {
+    try {
+      for (const entry of readdirSync(globalSkillsDir, { withFileTypes: true })) {
+        if (entry.isDirectory()) skills.push(entry.name);
+      }
+    } catch {}
+  }
+  // Global user commands: ~/.claude/commands/<name>.md
+  const globalCmdsDir = join(homedir(), ".claude", "commands");
+  if (existsSync(globalCmdsDir)) {
+    try {
+      for (const entry of readdirSync(globalCmdsDir, { withFileTypes: true })) {
+        if (entry.isFile() && entry.name.endsWith(".md")) {
+          skills.push(entry.name.replace(/\.md$/, ""));
+        }
+      }
+    } catch {}
+  }
+  return skills;
+}
+
+// Also scan project-level skills for a given cwd
+function discoverProjectSkills(cwd: string): string[] {
+  const skills: string[] = [];
+  // Project commands: <cwd>/.claude/commands/<name>.md
+  const projCmdsDir = join(cwd, ".claude", "commands");
+  if (existsSync(projCmdsDir)) {
+    try {
+      for (const entry of readdirSync(projCmdsDir, { withFileTypes: true })) {
+        if (entry.isFile() && entry.name.endsWith(".md")) {
+          skills.push(entry.name.replace(/\.md$/, ""));
+        }
+      }
+    } catch {}
+  }
+  return skills;
+}
 
 // Create a launcher script that sets cwd and injects system prompt before running the CLI
 function createLauncher(agentId: string, cwd: string, agentName: string): string {
@@ -37,6 +83,8 @@ interface ManagedAgent {
   streaming: boolean;
   aborting: boolean;
   launcherPath: string;
+  slashCommands: string[];
+  skills: string[];
 }
 
 type AgentEvent =
@@ -58,6 +106,14 @@ export function onEvent(handler: EventHandler) {
 // Get cached logs for an agent (used when browser connects after restore)
 export function getAgentLogs(agentId: string): LogEntry[] {
   return logCache.get(agentId) ?? [];
+}
+
+export function getAgentCommands(agentId: string): { commands: string[]; skills: string[] } {
+  const managed = agents.get(agentId);
+  return {
+    commands: managed?.slashCommands ?? [],
+    skills: managed?.skills ?? [],
+  };
 }
 
 export function listSessions(agentId: string) {
@@ -150,6 +206,8 @@ export async function restoreAgents() {
       streaming: false,
       aborting: false,
       launcherPath,
+      slashCommands: [...BUILTIN_COMMANDS],
+      skills: [...discoverUserSkills(), ...discoverProjectSkills(p.cwd)],
     };
     agents.set(p.id, managed);
 
@@ -246,6 +304,7 @@ function processMessage(agentId: string, msg: SDKMessage) {
         const sessionId = (msg as any).session_id;
         const managed = agents.get(agentId);
         if (managed && sessionId) {
+          const hadPreviousSession = !!managed.sessionId;
           // Load prior log history if this session was seen before
           if (!managed.sessionId && sessionId) {
             const history = loadLog(agentId, sessionId);
@@ -255,8 +314,38 @@ function processMessage(agentId: string, msg: SDKMessage) {
               }
             }
           }
+          // If we already had a session and got a new init, this is a /clear
+          if (hadPreviousSession && sessionId !== managed.sessionId) {
+            logCache.set(agentId, []);
+            emit({ type: "clear_logs", agentId } as any);
+            addLogEntry(agentId, "system", "Conversation cleared.");
+          }
           managed.sessionId = sessionId;
           persistAll();
+        }
+        // Capture available slash commands and skills from init
+        const sdkCommands: string[] = (msg as any).slash_commands ?? [];
+        const sdkSkills: string[] = (msg as any).skills ?? [];
+        // Filter out MCP internal command names (mcp__...) — they clutter autocomplete
+        const filteredSdkCommands = sdkCommands.filter((c) => !c.startsWith("mcp__"));
+        // Merge built-in, SDK-reported, and user-defined skills
+        const userSkills = managed ? [...discoverUserSkills(), ...discoverProjectSkills(managed.info.cwd)] : [];
+        const allSkills = [...new Set([...sdkSkills, ...userSkills])];
+        const allCommands = [...new Set([...BUILTIN_COMMANDS, ...filteredSdkCommands])];
+        if (managed) {
+          managed.slashCommands = allCommands;
+          managed.skills = allSkills;
+        }
+        emit({
+          type: "slash_commands",
+          agentId,
+          commands: allCommands,
+          skills: allSkills,
+        } as any);
+      } else if (subtype === "local_command_output") {
+        const content = (msg as any).content;
+        if (content) {
+          addLogEntry(agentId, "system", content);
         }
       }
       break;
@@ -311,9 +400,9 @@ function processMessage(agentId: string, msg: SDKMessage) {
   }
 }
 
-// Consume the stream from an SDK session
+// Consume the stream from an SDK session (one turn at a time)
 async function consumeStream(agentId: string, managed: ManagedAgent) {
-  if (!managed.session || managed.streaming) return;
+  if (!managed.session) return;
   managed.streaming = true;
   try {
     for await (const msg of managed.session.stream()) {
@@ -331,6 +420,7 @@ async function consumeStream(agentId: string, managed: ManagedAgent) {
     managed.aborting = false;
   }
 }
+
 
 // Resolve ~ in paths
 function resolveCwd(cwd: string): string {
@@ -389,16 +479,27 @@ export async function spawn(name: string, cwd: string, permissionMode: AgentInfo
     session: null,
     sessionId: null,
     streaming: false,
+    aborting: false,
     launcherPath,
+    slashCommands: [...BUILTIN_COMMANDS],
+    skills: [...discoverUserSkills(), ...discoverProjectSkills(resolvedCwd)],
   };
   agents.set(id, managed);
   emit({ type: "agent_added", agent: info });
+  // Send commands immediately so autocomplete works before SDK init
+  emit({
+    type: "slash_commands",
+    agentId: id,
+    commands: managed.slashCommands,
+    skills: managed.skills,
+  } as any);
   persistAll();
 
   // Create V2 session
   try {
     managed.session = createSession(managed);
     addLogEntry(id, "system", `Agent "${name}" ready. Working in ${resolvedCwd}. Permission mode: ${permissionMode}.`);
+    // Init message (session ID, slash commands) will be consumed on first sendMessage
   } catch (err: any) {
     console.error(`Failed to create session for ${name}:`, err.message);
     addLogEntry(id, "error", `Failed to start: ${err.message}`);
@@ -411,9 +512,12 @@ export async function spawn(name: string, cwd: string, permissionMode: AgentInfo
 export async function sendMessage(agentId: string, text: string) {
   const managed = agents.get(agentId);
   if (!managed?.session) return;
-  if (managed.streaming) {
-    addLogEntry(agentId, "error", "Agent is busy. Wait for the current task to finish.");
-    return;
+
+  // Intercept slash commands that are handled locally, not by the LLM
+  if (text.startsWith("/")) {
+    const [cmd, ...args] = text.slice(1).trim().split(/\s+/);
+    const handled = await handleSlashCommand(agentId, managed, cmd, args, text);
+    if (handled) return;
   }
 
   addLogEntry(agentId, "user_message", text);
@@ -427,6 +531,90 @@ export async function sendMessage(agentId: string, text: string) {
     addLogEntry(agentId, "error", `Error: ${err.message}`);
     updateState(agentId, "error");
   }
+}
+
+async function handleSlashCommand(agentId: string, managed: ManagedAgent, cmd: string, args: string[], rawText: string): Promise<boolean> {
+  switch (cmd) {
+    case "clear": {
+      addLogEntry(agentId, "user_message", rawText);
+      try { managed.session?.close(); } catch {}
+      managed.session = createSession(managed);
+      managed.sessionId = null;
+      managed.streaming = false;
+      logCache.set(agentId, []);
+      emit({ type: "clear_logs", agentId } as any);
+      addLogEntry(agentId, "system", "Conversation cleared.");
+      updateState(agentId, "idle");
+      persistAll();
+      return true;
+    }
+    case "compact": {
+      // Compact is handled by sending it to the agent as a regular message
+      // The SDK/CLI handles it internally
+      return false;
+    }
+    case "cost": {
+      addLogEntry(agentId, "user_message", rawText);
+      addLogEntry(agentId, "system", "Cost tracking is not yet available in Isomux.");
+      updateState(agentId, "idle");
+      return true;
+    }
+    case "help": {
+      addLogEntry(agentId, "user_message", rawText);
+      const commands = managed.slashCommands.map((c) => `  /${c}`).join("\n");
+      const skills = managed.skills.length > 0
+        ? "\n\nSkills:\n" + managed.skills.map((s) => `  /${s}`).join("\n")
+        : "";
+      addLogEntry(agentId, "system", `Available commands:\n${commands}${skills}`);
+      updateState(agentId, "idle");
+      return true;
+    }
+    default: {
+      // Check if it's a user-defined skill
+      const skillPrompt = resolveSkillPrompt(cmd, managed.info.cwd);
+      if (skillPrompt) {
+        const userArgs = args.join(" ");
+        const fullPrompt = userArgs
+          ? `${skillPrompt}\n\nUser context: ${userArgs}`
+          : skillPrompt;
+        addLogEntry(agentId, "user_message", rawText);
+        updateState(agentId, "thinking");
+        try {
+          await managed.session!.send(fullPrompt);
+          await consumeStream(agentId, managed);
+        } catch (err: any) {
+          addLogEntry(agentId, "error", `Skill error: ${err.message}`);
+          updateState(agentId, "error");
+        }
+        return true;
+      }
+      // Not a built-in or skill — pass through to the agent as-is
+      return false;
+    }
+  }
+}
+
+// Resolve a skill name to its prompt text, checking user and project skill dirs
+function resolveSkillPrompt(name: string, cwd: string): string | null {
+  const candidates = [
+    join(homedir(), ".claude", "skills", name, "SKILL.md"),
+    join(cwd, ".claude", "skills", name, "SKILL.md"),
+    join(homedir(), ".claude", "commands", `${name}.md`),
+    join(cwd, ".claude", "commands", `${name}.md`),
+  ];
+  for (const path of candidates) {
+    if (existsSync(path)) {
+      try {
+        const content = readFileSync(path, "utf-8");
+        // Strip YAML frontmatter
+        const stripped = content.replace(/^---\n[\s\S]*?\n---\n*/, "");
+        return stripped.trim();
+      } catch {
+        continue;
+      }
+    }
+  }
+  return null;
 }
 
 export async function abort(agentId: string) {

@@ -101,11 +101,20 @@ const server = Bun.serve({
       const agents = AgentManager.getAllAgents();
       const recentCwds = loadRecentCwds();
       ws.send(JSON.stringify({ type: "full_state", agents, recentCwds } as ServerMessage));
-      // Send cached log history for each agent
+      // Send cached log history and slash commands for each agent
       for (const agent of agents) {
         const logs = AgentManager.getAgentLogs(agent.id);
         for (const entry of logs) {
           ws.send(JSON.stringify({ type: "log_entry", entry } as ServerMessage));
+        }
+        const cmds = AgentManager.getAgentCommands(agent.id);
+        if (cmds.commands.length > 0 || cmds.skills.length > 0) {
+          ws.send(JSON.stringify({
+            type: "slash_commands",
+            agentId: agent.id,
+            commands: cmds.commands,
+            skills: cmds.skills,
+          } as ServerMessage));
         }
       }
     },

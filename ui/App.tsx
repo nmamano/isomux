@@ -36,7 +36,8 @@ export function App() {
         }
       }
       // Tab: cycle to next agent (Shift+Tab: previous) when viewing an agent
-      if (focusedAgentId && e.key === "Tab" && agents.length > 1) {
+      // Skip if autocomplete already consumed this Tab (it calls preventDefault)
+      if (focusedAgentId && e.key === "Tab" && agents.length > 1 && !e.defaultPrevented) {
         e.preventDefault();
         const sorted = [...agents].sort((a, b) => a.desk - b.desk);
         const idx = sorted.findIndex((a) => a.id === focusedAgentId);

@@ -13,6 +13,7 @@ export interface AppState {
   soundTrigger: number; // increments when any agent finishes work (for sound regardless of focus)
   drafts: Map<string, string>; // agentId → unsent chat input
   recentCwds: string[]; // persisted recent working directories
+  slashCommands: Map<string, { commands: string[]; skills: string[] }>; // agentId → available commands
 }
 
 type Action =
@@ -24,7 +25,9 @@ type Action =
   | { type: "focus"; agentId: string | null }
   | { type: "connected" }
   | { type: "sessions_list"; agentId: string; sessions: SessionInfo[] }
-  | { type: "set_draft"; agentId: string; text: string };
+  | { type: "set_draft"; agentId: string; text: string }
+  | { type: "slash_commands"; agentId: string; commands: string[]; skills: string[] }
+  | { type: "clear_logs"; agentId: string };
 
 // States that warrant attention
 const ATTENTION_STATES = new Set(["idle", "error", "waiting_permission"]);
@@ -108,6 +111,18 @@ function reducer(state: AppState, action: Action): AppState {
       }
       return { ...state, drafts };
     }
+    case "slash_commands": {
+      const slashCommands = new Map(state.slashCommands);
+      slashCommands.set(action.agentId, { commands: action.commands, skills: action.skills });
+      return { ...state, slashCommands };
+    }
+    case "clear_logs": {
+      const logs = new Map(state.logs);
+      logs.set(action.agentId, []);
+      const latestText = new Map(state.latestText);
+      latestText.delete(action.agentId);
+      return { ...state, logs, latestText };
+    }
     default:
       return state;
   }
@@ -124,6 +139,7 @@ const initialState: AppState = {
   soundTrigger: 0,
   drafts: new Map(),
   recentCwds: [],
+  slashCommands: new Map(),
 };
 
 const StateCtx = createContext<AppState>(initialState);
