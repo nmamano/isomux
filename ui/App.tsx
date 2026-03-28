@@ -15,7 +15,7 @@ export function App() {
 
   const focusedAgent = focusedAgentId ? agents.find((a) => a.id === focusedAgentId) : null;
 
-  // Escape key returns to office
+  // Keyboard shortcuts: Escape → office, 1-8 → jump to agent at desk
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
@@ -23,10 +23,18 @@ export function App() {
         setSpawnDesk(null);
         setCtxMenu(null);
       }
+      // Number keys 1-8: focus agent at that desk (only from office view)
+      if (!focusedAgentId && e.key >= "1" && e.key <= "8" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        const deskIndex = parseInt(e.key) - 1;
+        const agent = agents.find((a) => a.desk === deskIndex);
+        if (agent) {
+          dispatch({ type: "focus", agentId: agent.id });
+        }
+      }
     }
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [dispatch]);
+  }, [dispatch, focusedAgentId, agents]);
 
   return (
     <>
