@@ -3,6 +3,7 @@ import type { AgentInfo, AgentOutfit } from "../../shared/types.ts";
 import { SHIRT_COLORS, HAIR_COLORS, HATS, ACCESSORIES } from "../../shared/outfit-options.ts";
 import { Character } from "../office/Character.tsx";
 import { send } from "../ws.ts";
+import { useAppState } from "../store.tsx";
 
 export function EditAgentDialog({
   agent,
@@ -11,9 +12,11 @@ export function EditAgentDialog({
   agent: AgentInfo;
   onClose: () => void;
 }) {
+  const { recentCwds: allRecentCwds } = useAppState();
   const [name, setName] = useState(agent.name);
   const [cwd, setCwd] = useState(agent.cwd);
   const [outfit, setOutfit] = useState<AgentOutfit>({ ...agent.outfit });
+  const recentCwds = allRecentCwds.filter((c) => c !== cwd);
 
   function randomizeOutfit() {
     setOutfit({
@@ -50,25 +53,38 @@ export function EditAgentDialog({
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
-          background: "rgba(14,20,35,0.96)",
+          background: "var(--bg-overlay)",
           backdropFilter: "blur(16px)",
-          border: "1px solid rgba(255,255,255,0.08)",
+          border: "1px solid var(--border-light)",
           borderRadius: 16,
           padding: "24px 28px",
           width: 380,
-          boxShadow: "0 20px 60px rgba(0,0,0,0.5)",
+          boxShadow: "0 20px 60px var(--shadow-heavy)",
           animation: "hudIn 0.2s ease-out",
         }}
       >
-        <h3 style={{ fontSize: 17, fontWeight: 700, margin: 0, color: "#e0e8f5" }}>Edit Agent</h3>
-        <p style={{ fontSize: 12, color: "#4a5a7a", margin: "2px 0 18px" }}>Desk #{agent.desk + 1}</p>
+        <h3 style={{ fontSize: 17, fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>Edit Agent</h3>
+        <p style={{ fontSize: 12, color: "var(--text-faint)", margin: "2px 0 18px" }}>Desk #{agent.desk + 1}</p>
 
         <label style={labelStyle}>Name</label>
         <input value={name} onChange={(e) => setName(e.target.value)} autoFocus style={inputStyle} />
 
         <label style={{ ...labelStyle, marginTop: 12 }}>Working Directory</label>
         <input value={cwd} onChange={(e) => setCwd(e.target.value)} style={inputStyle} />
-        <p style={{ fontSize: 10, color: "#3a4a6a", margin: "3px 0 0" }}>Changes take effect on next conversation.</p>
+        {recentCwds.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
+            {recentCwds.map((c) => (
+              <button
+                key={c}
+                onClick={() => setCwd(c)}
+                style={chipStyle}
+              >
+                {c.replace(/^\/home\/[^/]+/, "~")}
+              </button>
+            ))}
+          </div>
+        )}
+        <p style={{ fontSize: 10, color: "var(--text-ghost)", margin: "3px 0 0" }}>Changes take effect on next conversation.</p>
 
         <label style={{ ...labelStyle, marginTop: 14 }}>Appearance</label>
         <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 10 }}>
@@ -81,7 +97,7 @@ export function EditAgentDialog({
         </div>
 
         {/* Shirt Color */}
-        <div style={{ fontSize: 10, color: "#5a6a8a", marginBottom: 4 }}>Shirt</div>
+        <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4 }}>Shirt</div>
         <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
           {SHIRT_COLORS.map((c) => (
             <div
@@ -93,14 +109,14 @@ export function EditAgentDialog({
                 borderRadius: 6,
                 background: c,
                 cursor: "pointer",
-                border: outfit.color === c ? "2px solid #e0e8f5" : "2px solid transparent",
+                border: outfit.color === c ? "2px solid var(--text-primary)" : "2px solid transparent",
               }}
             />
           ))}
         </div>
 
         {/* Hair Color */}
-        <div style={{ fontSize: 10, color: "#5a6a8a", marginBottom: 4 }}>Hair</div>
+        <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4 }}>Hair</div>
         <div style={{ display: "flex", gap: 4, marginBottom: 8 }}>
           {HAIR_COLORS.map((c) => (
             <div
@@ -112,7 +128,7 @@ export function EditAgentDialog({
                 borderRadius: 6,
                 background: c,
                 cursor: "pointer",
-                border: outfit.hair === c ? "2px solid #e0e8f5" : "2px solid transparent",
+                border: outfit.hair === c ? "2px solid var(--text-primary)" : "2px solid transparent",
               }}
             />
           ))}
@@ -121,7 +137,7 @@ export function EditAgentDialog({
         {/* Hat & Accessory */}
         <div style={{ display: "flex", gap: 12, marginBottom: 4 }}>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 10, color: "#5a6a8a", marginBottom: 4 }}>Hat</div>
+            <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4 }}>Hat</div>
             <select
               value={outfit.hat}
               onChange={(e) => setOutfit({ ...outfit, hat: e.target.value as AgentOutfit["hat"] })}
@@ -133,7 +149,7 @@ export function EditAgentDialog({
             </select>
           </div>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 10, color: "#5a6a8a", marginBottom: 4 }}>Accessory</div>
+            <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4 }}>Accessory</div>
             <select
               value={outfit.accessory ?? "none"}
               onChange={(e) => setOutfit({ ...outfit, accessory: e.target.value === "none" ? null : e.target.value as "glasses" | "headphones" })}
@@ -159,17 +175,17 @@ const labelStyle: React.CSSProperties = {
   display: "block",
   fontSize: 11,
   fontWeight: 600,
-  color: "#6a7a9a",
+  color: "var(--text-muted)",
   marginBottom: 5,
 };
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
   padding: "9px 12px",
-  background: "rgba(0,0,0,0.3)",
-  border: "1px solid rgba(255,255,255,0.06)",
+  background: "var(--bg-input)",
+  border: "1px solid var(--border)",
   borderRadius: 8,
-  color: "#e0e8f5",
+  color: "var(--text-primary)",
   fontFamily: "'JetBrains Mono',monospace",
   fontSize: 12,
   outline: "none",
@@ -186,20 +202,35 @@ const selectStyle: React.CSSProperties = {
 const cancelBtnStyle: React.CSSProperties = {
   padding: "7px 16px",
   borderRadius: 8,
-  border: "1px solid rgba(255,255,255,0.06)",
+  border: "1px solid var(--border)",
   background: "transparent",
-  color: "#8a9ab8",
+  color: "var(--text-dim)",
   fontSize: 12,
   cursor: "pointer",
   fontFamily: "'DM Sans',sans-serif",
+};
+
+const chipStyle: React.CSSProperties = {
+  padding: "3px 8px",
+  borderRadius: 6,
+  border: "1px solid var(--border)",
+  background: "var(--btn-surface)",
+  color: "var(--text-muted)",
+  fontSize: 10,
+  cursor: "pointer",
+  fontFamily: "'JetBrains Mono',monospace",
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  maxWidth: "100%",
 };
 
 const saveBtnStyle: React.CSSProperties = {
   padding: "7px 16px",
   borderRadius: 8,
   border: "none",
-  background: "#7eb8ff",
-  color: "#0a0e16",
+  background: "var(--accent)",
+  color: "var(--bg-base)",
   fontSize: 12,
   fontWeight: 600,
   cursor: "pointer",
@@ -209,9 +240,9 @@ const saveBtnStyle: React.CSSProperties = {
 const randomBtnStyle: React.CSSProperties = {
   padding: "6px 14px",
   borderRadius: 8,
-  border: "1px solid rgba(255,255,255,0.08)",
-  background: "rgba(255,255,255,0.04)",
-  color: "#8a9ab8",
+  border: "1px solid var(--border-light)",
+  background: "var(--bg-hover)",
+  color: "var(--text-dim)",
   fontSize: 12,
   cursor: "pointer",
   fontFamily: "'DM Sans',sans-serif",

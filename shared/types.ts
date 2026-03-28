@@ -45,7 +45,7 @@ export interface SessionInfo {
 
 // Server → Browser messages
 export type ServerMessage =
-  | { type: "full_state"; agents: AgentInfo[] }
+  | { type: "full_state"; agents: AgentInfo[]; recentCwds: string[] }
   | { type: "agent_added"; agent: AgentInfo }
   | { type: "agent_removed"; agentId: string }
   | { type: "agent_updated"; agentId: string; changes: Partial<AgentInfo> }
@@ -61,4 +61,5 @@ export type ClientCommand =
   | { type: "new_conversation"; agentId: string }
   | { type: "resume"; agentId: string; sessionId: string }
   | { type: "list_sessions"; agentId: string }
-  | { type: "edit_agent"; agentId: string; name?: string; cwd?: string; outfit?: AgentOutfit };
+  | { type: "edit_agent"; agentId: string; name?: string; cwd?: string; outfit?: AgentOutfit }
+  | { type: "swap_desks"; deskA: number; deskB: number };

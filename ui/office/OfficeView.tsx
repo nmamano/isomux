@@ -1,16 +1,18 @@
 import { useState } from "react";
-import { useAppState, useDispatch } from "../store.tsx";
+import { useAppState, useDispatch, useTheme } from "../store.tsx";
 import { Floor, Walls } from "./Floor.tsx";
 import { RoomProps } from "./RoomProps.tsx";
 import { DeskUnit } from "./DeskUnit.tsx";
 import { EmptySlot } from "./EmptySlot.tsx";
 import { StatusLight } from "./StatusLight.tsx";
 import { SCENE_W, SCENE_H } from "./grid.ts";
+import { send } from "../ws.ts";
 import type { AgentInfo } from "../../shared/types.ts";
 
 export function OfficeView({ onSpawn, onContextMenu }: { onSpawn: (deskIndex: number) => void; onContextMenu: (x: number, y: number, agent: AgentInfo) => void }) {
   const { agents, needsAttention, latestText } = useAppState();
   const dispatch = useDispatch();
+  const { theme, toggleTheme } = useTheme();
 
   const counts = {
     working: agents.filter((a) => ["thinking", "tool_executing", "starting"].includes(a.state)).length,
@@ -28,8 +30,8 @@ export function OfficeView({ onSpawn, onContextMenu }: { onSpawn: (deskIndex: nu
         display: "flex",
         flexDirection: "column",
         overflow: "hidden",
-        background: "#0a0e16",
-        color: "#e0e8f5",
+        background: "var(--bg-base)",
+        color: "var(--text-primary)",
         fontFamily: "'DM Sans',sans-serif",
       }}
     >
@@ -41,9 +43,9 @@ export function OfficeView({ onSpawn, onContextMenu }: { onSpawn: (deskIndex: nu
           justifyContent: "space-between",
           padding: "0 20px",
           height: 44,
-          background: "rgba(10,14,22,0.7)",
+          background: "var(--bg-hud)",
           backdropFilter: "blur(16px)",
-          borderBottom: "1px solid rgba(255,255,255,0.03)",
+          borderBottom: "1px solid var(--border-subtle)",
           flexShrink: 0,
           zIndex: 500,
         }}
@@ -56,8 +58,8 @@ export function OfficeView({ onSpawn, onContextMenu }: { onSpawn: (deskIndex: nu
               fontSize: 9,
               padding: "2px 7px",
               borderRadius: 20,
-              background: "rgba(126,184,255,0.08)",
-              color: "#7eb8ff",
+              background: "var(--accent-bg)",
+              color: "var(--accent)",
               letterSpacing: "0.05em",
             }}
           >
@@ -67,10 +69,10 @@ export function OfficeView({ onSpawn, onContextMenu }: { onSpawn: (deskIndex: nu
         <div style={{ display: "flex", gap: 12 }}>
           {(
             [
-              { n: counts.working, c: "#50B86C", l: "working" },
-              { n: counts.waiting, c: "#F5A623", l: "waiting" },
-              { n: counts.error, c: "#E85D75", l: "error" },
-              { n: counts.idle, c: "#5a6f8f", l: "idle" },
+              { n: counts.working, c: "var(--green)", l: "working" },
+              { n: counts.waiting, c: "var(--orange)", l: "waiting" },
+              { n: counts.error, c: "var(--red)", l: "error" },
+              { n: counts.idle, c: "var(--text-muted)", l: "idle" },
             ] as const
           )
             .filter((s) => s.n > 0)
@@ -101,7 +103,21 @@ export function OfficeView({ onSpawn, onContextMenu }: { onSpawn: (deskIndex: nu
               </div>
             ))}
         </div>
-        <div style={{ width: 80 }} />
+        <button
+          onClick={toggleTheme}
+          style={{
+            padding: "4px 10px",
+            borderRadius: 8,
+            border: "1px solid var(--border-medium)",
+            background: "var(--btn-surface)",
+            color: "var(--text-dim)",
+            fontSize: 11,
+            cursor: "pointer",
+            fontFamily: "'DM Sans',sans-serif",
+          }}
+        >
+          {theme === "dark" ? "Light" : "Dark"}
+        </button>
       </div>
 
       {/* Office scene */}
@@ -112,7 +128,7 @@ export function OfficeView({ onSpawn, onContextMenu }: { onSpawn: (deskIndex: nu
             position: "absolute",
             inset: 0,
             background:
-              "radial-gradient(ellipse at 50% 30%, rgba(126,184,255,0.025) 0%, transparent 50%), radial-gradient(ellipse at 25% 65%, rgba(80,184,108,0.015) 0%, transparent 35%), radial-gradient(ellipse at 75% 65%, rgba(245,166,35,0.01) 0%, transparent 35%)",
+              "radial-gradient(ellipse at 50% 30%, var(--ambient-1) 0%, transparent 50%), radial-gradient(ellipse at 25% 65%, var(--ambient-2) 0%, transparent 35%), radial-gradient(ellipse at 75% 65%, var(--ambient-3) 0%, transparent 35%)",
           }}
         />
 
@@ -141,10 +157,11 @@ export function OfficeView({ onSpawn, onContextMenu }: { onSpawn: (deskIndex: nu
                   onContextMenu={(e) => onContextMenu(e.clientX, e.clientY, agent)}
                   needsAttention={needsAttention.has(agent.id)}
                   previewText={latestText.get(agent.id)}
+                  onSwap={(a, b) => send({ type: "swap_desks", deskA: a, deskB: b })}
                 />
               );
             }
-            return <EmptySlot key={`empty-${i}`} deskIndex={i} onClick={() => onSpawn(i)} />;
+            return <EmptySlot key={`empty-${i}`} deskIndex={i} onClick={() => onSpawn(i)} onSwap={(a, b) => send({ type: "swap_desks", deskA: a, deskB: b })} />;
           })}
         </div>
 
@@ -154,7 +171,7 @@ export function OfficeView({ onSpawn, onContextMenu }: { onSpawn: (deskIndex: nu
             position: "absolute",
             inset: 0,
             pointerEvents: "none",
-            boxShadow: "inset 0 0 120px rgba(0,0,0,0.4)",
+            boxShadow: "inset 0 0 120px var(--vignette)",
           }}
         />
       </div>
@@ -163,21 +180,21 @@ export function OfficeView({ onSpawn, onContextMenu }: { onSpawn: (deskIndex: nu
       <div
         style={{
           padding: "6px 20px",
-          background: "rgba(10,14,22,0.5)",
+          background: "var(--bg-hud-bottom)",
           backdropFilter: "blur(8px)",
-          borderTop: "1px solid rgba(255,255,255,0.02)",
+          borderTop: "1px solid var(--border-subtle)",
           display: "flex",
           justifyContent: "center",
           gap: 20,
           zIndex: 500,
         }}
       >
-        {["CLICK → open agent", "RIGHT-CLICK → actions", "ESC → back"].map((h, i) => (
+        {["CLICK → open agent", "DRAG → swap desks", "RIGHT-CLICK → actions", "ESC → back"].map((h, i) => (
           <span
             key={i}
             style={{
               fontSize: 9,
-              color: "#3a4a68",
+              color: "var(--text-hint)",
               fontFamily: "'JetBrains Mono',monospace",
               letterSpacing: "0.04em",
             }}

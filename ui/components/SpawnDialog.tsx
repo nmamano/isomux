@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { AgentInfo } from "../../shared/types.ts";
 import { send } from "../ws.ts";
+import { useAppState } from "../store.tsx";
 
 export function SpawnDialog({
   deskIndex,
@@ -11,9 +12,11 @@ export function SpawnDialog({
   defaultCwd: string;
   onClose: () => void;
 }) {
+  const { recentCwds: allRecentCwds } = useAppState();
   const [name, setName] = useState("");
   const [cwd, setCwd] = useState(defaultCwd);
   const [permissionMode, setPermissionMode] = useState<AgentInfo["permissionMode"]>("acceptEdits");
+  const recentCwds = allRecentCwds.filter((c) => c !== cwd);
 
   function handleSpawn() {
     send({
@@ -43,20 +46,20 @@ export function SpawnDialog({
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
-          background: "rgba(14,20,35,0.96)",
+          background: "var(--bg-overlay)",
           backdropFilter: "blur(16px)",
-          border: "1px solid rgba(255,255,255,0.08)",
+          border: "1px solid var(--border-light)",
           borderRadius: 16,
           padding: "24px 28px",
           width: 360,
-          boxShadow: "0 20px 60px rgba(0,0,0,0.5)",
+          boxShadow: "0 20px 60px var(--shadow-heavy)",
           animation: "hudIn 0.2s ease-out",
         }}
       >
-        <h3 style={{ fontSize: 17, fontWeight: 700, margin: 0, color: "#e0e8f5" }}>Spawn New Agent</h3>
-        <p style={{ fontSize: 12, color: "#4a5a7a", margin: "2px 0 18px" }}>Desk #{deskIndex + 1}</p>
+        <h3 style={{ fontSize: 17, fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>Spawn New Agent</h3>
+        <p style={{ fontSize: 12, color: "var(--text-faint)", margin: "2px 0 18px" }}>Desk #{deskIndex + 1}</p>
 
-        <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "#6a7a9a", marginBottom: 5 }}>
+        <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "var(--text-muted)", marginBottom: 5 }}>
           Name
         </label>
         <input
@@ -68,7 +71,7 @@ export function SpawnDialog({
         />
 
         <label
-          style={{ display: "block", fontSize: 11, fontWeight: 600, color: "#6a7a9a", marginBottom: 5, marginTop: 12 }}
+          style={{ display: "block", fontSize: 11, fontWeight: 600, color: "var(--text-muted)", marginBottom: 5, marginTop: 12 }}
         >
           Working Directory
         </label>
@@ -78,9 +81,22 @@ export function SpawnDialog({
           placeholder="/path/to/project"
           style={inputStyle}
         />
+        {recentCwds.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
+            {recentCwds.map((c) => (
+              <button
+                key={c}
+                onClick={() => setCwd(c)}
+                style={chipStyle}
+              >
+                {c.replace(/^\/home\/[^/]+/, "~")}
+              </button>
+            ))}
+          </div>
+        )}
 
         <label
-          style={{ display: "block", fontSize: 11, fontWeight: 600, color: "#6a7a9a", marginBottom: 5, marginTop: 12 }}
+          style={{ display: "block", fontSize: 11, fontWeight: 600, color: "var(--text-muted)", marginBottom: 5, marginTop: 12 }}
         >
           Permission Mode
         </label>
@@ -114,10 +130,10 @@ export function SpawnDialog({
 const inputStyle: React.CSSProperties = {
   width: "100%",
   padding: "9px 12px",
-  background: "rgba(0,0,0,0.3)",
-  border: "1px solid rgba(255,255,255,0.06)",
+  background: "var(--bg-input)",
+  border: "1px solid var(--border)",
   borderRadius: 8,
-  color: "#e0e8f5",
+  color: "var(--text-primary)",
   fontFamily: "'JetBrains Mono',monospace",
   fontSize: 12,
   outline: "none",
@@ -127,20 +143,35 @@ const inputStyle: React.CSSProperties = {
 const cancelBtnStyle: React.CSSProperties = {
   padding: "7px 16px",
   borderRadius: 8,
-  border: "1px solid rgba(255,255,255,0.06)",
+  border: "1px solid var(--border)",
   background: "transparent",
-  color: "#8a9ab8",
+  color: "var(--text-dim)",
   fontSize: 12,
   cursor: "pointer",
   fontFamily: "'DM Sans',sans-serif",
+};
+
+const chipStyle: React.CSSProperties = {
+  padding: "3px 8px",
+  borderRadius: 6,
+  border: "1px solid var(--border)",
+  background: "var(--btn-surface)",
+  color: "var(--text-muted)",
+  fontSize: 10,
+  cursor: "pointer",
+  fontFamily: "'JetBrains Mono',monospace",
+  whiteSpace: "nowrap",
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  maxWidth: "100%",
 };
 
 const spawnBtnStyle: React.CSSProperties = {
   padding: "7px 16px",
   borderRadius: 8,
   border: "none",
-  background: "#7eb8ff",
-  color: "#0a0e16",
+  background: "var(--accent)",
+  color: "var(--bg-base)",
   fontSize: 12,
   fontWeight: 600,
   cursor: "pointer",

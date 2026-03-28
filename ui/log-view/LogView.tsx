@@ -16,7 +16,7 @@ function ActivityIndicator({ state }: { state: AgentState }) {
   const label = STATE_LABELS[state];
   if (!label) return null;
 
-  const color = state === "waiting_permission" ? "#F5A623" : "#50B86C";
+  const color = state === "waiting_permission" ? "var(--orange)" : "var(--green)";
 
   return (
     <div
@@ -103,7 +103,7 @@ export function LogView({
         height: "100vh",
         display: "flex",
         flexDirection: "column",
-        background: "#0a0e16",
+        background: "var(--bg-base)",
         animation: "termEnter 0.3s ease-out",
       }}
     >
@@ -115,8 +115,8 @@ export function LogView({
           justifyContent: "space-between",
           padding: "0 16px",
           height: 48,
-          background: "rgba(15,20,32,0.95)",
-          borderBottom: "1px solid rgba(255,255,255,0.05)",
+          background: "var(--bg-surface)",
+          borderBottom: "1px solid var(--border-strong)",
           flexShrink: 0,
         }}
       >
@@ -128,9 +128,9 @@ export function LogView({
             gap: 8,
             padding: "6px 14px",
             borderRadius: 8,
-            border: "1px solid rgba(255,255,255,0.07)",
-            background: "rgba(255,255,255,0.03)",
-            color: "#8a9ab8",
+            border: "1px solid var(--border-medium)",
+            background: "var(--btn-surface)",
+            color: "var(--text-dim)",
             fontFamily: "'DM Sans',sans-serif",
             fontSize: 13,
             cursor: "pointer",
@@ -140,20 +140,20 @@ export function LogView({
         </button>
         <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
           <StatusLight state={agent.state} size={8} />
-          <span style={{ fontWeight: 600, color: "#e0e8f5" }}>{agent.name}</span>
+          <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>{agent.name}</span>
           {STATE_LABELS[agent.state] && (
             <>
-              <span style={{ color: "#3a4a6a" }}>&middot;</span>
-              <span style={{ color: agent.state === "waiting_permission" ? "#F5A623" : "#50B86C", fontSize: 12, fontFamily: "'DM Sans',sans-serif" }}>
+              <span style={{ color: "var(--text-ghost)" }}>&middot;</span>
+              <span style={{ color: agent.state === "waiting_permission" ? "var(--orange)" : "var(--green)", fontSize: 12, fontFamily: "'DM Sans',sans-serif" }}>
                 {STATE_LABELS[agent.state]}
               </span>
             </>
           )}
-          <span style={{ color: "#3a4a6a" }}>&middot;</span>
+          <span style={{ color: "var(--text-ghost)" }}>&middot;</span>
           <span
             style={{
               fontFamily: "'JetBrains Mono',monospace",
-              color: "#5a6f8f",
+              color: "var(--text-muted)",
               fontSize: 12,
             }}
           >
@@ -171,13 +171,13 @@ export function LogView({
           flex: 1,
           overflowY: "auto",
           padding: "16px 24px",
-          color: "#c0c8d8",
+          color: "var(--text-secondary)",
         }}
       >
         {logs.length === 0 && (
           <div
             style={{
-              color: "#3a4a6a",
+              color: "var(--text-ghost)",
               textAlign: "center",
               marginTop: 40,
               fontFamily: "'DM Sans',sans-serif",
@@ -196,12 +196,12 @@ export function LogView({
       <div
         style={{
           padding: "12px 24px",
-          borderTop: "1px solid rgba(255,255,255,0.05)",
-          background: "rgba(15,20,32,0.95)",
+          borderTop: "1px solid var(--border-strong)",
+          background: "var(--bg-surface)",
         }}
       >
         <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-          <span style={{ color: isBusy ? "#3a4a6a" : "#50B86C", fontWeight: 600, lineHeight: "20px" }}>&#10095;</span>
+          <span style={{ color: isBusy ? "var(--text-ghost)" : "var(--green)", fontWeight: 600, lineHeight: "20px" }}>&#10095;</span>
           <textarea
             ref={textareaRef}
             value={input}
@@ -227,10 +227,10 @@ export function LogView({
               background: "transparent",
               border: "none",
               outline: "none",
-              color: isBusy ? "#5a6f8f" : "#c0c8d8",
+              color: isBusy ? "var(--text-muted)" : "var(--text-secondary)",
               fontFamily: "'JetBrains Mono',monospace",
               fontSize: 13,
-              caretColor: "#50B86C",
+              caretColor: "var(--green)",
               resize: "none",
               lineHeight: "20px",
               maxHeight: 200,

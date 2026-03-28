@@ -1,6 +1,7 @@
 import type { ServerWebSocket } from "bun";
 import type { ServerMessage, ClientCommand } from "../shared/types.ts";
 import * as AgentManager from "./agent-manager.ts";
+import { loadRecentCwds, saveRecentCwd } from "./persistence.ts";
 import { join } from "path";
 
 const browsers = new Set<ServerWebSocket<unknown>>();
@@ -20,6 +21,7 @@ AgentManager.onEvent((event) => {
 async function handleCommand(cmd: ClientCommand) {
   switch (cmd.type) {
     case "spawn":
+      saveRecentCwd(cmd.cwd);
       await AgentManager.spawn(cmd.name, cmd.cwd, cmd.permissionMode, cmd.desk);
       break;
     case "kill":
@@ -39,7 +41,11 @@ async function handleCommand(cmd: ClientCommand) {
       await AgentManager.resume(cmd.agentId, cmd.sessionId);
       break;
     case "edit_agent":
+      if (cmd.cwd) saveRecentCwd(cmd.cwd);
       AgentManager.editAgent(cmd.agentId, { name: cmd.name, cwd: cmd.cwd, outfit: cmd.outfit });
+      break;
+    case "swap_desks":
+      AgentManager.swapDesks(cmd.deskA, cmd.deskB);
       break;
     case "list_sessions": {
       const sessions = AgentManager.listSessions(cmd.agentId);
@@ -93,7 +99,8 @@ const server = Bun.serve({
       browsers.add(ws);
       // Send current agent list
       const agents = AgentManager.getAllAgents();
-      ws.send(JSON.stringify({ type: "full_state", agents } as ServerMessage));
+      const recentCwds = loadRecentCwds();
+      ws.send(JSON.stringify({ type: "full_state", agents, recentCwds } as ServerMessage));
       // Send cached log history for each agent
       for (const agent of agents) {
         const logs = AgentManager.getAgentLogs(agent.id);

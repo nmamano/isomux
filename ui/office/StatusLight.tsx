@@ -1,17 +1,17 @@
 import type { AgentState } from "../../shared/types.ts";
 
 const COLORS: Record<string, string> = {
-  thinking: "#50B86C",
-  tool_executing: "#50B86C",
-  waiting_permission: "#F5A623",
-  idle: "#5a6f8f",
-  error: "#E85D75",
-  starting: "#9B6DFF",
-  stopped: "#5a6f8f",
+  thinking: "var(--green)",
+  tool_executing: "var(--green)",
+  waiting_permission: "var(--orange)",
+  idle: "var(--text-muted)",
+  error: "var(--red)",
+  starting: "var(--purple)",
+  stopped: "var(--text-muted)",
 };
 
 export function StatusLight({ state, size = 10 }: { state: AgentState; size?: number }) {
-  const c = COLORS[state] || "#5a6f8f";
+  const c = COLORS[state] || "var(--text-muted)";
   const pulse = state !== "idle" && state !== "stopped";
   return (
     <span style={{ position: "relative", display: "inline-flex", width: size, height: size }}>

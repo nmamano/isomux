@@ -94,6 +94,24 @@ export function editAgent(agentId: string, changes: { name?: string; cwd?: strin
   eventHandler({ type: "agent_updated", agentId, changes: updated });
 }
 
+export function swapDesks(deskA: number, deskB: number) {
+  if (deskA === deskB || deskA < 0 || deskA > 7 || deskB < 0 || deskB > 7) return;
+  const allManaged = [...agents.values()];
+  const agentA = allManaged.find((m) => m.info.desk === deskA);
+  const agentB = allManaged.find((m) => m.info.desk === deskB);
+  if (!agentA && !agentB) return;
+
+  if (agentA) {
+    agentA.info.desk = deskB;
+    eventHandler({ type: "agent_updated", agentId: agentA.info.id, changes: { desk: deskB } });
+  }
+  if (agentB) {
+    agentB.info.desk = deskA;
+    eventHandler({ type: "agent_updated", agentId: agentB.info.id, changes: { desk: deskA } });
+  }
+  persistAll();
+}
+
 export function getAllAgents(): AgentInfo[] {
   return [...agents.values()].map((a) => a.info);
 }

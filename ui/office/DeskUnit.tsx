@@ -11,20 +11,38 @@ export function DeskUnit({
   onContextMenu,
   needsAttention,
   previewText,
+  onSwap,
 }: {
   agent: AgentInfo;
   onClick: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
   needsAttention?: boolean;
   previewText?: string;
+  onSwap?: (sourceDesk: number, targetDesk: number) => void;
 }) {
   const [hov, setHov] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
   const pos = DESK_SLOTS[agent.desk];
   const { left: pxLeft, top: pxTop } = deskPixelPos(pos.row, pos.col);
   const z = (pos.row * 2 + pos.col + 1) * 10;
 
   return (
     <div
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData("text/plain", String(agent.desk));
+        e.dataTransfer.effectAllowed = "move";
+      }}
+      onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }}
+      onDragEnter={() => setDragOver(true)}
+      onDragLeave={() => setDragOver(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragOver(false);
+        const src = parseInt(e.dataTransfer.getData("text/plain"), 10);
+        if (!isNaN(src) && src !== agent.desk) onSwap?.(src, agent.desk);
+      }}
+      onDragEnd={() => setDragOver(false)}
       onClick={onClick}
       onContextMenu={(e) => {
         e.preventDefault();
@@ -40,8 +58,11 @@ export function DeskUnit({
         cursor: "pointer",
         zIndex: z,
         transition: "filter 0.25s, transform 0.25s",
-        filter: hov ? "brightness(1.2) drop-shadow(0 0 30px rgba(126,184,255,0.15))" : "brightness(1)",
+        filter: dragOver ? "brightness(1.3) drop-shadow(0 0 40px rgba(126,184,255,0.3))" : hov ? "brightness(1.2) drop-shadow(0 0 30px rgba(126,184,255,0.15))" : "brightness(1)",
         transform: hov ? "translateY(-5px)" : "translateY(0)",
+        outline: dragOver ? "2px solid rgba(126,184,255,0.4)" : "none",
+        outlineOffset: 4,
+        borderRadius: 8,
       }}
     >
       {/* Shadow on floor */}
@@ -86,17 +107,17 @@ export function DeskUnit({
             alignItems: "center",
             gap: 6,
             padding: "3px 10px 3px 7px",
-            background: needsAttention ? "rgba(245,166,35,0.15)" : "rgba(10,14,25,0.88)",
+            background: needsAttention ? "var(--orange-bg)" : "var(--bg-tag)",
             backdropFilter: "blur(10px)",
             borderRadius: 20,
-            border: needsAttention ? "1px solid rgba(245,166,35,0.3)" : "1px solid rgba(255,255,255,0.07)",
+            border: needsAttention ? "1px solid var(--orange-border)" : "1px solid var(--border-medium)",
             opacity: hov ? 1 : 0.8,
             transition: "opacity 0.2s, background 0.3s, border 0.3s",
             animation: needsAttention ? "dotPulse 2s ease-in-out infinite" : undefined,
           }}
         >
           <StatusLight state={agent.state} size={8} />
-          <span style={{ fontSize: 11, fontWeight: 600, color: "#e0e8f5", letterSpacing: "-0.01em" }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-primary)", letterSpacing: "-0.01em" }}>
             {agent.name}
           </span>
         </div>
@@ -120,7 +141,7 @@ export function DeskUnit({
             style={{
               fontSize: 5.5,
               fontFamily: "'JetBrains Mono',monospace",
-              color: "rgba(160,200,255,0.5)",
+              color: "var(--monitor-text)",
               lineHeight: 1.3,
               whiteSpace: "pre-wrap",
               wordBreak: "break-all",
@@ -140,17 +161,17 @@ export function DeskUnit({
             left: "50%",
             transform: "translateX(-50%)",
             padding: "8px 12px",
-            background: "rgba(10,14,25,0.94)",
+            background: "var(--bg-tooltip)",
             backdropFilter: "blur(14px)",
             borderRadius: 12,
-            border: "1px solid rgba(255,255,255,0.08)",
+            border: "1px solid var(--border-light)",
             whiteSpace: "nowrap",
             zIndex: 200,
             animation: "hudIn 0.12s ease-out",
-            boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+            boxShadow: "0 8px 24px var(--shadow)",
           }}
         >
-          <div style={{ fontSize: 10, color: "#8a9ab8", fontFamily: "'JetBrains Mono',monospace" }}>
+          <div style={{ fontSize: 10, color: "var(--text-dim)", fontFamily: "'JetBrains Mono',monospace" }}>
             {agent.cwd}
           </div>
           <div
@@ -161,9 +182,9 @@ export function DeskUnit({
               transform: "translateX(-50%) rotate(45deg)",
               width: 10,
               height: 10,
-              background: "rgba(10,14,25,0.94)",
-              borderRight: "1px solid rgba(255,255,255,0.08)",
-              borderBottom: "1px solid rgba(255,255,255,0.08)",
+              background: "var(--bg-tooltip)",
+              borderRight: "1px solid var(--border-light)",
+              borderBottom: "1px solid var(--border-light)",
             }}
           />
         </div>

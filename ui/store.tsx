@@ -1,4 +1,4 @@
-import { createContext, useContext, useReducer, useEffect, useRef, type ReactNode, type Dispatch } from "react";
+import { createContext, useContext, useReducer, useEffect, useRef, useState, useCallback, type ReactNode, type Dispatch } from "react";
 import type { AgentInfo, LogEntry, SessionInfo, ServerMessage } from "../shared/types.ts";
 import { connect } from "./ws.ts";
 
@@ -12,10 +12,11 @@ export interface AppState {
   sessionsList: Map<string, SessionInfo[]>; // agentId → available sessions
   soundTrigger: number; // increments when any agent finishes work (for sound regardless of focus)
   drafts: Map<string, string>; // agentId → unsent chat input
+  recentCwds: string[]; // persisted recent working directories
 }
 
 type Action =
-  | { type: "full_state"; agents: AgentInfo[] }
+  | { type: "full_state"; agents: AgentInfo[]; recentCwds: string[] }
   | { type: "agent_added"; agent: AgentInfo }
   | { type: "agent_removed"; agentId: string }
   | { type: "agent_updated"; agentId: string; changes: Partial<AgentInfo> }
@@ -31,7 +32,7 @@ const ATTENTION_STATES = new Set(["idle", "error", "waiting_permission"]);
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case "full_state":
-      return { ...state, agents: action.agents };
+      return { ...state, agents: action.agents, recentCwds: action.recentCwds };
     case "agent_added":
       return { ...state, agents: [...state.agents, action.agent] };
     case "agent_removed": {
@@ -122,6 +123,7 @@ const initialState: AppState = {
   sessionsList: new Map(),
   soundTrigger: 0,
   drafts: new Map(),
+  recentCwds: [],
 };
 
 const StateCtx = createContext<AppState>(initialState);
@@ -191,4 +193,35 @@ export function useAppState() {
 
 export function useDispatch() {
   return useContext(DispatchCtx);
+}
+
+// Theme management — persisted to localStorage, applied via data-theme attribute on <html>
+type Theme = "dark" | "light";
+const ThemeCtx = createContext<{ theme: Theme; toggleTheme: () => void }>({ theme: "dark", toggleTheme: () => {} });
+
+function getInitialTheme(): Theme {
+  if (typeof localStorage !== "undefined") {
+    const saved = localStorage.getItem("isomux-theme");
+    if (saved === "light" || saved === "dark") return saved;
+  }
+  return "dark";
+}
+
+export function ThemeProvider({ children }: { children: ReactNode }) {
+  const [theme, setTheme] = useState<Theme>(getInitialTheme);
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("isomux-theme", theme);
+  }, [theme]);
+
+  const toggleTheme = useCallback(() => {
+    setTheme((t) => (t === "dark" ? "light" : "dark"));
+  }, []);
+
+  return <ThemeCtx.Provider value={{ theme, toggleTheme }}>{children}</ThemeCtx.Provider>;
+}
+
+export function useTheme() {
+  return useContext(ThemeCtx);
 }

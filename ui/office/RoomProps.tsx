@@ -23,12 +23,12 @@ export function RoomProps() {
 
       {/* Water cooler — near right wall inside office */}
       <g transform="translate(350, 140)">
-        <rect x="-9" y="0" width="18" height="30" rx="2" fill="#2a3548" stroke="rgba(255,255,255,0.04)" strokeWidth="0.5" />
-        <rect x="-5" y="-12" width="10" height="14" rx="2" fill="#3a5070" opacity="0.6" />
-        <ellipse cx="0" cy="-12" rx="6" ry="2" fill="#3a5070" opacity="0.5" />
+        <rect x="-9" y="0" width="18" height="30" rx="2" fill="var(--room-prop-body)" stroke="var(--border-subtle)" strokeWidth="0.5" />
+        <rect x="-5" y="-12" width="10" height="14" rx="2" fill="var(--room-prop-accent)" opacity="0.6" />
+        <ellipse cx="0" cy="-12" rx="6" ry="2" fill="var(--room-prop-accent)" opacity="0.5" />
         <circle cx="-3" cy="18" r="2" fill="#4a90d9" opacity="0.4" />
         <circle cx="3" cy="18" r="2" fill="#e85d75" opacity="0.4" />
-        <rect x="-7" y="30" width="14" height="4" rx="1" fill="#222d3a" />
+        <rect x="-7" y="30" width="14" height="4" rx="1" fill="var(--room-prop-base)" />
       </g>
     </svg>
   );

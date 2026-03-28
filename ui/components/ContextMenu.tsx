@@ -52,15 +52,15 @@ export function ContextMenu({ x, y, agent, onClose, onEdit }: ContextMenuProps) 
         left: x,
         top: y,
         zIndex: 1000,
-        background: "rgba(10,14,25,0.95)",
+        background: "var(--bg-overlay)",
         backdropFilter: "blur(16px)",
-        border: "1px solid rgba(255,255,255,0.08)",
+        border: "1px solid var(--border-light)",
         borderRadius: 12,
         padding: 5,
         minWidth: 200,
         maxHeight: 320,
         overflowY: "auto",
-        boxShadow: "0 12px 40px rgba(0,0,0,0.5)",
+        boxShadow: "0 12px 40px var(--shadow-heavy)",
         animation: "hudIn 0.12s ease-out",
       }}
     >
@@ -69,7 +69,7 @@ export function ContextMenu({ x, y, agent, onClose, onEdit }: ContextMenuProps) 
           padding: "5px 10px",
           fontSize: 10,
           fontWeight: 600,
-          color: "#4a5a7a",
+          color: "var(--text-faint)",
           textTransform: "uppercase",
           letterSpacing: "0.06em",
         }}
@@ -81,8 +81,8 @@ export function ContextMenu({ x, y, agent, onClose, onEdit }: ContextMenuProps) 
 
       {sessions.length > 1 && (
         <>
-          <div style={{ height: 1, background: "rgba(255,255,255,0.05)", margin: "3px 8px" }} />
-          <div style={{ padding: "4px 10px", fontSize: 9, color: "#3a4a6a", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+          <div style={{ height: 1, background: "var(--border-strong)", margin: "3px 8px" }} />
+          <div style={{ padding: "4px 10px", fontSize: 9, color: "var(--text-ghost)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>
             Resume
           </div>
           {sessions.slice(0, 5).map((s) => (
@@ -96,7 +96,7 @@ export function ContextMenu({ x, y, agent, onClose, onEdit }: ContextMenuProps) 
         </>
       )}
 
-      <div style={{ height: 1, background: "rgba(255,255,255,0.05)", margin: "3px 8px" }} />
+      <div style={{ height: 1, background: "var(--border-strong)", margin: "3px 8px" }} />
       <MenuItem label="Kill Agent" danger onClick={() => handleAction("kill")} />
     </div>
   );
@@ -128,7 +128,7 @@ function MenuItem({
         padding: small ? "5px 10px" : "7px 10px",
         border: "none",
         background: "transparent",
-        color: danger ? "#E85D75" : "#8a9ab8",
+        color: danger ? "var(--red)" : "var(--text-dim)",
         fontFamily: small ? "'JetBrains Mono',monospace" : "'DM Sans',sans-serif",
         fontSize: small ? 11 : 13,
         borderRadius: 6,
