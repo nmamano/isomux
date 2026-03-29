@@ -35,7 +35,15 @@ const ATTENTION_STATES = new Set(["idle", "error", "waiting_permission"]);
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case "full_state":
-      return { ...state, agents: action.agents, recentCwds: action.recentCwds };
+      return {
+        ...state,
+        agents: action.agents,
+        recentCwds: action.recentCwds,
+        logs: new Map(),
+        needsAttention: new Set(),
+        slashCommands: new Map(),
+        stateChangedAt: new Map(),
+      };
     case "agent_added":
       return { ...state, agents: [...state.agents, action.agent] };
     case "agent_removed": {
