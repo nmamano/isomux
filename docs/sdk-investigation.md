@@ -124,3 +124,39 @@ result (success)          → idle
 result (error)            → error
 ```
 
+---
+
+## Launcher Scripts: Why They're Necessary (2026-03-29)
+
+**Question**: Can we eliminate the per-agent `.mjs` launcher scripts in `~/.isomux/launchers/` by passing `systemPrompt`/`appendSystemPrompt` and `cwd` directly through `SDKSessionOptions`?
+
+**Answer**: No. Tested against `@anthropic-ai/claude-agent-sdk@0.2.85` — the launcher scripts are required.
+
+### What the launchers do
+
+Each launcher script (e.g. `agent-xxx.mjs`) does three things before the CLI boots:
+1. `process.chdir(cwd)` — sets the working directory
+2. `process.argv.push("--append-system-prompt", ...)` — injects the agent identity/instructions
+3. `await import(CLI_PATH)` — starts the CLI
+
+These are passed to the SDK via `pathToClaudeCodeExecutable` in `SDKSessionOptions`.
+
+### What was tested
+
+| Approach | Result |
+|---|---|
+| `appendSystemPrompt` in `SDKSessionOptions` | **Silently ignored** — agent responded as "Claude", not custom name |
+| `systemPrompt` in `SDKSessionOptions` | **Silently ignored** — same result |
+| `cwd` in `SDKSessionOptions` | **Silently ignored** — cwd remained the process cwd, not `/tmp` |
+| `executableArgs: ["--append-system-prompt", ...]` | **Process exited with code 1** |
+
+### Why it doesn't work
+
+- `SDKSessionOptions` only accepts: `model`, `pathToClaudeCodeExecutable`, `executable`, `executableArgs`, `env`, `allowedTools`, `disallowedTools`, `canUseTool`, `hooks`, `permissionMode`. No `cwd` or prompt fields.
+- The SDK has an internal `initConfig` (with `appendSystemPrompt`, `systemPrompt`, `agents`, etc.) that feeds the `SDKControlInitializeRequest`, but it's set internally — `unstable_v2_createSession` takes a single `SDKSessionOptions` argument with no way to pass `initConfig`.
+- Extra properties on the options object are silently stripped (likely Zod validation).
+
+### Conclusion
+
+The launcher script approach is the only working mechanism to customize agent identity and working directory in the V2 SDK. This will remain necessary until Anthropic exposes `appendSystemPrompt` and `cwd` in `SDKSessionOptions` (or adds a public `initConfig` parameter).
+
