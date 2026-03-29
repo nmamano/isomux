@@ -54,8 +54,10 @@ export function LogEntryCard({
   isMobile?: boolean;
 }) {
   switch (entry.kind) {
-    case "user_message":
-      return <UserMessage content={entry.content} isMobile={isMobile} />;
+    case "user_message": {
+      const username = entry.metadata?.username as string | undefined;
+      return <UserMessage content={entry.content} isMobile={isMobile} username={username} />;
+    }
     case "text":
       return (
         <AssistantText
@@ -133,11 +135,11 @@ function TurnCopyButton({ turnEntries }: { turnEntries?: LogEntry[] }) {
   );
 }
 
-function UserMessage({ content, isMobile }: { content: string; isMobile?: boolean }) {
+function UserMessage({ content, isMobile, username }: { content: string; isMobile?: boolean; username?: string }) {
   const getText = useCallback(() => content, [content]);
   return (
     <div style={{ margin: "12px 0", padding: "10px 14px", paddingRight: 40, borderRadius: 10, background: "var(--user-msg-bg)", borderLeft: "3px solid var(--accent)", position: "relative" }}>
-      <div style={{ fontSize: isMobile ? 12 : 10, fontWeight: 600, color: "var(--accent)", marginBottom: 4, fontFamily: "'DM Sans',sans-serif", textTransform: "uppercase", letterSpacing: "0.05em" }}>You</div>
+      <div style={{ fontSize: isMobile ? 12 : 10, fontWeight: 600, color: "var(--accent)", marginBottom: 4, fontFamily: "'DM Sans',sans-serif", textTransform: "uppercase", letterSpacing: "0.05em" }}>{(username ?? "You").toUpperCase()}</div>
       <div style={{ color: "var(--text-secondary)", fontFamily: "'JetBrains Mono',monospace", fontSize: isMobile ? 15 : 13, lineHeight: 1.6, whiteSpace: "pre-wrap", overflowWrap: "break-word", wordBreak: "break-word" }}>{content}</div>
       <div style={{ position: "absolute", top: 8, right: 8 }}>
         <CopyButton getText={getText} />

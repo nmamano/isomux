@@ -118,11 +118,13 @@ export function LogView({
   logs,
   onBack,
   onEditAgent,
+  username,
 }: {
   agent: AgentInfo;
   logs: LogEntry[];
   onBack: () => void;
   onEditAgent: () => void;
+  username: string;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -253,7 +255,7 @@ export function LogView({
     const text = input.trim();
     if (!text) return;
     if (isBusy) return;
-    send({ type: "send_message", agentId: agent.id, text });
+    send({ type: "send_message", agentId: agent.id, text, username });
     setInput("");
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";

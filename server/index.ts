@@ -32,7 +32,7 @@ async function handleCommand(cmd: ClientCommand) {
       break;
     case "send_message":
       // Don't await — let it stream in the background
-      AgentManager.sendMessage(cmd.agentId, cmd.text);
+      AgentManager.sendMessage(cmd.agentId, cmd.text, cmd.username);
       break;
     case "new_conversation":
       await AgentManager.newConversation(cmd.agentId);

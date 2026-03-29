@@ -6,6 +6,7 @@ import { AgentListView } from "./components/AgentListView.tsx";
 import { SpawnDialog } from "./components/SpawnDialog.tsx";
 import { ContextMenu } from "./components/ContextMenu.tsx";
 import { EditAgentDialog } from "./components/EditAgentDialog.tsx";
+import { UsernameModal } from "./components/UsernameModal.tsx";
 import { CSS } from "./styles.ts";
 import type { AgentInfo } from "../shared/types.ts";
 
@@ -15,6 +16,13 @@ export function App() {
   const [spawnDesk, setSpawnDesk] = useState<number | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; agent: AgentInfo } | null>(null);
   const [editAgent, setEditAgent] = useState<AgentInfo | null>(null);
+  const [username, setUsername] = useState<string | null>(() => {
+    if (typeof localStorage !== "undefined") {
+      return localStorage.getItem("isomux-username");
+    }
+    return null;
+  });
+  const [editingUsername, setEditingUsername] = useState(false);
 
   const focusedAgent = focusedAgentId ? agents.find((a) => a.id === focusedAgentId) : null;
 
@@ -55,6 +63,23 @@ export function App() {
   return (
     <>
       <style>{CSS}</style>
+      {username === null && (
+        <UsernameModal onSave={(name) => {
+          localStorage.setItem("isomux-username", name);
+          setUsername(name);
+        }} />
+      )}
+      {editingUsername && username !== null && (
+        <UsernameModal
+          defaultValue={username}
+          onSave={(name) => {
+            localStorage.setItem("isomux-username", name);
+            setUsername(name);
+            setEditingUsername(false);
+          }}
+          onClose={() => setEditingUsername(false)}
+        />
+      )}
       {focusedAgent ? (
         <LogView
           key={focusedAgent.id}
@@ -62,17 +87,22 @@ export function App() {
           logs={logs.get(focusedAgent.id) ?? []}
           onBack={() => dispatch({ type: "focus", agentId: null })}
           onEditAgent={() => setEditAgent(focusedAgent)}
+          username={username ?? ""}
         />
       ) : isMobile ? (
         <AgentListView
           onFocus={(agentId) => dispatch({ type: "focus", agentId })}
           onSpawn={() => setSpawnDesk(0)}
           onContextMenu={(x, y, agent) => setCtxMenu({ x, y, agent })}
+          username={username ?? ""}
+          onEditUsername={() => setEditingUsername(true)}
         />
       ) : (
         <OfficeView
           onSpawn={(desk) => setSpawnDesk(desk)}
           onContextMenu={(x, y, agent) => setCtxMenu({ x, y, agent })}
+          username={username ?? ""}
+          onEditUsername={() => setEditingUsername(true)}
         />
       )}
       {spawnDesk !== null && (

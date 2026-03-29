@@ -67,7 +67,7 @@ function discoverProjectSkills(cwd: string): string[] {
 // Create a launcher script that sets cwd and injects system prompt before running the CLI
 function createLauncher(agentId: string, cwd: string, agentName: string, customInstructions?: string | null): string {
   const launcherPath = join(LAUNCHERS_DIR, `${agentId}.mjs`);
-  let systemPrompt = `You are ${agentName}, one of the agents in the Isomux office. Your goal is to help the office boss, who talks to you in this chat.\n\nTo discover other office agents and their conversation logs, read ~/.isomux/agents-summary.json.`;
+  let systemPrompt = `You are ${agentName}, one of the agents in the Isomux office. Your goal is to help the office bosses, who talk to you in this chat. Messages are prefixed with the sender's name in brackets.\n\nTo discover other office agents and their conversation logs, read ~/.isomux/agents-summary.json.`;
   if (customInstructions) {
     systemPrompt += `\n\n${customInstructions}`;
   }
@@ -645,18 +645,18 @@ export async function spawn(name: string, cwd: string, permissionMode: AgentInfo
   return info;
 }
 
-export async function sendMessage(agentId: string, text: string) {
+export async function sendMessage(agentId: string, text: string, username?: string) {
   const managed = agents.get(agentId);
   if (!managed?.session) return;
 
   // Intercept slash commands that are handled locally, not by the LLM
   if (text.startsWith("/")) {
     const [cmd, ...args] = text.slice(1).trim().split(/\s+/);
-    const handled = await handleSlashCommand(agentId, managed, cmd, args, text);
+    const handled = await handleSlashCommand(agentId, managed, cmd, args, text, username);
     if (handled) return;
   }
 
-  addLogEntry(agentId, "user_message", text);
+  addLogEntry(agentId, "user_message", text, username ? { username } : undefined);
   updateState(agentId, "thinking");
 
   // Auto-generate topic on first user message in a conversation
@@ -664,8 +664,9 @@ export async function sendMessage(agentId: string, text: string) {
     generateTopic(agentId); // fire-and-forget
   }
 
+  const prefixedText = username ? `[${username}] ${text}` : text;
   try {
-    await managed.session.send(text);
+    await managed.session.send(prefixedText);
     await consumeStream(agentId, managed);
   } catch (err: any) {
     console.error(`Agent ${agentId} send error:`, err.message);
@@ -674,10 +675,11 @@ export async function sendMessage(agentId: string, text: string) {
   }
 }
 
-async function handleSlashCommand(agentId: string, managed: ManagedAgent, cmd: string, args: string[], rawText: string): Promise<boolean> {
+async function handleSlashCommand(agentId: string, managed: ManagedAgent, cmd: string, args: string[], rawText: string, username?: string): Promise<boolean> {
+  const userMeta = username ? { username } : undefined;
   switch (cmd) {
     case "clear": {
-      addLogEntry(agentId, "user_message", rawText);
+      addLogEntry(agentId, "user_message", rawText, userMeta);
       try { managed.session?.close(); } catch {}
       managed.session = createSession(managed);
       managed.sessionId = null;
@@ -700,13 +702,13 @@ async function handleSlashCommand(agentId: string, managed: ManagedAgent, cmd: s
       return false;
     }
     case "cost": {
-      addLogEntry(agentId, "user_message", rawText);
+      addLogEntry(agentId, "user_message", rawText, userMeta);
       addLogEntry(agentId, "system", "Cost tracking is not yet available in Isomux.");
       updateState(agentId, "idle");
       return true;
     }
     case "help": {
-      addLogEntry(agentId, "user_message", rawText);
+      addLogEntry(agentId, "user_message", rawText, userMeta);
       const commands = managed.slashCommands.map((c) => `  /${c}`).join("\n");
       const skills = managed.skills.length > 0
         ? "\n\nSkills:\n" + managed.skills.map((s) => `  /${s}`).join("\n")
@@ -723,10 +725,11 @@ async function handleSlashCommand(agentId: string, managed: ManagedAgent, cmd: s
         const fullPrompt = userArgs
           ? `${skillPrompt}\n\nUser context: ${userArgs}`
           : skillPrompt;
-        addLogEntry(agentId, "user_message", rawText);
+        addLogEntry(agentId, "user_message", rawText, userMeta);
         updateState(agentId, "thinking");
+        const prefixedSkillPrompt = username ? `[${username}] ${fullPrompt}` : fullPrompt;
         try {
-          await managed.session!.send(fullPrompt);
+          await managed.session!.send(prefixedSkillPrompt);
           await consumeStream(agentId, managed);
         } catch (err: any) {
           addLogEntry(agentId, "error", `Skill error: ${err.message}`);

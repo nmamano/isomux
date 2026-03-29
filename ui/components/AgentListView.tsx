@@ -7,10 +7,14 @@ export function AgentListView({
   onFocus,
   onSpawn,
   onContextMenu,
+  username,
+  onEditUsername,
 }: {
   onFocus: (agentId: string) => void;
   onSpawn: () => void;
   onContextMenu: (x: number, y: number, agent: AgentInfo) => void;
+  username: string;
+  onEditUsername: () => void;
 }) {
   const { agents, connected } = useAppState();
   const { theme, toggleTheme } = useTheme();
@@ -61,21 +65,39 @@ export function AgentListView({
             }}
           />
         </div>
-        <button
-          onClick={toggleTheme}
-          style={{
-            background: "var(--btn-surface)",
-            border: "1px solid var(--border)",
-            borderRadius: 8,
-            padding: "6px 10px",
-            color: "var(--text-dim)",
-            fontSize: 14,
-            cursor: "pointer",
-            lineHeight: 1,
-          }}
-        >
-          {theme === "dark" ? "\u2600" : "\u263E"}
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span
+            onClick={onEditUsername}
+            style={{
+              color: "var(--text-dim)",
+              fontSize: 12,
+              fontFamily: "'JetBrains Mono',monospace",
+              cursor: "pointer",
+              padding: "4px 8px",
+              borderRadius: 6,
+              border: "1px solid var(--border)",
+              background: "var(--btn-surface)",
+            }}
+            title="Change name"
+          >
+            {username.toUpperCase()}
+          </span>
+          <button
+            onClick={toggleTheme}
+            style={{
+              background: "var(--btn-surface)",
+              border: "1px solid var(--border)",
+              borderRadius: 8,
+              padding: "6px 10px",
+              color: "var(--text-dim)",
+              fontSize: 14,
+              cursor: "pointer",
+              lineHeight: 1,
+            }}
+          >
+            {theme === "dark" ? "\u2600" : "\u263E"}
+          </button>
+        </div>
       </div>
 
       {/* Agent list */}
