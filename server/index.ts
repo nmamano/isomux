@@ -64,14 +64,6 @@ async function handleCommand(cmd: ClientCommand) {
       } as ServerMessage);
       break;
     }
-    case "restart_server": {
-      console.log("Restart requested via UI. Exiting with code 0...");
-      // Agents are already persisted in agents.json — just close sessions
-      AgentManager.closeAllSessions();
-      // Exit 0 signals the wrapper to restart
-      setTimeout(() => process.exit(0), 200);
-      break;
-    }
   }
 }
 

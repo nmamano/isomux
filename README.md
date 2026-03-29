@@ -37,3 +37,22 @@ Then open http://localhost:4000.
 - Sound notification plays when an agent finishes and the tab is unfocused
 
 Agents use your Claude subscription via the Agent SDK — no API key or per-token billing required.
+
+## Deployment
+
+Isomux runs as a systemd user service with automatic restart.
+
+```bash
+# Start/stop/restart the service
+systemctl --user start isomux
+systemctl --user stop isomux
+systemctl --user restart isomux
+
+# Check status
+systemctl --user status isomux
+
+# View logs
+journalctl --user -u isomux -f
+```
+
+The service automatically rebuilds the UI before each start. Agents survive restarts — they are persisted to `~/.isomux/agents.json` and sessions resume automatically.
