@@ -52,7 +52,7 @@ export function UsernameModal({
             fontFamily: "'DM Sans',sans-serif",
           }}
         >
-          What's your name?
+          What's your name? (Who's the boss?)
         </div>
         <input
           autoFocus

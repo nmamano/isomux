@@ -34,6 +34,61 @@ export function RoomProps() {
         {/* Base */}
         <rect x="-7" y="30" width="14" height="4" rx="1" fill="var(--room-prop-base)" />
       </g>
+      {/* Sleepy cat — south corner of office */}
+      <g transform="translate(120, 460)">
+        {/* Cat bed — isometric oval cushion */}
+        {/* Bed base */}
+        <ellipse cx="0" cy="10" rx="26" ry="14" fill="#8B6B4A" />
+        {/* Bed inner cushion */}
+        <ellipse cx="0" cy="8" rx="23" ry="12" fill="#A0785A" />
+        {/* Bed rim highlight */}
+        <ellipse cx="0" cy="6" rx="23" ry="12" fill="none" stroke="#96704E" strokeWidth="1.5" />
+        {/* Cushion surface */}
+        <ellipse cx="0" cy="6" rx="20" ry="10" fill="#C4976A" />
+        {/* Curled body */}
+        <ellipse cx="0" cy="0" rx="16" ry="9" fill="#E8A050">
+          <animate attributeName="ry" values="9;9.5;9" dur="3s" repeatCount="indefinite" />
+        </ellipse>
+        {/* Darker stripes */}
+        <path d="M-8 -4 Q-4 -7 0 -4" stroke="#C08030" strokeWidth="1" fill="none" />
+        <path d="M2 -5 Q6 -8 10 -5" stroke="#C08030" strokeWidth="1" fill="none" />
+        {/* Tail curling around — gentle sway */}
+        <path d="M14 2 Q22 -2 20 -10 Q18 -16 12 -14" stroke="#E8A050" strokeWidth="3.5" fill="none" strokeLinecap="round">
+          <animate attributeName="d" values="M14 2 Q22 -2 20 -10 Q18 -16 12 -14;M14 2 Q24 -4 22 -12 Q19 -18 13 -15;M14 2 Q22 -2 20 -10 Q18 -16 12 -14" dur="4s" repeatCount="indefinite" />
+        </path>
+        <path d="M14 2 Q22 -2 20 -10 Q18 -16 12 -14" stroke="#C08030" strokeWidth="1" fill="none" strokeLinecap="round">
+          <animate attributeName="d" values="M14 2 Q22 -2 20 -10 Q18 -16 12 -14;M14 2 Q24 -4 22 -12 Q19 -18 13 -15;M14 2 Q22 -2 20 -10 Q18 -16 12 -14" dur="4s" repeatCount="indefinite" />
+        </path>
+        {/* Head */}
+        <ellipse cx="-12" cy="-2" rx="8" ry="7" fill="#E8A050" />
+        {/* Ears */}
+        <path d="M-18 -7 L-16 -14 L-12 -8 Z" fill="#E8A050" />
+        <path d="M-12 -8 L-8 -14 L-6 -7 Z" fill="#E8A050" />
+        {/* Inner ears */}
+        <path d="M-17 -7 L-15.5 -12 L-13 -8 Z" fill="#D08040" />
+        <path d="M-11 -8 L-8.5 -12 L-7 -7 Z" fill="#D08040" />
+        {/* Closed eyes — happy sleeping curves */}
+        <path d="M-16 -2 Q-14.5 -4 -13 -2" stroke="#333" strokeWidth="0.8" fill="none" />
+        <path d="M-11 -3 Q-9.5 -5 -8 -3" stroke="#333" strokeWidth="0.8" fill="none" />
+        {/* Nose */}
+        <ellipse cx="-12" cy="0" rx="1" ry="0.7" fill="#D08080" />
+        {/* Whiskers */}
+        <line x1="-18" y1="-1" x2="-23" y2="-3" stroke="#333" strokeWidth="0.3" />
+        <line x1="-18" y1="1" x2="-23" y2="1" stroke="#333" strokeWidth="0.3" />
+        <line x1="-6" y1="-1" x2="-1" y2="-3" stroke="#333" strokeWidth="0.3" />
+        <line x1="-6" y1="1" x2="-1" y2="1" stroke="#333" strokeWidth="0.3" />
+        {/* Zzz */}
+        <text x="-4" y="-14" fontSize="6" fill="rgba(200,220,255,0.5)" fontFamily="monospace" fontWeight="bold">
+          <animate attributeName="y" values="-14;-18;-14" dur="2.5s" repeatCount="indefinite" />
+          <animate attributeName="opacity" values="0.3;0.7;0.3" dur="2.5s" repeatCount="indefinite" />
+          z
+        </text>
+        <text x="2" y="-20" fontSize="5" fill="rgba(200,220,255,0.4)" fontFamily="monospace" fontWeight="bold">
+          <animate attributeName="y" values="-20;-24;-20" dur="3s" repeatCount="indefinite" />
+          <animate attributeName="opacity" values="0.2;0.6;0.2" dur="3s" repeatCount="indefinite" />
+          z
+        </text>
+      </g>
     </svg>
   );
 }
