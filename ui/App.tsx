@@ -60,6 +60,7 @@ export function App() {
           agent={focusedAgent}
           logs={logs.get(focusedAgent.id) ?? []}
           onBack={() => dispatch({ type: "focus", agentId: null })}
+          onEditAgent={() => setEditAgent(focusedAgent)}
         />
       ) : (
         <OfficeView

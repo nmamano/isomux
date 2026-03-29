@@ -116,10 +116,12 @@ export function LogView({
   agent,
   logs,
   onBack,
+  onEditAgent,
 }: {
   agent: AgentInfo;
   logs: LogEntry[];
   onBack: () => void;
+  onEditAgent: () => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -287,7 +289,11 @@ export function LogView({
         </button>
         <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
           <StatusLight state={agent.state} size={8} />
-          <span style={{ fontWeight: 600, color: "var(--text-primary)" }}><span style={{ opacity: 0.5 }}>{agent.desk + 1} ·</span> {agent.name}</span>
+          <span
+            onClick={onEditAgent}
+            style={{ fontWeight: 600, color: "var(--text-primary)", cursor: "pointer" }}
+            title="Edit agent"
+          ><span style={{ opacity: 0.5 }}>{agent.desk + 1} ·</span> {agent.name}</span>
           {STATE_LABELS[agent.state] && (
             <HeaderTimer state={agent.state} stateChangedAt={stateChangedAt.get(agent.id)} />
           )}
