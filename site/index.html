@@ -376,6 +376,18 @@
     </div>
 
     <div class="feature-group">
+      <h3>Mobile Support</h3>
+      <ul>
+        <li><strong>Open from your phone</strong> &mdash; same Tailscale URL, touch-optimized UI</li>
+        <li><strong>Instant sync</strong> &mdash; laptop and phone see the same state in real time over WebSocket</li>
+        <li><strong>Agent list view</strong> replaces isometric office on small screens</li>
+        <li><strong>Full conversation view</strong> with readable font sizes and two-row header</li>
+        <li><strong>Send &amp; abort buttons</strong> for touch input</li>
+        <li>Safe area insets for notch/home bar devices</li>
+      </ul>
+    </div>
+
+    <div class="feature-group">
       <h3>Notifications</h3>
       <ul>
         <li><strong>Sound notification</strong> when agent finishes and tab is unfocused</li>
@@ -422,10 +434,11 @@ bun run dev</pre>
   <section id="persistent-server">
     <h2>Persistent Server Setup <em style="font-weight: 400; font-size: 0.85em; color: var(--text-dim);">(Mac Mini style)</em></h2>
     <p class="section-intro">
-      Run Isomux on a headless Mac Mini (or any always-on Linux box), access it from anywhere via Tailscale, and let your agents work while you sleep.
+      Run Isomux on a Mac Mini or any always-on box/server. Talk to your agents from your laptop, your phone, or anywhere via Tailscale. Same conversations, instantly sync'd via WebSocket.
     </p>
 
     <div class="setup-card">
+      <p style="color: var(--accent); font-size: 0.85rem; margin-bottom: 16px;">Hint: save time by asking your agent to set it up for you.</p>
       <h3>1. Create the systemd service</h3>
       <p>This auto-rebuilds the UI on each start and restarts on failure.</p>
 <pre>mkdir -p ~/.config/systemd/user
@@ -460,19 +473,17 @@ systemctl --user status isomux</pre>
 <pre>sudo loginctl enable-linger $USER</pre>
 
       <h3>4. Set up Tailscale</h3>
-      <p>Install <a href="https://tailscale.com/" target="_blank" rel="noopener">Tailscale</a> on both the server and your laptop/phone. Once connected, access Isomux at your machine's Tailscale IP.</p>
+      <p>Install <a href="https://tailscale.com/" target="_blank" rel="noopener">Tailscale</a> on the server, your laptop, and your phone. Once connected, every device can reach Isomux at the server's Tailscale IP &mdash; same URL everywhere, instantly in sync.</p>
 <pre>curl -fsSL https://tailscale.com/install.sh | sh
 sudo tailscale up
 
 <span class="comment"># Find your Tailscale IP</span>
 tailscale ip -4</pre>
 
-      <h3>5. Access remotely</h3>
-      <p>From any device on your Tailnet:</p>
-<pre>http://YOUR_TAILSCALE_IP:4000</pre>
+      <p style="margin-top: 20px; margin-bottom: 8px;"><strong>Bonus:</strong> Instead of remembering an IP, rename your machine in the <a href="https://login.tailscale.com/admin/machines" target="_blank" rel="noopener">Tailscale admin console</a> to something friendly, like <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">my-mac-mini</code>.</p>
 
-      <h3>Bonus: Use a Tailscale machine name</h3>
-      <p>Instead of remembering an IP, rename your machine in the <a href="https://login.tailscale.com/admin/machines" target="_blank" rel="noopener">Tailscale admin console</a> to something friendly:</p>
+      <h3>5. Access from laptop or phone</h3>
+      <p>Open the same URL from any device on your Tailnet &mdash; laptop gets the full office view, phone gets a touch-optimized agent list:</p>
 <pre>http://my-mac-mini:4000</pre>
     </div>
   </section>
