@@ -34,7 +34,7 @@
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
     :root {
-      --bg: #0d1117;
+      --bg: #0a0e16;
       --bg-surface: #161b22;
       --bg-card: #1c2128;
       --text: #f0f3f6;
@@ -85,7 +85,7 @@
       font-style: italic;
     }
 
-    .hero .free-badge {
+    .free-badge {
       display: inline-flex;
       align-items: center;
       gap: 8px;
@@ -103,7 +103,6 @@
       width: 100%;
       max-width: 820px;
       border-radius: 12px;
-      border: 1px solid var(--border);
       margin-bottom: 12px;
     }
 
@@ -111,7 +110,7 @@
       display: flex;
       gap: 12px;
       justify-content: center;
-      align-items: center;
+      align-items: flex-start;
       flex-wrap: wrap;
     }
 
@@ -161,6 +160,65 @@
     }
 
     /* ---- Features ---- */
+    .feature-highlights {
+      list-style: none;
+      margin-bottom: 28px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .feature-highlights > li {
+      color: var(--text-dim);
+      font-size: 0.95rem;
+      padding-left: 16px;
+      position: relative;
+      margin-bottom: 6px;
+    }
+
+    .feature-highlights > li::before {
+      content: "\b7";
+      position: absolute;
+      left: 0;
+      color: var(--accent);
+      font-weight: bold;
+    }
+
+    .feature-highlights ul {
+      list-style: none;
+      margin-top: 6px;
+      padding-left: 16px;
+    }
+
+    .feature-highlights ul li {
+      color: var(--text-dim);
+      font-size: 0.9rem;
+      padding-left: 16px;
+      position: relative;
+      margin-bottom: 4px;
+    }
+
+    .feature-highlights ul li::before {
+      content: "\b7";
+      position: absolute;
+      left: 0;
+      color: var(--accent);
+      font-weight: bold;
+    }
+
+    .feature-details summary {
+      font-family: "Space Grotesk", -apple-system, sans-serif;
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text-dim);
+      cursor: pointer;
+      padding: 8px 0;
+      margin-bottom: 8px;
+    }
+
+    .feature-details summary:hover {
+      color: var(--text);
+    }
+
     .feature-group {
       margin-bottom: 24px;
     }
@@ -293,21 +351,38 @@
   <!-- Hero -->
   <div class="hero">
     <h1>Isomux</h1>
-    <p style="font-size: 0.8rem; color: var(--text-dim); font-style: italic; margin-top: -8px; margin-bottom: 12px;">Built with Isomux</p>
     <p class="tagline">Friction going from 1 Claude Code to 4+? Isomux is your agent office. <em>Cute in a useful way.</em></p>
-    <div class="free-badge">free &amp; open source &middot; works with your Claude subscription &middot; runs locally; no cloud, no account</div>
     <img class="hero-img" src="screenshot.png" alt="Isomux office view showing multiple AI agents at their desks">
     <div class="cta-row">
-      <a href="#setup" class="btn btn-primary">Get Started</a>
-      <a href="https://github.com/nmamano/isomux" target="_blank" rel="noopener" class="btn btn-github" aria-label="GitHub">
-        <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-      </a>
+      <a href="#setup" class="btn btn-primary">Get Started &darr;</a>
+      <div style="display: flex; flex-direction: column; align-items: center;">
+        <a href="https://github.com/nmamano/isomux" target="_blank" rel="noopener" class="btn btn-github" aria-label="GitHub">
+          <svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        </a>
+        <p style="font-size: 0.8rem; color: var(--text-dim); font-style: italic; margin-top: 4px;">Built with Isomux</p>
+      </div>
     </div>
   </div>
 
   <!-- Features -->
   <section id="features">
     <h2>Features</h2>
+    <div style="text-align: center; margin-bottom: 16px;"><div class="free-badge">free &amp; open source &middot; works with your Claude subscription &middot; runs locally; no cloud, no account</div></div>
+
+    <ul class="feature-highlights">
+      <li><strong>Tmux alternative</strong> for managing multiple Claude Code agents</li>
+      <li>Visual office metaphor &mdash; see what every agent is doing at a glance</li>
+      <li>Works locally or as a <strong>persistent server</strong> (Mac Mini style):
+        <ul>
+          <li>Run at home, access <strong>from any device</strong> in your <a href="https://tailscale.com/" target="_blank" rel="noopener">Tailscale</a> network. Just go to <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">http://YOUR_TAILSCALE_ALIAS:4000</code></li>
+          <li>No syncing headaches &mdash; same conversations, same filesystem, every device updates <strong>in real time</strong></li>
+          <li>First-class mobile UI. Continue your conversations on <strong>your phone</strong></li>
+        </ul>
+      </li>
+    </ul>
+
+    <details class="feature-details">
+      <summary>Full feature list</summary>
 
     <div class="feature-group">
       <h3>Office View</h3>
@@ -409,6 +484,7 @@
         <li><strong>Works on a headless server</strong> &mdash; run on a Mac Mini or Linux box, access from anywhere via Tailscale</li>
       </ul>
     </div>
+    </details>
   </section>
 
   <!-- Setup -->
