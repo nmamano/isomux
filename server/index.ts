@@ -146,17 +146,6 @@ const server = Bun.serve({
     },
     close(ws) {
       browsers.delete(ws);
-      const remaining = browsers.size;
-      for (const agent of AgentManager.getAllAgents()) {
-        const entry: import("../shared/types.ts").LogEntry = {
-          id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          agentId: agent.id,
-          timestamp: Date.now(),
-          kind: "system",
-          content: `Browser disconnected (${remaining} browser${remaining === 1 ? "" : "s"} remaining)`,
-        };
-        broadcast({ type: "log_entry", entry });
-      }
     },
   },
 });
