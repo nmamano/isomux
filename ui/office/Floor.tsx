@@ -38,7 +38,7 @@ export function Floor() {
   );
 }
 
-export function Walls() {
+export function Walls({ onToggleTheme }: { onToggleTheme?: () => void }) {
   const [now, setNow] = useState(new Date());
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 30_000);
@@ -114,19 +114,25 @@ export function Walls() {
             )}
           </circle>
         ))}
-        {/* Moon — crescent via overlapping circles */}
-        <circle cx={-210} cy={-5} r={12} fill="#E8E0C8" />
-        <circle cx={-210 + moonPhase * 10} cy={-6} r={10} fill="#0a0e1a" />
-        {/* Moon glow */}
-        <circle cx={-210} cy={-5} r={18} fill="#E8E0C8" opacity="0.05" />
+        {/* Moon — crescent via overlapping circles (clickable to toggle theme) */}
+        <g onClick={onToggleTheme} style={{ cursor: "pointer", pointerEvents: "auto" }}>
+          <circle cx={-210} cy={-5} r={18} fill="transparent" />
+          <circle cx={-210} cy={-5} r={12} fill="#E8E0C8" />
+          <circle cx={-210 + moonPhase * 10} cy={-6} r={10} fill="#0a0e1a" />
+          {/* Moon glow */}
+          <circle cx={-210} cy={-5} r={18} fill="#E8E0C8" opacity="0.05" />
+        </g>
       </g>
 
       {/* Day scene (light mode) */}
       <g clipPath="url(#window-clip)" className="window-day">
         <path d="M-295 120 L-155 50 L-155 -40 L-295 30 Z" fill="#87CEEB" />
-        {/* Sun */}
-        <circle cx={-215} cy={0} r={14} fill="#F5D060" />
-        <circle cx={-215} cy={0} r={20} fill="#F5D060" opacity="0.15" />
+        {/* Sun (clickable to toggle theme) */}
+        <g onClick={onToggleTheme} style={{ cursor: "pointer", pointerEvents: "auto" }}>
+          <circle cx={-215} cy={0} r={20} fill="transparent" />
+          <circle cx={-215} cy={0} r={14} fill="#F5D060" />
+          <circle cx={-215} cy={0} r={20} fill="#F5D060" opacity="0.15" />
+        </g>
         {/* Clouds */}
         <ellipse cx={-250} cy={45} rx={18} ry={6} fill="white" opacity="0.7" />
         <ellipse cx={-240} cy={42} rx={12} ry={5} fill="white" opacity="0.6" />
@@ -143,7 +149,7 @@ export function Walls() {
       <path d="M-100 30 L40 -40 L40 -110 L-100 -40 Z" fill="var(--whiteboard-outer)" stroke="var(--wall-stroke)" strokeWidth="0.8" />
       <path d="M-90 17 L30 -43 L30 -97 L-90 -37 Z" fill="var(--whiteboard-inner)" />
       {/* "Isomux <3" on the whiteboard, skewed to match left wall */}
-      <g transform="translate(-30, -40) skewY(-27)">
+      <g transform="translate(-30, -40) skewY(-27)" onClick={() => window.open("https://isomux.com", "_blank")} style={{ cursor: "pointer", pointerEvents: "auto" }}>
         <text
           x="-8" y="0"
           textAnchor="middle"

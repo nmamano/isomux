@@ -39,7 +39,25 @@ export function Character({ state, outfit }: { state: AgentState; outfit: AgentO
         <ellipse cx="26" cy="50" rx="11" ry="10" fill={bc} />
         <ellipse cx="26" cy="37" rx="10" ry="9" fill={skin} />
         <ellipse cx="26" cy="31" rx="10" ry="5.5" fill={hair} />
-        {outfit.accessory === "glasses" && <rect x="18" y="37" width="5" height="3" rx="1" fill="#555" opacity="0.5" />}
+        {outfit.hat === "cap" && (
+          <>
+            <path d="M13 33 Q26 17 39 33" fill={bc} />
+            <rect x="11" y="32" width="27" height="3" fill={bc} rx="1" />
+          </>
+        )}
+        {outfit.hat === "beanie" && <ellipse cx="26" cy="29" rx="11" ry="6.5" fill={bc} />}
+        {outfit.accessory === "glasses" && (
+          <>
+            <circle cx="22" cy="38" r="4" stroke="#666" fill="none" strokeWidth="0.8" />
+            <circle cx="30" cy="38" r="4" stroke="#666" fill="none" strokeWidth="0.8" />
+          </>
+        )}
+        {outfit.accessory === "headphones" && (
+          <path d="M14 33 Q14 22 26 22 Q38 22 38 33" stroke="#555" fill="none" strokeWidth="3" />
+        )}
+        {/* Closed eyes */}
+        <line x1="20" y1="38" x2="24" y2="38" stroke="#333" strokeWidth="1" strokeLinecap="round" />
+        <line x1="28" y1="38" x2="32" y2="38" stroke="#333" strokeWidth="1" strokeLinecap="round" />
         <g>
           <text x="36" y="28" fontSize="14" fill="rgba(200,220,255,0.7)" fontFamily="monospace" fontWeight="bold">
             <animate attributeName="y" values="28;22;28" dur="2s" repeatCount="indefinite" />
@@ -71,8 +89,8 @@ export function Character({ state, outfit }: { state: AgentState; outfit: AgentO
         <ellipse cx="26" cy="18" rx="10" ry="5.5" fill={hair} />
         {outfit.hat === "cap" && (
           <>
-            <path d="M15 20 Q26 12 37 20" fill={bc} />
-            <rect x="11" y="19" width="15" height="3" fill={bc} rx="1" />
+            <path d="M13 20 Q26 4 39 20" fill={bc} />
+            <rect x="11" y="19" width="27" height="3" fill={bc} rx="1" />
           </>
         )}
         {outfit.hat === "beanie" && <ellipse cx="26" cy="16" rx="11" ry="6.5" fill={bc} />}
@@ -120,8 +138,8 @@ export function Character({ state, outfit }: { state: AgentState; outfit: AgentO
         <ellipse cx="26" cy="18" rx="10" ry="5.5" fill={hair} />
         {outfit.hat === "cap" && (
           <>
-            <path d="M15 20 Q26 12 37 20" fill={bc} />
-            <rect x="11" y="19" width="15" height="3" fill={bc} rx="1" />
+            <path d="M13 20 Q26 4 39 20" fill={bc} />
+            <rect x="11" y="19" width="27" height="3" fill={bc} rx="1" />
           </>
         )}
         {outfit.hat === "beanie" && <ellipse cx="26" cy="16" rx="11" ry="6.5" fill={bc} />}
@@ -162,8 +180,8 @@ export function Character({ state, outfit }: { state: AgentState; outfit: AgentO
       <ellipse cx="26" cy="18" rx="10" ry="5.5" fill={hair} />
       {outfit.hat === "cap" && (
         <>
-          <path d="M15 20 Q26 12 37 20" fill={bc} />
-          <rect x="28" y="19" width="15" height="3" fill={bc} rx="1" />
+          <path d="M13 20 Q26 4 39 20" fill={bc} />
+          <rect x="15" y="19" width="27" height="3" fill={bc} rx="1" />
         </>
       )}
       {outfit.hat === "beanie" && <ellipse cx="26" cy="16" rx="11" ry="6.5" fill={bc} />}

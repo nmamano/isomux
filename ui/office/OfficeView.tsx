@@ -161,7 +161,7 @@ export function OfficeView({ onSpawn, onContextMenu, username, onEditUsername }:
             height: SCENE_H,
           }}
         >
-          <Walls />
+          <Walls onToggleTheme={toggleTheme} />
           <Floor />
           <RoomProps />
           {Array.from({ length: 8 }, (_, i) => {
