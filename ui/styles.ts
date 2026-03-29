@@ -179,6 +179,7 @@ export const CSS = `
   }
 
   body { background: var(--bg-base); overflow:hidden; }
+  html, body { max-width: 100vw; overflow-x: hidden; }
 
   /* Markdown content styles */
   .md-content { font-family: 'DM Sans', sans-serif; font-size: 13px; line-height: 1.7; color: var(--text-secondary); }
@@ -217,6 +218,13 @@ export const CSS = `
     border: 1px solid var(--border); padding: 6px 10px; text-align: left; font-size: 12px;
   }
   .md-content th { background: var(--bg-subtle); color: var(--text-primary); font-weight: 600; }
+
+  /* Mobile: ensure code blocks don't overflow horizontally */
+  @media (max-width: 767px) {
+    .md-content pre { max-width: calc(100vw - 48px); }
+    .md-content code { word-break: break-all; }
+    .md-content pre code { word-break: normal; }
+  }
 
   /* Copy buttons */
   .copy-btn:hover { color: var(--text-secondary) !important; border-color: var(--border-light) !important; background: var(--bg-hover) !important; }

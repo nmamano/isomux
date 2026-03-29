@@ -7,6 +7,7 @@ export interface AppState {
   logs: Map<string, LogEntry[]>; // agentId → entries
   focusedAgentId: string | null;
   connected: boolean;
+  isMobile: boolean;
   needsAttention: Set<string>; // agentIds with unread state changes
   sessionsList: Map<string, SessionInfo[]>; // agentId → available sessions
   soundTrigger: number; // increments when any agent finishes work (for sound regardless of focus)
@@ -27,7 +28,8 @@ type Action =
   | { type: "sessions_list"; agentId: string; sessions: SessionInfo[] }
   | { type: "set_draft"; agentId: string; text: string }
   | { type: "slash_commands"; agentId: string; commands: string[]; skills: string[] }
-  | { type: "clear_logs"; agentId: string };
+  | { type: "clear_logs"; agentId: string }
+  | { type: "set_mobile"; isMobile: boolean };
 
 // States that warrant attention
 const ATTENTION_STATES = new Set(["idle", "error", "waiting_permission"]);
@@ -125,6 +127,8 @@ function reducer(state: AppState, action: Action): AppState {
       logs.set(action.agentId, []);
       return { ...state, logs };
     }
+    case "set_mobile":
+      return { ...state, isMobile: action.isMobile };
     default:
       return state;
   }
@@ -135,6 +139,7 @@ const initialState: AppState = {
   logs: new Map(),
   focusedAgentId: null,
   connected: false,
+  isMobile: typeof window !== "undefined" ? window.innerWidth < 768 : false,
   needsAttention: new Set(),
   sessionsList: new Map(),
   soundTrigger: 0,
@@ -187,6 +192,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       dispatch(msg as Action);
       if (msg.type === "full_state") dispatch({ type: "connected" });
     });
+  }, []);
+
+  // Track mobile viewport
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    function handleResize() {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        dispatch({ type: "set_mobile", isMobile: window.innerWidth < 768 });
+      }, 150);
+    }
+    window.addEventListener("resize", handleResize);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener("resize", handleResize);
+    };
   }, []);
 
   // Sound notification when tab is hidden and any agent finishes work

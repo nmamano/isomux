@@ -28,11 +28,11 @@ function formatDuration(ms: number): string {
   return `${min}:${sec.toString().padStart(2, "0")}`;
 }
 
-function DurationLabel({ ms }: { ms: number }) {
+function DurationLabel({ ms, isMobile }: { ms: number; isMobile?: boolean }) {
   return (
     <span style={{
       marginLeft: "auto",
-      fontSize: 10,
+      fontSize: isMobile ? 12 : 10,
       fontFamily: "'JetBrains Mono',monospace",
       color: "var(--text-ghost)",
       flexShrink: 0,
@@ -46,20 +46,23 @@ export function LogEntryCard({
   entry,
   isLastInTurn,
   turnEntries,
+  isMobile,
 }: {
   entry: LogEntry;
   isLastInTurn?: boolean;
   turnEntries?: LogEntry[];
+  isMobile?: boolean;
 }) {
   switch (entry.kind) {
     case "user_message":
-      return <UserMessage content={entry.content} />;
+      return <UserMessage content={entry.content} isMobile={isMobile} />;
     case "text":
       return (
         <AssistantText
           content={entry.content}
           isLastInTurn={isLastInTurn}
           turnEntries={turnEntries}
+          isMobile={isMobile}
         />
       );
     case "thinking": {
@@ -70,6 +73,7 @@ export function LogEntryCard({
           durationMs={durationMs}
           isLastInTurn={isLastInTurn}
           turnEntries={turnEntries}
+          isMobile={isMobile}
         />
       );
     }
@@ -87,6 +91,7 @@ export function LogEntryCard({
           durationMs={durationMs}
           isLastInTurn={isLastInTurn}
           turnEntries={turnEntries}
+          isMobile={isMobile}
         />
       );
     }
@@ -96,6 +101,7 @@ export function LogEntryCard({
           content={entry.content}
           isLastInTurn={isLastInTurn}
           turnEntries={turnEntries}
+          isMobile={isMobile}
         />
       );
     case "error":
@@ -104,12 +110,13 @@ export function LogEntryCard({
           content={entry.content}
           isLastInTurn={isLastInTurn}
           turnEntries={turnEntries}
+          isMobile={isMobile}
         />
       );
     case "system":
-      return <SystemMessage content={entry.content} />;
+      return <SystemMessage content={entry.content} isMobile={isMobile} />;
     default:
-      return <div style={{ padding: "4px 0", color: "var(--text-muted)", fontSize: 12 }}>{entry.content}</div>;
+      return <div style={{ padding: "4px 0", color: "var(--text-muted)", fontSize: isMobile ? 14 : 12 }}>{entry.content}</div>;
   }
 }
 
@@ -126,12 +133,12 @@ function TurnCopyButton({ turnEntries }: { turnEntries?: LogEntry[] }) {
   );
 }
 
-function UserMessage({ content }: { content: string }) {
+function UserMessage({ content, isMobile }: { content: string; isMobile?: boolean }) {
   const getText = useCallback(() => content, [content]);
   return (
     <div style={{ margin: "12px 0", padding: "10px 14px", paddingRight: 40, borderRadius: 10, background: "var(--user-msg-bg)", borderLeft: "3px solid var(--accent)", position: "relative" }}>
-      <div style={{ fontSize: 10, fontWeight: 600, color: "var(--accent)", marginBottom: 4, fontFamily: "'DM Sans',sans-serif", textTransform: "uppercase", letterSpacing: "0.05em" }}>You</div>
-      <div style={{ color: "var(--text-secondary)", fontFamily: "'JetBrains Mono',monospace", fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{content}</div>
+      <div style={{ fontSize: isMobile ? 12 : 10, fontWeight: 600, color: "var(--accent)", marginBottom: 4, fontFamily: "'DM Sans',sans-serif", textTransform: "uppercase", letterSpacing: "0.05em" }}>You</div>
+      <div style={{ color: "var(--text-secondary)", fontFamily: "'JetBrains Mono',monospace", fontSize: isMobile ? 15 : 13, lineHeight: 1.6, whiteSpace: "pre-wrap", overflowWrap: "break-word", wordBreak: "break-word" }}>{content}</div>
       <div style={{ position: "absolute", top: 8, right: 8 }}>
         <CopyButton getText={getText} />
       </div>
@@ -139,16 +146,16 @@ function UserMessage({ content }: { content: string }) {
   );
 }
 
-function AssistantText({ content, isLastInTurn, turnEntries }: { content: string; isLastInTurn?: boolean; turnEntries?: LogEntry[] }) {
+function AssistantText({ content, isLastInTurn, turnEntries, isMobile }: { content: string; isLastInTurn?: boolean; turnEntries?: LogEntry[]; isMobile?: boolean }) {
   return (
-    <div style={{ margin: "8px 0", padding: "10px 14px", paddingRight: 40, borderRadius: 10, background: "var(--bg-subtle)", position: "relative" }}>
+    <div style={{ margin: "8px 0", padding: "10px 14px", paddingRight: 40, borderRadius: 10, background: "var(--bg-subtle)", position: "relative", fontSize: isMobile ? 15 : undefined }}>
       <Markdown content={content} />
       {isLastInTurn && <TurnCopyButton turnEntries={turnEntries} />}
     </div>
   );
 }
 
-function ThinkingBlock({ content, durationMs, isLastInTurn, turnEntries }: { content: string; durationMs?: number; isLastInTurn?: boolean; turnEntries?: LogEntry[] }) {
+function ThinkingBlock({ content, durationMs, isLastInTurn, turnEntries, isMobile }: { content: string; durationMs?: number; isLastInTurn?: boolean; turnEntries?: LogEntry[]; isMobile?: boolean }) {
   const [open, setOpen] = useState(false);
   return (
     <div style={{ margin: "4px 0", position: "relative" }}>
@@ -157,21 +164,21 @@ function ThinkingBlock({ content, durationMs, isLastInTurn, turnEntries }: { con
         style={{
           display: "flex", alignItems: "center", gap: 6,
           padding: "4px 8px", border: "none", background: "transparent",
-          color: "var(--text-faint)", fontSize: 11, cursor: "pointer",
+          color: "var(--text-faint)", fontSize: isMobile ? 13 : 11, cursor: "pointer",
           fontFamily: "'DM Sans',sans-serif", width: "100%", textAlign: "left",
         }}
       >
         <span style={{ transform: open ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s", display: "inline-block" }}>&#9654;</span>
         Thinking...
-        {durationMs != null && <DurationLabel ms={durationMs} />}
+        {durationMs != null && <DurationLabel ms={durationMs} isMobile={isMobile} />}
       </button>
       {open && (
         <div style={{
           margin: "4px 0 4px 20px", padding: "8px 12px",
           borderRadius: 8, background: "var(--thinking-bg)",
           borderLeft: "2px solid var(--thinking-border)",
-          color: "var(--text-faint)", fontSize: 12, fontFamily: "'JetBrains Mono',monospace",
-          lineHeight: 1.6, whiteSpace: "pre-wrap", maxHeight: 300, overflowY: "auto",
+          color: "var(--text-faint)", fontSize: isMobile ? 14 : 12, fontFamily: "'JetBrains Mono',monospace",
+          lineHeight: 1.6, whiteSpace: "pre-wrap", maxHeight: 300, overflowY: "auto", overflowWrap: "break-word", wordBreak: "break-word",
         }}>
           {content}
         </div>
@@ -181,7 +188,7 @@ function ThinkingBlock({ content, durationMs, isLastInTurn, turnEntries }: { con
   );
 }
 
-function ToolCall({ name, input, durationMs, isLastInTurn, turnEntries }: { name: string; input: unknown; durationMs?: number; isLastInTurn?: boolean; turnEntries?: LogEntry[] }) {
+function ToolCall({ name, input, durationMs, isLastInTurn, turnEntries, isMobile }: { name: string; input: unknown; durationMs?: number; isLastInTurn?: boolean; turnEntries?: LogEntry[]; isMobile?: boolean }) {
   const [open, setOpen] = useState(false);
   const inputStr = typeof input === "string" ? input : JSON.stringify(input, null, 2);
   const summary = extractToolSummary(name, input);
@@ -195,22 +202,22 @@ function ToolCall({ name, input, durationMs, isLastInTurn, turnEntries }: { name
           padding: "5px 10px", paddingRight: isLastInTurn ? 40 : 10,
           border: "1px solid var(--green-border)",
           borderRadius: 6, background: "var(--tool-call-bg)",
-          color: "var(--green)", fontSize: 12, cursor: "pointer",
+          color: "var(--green)", fontSize: isMobile ? 14 : 12, cursor: "pointer",
           fontFamily: "'JetBrains Mono',monospace", width: "100%", textAlign: "left",
         }}
       >
         <span style={{ transform: open ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s", display: "inline-block", fontSize: 8 }}>&#9654;</span>
         <span style={{ fontWeight: 600 }}>{name}</span>
-        {summary && <span style={{ color: "var(--text-faint)", marginLeft: 4, fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{summary}</span>}
-        {durationMs != null && <DurationLabel ms={durationMs} />}
+        {summary && <span style={{ color: "var(--text-faint)", marginLeft: 4, fontSize: isMobile ? 13 : 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{summary}</span>}
+        {durationMs != null && <DurationLabel ms={durationMs} isMobile={isMobile} />}
       </button>
       {open && (
         <div style={{
           margin: "2px 0 2px 20px", padding: "8px 10px",
           borderRadius: 6, background: "var(--tool-open-bg)",
-          fontSize: 11, fontFamily: "'JetBrains Mono',monospace",
+          fontSize: isMobile ? 13 : 11, fontFamily: "'JetBrains Mono',monospace",
           color: "var(--text-dim)", lineHeight: 1.5, whiteSpace: "pre-wrap",
-          maxHeight: 200, overflowY: "auto",
+          maxHeight: 200, overflowY: "auto", overflowX: "auto", maxWidth: "100%",
         }}>
           {inputStr}
         </div>
@@ -220,7 +227,7 @@ function ToolCall({ name, input, durationMs, isLastInTurn, turnEntries }: { name
   );
 }
 
-function ToolResult({ content, isLastInTurn, turnEntries }: { content: string; isLastInTurn?: boolean; turnEntries?: LogEntry[] }) {
+function ToolResult({ content, isLastInTurn, turnEntries, isMobile }: { content: string; isLastInTurn?: boolean; turnEntries?: LogEntry[]; isMobile?: boolean }) {
   const [open, setOpen] = useState(false);
   const isLong = content.length > 200;
   const preview = isLong ? content.slice(0, 150) + "..." : content;
@@ -230,17 +237,17 @@ function ToolResult({ content, isLastInTurn, turnEntries }: { content: string; i
       margin: "2px 0 8px 20px", padding: "6px 10px",
       borderRadius: 6, background: "var(--tool-result-bg)",
       borderLeft: "2px solid var(--green-border)",
-      fontSize: 11, fontFamily: "'JetBrains Mono',monospace",
+      fontSize: isMobile ? 13 : 11, fontFamily: "'JetBrains Mono',monospace",
       color: "var(--text-dim)", lineHeight: 1.5, position: "relative",
     }}>
-      <div style={{ whiteSpace: "pre-wrap" }}>{open ? content : preview}</div>
+      <div style={{ whiteSpace: "pre-wrap", overflowX: "auto", maxWidth: "100%" }}>{open ? content : preview}</div>
       {isLong && (
         <button
           onClick={() => setOpen(!open)}
           style={{
             marginTop: 4, padding: "2px 6px", border: "none",
             background: "var(--expand-btn)", borderRadius: 4,
-            color: "var(--text-faint)", fontSize: 10, cursor: "pointer",
+            color: "var(--text-faint)", fontSize: isMobile ? 12 : 10, cursor: "pointer",
             fontFamily: "'DM Sans',sans-serif",
           }}
         >
@@ -252,14 +259,14 @@ function ToolResult({ content, isLastInTurn, turnEntries }: { content: string; i
   );
 }
 
-function ErrorBlock({ content, isLastInTurn, turnEntries }: { content: string; isLastInTurn?: boolean; turnEntries?: LogEntry[] }) {
+function ErrorBlock({ content, isLastInTurn, turnEntries, isMobile }: { content: string; isLastInTurn?: boolean; turnEntries?: LogEntry[]; isMobile?: boolean }) {
   return (
     <div style={{
       margin: "8px 0", padding: "10px 14px",
       borderRadius: 8, background: "var(--red-bg)",
       borderLeft: "3px solid var(--red)",
-      color: "var(--red)", fontSize: 12, fontFamily: "'JetBrains Mono',monospace",
-      lineHeight: 1.5, whiteSpace: "pre-wrap", position: "relative",
+      color: "var(--red)", fontSize: isMobile ? 14 : 12, fontFamily: "'JetBrains Mono',monospace",
+      lineHeight: 1.5, whiteSpace: "pre-wrap", overflowWrap: "break-word", wordBreak: "break-word", position: "relative",
     }}>
       {content}
       {isLastInTurn && <TurnCopyButton turnEntries={turnEntries} />}
@@ -267,11 +274,11 @@ function ErrorBlock({ content, isLastInTurn, turnEntries }: { content: string; i
   );
 }
 
-function SystemMessage({ content }: { content: string }) {
+function SystemMessage({ content, isMobile }: { content: string; isMobile?: boolean }) {
   return (
     <div style={{
       margin: "8px 0", padding: "6px 0",
-      textAlign: "center", color: "var(--text-ghost)", fontSize: 11,
+      textAlign: "center", color: "var(--text-ghost)", fontSize: isMobile ? 13 : 11,
       fontFamily: "'DM Sans',sans-serif", fontStyle: "italic",
     }}>
       {content}

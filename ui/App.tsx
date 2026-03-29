@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useAppState, useDispatch } from "./store.tsx";
 import { OfficeView } from "./office/OfficeView.tsx";
 import { LogView } from "./log-view/LogView.tsx";
+import { AgentListView } from "./components/AgentListView.tsx";
 import { SpawnDialog } from "./components/SpawnDialog.tsx";
 import { ContextMenu } from "./components/ContextMenu.tsx";
 import { EditAgentDialog } from "./components/EditAgentDialog.tsx";
@@ -9,7 +10,7 @@ import { CSS } from "./styles.ts";
 import type { AgentInfo } from "../shared/types.ts";
 
 export function App() {
-  const { agents, logs, focusedAgentId } = useAppState();
+  const { agents, logs, focusedAgentId, isMobile } = useAppState();
   const dispatch = useDispatch();
   const [spawnDesk, setSpawnDesk] = useState<number | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; agent: AgentInfo } | null>(null);
@@ -61,6 +62,12 @@ export function App() {
           logs={logs.get(focusedAgent.id) ?? []}
           onBack={() => dispatch({ type: "focus", agentId: null })}
           onEditAgent={() => setEditAgent(focusedAgent)}
+        />
+      ) : isMobile ? (
+        <AgentListView
+          onFocus={(agentId) => dispatch({ type: "focus", agentId })}
+          onSpawn={() => setSpawnDesk(0)}
+          onContextMenu={(x, y, agent) => setCtxMenu({ x, y, agent })}
         />
       ) : (
         <OfficeView

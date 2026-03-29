@@ -12,7 +12,7 @@ export function EditAgentDialog({
   agent: AgentInfo;
   onClose: () => void;
 }) {
-  const { recentCwds: allRecentCwds } = useAppState();
+  const { recentCwds: allRecentCwds, isMobile } = useAppState();
   const [name, setName] = useState(agent.name);
   const [cwd, setCwd] = useState(agent.cwd);
   const [outfit, setOutfit] = useState<AgentOutfit>({ ...agent.outfit });
@@ -49,8 +49,9 @@ export function EditAgentDialog({
         background: "rgba(0,0,0,0.55)",
         backdropFilter: "blur(10px)",
         display: "flex",
-        alignItems: "center",
+        alignItems: isMobile ? "flex-start" : "center",
         justifyContent: "center",
+        overflowY: "auto",
       }}
     >
       <div
@@ -61,7 +62,10 @@ export function EditAgentDialog({
           border: "1px solid var(--border-light)",
           borderRadius: 16,
           padding: "24px 28px",
-          width: 380,
+          marginTop: isMobile ? "env(safe-area-inset-top, 16px)" : undefined,
+          marginBottom: isMobile ? 16 : undefined,
+          width: isMobile ? "calc(100% - 32px)" : 380,
+          maxWidth: isMobile ? "100%" : undefined,
           boxShadow: "0 20px 60px var(--shadow-heavy)",
           animation: "hudIn 0.2s ease-out",
         }}
