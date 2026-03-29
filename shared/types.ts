@@ -3,7 +3,7 @@ export type AgentState =
   | "idle"
   | "thinking"
   | "tool_executing"
-  | "active"
+  | "waiting_for_response"
   | "error"
   | "stopped";
 

@@ -1,13 +1,13 @@
 import type { AgentState, AgentOutfit } from "../../shared/types.ts";
 
 // Map our states to visual poses
-function visualState(state: AgentState): "working" | "active" | "error" | "idle" {
+function visualState(state: AgentState): "working" | "waiting_for_response" | "error" | "idle" {
   switch (state) {
     case "thinking":
     case "tool_executing":
       return "working";
-    case "active":
-      return "active";
+    case "waiting_for_response":
+      return "waiting_for_response";
     case "error":
       return "error";
     default:
@@ -93,7 +93,7 @@ export function Character({ state, outfit }: { state: AgentState; outfit: AgentO
     );
   }
 
-  if (vs === "active") {
+  if (vs === "waiting_for_response") {
     return wrap(
       <>
         <rect x="16" y="36" width="20" height="16" fill={bc} rx="3" />

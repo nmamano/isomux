@@ -32,7 +32,7 @@ type Action =
   | { type: "set_mobile"; isMobile: boolean };
 
 // States that warrant attention
-const ATTENTION_STATES = new Set(["idle", "error", "active"]);
+const ATTENTION_STATES = new Set(["idle", "error", "waiting_for_response"]);
 
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {

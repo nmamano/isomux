@@ -1,13 +1,13 @@
 import type { AgentState } from "../../shared/types.ts";
 
 // Map our states to visual categories
-function visualState(state: AgentState): "working" | "active" | "error" | "idle" {
+function visualState(state: AgentState): "working" | "waiting_for_response" | "error" | "idle" {
   switch (state) {
     case "thinking":
     case "tool_executing":
       return "working";
-    case "active":
-      return "active";
+    case "waiting_for_response":
+      return "waiting_for_response";
     case "error":
       return "error";
     default:

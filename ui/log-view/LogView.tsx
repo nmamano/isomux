@@ -10,7 +10,6 @@ import { TerminalPanel } from "./TerminalPanel.tsx";
 const STATE_LABELS: Partial<Record<AgentState, string>> = {
   thinking: "Thinking",
   tool_executing: "Running tool",
-  active: "Active",
 };
 
 const ESCALATION_AMBER_MS = 2 * 60 * 1000; // 2 minutes
@@ -43,7 +42,7 @@ function ActivityIndicator({ state, stateChangedAt, agentId }: { state: AgentSta
   if (!label) return null;
 
   const elapsedMs = stateChangedAt ? now - stateChangedAt : 0;
-  const baseColor = state === "active" ? "var(--purple)" : "var(--green)";
+  const baseColor = state === "waiting_for_response" ? "var(--purple)" : "var(--green)";
   const color = escalationColor(elapsedMs, baseColor);
   const showAbort = elapsedMs >= ESCALATION_AMBER_MS;
 
@@ -100,7 +99,7 @@ function HeaderTimer({ state, stateChangedAt }: { state: AgentState; stateChange
     return () => clearInterval(id);
   }, []);
   const elapsedMs = stateChangedAt ? now - stateChangedAt : 0;
-  const baseColor = state === "active" ? "var(--purple)" : "var(--green)";
+  const baseColor = state === "waiting_for_response" ? "var(--purple)" : "var(--green)";
   const color = escalationColor(elapsedMs, baseColor);
   return (
     <>

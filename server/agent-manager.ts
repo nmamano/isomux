@@ -255,7 +255,7 @@ export async function restoreAgents() {
       cwd: p.cwd,
       outfit: p.outfit,
       permissionMode: p.permissionMode,
-      state: p.lastSessionId ? "active" : "idle",
+      state: p.lastSessionId ? "waiting_for_response" : "idle",
       topic: p.topic ?? null,
       topicStale: false,
       customInstructions: p.customInstructions ?? null,
@@ -447,7 +447,7 @@ function deriveState(msg: SDKMessage): AgentState | null {
     case "tool_progress":
       return "tool_executing";
     case "result":
-      return "active";
+      return "waiting_for_response";
     default:
       return null;
   }
@@ -743,7 +743,7 @@ export async function sendMessage(agentId: string, text: string, username?: stri
         managed.info.topicStale = false;
         emit({ type: "agent_updated", agentId, changes: { topic: picked.topic, topicStale: false } });
         emitEphemeralLog(agentId, "system", `Resumed session: ${picked.topic || picked.sessionId.slice(0, 8) + "..."}`);
-        updateState(agentId, "active");
+        updateState(agentId, "waiting_for_response");
         persistAll();
         if (!picked.topic) {
           generateTopic(agentId);
@@ -824,7 +824,7 @@ async function handleSlashCommand(agentId: string, managed: ManagedAgent, cmd: s
     case "cost": {
       addLogEntry(agentId, "user_message", rawText, userMeta);
       addLogEntry(agentId, "system", "Cost tracking is not yet available in Isomux.");
-      updateState(agentId, "active");
+      updateState(agentId, "waiting_for_response");
       return true;
     }
     case "help": {
@@ -834,7 +834,7 @@ async function handleSlashCommand(agentId: string, managed: ManagedAgent, cmd: s
         ? "\n\nSkills:\n" + managed.skills.map((s) => `  /${s}`).join("\n")
         : "";
       addLogEntry(agentId, "system", `Available commands:\n${commands}${skills}`);
-      updateState(agentId, "active");
+      updateState(agentId, "waiting_for_response");
       return true;
     }
     case "resume": {
@@ -842,7 +842,7 @@ async function handleSlashCommand(agentId: string, managed: ManagedAgent, cmd: s
       const sessions = listAgentSessions(agentId);
       if (sessions.length === 0) {
         emitEphemeralLog(agentId, "system", "No previous sessions found.");
-        updateState(agentId, "active");
+        updateState(agentId, "waiting_for_response");
         return true;
       }
       const lines: string[] = ["Resume a past conversation:\n"];
@@ -862,14 +862,14 @@ async function handleSlashCommand(agentId: string, managed: ManagedAgent, cmd: s
       }
       if (pickable.length === 0) {
         emitEphemeralLog(agentId, "system", "No other sessions to resume.");
-        updateState(agentId, "active");
+        updateState(agentId, "waiting_for_response");
         return true;
       }
       lines.push("\nReply with a number to resume, or anything else to cancel.");
       emitEphemeralLog(agentId, "system", lines.join("\n"));
       managed.pendingResume = true;
       managed.pendingResumeSessions = pickable;
-      updateState(agentId, "active");
+      updateState(agentId, "waiting_for_response");
       return true;
     }
     default: {
@@ -939,7 +939,7 @@ export async function abort(agentId: string) {
     } else {
       managed.session = createSession(managed);
     }
-    updateState(agentId, "active");
+    updateState(agentId, "waiting_for_response");
     addLogEntry(agentId, "system", "Agent interrupted.");
   } catch (err: any) {
     addLogEntry(agentId, "error", `Failed to resume after interrupt: ${err.message}`);
@@ -1017,7 +1017,7 @@ export async function resume(agentId: string, sessionId: string) {
     managed.info.topicStale = false;
     emit({ type: "agent_updated", agentId, changes: { topic: managed.info.topic, topicStale: false } });
 
-    updateState(agentId, "active");
+    updateState(agentId, "waiting_for_response");
     addLogEntry(agentId, "system", `Resumed session: ${managed.info.topic || sessionId.slice(0, 8) + "..."}`);
     persistAll();
 
