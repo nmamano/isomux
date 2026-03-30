@@ -1058,7 +1058,8 @@ const PTY_SIDECAR_PATH = join(import.meta.dir, "pty-sidecar.cjs");
 const MAX_PTY_BUFFER = 100_000;
 
 function sidecarSend(managed: ManagedAgent, msg: Record<string, unknown>) {
-  managed.ptySidecar?.stdin?.write(JSON.stringify(msg) + "\n");
+  const stdin = managed.ptySidecar?.stdin;
+  if (stdin && typeof stdin !== "number") stdin.write(JSON.stringify(msg) + "\n");
 }
 
 export function openTerminal(agentId: string): boolean {

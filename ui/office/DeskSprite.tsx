@@ -49,7 +49,7 @@ function shortenCwd(cwd: string): string {
 
 export function DeskSprite({ state, deskIndex = 0, cwd }: { state: AgentState; deskIndex?: number; cwd?: string }) {
   const vs = visualState(state);
-  const glow = { working: "#50B86C", active: "#9B59B6", error: "#E85D75", idle: "#223" }[vs];
+  const glow = { working: "#50B86C", waiting_for_response: "#9B59B6", error: "#E85D75", idle: "#223" }[vs];
   const on = vs !== "idle";
   const hasPlant = !DESKS_WITHOUT_PLANT.has(deskIndex);
   const hasMug = !DESKS_WITHOUT_MUG.has(deskIndex);
