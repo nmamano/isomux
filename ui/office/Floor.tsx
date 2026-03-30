@@ -148,29 +148,6 @@ export function Walls({ onToggleTheme }: { onToggleTheme?: () => void }) {
       {/* Whiteboard on left wall */}
       <path d="M-100 30 L40 -40 L40 -110 L-100 -40 Z" fill="var(--whiteboard-outer)" stroke="var(--wall-stroke)" strokeWidth="0.8" />
       <path d="M-90 17 L30 -43 L30 -97 L-90 -37 Z" fill="var(--whiteboard-inner)" />
-      {/* "Isomux <3" on the whiteboard, skewed to match left wall */}
-      <g transform="translate(-30, -40) skewY(-27)" onClick={() => window.open("https://isomux.com", "_blank")} style={{ cursor: "pointer", pointerEvents: "auto" }}>
-        <text
-          x="-8" y="0"
-          textAnchor="middle"
-          fill="rgba(80,184,108,0.35)"
-          fontSize="14"
-          fontFamily="'Comic Sans MS', 'Marker Felt', cursive"
-          fontWeight="bold"
-        >
-          Isomux
-        </text>
-        <text
-          x="30" y="3"
-          textAnchor="middle"
-          fill="rgba(232,93,117,0.35)"
-          fontSize="14"
-          fontFamily="'Comic Sans MS', 'Marker Felt', cursive"
-          fontWeight="bold"
-        >
-          {"<3"}
-        </text>
-      </g>
       {/* Clock on right wall (skewed to match 2:1 wall angle ~27°) */}
       <g transform="translate(240,-85) skewY(27)">
         <circle cx="0" cy="0" r={R} fill="var(--wall-decor)" stroke="var(--wall-decor-stroke)" strokeWidth="1" />
@@ -195,6 +172,8 @@ export function Walls({ onToggleTheme }: { onToggleTheme?: () => void }) {
       {/* Letter positions: i(-38), s(-25), o(-11), m(5), u(23), x(37) */}
       {/* On (dark mode) */}
       <g className="neon-sign-on" transform="translate(370, -5) skewY(27)" style={{ animation: "neonFlicker 5s ease-in-out infinite, neonGlow 3s ease-in-out infinite" }}>
+        {/* Hit area */}
+        <rect x="-38" y="-18" width="92" height="32" fill="transparent" style={{ cursor: "pointer", pointerEvents: "auto" }} onClick={() => window.open("https://isomux.com", "_blank")} />
         {/* Letters as thick strokes */}
         <g fill="none" stroke="#ff6ec7" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
           {/* i — dot + stem */}
@@ -232,6 +211,8 @@ export function Walls({ onToggleTheme }: { onToggleTheme?: () => void }) {
       </g>
       {/* Off (light mode) */}
       <g className="neon-sign-off" transform="translate(370, -5) skewY(27)">
+        {/* Hit area */}
+        <rect x="-38" y="-18" width="92" height="32" fill="transparent" style={{ cursor: "pointer", pointerEvents: "auto" }} onClick={() => window.open("https://isomux.com", "_blank")} />
         <g fill="none" stroke="#444" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" opacity="0.7">
           <circle cx="-32" cy="-12" r="1.2" fill="#444" stroke="none" />
           <line x1="-32" y1="-8" x2="-32" y2="2" />
