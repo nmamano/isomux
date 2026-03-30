@@ -9,7 +9,7 @@ import { SCENE_W, SCENE_H } from "./grid.ts";
 import { send } from "../ws.ts";
 import type { AgentInfo } from "../../shared/types.ts";
 
-export function OfficeView({ onSpawn, onContextMenu, username, onEditUsername }: { onSpawn: (deskIndex: number) => void; onContextMenu: (x: number, y: number, agent: AgentInfo) => void; username: string; onEditUsername: () => void }) {
+export function OfficeView({ onSpawn, onContextMenu, username, onEditUsername, onEditOfficePrompt }: { onSpawn: (deskIndex: number) => void; onContextMenu: (x: number, y: number, agent: AgentInfo) => void; username: string; onEditUsername: () => void; onEditOfficePrompt: () => void }) {
   const { agents, needsAttention, stateChangedAt } = useAppState();
   const dispatch = useDispatch();
   const { theme, toggleTheme } = useTheme();
@@ -120,6 +120,21 @@ export function OfficeView({ onSpawn, onContextMenu, username, onEditUsername }:
           >
             {username.toUpperCase()}
           </span>
+          <button
+            onClick={onEditOfficePrompt}
+            style={{
+              padding: "4px 10px",
+              borderRadius: 8,
+              border: "1px solid var(--border-medium)",
+              background: "var(--btn-surface)",
+              color: "var(--text-dim)",
+              fontSize: 11,
+              cursor: "pointer",
+              fontFamily: "'DM Sans',sans-serif",
+            }}
+          >
+            Office rules
+          </button>
           <button
             onClick={toggleTheme}
             style={{

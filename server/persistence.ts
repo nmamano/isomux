@@ -1,11 +1,12 @@
 import { join } from "path";
 import { homedir } from "os";
-import { mkdirSync, appendFileSync, readFileSync, writeFileSync, existsSync, readdirSync } from "fs";
+import { mkdirSync, appendFileSync, readFileSync, writeFileSync, existsSync, readdirSync, unlinkSync } from "fs";
 import type { AgentInfo, LogEntry } from "../shared/types.ts";
 
 const ISOMUX_DIR = join(homedir(), ".isomux");
 const LOGS_DIR = join(ISOMUX_DIR, "logs");
 const AGENTS_FILE = join(ISOMUX_DIR, "agents.json");
+const OFFICE_PROMPT_FILE = join(ISOMUX_DIR, "office-prompt.md");
 
 // Ensure directories exist
 try {
@@ -178,5 +179,28 @@ export function saveRecentCwd(cwd: string) {
     writeFileSync(RECENT_CWDS_FILE, JSON.stringify(recent.slice(0, MAX_RECENT_CWDS), null, 2));
   } catch (err) {
     console.error("Failed to save recent cwd:", err);
+  }
+}
+
+// Office-global system prompt
+export function loadOfficePrompt(): string {
+  try {
+    if (!existsSync(OFFICE_PROMPT_FILE)) return "";
+    return readFileSync(OFFICE_PROMPT_FILE, "utf-8");
+  } catch {
+    return "";
+  }
+}
+
+export function saveOfficePrompt(text: string) {
+  try {
+    const trimmed = text.trim();
+    if (trimmed) {
+      writeFileSync(OFFICE_PROMPT_FILE, trimmed);
+    } else if (existsSync(OFFICE_PROMPT_FILE)) {
+      unlinkSync(OFFICE_PROMPT_FILE);
+    }
+  } catch (err) {
+    console.error("Failed to save office prompt:", err);
   }
 }

@@ -6,7 +6,7 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentInfo, AgentState, LogEntry } from "../shared/types.ts";
 import { generateOutfit } from "./outfit.ts";
-import { appendLog, loadLog, loadAgents, saveAgents, listAgentSessions, writeManifest, persistSessionTopic, type PersistedAgent } from "./persistence.ts";
+import { appendLog, loadLog, loadAgents, saveAgents, listAgentSessions, writeManifest, persistSessionTopic, loadOfficePrompt, saveOfficePrompt, type PersistedAgent } from "./persistence.ts";
 import { createSafetyHooks } from "./safety-hooks.ts";
 import { resolve, join } from "path";
 import { homedir } from "os";
@@ -81,9 +81,12 @@ function discoverProjectSkills(cwd: string): string[] {
 }
 
 // Create a launcher script that sets cwd and injects system prompt before running the CLI
-function createLauncher(agentId: string, cwd: string, agentName: string, customInstructions?: string | null): string {
+function createLauncher(agentId: string, cwd: string, agentName: string, officePrompt?: string, customInstructions?: string | null): string {
   const launcherPath = join(LAUNCHERS_DIR, `${agentId}.mjs`);
   let systemPrompt = `You are ${agentName}, one of the agents in the Isomux office. Your goal is to help the office bosses, who talk to you in this chat. Messages are prefixed with the sender's name in brackets.\n\nTo discover other office agents and their conversation logs, read ~/.isomux/agents-summary.json.`;
+  if (officePrompt) {
+    systemPrompt += `\n\n${officePrompt}`;
+  }
   if (customInstructions) {
     systemPrompt += `\n\n${customInstructions}`;
   }
@@ -131,6 +134,16 @@ type EventHandler = (event: AgentEvent) => void;
 const agents = new Map<string, ManagedAgent>();
 const logCache = new Map<string, LogEntry[]>(); // agentId → entries
 let eventHandler: EventHandler = () => {};
+let officePrompt: string = loadOfficePrompt();
+
+export function getOfficePrompt(): string {
+  return officePrompt;
+}
+
+export function setOfficePrompt(text: string) {
+  officePrompt = text.trim();
+  saveOfficePrompt(officePrompt);
+}
 
 export function onEvent(handler: EventHandler) {
   eventHandler = handler;
@@ -184,7 +197,7 @@ export function editAgent(agentId: string, changes: { name?: string; cwd?: strin
 
   // Regenerate launcher if name, cwd, or customInstructions changed (takes effect on next conversation)
   if (updated.name !== undefined || updated.cwd !== undefined || updated.customInstructions !== undefined) {
-    managed.launcherPath = createLauncher(agentId, managed.info.cwd, managed.info.name, managed.info.customInstructions);
+    managed.launcherPath = createLauncher(agentId, managed.info.cwd, managed.info.name, officePrompt, managed.info.customInstructions);
   }
 
   persistAll();
@@ -247,7 +260,7 @@ export async function restoreAgents() {
 
   const persisted = loadAgents();
   for (const p of persisted) {
-    const launcherPath = createLauncher(p.id, p.cwd, p.name, p.customInstructions);
+    const launcherPath = createLauncher(p.id, p.cwd, p.name, officePrompt, p.customInstructions);
     const info: AgentInfo = {
       id: p.id,
       name: p.name,
@@ -648,7 +661,7 @@ export async function spawn(name: string, cwd: string, permissionMode: AgentInfo
 
   const resolvedCwd = resolveCwd(cwd);
   const id = `agent-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-  const launcherPath = createLauncher(id, resolvedCwd, name, customInstructions);
+  const launcherPath = createLauncher(id, resolvedCwd, name, officePrompt, customInstructions);
 
   const info: AgentInfo = {
     id,

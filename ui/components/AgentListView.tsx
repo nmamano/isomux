@@ -9,12 +9,14 @@ export function AgentListView({
   onContextMenu,
   username,
   onEditUsername,
+  onEditOfficePrompt,
 }: {
   onFocus: (agentId: string) => void;
   onSpawn: () => void;
   onContextMenu: (x: number, y: number, agent: AgentInfo) => void;
   username: string;
   onEditUsername: () => void;
+  onEditOfficePrompt: () => void;
 }) {
   const { agents, connected } = useAppState();
   const { theme, toggleTheme } = useTheme();
@@ -82,6 +84,21 @@ export function AgentListView({
           >
             {username.toUpperCase()}
           </span>
+          <button
+            onClick={onEditOfficePrompt}
+            style={{
+              background: "var(--btn-surface)",
+              border: "1px solid var(--border)",
+              borderRadius: 8,
+              padding: "6px 10px",
+              color: "var(--text-dim)",
+              fontSize: 11,
+              cursor: "pointer",
+              fontFamily: "'DM Sans',sans-serif",
+            }}
+          >
+            Office rules
+          </button>
           <button
             onClick={toggleTheme}
             style={{

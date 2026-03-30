@@ -7,6 +7,7 @@ import { SpawnDialog } from "./components/SpawnDialog.tsx";
 import { ContextMenu } from "./components/ContextMenu.tsx";
 import { EditAgentDialog } from "./components/EditAgentDialog.tsx";
 import { UsernameModal } from "./components/UsernameModal.tsx";
+import { OfficePromptModal } from "./components/OfficePromptModal.tsx";
 import { CSS } from "./styles.ts";
 import type { AgentInfo } from "../shared/types.ts";
 
@@ -23,6 +24,7 @@ export function App() {
     return null;
   });
   const [editingUsername, setEditingUsername] = useState(false);
+  const [editingOfficePrompt, setEditingOfficePrompt] = useState(false);
 
   const focusedAgent = focusedAgentId ? agents.find((a) => a.id === focusedAgentId) : null;
 
@@ -96,6 +98,7 @@ export function App() {
           onContextMenu={(x, y, agent) => setCtxMenu({ x, y, agent })}
           username={username ?? ""}
           onEditUsername={() => setEditingUsername(true)}
+          onEditOfficePrompt={() => setEditingOfficePrompt(true)}
         />
       ) : (
         <OfficeView
@@ -103,6 +106,7 @@ export function App() {
           onContextMenu={(x, y, agent) => setCtxMenu({ x, y, agent })}
           username={username ?? ""}
           onEditUsername={() => setEditingUsername(true)}
+          onEditOfficePrompt={() => setEditingOfficePrompt(true)}
         />
       )}
       {spawnDesk !== null && (
@@ -126,6 +130,9 @@ export function App() {
           agent={editAgent}
           onClose={() => setEditAgent(null)}
         />
+      )}
+      {editingOfficePrompt && (
+        <OfficePromptModal onClose={() => setEditingOfficePrompt(false)} />
       )}
     </>
   );

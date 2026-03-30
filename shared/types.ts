@@ -57,7 +57,8 @@ export type ServerMessage =
   | { type: "slash_commands"; agentId: string; commands: string[]; skills: string[] }
   | { type: "clear_logs"; agentId: string }
   | { type: "terminal_output"; agentId: string; data: string }
-  | { type: "terminal_exit"; agentId: string; exitCode: number };
+  | { type: "terminal_exit"; agentId: string; exitCode: number }
+  | { type: "office_prompt"; text: string };
 
 // Browser → Server commands
 export type ClientCommand =
@@ -75,4 +76,5 @@ export type ClientCommand =
   | { type: "terminal_open"; agentId: string }
   | { type: "terminal_input"; agentId: string; data: string }
   | { type: "terminal_resize"; agentId: string; cols: number; rows: number }
-  | { type: "terminal_close"; agentId: string };
+  | { type: "terminal_close"; agentId: string }
+  | { type: "set_office_prompt"; text: string };

@@ -84,6 +84,9 @@ async function handleCommand(cmd: ClientCommand) {
     case "terminal_close":
       AgentManager.closeTerminal(cmd.agentId);
       break;
+    case "set_office_prompt":
+      AgentManager.setOfficePrompt(cmd.text);
+      break;
   }
 }
 
@@ -119,6 +122,8 @@ const server = Bun.serve({
       const agents = AgentManager.getAllAgents();
       const recentCwds = loadRecentCwds();
       ws.send(JSON.stringify({ type: "full_state", agents, recentCwds } as ServerMessage));
+      // Send office prompt
+      ws.send(JSON.stringify({ type: "office_prompt", text: AgentManager.getOfficePrompt() } as ServerMessage));
       // Send cached log history and slash commands for each agent
       for (const agent of agents) {
         const logs = AgentManager.getAgentLogs(agent.id);
