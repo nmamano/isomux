@@ -53,7 +53,11 @@ export function Character({ state, outfit }: { state: AgentState; outfit: AgentO
           </>
         )}
         {outfit.accessory === "headphones" && (
-          <path d="M14 33 Q14 22 26 22 Q38 22 38 33" stroke="#555" fill="none" strokeWidth="3" />
+          <>
+            <path d="M14 33 Q14 22 26 22 Q38 22 38 33" stroke="#555" fill="none" strokeWidth="3" />
+            <rect x="10" y="31" width="8" height="10" rx="3" fill="#555" />
+            <rect x="34" y="31" width="8" height="10" rx="3" fill="#555" />
+          </>
         )}
         {/* Closed eyes */}
         <line x1="20" y1="38" x2="24" y2="38" stroke="#333" strokeWidth="1" strokeLinecap="round" />
@@ -150,7 +154,11 @@ export function Character({ state, outfit }: { state: AgentState; outfit: AgentO
           </>
         )}
         {outfit.accessory === "headphones" && (
-          <path d="M14 20 Q14 9 26 9 Q38 9 38 20" stroke="#555" fill="none" strokeWidth="3" />
+          <>
+            <path d="M14 20 Q14 9 26 9 Q38 9 38 20" stroke="#555" fill="none" strokeWidth="3" />
+            <rect x="10" y="18" width="8" height="10" rx="3" fill="#555" />
+            <rect x="34" y="18" width="8" height="10" rx="3" fill="#555" />
+          </>
         )}
         <circle cx="22" cy="26" r="1.8" fill="#333" />
         <circle cx="30" cy="26" r="1.8" fill="#333" />
@@ -193,7 +201,11 @@ export function Character({ state, outfit }: { state: AgentState; outfit: AgentO
         </>
       )}
       {outfit.accessory === "headphones" && (
-        <path d="M14 20 Q14 9 26 9 Q38 9 38 20" stroke="#555" fill="none" strokeWidth="3" />
+        <>
+          <path d="M14 20 Q14 9 26 9 Q38 9 38 20" stroke="#555" fill="none" strokeWidth="3" />
+          <rect x="10" y="18" width="8" height="10" rx="3" fill="#555" />
+          <rect x="34" y="18" width="8" height="10" rx="3" fill="#555" />
+        </>
       )}
       <circle cx="22" cy="26" r="1.5" fill="#333" />
       <circle cx="30" cy="26" r="1.5" fill="#333" />
