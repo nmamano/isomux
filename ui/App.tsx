@@ -13,7 +13,7 @@ import { CSS } from "./styles.ts";
 import type { AgentInfo } from "../shared/types.ts";
 
 export function App() {
-  const { agents, logs, focusedAgentId, isMobile } = useAppState();
+  const { agents, logs, focusedAgentId, isMobile, drafts } = useAppState();
   const dispatch = useDispatch();
   const [spawnDesk, setSpawnDesk] = useState<number | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; agent: AgentInfo } | null>(null);
@@ -53,8 +53,8 @@ export function App() {
       if (focusedAgentId && e.key === "Tab" && agents.length > 1 && !e.defaultPrevented) {
         e.preventDefault();
         const sorted = [...agents].sort((a, b) => a.desk - b.desk);
-        // Skip idle agents (but always allow cycling if all are idle)
-        const nonIdle = sorted.filter((a) => a.state !== "idle" && a.state !== "stopped");
+        // Skip idle/stopped agents unless they have a non-empty draft
+        const nonIdle = sorted.filter((a) => (a.state !== "idle" && a.state !== "stopped") || (drafts.get(a.id) ?? "").length > 0);
         const pool = nonIdle.length > 0 ? nonIdle : sorted;
         const idx = pool.findIndex((a) => a.id === focusedAgentId);
         // If current agent isn't in the pool, start from the beginning
@@ -67,7 +67,7 @@ export function App() {
     }
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [dispatch, focusedAgentId, agents]);
+  }, [dispatch, focusedAgentId, agents, drafts]);
 
   return (
     <>
