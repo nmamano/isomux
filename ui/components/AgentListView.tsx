@@ -1,3 +1,4 @@
+import { useState, useRef, useEffect } from "react";
 import { useAppState } from "../store.tsx";
 import { useTheme } from "../store.tsx";
 import { StatusLight } from "../office/StatusLight.tsx";
@@ -23,6 +24,19 @@ export function AgentListView({
 }) {
   const { agents, connected } = useAppState();
   const { theme, toggleTheme } = useTheme();
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [menuOpen]);
 
   return (
     <div
@@ -71,53 +85,96 @@ export function AgentListView({
           />
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span
-            onClick={onEditUsername}
-            style={{
-              color: "var(--text-dim)",
-              fontSize: 12,
-              fontFamily: "'JetBrains Mono',monospace",
-              cursor: "pointer",
-              padding: "4px 8px",
-              borderRadius: 6,
-              border: "1px solid var(--border)",
-              background: "var(--btn-surface)",
-            }}
-            title="Change name"
-          >
-            {username.toUpperCase()}
-          </span>
-          <TodoButton isMobile onOpen={onOpenTodos} />
-          <button
-            onClick={onEditOfficePrompt}
-            style={{
-              background: "var(--btn-surface)",
-              border: "1px solid var(--border)",
-              borderRadius: 8,
-              padding: "6px 10px",
-              color: "var(--text-dim)",
-              fontSize: 11,
-              cursor: "pointer",
-              fontFamily: "'DM Sans',sans-serif",
-            }}
-          >
-            Office rules
-          </button>
-          <button
-            onClick={toggleTheme}
-            style={{
-              background: "var(--btn-surface)",
-              border: "1px solid var(--border)",
-              borderRadius: 8,
-              padding: "6px 10px",
-              color: "var(--text-dim)",
-              fontSize: 14,
-              cursor: "pointer",
-              lineHeight: 1,
-            }}
-          >
-            {theme === "dark" ? "\u2600" : "\u263E"}
-          </button>
+          <div style={{ position: "relative" }} ref={menuRef}>
+            <button
+              onClick={() => setMenuOpen((v) => !v)}
+              style={{
+                background: "var(--btn-surface)",
+                border: "1px solid var(--border)",
+                borderRadius: 8,
+                padding: "6px 10px",
+                color: "var(--text-dim)",
+                fontSize: 18,
+                cursor: "pointer",
+                lineHeight: 1,
+              }}
+            >
+              &#8943;
+            </button>
+            {menuOpen && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "calc(100% + 6px)",
+                  right: 0,
+                  background: "var(--bg-surface)",
+                  border: "1px solid var(--border)",
+                  borderRadius: 10,
+                  boxShadow: "0 8px 24px var(--shadow-heavy)",
+                  minWidth: 180,
+                  zIndex: 200,
+                  overflow: "hidden",
+                }}
+              >
+                <button
+                  onClick={() => { setMenuOpen(false); onOpenTodos(); }}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 10,
+                    width: "100%", padding: "12px 16px",
+                    background: "transparent", border: "none",
+                    color: "var(--text-primary)", fontSize: 14,
+                    cursor: "pointer", textAlign: "left",
+                    fontFamily: "'DM Sans',sans-serif",
+                  }}
+                >
+                  <span style={{ width: 20, textAlign: "center", fontSize: 15 }}>&#9745;</span>
+                  <span>Todos</span>
+                </button>
+                <button
+                  onClick={() => { setMenuOpen(false); onEditUsername(); }}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 10,
+                    width: "100%", padding: "12px 16px",
+                    background: "transparent", border: "none",
+                    color: "var(--text-primary)", fontSize: 14,
+                    cursor: "pointer", textAlign: "left",
+                    fontFamily: "'DM Sans',sans-serif",
+                  }}
+                >
+                  <span style={{ width: 20, textAlign: "center", fontSize: 15 }}>&#9998;</span>
+                  <span>{username}</span>
+                </button>
+                <button
+                  onClick={() => { setMenuOpen(false); onEditOfficePrompt(); }}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 10,
+                    width: "100%", padding: "12px 16px",
+                    background: "transparent", border: "none",
+                    color: "var(--text-primary)", fontSize: 14,
+                    cursor: "pointer", textAlign: "left",
+                    fontFamily: "'DM Sans',sans-serif",
+                  }}
+                >
+                  <span style={{ width: 20, textAlign: "center", fontSize: 15 }}>&#9881;</span>
+                  <span>Office rules</span>
+                </button>
+                <button
+                  onClick={() => { setMenuOpen(false); toggleTheme(); }}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 10,
+                    width: "100%", padding: "12px 16px",
+                    background: "transparent", border: "none",
+                    color: "var(--text-primary)", fontSize: 14,
+                    cursor: "pointer", textAlign: "left",
+                    fontFamily: "'DM Sans',sans-serif",
+                  }}
+                >
+                  <span style={{ width: 20, textAlign: "center", fontSize: 15 }}>{theme === "dark" ? "\u2600" : "\u263E"}</span>
+                  <span>{theme === "dark" ? "Light mode" : "Dark mode"}</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
