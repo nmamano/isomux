@@ -644,7 +644,7 @@ async function consumeStream(agentId: string, managed: ManagedAgent) {
   managed.streaming = true;
   try {
     for await (const msg of managed.session.stream()) {
-      if (!agents.has(agentId) || managed.aborting) break;
+      if (!agents.has(agentId) || gen !== managed.streamGeneration) break;
       processMessage(agentId, msg);
     }
   } catch (err: any) {
