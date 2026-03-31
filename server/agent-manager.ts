@@ -24,6 +24,19 @@ const CLI_PATH = join(import.meta.dir, "..", "node_modules", "@anthropic-ai", "c
 // Built-in CLI commands that the SDK doesn't report in slash_commands
 const BUILTIN_COMMANDS = ["clear", "compact", "cost", "context", "help", "init", "login", "logout", "memory", "resume", "review", "status", "fast"];
 
+const LOGIN_INSTRUCTIONS = `To authenticate:
+1. Open the built-in terminal
+2. Run \`claude\`
+3. Type \`/login\`
+4. Follow the auth flow
+
+Once complete, it takes effect immediately for all Isomux agents.`;
+
+const AUTH_ERROR_PATTERNS = /unauthori[zs]ed|not authenticated|authentication|auth.*expired|invalid.*token|login.*required|403|401/i;
+function isAuthError(text: string): boolean {
+  return AUTH_ERROR_PATTERNS.test(text);
+}
+
 // Scan disk for user-defined skills and commands that the SDK doesn't report
 function discoverUserSkills(): string[] {
   const skills: string[] = [];
@@ -590,7 +603,11 @@ function processMessage(agentId: string, msg: SDKMessage) {
       const subtype = (msg as any).subtype;
       if (subtype !== "success") {
         const errors = (msg as any).errors;
-        addLogEntry(agentId, "error", `Agent stopped: ${subtype}. ${errors?.join(", ") || ""}`);
+        const errorText = `Agent stopped: ${subtype}. ${errors?.join(", ") || ""}`;
+        addLogEntry(agentId, "error", errorText);
+        if (isAuthError(errorText)) {
+          emitEphemeralLog(agentId, "system", LOGIN_INSTRUCTIONS);
+        }
         updateState(agentId, "error");
       }
       break;
@@ -610,7 +627,11 @@ async function consumeStream(agentId: string, managed: ManagedAgent) {
   } catch (err: any) {
     if (!managed.aborting) {
       console.error(`Agent ${agentId} stream error:`, err.message);
-      addLogEntry(agentId, "error", `Stream error: ${err.message}`);
+      const errorText = `Stream error: ${err.message}`;
+      addLogEntry(agentId, "error", errorText);
+      if (isAuthError(errorText)) {
+        emitEphemeralLog(agentId, "system", LOGIN_INSTRUCTIONS);
+      }
       updateState(agentId, "error");
     }
   } finally {
@@ -729,6 +750,8 @@ export async function sendMessage(agentId: string, text: string, username?: stri
     const trimmed = text.trim();
     const num = parseInt(trimmed, 10);
     if (!isNaN(num) && num >= 1 && num <= managed.pendingResumeSessions.length) {
+      const userMeta = username ? { username } : undefined;
+      emitEphemeralLog(agentId, "user_message", text, userMeta);
       const picked = managed.pendingResumeSessions[num - 1];
       managed.pendingResumeSessions = [];
       // Persist current session topic before switching
@@ -809,7 +832,7 @@ async function handleSlashCommand(agentId: string, managed: ManagedAgent, cmd: s
   const userMeta = username ? { username } : undefined;
   switch (cmd) {
     case "clear": {
-      addLogEntry(agentId, "user_message", rawText, userMeta);
+      emitEphemeralLog(agentId, "user_message", rawText, userMeta);
       managed.pendingResume = false;
       managed.pendingResumeSessions = [];
       persistCurrentSessionTopic(agentId, managed);
@@ -824,7 +847,7 @@ async function handleSlashCommand(agentId: string, managed: ManagedAgent, cmd: s
       logCache.set(agentId, []);
       emit({ type: "clear_logs", agentId } as any);
       emit({ type: "agent_updated", agentId, changes: { topic: null, topicStale: false } });
-      addLogEntry(agentId, "system", "Conversation cleared.");
+      emitEphemeralLog(agentId, "system", "Conversation cleared.");
       updateState(agentId, "idle");
       persistAll();
       return true;
@@ -882,6 +905,18 @@ async function handleSlashCommand(agentId: string, managed: ManagedAgent, cmd: s
       emitEphemeralLog(agentId, "system", lines.join("\n"));
       managed.pendingResume = true;
       managed.pendingResumeSessions = pickable;
+      updateState(agentId, "waiting_for_response");
+      return true;
+    }
+    case "login": {
+      emitEphemeralLog(agentId, "user_message", rawText, userMeta);
+      emitEphemeralLog(agentId, "system", LOGIN_INSTRUCTIONS);
+      updateState(agentId, "waiting_for_response");
+      return true;
+    }
+    case "logout": {
+      emitEphemeralLog(agentId, "user_message", rawText, userMeta);
+      emitEphemeralLog(agentId, "system", "To log out:\n1. Open the built-in terminal\n2. Run `claude logout`");
       updateState(agentId, "waiting_for_response");
       return true;
     }

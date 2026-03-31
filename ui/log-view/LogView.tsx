@@ -165,6 +165,15 @@ export function LogView({
     setSelectedIdx(0);
   }, [filteredCommands.length, partial]);
 
+  // Re-enable auto-scroll when logs are cleared (e.g. /resume, /clear)
+  const prevLogsLen = useRef(logs.length);
+  useEffect(() => {
+    if (logs.length === 0 && prevLogsLen.current > 0) {
+      setAutoScroll(true);
+    }
+    prevLogsLen.current = logs.length;
+  }, [logs.length]);
+
   useEffect(() => {
     if (autoScroll && scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
