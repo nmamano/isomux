@@ -53,10 +53,15 @@ export function App() {
       if (focusedAgentId && e.key === "Tab" && agents.length > 1 && !e.defaultPrevented) {
         e.preventDefault();
         const sorted = [...agents].sort((a, b) => a.desk - b.desk);
-        const idx = sorted.findIndex((a) => a.id === focusedAgentId);
+        // Skip idle agents (but always allow cycling if all are idle)
+        const nonIdle = sorted.filter((a) => a.state !== "idle" && a.state !== "stopped");
+        const pool = nonIdle.length > 0 ? nonIdle : sorted;
+        const idx = pool.findIndex((a) => a.id === focusedAgentId);
+        // If current agent isn't in the pool, start from the beginning
+        const startIdx = idx === -1 ? 0 : idx;
         const next = e.shiftKey
-          ? sorted[(idx - 1 + sorted.length) % sorted.length]
-          : sorted[(idx + 1) % sorted.length];
+          ? pool[(startIdx - 1 + pool.length) % pool.length]
+          : pool[(startIdx + 1) % pool.length];
         dispatch({ type: "focus", agentId: next.id });
       }
     }
