@@ -130,6 +130,7 @@ interface ManagedAgent {
   sessionId: string | null;
   streaming: boolean;
   aborting: boolean;
+  streamGeneration: number; // incremented on abort to invalidate old consumeStream cleanup
   launcherPath: string;
   slashCommands: string[];
   skills: SkillInfo[];
@@ -304,6 +305,7 @@ export async function restoreAgents() {
       sessionId: p.lastSessionId,
       streaming: false,
       aborting: false,
+      streamGeneration: 0,
       launcherPath,
       slashCommands: autocompleteCommands(),
       skills: deduplicateSkills([...discoverUserSkills(), ...discoverProjectSkills(p.cwd), ...discoverBundledSkills()]),
@@ -638,6 +640,7 @@ function processMessage(agentId: string, msg: SDKMessage) {
 // Consume the stream from an SDK session (one turn at a time)
 async function consumeStream(agentId: string, managed: ManagedAgent) {
   if (!managed.session) return;
+  const gen = managed.streamGeneration;
   managed.streaming = true;
   try {
     for await (const msg of managed.session.stream()) {
@@ -646,17 +649,42 @@ async function consumeStream(agentId: string, managed: ManagedAgent) {
     }
   } catch (err: any) {
     if (!managed.aborting) {
-      console.error(`Agent ${agentId} stream error:`, err.message);
-      const errorText = `Stream error: ${err.message}`;
-      addLogEntry(agentId, "error", errorText);
-      if (isAuthError(errorText)) {
-        emitEphemeralLog(agentId, "system", LOGIN_INSTRUCTIONS);
+      // Check if this is a leftover abort error from a prior interrupt.
+      // The SDK session can throw "aborted by user" on the first stream after
+      // an abort even though we already recreated the session. When this happens,
+      // the SDK may have buffered our send() internally, causing an off-by-one
+      // response on the next message. Recreate the session to clear stale state.
+      const isAbortError = /abort/i.test(err.message || "");
+      if (isAbortError) {
+        console.warn(`Agent ${agentId}: post-abort stream error, recreating session`);
+        const sessionId = managed.sessionId;
+        try { managed.session?.close(); } catch {}
+        try {
+          managed.session = sessionId ? createSession(managed, sessionId) : createSession(managed);
+        } catch (recreateErr: any) {
+          console.error(`Agent ${agentId}: failed to recreate session:`, recreateErr.message);
+          addLogEntry(agentId, "error", `Failed to recover after abort: ${recreateErr.message}`);
+          updateState(agentId, "error");
+          return;
+        }
+        updateState(agentId, "waiting_for_response");
+      } else {
+        console.error(`Agent ${agentId} stream error:`, err.message);
+        const errorText = `Stream error: ${err.message}`;
+        addLogEntry(agentId, "error", errorText);
+        if (isAuthError(errorText)) {
+          emitEphemeralLog(agentId, "system", LOGIN_INSTRUCTIONS);
+        }
+        updateState(agentId, "error");
       }
-      updateState(agentId, "error");
     }
   } finally {
-    managed.streaming = false;
-    managed.aborting = false;
+    // Only clear flags if this is still the current stream generation.
+    // A newer abort() or sendMessage() may have already started a new stream.
+    if (managed.streamGeneration === gen) {
+      managed.streaming = false;
+      managed.aborting = false;
+    }
   }
 }
 
@@ -723,6 +751,7 @@ export async function spawn(name: string, cwd: string, permissionMode: AgentInfo
     sessionId: null,
     streaming: false,
     aborting: false,
+    streamGeneration: 0,
     launcherPath,
     slashCommands: autocompleteCommands(),
     skills: deduplicateSkills([...discoverUserSkills(), ...discoverProjectSkills(resolvedCwd), ...discoverBundledSkills()]),
@@ -1117,6 +1146,7 @@ export async function abort(agentId: string) {
   if (!managed) return;
   if (!managed.streaming) return; // nothing to abort
   managed.aborting = true;
+  managed.streamGeneration++; // invalidate old consumeStream's finally cleanup
   const sessionId = managed.sessionId;
   try { managed.session?.close(); } catch {}
   managed.streaming = false;
