@@ -1,5 +1,5 @@
 import { createContext, useContext, useReducer, useEffect, useRef, useState, useCallback, type ReactNode, type Dispatch } from "react";
-import type { AgentInfo, LogEntry, SessionInfo, ServerMessage, TodoItem } from "../shared/types.ts";
+import type { AgentInfo, LogEntry, SessionInfo, ServerMessage, SkillInfo, TodoItem } from "../shared/types.ts";
 import { connect } from "./ws.ts";
 
 export interface AppState {
@@ -13,7 +13,7 @@ export interface AppState {
   soundTrigger: number; // increments when any agent finishes work (for sound regardless of focus)
   drafts: Map<string, string>; // agentId → unsent chat input
   recentCwds: string[]; // persisted recent working directories
-  slashCommands: Map<string, { commands: string[]; skills: string[] }>; // agentId → available commands
+  slashCommands: Map<string, { commands: string[]; skills: SkillInfo[] }>; // agentId → available commands
   stateChangedAt: Map<string, number>; // agentId → timestamp when agent state last changed
   officePrompt: string;
   todos: TodoItem[];
@@ -29,7 +29,7 @@ type Action =
   | { type: "connected" }
   | { type: "sessions_list"; agentId: string; sessions: SessionInfo[]; currentSessionId: string | null }
   | { type: "set_draft"; agentId: string; text: string }
-  | { type: "slash_commands"; agentId: string; commands: string[]; skills: string[] }
+  | { type: "slash_commands"; agentId: string; commands: string[]; skills: SkillInfo[] }
   | { type: "clear_logs"; agentId: string }
   | { type: "set_mobile"; isMobile: boolean }
   | { type: "office_prompt"; text: string }

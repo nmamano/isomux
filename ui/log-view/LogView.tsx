@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
-import type { AgentInfo, AgentState, LogEntry } from "../../shared/types.ts";
+import type { AgentInfo, AgentState, LogEntry, SkillInfo } from "../../shared/types.ts";
 import { StatusLight } from "../office/StatusLight.tsx";
 import { send } from "../ws.ts";
 import { useAppState, useDispatch } from "../store.tsx";
@@ -138,17 +138,25 @@ export function LogView({
   const topicSavedRef = useRef(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
 
-  // Build merged command list for autocomplete
+  // Build merged command list for autocomplete, with origin labels for skills
   const agentCmds = slashCommands.get(agent.id);
-  const allCommands = useMemo(() => {
+  const { allCommands, skillOrigins } = useMemo(() => {
     const cmds: string[] = [];
+    const origins = new Map<string, string>(); // name → origin label
+    const originLabels: Record<string, string> = {
+      user: "user skill",
+      project: "project skill",
+      isomux: "isomux-bundled skill",
+      claude: "claude skill",
+    };
     if (agentCmds) {
       for (const c of agentCmds.commands) cmds.push(c);
       for (const s of agentCmds.skills) {
-        if (!cmds.includes(s)) cmds.push(s);
+        if (!cmds.includes(s.name)) cmds.push(s.name);
+        origins.set(s.name, originLabels[s.origin] ?? "skill");
       }
     }
-    return cmds.sort();
+    return { allCommands: cmds.sort(), skillOrigins: origins };
   }, [agentCmds]);
 
   // Filter commands based on input
@@ -600,7 +608,7 @@ export function LogView({
                 }}
               >
                 {filteredCommands.map((cmd, i) => {
-                  const isSkill = agentCmds?.skills.includes(cmd);
+                  const originLabel = skillOrigins.get(cmd);
                   return (
                     <div
                       key={cmd}
@@ -628,7 +636,7 @@ export function LogView({
                       }}>
                         /{cmd}
                       </span>
-                      {isSkill && (
+                      {originLabel && (
                         <span style={{
                           fontSize: 10,
                           color: "var(--text-ghost)",
@@ -637,7 +645,7 @@ export function LogView({
                           padding: "1px 6px",
                           borderRadius: 4,
                         }}>
-                          skill
+                          {originLabel}
                         </span>
                       )}
                     </div>

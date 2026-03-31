@@ -54,6 +54,13 @@ export interface SessionInfo {
   topic: string | null;
 }
 
+// Skill metadata for autocomplete and /help
+export type SkillOrigin = "user" | "project" | "isomux" | "claude";
+export interface SkillInfo {
+  name: string;
+  origin: SkillOrigin;
+}
+
 // Server → Browser messages
 export type ServerMessage =
   | { type: "full_state"; agents: AgentInfo[]; recentCwds: string[] }
@@ -62,7 +69,7 @@ export type ServerMessage =
   | { type: "agent_updated"; agentId: string; changes: Partial<AgentInfo> }
   | { type: "log_entry"; entry: LogEntry }
   | { type: "sessions_list"; agentId: string; sessions: SessionInfo[]; currentSessionId: string | null }
-  | { type: "slash_commands"; agentId: string; commands: string[]; skills: string[] }
+  | { type: "slash_commands"; agentId: string; commands: string[]; skills: SkillInfo[] }
   | { type: "clear_logs"; agentId: string }
   | { type: "terminal_output"; agentId: string; data: string }
   | { type: "terminal_exit"; agentId: string; exitCode: number }

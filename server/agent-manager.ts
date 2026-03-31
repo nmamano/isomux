@@ -4,10 +4,11 @@ import {
   unstable_v2_prompt,
   type SDKMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { AgentInfo, AgentState, LogEntry } from "../shared/types.ts";
+import type { AgentInfo, AgentState, LogEntry, SkillInfo, SkillOrigin } from "../shared/types.ts";
 import { generateOutfit } from "./outfit.ts";
 import { appendLog, loadLog, loadAgents, saveAgents, listAgentSessions, writeManifest, persistSessionTopic, loadOfficePrompt, saveOfficePrompt, type PersistedAgent } from "./persistence.ts";
 import { createSafetyHooks } from "./safety-hooks.ts";
+import { commands, autocompleteCommands, unsupportedMessage, type CommandConfig } from "./commands.ts";
 import { resolve, join } from "path";
 import { homedir } from "os";
 import { writeFileSync, mkdirSync, readdirSync, existsSync, readFileSync, rmSync } from "fs";
@@ -20,9 +21,6 @@ const BUNDLED_SKILLS_DIR = join(import.meta.dir, "..", "skills");
 mkdirSync(LAUNCHERS_DIR, { recursive: true });
 
 const CLI_PATH = join(import.meta.dir, "..", "node_modules", "@anthropic-ai", "claude-agent-sdk", "cli.js");
-
-// Built-in CLI commands that the SDK doesn't report in slash_commands
-const BUILTIN_COMMANDS = ["clear", "compact", "cost", "context", "help", "init", "login", "logout", "memory", "resume", "review", "status", "fast"];
 
 const LOGIN_INSTRUCTIONS = `To authenticate:
 1. Open the built-in terminal
@@ -38,14 +36,14 @@ function isAuthError(text: string): boolean {
 }
 
 // Scan disk for user-defined skills and commands that the SDK doesn't report
-function discoverUserSkills(): string[] {
-  const skills: string[] = [];
-  // Global user skills: ~/.claude/skills/skills/<name>/SKILL.md
+function discoverUserSkills(): SkillInfo[] {
+  const skills: SkillInfo[] = [];
+  // Global user skills: ~/.claude/skills/<name>/SKILL.md
   const globalSkillsDir = join(homedir(), ".claude", "skills");
   if (existsSync(globalSkillsDir)) {
     try {
       for (const entry of readdirSync(globalSkillsDir, { withFileTypes: true })) {
-        if (entry.isDirectory()) skills.push(entry.name);
+        if (entry.isDirectory()) skills.push({ name: entry.name, origin: "user" });
       }
     } catch {}
   }
@@ -55,7 +53,7 @@ function discoverUserSkills(): string[] {
     try {
       for (const entry of readdirSync(globalCmdsDir, { withFileTypes: true })) {
         if (entry.isFile() && entry.name.endsWith(".md")) {
-          skills.push(entry.name.replace(/\.md$/, ""));
+          skills.push({ name: entry.name.replace(/\.md$/, ""), origin: "user" });
         }
       }
     } catch {}
@@ -64,12 +62,12 @@ function discoverUserSkills(): string[] {
 }
 
 // Scan skills bundled with isomux
-function discoverBundledSkills(): string[] {
-  const skills: string[] = [];
+function discoverBundledSkills(): SkillInfo[] {
+  const skills: SkillInfo[] = [];
   if (existsSync(BUNDLED_SKILLS_DIR)) {
     try {
       for (const entry of readdirSync(BUNDLED_SKILLS_DIR, { withFileTypes: true })) {
-        if (entry.isDirectory()) skills.push(entry.name);
+        if (entry.isDirectory()) skills.push({ name: entry.name, origin: "isomux" });
       }
     } catch {}
   }
@@ -77,20 +75,33 @@ function discoverBundledSkills(): string[] {
 }
 
 // Also scan project-level skills for a given cwd
-function discoverProjectSkills(cwd: string): string[] {
-  const skills: string[] = [];
+function discoverProjectSkills(cwd: string): SkillInfo[] {
+  const skills: SkillInfo[] = [];
   // Project commands: <cwd>/.claude/commands/<name>.md
   const projCmdsDir = join(cwd, ".claude", "commands");
   if (existsSync(projCmdsDir)) {
     try {
       for (const entry of readdirSync(projCmdsDir, { withFileTypes: true })) {
         if (entry.isFile() && entry.name.endsWith(".md")) {
-          skills.push(entry.name.replace(/\.md$/, ""));
+          skills.push({ name: entry.name.replace(/\.md$/, ""), origin: "project" });
         }
       }
     } catch {}
   }
   return skills;
+}
+
+// Deduplicate skills by name, keeping the first (highest-priority) occurrence
+function deduplicateSkills(skills: SkillInfo[]): SkillInfo[] {
+  const seen = new Set<string>();
+  const result: SkillInfo[] = [];
+  for (const s of skills) {
+    if (!seen.has(s.name)) {
+      seen.add(s.name);
+      result.push(s);
+    }
+  }
+  return result;
 }
 
 // Create a launcher script that sets cwd and injects system prompt before running the CLI
@@ -121,7 +132,8 @@ interface ManagedAgent {
   aborting: boolean;
   launcherPath: string;
   slashCommands: string[];
-  skills: string[];
+  skills: SkillInfo[];
+  sdkReportedCommands: string[]; // commands reported by SDK in system:init
   // Timing: track when phases start for duration_ms computation
   thinkingStartedAt: number;
   toolCallTimestamps: Map<string, number>; // toolUseId → start timestamp
@@ -293,8 +305,9 @@ export async function restoreAgents() {
       streaming: false,
       aborting: false,
       launcherPath,
-      slashCommands: [...BUILTIN_COMMANDS],
-      skills: [...discoverBundledSkills(), ...discoverUserSkills(), ...discoverProjectSkills(p.cwd)],
+      slashCommands: autocompleteCommands(),
+      skills: deduplicateSkills([...discoverUserSkills(), ...discoverProjectSkills(p.cwd), ...discoverBundledSkills()]),
+      sdkReportedCommands: [],
       thinkingStartedAt: 0,
       toolCallTimestamps: new Map(),
       topicGenerating: false,
@@ -521,22 +534,29 @@ function processMessage(agentId: string, msg: SDKMessage) {
         }
         // Capture available slash commands and skills from init
         const sdkCommands: string[] = (msg as any).slash_commands ?? [];
-        const sdkSkills: string[] = (msg as any).skills ?? [];
         // Filter out MCP internal command names (mcp__...) — they clutter autocomplete
         const filteredSdkCommands = sdkCommands.filter((c) => !c.startsWith("mcp__"));
-        // Merge built-in, SDK-reported, and user-defined skills
-        const userSkills = managed ? [...discoverBundledSkills(), ...discoverUserSkills(), ...discoverProjectSkills(managed.info.cwd)] : [];
-        const allSkills = [...new Set([...sdkSkills, ...userSkills])];
-        const allCommands = [...new Set([...BUILTIN_COMMANDS, ...filteredSdkCommands])];
+        // Store SDK-reported commands for pass-through resolution (step 4)
         if (managed) {
-          managed.slashCommands = allCommands;
-          managed.skills = allSkills;
+          managed.sdkReportedCommands = filteredSdkCommands;
+        }
+        // Autocomplete: config entries with autocomplete:true + all discovered skills
+        // SDK-reported commands are NOT added to autocomplete (per design)
+        // Skills are listed in priority order; deduplicate by name (highest priority wins)
+        const discoveredSkills = managed
+          ? [...discoverUserSkills(), ...discoverProjectSkills(managed.info.cwd), ...discoverBundledSkills()]
+          : [];
+        const uniqueSkills = deduplicateSkills(discoveredSkills);
+        const configCommands = autocompleteCommands();
+        if (managed) {
+          managed.slashCommands = configCommands;
+          managed.skills = uniqueSkills;
         }
         emit({
           type: "slash_commands",
           agentId,
-          commands: allCommands,
-          skills: allSkills,
+          commands: configCommands,
+          skills: uniqueSkills,
         } as any);
       } else if (subtype === "local_command_output") {
         const content = (msg as any).content;
@@ -704,8 +724,9 @@ export async function spawn(name: string, cwd: string, permissionMode: AgentInfo
     streaming: false,
     aborting: false,
     launcherPath,
-    slashCommands: [...BUILTIN_COMMANDS],
-    skills: [...discoverBundledSkills(), ...discoverUserSkills(), ...discoverProjectSkills(resolvedCwd)],
+    slashCommands: autocompleteCommands(),
+    skills: deduplicateSkills([...discoverUserSkills(), ...discoverProjectSkills(resolvedCwd), ...discoverBundledSkills()]),
+    sdkReportedCommands: [],
     thinkingStartedAt: 0,
     toolCallTimestamps: new Map(),
     topicGenerating: false,
@@ -828,195 +849,252 @@ function persistCurrentSessionTopic(agentId: string, managed: ManagedAgent) {
   }
 }
 
-async function handleSlashCommand(agentId: string, managed: ManagedAgent, cmd: string, args: string[], rawText: string, username?: string): Promise<boolean> {
-  const userMeta = username ? { username } : undefined;
-  switch (cmd) {
-    case "clear": {
-      emitEphemeralLog(agentId, "user_message", rawText, userMeta);
-      managed.pendingResume = false;
-      managed.pendingResumeSessions = [];
-      persistCurrentSessionTopic(agentId, managed);
-      try { managed.session?.close(); } catch {}
-      managed.session = createSession(managed);
-      managed.sessionId = null;
-      managed.streaming = false;
-      managed.topicGenerating = false;
-      managed.topicMessageCount = 0;
-      managed.info.topic = null;
-      managed.info.topicStale = false;
-      logCache.set(agentId, []);
-      emit({ type: "clear_logs", agentId } as any);
-      emit({ type: "agent_updated", agentId, changes: { topic: null, topicStale: false } });
-      emitEphemeralLog(agentId, "system", "Conversation cleared.");
-      updateState(agentId, "idle");
-      persistAll();
+// ---------------------------------------------------------------------------
+// Command handler registry — each supported command maps to a handler function.
+// The handler key in commands.ts must match a key here.
+// ---------------------------------------------------------------------------
+
+type HandlerFn = (agentId: string, managed: ManagedAgent, args: string[], rawText: string, username?: string) => Promise<boolean>;
+
+const commandHandlers: Record<string, HandlerFn> = {
+  async clear(agentId, managed, _args, rawText, username) {
+    const userMeta = username ? { username } : undefined;
+    emitEphemeralLog(agentId, "user_message", rawText, userMeta);
+    managed.pendingResume = false;
+    managed.pendingResumeSessions = [];
+    persistCurrentSessionTopic(agentId, managed);
+    try { managed.session?.close(); } catch {}
+    managed.session = createSession(managed);
+    managed.sessionId = null;
+    managed.streaming = false;
+    managed.topicGenerating = false;
+    managed.topicMessageCount = 0;
+    managed.info.topic = null;
+    managed.info.topicStale = false;
+    logCache.set(agentId, []);
+    emit({ type: "clear_logs", agentId } as any);
+    emit({ type: "agent_updated", agentId, changes: { topic: null, topicStale: false } });
+    emitEphemeralLog(agentId, "system", "Conversation cleared.");
+    updateState(agentId, "idle");
+    persistAll();
+    return true;
+  },
+
+  async context(agentId, managed, _args, rawText, username) {
+    const userMeta = username ? { username } : undefined;
+    emitEphemeralLog(agentId, "user_message", rawText, userMeta);
+    if (!managed.session) {
+      emitEphemeralLog(agentId, "system", "No active session.");
       return true;
     }
-    case "compact": {
-      // Compact is handled by sending it to the agent as a regular message
-      // The SDK/CLI handles it internally
-      return false;
-    }
-    case "context": {
-      emitEphemeralLog(agentId, "user_message", rawText, userMeta);
-      if (!managed.session) {
-        emitEphemeralLog(agentId, "system", "No active session.");
+    try {
+      const query = (managed.session as any).query;
+      if (!query?.getContextUsage) {
+        emitEphemeralLog(agentId, "system", "Context usage not available for this session.");
         return true;
       }
-      try {
-        // getContextUsage() lives on the internal query object, not on the v2 session surface
-        const query = (managed.session as any).query;
-        if (!query?.getContextUsage) {
-          emitEphemeralLog(agentId, "system", "Context usage not available for this session.");
-          return true;
-        }
-        const ctx = await query.getContextUsage();
-        const lines: string[] = [];
+      const ctx = await query.getContextUsage();
+      const lines: string[] = [];
 
-        // Header with model and usage bar
-        const pct = Math.round(ctx.percentage);
-        const barLen = 30;
-        const filled = Math.round(barLen * ctx.percentage / 100);
-        const bar = "█".repeat(filled) + "░".repeat(barLen - filled);
-        lines.push(`**${ctx.model}** — ${ctx.totalTokens.toLocaleString()} / ${ctx.maxTokens.toLocaleString()} tokens (${pct}%)`);
-        lines.push(`\`${bar}\``);
+      const pct = Math.round(ctx.percentage);
+      const barLen = 30;
+      const filled = Math.round(barLen * ctx.percentage / 100);
+      const bar = "\u2588".repeat(filled) + "\u2591".repeat(barLen - filled);
+      lines.push(`**${ctx.model}** \u2014 ${ctx.totalTokens.toLocaleString()} / ${ctx.maxTokens.toLocaleString()} tokens (${pct}%)`);
+      lines.push(`\`${bar}\``);
 
-        // Category breakdown
-        if (ctx.categories?.length > 0) {
-          lines.push("");
-          for (const cat of ctx.categories) {
-            if (cat.tokens > 0) {
-              const catPct = ((cat.tokens / ctx.maxTokens) * 100).toFixed(1);
-              lines.push(`  ${cat.name}: ${cat.tokens.toLocaleString()} tokens (${catPct}%)`);
-            }
+      if (ctx.categories?.length > 0) {
+        lines.push("");
+        for (const cat of ctx.categories) {
+          if (cat.tokens > 0) {
+            const catPct = ((cat.tokens / ctx.maxTokens) * 100).toFixed(1);
+            lines.push(`  ${cat.name}: ${cat.tokens.toLocaleString()} tokens (${catPct}%)`);
           }
         }
-
-        // Memory files
-        if (ctx.memoryFiles?.length > 0) {
-          lines.push("\n**Memory files:**");
-          for (const f of ctx.memoryFiles) {
-            lines.push(`  ${f.path} (${f.tokens.toLocaleString()} tokens)`);
-          }
-        }
-
-        // System prompt sections
-        if (ctx.systemPromptSections?.length > 0) {
-          lines.push("\n**System prompt:**");
-          for (const s of ctx.systemPromptSections) {
-            lines.push(`  ${s.name}: ${s.tokens.toLocaleString()} tokens`);
-          }
-        }
-
-        // Auto-compact info
-        if (ctx.isAutoCompactEnabled && ctx.autoCompactThreshold) {
-          const compactPct = Math.round((ctx.autoCompactThreshold / ctx.maxTokens) * 100);
-          lines.push(`\nAuto-compact at ${compactPct}% (${ctx.autoCompactThreshold.toLocaleString()} tokens)`);
-        }
-
-        emitEphemeralLog(agentId, "system", lines.join("\n"));
-      } catch (err: any) {
-        emitEphemeralLog(agentId, "system", `Failed to get context usage: ${err.message}`);
       }
-      return true;
-    }
-    case "cost": {
-      addLogEntry(agentId, "user_message", rawText, userMeta);
-      addLogEntry(agentId, "system", "Cost tracking is not yet available in Isomux.");
-      updateState(agentId, "waiting_for_response");
-      return true;
-    }
-    case "help": {
-      addLogEntry(agentId, "user_message", rawText, userMeta);
-      const commands = managed.slashCommands.map((c) => `  /${c}`).join("\n");
-      const skills = managed.skills.length > 0
-        ? "\n\nSkills:\n" + managed.skills.map((s) => `  /${s}`).join("\n")
-        : "";
-      addLogEntry(agentId, "system", `Available commands:\n${commands}${skills}`);
-      updateState(agentId, "waiting_for_response");
-      return true;
-    }
-    case "resume": {
-      emitEphemeralLog(agentId, "user_message", rawText, userMeta);
-      const sessions = listAgentSessions(agentId);
-      if (sessions.length === 0) {
-        emitEphemeralLog(agentId, "system", "No previous sessions found.");
-        updateState(agentId, "waiting_for_response");
-        return true;
-      }
-      const lines: string[] = ["Resume a past conversation:\n"];
-      let num = 1;
-      const pickable: typeof sessions = [];
-      for (const s of sessions.slice(0, 20)) {
-        const date = new Date(s.lastModified);
-        const dateStr = date.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-        const label = s.topic || s.sessionId.slice(0, 8) + "...";
-        if (s.sessionId === managed.sessionId) {
-          lines.push(`  ● ${label}  ${dateStr}  (current)`);
-        } else {
-          lines.push(`  ${num}. ${label}  ${dateStr}`);
-          pickable.push(s);
-          num++;
+
+      if (ctx.memoryFiles?.length > 0) {
+        lines.push("\n**Memory files:**");
+        for (const f of ctx.memoryFiles) {
+          lines.push(`  ${f.path} (${f.tokens.toLocaleString()} tokens)`);
         }
       }
-      if (pickable.length === 0) {
-        emitEphemeralLog(agentId, "system", "No other sessions to resume.");
-        updateState(agentId, "waiting_for_response");
-        return true;
+
+      if (ctx.systemPromptSections?.length > 0) {
+        lines.push("\n**System prompt:**");
+        for (const s of ctx.systemPromptSections) {
+          lines.push(`  ${s.name}: ${s.tokens.toLocaleString()} tokens`);
+        }
       }
-      lines.push("\nReply with a number to resume, or anything else to cancel.");
+
+      if (ctx.isAutoCompactEnabled && ctx.autoCompactThreshold) {
+        const compactPct = Math.round((ctx.autoCompactThreshold / ctx.maxTokens) * 100);
+        lines.push(`\nAuto-compact at ${compactPct}% (${ctx.autoCompactThreshold.toLocaleString()} tokens)`);
+      }
+
       emitEphemeralLog(agentId, "system", lines.join("\n"));
-      managed.pendingResume = true;
-      managed.pendingResumeSessions = pickable;
+    } catch (err: any) {
+      emitEphemeralLog(agentId, "system", `Failed to get context usage: ${err.message}`);
+    }
+    return true;
+  },
+
+  async help(agentId, managed, _args, rawText, username) {
+    const userMeta = username ? { username } : undefined;
+    addLogEntry(agentId, "user_message", rawText, userMeta);
+    const cmdList = managed.slashCommands.map((c) => `  /${c}`).join("\n");
+    const originLabel: Record<SkillOrigin, string> = {
+      user: "user skill",
+      project: "project skill",
+      isomux: "isomux-bundled skill",
+      claude: "claude skill",
+    };
+    const skillList = managed.skills.length > 0
+      ? "\n\nSkills:\n" + managed.skills.map((s) => `  /${s.name}  (${originLabel[s.origin]})`).join("\n")
+      : "";
+    addLogEntry(agentId, "system", `Available commands:\n${cmdList}${skillList}`);
+    updateState(agentId, "waiting_for_response");
+    return true;
+  },
+
+  async resume(agentId, managed, _args, rawText, username) {
+    const userMeta = username ? { username } : undefined;
+    emitEphemeralLog(agentId, "user_message", rawText, userMeta);
+    const sessions = listAgentSessions(agentId);
+    if (sessions.length === 0) {
+      emitEphemeralLog(agentId, "system", "No previous sessions found.");
       updateState(agentId, "waiting_for_response");
       return true;
     }
-    case "login": {
-      emitEphemeralLog(agentId, "user_message", rawText, userMeta);
-      emitEphemeralLog(agentId, "system", LOGIN_INSTRUCTIONS);
-      updateState(agentId, "waiting_for_response");
-      return true;
-    }
-    case "logout": {
-      emitEphemeralLog(agentId, "user_message", rawText, userMeta);
-      emitEphemeralLog(agentId, "system", "To log out:\n1. Open the built-in terminal\n2. Run `claude logout`");
-      updateState(agentId, "waiting_for_response");
-      return true;
-    }
-    default: {
-      // Check if it's a user-defined skill
-      const skillPrompt = resolveSkillPrompt(cmd, managed.info.cwd);
-      if (skillPrompt) {
-        const userArgs = args.join(" ");
-        const fullPrompt = userArgs
-          ? `${skillPrompt}\n\nUser context: ${userArgs}`
-          : skillPrompt;
-        addLogEntry(agentId, "user_message", rawText, userMeta);
-        updateState(agentId, "thinking");
-        const prefixedSkillPrompt = username ? `[${username}] ${fullPrompt}` : fullPrompt;
-        try {
-          await managed.session!.send(prefixedSkillPrompt);
-          await consumeStream(agentId, managed);
-        } catch (err: any) {
-          addLogEntry(agentId, "error", `Skill error: ${err.message}`);
-          updateState(agentId, "error");
-        }
-        return true;
+    const lines: string[] = ["Resume a past conversation:\n"];
+    let num = 1;
+    const pickable: typeof sessions = [];
+    for (const s of sessions.slice(0, 20)) {
+      const date = new Date(s.lastModified);
+      const dateStr = date.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+      const label = s.topic || s.sessionId.slice(0, 8) + "...";
+      if (s.sessionId === managed.sessionId) {
+        lines.push(`  \u25cf ${label}  ${dateStr}  (current)`);
+      } else {
+        lines.push(`  ${num}. ${label}  ${dateStr}`);
+        pickable.push(s);
+        num++;
       }
-      // Not a built-in or skill — pass through to the agent as-is
-      return false;
     }
+    if (pickable.length === 0) {
+      emitEphemeralLog(agentId, "system", "No other sessions to resume.");
+      updateState(agentId, "waiting_for_response");
+      return true;
+    }
+    lines.push("\nReply with a number to resume, or anything else to cancel.");
+    emitEphemeralLog(agentId, "system", lines.join("\n"));
+    managed.pendingResume = true;
+    managed.pendingResumeSessions = pickable;
+    updateState(agentId, "waiting_for_response");
+    return true;
+  },
+
+  async login(agentId, _managed, _args, rawText, username) {
+    const userMeta = username ? { username } : undefined;
+    emitEphemeralLog(agentId, "user_message", rawText, userMeta);
+    emitEphemeralLog(agentId, "system", LOGIN_INSTRUCTIONS);
+    updateState(agentId, "waiting_for_response");
+    return true;
+  },
+
+  async logout(agentId, _managed, _args, rawText, username) {
+    const userMeta = username ? { username } : undefined;
+    emitEphemeralLog(agentId, "user_message", rawText, userMeta);
+    emitEphemeralLog(agentId, "system", "To log out:\n1. Open the built-in terminal\n2. Run `claude logout`");
+    updateState(agentId, "waiting_for_response");
+    return true;
+  },
+};
+
+// Startup assertion: every supported command with a handler key must have a matching handler
+for (const [name, cfg] of Object.entries(commands)) {
+  if (cfg.supported && cfg.handler && !commandHandlers[cfg.handler]) {
+    throw new Error(`Command /${name} is marked supported with handler "${cfg.handler}" but no handler exists`);
   }
 }
 
-// Resolve a skill name to its prompt text, checking user and project skill dirs
+// ---------------------------------------------------------------------------
+// Slash command resolution — 5-step priority order (see docs/slash-command-design.md)
+// ---------------------------------------------------------------------------
+
+async function handleSlashCommand(agentId: string, managed: ManagedAgent, cmd: string, args: string[], rawText: string, username?: string): Promise<boolean> {
+  const userMeta = username ? { username } : undefined;
+  const cfg: CommandConfig | undefined = commands[cmd];
+
+  // Step 1: Config lookup (non-overridable)
+  if (cfg && !cfg.overridable) {
+    if (cfg.supported && cfg.handler && commandHandlers[cfg.handler]) {
+      return commandHandlers[cfg.handler](agentId, managed, args, rawText, username);
+    }
+    // Unsupported non-overridable command — show message
+    emitEphemeralLog(agentId, "user_message", rawText, userMeta);
+    emitEphemeralLog(agentId, "system", unsupportedMessage(cmd));
+    return true;
+  }
+
+  // Step 2: Skill override check (for overridable config entries OR unknown commands)
+  const skillPrompt = resolveSkillPrompt(cmd, managed.info.cwd);
+  if (skillPrompt) {
+    return executeSkill(agentId, managed, skillPrompt, args, rawText, username);
+  }
+
+  // Step 3: Config lookup (overridable, no skill found)
+  if (cfg && cfg.overridable) {
+    if (cfg.supported && cfg.handler && commandHandlers[cfg.handler]) {
+      return commandHandlers[cfg.handler](agentId, managed, args, rawText, username);
+    }
+    // Unsupported overridable command with no skill override
+    emitEphemeralLog(agentId, "user_message", rawText, userMeta);
+    emitEphemeralLog(agentId, "system", unsupportedMessage(cmd));
+    return true;
+  }
+
+  // Step 4: SDK-reported commands — pass through to the agent via session.send()
+  if (managed.sdkReportedCommands.includes(cmd)) {
+    return false; // let sendMessage() pass it through
+  }
+
+  // Step 5: Unknown command
+  emitEphemeralLog(agentId, "user_message", rawText, userMeta);
+  emitEphemeralLog(agentId, "system", `Unknown command \`/${cmd}\`. Type \`/help\` to see available commands.`);
+  return true;
+}
+
+// Execute a resolved skill prompt by sending it to the agent
+async function executeSkill(agentId: string, managed: ManagedAgent, skillPrompt: string, args: string[], rawText: string, username?: string): Promise<boolean> {
+  const userMeta = username ? { username } : undefined;
+  const userArgs = args.join(" ");
+  const fullPrompt = userArgs
+    ? `${skillPrompt}\n\nUser context: ${userArgs}`
+    : skillPrompt;
+  addLogEntry(agentId, "user_message", rawText, userMeta);
+  updateState(agentId, "thinking");
+  const prefixedSkillPrompt = username ? `[${username}] ${fullPrompt}` : fullPrompt;
+  try {
+    await managed.session!.send(prefixedSkillPrompt);
+    await consumeStream(agentId, managed);
+  } catch (err: any) {
+    addLogEntry(agentId, "error", `Skill error: ${err.message}`);
+    updateState(agentId, "error");
+  }
+  return true;
+}
+
+// Resolve a skill name to its prompt text, checking skill dirs in priority order:
+// 1. User skills (~/.claude/) — highest skill tier
+// 2. Project skills (<cwd>/.claude/)
+// 3. Isomux bundled skills (isomux/skills/)
 function resolveSkillPrompt(name: string, cwd: string): string | null {
   const candidates = [
-    // Project and user skills take priority over bundled
-    join(cwd, ".claude", "skills", name, "SKILL.md"),
-    join(cwd, ".claude", "commands", `${name}.md`),
     join(homedir(), ".claude", "skills", name, "SKILL.md"),
     join(homedir(), ".claude", "commands", `${name}.md`),
+    join(cwd, ".claude", "skills", name, "SKILL.md"),
+    join(cwd, ".claude", "commands", `${name}.md`),
     join(BUNDLED_SKILLS_DIR, name, "SKILL.md"),
   ];
   for (const path of candidates) {
