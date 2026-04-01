@@ -76,9 +76,9 @@ export function Walls({ onToggleTheme, onEditOfficePrompt, hasOfficePrompt, onOp
     [0.5, 0.15, 0.8], [0.7, 0.9, 0.5], [0.85, 0.1, 0.6], [0.3, 0.55, 0.5],
   ];
   const stars = starUV.map(([u, v, r]) => {
-    const topY = 30 + u * ((-40) - 30);    // top edge: 30 to -40
-    const botY = 120 + u * (50 - 120);      // bottom edge: 120 to 50
-    const x = -295 + u * 140;
+    const topY = 25 + u * ((-45) - 25);    // top edge: 25 to -45
+    const botY = 115 + u * (45 - 115);      // bottom edge: 115 to 45
+    const x = -285 + u * 140;
     const y = topY + v * (botY - topY);
     return [x, y, r] as [number, number, number];
   });
@@ -88,7 +88,7 @@ export function Walls({ onToggleTheme, onEditOfficePrompt, hasOfficePrompt, onOp
       <defs>
         {/* Clip the sky scene to the window pane (iso parallelogram) */}
         <clipPath id="window-clip">
-          <path d="M-295 120 L-155 50 L-155 -40 L-295 30 Z" />
+          <path d="M-285 115 L-145 45 L-145 -45 L-285 25 Z" />
         </clipPath>
       </defs>
 
@@ -99,13 +99,13 @@ export function Walls({ onToggleTheme, onEditOfficePrompt, hasOfficePrompt, onOp
 
       {/* Window on left wall */}
       {/* Frame */}
-      <path d="M-300 125 L-150 50 L-150 -45 L-300 30 Z" fill="var(--wall-decor)" stroke="var(--wall-stroke)" strokeWidth="1" />
+      <path d="M-290 120 L-140 45 L-140 -50 L-290 25 Z" fill="var(--wall-decor)" stroke="var(--wall-stroke)" strokeWidth="1" />
       {/* Pane area */}
-      <path d="M-295 120 L-155 50 L-155 -40 L-295 30 Z" fill="#0a0e1a" />
+      <path d="M-285 115 L-145 45 L-145 -45 L-285 25 Z" fill="#0a0e1a" />
 
       {/* Night scene (dark mode) */}
       <g clipPath="url(#window-clip)" className="window-night">
-        <path d="M-295 120 L-155 50 L-155 -40 L-295 30 Z" fill="#0a0e1a" />
+        <path d="M-285 115 L-145 45 L-145 -45 L-285 25 Z" fill="#0a0e1a" />
         {/* Stars */}
         {stars.map(([sx, sy, sr], i) => (
           <circle key={i} cx={sx} cy={sy} r={sr} fill="white" opacity={0.4 + (i % 4) * 0.15}>
@@ -116,34 +116,34 @@ export function Walls({ onToggleTheme, onEditOfficePrompt, hasOfficePrompt, onOp
         ))}
         {/* Moon — crescent via overlapping circles (clickable to toggle theme) */}
         <g onClick={onToggleTheme} style={{ cursor: "pointer", pointerEvents: "auto" }}>
-          <circle cx={-210} cy={-5} r={18} fill="transparent" />
-          <circle cx={-210} cy={-5} r={12} fill="#E8E0C8" />
-          <circle cx={-210 + moonPhase * 10} cy={-6} r={10} fill="#0a0e1a" />
+          <circle cx={-203} cy={-8} r={18} fill="transparent" />
+          <circle cx={-203} cy={-8} r={12} fill="#E8E0C8" />
+          <circle cx={-203 + moonPhase * 10} cy={-9} r={10} fill="#0a0e1a" />
           {/* Moon glow */}
-          <circle cx={-210} cy={-5} r={18} fill="#E8E0C8" opacity="0.05" />
+          <circle cx={-203} cy={-8} r={18} fill="#E8E0C8" opacity="0.05" />
         </g>
       </g>
 
       {/* Day scene (light mode) */}
       <g clipPath="url(#window-clip)" className="window-day">
-        <path d="M-295 120 L-155 50 L-155 -40 L-295 30 Z" fill="#87CEEB" />
+        <path d="M-285 115 L-145 45 L-145 -45 L-285 25 Z" fill="#87CEEB" />
         {/* Sun (clickable to toggle theme) */}
         <g onClick={onToggleTheme} style={{ cursor: "pointer", pointerEvents: "auto" }}>
-          <circle cx={-215} cy={0} r={20} fill="transparent" />
-          <circle cx={-215} cy={0} r={14} fill="#F5D060" />
-          <circle cx={-215} cy={0} r={20} fill="#F5D060" opacity="0.15" />
+          <circle cx={-205} cy={-5} r={20} fill="transparent" />
+          <circle cx={-205} cy={-5} r={14} fill="#F5D060" />
+          <circle cx={-205} cy={-5} r={20} fill="#F5D060" opacity="0.15" />
         </g>
         {/* Clouds */}
-        <ellipse cx={-250} cy={45} rx={18} ry={6} fill="white" opacity="0.7" />
-        <ellipse cx={-240} cy={42} rx={12} ry={5} fill="white" opacity="0.6" />
-        <ellipse cx={-185} cy={10} rx={14} ry={5} fill="white" opacity="0.5" />
-        <ellipse cx={-175} cy={8} rx={10} ry={4} fill="white" opacity="0.45" />
+        <ellipse cx={-240} cy={40} rx={18} ry={6} fill="white" opacity="0.7" />
+        <ellipse cx={-230} cy={37} rx={12} ry={5} fill="white" opacity="0.6" />
+        <ellipse cx={-175} cy={5} rx={14} ry={5} fill="white" opacity="0.5" />
+        <ellipse cx={-165} cy={3} rx={10} ry={4} fill="white" opacity="0.45" />
       </g>
 
       {/* Window crossbar (vertical center divider) */}
-      <line x1={-225} y1={85} x2={-225} y2={-5} stroke="var(--wall-decor)" strokeWidth="2" />
+      <line x1={-215} y1={80} x2={-215} y2={-10} stroke="var(--wall-decor)" strokeWidth="2" />
       {/* Window crossbar (horizontal, following iso slope) */}
-      <path d="M-295 75 L-155 5" stroke="var(--wall-decor)" strokeWidth="2" fill="none" />
+      <path d="M-285 70 L-145 0" stroke="var(--wall-decor)" strokeWidth="2" fill="none" />
 
       {/* Corkboard on left wall — casual, mutable feel */}
       <g transform="translate(-55, -30) skewY(-27)" onClick={onOpenTodos} style={{ cursor: "pointer", pointerEvents: "auto" }}>
@@ -347,19 +347,21 @@ export function Walls({ onToggleTheme, onEditOfficePrompt, hasOfficePrompt, onOp
       {leftDoor && (
         <g onClick={leftDoor.onClick} style={{ cursor: "pointer", pointerEvents: "auto" }}>
           {/* Door frame — on left wall, iso skew -27° */}
-          <g transform="translate(-280, 100) skewY(-27)">
+          <g transform="translate(-315, 237) skewY(-27)">
             {/* Door frame */}
-            <rect x="-22" y="-55" width="44" height="75" rx="2" fill="#3a2a1a" stroke="#2a1a0a" strokeWidth="1.5" />
+            <rect x="-33" y="-93" width="66" height="113" rx="3" fill="#3a2a1a" stroke="#2a1a0a" strokeWidth="1.5" />
             {/* Door panel */}
-            <rect x="-18" y="-51" width="36" height="67" rx="1" fill="#5a4030" />
+            <rect x="-27" y="-87" width="54" height="101" rx="1.5" fill="#5a4030" />
             {/* Door panels (raised) */}
-            <rect x="-14" y="-45" width="28" height="24" rx="1" fill="#6a5040" stroke="#4a3020" strokeWidth="0.5" />
-            <rect x="-14" y="-14" width="28" height="24" rx="1" fill="#6a5040" stroke="#4a3020" strokeWidth="0.5" />
+            <rect x="-21" y="-78" width="42" height="36" rx="1.5" fill="#6a5040" stroke="#4a3020" strokeWidth="0.5" />
+            <rect x="-21" y="-31" width="42" height="36" rx="1.5" fill="#6a5040" stroke="#4a3020" strokeWidth="0.5" />
             {/* Door knob */}
-            <circle cx="10" cy="-10" r="2.5" fill="#c0a060" stroke="#a08040" strokeWidth="0.5" />
+            <circle cx="15" cy="-25" r="5" fill="#8a7040" />
+            <circle cx="15" cy="-25" r="3.5" fill="#c0a060" />
+            <ellipse cx="14.5" cy="-26" rx="2" ry="1.5" fill="#d8c080" opacity="0.6" />
             {/* Room number label */}
-            <text x="0" y="-58" textAnchor="middle" fill="var(--text-dim)" fontSize="10" fontFamily="'JetBrains Mono',monospace" fontWeight="600">
-              ← {leftDoor.label}
+            <text x="0" y="-98" textAnchor="middle" fill="var(--text-dim)" fontSize="12" fontFamily="'JetBrains Mono',monospace" fontWeight="600" style={{ userSelect: "none" }}>
+              {leftDoor.label}
             </text>
           </g>
         </g>
@@ -369,19 +371,21 @@ export function Walls({ onToggleTheme, onEditOfficePrompt, hasOfficePrompt, onOp
       {rightDoor && (
         <g onClick={rightDoor.onClick} style={{ cursor: "pointer", pointerEvents: "auto" }}>
           {/* Door frame — on right wall, iso skew 27° */}
-          <g transform="translate(500, 160) skewY(27)">
+          <g transform="translate(555, 237) skewY(27)">
             {/* Door frame */}
-            <rect x="-22" y="-55" width="44" height="75" rx="2" fill="#3a2a1a" stroke="#2a1a0a" strokeWidth="1.5" />
+            <rect x="-33" y="-93" width="66" height="113" rx="3" fill="#3a2a1a" stroke="#2a1a0a" strokeWidth="1.5" />
             {/* Door panel */}
-            <rect x="-18" y="-51" width="36" height="67" rx="1" fill="#5a4030" />
+            <rect x="-27" y="-87" width="54" height="101" rx="1.5" fill="#5a4030" />
             {/* Door panels (raised) */}
-            <rect x="-14" y="-45" width="28" height="24" rx="1" fill="#6a5040" stroke="#4a3020" strokeWidth="0.5" />
-            <rect x="-14" y="-14" width="28" height="24" rx="1" fill="#6a5040" stroke="#4a3020" strokeWidth="0.5" />
+            <rect x="-21" y="-78" width="42" height="36" rx="1.5" fill="#6a5040" stroke="#4a3020" strokeWidth="0.5" />
+            <rect x="-21" y="-31" width="42" height="36" rx="1.5" fill="#6a5040" stroke="#4a3020" strokeWidth="0.5" />
             {/* Door knob */}
-            <circle cx="-10" cy="-10" r="2.5" fill="#c0a060" stroke="#a08040" strokeWidth="0.5" />
+            <circle cx="-15" cy="-25" r="5" fill="#8a7040" />
+            <circle cx="-15" cy="-25" r="3.5" fill="#c0a060" />
+            <ellipse cx="-15.5" cy="-26" rx="2" ry="1.5" fill="#d8c080" opacity="0.6" />
             {/* Room number label */}
-            <text x="0" y="-58" textAnchor="middle" fill="var(--text-dim)" fontSize="10" fontFamily="'JetBrains Mono',monospace" fontWeight="600">
-              {rightDoor.label} →
+            <text x="0" y="-98" textAnchor="middle" fill="var(--text-dim)" fontSize="12" fontFamily="'JetBrains Mono',monospace" fontWeight="600" style={{ userSelect: "none" }}>
+              {rightDoor.label}
             </text>
           </g>
         </g>

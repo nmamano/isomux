@@ -1,6 +1,9 @@
 import { SCENE_W, SCENE_H, VB_X, VB_Y } from "./grid.ts";
+import { useAppState } from "../store.tsx";
 
 export function RoomProps() {
+  const { currentRoom, roomCount } = useAppState();
+  const isLastRoom = currentRoom === roomCount - 1;
   return (
     <svg
       style={{ position: "absolute", top: 0, left: 0, pointerEvents: "none" }}
@@ -10,7 +13,7 @@ export function RoomProps() {
       overflow="visible"
     >
       {/* Potted plant — west corner of office */}
-      <g transform="translate(-260, 230) scale(1.5)">
+      <g transform="translate(-245, 212) scale(1.5)">
         <rect x="-8" y="0" width="16" height="20" rx="3" fill="#5a4a35" />
         <ellipse cx="0" cy="0" rx="10" ry="4" fill="#6a5a45" />
         <path d="M0 0 Q-10 -20 -4 -30" stroke="#3a8a3a" fill="none" strokeWidth="2" />
@@ -21,8 +24,8 @@ export function RoomProps() {
         <ellipse cx="2" cy="-22" rx="4" ry="3.5" fill="#3a7a3a" opacity="0.6" />
       </g>
 
-      {/* Water cooler — near right wall inside office */}
-      <g transform="translate(540, 225) scale(1.5)">
+      {/* Water cooler — near right wall, only in last room (no right door) */}
+      {isLastRoom && <g transform="translate(540, 225) scale(1.5)">
         {/* Water jug (behind body) */}
         <rect x="-5" y="-12" width="10" height="14" rx="2" fill="var(--room-prop-accent)" />
         <ellipse cx="0" cy="-12" rx="6" ry="2" fill="var(--room-prop-accent)" opacity="0.8" />
@@ -33,7 +36,7 @@ export function RoomProps() {
         <circle cx="3" cy="18" r="2" fill="#e87090" />
         {/* Base */}
         <rect x="-7" y="30" width="14" height="4" rx="1" fill="var(--room-prop-base)" />
-      </g>
+      </g>}
       {/* Sleepy cat — south corner of office */}
       <g transform="translate(120, 460)">
         {/* Cat bed — isometric oval cushion */}
