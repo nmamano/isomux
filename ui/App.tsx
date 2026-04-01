@@ -65,13 +65,15 @@ export function App() {
         // Skip idle/stopped agents unless they have a non-empty draft
         const nonIdle = sorted.filter((a) => (a.state !== "idle" && a.state !== "stopped") || (drafts.get(a.id) ?? "").length > 0);
         const pool = nonIdle.length > 0 ? nonIdle : sorted;
-        if (pool.length <= 1) return;
         const idx = pool.findIndex((a) => a.id === focusedAgentId);
-        // If current agent isn't in the pool, start from the beginning
-        const startIdx = idx === -1 ? 0 : idx;
-        const next = e.shiftKey
-          ? pool[(startIdx - 1 + pool.length) % pool.length]
-          : pool[(startIdx + 1) % pool.length];
+        // If current agent is not in pool, jump to first/last; otherwise need >1 to cycle
+        if (idx !== -1 && pool.length <= 1) return;
+        if (pool.length === 0) return;
+        const next = idx === -1
+          ? (e.shiftKey ? pool[pool.length - 1] : pool[0])
+          : e.shiftKey
+            ? pool[(idx - 1 + pool.length) % pool.length]
+            : pool[(idx + 1) % pool.length];
         dispatch({ type: "focus", agentId: next.id });
       }
     }
