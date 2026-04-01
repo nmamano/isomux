@@ -47,6 +47,27 @@ function shortenCwd(cwd: string): string {
   return cwd.replace(/^\/home\/[^/]+/, "~");
 }
 
+const CWD_CHARS_PER_LINE = 12;
+
+function wrapCwd(text: string): string[] {
+  if (text.length <= CWD_CHARS_PER_LINE) return [text];
+  const lines: string[] = [];
+  // Break at path separators when possible
+  let remaining = text;
+  while (remaining.length > 0) {
+    if (remaining.length <= CWD_CHARS_PER_LINE) {
+      lines.push(remaining);
+      break;
+    }
+    // Find last slash within the line limit
+    let breakAt = remaining.lastIndexOf("/", CWD_CHARS_PER_LINE);
+    if (breakAt <= 0) breakAt = CWD_CHARS_PER_LINE;
+    lines.push(remaining.slice(0, breakAt));
+    remaining = remaining.slice(breakAt);
+  }
+  return lines;
+}
+
 export function DeskSprite({ state, deskIndex = 0, cwd }: { state: AgentState; deskIndex?: number; cwd?: string }) {
   const vs = visualState(state);
   const glow = { working: "#50B86C", waiting_for_response: "#9B59B6", error: "#E85D75", idle: "#223" }[vs];
@@ -155,15 +176,19 @@ export function DeskSprite({ state, deskIndex = 0, cwd }: { state: AgentState; d
       {shortCwd && (
         <g clipPath={`url(#${screenClipId})`}>
           <text
-            x="70"
-            y="38"
-            fill={on ? "rgba(180,220,255,0.5)" : "rgba(120,140,160,0.3)"}
+            x="68"
+            y="24"
+            fill={on ? "rgba(180,220,255,0.85)" : "rgba(120,140,160,0.35)"}
             fontSize="5"
             fontFamily="monospace"
             transform="skewY(24)"
-            style={{ transformOrigin: "70px 38px" }}
+            style={{ transformOrigin: "68px 24px" }}
           >
-            {shortCwd}
+            {wrapCwd(shortCwd).map((line, i) => (
+              <tspan key={i} x="68" dy={i === 0 ? 0 : 6}>
+                {line}
+              </tspan>
+            ))}
           </text>
         </g>
       )}
