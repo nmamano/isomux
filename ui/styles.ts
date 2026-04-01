@@ -202,11 +202,6 @@ export const CSS = `
     83% { opacity: 1; }
   }
 
-  @keyframes neonGlow {
-    0%, 100% { filter: drop-shadow(0 0 4px #ff6ec7) drop-shadow(0 0 12px #ff6ec7); }
-    50% { filter: drop-shadow(0 0 6px #ff6ec7) drop-shadow(0 0 18px #ff6ec7); }
-  }
-
   body { background: var(--bg-base); overflow:hidden; }
   html, body { max-width: 100vw; overflow-x: hidden; }
 

@@ -1,5 +1,15 @@
 import { useState, useEffect } from "react";
 import { SCENE_W, SCENE_H, VB_X, VB_Y } from "./grid.ts";
+import { useAppState } from "../store.tsx";
+
+const NEON_COLORS = [
+  "#ff6ec7", // hot pink (original)
+  "#6effb4", // mint green
+  "#6ec7ff", // sky blue
+  "#ffb46e", // warm amber
+  "#c76eff", // purple
+  "#ff6e6e", // coral red
+];
 
 const SVG_STYLE: React.CSSProperties = {
   position: "absolute", top: 0, left: 0, pointerEvents: "none",
@@ -7,6 +17,8 @@ const SVG_STYLE: React.CSSProperties = {
 const VB = `${VB_X} ${VB_Y} ${SCENE_W} ${SCENE_H}`;
 
 export function Floor() {
+  const { currentRoom } = useAppState();
+  const neon = NEON_COLORS[currentRoom % NEON_COLORS.length];
   // Floor diamond matches wall bottom edges (2:1 isometric ratio):
   // back=(120,40), left=(-260,230), right=(500,230), front=(120,420)
   const backX = 120, backY = 40;
@@ -39,6 +51,8 @@ export function Floor() {
 }
 
 export function Walls({ onToggleTheme, onEditOfficePrompt, hasOfficePrompt, onOpenTodos, todoCount = 0, leftDoor, rightDoor }: { onToggleTheme?: () => void; onEditOfficePrompt?: () => void; hasOfficePrompt?: boolean; onOpenTodos?: () => void; todoCount?: number; leftDoor?: { label: string; onClick: () => void } | null; rightDoor?: { label: string; onClick: () => void } | null }) {
+  const { currentRoom } = useAppState();
+  const neon = NEON_COLORS[currentRoom % NEON_COLORS.length];
   const [now, setNow] = useState(new Date());
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 30_000);
@@ -270,13 +284,13 @@ export function Walls({ onToggleTheme, onEditOfficePrompt, hasOfficePrompt, onOp
       {/* Neon sign — right wall, hand-drawn tube letters with ligaments */}
       {/* Letter positions: i(-38), s(-25), o(-11), m(5), u(23), x(37) */}
       {/* On (dark mode) */}
-      <g className="neon-sign-on" transform="translate(370, -5) skewY(27)" style={{ animation: "neonFlicker 5s ease-in-out infinite, neonGlow 3s ease-in-out infinite" }}>
+      <g className="neon-sign-on" transform="translate(370, -5) skewY(27)" style={{ animation: "neonFlicker 5s ease-in-out infinite", filter: `drop-shadow(0 0 4px ${neon}) drop-shadow(0 0 12px ${neon})` }}>
         {/* Hit area */}
         <rect x="-38" y="-18" width="92" height="32" fill="transparent" style={{ cursor: "pointer", pointerEvents: "auto" }} onClick={() => window.open("https://isomux.com", "_blank")} />
         {/* Letters as thick strokes */}
-        <g fill="none" stroke="#ff6ec7" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+        <g fill="none" stroke={neon} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
           {/* i — dot + stem */}
-          <circle cx="-32" cy="-12" r="1.2" fill="#ff6ec7" stroke="none" />
+          <circle cx="-32" cy="-12" r="1.2" fill={neon} stroke="none" />
           <line x1="-32" y1="-8" x2="-32" y2="2" />
           {/* s */}
           <g transform="rotate(20, -22, -3.5)">
@@ -293,7 +307,7 @@ export function Walls({ onToggleTheme, onEditOfficePrompt, hasOfficePrompt, onOp
           <line x1="48" y1="-11" x2="38" y2="4" />
         </g>
         {/* Ligaments — thin connecting tubes between letters */}
-        <g fill="none" stroke="#ff6ec7" strokeWidth="1.2" strokeLinecap="round" opacity="0.7">
+        <g fill="none" stroke={neon} strokeWidth="1.2" strokeLinecap="round" opacity="0.7">
           {/* i→s: bottom of i stem to start of s */}
           <path d="M-32 2 Q-28 8 -24 4" />
           {/* s→o: end of s to top of o */}
@@ -306,7 +320,7 @@ export function Walls({ onToggleTheme, onEditOfficePrompt, hasOfficePrompt, onOp
           <path d="M33 -11 Q35 -14 38 -11" />
         </g>
         {/* Underline */}
-        <line x1="-34" y1="9" x2="52" y2="9" stroke="#ff6ec7" strokeWidth="1.5" strokeLinecap="round" opacity="0.6" />
+        <line x1="-34" y1="9" x2="52" y2="9" stroke={neon} strokeWidth="1.5" strokeLinecap="round" opacity="0.6" />
       </g>
       {/* Off (light mode) */}
       <g className="neon-sign-off" transform="translate(370, -5) skewY(27)">

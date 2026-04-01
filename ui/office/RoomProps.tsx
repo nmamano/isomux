@@ -1,8 +1,18 @@
 import { SCENE_W, SCENE_H, VB_X, VB_Y } from "./grid.ts";
 import { useAppState } from "../store.tsx";
 
+const CAT_PALETTES = [
+  { body: "#E8A050", stripe: "#C08030", ear: "#D08040", nose: "#D08080" }, // orange tabby
+  { body: "#A0A0A8", stripe: "#707078", ear: "#909098", nose: "#C09090" }, // silver
+  { body: "#3A3A3A", stripe: "#222222", ear: "#4A4A4A", nose: "#705050" }, // black
+  { body: "#E8E0D8", stripe: "#C0B8B0", ear: "#DCC8C0", nose: "#D0A0A0" }, // white
+  { body: "#D07030", stripe: "#A05020", ear: "#C06030", nose: "#C07060" }, // ginger
+  { body: "#E0D8C8", stripe: "#8B7060", ear: "#C0A890", nose: "#C08888" }, // siamese
+];
+
 export function RoomProps() {
   const { currentRoom, roomCount } = useAppState();
+  const cat = CAT_PALETTES[currentRoom % CAT_PALETTES.length];
   const isLastRoom = currentRoom === roomCount - 1;
   return (
     <svg
@@ -49,32 +59,32 @@ export function RoomProps() {
         {/* Cushion surface */}
         <ellipse cx="0" cy="6" rx="20" ry="10" fill="#C4976A" />
         {/* Curled body */}
-        <ellipse cx="0" cy="0" rx="16" ry="9" fill="#E8A050">
+        <ellipse cx="0" cy="0" rx="16" ry="9" fill={cat.body}>
           <animate attributeName="ry" values="9;9.5;9" dur="3s" repeatCount="indefinite" />
         </ellipse>
         {/* Darker stripes */}
-        <path d="M-8 -4 Q-4 -7 0 -4" stroke="#C08030" strokeWidth="1" fill="none" />
-        <path d="M2 -5 Q6 -8 10 -5" stroke="#C08030" strokeWidth="1" fill="none" />
+        <path d="M-8 -4 Q-4 -7 0 -4" stroke={cat.stripe} strokeWidth="1" fill="none" />
+        <path d="M2 -5 Q6 -8 10 -5" stroke={cat.stripe} strokeWidth="1" fill="none" />
         {/* Tail curling around — gentle sway */}
-        <path d="M14 2 Q22 -2 20 -10 Q18 -16 12 -14" stroke="#E8A050" strokeWidth="3.5" fill="none" strokeLinecap="round">
+        <path d="M14 2 Q22 -2 20 -10 Q18 -16 12 -14" stroke={cat.body} strokeWidth="3.5" fill="none" strokeLinecap="round">
           <animate attributeName="d" values="M14 2 Q22 -2 20 -10 Q18 -16 12 -14;M14 2 Q24 -4 22 -12 Q19 -18 13 -15;M14 2 Q22 -2 20 -10 Q18 -16 12 -14" dur="4s" repeatCount="indefinite" />
         </path>
-        <path d="M14 2 Q22 -2 20 -10 Q18 -16 12 -14" stroke="#C08030" strokeWidth="1" fill="none" strokeLinecap="round">
+        <path d="M14 2 Q22 -2 20 -10 Q18 -16 12 -14" stroke={cat.stripe} strokeWidth="1" fill="none" strokeLinecap="round">
           <animate attributeName="d" values="M14 2 Q22 -2 20 -10 Q18 -16 12 -14;M14 2 Q24 -4 22 -12 Q19 -18 13 -15;M14 2 Q22 -2 20 -10 Q18 -16 12 -14" dur="4s" repeatCount="indefinite" />
         </path>
         {/* Head */}
-        <ellipse cx="-12" cy="-2" rx="8" ry="7" fill="#E8A050" />
+        <ellipse cx="-12" cy="-2" rx="8" ry="7" fill={cat.body} />
         {/* Ears */}
-        <path d="M-18 -7 L-16 -14 L-12 -8 Z" fill="#E8A050" />
-        <path d="M-12 -8 L-8 -14 L-6 -7 Z" fill="#E8A050" />
+        <path d="M-18 -7 L-16 -14 L-12 -8 Z" fill={cat.body} />
+        <path d="M-12 -8 L-8 -14 L-6 -7 Z" fill={cat.body} />
         {/* Inner ears */}
-        <path d="M-17 -7 L-15.5 -12 L-13 -8 Z" fill="#D08040" />
-        <path d="M-11 -8 L-8.5 -12 L-7 -7 Z" fill="#D08040" />
+        <path d="M-17 -7 L-15.5 -12 L-13 -8 Z" fill={cat.ear} />
+        <path d="M-11 -8 L-8.5 -12 L-7 -7 Z" fill={cat.ear} />
         {/* Closed eyes — happy sleeping curves */}
         <path d="M-16 -2 Q-14.5 -4 -13 -2" stroke="#333" strokeWidth="0.8" fill="none" />
         <path d="M-11 -3 Q-9.5 -5 -8 -3" stroke="#333" strokeWidth="0.8" fill="none" />
         {/* Nose */}
-        <ellipse cx="-12" cy="0" rx="1" ry="0.7" fill="#D08080" />
+        <ellipse cx="-12" cy="0" rx="1" ry="0.7" fill={cat.nose} />
         {/* Whiskers */}
         <line x1="-18" y1="-1" x2="-23" y2="-3" stroke="#333" strokeWidth="0.3" />
         <line x1="-18" y1="1" x2="-23" y2="1" stroke="#333" strokeWidth="0.3" />
