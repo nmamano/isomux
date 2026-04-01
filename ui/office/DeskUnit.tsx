@@ -22,14 +22,14 @@ export function DeskUnit({
 }) {
   const [hov, setHov] = useState(false);
   const [dragOver, setDragOver] = useState(false);
-  const isActive = agent.state === "thinking" || agent.state === "tool_executing";
+  const isWorking = agent.state === "thinking" || agent.state === "tool_executing";
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
-    if (!isActive) return;
+    if (!isWorking) return;
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
-  }, [isActive]);
-  const elapsedMs = isActive && stateChangedAt ? now - stateChangedAt : undefined;
+  }, [isWorking]);
+  const elapsedMs = isWorking && stateChangedAt ? now - stateChangedAt : undefined;
   const pos = DESK_SLOTS[agent.desk];
   const { left: pxLeft, top: pxTop } = deskPixelPos(pos.row, pos.col);
   const z = (pos.row * 2 + pos.col + 1) * 10;

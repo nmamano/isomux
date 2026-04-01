@@ -20,7 +20,7 @@ export function OfficeView({ onSpawn, onContextMenu, username, onEditUsername, o
 
   const counts = {
     working: agents.filter((a) => ["thinking", "tool_executing"].includes(a.state)).length,
-    active: agents.filter((a) => a.state === "waiting_for_response").length,
+    waiting: agents.filter((a) => a.state === "waiting_for_response").length,
     error: agents.filter((a) => a.state === "error").length,
     idle: agents.filter((a) => a.state === "idle" || a.state === "stopped").length,
   };
@@ -72,7 +72,7 @@ export function OfficeView({ onSpawn, onContextMenu, username, onEditUsername, o
           {(
             [
               { n: counts.working, c: "var(--green)", l: "working" },
-              { n: counts.active, c: "var(--purple)", l: "active" },
+              { n: counts.waiting, c: "var(--purple)", l: "waiting" },
               { n: counts.error, c: "var(--red)", l: "error" },
               { n: counts.idle, c: "var(--text-muted)", l: "idle" },
             ] as const
