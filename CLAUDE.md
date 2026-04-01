@@ -6,7 +6,7 @@ See [isomux.com](https://isomux.com) for a full feature overview and setup instr
 
 ## How to develop
 
-- **Rebuild UI after changes:** `npx esbuild ui/index.tsx --bundle --outfile=ui/dist/index.js --format=esm --jsx=automatic --define:process.env.NODE_ENV=\"production\"`. If `ui/index.html` was modified, also `cp ui/index.html ui/dist/index.html`. The server reads from `ui/dist/` on each request — no restart needed. **Do NOT build to `ui/index.js`; that path is not served.**
+- **Rebuild UI after changes:** `bun run build:ui`. If `ui/index.html` was modified, also `cp ui/index.html ui/dist/index.html`. The server reads from `ui/dist/` on each request — no restart needed. **Do NOT build to `ui/index.js`; that path is not served.**
 - **Restart server:** `systemctl --user restart isomux`. This kills the process all agents run on — every active agent session is interrupted. The user will need to proactively continue any in-progress conversations afterward.
 - **URL:** http://localhost:4000 (server machine) or http://TAILSCALE_SERVER_ALIAS:4000 (laptop, phone, etc.)
 - **Debug agent issues** by reading logs at `~/.isomux/logs/<agentId>/<sessionId>.jsonl` — don't ask the user to copy-paste.
