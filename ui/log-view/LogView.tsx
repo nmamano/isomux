@@ -130,6 +130,8 @@ export function LogView({
   const { drafts, slashCommands, stateChangedAt, isMobile } = useAppState();
   const dispatch = useDispatch();
   const input = drafts.get(agent.id) ?? "";
+  const inputRef = useRef(input);
+  inputRef.current = input;
   const setInput = (text: string) => dispatch({ type: "set_draft", agentId: agent.id, text });
   const [autoScroll, setAutoScroll] = useState(true);
   const [selectedIdx, setSelectedIdx] = useState(0);
@@ -138,6 +140,10 @@ export function LogView({
   const topicInputRef = useRef<HTMLInputElement>(null);
   const topicSavedRef = useRef(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const isListeningRef = useRef(false);
+  const [showMicHint, setShowMicHint] = useState(false);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
   const { offsetX: swipeX, phase: swipePhase, onTransitionEnd: swipeTransitionEnd } = useSwipeBack(onBack, isMobile);
 
   // Mobile keyboard fix: when the virtual keyboard opens, the browser
@@ -302,12 +308,79 @@ export function LogView({
     el.style.height = Math.min(el.scrollHeight, 200) + "px";
   }
 
+  const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+  // Tracks the draft text before voice started + all finalized speech segments
+  const committedTextRef = useRef("");
+
+  function startListening() {
+    if (isListeningRef.current || !SpeechRecognition) return;
+    isListeningRef.current = true;
+    setIsListening(true);
+    committedTextRef.current = inputRef.current;
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = "en-US";
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
+      let finalText = "";
+      let interimText = "";
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const t = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          finalText += t;
+        } else {
+          interimText += t;
+        }
+      }
+      if (finalText) {
+        committedTextRef.current += finalText;
+      }
+      dispatch({ type: "set_draft", agentId: agent.id, text: committedTextRef.current + interimText });
+      requestAnimationFrame(() => { if (textareaRef.current) autoResize(textareaRef.current); });
+    };
+    recognition.onend = () => { isListeningRef.current = false; setIsListening(false); };
+    recognition.onerror = () => { isListeningRef.current = false; setIsListening(false); };
+    recognitionRef.current = recognition;
+    recognition.start();
+  }
+
+  function stopListening() {
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+    }
+  }
+
+  // Ctrl+Space push-to-talk
+  useEffect(() => {
+    if (!SpeechRecognition || !window.isSecureContext) return;
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.code === "Space" && e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && !e.repeat) {
+        e.preventDefault();
+        startListening();
+      }
+    }
+    function onKeyUp(e: KeyboardEvent) {
+      if (e.code === "Space" && !e.repeat) {
+        stopListening();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      recognitionRef.current?.stop();
+    };
+  }, []);
+
   function handleSend() {
     const text = input.trim();
     if (!text) return;
     if (isBusy) return;
     send({ type: "send_message", agentId: agent.id, text, username });
     setInput("");
+    stopListening();
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
@@ -627,8 +700,8 @@ export function LogView({
         }}
       >
         <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-          <span style={{ color: isBusy ? "var(--text-ghost)" : "var(--green)", fontWeight: 600, lineHeight: "20px" }}>&#10095;</span>
-          <div style={{ flex: 1, position: "relative" }}>
+          <span style={{ color: isBusy ? "var(--text-ghost)" : "var(--green)", fontWeight: 600, lineHeight: "20px", position: "relative", top: -2 }}>&#10095;</span>
+          <div style={{ flex: 1, position: "relative", top: -2 }}>
             {showAutocomplete && filteredCommands.length > 0 && (
               <div
                 style={{
@@ -766,6 +839,130 @@ export function LogView({
               }}
             />
           </div>
+          {SpeechRecognition && window.isSecureContext ? (
+            <button
+              onMouseDown={startListening}
+              onMouseUp={stopListening}
+              onMouseLeave={stopListening}
+              onTouchStart={startListening}
+              onTouchEnd={stopListening}
+              style={{
+                flexShrink: 0,
+                width: 36,
+                height: 36,
+                marginTop: -9,
+                borderRadius: 6,
+                border: isListening ? "1px solid var(--red)" : "1px solid var(--border)",
+                background: isListening ? "rgba(255,50,50,0.15)" : "transparent",
+                color: isListening ? "var(--red)" : "var(--text-muted)",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: 0,
+                transition: "all 0.15s",
+                animation: isListening ? "mic-pulse 1.5s ease-in-out infinite" : "none",
+                userSelect: "none",
+                WebkitUserSelect: "none",
+              }}
+              title="Hold to talk (Ctrl+Space)"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="9" y="1" width="6" height="12" rx="3" />
+                <path d="M5 10a7 7 0 0 0 14 0" />
+                <line x1="12" y1="17" x2="12" y2="23" />
+                <line x1="8" y1="23" x2="16" y2="23" />
+              </svg>
+            </button>
+          ) : SpeechRecognition && !window.isSecureContext ? (
+            <div style={{ position: "relative", flexShrink: 0 }}>
+              <button
+                onClick={() => setShowMicHint((v) => !v)}
+                style={{
+                  width: 36,
+                  height: 36,
+                  marginTop: -9,
+                  borderRadius: 6,
+                  border: "1px solid var(--border)",
+                  background: "transparent",
+                  color: "var(--text-muted)",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: 0,
+                  opacity: 0.4,
+                }}
+                title="Voice input requires HTTPS"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="9" y="1" width="6" height="12" rx="3" />
+                  <path d="M5 10a7 7 0 0 0 14 0" />
+                  <line x1="12" y1="17" x2="12" y2="23" />
+                  <line x1="8" y1="23" x2="16" y2="23" />
+                </svg>
+              </button>
+              {showMicHint && (
+                <div style={{
+                  position: "absolute",
+                  bottom: "calc(100% + 8px)",
+                  right: 0,
+                  width: 320,
+                  background: "var(--bg-surface)",
+                  border: "1px solid var(--border-medium)",
+                  borderRadius: 8,
+                  padding: "12px 14px",
+                  fontSize: 12,
+                  fontFamily: "'DM Sans',sans-serif",
+                  color: "var(--text-secondary)",
+                  boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
+                  zIndex: 20,
+                  animation: "fadeIn 0.1s ease-out",
+                }}>
+                  <div style={{ fontWeight: 600, marginBottom: 8, color: "var(--text-primary)" }}>
+                    Voice input requires HTTPS
+                  </div>
+                  <div style={{ marginBottom: 8, lineHeight: 1.5 }}>
+                    Enable HTTPS in your <span style={{ color: "var(--text-primary)" }}>Tailscale admin console</span> (DNS page), then run these on the host (use the built-in terminal):
+                  </div>
+                  <code style={{
+                    display: "block",
+                    background: "var(--bg-base)",
+                    border: "1px solid var(--border)",
+                    borderRadius: 4,
+                    padding: "8px 10px",
+                    fontSize: 11,
+                    fontFamily: "'JetBrains Mono',monospace",
+                    color: "var(--text-secondary)",
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-all",
+                    lineHeight: 1.6,
+                  }}>
+                    {`sudo tailscale set --operator=$USER\ntailscale serve --bg http://localhost:4000`}
+                  </code>
+                  <div style={{ marginTop: 8, lineHeight: 1.5, color: "var(--text-muted)" }}>
+                    Restart isomux and reload this page. You'll be auto-redirected to HTTPS.
+                  </div>
+                  <button
+                    onClick={() => setShowMicHint(false)}
+                    style={{
+                      position: "absolute",
+                      top: 8,
+                      right: 10,
+                      background: "none",
+                      border: "none",
+                      color: "var(--text-ghost)",
+                      cursor: "pointer",
+                      fontSize: 14,
+                      padding: 0,
+                    }}
+                  >
+                    &times;
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : null}
           {isMobile && (
             isBusy ? (
               <button

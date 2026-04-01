@@ -571,6 +571,27 @@ tailscale ip -4</pre>
     </div>
   </section>
 
+  <!-- Voice Input -->
+  <section id="voice-input">
+    <h2>Voice Input <em style="font-weight: 400; font-size: 0.85em; color: var(--text-dim);">(optional)</em></h2>
+    <p class="section-intro">
+      Isomux has built-in voice input &mdash; hold the mic button or press <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">Ctrl+Space</code> to dictate prompts. This requires HTTPS, which you can enable in one step via Tailscale.
+    </p>
+
+    <div class="setup-card">
+      <h3>1. Enable HTTPS in Tailscale</h3>
+      <p>Open the <a href="https://login.tailscale.com/admin/dns" target="_blank" rel="noopener">DNS page</a> of your Tailscale admin console. Enable <strong>MagicDNS</strong> if not already on, then enable <strong>HTTPS Certificates</strong>.</p>
+
+      <h3>2. Allow Tailscale without sudo</h3>
+<pre>sudo tailscale set --operator=$USER</pre>
+
+      <h3>3. Start the HTTPS proxy</h3>
+      <p>Run this on the server (you can use the built-in terminal in Isomux):</p>
+<pre>tailscale serve --bg http://localhost:4000</pre>
+      <p style="margin-top: 8px; color: var(--text-dim); font-size: 0.85rem;">This tells Tailscale to proxy HTTPS traffic to your local Isomux server with a valid certificate. The <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">--bg</code> flag makes it persist across reboots. Next time you visit <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">http://my-mac-mini:4000</code>, Isomux will auto-redirect to HTTPS and the mic button will be active.</p>
+    </div>
+  </section>
+
   <!-- Footer -->
   <footer>
     <span>Isomux</span>

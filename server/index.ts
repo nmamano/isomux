@@ -4,6 +4,7 @@ import * as AgentManager from "./agent-manager.ts";
 import { loadRecentCwds, saveRecentCwd, loadTodos, saveTodos } from "./persistence.ts";
 import type { TodoItem } from "../shared/types.ts";
 import { join } from "path";
+import { execSync } from "child_process";
 
 const browsers = new Set<ServerWebSocket<unknown>>();
 let todos: TodoItem[] = loadTodos();
@@ -116,10 +117,39 @@ const UI_DIST = join(import.meta.dir, "..", "ui", "dist");
 
 const PORT = parseInt(process.env.PORT || "4000");
 
+// Detect Tailscale FQDN for HTTPS redirect (via `tailscale serve`)
+let tailscaleHttpsUrl: string | null = null;
+let tailscaleFqdn: string | null = null;
+try {
+  const tsStatus = JSON.parse(execSync("tailscale status --json", { timeout: 3000 }).toString());
+  const fqdn = tsStatus?.Self?.DNSName?.replace(/\.$/, "");
+  if (fqdn) {
+    // Check if `tailscale serve` is configured for HTTPS
+    const serveStatus = execSync("tailscale serve status --json", { timeout: 3000 }).toString();
+    const serveConfig = JSON.parse(serveStatus);
+    if (serveConfig?.TCP?.["443"]) {
+      tailscaleFqdn = fqdn;
+      tailscaleHttpsUrl = `https://${fqdn}`;
+      console.log(`Tailscale HTTPS redirect enabled → ${tailscaleHttpsUrl}`);
+    }
+  }
+} catch {
+  // Tailscale not available or not configured — no redirect
+}
+
 const server = Bun.serve({
   port: PORT,
   async fetch(req, server) {
     const url = new URL(req.url);
+
+    // Redirect to Tailscale HTTPS for direct browser requests (not proxied ones)
+    if (tailscaleHttpsUrl && url.pathname !== "/ws") {
+      const host = req.headers.get("host") || "";
+      // Tailscale proxy sets Host to the FQDN; direct requests use the raw hostname:port
+      if (!host.includes(tailscaleFqdn!)) {
+        return Response.redirect(`${tailscaleHttpsUrl}${url.pathname}${url.search}`, 302);
+      }
+    }
 
     // WebSocket upgrade
     if (url.pathname === "/ws") {

@@ -13,6 +13,7 @@ export const CSS = `
   @keyframes toastSlide { from{opacity:0;transform:translateY(14px)} to{opacity:1;transform:translateY(0)} }
   @keyframes dotBounce { 0%,80%,100%{opacity:0.3;transform:scale(0.8)} 40%{opacity:1;transform:scale(1.2)} }
   @keyframes fadeIn { from{opacity:0} to{opacity:1} }
+  @keyframes mic-pulse { 0%,100%{box-shadow:0 0 0 0 rgba(255,50,50,0.4)} 50%{box-shadow:0 0 0 6px rgba(255,50,50,0)} }
 
   /* Theme: Dark (default) */
   :root, [data-theme="dark"] {
