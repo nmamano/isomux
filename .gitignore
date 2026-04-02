@@ -3,6 +3,5 @@ ui/dist/
 site/demo/demo-entry.js
 site/demo/index.html
 site/demo/xterm.css
-bun.lock
 *.log
 .vercel
