@@ -37,40 +37,59 @@ const BEARD_LABELS: Record<AgentOutfit["beard"], string> = {
   goatee: "Goatee",
 };
 
-export function EditAgentDialog({
-  agent,
-  onClose,
-}: {
-  agent: AgentInfo;
+function makeRandomOutfit(): AgentOutfit {
+  return {
+    hat: HATS[Math.floor(Math.random() * HATS.length)],
+    color: SHIRT_COLORS[Math.floor(Math.random() * SHIRT_COLORS.length)],
+    hair: HAIR_COLORS[Math.floor(Math.random() * HAIR_COLORS.length)],
+    hairStyle: HAIR_STYLES[Math.floor(Math.random() * HAIR_STYLES.length)],
+    skin: SKIN_COLORS[Math.floor(Math.random() * SKIN_COLORS.length)],
+    beard: BEARDS[Math.floor(Math.random() * BEARDS.length)],
+    accessory: ACCESSORIES[Math.floor(Math.random() * ACCESSORIES.length)],
+  };
+}
+
+type EditAgentDialogProps = {
   onClose: () => void;
-}) {
+} & (
+  | { agent: AgentInfo; deskIndex?: undefined; room?: undefined; defaultCwd?: undefined }
+  | { agent?: undefined; deskIndex: number; room: number; defaultCwd: string }
+);
+
+export function EditAgentDialog(props: EditAgentDialogProps) {
+  const { onClose } = props;
+  const isSpawn = !props.agent;
+  const agent = props.agent;
+
   const { recentCwds: allRecentCwds, isMobile, agents, roomCount } = useAppState();
-  const [name, setName] = useState(agent.name);
-  const [cwd, setCwd] = useState(agent.cwd);
-  const [outfit, setOutfit] = useState<AgentOutfit>({ ...agent.outfit });
-  const [customInstructions, setCustomInstructions] = useState(agent.customInstructions ?? "");
+  const [name, setName] = useState(agent?.name ?? "");
+  const [cwd, setCwd] = useState(agent?.cwd ?? props.defaultCwd ?? "~");
+  const [outfit, setOutfit] = useState<AgentOutfit>(agent ? { ...agent.outfit } : makeRandomOutfit);
+  const [customInstructions, setCustomInstructions] = useState(agent?.customInstructions ?? "");
+  const [permissionMode, setPermissionMode] = useState<AgentInfo["permissionMode"]>("bypassPermissions");
   const recentCwds = allRecentCwds.filter((c) => c !== cwd);
 
-  function randomizeOutfit() {
-    setOutfit({
-      hat: HATS[Math.floor(Math.random() * HATS.length)],
-      color: SHIRT_COLORS[Math.floor(Math.random() * SHIRT_COLORS.length)],
-      hair: HAIR_COLORS[Math.floor(Math.random() * HAIR_COLORS.length)],
-      hairStyle: HAIR_STYLES[Math.floor(Math.random() * HAIR_STYLES.length)],
-      skin: SKIN_COLORS[Math.floor(Math.random() * SKIN_COLORS.length)],
-      beard: BEARDS[Math.floor(Math.random() * BEARDS.length)],
-      accessory: ACCESSORIES[Math.floor(Math.random() * ACCESSORIES.length)],
-    });
-  }
-
   function handleSave() {
-    const cmd: any = { type: "edit_agent", agentId: agent.id };
-    if (name.trim() && name.trim() !== agent.name) cmd.name = name.trim();
-    if (cwd.trim() && cwd.trim() !== agent.cwd) cmd.cwd = cwd.trim();
-    if (JSON.stringify(outfit) !== JSON.stringify(agent.outfit)) cmd.outfit = outfit;
-    const trimmedInstructions = customInstructions.trim();
-    if (trimmedInstructions !== (agent.customInstructions ?? "")) cmd.customInstructions = trimmedInstructions;
-    if (cmd.name || cmd.cwd || cmd.outfit || cmd.customInstructions !== undefined) send(cmd);
+    if (isSpawn) {
+      send({
+        type: "spawn",
+        name: name || `Agent ${props.deskIndex! + 1}`,
+        cwd,
+        permissionMode,
+        desk: props.deskIndex!,
+        room: props.room!,
+        outfit,
+        customInstructions: customInstructions.trim() || undefined,
+      });
+    } else {
+      const cmd: any = { type: "edit_agent", agentId: agent!.id };
+      if (name.trim() && name.trim() !== agent!.name) cmd.name = name.trim();
+      if (cwd.trim() && cwd.trim() !== agent!.cwd) cmd.cwd = cwd.trim();
+      if (JSON.stringify(outfit) !== JSON.stringify(agent!.outfit)) cmd.outfit = outfit;
+      const trimmedInstructions = customInstructions.trim();
+      if (trimmedInstructions !== (agent!.customInstructions ?? "")) cmd.customInstructions = trimmedInstructions;
+      if (cmd.name || cmd.cwd || cmd.outfit || cmd.customInstructions !== undefined) send(cmd);
+    }
     onClose();
   }
 
@@ -96,24 +115,33 @@ export function EditAgentDialog({
           backdropFilter: "blur(16px)",
           border: "1px solid var(--border-light)",
           borderRadius: 16,
-          padding: "24px 28px",
+          display: "flex",
+          flexDirection: "column",
           marginTop: isMobile ? "env(safe-area-inset-top, 16px)" : undefined,
           marginBottom: isMobile ? 16 : undefined,
           width: isMobile ? "calc(100% - 32px)" : 380,
           maxWidth: isMobile ? "100%" : undefined,
           maxHeight: isMobile ? "calc(100dvh - 32px)" : "90vh",
-          overflowY: "auto",
           boxShadow: "0 20px 60px var(--shadow-heavy)",
           animation: "hudIn 0.2s ease-out",
         }}
       >
-        <h3 style={{ fontSize: 17, fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>Edit Agent</h3>
+        <div style={{ overflowY: "auto", flex: 1, padding: "24px 28px 0" }}>
+        <h3 style={{ fontSize: 17, fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>{isSpawn ? "Spawn New Agent" : "Edit Agent"}</h3>
         <p style={{ fontSize: 12, color: "var(--text-faint)", margin: "2px 0 18px" }}>
-          {roomCount > 1 ? `Room ${agent.room + 1}, ` : ""}Desk #{agent.desk + 1}
+          {isSpawn
+            ? `Desk #${props.deskIndex! + 1}`
+            : `${roomCount > 1 ? `Room ${agent!.room + 1}, ` : ""}Desk #${agent!.desk + 1}`}
         </p>
 
         <label style={labelStyle}>Name</label>
-        <input value={name} onChange={(e) => setName(e.target.value)} autoFocus style={inputStyle} />
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder={isSpawn ? `Agent ${props.deskIndex! + 1}` : undefined}
+          autoFocus
+          style={inputStyle}
+        />
 
         <label style={{ ...labelStyle, marginTop: 12 }}>Working Directory</label>
         <input value={cwd} onChange={(e) => setCwd(e.target.value)} style={inputStyle} />
@@ -130,14 +158,29 @@ export function EditAgentDialog({
             ))}
           </div>
         )}
-        <p style={{ fontSize: 10, color: "var(--text-ghost)", margin: "3px 0 0" }}>Changes take effect on next conversation.</p>
+        {!isSpawn && <p style={{ fontSize: 10, color: "var(--text-ghost)", margin: "3px 0 0" }}>Changes take effect on next conversation.</p>}
+
+        {isSpawn && (
+          <>
+            <label style={{ ...labelStyle, marginTop: 12 }}>Permission Mode</label>
+            <select
+              value={permissionMode}
+              onChange={(e) => setPermissionMode(e.target.value as AgentInfo["permissionMode"])}
+              style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
+            >
+              <option value="default" disabled>Default (ask for everything) — not supported yet</option>
+              <option value="acceptEdits" disabled>Accept Edits (auto-approve file changes) — not supported yet</option>
+              <option value="bypassPermissions">Bypass (auto-approve all)</option>
+            </select>
+          </>
+        )}
 
         <label style={{ ...labelStyle, marginTop: 14 }}>Appearance</label>
         <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 10 }}>
           <div style={{ width: 52, height: 70, display: "flex", alignItems: "center", justifyContent: "center" }}>
             <Character state="idle" outfit={outfit} />
           </div>
-          <button onClick={randomizeOutfit} style={randomBtnStyle}>
+          <button onClick={() => setOutfit(makeRandomOutfit())} style={randomBtnStyle}>
             Randomize
           </button>
         </div>
@@ -263,15 +306,15 @@ export function EditAgentDialog({
           rows={3}
           style={{ ...inputStyle, resize: "vertical" }}
         />
-        <p style={{ fontSize: 10, color: "var(--text-ghost)", margin: "3px 0 0" }}>Changes take effect on next conversation.</p>
+        {!isSpawn && <p style={{ fontSize: 10, color: "var(--text-ghost)", margin: "3px 0 0" }}>Changes take effect on next conversation.</p>}
 
-        {/* Move to Room — only show when multiple rooms exist */}
-        {roomCount > 1 && (
+        {/* Move to Room — only show when multiple rooms exist and editing */}
+        {!isSpawn && roomCount > 1 && (
           <>
             <label style={{ ...labelStyle, marginTop: 14 }}>Move to Room</label>
             <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
               {Array.from({ length: roomCount }, (_, i) => {
-                if (i === agent.room) return null;
+                if (i === agent!.room) return null;
                 const roomAgentCount = agents.filter((a) => a.room === i).length;
                 const isFull = roomAgentCount >= 8;
                 return (
@@ -279,7 +322,7 @@ export function EditAgentDialog({
                     key={i}
                     disabled={isFull}
                     onClick={() => {
-                      send({ type: "move_agent", agentId: agent.id, targetRoom: i });
+                      send({ type: "move_agent", agentId: agent!.id, targetRoom: i });
                       onClose();
                     }}
                     style={{
@@ -302,9 +345,17 @@ export function EditAgentDialog({
           </>
         )}
 
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
+        </div>
+        <div style={{
+          display: "flex",
+          justifyContent: "flex-end",
+          gap: 8,
+          padding: "16px 28px",
+          borderTop: "1px solid var(--border)",
+          flexShrink: 0,
+        }}>
           <button onClick={onClose} style={cancelBtnStyle}>Cancel</button>
-          <button onClick={handleSave} style={saveBtnStyle}>Save</button>
+          <button onClick={handleSave} style={saveBtnStyle}>{isSpawn ? "Spawn" : "Save"}</button>
         </div>
       </div>
     </div>

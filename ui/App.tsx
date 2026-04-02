@@ -3,7 +3,6 @@ import { useAppState, useDispatch } from "./store.tsx";
 import { OfficeView } from "./office/OfficeView.tsx";
 import { LogView } from "./log-view/LogView.tsx";
 import { AgentListView } from "./components/AgentListView.tsx";
-import { SpawnDialog } from "./components/SpawnDialog.tsx";
 import { ContextMenu } from "./components/ContextMenu.tsx";
 import { EditAgentDialog } from "./components/EditAgentDialog.tsx";
 import { UsernameModal } from "./components/UsernameModal.tsx";
@@ -131,7 +130,7 @@ export function App() {
         />
       )}
       {spawnDesk !== null && (
-        <SpawnDialog
+        <EditAgentDialog
           deskIndex={spawnDesk}
           defaultCwd="~"
           onClose={() => setSpawnDesk(null)}

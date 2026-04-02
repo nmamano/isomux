@@ -4,7 +4,7 @@ import {
   unstable_v2_prompt,
   type SDKMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { AgentInfo, AgentState, LogEntry, SkillInfo, SkillOrigin } from "../shared/types.ts";
+import type { AgentInfo, AgentOutfit, AgentState, LogEntry, SkillInfo, SkillOrigin } from "../shared/types.ts";
 import { generateOutfit } from "./outfit.ts";
 import { appendLog, loadLog, loadAgents, saveAgents, listAgentSessions, writeManifest, persistSessionTopic, loadOfficePrompt, saveOfficePrompt, type PersistedAgent } from "./persistence.ts";
 import { createSafetyHooks } from "./safety-hooks.ts";
@@ -845,7 +845,7 @@ function createSession(managed: ManagedAgent, resumeSessionId?: string) {
     : unstable_v2_createSession(opts);
 }
 
-export async function spawn(name: string, cwd: string, permissionMode: AgentInfo["permissionMode"], desk?: number, customInstructions?: string, room?: number): Promise<AgentInfo | null> {
+export async function spawn(name: string, cwd: string, permissionMode: AgentInfo["permissionMode"], desk?: number, customInstructions?: string, room?: number, outfit?: AgentOutfit): Promise<AgentInfo | null> {
   // Reject duplicate names across all rooms
   const nameLower = name.trim().toLowerCase();
   for (const a of agents.values()) {
@@ -875,7 +875,7 @@ export async function spawn(name: string, cwd: string, permissionMode: AgentInfo
     desk,
     room: targetRoom,
     cwd: resolvedCwd,
-    outfit: generateOutfit(),
+    outfit: outfit ?? generateOutfit(),
     permissionMode,
     state: "idle",
     topic: null,

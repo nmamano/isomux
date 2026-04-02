@@ -25,7 +25,7 @@ async function handleCommand(cmd: ClientCommand) {
   switch (cmd.type) {
     case "spawn":
       saveRecentCwd(cmd.cwd);
-      await AgentManager.spawn(cmd.name, cmd.cwd, cmd.permissionMode, cmd.desk, cmd.customInstructions, cmd.room);
+      await AgentManager.spawn(cmd.name, cmd.cwd, cmd.permissionMode, cmd.desk, cmd.customInstructions, cmd.room, cmd.outfit);
       break;
     case "kill":
       await AgentManager.kill(cmd.agentId);
