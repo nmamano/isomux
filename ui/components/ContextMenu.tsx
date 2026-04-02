@@ -1,6 +1,6 @@
 import { useRef, useEffect } from "react";
 import type { AgentInfo, SessionInfo } from "../../shared/types.ts";
-import { useAppState } from "../store.tsx";
+import { useAppState, useFeatures } from "../store.tsx";
 import { send } from "../ws.ts";
 
 interface ContextMenuProps {
@@ -14,6 +14,7 @@ interface ContextMenuProps {
 export function ContextMenu({ x, y, agent, onClose, onEdit }: ContextMenuProps) {
   const ref = useRef<HTMLDivElement>(null);
   const { sessionsList } = useAppState();
+  const features = useFeatures();
   const sessionsData = sessionsList.get(agent.id);
   const sessions = sessionsData?.sessions ?? [];
   const currentSessionId = sessionsData?.currentSessionId ?? null;
@@ -26,10 +27,10 @@ export function ContextMenu({ x, y, agent, onClose, onEdit }: ContextMenuProps) 
     return () => document.removeEventListener("mousedown", handleClick);
   }, [onClose]);
 
-  // Request sessions list when menu opens
+  // Request sessions list when menu opens (only if sessions feature enabled)
   useEffect(() => {
-    send({ type: "list_sessions", agentId: agent.id });
-  }, [agent.id]);
+    if (features.sessions) send({ type: "list_sessions", agentId: agent.id });
+  }, [agent.id, features.sessions]);
 
   function handleAction(action: string, sessionId?: string) {
     switch (action) {
@@ -79,9 +80,9 @@ export function ContextMenu({ x, y, agent, onClose, onEdit }: ContextMenuProps) 
         {agent.name}
       </div>
       <MenuItem label="Edit Agent..." onClick={() => { onEdit(agent); onClose(); }} />
-      <MenuItem label="New Conversation" onClick={() => handleAction("new_conversation")} />
+      {features.sessions && <MenuItem label="New Conversation" onClick={() => handleAction("new_conversation")} />}
 
-      {sessions.length > 1 && (
+      {features.sessions && sessions.length > 1 && (
         <>
           <div style={{ height: 1, background: "var(--border-strong)", margin: "3px 8px" }} />
           <div style={{ padding: "4px 10px", fontSize: 9, color: "var(--text-ghost)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>

@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import type { AgentInfo, AgentState, LogEntry, SkillInfo } from "../../shared/types.ts";
 import { StatusLight } from "../office/StatusLight.tsx";
 import { send } from "../ws.ts";
-import { useAppState, useDispatch } from "../store.tsx";
+import { useAppState, useDispatch, useFeatures } from "../store.tsx";
 import { LogEntryCard, serializeEntries } from "./LogEntryCard.tsx";
 import { CopyButton } from "../components/CopyButton.tsx";
 import { TerminalPanel } from "./TerminalPanel.tsx";
@@ -129,6 +129,7 @@ export function LogView({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { drafts, slashCommands, stateChangedAt, isMobile } = useAppState();
   const dispatch = useDispatch();
+  const features = useFeatures();
   const input = drafts.get(agent.id) ?? "";
   const inputRef = useRef(input);
   inputRef.current = input;
@@ -232,7 +233,7 @@ export function LogView({
   // Ctrl+` to toggle terminal panel
   useEffect(() => {
     function handleTerminalShortcut(e: KeyboardEvent) {
-      if (isMobile) return;
+      if (isMobile || !features.terminal) return;
       if (e.key === "`" && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
         setTerminalOpen((prev) => !prev);
@@ -240,7 +241,7 @@ export function LogView({
     }
     window.addEventListener("keydown", handleTerminalShortcut);
     return () => window.removeEventListener("keydown", handleTerminalShortcut);
-  }, [isMobile]);
+  }, [isMobile, features.terminal]);
 
   function handleScroll() {
     if (!scrollRef.current) return;
@@ -594,6 +595,7 @@ export function LogView({
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "flex-end" }}>
             {logs.length > 0 && <CopyButton getText={getConversationText} />}
+            {features.terminal && (
             <button
               onClick={() => setTerminalOpen((prev) => !prev)}
               title={terminalOpen ? "Close terminal (Ctrl+`)" : "Open terminal (Ctrl+`)"}
@@ -614,6 +616,7 @@ export function LogView({
             >
               <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11 }}>&gt;_</span>
             </button>
+            )}
           </div>
         </div>
       )}
@@ -1018,7 +1021,7 @@ export function LogView({
         </div>
       </div>
     </div>
-    {!isMobile && terminalOpen && (
+    {features.terminal && !isMobile && terminalOpen && (
       <div style={{ width: "40%", minWidth: 300, maxWidth: 600, flexShrink: 0 }}>
         <TerminalPanel agentId={agent.id} onClose={() => setTerminalOpen(false)} />
       </div>

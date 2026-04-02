@@ -7,8 +7,32 @@ let socket: WebSocket | null = null;
 let handler: MessageHandler | null = null;
 const rawListeners = new Set<RawHandler>();
 
+// Shim: when set, bypasses real WebSocket entirely
+let shimHandler: ((cmd: ClientCommand) => void) | null = null;
+let shimOnConnect: (() => void) | null = null;
+
+export function setShim(onCommand: (cmd: ClientCommand) => void, onConnect?: () => void) {
+  shimHandler = onCommand;
+  shimOnConnect = onConnect ?? null;
+}
+
+export function shimEmit(msg: ServerMessage) {
+  const data = JSON.stringify(msg);
+  for (const listener of rawListeners) {
+    listener(data);
+  }
+  handler?.(msg);
+}
+
 export function connect(onMessage: MessageHandler) {
   handler = onMessage;
+
+  // In shim mode, don't open a real WebSocket — fire onConnect callback instead
+  if (shimHandler) {
+    if (shimOnConnect) setTimeout(shimOnConnect, 0);
+    return;
+  }
+
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
   socket = new WebSocket(`${protocol}//${location.host}/ws`);
   socket.onmessage = (e) => {
@@ -29,6 +53,10 @@ export function connect(onMessage: MessageHandler) {
 }
 
 export function send(cmd: ClientCommand) {
+  if (shimHandler) {
+    shimHandler(cmd);
+    return;
+  }
   if (socket?.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify(cmd));
   }

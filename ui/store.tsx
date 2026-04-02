@@ -1,6 +1,7 @@
 import { createContext, useContext, useReducer, useEffect, useRef, useState, useCallback, type ReactNode, type Dispatch } from "react";
 import type { AgentInfo, LogEntry, SessionInfo, ServerMessage, SkillInfo, TodoItem } from "../shared/types.ts";
 import { connect } from "./ws.ts";
+import { type Features, PRODUCTION_FEATURES } from "../shared/features.ts";
 
 export interface AppState {
   agents: AgentInfo[];
@@ -295,4 +296,15 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
 export function useTheme() {
   return useContext(ThemeCtx);
+}
+
+// Feature flags context — production defaults, demo overrides
+const FeaturesCtx = createContext<Features>(PRODUCTION_FEATURES);
+
+export function FeaturesProvider({ features, children }: { features: Features; children: ReactNode }) {
+  return <FeaturesCtx.Provider value={features}>{children}</FeaturesCtx.Provider>;
+}
+
+export function useFeatures() {
+  return useContext(FeaturesCtx);
 }
