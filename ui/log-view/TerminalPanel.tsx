@@ -98,9 +98,10 @@ export function TerminalPanel({
     term.loadAddon(fitAddon);
     term.open(containerRef.current);
 
-    // Fit after open (needs a frame to measure)
+    // Fit and focus after open (needs a frame to measure)
     requestAnimationFrame(() => {
       fitAddon.fit();
+      term.focus();
       // Tell server the initial size
       send({
         type: "terminal_resize",
