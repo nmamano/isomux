@@ -465,30 +465,29 @@
   <!-- Feature Highlights -->
   <section id="features">
     <h2>Feature Highlights</h2>
-    <div style="text-align: center; margin-bottom: 16px;"><div class="free-badge">free &amp; open source &middot; works with your Claude subscription &middot; runs locally; no cloud, no account</div></div>
+    <div style="text-align: center; margin-bottom: 16px;"><div class="free-badge">free &middot; open source &middot; no cloud &middot; no account</div></div>
 
     <ul class="feature-highlights">
-      <li>Visual office metaphor &mdash; see what every agent is doing at a glance
+      <li>Manage multiple agents <strong>with your existing Claude subscription</strong> (a visual alternative to tmux)</li>
+      <li>Visual office metaphor: see what every agent is doing at a glance
         <ul>
-          <li><strong>Animated characters</strong> &mdash; sleeping when idle, typing when working, waving when waiting for you</li>
-          <li><a href="https://x.com/Nil053/status/2039027360117506399" target="_blank" rel="noopener"><strong>Skeuomorphic touches</strong></a>: click the moon to toggle dark mode, drag agents between desks, desk monitors glow based on state</li>
+          <li><strong>Animated characters</strong>: sleeping when idle, typing when working, waving when waiting for you</li>
+          <li><a href="https://x.com/Nil053/status/2039027360117506399" target="_blank" rel="noopener"><strong>Skeuomorphic touches</strong></a>: click the moon to toggle dark mode, click doors to switch rooms, etc.</li>
         </ul>
       </li>
-      <li><a href="https://x.com/Nil053/status/2039996579965542516" target="_blank" rel="noopener"><strong>Mobile UI</strong></a> &mdash; continue conversations on your phone with a touch-optimized interface</li>
-      <li>Works locally or as a <strong>persistent server</strong> (Mac Mini style):
+      <li><a href="https://x.com/Nil053/status/2039996579965542516" target="_blank" rel="noopener"><strong>Mobile UI</strong></a>: continue conversations on your phone with a touch-optimized interface</li>
+      <li>Works locally or as a <strong>self-hosted persistent server</strong> (Mac Mini style):
         <ul>
           <li>Run at home, access <strong>from any device</strong> in your <a href="https://tailscale.com/" target="_blank" rel="noopener">Tailscale</a> network</li>
-          <li>No syncing headaches &mdash; same conversations, same filesystem, every device updates <strong>in real time</strong></li>
+          <li>No syncing headaches: same conversations, same filesystem, every device updates <strong>in real time</strong></li>
         </ul>
       </li>
-      <li><a href="https://x.com/Nil053/status/2039504957184090281" target="_blank" rel="noopener"><strong>Embedded terminal</strong></a> &mdash; direct shell access per agent</li>
-      <li><strong>Voice-to-text</strong> &mdash; dictate prompts instead of typing</li>
-      <li><a href="https://x.com/Nil053/status/2039497314826666469" target="_blank" rel="noopener"><strong>Pre-tool-call safety hooks</strong></a> &mdash; blocks dangerous commands like <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">rm -rf</code> out of the box</li>
-      <li><a href="https://x.com/Nil053/status/2040018957453918431" target="_blank" rel="noopener"><strong>Custom commands</strong></a> &mdash; e.g. <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">/isomux-peer-review</code> to review another agent's work, or <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">/isomux-all-hands</code> to see what everyone is up to</li>
-      <li><a href="https://x.com/Nil053/status/2039494626265149778" target="_blank" rel="noopener"><strong>Agents can check on each other</strong></a> &mdash; inter-agent discovery via shared manifest</li>
-      <li><strong>Tmux alternative</strong> for managing multiple Claude Code agents</li>
-      <li><strong>Slash command autocomplete</strong> &mdash; bundled skills like <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">/grill-me</code>, user skills, keyboard-navigable dropdown</li>
-      <li><strong>Sound notifications</strong> &mdash; get pinged when an agent finishes</li>
+      <li><a href="https://x.com/Nil053/status/2039504957184090281" target="_blank" rel="noopener"><strong>Embedded terminal</strong></a> per agent</li>
+      <li><strong>Voice-to-text</strong> prompting</li>
+      <li><a href="https://x.com/Nil053/status/2039497314826666469" target="_blank" rel="noopener"><strong>Pre-tool-call safety hooks</strong></a>: blocks dangerous commands like <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">rm -rf</code></li>
+      <li><a href="https://x.com/Nil053/status/2040018957453918431" target="_blank" rel="noopener"><strong>Custom commands</strong></a> in addition to your own, all with autocomplete: e.g. <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">/isomux-peer-review</code> to review another agent's work, or <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">/isomux-all-hands</code> to see what everyone is up to</li>
+      <li><a href="https://x.com/Nil053/status/2039494626265149778" target="_blank" rel="noopener"><strong>Agents can check on each other</strong></a>: inter-agent discovery via shared manifest</li>
+      <li><strong>Sound notifications</strong>: get pinged when an agent finishes</li>
     </ul>
 
     <p style="color: var(--text-dim); font-size: 0.95rem;">See the <a href="https://github.com/nmamano/isomux#full-feature-list" target="_blank" rel="noopener">full feature list</a> on GitHub.</p>
@@ -497,7 +496,7 @@
   <!-- Setup -->
   <section id="setup">
     <details class="section-collapse">
-      <summary><h2 style="display: inline;">Get Started</h2></summary>
+      <summary><h2 style="display: inline;">Get Started <em style="font-weight: 400; font-size: 0.85em; color: var(--text-dim);">(run it locally)</em></h2></summary>
     <div class="setup-card">
       <h3>1. Prerequisites</h3>
       <p>You need <a href="https://bun.sh/" target="_blank" rel="noopener">Bun</a> (v1.2+) and the <a href="https://claude.ai/code" target="_blank" rel="noopener">Claude Code</a> CLI installed and authenticated with a Claude Pro or Max subscription.</p>
@@ -515,10 +514,10 @@ claude</pre>
 cd isomux
 bun install
 bun run dev</pre>
+      <p style="margin-top: 8px; color: var(--text-dim); font-size: 0.9rem;">That's it; nothing to build or deploy.</p>
 
       <h3>3. Open</h3>
       <p>Visit <strong>http://localhost:4000</strong> in your browser. Click an empty desk to spawn your first agent.</p>
-      <p style="margin-top: 12px; color: var(--text-dim); font-size: 0.85rem;"><strong>Tip:</strong> On your phone, use &ldquo;Add to Home Screen&rdquo; for a full-screen app experience.</p>
     </div>
     </details>
   </section>
@@ -526,17 +525,32 @@ bun run dev</pre>
   <!-- Persistent Server Setup -->
   <section id="persistent-server">
     <details class="section-collapse">
-      <summary><h2 style="display: inline;">Persistent Server Setup <em style="font-weight: 400; font-size: 0.85em; color: var(--text-dim);">(Mac Mini style)</em></h2></summary>
-    <p class="section-intro">
-      Run Isomux on a Mac Mini or any always-on box/server. Talk to your agents from your laptop, your phone, or anywhere via <a href="https://tailscale.com/" target="_blank" rel="noopener">Tailscale</a>. Same conversations, instantly sync'd via WebSocket.
-    </p>
-
+      <summary><h2 style="display: inline;">Self-hosted Server Setup <em style="font-weight: 400; font-size: 0.85em; color: var(--text-dim);">(Mac Mini style)</em></h2></summary>
     <div class="setup-card">
+      <p>Isomux shines when you run it on your own always-on box/server (like a Mac Mini), and then access it from all your devices.</p>
+      <p style="margin-top: 12px;">Your phone and laptop see the same conversations, in real time, with UIs optimized for each. Agents keep running even if you close the browser.</p>
+      <p style="margin-top: 12px;">The best way to set this up quickly and securely is by taking advantage of <a href="https://tailscale.com/" target="_blank" rel="noopener"><strong>Tailscale</strong></a> (it's free): your server serves Isomux on <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">localhost:4000</code>, and every other device reaches it at <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">&lt;TAILSCALE_SERVER_IP&gt;:4000</code>.</p>
+      <p style="margin-top: 12px; color: var(--text-dim); font-size: 0.85rem;"><strong>Tip:</strong> On your phone, use &ldquo;Add to Home Screen&rdquo; for a full-screen app experience.</p>
+
+      <h3>1. Install Tailscale</h3>
+      <p>Install Tailscale on the server, your laptop, and your phone.</p>
+<pre>curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up
+
+<span class="comment"># Find your Tailscale IP</span>
+tailscale ip -4</pre>
+
+      <p style="margin-top: 20px; margin-bottom: 8px;"><strong>Bonus:</strong> Instead of remembering an IP, rename your machine in the <a href="https://login.tailscale.com/admin/machines" target="_blank" rel="noopener">Tailscale admin console</a> to something friendly, like <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">my-mac-mini</code>.</p>
+
+      <h3>2. Access from laptop or phone</h3>
+      <p>Open from any connected device:</p>
+<pre>http://my-mac-mini:4000</pre>
+
+      <h3>3. Make it persistent</h3>
       <p>Give this prompt to one of your Isomux agents:</p>
 <pre>Set up Isomux as an always-on server. Create a systemd user service
 that auto-rebuilds the UI on start and restarts on failure. Enable
-lingering so it survives logout. Then install Tailscale so I can
-access Isomux from any device on my Tailnet.</pre>
+lingering so it survives logout.</pre>
     </div>
     </details>
   </section>
@@ -545,11 +559,8 @@ access Isomux from any device on my Tailnet.</pre>
   <section id="voice-input">
     <details class="section-collapse">
       <summary><h2 style="display: inline;">Voice Input <em style="font-weight: 400; font-size: 0.85em; color: var(--text-dim);">(optional)</em></h2></summary>
-    <p class="section-intro">
-      Isomux has built-in voice input to dictate prompts. This works out-of-the-box locally, but requires HTTPS for Tailscale. To enable voice input with Tailscale, follow these steps.
-    </p>
-
     <div class="setup-card">
+      <p style="margin-bottom: 16px;">Isomux has built-in voice input to dictate prompts. This works out-of-the-box locally, but requires HTTPS for Tailscale. To enable voice input with Tailscale, follow these steps.</p>
       <h3>1. Enable HTTPS in Tailscale</h3>
       <p>Open the <a href="https://login.tailscale.com/admin/dns" target="_blank" rel="noopener">DNS page</a> of your Tailscale admin console. Enable <strong>MagicDNS</strong> if not already on, then enable <strong>HTTPS Certificates</strong>.</p>
 
@@ -580,7 +591,7 @@ access Isomux from any device on my Tailnet.</pre>
 
   <!-- CTA -->
   <section style="text-align: center; padding-top: 32px; padding-bottom: 32px;">
-    <a href="#setup" class="btn btn-primary" style="font-size: 1rem; height: 44px; padding: 0 28px;" onclick="document.querySelector('#setup details').open=true">Try it now &darr;</a>
+    <a href="#setup" class="btn btn-primary" style="font-size: 1rem; height: 44px; padding: 0 28px;" onclick="document.querySelector('#setup details').open=true">Try it now &uarr;</a>
   </section>
 
   <!-- Footer -->

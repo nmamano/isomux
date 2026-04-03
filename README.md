@@ -2,9 +2,7 @@
 
 Friction going from 1 Claude Code to 4+? Isomux is your agent office. *Cute in a useful way.*
 
-- Free & open source
-- Works with your Claude subscription
-- Runs locally; no cloud, no account
+Free · open source · no cloud · no account
 
 See [isomux.com](https://isomux.com) for setup instructions and a live demo.
 
@@ -12,21 +10,20 @@ See [isomux.com](https://isomux.com) for setup instructions and a live demo.
 
 ## Feature Highlights
 
-- Visual office metaphor — see what every agent is doing at a glance
-  - **Animated characters** — sleeping when idle, typing when working, waving when waiting for you
-  - [**Skeuomorphic touches**](https://x.com/Nil053/status/2039027360117506399): click the moon to toggle dark mode, drag agents between desks, desk monitors glow based on state
-- [**Mobile UI**](https://x.com/Nil053/status/2039996579965542516) — continue conversations on your phone with a touch-optimized interface
-- Works locally or as a **persistent server** (Mac Mini style):
+- Manage multiple agents **with your existing Claude subscription** (a visual alternative to tmux)
+- Visual office metaphor: see what every agent is doing at a glance
+  - **Animated characters**: sleeping when idle, typing when working, waving when waiting for you
+  - [**Skeuomorphic touches**](https://x.com/Nil053/status/2039027360117506399): click the moon to toggle dark mode, click doors to switch rooms, etc.
+- [**Mobile UI**](https://x.com/Nil053/status/2039996579965542516): continue conversations on your phone with a touch-optimized interface
+- Works locally or as a **self-hosted persistent server** (Mac Mini style):
   - Run at home, access **from any device** in your [Tailscale](https://tailscale.com/) network
-  - No syncing headaches — same conversations, same filesystem, every device updates **in real time**
-- [**Embedded terminal**](https://x.com/Nil053/status/2039504957184090281) — direct shell access per agent
-- **Voice-to-text** — dictate prompts instead of typing
-- [**Pre-tool-call safety hooks**](https://x.com/Nil053/status/2039497314826666469) — blocks dangerous commands like `rm -rf` out of the box
-- [**Custom commands**](https://x.com/Nil053/status/2040018957453918431) — e.g. `/isomux-peer-review` to review another agent's work, or `/isomux-all-hands` to see what everyone is up to
-- [**Agents can check on each other**](https://x.com/Nil053/status/2039494626265149778) — inter-agent discovery via shared manifest
-- **Tmux alternative** for managing multiple Claude Code agents
-- **Slash command autocomplete** — bundled skills like `/grill-me`, user skills, keyboard-navigable dropdown
-- **Sound notifications** — get pinged when an agent finishes
+  - No syncing headaches: same conversations, same filesystem, every device updates **in real time**
+- [**Embedded terminal**](https://x.com/Nil053/status/2039504957184090281) per agent
+- **Voice-to-text** prompting
+- [**Pre-tool-call safety hooks**](https://x.com/Nil053/status/2039497314826666469): blocks dangerous commands like `rm -rf`
+- [**Custom commands**](https://x.com/Nil053/status/2040018957453918431) in addition to your own, all with autocomplete: e.g. `/isomux-peer-review` to review another agent's work, or `/isomux-all-hands` to see what everyone is up to
+- [**Agents can check on each other**](https://x.com/Nil053/status/2039494626265149778): inter-agent discovery via shared manifest
+- **Sound notifications**: get pinged when an agent finishes
 
 ## Get Started
 
