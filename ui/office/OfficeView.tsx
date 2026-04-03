@@ -96,21 +96,6 @@ export function OfficeView({ onSpawn, onContextMenu, username, onEditUsername, o
             </button>
           )}
           <span style={{ fontSize: isMobile ? 14 : 15, fontWeight: 700, letterSpacing: "-0.02em", color: "var(--text-primary)" }}>Isomux</span>
-          {!isMobile && (
-            <span
-              style={{
-                fontFamily: "'JetBrains Mono',monospace",
-                fontSize: 9,
-                padding: "2px 7px",
-                borderRadius: 20,
-                background: "var(--accent-bg)",
-                color: "var(--accent)",
-                letterSpacing: "0.05em",
-              }}
-            >
-              CLAUDE CODE
-            </span>
-          )}
         </div>
         <div style={{ display: "flex", gap: isMobile ? 8 : 12 }}>
           {(
