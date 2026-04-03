@@ -283,6 +283,32 @@
       color: var(--text);
     }
 
+    .section-collapse summary {
+      cursor: pointer;
+      padding: 0;
+      list-style: none;
+    }
+
+    .section-collapse summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .section-collapse summary h2::before {
+      content: "\25B6";
+      font-size: 0.7em;
+      margin-right: 10px;
+      display: inline-block;
+      transition: transform 0.15s;
+    }
+
+    .section-collapse[open] summary h2::before {
+      transform: rotate(90deg);
+    }
+
+    .section-collapse > :not(summary) {
+      margin-top: 16px;
+    }
+
     .feature-group {
       margin-bottom: 24px;
     }
@@ -436,132 +462,42 @@
     </div>
   </div>
 
-  <!-- Features -->
+  <!-- Feature Highlights -->
   <section id="features">
-    <h2>Features</h2>
+    <h2>Feature Highlights</h2>
     <div style="text-align: center; margin-bottom: 16px;"><div class="free-badge">free &amp; open source &middot; works with your Claude subscription &middot; runs locally; no cloud, no account</div></div>
 
     <ul class="feature-highlights">
       <li><strong>Tmux alternative</strong> for managing multiple Claude Code agents</li>
-      <li>Visual office metaphor &mdash; see what every agent is doing at a glance</li>
-      <li>Works locally or as a <strong>persistent server</strong> (Mac Mini style):
+      <li>Visual office metaphor &mdash; see what every agent is doing at a glance
         <ul>
-          <li>Run at home, access <strong>from any device</strong> in your <a href="https://tailscale.com/" target="_blank" rel="noopener">Tailscale</a> network. Just go to <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">http://YOUR_TAILSCALE_ALIAS:4000</code></li>
-          <li>No syncing headaches &mdash; same conversations, same filesystem, every device updates <strong>in real time</strong></li>
-          <li>First-class mobile UI. Continue your conversations on <strong>your phone</strong></li>
+          <li><strong>Animated characters</strong> &mdash; sleeping when idle, typing when working, waving when waiting for you</li>
+          <li><a href="https://x.com/Nil053/status/2039027360117506399" target="_blank" rel="noopener"><strong>Skeuomorphic touches</strong></a>: click the moon to toggle dark mode, drag agents between desks, desk monitors glow based on state</li>
         </ul>
       </li>
+      <li><a href="https://x.com/Nil053/status/2039996579965542516" target="_blank" rel="noopener"><strong>Mobile UI</strong></a> &mdash; continue conversations on your phone with a touch-optimized interface</li>
+      <li>Works locally or as a <strong>persistent server</strong> (Mac Mini style):
+        <ul>
+          <li>Run at home, access <strong>from any device</strong> in your <a href="https://tailscale.com/" target="_blank" rel="noopener">Tailscale</a> network</li>
+          <li>No syncing headaches &mdash; same conversations, same filesystem, every device updates <strong>in real time</strong></li>
+        </ul>
+      </li>
+      <li><a href="https://x.com/Nil053/status/2039504957184090281" target="_blank" rel="noopener"><strong>Embedded terminal</strong></a> &mdash; direct shell access per agent</li>
+      <li><strong>Voice-to-text</strong> &mdash; dictate prompts instead of typing</li>
+      <li><a href="https://x.com/Nil053/status/2039497314826666469" target="_blank" rel="noopener"><strong>Pre-tool-call safety hooks</strong></a> &mdash; blocks dangerous commands like <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">rm -rf</code> out of the box</li>
+      <li><a href="https://x.com/Nil053/status/2040018957453918431" target="_blank" rel="noopener"><strong>Custom commands</strong></a> &mdash; e.g. <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">/isomux-peer-review</code> to review another agent's work, or <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">/isomux-all-hands</code> to see what everyone is up to</li>
+      <li><a href="https://x.com/Nil053/status/2039494626265149778" target="_blank" rel="noopener"><strong>Agents can check on each other</strong></a> &mdash; inter-agent discovery via shared manifest</li>
+      <li><strong>Slash command autocomplete</strong> &mdash; bundled skills like <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">/grill-me</code>, user skills, keyboard-navigable dropdown</li>
+      <li><strong>Sound notifications</strong> &mdash; get pinged when an agent finishes</li>
     </ul>
 
-    <details class="feature-details">
-      <summary>Full feature list</summary>
-
-    <div class="feature-group">
-      <h3>Office View</h3>
-      <ul>
-        <li><strong>Isometric office with 8 desks</strong> &mdash; see all your agents at a glance</li>
-        <li><strong>Name your agents</strong> &mdash; each gets a nametag on their desk</li>
-        <li><strong>Unique character per agent</strong> &mdash; customize hat, shirt, hair, accessory, or randomize</li>
-        <li><strong>Animated characters</strong> &mdash; sleeping when idle, typing when working, waving when waiting for you</li>
-        <li>Desk monitors <strong>glow based on agent state</strong> (green / purple / red)</li>
-        <li>Status light with <strong>escalating warnings</strong>: amber at 2 min, red at 5 min</li>
-        <li>Auto-generated <strong>conversation topic</strong> below nametag</li>
-        <li><strong>Drag agents between desks</strong> to rearrange</li>
-        <li>Light / dark theme toggle</li>
-      </ul>
-    </div>
-
-    <div class="feature-group">
-      <h3>Agent Creation &amp; Editing</h3>
-      <ul>
-        <li><strong>Click empty desk to spawn</strong> &mdash; name, working directory, permission mode, custom instructions</li>
-        <li>Working directory input with <strong>recent CWD suggestions</strong></li>
-        <li><strong>Outfit customization</strong>: color swatches, hat, accessory, randomize with live preview</li>
-        <li><strong>Custom instructions</strong> per agent, editable at spawn and later</li>
-      </ul>
-    </div>
-
-    <div class="feature-group">
-      <h3>Conversation View</h3>
-      <ul>
-        <li><strong>Input drafts preserved</strong> when switching between agents</li>
-        <li><strong>Markdown rendering</strong> for agent output</li>
-        <li><strong>Collapsible thinking and tool-call cards</strong> with timing for each step</li>
-        <li><strong>Copy buttons</strong> on code blocks, user messages, full agent turns, and entire conversations</li>
-        <li><strong>Send disabled while agent is busy</strong> &mdash; type ahead freely, send when ready</li>
-        <li><strong>Embedded terminal</strong> for direct shell access per agent</li>
-        <li><strong>Right-click context menu</strong> &mdash; resume past sessions, edit agent, kill</li>
-      </ul>
-    </div>
-
-    <div class="feature-group">
-      <h3>Keyboard Shortcuts</h3>
-      <ul>
-        <li><strong>Number keys 1&ndash;8</strong> jump to agents from office view</li>
-        <li><strong>Tab / Shift+Tab</strong> cycle between agents in chat view</li>
-        <li>Escape returns to office</li>
-        <li><strong>Ctrl+C to interrupt</strong> &mdash; cleanly aborts and lets you resume</li>
-      </ul>
-    </div>
-
-    <div class="feature-group">
-      <h3>Slash Commands &amp; Autocomplete</h3>
-      <ul>
-        <li>Built-in commands: /clear, /help, /cost, /context</li>
-        <li>User skills from ~/.claude/skills/ and project commands</li>
-        <li><strong>Bundled skills</strong> like /grill-me &mdash; available to every agent out of the box</li>
-        <li><strong>Autocomplete dropdown</strong> with keyboard navigation</li>
-      </ul>
-    </div>
-
-    <div class="feature-group">
-      <h3>Persistence &amp; Lifecycle</h3>
-      <ul>
-        <li><strong>Agents persist across server restarts</strong></li>
-        <li><strong>Auto-resume last conversation</strong> on restart</li>
-        <li>Agent manifest for <strong>inter-agent discovery</strong></li>
-        <li><strong>Resume past conversations</strong> from session files</li>
-        <li>Kill removes agent and frees desk</li>
-      </ul>
-    </div>
-
-    <div class="feature-group">
-      <h3>Mobile Support</h3>
-      <ul>
-        <li><strong>Open from your phone</strong> &mdash; same Tailscale URL, touch-optimized UI</li>
-        <li><strong>Instant sync</strong> &mdash; laptop and phone see the same state in real time over WebSocket</li>
-        <li><strong>Agent list view</strong> replaces isometric office on small screens</li>
-        <li><strong>Full conversation view</strong> with readable font sizes and two-row header</li>
-        <li><strong>Send &amp; abort buttons</strong> for touch input</li>
-        <li>Safe area insets for notch/home bar devices</li>
-      </ul>
-    </div>
-
-    <div class="feature-group">
-      <h3>Notifications</h3>
-      <ul>
-        <li><strong>Sound notification</strong> when agent finishes and tab is unfocused</li>
-        <li><strong>Activity badge</strong> on desk when attention needed</li>
-      </ul>
-    </div>
-
-    <div class="feature-group">
-      <h3>System &amp; Backend</h3>
-      <ul>
-        <li><strong>Real-time sync via WebSocket</strong> &mdash; every connected device stays in lockstep</li>
-        <li><strong>Single Bun process</strong> &mdash; no bundler, no database, minimal deps</li>
-        <li>Uses <strong>Claude subscription via CLI auth</strong> &mdash; no API key needed</li>
-        <li>Global Claude skills and <strong>MCP servers inherited</strong> automatically</li>
-        <li><strong>Built-in safety hooks</strong> &mdash; blocks <code>rm -rf</code>, <code>git reset --hard</code>, and other footguns out of the box</li>
-        <li><strong>Works on a headless server</strong> &mdash; run on a Mac Mini or Linux box, access from anywhere via Tailscale</li>
-      </ul>
-    </div>
-    </details>
+    <p style="color: var(--text-dim); font-size: 0.95rem;">See the <a href="https://github.com/nmamano/isomux#full-feature-list" target="_blank" rel="noopener">full feature list</a> on GitHub.</p>
   </section>
 
   <!-- Setup -->
   <section id="setup">
-    <h2>Get Started</h2>
+    <details class="section-collapse">
+      <summary><h2 style="display: inline;">Get Started</h2></summary>
     <div class="setup-card">
       <h3>1. Prerequisites</h3>
       <p>You need <a href="https://bun.sh/" target="_blank" rel="noopener">Bun</a> (v1.2+) and the <a href="https://claude.ai/code" target="_blank" rel="noopener">Claude Code</a> CLI installed and authenticated with a Claude Pro or Max subscription.</p>
@@ -583,11 +519,13 @@ bun run dev</pre>
       <h3>3. Open</h3>
       <p>Visit <strong>http://localhost:4000</strong> in your browser. Click an empty desk to spawn your first agent.</p>
     </div>
+    </details>
   </section>
 
   <!-- Persistent Server Setup -->
   <section id="persistent-server">
-    <h2>Persistent Server Setup <em style="font-weight: 400; font-size: 0.85em; color: var(--text-dim);">(Mac Mini style)</em></h2>
+    <details class="section-collapse">
+      <summary><h2 style="display: inline;">Persistent Server Setup <em style="font-weight: 400; font-size: 0.85em; color: var(--text-dim);">(Mac Mini style)</em></h2></summary>
     <p class="section-intro">
       Run Isomux on a Mac Mini or any always-on box/server. Talk to your agents from your laptop, your phone, or anywhere via Tailscale. Same conversations, instantly sync'd via WebSocket.
     </p>
@@ -641,11 +579,13 @@ tailscale ip -4</pre>
       <p>Open the same URL from any device on your Tailnet &mdash; laptop gets the full office view, phone gets a touch-optimized agent list:</p>
 <pre>http://my-mac-mini:4000</pre>
     </div>
+    </details>
   </section>
 
   <!-- Voice Input -->
   <section id="voice-input">
-    <h2>Voice Input <em style="font-weight: 400; font-size: 0.85em; color: var(--text-dim);">(optional)</em></h2>
+    <details class="section-collapse">
+      <summary><h2 style="display: inline;">Voice Input <em style="font-weight: 400; font-size: 0.85em; color: var(--text-dim);">(optional)</em></h2></summary>
     <p class="section-intro">
       Isomux has built-in voice input to dictate prompts. This works out-of-the-box locally, but requires HTTPS for Tailscale. To enable voice input with Tailscale, follow these steps.
     </p>
@@ -662,6 +602,26 @@ tailscale ip -4</pre>
 <pre>tailscale serve --bg http://localhost:4000</pre>
       <p style="margin-top: 8px; color: var(--text-dim); font-size: 0.85rem;">This tells Tailscale to proxy HTTPS traffic to your local Isomux server with a valid certificate. The <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">--bg</code> flag makes it persist across reboots. Next time you visit <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">http://my-mac-mini:4000</code>, Isomux will auto-redirect to HTTPS and the mic button will be active.</p>
     </div>
+    </details>
+  </section>
+
+  <!-- How It Works -->
+  <section id="how-it-works">
+    <details class="section-collapse">
+      <summary><h2 style="display: inline;">How It Works</h2></summary>
+    <div class="setup-card">
+      <p>Isomux runs as a <strong>single Bun process</strong> on your machine. It uses the <a href="https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk" target="_blank" rel="noopener">Claude Agent SDK</a> to create and manage agent sessions &mdash; one per desk &mdash; with no subprocess juggling.</p>
+      <p style="margin-top: 12px;">A <strong>WebSocket layer</strong> keeps every connected device in sync in real time. Open the same URL on your laptop and phone &mdash; both see the same office, same conversations.</p>
+      <p style="margin-top: 12px;"><strong>Agent sessions persist</strong> across server restarts. Your agents pick up right where they left off.</p>
+      <p style="margin-top: 12px;">There's <strong>no database, no cloud dependency, no API key</strong>. Isomux piggybacks on your existing Claude CLI authentication and inherits your global Claude skills.</p>
+      <p style="margin-top: 12px;">Optionally, pair it with <a href="https://tailscale.com/" target="_blank" rel="noopener"><strong>Tailscale</strong></a> to turn any always-on machine into a persistent agent server. Every device on your Tailnet &mdash; laptop, phone, tablet &mdash; reaches the same Isomux instance at the same URL, with conversations syncing instantly over WebSocket.</p>
+    </div>
+    </details>
+  </section>
+
+  <!-- CTA -->
+  <section style="text-align: center; padding-top: 32px; padding-bottom: 32px;">
+    <a href="#setup" class="btn btn-primary" style="font-size: 1rem; height: 44px; padding: 0 28px;" onclick="document.querySelector('#setup details').open=true">Try it now &darr;</a>
   </section>
 
   <!-- Footer -->
