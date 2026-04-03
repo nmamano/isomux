@@ -2,6 +2,7 @@ import { useAppState } from "../store.tsx";
 import { StatusLight } from "../office/StatusLight.tsx";
 import { RoomTabBar } from "../office/RoomTabBar.tsx";
 import { MobileHeader, getRoomCounts } from "./MobileHeader.tsx";
+import { useSwipeLeftRight } from "../hooks/useSwipeLeftRight.ts";
 import type { AgentInfo } from "../../shared/types.ts";
 
 export function AgentListView({
@@ -13,6 +14,8 @@ export function AgentListView({
   onEditOfficePrompt,
   onOpenTodos,
   onToggleView,
+  onSwipeLeft,
+  onSwipeRight,
 }: {
   onFocus: (agentId: string) => void;
   onSpawn: () => void;
@@ -22,9 +25,12 @@ export function AgentListView({
   onEditOfficePrompt: () => void;
   onOpenTodos: () => void;
   onToggleView: () => void;
+  onSwipeLeft?: () => void;
+  onSwipeRight?: () => void;
 }) {
   const { agents, currentRoom, roomCount } = useAppState();
   const roomAgents = agents.filter((a) => a.room === currentRoom);
+  const swipeRef = useSwipeLeftRight(onSwipeLeft ?? (() => {}), onSwipeRight ?? (() => {}), true);
 
   return (
     <div
@@ -49,6 +55,7 @@ export function AgentListView({
 
       {/* Agent list */}
       <div
+        ref={swipeRef}
         style={{
           flex: 1,
           overflowY: "auto",

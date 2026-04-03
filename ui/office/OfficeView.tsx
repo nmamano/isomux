@@ -10,13 +10,15 @@ import { send } from "../ws.ts";
 import { TodoButton } from "../components/TodoPanel.tsx";
 import { SunIcon, MoonIcon } from "../components/ThemeIcons.tsx";
 import { MobileHeader, getRoomCounts } from "../components/MobileHeader.tsx";
+import { useSwipeLeftRight } from "../hooks/useSwipeLeftRight.ts";
 import type { AgentInfo } from "../../shared/types.ts";
 
-export function OfficeView({ onSpawn, onContextMenu, username, onEditUsername, onEditOfficePrompt, onOpenTodos }: { onSpawn: (deskIndex: number) => void; onContextMenu: (x: number, y: number, agent: AgentInfo) => void; username: string; onEditUsername: () => void; onEditOfficePrompt: () => void; onOpenTodos: () => void }) {
+export function OfficeView({ onSpawn, onContextMenu, username, onEditUsername, onEditOfficePrompt, onOpenTodos, onSwipeLeft, onSwipeRight }: { onSpawn: (deskIndex: number) => void; onContextMenu: (x: number, y: number, agent: AgentInfo) => void; username: string; onEditUsername: () => void; onEditOfficePrompt: () => void; onOpenTodos: () => void; onSwipeLeft?: () => void; onSwipeRight?: () => void }) {
   const { agents, needsAttention, stateChangedAt, officePrompt, todos, currentRoom, roomCount, isMobile } = useAppState();
   const dispatch = useDispatch();
   const { theme, toggleTheme } = useTheme();
   const mobileScale = isMobile ? screen.width / (SCENE_W - 200) : 1;
+  const swipeRef = useSwipeLeftRight(onSwipeLeft ?? (() => {}), onSwipeRight ?? (() => {}), isMobile);
 
   // Filter agents to current room for rendering
   const roomAgents = agents.filter((a) => a.room === currentRoom);
@@ -140,7 +142,7 @@ export function OfficeView({ onSpawn, onContextMenu, username, onEditUsername, o
       <RoomTabBar />
 
       {/* Office scene */}
-      <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
+      <div ref={swipeRef} style={{ flex: 1, position: "relative", overflow: "hidden" }}>
         {/* Ambient gradients */}
         <div
           style={{

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAppState, useDispatch } from "./store.tsx";
 import { OfficeView } from "./office/OfficeView.tsx";
 import { LogView } from "./log-view/LogView.tsx";
@@ -10,6 +10,29 @@ import { OfficePromptModal } from "./components/OfficePromptModal.tsx";
 import { TodoModal } from "./components/TodoModal.tsx";
 import { CSS } from "./styles.ts";
 import type { AgentInfo } from "../shared/types.ts";
+
+/** Cycle to the next/previous agent in the current room, matching Tab/Shift+Tab logic. */
+function cycleAgent(
+  agents: AgentInfo[],
+  drafts: Map<string, string>,
+  currentRoom: number,
+  focusedAgentId: string | null,
+  direction: "next" | "prev",
+): string | null {
+  const roomAgents = agents.filter((a) => a.room === currentRoom);
+  const sorted = [...roomAgents].sort((a, b) => a.desk - b.desk);
+  const nonIdle = sorted.filter((a) => (a.state !== "idle" && a.state !== "stopped") || (drafts.get(a.id) ?? "").length > 0);
+  const pool = nonIdle.length > 0 ? nonIdle : sorted;
+  if (pool.length === 0) return null;
+  const idx = pool.findIndex((a) => a.id === focusedAgentId);
+  if (idx !== -1 && pool.length <= 1) return null;
+  const next = idx === -1
+    ? (direction === "prev" ? pool[pool.length - 1] : pool[0])
+    : direction === "prev"
+      ? pool[(idx - 1 + pool.length) % pool.length]
+      : pool[(idx + 1) % pool.length];
+  return next.id;
+}
 
 export function App() {
   const { agents, logs, focusedAgentId, isMobile, mobileViewMode, drafts, currentRoom, roomCount } = useAppState();
@@ -28,6 +51,26 @@ export function App() {
   const [todosOpen, setTodosOpen] = useState(false);
 
   const focusedAgent = focusedAgentId ? agents.find((a) => a.id === focusedAgentId) : null;
+
+  const swipeRoomNext = useCallback(() => {
+    if (roomCount <= 1) return;
+    dispatch({ type: "set_current_room", room: (currentRoom + 1) % roomCount });
+  }, [dispatch, currentRoom, roomCount]);
+
+  const swipeRoomPrev = useCallback(() => {
+    if (roomCount <= 1) return;
+    dispatch({ type: "set_current_room", room: (currentRoom - 1 + roomCount) % roomCount });
+  }, [dispatch, currentRoom, roomCount]);
+
+  const swipeAgentNext = useCallback(() => {
+    const nextId = cycleAgent(agents, drafts, currentRoom, focusedAgentId, "next");
+    if (nextId) dispatch({ type: "focus", agentId: nextId });
+  }, [dispatch, agents, drafts, currentRoom, focusedAgentId]);
+
+  const swipeAgentPrev = useCallback(() => {
+    const nextId = cycleAgent(agents, drafts, currentRoom, focusedAgentId, "prev");
+    if (nextId) dispatch({ type: "focus", agentId: nextId });
+  }, [dispatch, agents, drafts, currentRoom, focusedAgentId]);
 
   // Keyboard shortcuts: Escape → office, 1-8 → jump to agent at desk
   useEffect(() => {
@@ -61,21 +104,8 @@ export function App() {
       // Skip if autocomplete already consumed this Tab (it calls preventDefault)
       if (focusedAgentId && e.key === "Tab" && agents.length > 1 && !e.defaultPrevented) {
         e.preventDefault();
-        const roomAgents = agents.filter((a) => a.room === currentRoom);
-        const sorted = [...roomAgents].sort((a, b) => a.desk - b.desk);
-        // Skip idle/stopped agents unless they have a non-empty draft
-        const nonIdle = sorted.filter((a) => (a.state !== "idle" && a.state !== "stopped") || (drafts.get(a.id) ?? "").length > 0);
-        const pool = nonIdle.length > 0 ? nonIdle : sorted;
-        const idx = pool.findIndex((a) => a.id === focusedAgentId);
-        // If current agent is not in pool, jump to first/last; otherwise need >1 to cycle
-        if (idx !== -1 && pool.length <= 1) return;
-        if (pool.length === 0) return;
-        const next = idx === -1
-          ? (e.shiftKey ? pool[pool.length - 1] : pool[0])
-          : e.shiftKey
-            ? pool[(idx - 1 + pool.length) % pool.length]
-            : pool[(idx + 1) % pool.length];
-        dispatch({ type: "focus", agentId: next.id });
+        const nextId = cycleAgent(agents, drafts, currentRoom, focusedAgentId, e.shiftKey ? "prev" : "next");
+        if (nextId) dispatch({ type: "focus", agentId: nextId });
       }
     }
     window.addEventListener("keydown", handleKey);
@@ -110,6 +140,8 @@ export function App() {
           onBack={() => dispatch({ type: "focus", agentId: null })}
           onEditAgent={() => setEditAgent(focusedAgent)}
           username={username ?? ""}
+          onSwipeLeft={swipeAgentNext}
+          onSwipeRight={swipeAgentPrev}
         />
       ) : isMobile && mobileViewMode === "list" ? (
         <AgentListView
@@ -121,6 +153,8 @@ export function App() {
           onEditOfficePrompt={() => setEditingOfficePrompt(true)}
           onOpenTodos={() => setTodosOpen(true)}
           onToggleView={() => dispatch({ type: "toggle_mobile_view" })}
+          onSwipeLeft={swipeRoomNext}
+          onSwipeRight={swipeRoomPrev}
         />
       ) : (
         <OfficeView
@@ -130,6 +164,8 @@ export function App() {
           onEditUsername={() => setEditingUsername(true)}
           onEditOfficePrompt={() => setEditingOfficePrompt(true)}
           onOpenTodos={() => setTodosOpen(true)}
+          onSwipeLeft={swipeRoomNext}
+          onSwipeRight={swipeRoomPrev}
         />
       )}
       {spawnDesk !== null && (

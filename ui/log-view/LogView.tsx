@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo, useCallback } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback, type RefCallback } from "react";
 import type { AgentInfo, AgentState, LogEntry, SkillInfo } from "../../shared/types.ts";
 import { StatusLight } from "../office/StatusLight.tsx";
 import { send } from "../ws.ts";
@@ -7,7 +7,7 @@ import { LogEntryCard, serializeEntries } from "./LogEntryCard.tsx";
 import { CopyButton } from "../components/CopyButton.tsx";
 import { SunIcon, MoonIcon } from "../components/ThemeIcons.tsx";
 import { TerminalPanel } from "./TerminalPanel.tsx";
-import { useSwipeBack } from "../hooks/useSwipeBack.ts";
+import { useSwipeLeftRight } from "../hooks/useSwipeLeftRight.ts";
 
 const STATE_LABELS: Partial<Record<AgentState, string>> = {
   thinking: "Thinking",
@@ -119,12 +119,16 @@ export function LogView({
   onBack,
   onEditAgent,
   username,
+  onSwipeLeft,
+  onSwipeRight,
 }: {
   agent: AgentInfo;
   logs: LogEntry[];
   onBack: () => void;
   onEditAgent: () => void;
   username: string;
+  onSwipeLeft?: () => void;
+  onSwipeRight?: () => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -147,7 +151,11 @@ export function LogView({
   const isListeningRef = useRef(false);
   const [showMicHint, setShowMicHint] = useState(false);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
-  const { offsetX: swipeX, phase: swipePhase, onTransitionEnd: swipeTransitionEnd } = useSwipeBack(onBack, isMobile);
+  const swipeRef = useSwipeLeftRight(onSwipeLeft ?? (() => {}), onSwipeRight ?? (() => {}), isMobile);
+  const messagesRef: RefCallback<HTMLDivElement> = useCallback((node: HTMLDivElement | null) => {
+    (scrollRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
+    (swipeRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
+  }, []);
 
   // Mobile keyboard fix: use visualViewport.height as the container height.
   // On mobile browsers, 100dvh/100vh do NOT shrink when the virtual keyboard
@@ -393,7 +401,6 @@ export function LogView({
 
   return (
     <div
-      onTransitionEnd={swipeTransitionEnd}
       style={{
         ...(isMobile ? {
           position: "fixed" as const,
@@ -408,9 +415,7 @@ export function LogView({
         display: "flex",
         flexDirection: "row",
         background: "var(--bg-base)",
-        animation: swipePhase === "idle" && swipeX === 0 ? "termEnter 0.3s ease-out" : undefined,
-        transform: swipeX > 0 ? `translateX(${swipeX}px)` : undefined,
-        transition: swipePhase === "settling" || swipePhase === "exiting" ? "transform 0.25s ease-out" : undefined,
+        animation: "termEnter 0.3s ease-out",
       }}
     >
     <div
@@ -656,7 +661,7 @@ export function LogView({
 
       {/* Messages */}
       <div
-        ref={scrollRef}
+        ref={messagesRef}
         onScroll={handleScroll}
         style={{
           flex: 1,
