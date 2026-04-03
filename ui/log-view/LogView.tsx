@@ -417,42 +417,45 @@ export function LogView({
       {isMobile ? (
         <div style={{
           display: "flex",
-          flexDirection: "column",
-          padding: "8px 12px",
-          paddingTop: "calc(8px + env(safe-area-inset-top, 0px))",
+          flexDirection: "row",
+          alignItems: "stretch",
+          padding: "0 12px 0 0",
+          paddingTop: "env(safe-area-inset-top, 0px)",
           background: "var(--bg-surface)",
           borderBottom: "1px solid var(--border-strong)",
           flexShrink: 0,
-          gap: 4,
         }}>
-          {/* Row 1 */}
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <button onClick={onBack} style={{
-              padding: "4px 8px", borderRadius: 6,
-              border: "1px solid var(--border-medium)",
-              background: "var(--btn-surface)",
-              color: "var(--text-dim)",
-              fontSize: 16, cursor: "pointer", lineHeight: 1,
-            }}>←</button>
-            <StatusLight state={agent.state} size={8} />
-            <span onClick={onEditAgent} style={{
-              fontWeight: 600, color: "var(--text-primary)", fontSize: 15,
-              cursor: "pointer", flex: 1, overflow: "hidden",
-              textOverflow: "ellipsis", whiteSpace: "nowrap",
-            }}>{agent.name}{agent.room > 0 ? <span style={{ opacity: 0.4, fontWeight: 400, fontSize: 12, marginLeft: 6 }}>R{agent.room + 1}:{agent.desk + 1}</span> : ""}</span>
-            {STATE_LABELS[agent.state] && (
-              <HeaderTimer state={agent.state} stateChangedAt={stateChangedAt.get(agent.id)} />
-            )}
-            {logs.length > 0 && <CopyButton getText={getConversationText} />}
-          </div>
-          {/* Row 2 */}
-          <div style={{ display: "flex", alignItems: "center", gap: 6, paddingLeft: 36 }}>
-            <span style={{
-              fontFamily: "'JetBrains Mono',monospace",
-              color: "var(--text-muted)", fontSize: 12,
-              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-              flex: 1,
-            }}>{agent.cwd}</span>
+          <button onClick={onBack} style={{
+            padding: "12px 14px",
+            border: "none",
+            borderRight: "1px solid var(--border-medium)",
+            background: "var(--btn-surface)",
+            color: "var(--text-dim)",
+            fontSize: 20, cursor: "pointer", lineHeight: 1,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            flexShrink: 0,
+          }}>←</button>
+          <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden", padding: "8px 10px", gap: 2 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <StatusLight state={agent.state} size={8} />
+              <span onClick={onEditAgent} style={{
+                fontWeight: 600, color: "var(--text-primary)", fontSize: 15,
+                cursor: "pointer", flex: 1, overflow: "hidden",
+                textOverflow: "ellipsis", whiteSpace: "nowrap",
+              }}>{agent.name}{agent.room > 0 ? <span style={{ opacity: 0.4, fontWeight: 400, fontSize: 12, marginLeft: 6 }}>R{agent.room + 1}:{agent.desk + 1}</span> : ""}</span>
+              {STATE_LABELS[agent.state] && (
+                <HeaderTimer state={agent.state} stateChangedAt={stateChangedAt.get(agent.id)} />
+              )}
+              {logs.length > 0 && <CopyButton getText={getConversationText} />}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, paddingLeft: 16 }}>
+              <span style={{
+                fontFamily: "'JetBrains Mono',monospace",
+                color: "var(--text-muted)", fontSize: 12,
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                flex: 1,
+              }}>{agent.cwd}</span>
+            </div>
           </div>
         </div>
       ) : (
