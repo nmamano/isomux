@@ -99,9 +99,9 @@ export function AgentListView({
         <div style={{ display: "flex", gap: 8 }}>
           {(
             [
-              { n: agents.filter((a) => ["thinking", "tool_executing"].includes(a.state)).length, c: "var(--green)", short: "work" },
-              { n: agents.filter((a) => a.state === "waiting_for_response").length, c: "var(--purple)", short: "wait" },
-              { n: agents.filter((a) => a.state === "error").length, c: "var(--red)", short: "err" },
+              { n: roomAgents.filter((a) => ["thinking", "tool_executing"].includes(a.state)).length, c: "var(--green)", short: "work" },
+              { n: roomAgents.filter((a) => a.state === "waiting_for_response").length, c: "var(--purple)", short: "wait" },
+              { n: roomAgents.filter((a) => a.state === "error").length, c: "var(--red)", short: "err" },
             ] as const
           )
             .filter((s) => s.n > 0)

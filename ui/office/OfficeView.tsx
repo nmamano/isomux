@@ -35,10 +35,10 @@ export function OfficeView({ onSpawn, onContextMenu, username, onEditUsername, o
   const roomAgents = agents.filter((a) => a.room === currentRoom);
 
   const counts = {
-    working: agents.filter((a) => ["thinking", "tool_executing"].includes(a.state)).length,
-    waiting: agents.filter((a) => a.state === "waiting_for_response").length,
-    error: agents.filter((a) => a.state === "error").length,
-    idle: agents.filter((a) => a.state === "idle" || a.state === "stopped").length,
+    working: roomAgents.filter((a) => ["thinking", "tool_executing"].includes(a.state)).length,
+    waiting: roomAgents.filter((a) => a.state === "waiting_for_response").length,
+    error: roomAgents.filter((a) => a.state === "error").length,
+    idle: roomAgents.filter((a) => a.state === "idle" || a.state === "stopped").length,
   };
 
   return (
