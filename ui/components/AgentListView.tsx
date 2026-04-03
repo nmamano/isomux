@@ -14,6 +14,7 @@ export function AgentListView({
   onEditUsername,
   onEditOfficePrompt,
   onOpenTodos,
+  onToggleView,
 }: {
   onFocus: (agentId: string) => void;
   onSpawn: () => void;
@@ -22,6 +23,7 @@ export function AgentListView({
   onEditUsername: () => void;
   onEditOfficePrompt: () => void;
   onOpenTodos: () => void;
+  onToggleView?: () => void;
 }) {
   const { agents, connected, currentRoom, roomCount } = useAppState();
   const dispatch = useDispatch();
@@ -177,6 +179,23 @@ export function AgentListView({
                   <span style={{ width: 20, textAlign: "center", fontSize: 15 }}>{theme === "dark" ? "\u2600" : "\u263E"}</span>
                   <span>{theme === "dark" ? "Light mode" : "Dark mode"}</span>
                 </button>
+                {onToggleView && (
+                  <button
+                    onClick={() => { setMenuOpen(false); onToggleView(); }}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 10,
+                      width: "100%", padding: "12px 16px",
+                      background: "transparent", border: "none",
+                      color: "var(--text-primary)", fontSize: 14,
+                      cursor: "pointer", textAlign: "left",
+                      fontFamily: "'DM Sans',sans-serif",
+                      borderTop: "1px solid var(--border)",
+                    }}
+                  >
+                    <span style={{ width: 20, textAlign: "center", fontSize: 15 }}>&#9634;</span>
+                    <span>Office view</span>
+                  </button>
+                )}
               </div>
             )}
           </div>

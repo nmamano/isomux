@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { AgentInfo } from "../../shared/types.ts";
 import { DeskSprite } from "./DeskSprite.tsx";
 import { Character } from "./Character.tsx";
@@ -22,6 +22,9 @@ export function DeskUnit({
 }) {
   const [hov, setHov] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressTriggered = useRef(false);
   const isWorking = agent.state === "thinking" || agent.state === "tool_executing";
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
@@ -29,6 +32,51 @@ export function DeskUnit({
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, [isWorking]);
+
+  // Stable refs for callbacks so the touch listener effect doesn't re-register on every render
+  const onClickRef = useRef(onClick);
+  const onContextMenuRef = useRef(onContextMenu);
+  onClickRef.current = onClick;
+  onContextMenuRef.current = onContextMenu;
+
+  // Non-passive touch listeners — React registers touch listeners as passive,
+  // which silently ignores preventDefault(). We need preventDefault() to suppress
+  // native long-press context menu, text selection, and synthetic mouse events.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    function handleTouchStart(e: TouchEvent) {
+      e.preventDefault();
+      longPressTriggered.current = false;
+      const touch = e.touches[0];
+      longPressTimer.current = setTimeout(() => {
+        longPressTriggered.current = true;
+        onContextMenuRef.current({ clientX: touch.clientX, clientY: touch.clientY, preventDefault() {} } as unknown as React.MouseEvent);
+      }, 500);
+    }
+    function handleTouchEnd(e: TouchEvent) {
+      if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
+      if (longPressTriggered.current) {
+        e.preventDefault();
+      } else {
+        onClickRef.current();
+      }
+    }
+    function handleTouchMove() {
+      if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
+    }
+
+    el.addEventListener("touchstart", handleTouchStart, { passive: false });
+    el.addEventListener("touchend", handleTouchEnd, { passive: false });
+    el.addEventListener("touchmove", handleTouchMove, { passive: true });
+    return () => {
+      el.removeEventListener("touchstart", handleTouchStart);
+      el.removeEventListener("touchend", handleTouchEnd);
+      el.removeEventListener("touchmove", handleTouchMove);
+    };
+  }, []);
+
   const elapsedMs = isWorking && stateChangedAt ? now - stateChangedAt : undefined;
   const pos = DESK_SLOTS[agent.desk];
   const { left: pxLeft, top: pxTop } = deskPixelPos(pos.row, pos.col);
@@ -36,6 +84,7 @@ export function DeskUnit({
 
   return (
     <div
+      ref={containerRef}
       draggable
       onDragStart={(e) => {
         e.dataTransfer.setData("text/plain", String(agent.desk));
@@ -51,7 +100,7 @@ export function DeskUnit({
         if (!isNaN(src) && src !== agent.desk) onSwap?.(src, agent.desk);
       }}
       onDragEnd={() => setDragOver(false)}
-      onClick={onClick}
+      onClick={() => { if (!longPressTriggered.current) onClick(); }}
       onContextMenu={(e) => {
         e.preventDefault();
         onContextMenu(e);
@@ -71,6 +120,8 @@ export function DeskUnit({
         outline: dragOver ? "2px solid rgba(126,184,255,0.4)" : "none",
         outlineOffset: 4,
         borderRadius: 8,
+        userSelect: "none",
+        WebkitUserSelect: "none",
       }}
     >
       {/* Shadow on floor */}

@@ -182,7 +182,7 @@ export function DeskSprite({ state, deskIndex = 0, cwd }: { state: AgentState; d
             fontSize="5"
             fontFamily="monospace"
             transform="skewY(24)"
-            style={{ transformOrigin: "68px 24px" }}
+            style={{ transformOrigin: "68px 24px", userSelect: "none", pointerEvents: "none" }}
           >
             {wrapCwd(shortCwd).map((line, i) => (
               <tspan key={i} x="68" dy={i === 0 ? 0 : 6}>

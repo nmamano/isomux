@@ -9,6 +9,7 @@ export interface AppState {
   focusedAgentId: string | null;
   connected: boolean;
   isMobile: boolean;
+  mobileViewMode: "list" | "office"; // which view to show on mobile
   needsAttention: Set<string>; // agentIds with unread state changes
   sessionsList: Map<string, { sessions: SessionInfo[]; currentSessionId: string | null }>; // agentId → available sessions
   soundTrigger: number; // increments when any agent finishes work (for sound regardless of focus)
@@ -35,6 +36,7 @@ type Action =
   | { type: "slash_commands"; agentId: string; commands: string[]; skills: SkillInfo[] }
   | { type: "clear_logs"; agentId: string }
   | { type: "set_mobile"; isMobile: boolean }
+  | { type: "toggle_mobile_view" }
   | { type: "office_prompt"; text: string }
   | { type: "todos"; todos: TodoItem[] }
   | { type: "set_current_room"; room: number }
@@ -141,6 +143,11 @@ function reducer(state: AppState, action: Action): AppState {
     }
     case "set_mobile":
       return { ...state, isMobile: action.isMobile };
+    case "toggle_mobile_view": {
+      const next = state.mobileViewMode === "list" ? "office" : "list";
+      if (typeof localStorage !== "undefined") localStorage.setItem("isomux-mobile-view", next);
+      return { ...state, mobileViewMode: next };
+    }
     case "office_prompt":
       return { ...state, officePrompt: action.text };
     case "todos":
@@ -169,6 +176,7 @@ const initialState: AppState = {
   focusedAgentId: null,
   connected: false,
   isMobile: typeof window !== "undefined" ? window.innerWidth < 768 : false,
+  mobileViewMode: (typeof localStorage !== "undefined" && localStorage.getItem("isomux-mobile-view") === "office") ? "office" : "list",
   needsAttention: new Set(),
   sessionsList: new Map(),
   soundTrigger: 0,

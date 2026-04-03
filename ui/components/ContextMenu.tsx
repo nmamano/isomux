@@ -20,11 +20,16 @@ export function ContextMenu({ x, y, agent, onClose, onEdit }: ContextMenuProps) 
   const currentSessionId = sessionsData?.currentSessionId ?? null;
 
   useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    function handleDismiss(e: Event) {
+      const target = (e as TouchEvent).touches?.[0]?.target ?? e.target;
+      if (ref.current && !ref.current.contains(target as Node)) onClose();
     }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
+    document.addEventListener("mousedown", handleDismiss);
+    document.addEventListener("touchstart", handleDismiss);
+    return () => {
+      document.removeEventListener("mousedown", handleDismiss);
+      document.removeEventListener("touchstart", handleDismiss);
+    };
   }, [onClose]);
 
   // Request sessions list when menu opens (only if sessions feature enabled)

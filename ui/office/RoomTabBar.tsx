@@ -21,6 +21,7 @@ export function RoomTabBar() {
         background: "var(--bg-hud)",
         borderBottom: "1px solid var(--border-subtle)",
         overflowX: "auto",
+        overflowY: "hidden",
         flexShrink: 0,
         zIndex: 500,
       }}

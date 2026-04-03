@@ -12,9 +12,9 @@ export const DESK_SLOTS = [
   { row: 3, col: 1 },
 ];
 
-// Scene container dimensions and viewBox
-export const SCENE_W = 1100, SCENE_H = 700;
-export const VB_X = -450, VB_Y = -100;
+// Scene container dimensions and viewBox — sized wall-to-wall (left wall -355 to right wall 595)
+export const SCENE_W = 950, SCENE_H = 700;
+export const VB_X = -355, VB_Y = -100;
 
 // Returns the SVG-space floor coordinate for a desk slot
 export function isoXY(row: number, col: number) {

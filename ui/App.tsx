@@ -12,7 +12,7 @@ import { CSS } from "./styles.ts";
 import type { AgentInfo } from "../shared/types.ts";
 
 export function App() {
-  const { agents, logs, focusedAgentId, isMobile, drafts, currentRoom, roomCount } = useAppState();
+  const { agents, logs, focusedAgentId, isMobile, mobileViewMode, drafts, currentRoom, roomCount } = useAppState();
   const dispatch = useDispatch();
   const [spawnDesk, setSpawnDesk] = useState<number | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; agent: AgentInfo } | null>(null);
@@ -109,7 +109,7 @@ export function App() {
           onEditAgent={() => setEditAgent(focusedAgent)}
           username={username ?? ""}
         />
-      ) : isMobile ? (
+      ) : isMobile && mobileViewMode === "list" ? (
         <AgentListView
           onFocus={(agentId) => dispatch({ type: "focus", agentId })}
           onSpawn={() => setSpawnDesk(0)}
@@ -118,6 +118,7 @@ export function App() {
           onEditUsername={() => setEditingUsername(true)}
           onEditOfficePrompt={() => setEditingOfficePrompt(true)}
           onOpenTodos={() => setTodosOpen(true)}
+          onToggleView={() => dispatch({ type: "toggle_mobile_view" })}
         />
       ) : (
         <OfficeView

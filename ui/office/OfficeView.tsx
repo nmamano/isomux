@@ -11,9 +11,11 @@ import { TodoButton } from "../components/TodoPanel.tsx";
 import type { AgentInfo } from "../../shared/types.ts";
 
 export function OfficeView({ onSpawn, onContextMenu, username, onEditUsername, onEditOfficePrompt, onOpenTodos }: { onSpawn: (deskIndex: number) => void; onContextMenu: (x: number, y: number, agent: AgentInfo) => void; username: string; onEditUsername: () => void; onEditOfficePrompt: () => void; onOpenTodos: () => void }) {
-  const { agents, needsAttention, stateChangedAt, officePrompt, todos, currentRoom, roomCount } = useAppState();
+  const { agents, needsAttention, stateChangedAt, officePrompt, todos, currentRoom, roomCount, isMobile } = useAppState();
   const dispatch = useDispatch();
   const { theme, toggleTheme } = useTheme();
+
+  const mobileScale = isMobile ? screen.width / SCENE_W : 1;
 
   // Filter agents to current room for rendering
   const roomAgents = agents.filter((a) => a.room === currentRoom);
@@ -28,7 +30,7 @@ export function OfficeView({ onSpawn, onContextMenu, username, onEditUsername, o
   return (
     <div
       style={{
-        height: "100vh",
+        height: isMobile ? "100dvh" : "100vh",
         display: "flex",
         flexDirection: "column",
         overflow: "hidden",
@@ -43,8 +45,9 @@ export function OfficeView({ onSpawn, onContextMenu, username, onEditUsername, o
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          padding: "0 20px",
-          height: 44,
+          padding: isMobile ? "0 12px" : "0 20px",
+          paddingTop: isMobile ? "env(safe-area-inset-top, 0px)" : undefined,
+          height: isMobile ? 40 : 44,
           background: "var(--bg-hud)",
           backdropFilter: "blur(16px)",
           borderBottom: "1px solid var(--border-subtle)",
@@ -53,22 +56,42 @@ export function OfficeView({ onSpawn, onContextMenu, username, onEditUsername, o
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-          <span style={{ fontSize: 15, fontWeight: 700, letterSpacing: "-0.02em" }}>Isomux</span>
-          <span
-            style={{
-              fontFamily: "'JetBrains Mono',monospace",
-              fontSize: 9,
-              padding: "2px 7px",
-              borderRadius: 20,
-              background: "var(--accent-bg)",
-              color: "var(--accent)",
-              letterSpacing: "0.05em",
-            }}
-          >
-            CLAUDE CODE
-          </span>
+          {isMobile && (
+            <button
+              onClick={() => dispatch({ type: "toggle_mobile_view" })}
+              style={{
+                background: "var(--btn-surface)",
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                padding: "3px 8px",
+                color: "var(--text-dim)",
+                fontSize: 11,
+                cursor: "pointer",
+                fontFamily: "'JetBrains Mono',monospace",
+                marginRight: 4,
+              }}
+            >
+              &#9776;
+            </button>
+          )}
+          <span style={{ fontSize: isMobile ? 14 : 15, fontWeight: 700, letterSpacing: "-0.02em" }}>Isomux</span>
+          {!isMobile && (
+            <span
+              style={{
+                fontFamily: "'JetBrains Mono',monospace",
+                fontSize: 9,
+                padding: "2px 7px",
+                borderRadius: 20,
+                background: "var(--accent-bg)",
+                color: "var(--accent)",
+                letterSpacing: "0.05em",
+              }}
+            >
+              CLAUDE CODE
+            </span>
+          )}
         </div>
-        <div style={{ display: "flex", gap: 12 }}>
+        <div style={{ display: "flex", gap: isMobile ? 8 : 12 }}>
           {(
             [
               { n: counts.working, c: "var(--green)", l: "working" },
@@ -84,8 +107,8 @@ export function OfficeView({ onSpawn, onContextMenu, username, onEditUsername, o
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  gap: 5,
-                  fontSize: 10,
+                  gap: isMobile ? 3 : 5,
+                  fontSize: isMobile ? 9 : 10,
                   fontWeight: 600,
                   color: s.c,
                   fontFamily: "'JetBrains Mono',monospace",
@@ -101,59 +124,80 @@ export function OfficeView({ onSpawn, onContextMenu, username, onEditUsername, o
                     boxShadow: `0 0 6px ${s.c}`,
                   }}
                 />
-                {s.n} {s.l}
+                {s.n} {isMobile ? s.l[0] : s.l}
               </div>
             ))}
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span
-            onClick={onEditUsername}
-            style={{
-              color: "var(--text-dim)",
-              fontSize: 12,
-              fontFamily: "'JetBrains Mono',monospace",
-              cursor: "pointer",
-              padding: "4px 8px",
-              borderRadius: 6,
-              border: "1px solid var(--border)",
-              background: "var(--btn-surface)",
-            }}
-            title="Change name"
-          >
-            {username.toUpperCase()}
-          </span>
-          <TodoButton onOpen={onOpenTodos} />
-          <button
-            onClick={onEditOfficePrompt}
-            style={{
-              padding: "4px 10px",
-              borderRadius: 8,
-              border: "1px solid var(--border-medium)",
-              background: "var(--btn-surface)",
-              color: "var(--text-dim)",
-              fontSize: 11,
-              cursor: "pointer",
-              fontFamily: "'DM Sans',sans-serif",
-            }}
-          >
-            Office rules
-          </button>
-          <button
-            onClick={toggleTheme}
-            style={{
-              padding: "4px 10px",
-              borderRadius: 8,
-              border: "1px solid var(--border-medium)",
-              background: "var(--btn-surface)",
-              color: "var(--text-dim)",
-              fontSize: 11,
-              cursor: "pointer",
-              fontFamily: "'DM Sans',sans-serif",
-            }}
-          >
-            {theme === "dark" ? "Light" : "Dark"}
-          </button>
-        </div>
+        {isMobile ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <button
+              onClick={onSpawn.bind(null, 0)}
+              style={{
+                background: "var(--accent)",
+                color: "var(--bg-base)",
+                border: "none",
+                borderRadius: 6,
+                padding: "3px 10px",
+                fontSize: 16,
+                fontWeight: 300,
+                cursor: "pointer",
+                lineHeight: 1,
+              }}
+            >
+              +
+            </button>
+          </div>
+        ) : (
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span
+              onClick={onEditUsername}
+              style={{
+                color: "var(--text-dim)",
+                fontSize: 12,
+                fontFamily: "'JetBrains Mono',monospace",
+                cursor: "pointer",
+                padding: "4px 8px",
+                borderRadius: 6,
+                border: "1px solid var(--border)",
+                background: "var(--btn-surface)",
+              }}
+              title="Change name"
+            >
+              {username.toUpperCase()}
+            </span>
+            <TodoButton onOpen={onOpenTodos} />
+            <button
+              onClick={onEditOfficePrompt}
+              style={{
+                padding: "4px 10px",
+                borderRadius: 8,
+                border: "1px solid var(--border-medium)",
+                background: "var(--btn-surface)",
+                color: "var(--text-dim)",
+                fontSize: 11,
+                cursor: "pointer",
+                fontFamily: "'DM Sans',sans-serif",
+              }}
+            >
+              Office rules
+            </button>
+            <button
+              onClick={toggleTheme}
+              style={{
+                padding: "4px 10px",
+                borderRadius: 8,
+                border: "1px solid var(--border-medium)",
+                background: "var(--btn-surface)",
+                color: "var(--text-dim)",
+                fontSize: 11,
+                cursor: "pointer",
+                fontFamily: "'DM Sans',sans-serif",
+              }}
+            >
+              {theme === "dark" ? "Light" : "Dark"}
+            </button>
+          </div>
+        )}
       </div>
 
       <RoomTabBar />
@@ -175,8 +219,11 @@ export function OfficeView({ onSpawn, onContextMenu, username, onEditUsername, o
           style={{
             position: "absolute",
             left: "50%",
-            top: "50%",
-            transform: "translate(-50%, -50%)",
+            top: isMobile ? "45%" : "50%",
+            transform: isMobile
+              ? `translate(-50%, -50%) scale(${mobileScale})`
+              : "translate(-50%, -50%)",
+            transformOrigin: "center center",
             width: SCENE_W,
             height: SCENE_H,
           }}
@@ -225,17 +272,21 @@ export function OfficeView({ onSpawn, onContextMenu, username, onEditUsername, o
       {/* Bottom HUD */}
       <div
         style={{
-          padding: "6px 20px",
+          padding: isMobile ? "4px 12px" : "6px 20px",
+          paddingBottom: isMobile ? "calc(4px + env(safe-area-inset-bottom, 0px))" : undefined,
           background: "var(--bg-hud-bottom)",
           backdropFilter: "blur(8px)",
           borderTop: "1px solid var(--border-subtle)",
           display: "flex",
           justifyContent: "center",
-          gap: 20,
+          gap: isMobile ? 12 : 20,
           zIndex: 500,
         }}
       >
-        {["CLICK → open agent", "DRAG → swap desks", "RIGHT-CLICK → actions", "ESC → back"].map((h, i) => (
+        {(isMobile
+          ? ["TAP → open", "LONG-PRESS → actions"]
+          : ["CLICK → open agent", "DRAG → swap desks", "RIGHT-CLICK → actions", "ESC → back"]
+        ).map((h, i) => (
           <span
             key={i}
             style={{
