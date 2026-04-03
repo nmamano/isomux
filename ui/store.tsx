@@ -58,7 +58,7 @@ function reducer(state: AppState, action: Action): AppState {
         logs: new Map(),
         needsAttention: new Set(),
         slashCommands: new Map(),
-        stateChangedAt: new Map(),
+        stateChangedAt: new Map(action.agents.filter((a) => a.state !== "idle" && a.state !== "stopped").map((a) => [a.id, Date.now()])),
       };
     case "agent_added":
       return { ...state, agents: [...state.agents, action.agent] };

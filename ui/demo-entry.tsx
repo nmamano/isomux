@@ -10,7 +10,9 @@ setShim(handleCommand, sendInitialState);
 
 // Hardcode username so the modal is skipped.
 // Safe: demo runs at isomux.com/demo, real app is self-hosted (different origin).
-localStorage.setItem("isomux-username", "demo-user");
+localStorage.setItem("isomux-username", "demo-boss");
+
+const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || window.innerWidth < 600;
 
 function DemoBanner() {
   return (
@@ -33,8 +35,7 @@ function DemoBanner() {
         color: "var(--text-dim)",
       }}
     >
-      <span>You're exploring a demo office.</span>
-      <span style={{ color: "var(--text-ghost)" }}>To connect real Claude agents</span>
+      <span>{isMobile ? "This is a demo. To connect real agents:" : "This is a demo office. To connect real Claude agents:"}</span>
       <a
         href="https://isomux.com"
         style={{

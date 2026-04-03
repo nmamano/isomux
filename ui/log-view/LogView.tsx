@@ -158,7 +158,8 @@ export function LogView({
     const vv = window.visualViewport;
     if (!vv) return;
     const update = () => {
-      setVpHeight(vv.height);
+      const bannerH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--banner-h")) || 0;
+      setVpHeight(vv.height - bannerH);
       window.scrollTo(0, 0);
       // When keyboard opens (viewport shrinks), scroll chat to bottom
       if (scrollRef.current) {
