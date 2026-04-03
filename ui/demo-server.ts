@@ -98,6 +98,7 @@ function seedOffice() {
       cwd: char.cwd,
       outfit: char.outfit,
       permissionMode: "bypassPermissions",
+      model: "claude-opus-4-6",
       state: char.state,
       topic: char.topic,
       topicStale: false,

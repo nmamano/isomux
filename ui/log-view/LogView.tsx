@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useMemo, useCallback, type RefCallback } from "react";
 import type { AgentInfo, AgentState, LogEntry, SkillInfo } from "../../shared/types.ts";
+import { CLAUDE_MODELS } from "../../shared/types.ts";
 import { StatusLight } from "../office/StatusLight.tsx";
 import { send } from "../ws.ts";
 import { useAppState, useDispatch, useFeatures, useTheme } from "../store.tsx";
@@ -510,11 +511,11 @@ export function LogView({
           >
             ← Back to Office
           </button>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
-            <StatusLight state={agent.state} size={8} />
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, flex: 1, minWidth: 0, marginLeft: 12 }}>
+            <span style={{ flexShrink: 0 }}><StatusLight state={agent.state} size={8} /></span>
             <span
               onClick={onEditAgent}
-              style={{ fontWeight: 600, color: "var(--text-primary)", cursor: "pointer" }}
+              style={{ fontWeight: 600, color: "var(--text-primary)", cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}
               title="Edit agent"
             ><span style={{ opacity: 0.5 }}>{agent.room > 0 ? `R${agent.room + 1}:` : ""}{agent.desk + 1} ·</span> {agent.name}</span>
             {STATE_LABELS[agent.state] && (
@@ -533,8 +534,12 @@ export function LogView({
                     color: "var(--text-secondary)",
                     fontSize: 13,
                     cursor: "text",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    minWidth: 0,
                   }}
-                  title="Click to edit topic"
+                  title={agent.topic ?? "Click to edit topic"}
                 >
                   {agent.topic}
                 </span>
@@ -616,7 +621,18 @@ export function LogView({
                 fontSize: 12,
               }}
             >
-              {agent.cwd}
+              {agent.cwd.replace(/^\/home\/[^/]+/, "~")}
+            </span>
+            <span style={{ color: "var(--text-ghost)" }}>&middot;</span>
+            <span
+              style={{
+                fontFamily: "'JetBrains Mono',monospace",
+                color: "var(--text-ghost)",
+                fontSize: 11,
+                whiteSpace: "nowrap",
+              }}
+            >
+              {CLAUDE_MODELS.find((m) => m.id === agent.model)?.label ?? agent.model}
             </span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "flex-end" }}>

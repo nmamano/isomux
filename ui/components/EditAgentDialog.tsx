@@ -1,5 +1,6 @@
 import { useState } from "react";
-import type { AgentInfo, AgentOutfit } from "../../shared/types.ts";
+import type { AgentInfo, AgentOutfit, ClaudeModel } from "../../shared/types.ts";
+import { CLAUDE_MODELS } from "../../shared/types.ts";
 import { SHIRT_COLORS, HAIR_COLORS, SKIN_COLORS, HAIR_STYLES, BEARDS, HATS, ACCESSORIES } from "../../shared/outfit-options.ts";
 import { Character } from "../office/Character.tsx";
 import { send } from "../ws.ts";
@@ -70,6 +71,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   const [outfit, setOutfit] = useState<AgentOutfit>(agent ? { ...agent.outfit } : makeRandomOutfit);
   const [customInstructions, setCustomInstructions] = useState(agent?.customInstructions ?? "");
   const [permissionMode, setPermissionMode] = useState<AgentInfo["permissionMode"]>("bypassPermissions");
+  const [model, setModel] = useState<ClaudeModel>(agent?.model ?? "claude-opus-4-6");
   const recentCwds = allRecentCwds.filter((c) => c !== cwd);
 
   function handleSave() {
@@ -83,6 +85,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         room: props.room!,
         outfit,
         customInstructions: customInstructions.trim() || undefined,
+        model,
       });
     } else {
       const cmd: any = { type: "edit_agent", agentId: agent!.id };
@@ -91,7 +94,8 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       if (JSON.stringify(outfit) !== JSON.stringify(agent!.outfit)) cmd.outfit = outfit;
       const trimmedInstructions = customInstructions.trim();
       if (trimmedInstructions !== (agent!.customInstructions ?? "")) cmd.customInstructions = trimmedInstructions;
-      if (cmd.name || cmd.cwd || cmd.outfit || cmd.customInstructions !== undefined) send(cmd);
+      if (model !== agent!.model) cmd.model = model;
+      if (cmd.name || cmd.cwd || cmd.outfit || cmd.customInstructions !== undefined || cmd.model) send(cmd);
     }
     onClose();
   }
@@ -176,6 +180,17 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
             </select>
           </>
         )}
+
+        <label style={{ ...labelStyle, marginTop: 12 }}>Model</label>
+        <select
+          value={model}
+          onChange={(e) => setModel(e.target.value as ClaudeModel)}
+          style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
+        >
+          {CLAUDE_MODELS.map((m) => (
+            <option key={m.id} value={m.id}>{m.label}</option>
+          ))}
+        </select>
 
         <label style={{ ...labelStyle, marginTop: 14 }}>Appearance</label>
         <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 10 }}>

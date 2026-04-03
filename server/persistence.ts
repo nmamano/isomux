@@ -1,7 +1,7 @@
 import { join } from "path";
 import { homedir } from "os";
 import { mkdirSync, appendFileSync, readFileSync, writeFileSync, existsSync, readdirSync, unlinkSync } from "fs";
-import type { AgentInfo, LogEntry, TodoItem } from "../shared/types.ts";
+import type { AgentInfo, ClaudeModel, LogEntry, TodoItem } from "../shared/types.ts";
 
 const ISOMUX_DIR = join(homedir(), ".isomux");
 const LOGS_DIR = join(ISOMUX_DIR, "logs");
@@ -118,6 +118,7 @@ export interface PersistedAgent {
   cwd: string;
   outfit: AgentInfo["outfit"];
   permissionMode: AgentInfo["permissionMode"];
+  model?: ClaudeModel;
   lastSessionId: string | null;
   topic: string | null;
   customInstructions: string | null;
@@ -155,7 +156,7 @@ export function saveAgents(rooms: PersistedAgent[][]) {
 // Agent manifest for discovery by other agents
 const MANIFEST_FILE = join(ISOMUX_DIR, "agents-summary.json");
 
-export function writeManifest(agents: { id: string; name: string; desk: number; room: number; topic: string | null; cwd: string }[]) {
+export function writeManifest(agents: { id: string; name: string; desk: number; room: number; topic: string | null; cwd: string; model: ClaudeModel }[]) {
   try {
     const manifest = agents.map((a) => ({
       id: a.id,
@@ -164,6 +165,7 @@ export function writeManifest(agents: { id: string; name: string; desk: number; 
       room: a.room + 1, // 1-based for human readability
       topic: a.topic,
       cwd: a.cwd,
+      model: a.model,
       logDir: join(LOGS_DIR, a.id),
     }));
     writeFileSync(MANIFEST_FILE, JSON.stringify(manifest, null, 2));

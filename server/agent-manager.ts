@@ -4,7 +4,8 @@ import {
   unstable_v2_prompt,
   type SDKMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { AgentInfo, AgentOutfit, AgentState, LogEntry, SkillInfo, SkillOrigin } from "../shared/types.ts";
+import type { AgentInfo, AgentOutfit, AgentState, ClaudeModel, LogEntry, SkillInfo, SkillOrigin } from "../shared/types.ts";
+import { CLAUDE_MODELS } from "../shared/types.ts";
 import { generateOutfit } from "./outfit.ts";
 import { appendLog, loadLog, loadAgents, saveAgents, listAgentSessions, writeManifest, persistSessionTopic, loadOfficePrompt, saveOfficePrompt, type PersistedAgent } from "./persistence.ts";
 import { createSafetyHooks } from "./safety-hooks.ts";
@@ -221,6 +222,8 @@ interface ManagedAgent {
   // /resume two-step state
   pendingResume: boolean;
   pendingResumeSessions: { sessionId: string; lastModified: number; topic: string | null }[];
+  // /model two-step state
+  pendingModelPick: boolean;
   // Terminal PTY sidecar (spawned on demand via Node.js)
   ptySidecar: import("bun").Subprocess | null;
   ptyBuffer: string; // buffered output for reconnecting browsers
@@ -280,7 +283,7 @@ export function getCurrentSessionId(agentId: string): string | null {
   return agents.get(agentId)?.sessionId ?? null;
 }
 
-export function editAgent(agentId: string, changes: { name?: string; cwd?: string; outfit?: AgentInfo["outfit"]; customInstructions?: string }) {
+export function editAgent(agentId: string, changes: { name?: string; cwd?: string; outfit?: AgentInfo["outfit"]; customInstructions?: string; model?: ClaudeModel }) {
   const managed = agents.get(agentId);
   if (!managed) return;
 
@@ -307,12 +310,23 @@ export function editAgent(agentId: string, changes: { name?: string; cwd?: strin
     managed.info.customInstructions = changes.customInstructions || null;
     updated.customInstructions = managed.info.customInstructions;
   }
+  if (changes.model && changes.model !== managed.info.model) {
+    managed.info.model = changes.model;
+    updated.model = changes.model;
+  }
 
   if (Object.keys(updated).length === 0) return;
 
   // Regenerate launcher if name, cwd, or customInstructions changed (takes effect on next conversation)
   if (updated.name !== undefined || updated.cwd !== undefined || updated.customInstructions !== undefined) {
     managed.launcherPath = createLauncher(agentId, managed.info.cwd, managed.info.name, officePrompt, managed.info.customInstructions);
+  }
+
+  // Recreate session if model changed so it takes effect immediately
+  if (updated.model) {
+    const sessionId = managed.sessionId;
+    try { managed.session?.close(); } catch {}
+    managed.session = sessionId ? createSession(managed, sessionId) : createSession(managed);
   }
 
   persistAll();
@@ -400,6 +414,7 @@ function updateManifest() {
     room: a.info.room,
     topic: a.info.topic,
     cwd: a.info.cwd,
+    model: a.info.model,
   })));
 }
 
@@ -416,6 +431,7 @@ function persistAll() {
         cwd: a.info.cwd,
         outfit: a.info.outfit,
         permissionMode: a.info.permissionMode,
+        model: a.info.model,
         lastSessionId: a.sessionId,
         topic: a.info.topic,
         customInstructions: a.info.customInstructions,
@@ -446,6 +462,7 @@ export async function restoreAgents() {
         cwd: p.cwd,
         outfit: p.outfit,
         permissionMode: p.permissionMode,
+        model: p.model ?? "claude-opus-4-6",
         state: p.lastSessionId ? "waiting_for_response" : "idle",
         topic: p.topic ?? null,
         topicStale: false,
@@ -468,6 +485,7 @@ export async function restoreAgents() {
         topicMessageCount: 0,
         pendingResume: false,
         pendingResumeSessions: [],
+        pendingModelPick: false,
         ptySidecar: null,
         ptyBuffer: "",
       };
@@ -855,7 +873,7 @@ function sdkPermissionMode(mode: AgentInfo["permissionMode"]) {
 
 function createSession(managed: ManagedAgent, resumeSessionId?: string) {
   const opts: any = {
-    model: "claude-opus-4-6",
+    model: managed.info.model,
     permissionMode: sdkPermissionMode(managed.info.permissionMode),
     pathToClaudeCodeExecutable: managed.launcherPath,
     hooks: createSafetyHooks(),
@@ -868,7 +886,7 @@ function createSession(managed: ManagedAgent, resumeSessionId?: string) {
     : unstable_v2_createSession(opts);
 }
 
-export async function spawn(name: string, cwd: string, permissionMode: AgentInfo["permissionMode"], desk?: number, customInstructions?: string, room?: number, outfit?: AgentOutfit): Promise<AgentInfo | null> {
+export async function spawn(name: string, cwd: string, permissionMode: AgentInfo["permissionMode"], desk?: number, customInstructions?: string, room?: number, outfit?: AgentOutfit, model?: ClaudeModel): Promise<AgentInfo | null> {
   // Reject duplicate names across all rooms
   const nameLower = name.trim().toLowerCase();
   for (const a of agents.values()) {
@@ -900,6 +918,7 @@ export async function spawn(name: string, cwd: string, permissionMode: AgentInfo
     cwd: resolvedCwd,
     outfit: outfit ?? generateOutfit(),
     permissionMode,
+    model: model ?? "claude-opus-4-6",
     state: "idle",
     topic: null,
     topicStale: false,
@@ -923,6 +942,7 @@ export async function spawn(name: string, cwd: string, permissionMode: AgentInfo
     topicMessageCount: 0,
     pendingResume: false,
     pendingResumeSessions: [],
+    pendingModelPick: false,
     ptySidecar: null,
     ptyBuffer: "",
   };
@@ -1007,6 +1027,32 @@ export async function sendMessage(agentId: string, text: string, username?: stri
     }
   }
 
+  // Handle /model two-step: if pendingModelPick, check if input is a number pick
+  if (managed.pendingModelPick) {
+    managed.pendingModelPick = false;
+    const trimmed = text.trim();
+    const num = parseInt(trimmed, 10);
+    if (!isNaN(num) && num >= 1 && num <= CLAUDE_MODELS.length) {
+      const userMeta = username ? { username } : undefined;
+      emitEphemeralLog(agentId, "user_message", text, userMeta);
+      const picked = CLAUDE_MODELS[num - 1];
+      if (picked.id === managed.info.model) {
+        emitEphemeralLog(agentId, "system", `Already using ${picked.label}.`);
+      } else {
+        managed.info.model = picked.id;
+        const sessionId = managed.sessionId;
+        try { managed.session?.close(); } catch {}
+        managed.session = sessionId ? createSession(managed, sessionId) : createSession(managed);
+        emit({ type: "agent_updated", agentId, changes: { model: picked.id } });
+        persistAll();
+        addLogEntry(agentId, "system", `Model switched to ${picked.label}. The agent's context may still say they are a different model — the correct model is shown in the top bar.`);
+      }
+      return;
+    } else {
+      emitEphemeralLog(agentId, "system", "Model selection cancelled.");
+    }
+  }
+
   // Intercept slash commands that are handled locally, not by the LLM
   if (text.startsWith("/")) {
     const [cmd, ...args] = text.slice(1).trim().split(/\s+/);
@@ -1068,6 +1114,7 @@ const commandHandlers: Record<string, HandlerFn> = {
     emitEphemeralLog(agentId, "user_message", rawText, userMeta);
     managed.pendingResume = false;
     managed.pendingResumeSessions = [];
+    managed.pendingModelPick = false;
     persistCurrentSessionTopic(agentId, managed);
     try { managed.session?.close(); } catch {}
     managed.session = createSession(managed);
@@ -1239,6 +1286,23 @@ const commandHandlers: Record<string, HandlerFn> = {
     emitEphemeralLog(agentId, "system", lines.join("\n"));
     managed.pendingResume = true;
     managed.pendingResumeSessions = pickable;
+    updateState(agentId, "waiting_for_response");
+    return true;
+  },
+
+  async model(agentId, managed, _args, rawText, username) {
+    const userMeta = username ? { username } : undefined;
+    emitEphemeralLog(agentId, "user_message", rawText, userMeta);
+    const currentLabel = CLAUDE_MODELS.find((m) => m.id === managed.info.model)?.label ?? managed.info.model;
+    const lines: string[] = [`Switch model (current: **${currentLabel}**):\n`];
+    for (let i = 0; i < CLAUDE_MODELS.length; i++) {
+      const m = CLAUDE_MODELS[i];
+      const marker = m.id === managed.info.model ? " (current)" : "";
+      lines.push(`  ${i + 1}. ${m.label}${marker}`);
+    }
+    lines.push("\nReply with a number to switch, or anything else to cancel.");
+    emitEphemeralLog(agentId, "system", lines.join("\n"));
+    managed.pendingModelPick = true;
     updateState(agentId, "waiting_for_response");
     return true;
   },
@@ -1481,6 +1545,7 @@ export async function newConversation(agentId: string) {
   if (!managed) return;
   managed.pendingResume = false;
   managed.pendingResumeSessions = [];
+  managed.pendingModelPick = false;
   persistCurrentSessionTopic(agentId, managed);
   try { managed.session?.close(); } catch {}
 
@@ -1507,6 +1572,7 @@ export async function resume(agentId: string, sessionId: string) {
   if (!managed) return;
   managed.pendingResume = false;
   managed.pendingResumeSessions = [];
+  managed.pendingModelPick = false;
   persistCurrentSessionTopic(agentId, managed);
   try { managed.session?.close(); } catch {}
 

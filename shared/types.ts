@@ -18,6 +18,15 @@ export interface AgentOutfit {
   accessory: "glasses" | "headphones" | "bow_tie" | "tie" | "earrings" | null;
 }
 
+// Supported Claude models
+export type ClaudeModel = "claude-opus-4-6" | "claude-sonnet-4-6" | "claude-haiku-4-5-20251001";
+
+export const CLAUDE_MODELS: { id: ClaudeModel; label: string }[] = [
+  { id: "claude-opus-4-6", label: "Opus 4.6" },
+  { id: "claude-sonnet-4-6", label: "Sonnet 4.6" },
+  { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5" },
+];
+
 // What the browser knows about an agent
 export interface AgentInfo {
   id: string;
@@ -27,6 +36,7 @@ export interface AgentInfo {
   cwd: string;
   outfit: AgentOutfit;
   permissionMode: "default" | "acceptEdits" | "bypassPermissions";
+  model: ClaudeModel;
   state: AgentState;
   topic: string | null;
   topicStale: boolean;
@@ -85,14 +95,14 @@ export type ServerMessage =
 
 // Browser → Server commands
 export type ClientCommand =
-  | { type: "spawn"; name: string; cwd: string; permissionMode: AgentInfo["permissionMode"]; desk: number; room?: number; customInstructions?: string; outfit?: AgentOutfit }
+  | { type: "spawn"; name: string; cwd: string; permissionMode: AgentInfo["permissionMode"]; desk: number; room?: number; customInstructions?: string; outfit?: AgentOutfit; model?: ClaudeModel }
   | { type: "kill"; agentId: string }
   | { type: "abort"; agentId: string }
   | { type: "send_message"; agentId: string; text: string; username?: string }
   | { type: "new_conversation"; agentId: string }
   | { type: "resume"; agentId: string; sessionId: string }
   | { type: "list_sessions"; agentId: string }
-  | { type: "edit_agent"; agentId: string; name?: string; cwd?: string; outfit?: AgentOutfit; customInstructions?: string }
+  | { type: "edit_agent"; agentId: string; name?: string; cwd?: string; outfit?: AgentOutfit; customInstructions?: string; model?: ClaudeModel }
   | { type: "swap_desks"; deskA: number; deskB: number; room: number }
   | { type: "set_topic"; agentId: string; topic: string }
   | { type: "reset_topic"; agentId: string }
