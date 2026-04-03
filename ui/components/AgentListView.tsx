@@ -166,8 +166,7 @@ export function AgentListView({
               >
                 {[
                   { icon: "\u2611", label: "Todos", action: onOpenTodos },
-                  { icon: "\u270E", label: username, action: onEditUsername },
-                  { icon: "\u2699", label: "Office rules", action: onEditOfficePrompt },
+                  { icon: "\u2699", label: "Office settings", action: onEditOfficePrompt },
                   { icon: theme === "dark" ? "\u2600" : "\u263E", label: theme === "dark" ? "Light mode" : "Dark mode", action: toggleTheme },
                 ].map((item, i) => (
                   <button

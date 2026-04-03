@@ -100,8 +100,8 @@ export function OfficeView({ onSpawn, onContextMenu, username, onEditUsername, o
         <div style={{ display: "flex", gap: isMobile ? 8 : 12 }}>
           {(
             [
-              { n: counts.working, c: "var(--green)", l: "working", short: "work" },
-              { n: counts.waiting, c: "var(--purple)", l: "waiting", short: "wait" },
+              { n: counts.working, c: "var(--green)", l: "working", short: "working" },
+              { n: counts.waiting, c: "var(--purple)", l: "waiting", short: "waiting" },
               { n: counts.error, c: "var(--red)", l: "error", short: "err" },
               { n: counts.idle, c: "var(--text-muted)", l: "idle", short: null as string | null },
             ] as const
@@ -169,8 +169,7 @@ export function OfficeView({ onSpawn, onContextMenu, username, onEditUsername, o
                 >
                   {[
                     { icon: "\u2611", label: "Todos", action: onOpenTodos },
-                    { icon: "\u270E", label: username, action: onEditUsername },
-                    { icon: "\u2699", label: "Office rules", action: onEditOfficePrompt },
+                    { icon: "\u2699", label: "Office settings", action: onEditOfficePrompt },
                     { icon: theme === "dark" ? "\u2600" : "\u263E", label: theme === "dark" ? "Light mode" : "Dark mode", action: toggleTheme },
                   ].map((item, i) => (
                     <button
@@ -195,22 +194,6 @@ export function OfficeView({ onSpawn, onContextMenu, username, onEditUsername, o
           </div>
         ) : (
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span
-              onClick={onEditUsername}
-              style={{
-                color: "var(--text-dim)",
-                fontSize: 12,
-                fontFamily: "'JetBrains Mono',monospace",
-                cursor: "pointer",
-                padding: "4px 8px",
-                borderRadius: 6,
-                border: "1px solid var(--border)",
-                background: "var(--btn-surface)",
-              }}
-              title="Change name"
-            >
-              {username.toUpperCase()}
-            </span>
             <TodoButton onOpen={onOpenTodos} />
             <button
               onClick={onEditOfficePrompt}
@@ -225,7 +208,7 @@ export function OfficeView({ onSpawn, onContextMenu, username, onEditUsername, o
                 fontFamily: "'DM Sans',sans-serif",
               }}
             >
-              Office rules
+              Office settings
             </button>
             <button
               onClick={toggleTheme}

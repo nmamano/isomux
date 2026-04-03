@@ -154,7 +154,14 @@ export function App() {
         />
       )}
       {editingOfficePrompt && (
-        <OfficePromptModal onClose={() => setEditingOfficePrompt(false)} />
+        <OfficePromptModal
+          onClose={() => setEditingOfficePrompt(false)}
+          username={username ?? ""}
+          onSaveUsername={(name) => {
+            localStorage.setItem("isomux-username", name);
+            setUsername(name);
+          }}
+        />
       )}
       {todosOpen && (
         <TodoModal username={username ?? ""} onClose={() => setTodosOpen(false)} />

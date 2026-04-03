@@ -2,13 +2,15 @@ import { useState, useEffect, useRef } from "react";
 import { useAppState } from "../store.tsx";
 import { send } from "../ws.ts";
 
-export function OfficePromptModal({ onClose }: { onClose: () => void }) {
+export function OfficePromptModal({ onClose, username, onSaveUsername }: { onClose: () => void; username: string; onSaveUsername: (name: string) => void }) {
   const { officePrompt, isMobile } = useAppState();
   const [text, setText] = useState(officePrompt);
+  const [name, setName] = useState(username);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   function handleSave() {
     send({ type: "set_office_prompt", text });
+    if (name.trim() && name.trim() !== username) onSaveUsername(name.trim());
     onClose();
   }
 
@@ -62,12 +64,28 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
         }}
       >
         <h3 style={{ fontSize: 17, fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>
-          Office Rules
+          Office Settings
         </h3>
-        <p style={{ fontSize: 13, color: "var(--text-faint)", margin: "2px 0 18px" }}>
-          System prompt for all agents
-        </p>
 
+        <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "var(--text-muted)", marginTop: 18, marginBottom: 5 }}>Boss Title</label>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          style={{
+            width: "100%",
+            padding: "9px 12px",
+            background: "var(--bg-input)",
+            border: "1px solid var(--border)",
+            borderRadius: 8,
+            color: "var(--text-primary)",
+            fontFamily: "'JetBrains Mono',monospace",
+            fontSize: 12,
+            outline: "none",
+            boxSizing: "border-box",
+          }}
+        />
+
+        <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "var(--text-muted)", marginTop: 14, marginBottom: 5 }}>Rules <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>(system prompt for all agents)</span></label>
         <textarea
           ref={textareaRef}
           value={text}
