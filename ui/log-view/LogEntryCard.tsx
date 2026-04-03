@@ -286,9 +286,9 @@ function SystemMessage({ content, isMobile }: { content: string; isMobile?: bool
       fontSize: isMultiline ? (isMobile ? 15 : 13) : (isMobile ? 13 : 11),
       fontFamily: isMultiline ? "'JetBrains Mono',monospace" : "'DM Sans',sans-serif",
       fontStyle: isMultiline ? "normal" : "italic",
-      whiteSpace: "pre-wrap",
+      ...(!isMultiline && { whiteSpace: "pre-wrap" }),
     }}>
-      {content}
+      {isMultiline ? <Markdown content={content} /> : content}
     </div>
   );
 }

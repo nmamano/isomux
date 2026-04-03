@@ -1046,6 +1046,22 @@ function persistCurrentSessionTopic(agentId: string, managed: ManagedAgent) {
 
 type HandlerFn = (agentId: string, managed: ManagedAgent, args: string[], rawText: string, username?: string) => Promise<boolean>;
 
+function formatRelativeTime(timestamp: number): string {
+  const now = Date.now();
+  const diffMs = now - timestamp;
+  const diffSec = Math.floor(diffMs / 1000);
+  const diffMin = Math.floor(diffSec / 60);
+  const diffHr = Math.floor(diffMin / 60);
+  const diffDays = Math.floor(diffHr / 24);
+
+  if (diffSec < 60) return "just now";
+  if (diffMin < 60) return `${diffMin}m ago`;
+  if (diffHr < 24) return `${diffHr}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  const date = new Date(timestamp);
+  return date.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
 const commandHandlers: Record<string, HandlerFn> = {
   async clear(agentId, managed, _args, rawText, username) {
     const userMeta = username ? { username } : undefined;
@@ -1132,21 +1148,60 @@ const commandHandlers: Record<string, HandlerFn> = {
   async help(agentId, managed, _args, rawText, username) {
     const userMeta = username ? { username } : undefined;
     addLogEntry(agentId, "user_message", rawText, userMeta);
-    const cmdList = managed.slashCommands.map((c) => c.description ? `  /${c.name}  — ${c.description}` : `  /${c.name}`).join("\n");
+
+    const lines: string[] = [];
+
+    // Agent metadata
+    const topicLine = managed.info.topic ? `  Topic: ${managed.info.topic}` : "";
+    lines.push(`**${managed.info.name}** — Room ${managed.info.room + 1}, Desk ${managed.info.desk + 1}`);
+    lines.push(`  cwd: \`${managed.info.cwd}\``);
+    if (topicLine) lines.push(topicLine);
+    lines.push("");
+
+    // Isomux description
+    lines.push("Isomux is a multi-agent office manager for Claude Code. Learn more at https://isomux.com");
+    lines.push("");
+
+    // Commands
+    const cmdList = managed.slashCommands.map((c) => c.description ? `  \`/${c.name}\`  — ${c.description}` : `  \`/${c.name}\``).join("\n");
+    lines.push(`**Commands:**\n${cmdList}`);
+
+    // Skills grouped by origin
     const originLabel: Record<SkillOrigin, string> = {
-      user: "user skill",
-      project: "project skill",
-      plugin: "plugin skill",
-      isomux: "isomux-bundled skill",
-      claude: "claude skill",
+      user: "User skills",
+      project: "Project skills",
+      plugin: "Plugin skills",
+      isomux: "Isomux skills",
+      claude: "Claude skills",
     };
-    const skillList = managed.skills.length > 0
-      ? "\n\nSkills:\n" + managed.skills.map((s) => {
-          const desc = s.description ? ` — ${s.description}` : "";
-          return `  /${s.name}  (${originLabel[s.origin]})${desc}`;
-        }).join("\n")
-      : "";
-    addLogEntry(agentId, "system", `Available commands:\n${cmdList}${skillList}`);
+    const originOrder: SkillOrigin[] = ["isomux", "user", "project", "plugin", "claude"];
+    const grouped = new Map<SkillOrigin, SkillInfo[]>();
+    for (const s of managed.skills) {
+      if (!grouped.has(s.origin)) grouped.set(s.origin, []);
+      grouped.get(s.origin)!.push(s);
+    }
+    for (const origin of originOrder) {
+      const skills = grouped.get(origin);
+      if (!skills || skills.length === 0) continue;
+      const skillLines = skills.map((s) => {
+        const desc = s.description ? ` — ${s.description}` : "";
+        return `  \`/${s.name}\`${desc}`;
+      }).join("\n");
+      lines.push(`\n**${originLabel[origin]}:**\n${skillLines}`);
+    }
+
+    // Tips
+    lines.push("\n**Tips:**");
+    lines.push("  \u2022 Isomux also works on your phone. The easiest way is to connect it to the same tailscale network as the machine running it (it's free).");
+    lines.push("  \u2022 The built-in side-panel terminal is useful for one-off situations where you need to run something manually, like auth flows.");
+    lines.push("  \u2022 Isomux comes with safety pre-tool-call hooks to prevent destructive commands, like `rm -rf /`.");
+    lines.push("  \u2022 Isomux agents can check what other agents are up to in real time. Just ask naturally.");
+    lines.push("  \u2022 Use voice-to-text for faster prompting. The shortcut is ctrl+space.");
+    lines.push("  \u2022 Use `/isomux-all-hands` to check what every agent is up to.");
+    lines.push("  \u2022 Use `/report-isomux-bug` if you find any issues.");
+    lines.push("  \u2022 Use `/grill-me` to make your feature designs more robust.");
+
+    addLogEntry(agentId, "system", lines.join("\n"));
     updateState(agentId, "waiting_for_response");
     return true;
   },
@@ -1200,6 +1255,54 @@ const commandHandlers: Record<string, HandlerFn> = {
     const userMeta = username ? { username } : undefined;
     emitEphemeralLog(agentId, "user_message", rawText, userMeta);
     emitEphemeralLog(agentId, "system", "To log out:\n1. Open the built-in terminal\n2. Run `claude logout`");
+    updateState(agentId, "waiting_for_response");
+    return true;
+  },
+
+  async isomuxAllHands(agentId, _managed, _args, rawText, username) {
+    const userMeta = username ? { username } : undefined;
+    addLogEntry(agentId, "user_message", rawText, userMeta);
+
+    // Gather all agents grouped by room
+    const allAgents = [...agents.values()];
+    const roomMap = new Map<number, ManagedAgent[]>();
+    for (const a of allAgents) {
+      const room = a.info.room;
+      if (!roomMap.has(room)) roomMap.set(room, []);
+      roomMap.get(room)!.push(a);
+    }
+
+    const lines: string[] = [];
+    const sortedRooms = [...roomMap.keys()].sort((a, b) => a - b);
+
+    for (const room of sortedRooms) {
+      const roomAgents = roomMap.get(room)!.sort((a, b) => a.info.desk - b.info.desk);
+      lines.push(`**=== Room ${room + 1} ===**`);
+      lines.push("");
+
+      for (const a of roomAgents) {
+        const selfTag = a.info.id === agentId ? "  **(me)**" : "";
+        lines.push(`**${a.info.name}** (desk ${a.info.desk + 1})${selfTag} — \`${a.info.cwd}\``);
+
+        const sessions = listAgentSessions(a.info.id);
+        if (sessions.length === 0) {
+          lines.push("  (no conversations)");
+        } else {
+          let num = 1;
+          for (const s of sessions) {
+            const label = s.topic || s.sessionId.slice(0, 8) + "...";
+            const ago = formatRelativeTime(s.lastModified);
+            lines.push(`  ${num}. ${label}  (${ago})`);
+            num++;
+          }
+        }
+        lines.push("");
+      }
+    }
+
+    lines.push("Ask your agent if you'd like to know more about any agent or conversation.");
+
+    addLogEntry(agentId, "system", lines.join("\n"));
     updateState(agentId, "waiting_for_response");
     return true;
   },

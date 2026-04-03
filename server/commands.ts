@@ -94,6 +94,14 @@ export const commands: Record<string, CommandConfig> = {
     handler: "logout",
     description: "Log out of your Anthropic account",
   },
+  "isomux-all-hands": {
+    type: "hardcoded",
+    supported: true,
+    autocomplete: true,
+    overridable: false,
+    handler: "isomuxAllHands",
+    description: "Summary of all agents and their conversations",
+  },
 
   // =========================================================================
   // Unsupported hardcoded commands (non-overridable)
