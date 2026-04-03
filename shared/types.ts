@@ -12,10 +12,10 @@ export interface AgentOutfit {
   hat: "none" | "cap" | "beanie" | "bow" | "headband";
   color: string; // shirt color hex
   hair: string; // hair color hex
-  hairStyle: "short" | "long" | "ponytail" | "bun" | "pigtails" | "curly";
+  hairStyle: "short" | "long" | "ponytail" | "bun" | "pigtails" | "curly" | "bald";
   skin: string; // skin color hex
-  beard: "none" | "stubble" | "full" | "goatee";
-  accessory: "glasses" | "headphones" | "bow_tie" | "earrings" | null;
+  beard: "none" | "stubble" | "full" | "goatee" | "mustache";
+  accessory: "glasses" | "headphones" | "bow_tie" | "tie" | "earrings" | null;
 }
 
 // What the browser knows about an agent

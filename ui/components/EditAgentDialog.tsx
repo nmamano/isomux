@@ -12,6 +12,7 @@ const HAIR_STYLE_LABELS: Record<AgentOutfit["hairStyle"], string> = {
   bun: "Bun",
   pigtails: "Pigtails",
   curly: "Curly",
+  bald: "Bald",
 };
 
 const HAT_LABELS: Record<AgentOutfit["hat"], string> = {
@@ -27,6 +28,7 @@ const ACCESSORY_LABELS: Record<string, string> = {
   glasses: "Glasses",
   headphones: "Headphones",
   bow_tie: "Bow Tie",
+  tie: "Tie",
   earrings: "Earrings",
 };
 
@@ -35,6 +37,7 @@ const BEARD_LABELS: Record<AgentOutfit["beard"], string> = {
   stubble: "Stubble",
   full: "Full",
   goatee: "Goatee",
+  mustache: "Mustache",
 };
 
 function makeRandomOutfit(): AgentOutfit {

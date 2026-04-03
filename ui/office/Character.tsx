@@ -72,6 +72,8 @@ function Hair({ style, color, headCx, headCy }: { style: AgentOutfit["hairStyle"
           <circle cx={headCx + 6} cy={topY - 5} r={3} fill={color} />
         </>
       );
+    case "bald":
+      return null;
     default: // "short"
       return <ellipse cx={headCx} cy={topY} rx={10} ry={5.5} fill={color} />;
   }
@@ -120,27 +122,38 @@ function Beard({ type, color, headCx, headCy }: { type: AgentOutfit["beard"]; co
   switch (type) {
     case "stubble":
       return (
-        <g fill={color} opacity={0.5}>
-          {[[-3, 7], [0, 8], [3, 7], [-2, 9], [2, 9], [-1, 6], [1, 6], [4, 8], [-4, 8]].map(([dx, dy], i) => (
-            <circle key={i} cx={headCx + dx} cy={headCy + dy} r={0.5} />
+        <g fill={color} opacity={0.7}>
+          {[[-4, 6], [-1, 6], [2, 6], [5, 6], [-5, 8], [-2, 8], [1, 8], [4, 8], [-3, 10], [0, 10], [3, 10], [-1, 11], [1, 11]].map(([dx, dy], i) => (
+            <circle key={i} cx={headCx + dx} cy={headCy + dy} r={0.9} />
           ))}
         </g>
       );
     case "full":
       return (
         <path
-          d={`M${headCx - 4} ${headCy + 6} Q${headCx - 5} ${headCy + 10} ${headCx} ${headCy + 11} Q${headCx + 5} ${headCy + 10} ${headCx + 4} ${headCy + 6}`}
+          d={`M${headCx - 6} ${headCy + 5} Q${headCx - 7} ${headCy + 11} ${headCx} ${headCy + 13} Q${headCx + 7} ${headCy + 11} ${headCx + 6} ${headCy + 5}`}
           fill={color}
-          opacity={0.8}
+          opacity={0.9}
         />
       );
     case "goatee":
       return (
         <path
-          d={`M${headCx - 2} ${headCy + 8} Q${headCx} ${headCy + 12} ${headCx + 2} ${headCy + 8}`}
+          d={`M${headCx - 4} ${headCy + 7} Q${headCx - 5} ${headCy + 11} ${headCx} ${headCy + 13} Q${headCx + 5} ${headCy + 11} ${headCx + 4} ${headCy + 7}`}
           fill={color}
-          opacity={0.8}
+          opacity={0.9}
         />
+      );
+    case "mustache":
+      return (
+        <>
+          {/* Thick chevron mustache */}
+          <path
+            d={`M${headCx - 7} ${headCy + 7} Q${headCx - 4} ${headCy + 4} ${headCx} ${headCy + 5} Q${headCx + 4} ${headCy + 4} ${headCx + 7} ${headCy + 7} Q${headCx + 4} ${headCy + 6} ${headCx} ${headCy + 7} Q${headCx - 4} ${headCy + 6} ${headCx - 7} ${headCy + 7} Z`}
+            fill={color}
+            opacity={0.9}
+          />
+        </>
       );
     default:
       return null;
@@ -172,6 +185,15 @@ function Accessory({ type, headCx, headCy }: { type: AgentOutfit["accessory"]; h
           <path d={`M${headCx - 1} ${headCy + 10} L${headCx - 5} ${headCy + 7} L${headCx - 5} ${headCy + 13} Z`} fill="#E85D75" />
           <path d={`M${headCx + 1} ${headCy + 10} L${headCx + 5} ${headCy + 7} L${headCx + 5} ${headCy + 13} Z`} fill="#E85D75" />
           <circle cx={headCx} cy={headCy + 10} r={1.5} fill="#c33" />
+        </>
+      );
+    case "tie":
+      return (
+        <>
+          {/* Knot */}
+          <path d={`M${headCx - 2} ${headCy + 9} L${headCx} ${headCy + 11} L${headCx + 2} ${headCy + 9} Z`} fill="#2c3e50" />
+          {/* Tie body */}
+          <path d={`M${headCx - 2} ${headCy + 11} L${headCx - 3} ${headCy + 22} L${headCx} ${headCy + 24} L${headCx + 3} ${headCy + 22} L${headCx + 2} ${headCy + 11} Z`} fill="#2c3e50" />
         </>
       );
     case "earrings":

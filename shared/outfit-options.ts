@@ -15,10 +15,10 @@ export const SKIN_COLORS = [
 ];
 
 export const HAIR_STYLES: AgentOutfit["hairStyle"][] = [
-  "short", "long", "ponytail", "bun", "pigtails", "curly",
+  "short", "long", "ponytail", "bun", "pigtails", "curly", "bald",
 ];
 
-export const BEARDS: AgentOutfit["beard"][] = ["none", "stubble", "full", "goatee"];
+export const BEARDS: AgentOutfit["beard"][] = ["none", "stubble", "full", "goatee", "mustache"];
 
 export const HATS: AgentOutfit["hat"][] = ["none", "cap", "beanie", "bow", "headband"];
-export const ACCESSORIES: AgentOutfit["accessory"][] = [null, "glasses", "headphones", "bow_tie", "earrings"];
+export const ACCESSORIES: AgentOutfit["accessory"][] = [null, "glasses", "headphones", "bow_tie", "tie", "earrings"];
