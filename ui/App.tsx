@@ -8,6 +8,7 @@ import { EditAgentDialog } from "./components/EditAgentDialog.tsx";
 import { UsernameModal } from "./components/UsernameModal.tsx";
 import { OfficePromptModal } from "./components/OfficePromptModal.tsx";
 import { TodoModal } from "./components/TodoModal.tsx";
+import { UpdateModal } from "./components/UpdateModal.tsx";
 import { CSS } from "./styles.ts";
 import type { AgentInfo } from "../shared/types.ts";
 
@@ -49,6 +50,7 @@ export function App() {
   const [editingUsername, setEditingUsername] = useState(false);
   const [editingOfficePrompt, setEditingOfficePrompt] = useState(false);
   const [todosOpen, setTodosOpen] = useState(false);
+  const [updateOpen, setUpdateOpen] = useState(false);
 
   const focusedAgent = focusedAgentId ? agents.find((a) => a.id === focusedAgentId) : null;
 
@@ -152,6 +154,7 @@ export function App() {
           onEditUsername={() => setEditingUsername(true)}
           onEditOfficePrompt={() => setEditingOfficePrompt(true)}
           onOpenTodos={() => setTodosOpen(true)}
+          onOpenUpdate={() => setUpdateOpen(true)}
           onToggleView={() => dispatch({ type: "toggle_mobile_view" })}
           onSwipeLeft={swipeRoomNext}
           onSwipeRight={swipeRoomPrev}
@@ -164,6 +167,7 @@ export function App() {
           onEditUsername={() => setEditingUsername(true)}
           onEditOfficePrompt={() => setEditingOfficePrompt(true)}
           onOpenTodos={() => setTodosOpen(true)}
+          onOpenUpdate={() => setUpdateOpen(true)}
           onSwipeLeft={swipeRoomNext}
           onSwipeRight={swipeRoomPrev}
         />
@@ -203,6 +207,9 @@ export function App() {
       )}
       {todosOpen && (
         <TodoModal username={username ?? ""} onClose={() => setTodosOpen(false)} />
+      )}
+      {updateOpen && (
+        <UpdateModal onClose={() => setUpdateOpen(false)} />
       )}
     </>
   );

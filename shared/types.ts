@@ -92,7 +92,7 @@ export type ServerMessage =
   | { type: "todos"; todos: TodoItem[] }
   | { type: "room_created"; roomCount: number }
   | { type: "room_closed"; room: number; roomCount: number }
-  | { type: "update_status"; updateAvailable: boolean; latestMessage: string };
+  | { type: "update_status"; updateAvailable: boolean; current: { sha: string; message: string; date: string }; latest: { sha: string; message: string; date: string } };
 
 // Browser → Server commands
 export type ClientCommand =

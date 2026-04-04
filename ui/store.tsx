@@ -22,7 +22,8 @@ export interface AppState {
   currentRoom: number; // 0-based room index
   roomCount: number; // total number of rooms
   updateAvailable: boolean;
-  updateMessage: string;
+  updateCurrent: { sha: string; message: string; date: string };
+  updateLatest: { sha: string; message: string; date: string };
 }
 
 type Action =
@@ -44,7 +45,7 @@ type Action =
   | { type: "set_current_room"; room: number }
   | { type: "room_created"; roomCount: number }
   | { type: "room_closed"; room: number; roomCount: number }
-  | { type: "update_status"; updateAvailable: boolean; latestMessage: string };
+  | { type: "update_status"; updateAvailable: boolean; current: { sha: string; message: string; date: string }; latest: { sha: string; message: string; date: string } };
 
 // States that warrant attention
 const ATTENTION_STATES = new Set(["idle", "error", "waiting_for_response"]);
@@ -160,7 +161,7 @@ function reducer(state: AppState, action: Action): AppState {
     case "room_created":
       return { ...state, roomCount: action.roomCount };
     case "update_status":
-      return { ...state, updateAvailable: action.updateAvailable, updateMessage: action.latestMessage };
+      return { ...state, updateAvailable: action.updateAvailable, updateCurrent: action.current, updateLatest: action.latest };
     case "room_closed": {
       let currentRoom = state.currentRoom;
       if (currentRoom === action.room) {
@@ -194,7 +195,8 @@ const initialState: AppState = {
   currentRoom: 0,
   roomCount: 1,
   updateAvailable: false,
-  updateMessage: "",
+  updateCurrent: { sha: "", message: "", date: "" },
+  updateLatest: { sha: "", message: "", date: "" },
 };
 
 const StateCtx = createContext<AppState>(initialState);

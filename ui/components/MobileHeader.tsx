@@ -42,7 +42,7 @@ export function MobileHeader({
   onOpenTodos,
   onEditOfficePrompt,
   updateAvailable,
-  updateMessage,
+  onOpenUpdate,
 }: {
   viewMode: "list" | "office";
   onToggleView: () => void;
@@ -50,7 +50,7 @@ export function MobileHeader({
   onOpenTodos: () => void;
   onEditOfficePrompt: () => void;
   updateAvailable?: boolean;
-  updateMessage?: string;
+  onOpenUpdate?: () => void;
 }) {
   const { theme, toggleTheme } = useTheme();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -106,8 +106,8 @@ export function MobileHeader({
         <span style={{ fontSize: 14, fontWeight: 700, letterSpacing: "-0.02em", color: "var(--text-primary)" }}>Isomux</span>
         {updateAvailable && (
           <span
-            title={`Update available: ${updateMessage}\n\nPull the latest changes and run bun install, then restart the server.`}
-            style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--blue, #58a6ff)", boxShadow: "0 0 6px var(--blue, #58a6ff)", flexShrink: 0 }}
+            onClick={onOpenUpdate}
+            style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--blue, #58a6ff)", boxShadow: "0 0 6px var(--blue, #58a6ff)", flexShrink: 0, cursor: "pointer" }}
           />
         )}
       </div>

@@ -194,7 +194,7 @@ const server = Bun.serve({
       // Send update status
       const update = getUpdateStatus();
       if (update.updateAvailable) {
-        ws.send(JSON.stringify({ type: "update_status", updateAvailable: true, latestMessage: update.latestMessage } as ServerMessage));
+        ws.send(JSON.stringify({ type: "update_status", updateAvailable: true, current: update.current, latest: update.latest } as ServerMessage));
       }
       // Send cached log history and slash commands for each agent
       for (const agent of agents) {
@@ -229,7 +229,7 @@ const server = Bun.serve({
 
 // Start update checker
 onUpdateChange((status) => {
-  broadcast({ type: "update_status", updateAvailable: status.updateAvailable, latestMessage: status.latestMessage } as ServerMessage);
+  broadcast({ type: "update_status", updateAvailable: status.updateAvailable, current: status.current, latest: status.latest } as ServerMessage);
 });
 startUpdateChecker();
 

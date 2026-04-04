@@ -13,6 +13,7 @@ export function AgentListView({
   onEditUsername,
   onEditOfficePrompt,
   onOpenTodos,
+  onOpenUpdate,
   onToggleView,
   onSwipeLeft,
   onSwipeRight,
@@ -24,11 +25,12 @@ export function AgentListView({
   onEditUsername: () => void;
   onEditOfficePrompt: () => void;
   onOpenTodos: () => void;
+  onOpenUpdate: () => void;
   onToggleView: () => void;
   onSwipeLeft?: () => void;
   onSwipeRight?: () => void;
 }) {
-  const { agents, currentRoom, roomCount, updateAvailable, updateMessage } = useAppState();
+  const { agents, currentRoom, roomCount, updateAvailable } = useAppState();
   const roomAgents = agents.filter((a) => a.room === currentRoom);
   const swipeRef = useSwipeLeftRight(onSwipeLeft ?? (() => {}), onSwipeRight ?? (() => {}), true);
 
@@ -50,7 +52,7 @@ export function AgentListView({
         onOpenTodos={onOpenTodos}
         onEditOfficePrompt={onEditOfficePrompt}
         updateAvailable={updateAvailable}
-        updateMessage={updateMessage}
+        onOpenUpdate={onOpenUpdate}
       />
 
       <RoomTabBar />

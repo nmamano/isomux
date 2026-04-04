@@ -1,37 +1,46 @@
 import { execSync } from "child_process";
 import { join } from "path";
 
+export interface CommitInfo {
+  sha: string;
+  message: string;
+  date: string; // ISO 8601
+}
+
 export interface UpdateStatus {
   updateAvailable: boolean;
-  currentSha: string;
-  latestSha: string;
-  latestMessage: string;
+  current: CommitInfo;
+  latest: CommitInfo;
 }
 
 const REPO = "nmamano/isomux";
 const CHECK_INTERVAL = 60 * 60 * 1000; // 1 hour
 const PROJECT_ROOT = join(import.meta.dir, "..");
 
+const EMPTY_COMMIT: CommitInfo = { sha: "", message: "", date: "" };
+
 let status: UpdateStatus = {
   updateAvailable: false,
-  currentSha: "",
-  latestSha: "",
-  latestMessage: "",
+  current: { ...EMPTY_COMMIT },
+  latest: { ...EMPTY_COMMIT },
 };
 
 let onChange: ((s: UpdateStatus) => void) | null = null;
 
-function getLocalSha(): string {
+function getLocalCommit(): CommitInfo | null {
   try {
-    return execSync("git rev-parse HEAD", { cwd: PROJECT_ROOT, timeout: 5000 })
+    // Format: hash\nmessage\nISO date
+    const out = execSync('git log -1 --format="%H%n%s%n%aI"', { cwd: PROJECT_ROOT, timeout: 5000 })
       .toString()
       .trim();
+    const [sha, message, date] = out.split("\n");
+    return { sha, message, date };
   } catch {
-    return "";
+    return null;
   }
 }
 
-async function fetchLatestCommit(): Promise<{ sha: string; message: string } | null> {
+async function fetchLatestCommit(): Promise<CommitInfo | null> {
   try {
     const res = await fetch(`https://api.github.com/repos/${REPO}/commits/main`, {
       headers: { Accept: "application/vnd.github.v3+json" },
@@ -42,6 +51,7 @@ async function fetchLatestCommit(): Promise<{ sha: string; message: string } | n
     return {
       sha: data.sha,
       message: data.commit?.message?.split("\n")[0] ?? "",
+      date: data.commit?.committer?.date ?? "",
     };
   } catch {
     return null;
@@ -49,18 +59,17 @@ async function fetchLatestCommit(): Promise<{ sha: string; message: string } | n
 }
 
 async function check() {
-  const currentSha = getLocalSha();
-  if (!currentSha) return;
+  const current = getLocalCommit();
+  if (!current) return;
 
   const latest = await fetchLatestCommit();
   if (!latest) return;
 
   const prev = status.updateAvailable;
   status = {
-    updateAvailable: currentSha !== latest.sha,
-    currentSha,
-    latestSha: latest.sha,
-    latestMessage: latest.message,
+    updateAvailable: current.sha !== latest.sha,
+    current,
+    latest,
   };
 
   // Notify only when status changes

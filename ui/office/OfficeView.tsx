@@ -13,8 +13,8 @@ import { MobileHeader, getRoomCounts } from "../components/MobileHeader.tsx";
 import { useSwipeLeftRight } from "../hooks/useSwipeLeftRight.ts";
 import type { AgentInfo } from "../../shared/types.ts";
 
-export function OfficeView({ onSpawn, onContextMenu, username, onEditUsername, onEditOfficePrompt, onOpenTodos, onSwipeLeft, onSwipeRight }: { onSpawn: (deskIndex: number) => void; onContextMenu: (x: number, y: number, agent: AgentInfo) => void; username: string; onEditUsername: () => void; onEditOfficePrompt: () => void; onOpenTodos: () => void; onSwipeLeft?: () => void; onSwipeRight?: () => void }) {
-  const { agents, needsAttention, stateChangedAt, officePrompt, todos, currentRoom, roomCount, isMobile, updateAvailable, updateMessage } = useAppState();
+export function OfficeView({ onSpawn, onContextMenu, username, onEditUsername, onEditOfficePrompt, onOpenTodos, onOpenUpdate, onSwipeLeft, onSwipeRight }: { onSpawn: (deskIndex: number) => void; onContextMenu: (x: number, y: number, agent: AgentInfo) => void; username: string; onEditUsername: () => void; onEditOfficePrompt: () => void; onOpenTodos: () => void; onOpenUpdate: () => void; onSwipeLeft?: () => void; onSwipeRight?: () => void }) {
+  const { agents, needsAttention, stateChangedAt, officePrompt, todos, currentRoom, roomCount, isMobile, updateAvailable } = useAppState();
   const dispatch = useDispatch();
   const { theme, toggleTheme } = useTheme();
   const { embed } = useFeatures();
@@ -47,7 +47,7 @@ export function OfficeView({ onSpawn, onContextMenu, username, onEditUsername, o
           onOpenTodos={onOpenTodos}
           onEditOfficePrompt={onEditOfficePrompt}
           updateAvailable={updateAvailable}
-          updateMessage={updateMessage}
+          onOpenUpdate={onOpenUpdate}
         />
       ) : (
         <div
@@ -68,20 +68,20 @@ export function OfficeView({ onSpawn, onContextMenu, username, onEditUsername, o
             <span style={{ fontSize: 15, fontWeight: 700, letterSpacing: "-0.02em", color: "var(--text-primary)" }}>Isomux</span>
             {updateAvailable && (
               <span
-                title={`Update available: ${updateMessage}\n\nPull the latest changes and run bun install, then restart the server.`}
+                onClick={onOpenUpdate}
                 style={{
-                  fontSize: 9,
+                  fontSize: 11,
                   fontWeight: 600,
                   color: "var(--blue, #58a6ff)",
                   fontFamily: "'JetBrains Mono',monospace",
                   letterSpacing: "0.02em",
-                  cursor: "help",
+                  cursor: "pointer",
                   display: "flex",
                   alignItems: "center",
-                  gap: 4,
+                  gap: 5,
                 }}
               >
-                <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--blue, #58a6ff)", boxShadow: "0 0 6px var(--blue, #58a6ff)" }} />
+                <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--blue, #58a6ff)", boxShadow: "0 0 8px var(--blue, #58a6ff)" }} />
                 update available
               </span>
             )}
