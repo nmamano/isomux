@@ -94,7 +94,7 @@ export function DeskSprite({ state, deskIndex = 0, cwd, model }: { state: AgentS
     <svg width="180" height="140" viewBox="0 0 180 140" overflow="visible">
       <defs>
         <clipPath id={screenClipId}>
-          <path d="M54 12 L96 31 L96 54 L54 35 Z" />
+          <path d="M66 18 L108 37 L108 60 L66 41 Z" />
         </clipPath>
         <radialGradient id={lampId} cx="50%" cy="40%" r="50%">
           <stop offset="0%" stopColor="#F5D090" stopOpacity="0.45" />
