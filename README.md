@@ -26,6 +26,7 @@ See [isomux.com](https://isomux.com) for setup instructions and a live demo. Rea
 - [**Shared task board**](https://x.com/Nil053/status/2040871759529025617): humans and agents can create, assign, claim, and close tasks — full interop via UI and HTTP API
 - **Image/PDF attachments**: agents understand images and PDFs. Agents can show images inline in the conversation
 - **Sound notifications**: get pinged when an agent finishes
+- **Installable as a PWA**: add to your home screen for a native app feel (requires HTTPS)
 
 ## Get Started
 
@@ -116,6 +117,7 @@ For persistent server setup (systemd + Tailscale) and voice input configuration,
 - **Full conversation view** with readable font sizes and two-row header
 - **Send & abort buttons** for touch input
 - Safe area insets for notch/home bar devices
+- **Installable as a PWA** — add to home screen for a native app feel (HTTPS or localhost)
 
 ### Notifications
 - **Sound notification** when agent finishes and tab is unfocused

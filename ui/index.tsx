@@ -13,3 +13,8 @@ root.render(
     </FeaturesProvider>
   </ThemeProvider>
 );
+
+// Register service worker for PWA installability
+if ("serviceWorker" in navigator && window.isSecureContext) {
+  navigator.serviceWorker.register("/sw.js");
+}

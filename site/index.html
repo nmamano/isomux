@@ -673,6 +673,7 @@
       <li><a href="https://x.com/Nil053/status/2040871759529025617" target="_blank" rel="noopener"><strong>Shared task board</strong></a>: humans and agents can create, assign, claim, and close tasks &mdash; full interop via UI and HTTP API</li>
       <li><strong>Image/PDF attachments</strong>: agents understand images and PDFs. Agents can show images inline in the conversation</li>
       <li><strong>Sound notifications</strong>: get pinged when an agent finishes</li>
+      <li><strong>Installable as a PWA</strong>: add to your home screen for a native app feel (requires HTTPS)</li>
     </ul>
 
     <p style="color: var(--text-dim); font-size: 0.95rem;">See the <a href="https://github.com/nmamano/isomux#full-feature-list" target="_blank" rel="noopener">full feature list</a> on GitHub.</p>
@@ -715,7 +716,7 @@ bun run dev</pre>
       <p>Isomux shines when you run it on your own always-on box/server (like a Mac Mini), and then access it from all your devices.</p>
       <p style="margin-top: 12px;">Your phone and laptop see the same conversations, in real time, with UIs optimized for each. Agents keep running even if you close the browser.</p>
       <p style="margin-top: 12px;">The best way to set this up quickly and securely is by taking advantage of <a href="https://tailscale.com/" target="_blank" rel="noopener"><strong>Tailscale</strong></a> (it's free): your server serves Isomux on <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">localhost:4000</code>, and every other device reaches it at <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">&lt;TAILSCALE_SERVER_IP&gt;:4000</code>.</p>
-      <p style="margin-top: 12px; color: var(--text-dim); font-size: 0.85rem;"><strong>Tip:</strong> On your phone, use &ldquo;Add to Home Screen&rdquo; for a full-screen app experience.</p>
+      <p style="margin-top: 12px; color: var(--text-dim); font-size: 0.85rem;"><strong>Tip:</strong> On your phone, use &ldquo;Add to Home Screen&rdquo; for a native app feel.</p>
 
       <h3>1. Install Tailscale</h3>
       <p>Install Tailscale on the server, your laptop, and your phone.</p>
@@ -740,12 +741,17 @@ lingering so it survives logout.</pre>
     </details>
   </section>
 
-  <!-- Voice Input -->
-  <section id="voice-input">
+  <!-- HTTPS Features -->
+  <section id="https-features">
     <details class="section-collapse">
-      <summary><h2 style="display: inline;">Voice Input <em style="font-weight: 400; font-size: 0.85em; color: var(--text-dim);">(optional)</em></h2></summary>
+      <summary><h2 style="display: inline;">HTTPS Features <em style="font-weight: 400; font-size: 0.85em; color: var(--text-dim);">(optional)</em></h2></summary>
     <div class="setup-card">
-      <p style="margin-bottom: 16px;">Isomux has built-in voice input to dictate prompts. This works out-of-the-box locally, but requires HTTPS for Tailscale. To enable voice input with Tailscale, follow these steps.</p>
+      <p style="margin-bottom: 16px;">Some features require a <strong>secure context</strong> (HTTPS or localhost). Over plain HTTP on a remote host, the app works normally but the following won't be available:</p>
+      <ul style="margin: 0 0 16px 20px; color: var(--text-dim);">
+        <li><strong>Voice input</strong> &mdash; browser microphone access requires HTTPS</li>
+        <li><strong>PWA install</strong> &mdash; "Add to Home Screen" requires a service worker, which requires HTTPS</li>
+      </ul>
+      <p style="margin-bottom: 16px;">These work out-of-the-box on <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">localhost</code>. To enable them over Tailscale, follow these steps.</p>
       <h3>1. Enable HTTPS in Tailscale</h3>
       <p>Open the <a href="https://login.tailscale.com/admin/dns" target="_blank" rel="noopener">DNS page</a> of your Tailscale admin console. Enable <strong>MagicDNS</strong> if not already on, then enable <strong>HTTPS Certificates</strong>.</p>
 
@@ -755,7 +761,7 @@ lingering so it survives logout.</pre>
       <h3>3. Start the HTTPS proxy</h3>
       <p>Run this on the server (you can use the built-in terminal in Isomux):</p>
 <pre>tailscale serve --bg http://localhost:4000</pre>
-      <p style="margin-top: 8px; color: var(--text-dim); font-size: 0.85rem;">This tells Tailscale to proxy HTTPS traffic to your local Isomux server with a valid certificate. The <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">--bg</code> flag makes it persist across reboots. Next time you visit <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">http://my-mac-mini:4000</code>, Isomux will auto-redirect to HTTPS and the mic button will be active.</p>
+      <p style="margin-top: 8px; color: var(--text-dim); font-size: 0.85rem;">This tells Tailscale to proxy HTTPS traffic to your local Isomux server with a valid certificate. The <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">--bg</code> flag makes it persist across reboots. Next time you visit <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">http://my-mac-mini:4000</code>, Isomux will auto-redirect to HTTPS &mdash; voice input and PWA install will both be available.</p>
     </div>
     </details>
   </section>

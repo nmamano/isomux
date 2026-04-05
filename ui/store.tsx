@@ -334,6 +334,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
     localStorage.setItem("isomux-theme", theme);
+    // Update PWA title bar / status bar color to match theme
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) {
+      meta.setAttribute("content", theme === "dark" ? "#181a20" : "#f5f5f5");
+    }
   }, [theme]);
 
   const toggleTheme = useCallback(() => {
