@@ -107,8 +107,10 @@ export function MobileHeader({
         {updateAvailable && (
           <span
             onClick={onOpenUpdate}
-            style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--blue, #58a6ff)", boxShadow: "0 0 6px var(--blue, #58a6ff)", flexShrink: 0, cursor: "pointer" }}
-          />
+            style={{ width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", margin: "-12px -12px -12px -4px", flexShrink: 0, cursor: "pointer" }}
+          >
+            <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--blue, #58a6ff)", boxShadow: "0 0 6px var(--blue, #58a6ff)" }} />
+          </span>
         )}
       </div>
       <div style={{ display: "flex", gap: 8 }}>
