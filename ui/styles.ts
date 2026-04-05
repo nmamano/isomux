@@ -247,10 +247,12 @@ export const CSS = `
     font-family: 'JetBrains Mono', monospace; font-size: 12px;
     background: var(--bg-code); padding: 1px 5px; border-radius: 4px; color: var(--text-dim);
   }
+  .code-block-wrapper {
+    position: relative; margin: 8px 0;
+  }
   .md-content pre {
     background: var(--bg-code-block); border-radius: 8px; padding: 10px 14px;
-    margin: 8px 0; overflow-x: auto; border: 1px solid var(--border-subtle);
-    position: relative;
+    margin: 0; overflow-x: auto; border: 1px solid var(--border-subtle);
   }
   .md-content pre code {
     background: transparent; padding: 0; font-size: 12px; line-height: 1.5; color: var(--text-dim);
@@ -295,7 +297,7 @@ export const CSS = `
   /* Copy buttons */
   .copy-btn:hover { color: var(--text-secondary) !important; border-color: var(--border-light) !important; background: var(--bg-hover) !important; }
   .code-copy-btn {
-    position: absolute; top: 6px; right: 6px;
+    position: absolute; top: 6px; right: 6px; z-index: 1;
     width: 24px; height: 24px;
     display: flex; align-items: center; justify-content: center;
     border: 1px solid var(--border-medium); border-radius: 6px;

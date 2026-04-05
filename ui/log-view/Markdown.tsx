@@ -72,8 +72,8 @@ export function Markdown({ content }: { content: string }) {
   const html = useMemo(() => {
     try {
       const raw = marked.parse(content) as string;
-      // Inject copy buttons directly into <pre> tags
-      return raw.replace(/<pre>/g, `<pre>${COPY_BTN_HTML}`);
+      // Wrap <pre> blocks in a container so the copy button stays fixed outside the scroll area
+      return raw.replace(/<pre>/g, `<div class="code-block-wrapper">${COPY_BTN_HTML}<pre>`).replace(/<\/pre>/g, `</pre></div>`);
     } catch {
       return content;
     }
