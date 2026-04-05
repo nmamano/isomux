@@ -2,6 +2,7 @@ import { useState, useCallback } from "react";
 import type { LogEntry } from "../../shared/types.ts";
 import { Markdown } from "./Markdown.tsx";
 import { CopyButton } from "../components/CopyButton.tsx";
+import { SpeakButton } from "../components/SpeakButton.tsx";
 
 /** Serialize entries for clipboard (text + tool_call only) */
 export function serializeEntries(entries: LogEntry[]): string {
@@ -149,10 +150,14 @@ function UserMessage({ content, isMobile, username }: { content: string; isMobil
 }
 
 function AssistantText({ content, isLastInTurn, turnEntries, isMobile }: { content: string; isLastInTurn?: boolean; turnEntries?: LogEntry[]; isMobile?: boolean }) {
+  const getText = useCallback(() => content, [content]);
   return (
     <div style={{ margin: "8px 0", padding: "10px 14px", paddingRight: 40, borderRadius: 10, background: "var(--bg-subtle)", position: "relative", fontSize: isMobile ? 15 : undefined }}>
       <Markdown content={content} />
-      {isLastInTurn && <TurnCopyButton turnEntries={turnEntries} />}
+      <div style={{ position: "absolute", top: 8, right: 8, display: "flex", gap: 4 }}>
+        <SpeakButton getText={getText} />
+        {isLastInTurn && turnEntries && <CopyButton getText={() => serializeEntries(turnEntries)} />}
+      </div>
     </div>
   );
 }
