@@ -19,7 +19,7 @@ See [isomux.com](https://isomux.com) for setup instructions and a live demo. Rea
   - Run at home, access **from any device** in your [Tailscale](https://tailscale.com/) network
   - No syncing headaches: same conversations, same filesystem, every device updates **in real time**
 - [**Embedded terminal**](https://x.com/Nil053/status/2039504957184090281) per agent
-- **Voice-to-text** prompting
+- **Voice-to-text** prompting and **text-to-speech** responses
 - [**Pre-tool-call safety hooks**](https://x.com/Nil053/status/2039497314826666469): blocks dangerous commands like `rm -rf`
 - [**Custom commands**](https://x.com/Nil053/status/2040018957453918431) in addition to your own, all with autocomplete: e.g. `/isomux-peer-review` to review another agent's work, or `/isomux-all-hands` to see what everyone is up to
 - [**Agents can check on each other**](https://x.com/Nil053/status/2039494626265149778): inter-agent discovery via shared manifest
