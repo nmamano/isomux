@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect, useMemo, useCallback, type RefCallback } from "react";
 import type { AgentInfo, AgentState, LogEntry, SkillInfo } from "../../shared/types.ts";
-import { CLAUDE_MODELS } from "../../shared/types.ts";
+import { CLAUDE_MODELS, type ClaudeModel } from "../../shared/types.ts";
 import { StatusLight } from "../office/StatusLight.tsx";
+import { Character } from "../office/Character.tsx";
 import { send } from "../ws.ts";
 import { useAppState, useDispatch, useFeatures, useTheme } from "../store.tsx";
 import { LogEntryCard, serializeEntries } from "./LogEntryCard.tsx";
@@ -17,6 +18,21 @@ const STATE_LABELS: Partial<Record<AgentState, string>> = {
 
 const ESCALATION_AMBER_MS = 2 * 60 * 1000; // 2 minutes
 const ESCALATION_RED_MS = 5 * 60 * 1000; // 5 minutes
+
+const MODEL_TINT: Record<ClaudeModel, { border: string; bg: string }> = {
+  "claude-opus-4-6":          { border: "rgba(100,160,255,0.85)",  bg: "rgba(100,160,255,0.35)" },
+  "claude-sonnet-4-6":        { border: "rgba(218,165,32,0.80)", bg: "rgba(218,165,32,0.32)" },
+  "claude-haiku-4-5-20251001": { border: "rgba(230,130,180,0.80)", bg: "rgba(230,130,180,0.32)" },
+};
+
+function PersonIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="8" cy="5" r="2.5" stroke="currentColor" strokeWidth="1.5" fill="none" />
+      <path d="M3 14c0-2.76 2.24-5 5-5s5 2.24 5 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none" />
+    </svg>
+  );
+}
 
 function formatElapsed(ms: number): string {
   const totalSec = Math.floor(ms / 1000);
@@ -148,6 +164,8 @@ export function LogView({
   const topicInputRef = useRef<HTMLInputElement>(null);
   const topicSavedRef = useRef(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
+  const [showAvatar, setShowAvatar] = useState(() => localStorage.getItem("isomux-show-avatar") !== "false");
+  const toggleAvatar = () => setShowAvatar((prev) => { const next = !prev; localStorage.setItem("isomux-show-avatar", String(next)); return next; });
   const [isListening, setIsListening] = useState(false);
   const isListeningRef = useRef(false);
   const [showMicHint, setShowMicHint] = useState(false);
@@ -469,6 +487,26 @@ export function LogView({
                 <HeaderTimer state={agent.state} stateChangedAt={stateChangedAt.get(agent.id)} />
               )}
               {logs.length > 0 && <CopyButton getText={getConversationText} />}
+              <button
+                onClick={toggleAvatar}
+                title={showAvatar ? "Hide agent avatar" : "Show agent avatar"}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  padding: "2px 6px",
+                  borderRadius: 6,
+                  border: "1px solid var(--border-medium)",
+                  background: "var(--btn-surface)",
+                  color: "var(--text-dim)",
+                  cursor: "pointer",
+                  opacity: showAvatar ? 1 : 0.35,
+                  transition: "opacity 0.2s",
+                  flexShrink: 0,
+                }}
+              >
+                <PersonIcon />
+              </button>
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 6, paddingLeft: 16 }}>
               <span style={{
@@ -637,6 +675,25 @@ export function LogView({
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "flex-end" }}>
             {logs.length > 0 && <CopyButton getText={getConversationText} />}
+            <button
+              onClick={toggleAvatar}
+              title={showAvatar ? "Hide agent avatar" : "Show agent avatar"}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: "4px 8px",
+                borderRadius: 6,
+                border: "1px solid var(--border-medium)",
+                background: "var(--btn-surface)",
+                color: "var(--text-dim)",
+                cursor: "pointer",
+                opacity: showAvatar ? 1 : 0.35,
+                transition: "opacity 0.2s",
+              }}
+            >
+              <PersonIcon />
+            </button>
             {!isMobile && (
               <button
                 onClick={toggleTheme}
@@ -692,8 +749,37 @@ export function LogView({
           overflowX: "hidden",
           padding: isMobile ? "12px 12px" : "16px 24px",
           color: "var(--text-secondary)",
+          position: "relative",
         }}
       >
+        {/* Floating agent portrait */}
+        <div
+          onClick={onEditAgent}
+          style={{
+            position: "sticky",
+            top: isMobile ? 12 : 16,
+            float: "right",
+            marginRight: 0,
+            zIndex: 10,
+            width: 62,
+            height: 78,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            borderRadius: 8,
+            border: `2px solid ${MODEL_TINT[agent.model]?.border ?? "var(--border-medium)"}`,
+            background: MODEL_TINT[agent.model]?.bg ?? "rgba(128,128,128,0.2)",
+            backdropFilter: "blur(8px)",
+            WebkitBackdropFilter: "blur(8px)",
+            cursor: "pointer",
+            opacity: showAvatar ? 1 : 0,
+            pointerEvents: showAvatar ? "auto" : "none",
+            transition: "opacity 0.2s",
+          }}
+          title="Edit agent"
+        >
+          <Character key={agent.state} state={agent.state} outfit={agent.outfit} />
+        </div>
         {logs.length === 0 && (
           <div
             style={{

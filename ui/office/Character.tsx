@@ -301,7 +301,7 @@ export function Character({ state, outfit }: { state: AgentState; outfit: AgentO
       <>
         <rect x={16} y={36} width={20} height={16} fill={bc} rx={3} />
         <g>
-          <rect x={38} y={20} width={7} height={10} fill={skin} rx={2}>
+          <rect x={38} y={20} width={7} height={10} fill={skin} rx={2} transform="rotate(-5 41 25)">
             <animate
               attributeName="transform"
               values="rotate(-5 41 25);rotate(12 41 25);rotate(-5 41 25)"
