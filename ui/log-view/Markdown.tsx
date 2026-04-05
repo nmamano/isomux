@@ -84,7 +84,8 @@ export function Markdown({ content }: { content: string }) {
     const btn = (e.target as HTMLElement).closest(".code-copy-btn");
     if (!btn) return;
     e.stopPropagation();
-    const pre = btn.closest("pre");
+    const wrapper = btn.closest(".code-block-wrapper");
+    const pre = wrapper?.querySelector("pre");
     if (!pre) return;
     const code = pre.querySelector("code");
     const text = code ? code.textContent ?? "" : pre.textContent ?? "";

@@ -253,6 +253,7 @@ export const CSS = `
   .md-content pre {
     background: var(--bg-code-block); border-radius: 8px; padding: 10px 14px;
     margin: 0; overflow-x: auto; border: 1px solid var(--border-subtle);
+    position: relative;
   }
   .md-content pre code {
     background: transparent; padding: 0; font-size: 12px; line-height: 1.5; color: var(--text-dim);
