@@ -177,6 +177,8 @@ export function LogView({
   const [stagedAttachments, setStagedAttachments] = useState<StagedAttachment[]>([]);
   const hasUploading = stagedAttachments.some((a) => a.uploading);
   const validAttachments = stagedAttachments.filter((a) => !a.error);
+  const [draggingOver, setDraggingOver] = useState(false);
+  const dragCounterRef = useRef(0);
   const swipeRef = useSwipeLeftRight(onSwipeLeft ?? (() => {}), onSwipeRight ?? (() => {}), isMobile);
   const messagesRef: RefCallback<HTMLDivElement> = useCallback((node: HTMLDivElement | null) => {
     (scrollRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
@@ -462,6 +464,50 @@ export function LogView({
     setStagedAttachments((prev) => prev.filter((a) => a.id !== id));
   }
 
+  function handleDragOver(e: React.DragEvent) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  }
+
+  function handleDragEnter(e: React.DragEvent) {
+    e.preventDefault();
+    dragCounterRef.current++;
+    if (dragCounterRef.current === 1) setDraggingOver(true);
+  }
+
+  function handleDragLeave(e: React.DragEvent) {
+    e.preventDefault();
+    dragCounterRef.current--;
+    if (dragCounterRef.current === 0) setDraggingOver(false);
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    dragCounterRef.current = 0;
+    setDraggingOver(false);
+    if (e.dataTransfer.files.length > 0) {
+      handleFileSelect(e.dataTransfer.files);
+    }
+  }
+
+  function handlePaste(e: React.ClipboardEvent) {
+    const items = e.clipboardData.items;
+    const files: File[] = [];
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].kind === "file") {
+        const file = items[i].getAsFile();
+        if (file) files.push(file);
+      }
+    }
+    if (files.length > 0) {
+      e.preventDefault();
+      const dt = new DataTransfer();
+      files.forEach((f) => dt.items.add(f));
+      handleFileSelect(dt.files);
+    }
+    // If no files, let default text paste through
+  }
+
   function handleSend() {
     const text = input.trim();
     if (!text && validAttachments.length === 0) return;
@@ -499,6 +545,10 @@ export function LogView({
       }}
     >
     <div
+      onDragOver={handleDragOver}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
       style={{
         flex: 1,
         display: "flex",
@@ -916,10 +966,11 @@ export function LogView({
       <div
         style={{
           flexShrink: 0,
-          padding: isMobile ? "10px 12px" : "10px 24px",
+          padding: isMobile ? "10px 12px 10px 11px" : "10px 24px 10px 11px",
           paddingBottom: isMobile ? "calc(10px + env(safe-area-inset-bottom, 0px))" : undefined,
-          borderTop: "1px solid var(--border-strong)",
-          background: "var(--bg-surface)",
+          borderTop: draggingOver ? "2px solid var(--green)" : "2px solid var(--border-strong)",
+          background: draggingOver ? "var(--bg-hover)" : "var(--bg-surface)",
+          transition: "background 0.15s, border-color 0.15s",
         }}
       >
         <input
@@ -971,7 +1022,7 @@ export function LogView({
               background: "none", border: "none", padding: 0,
               color: isBusy ? "var(--text-ghost)" : "var(--text-muted)",
               cursor: isBusy ? "default" : "pointer",
-              lineHeight: "20px", position: "relative", top: -2,
+              lineHeight: "20px",
               fontSize: 16, flexShrink: 0,
               opacity: isBusy ? 0.4 : 0.7,
               transition: "opacity 0.15s",
@@ -1065,6 +1116,7 @@ export function LogView({
             <textarea
               ref={textareaRef}
               value={input}
+              onPaste={handlePaste}
               onChange={(e) => {
                 setInput(e.target.value);
                 const prevHeight = e.target.offsetHeight;
