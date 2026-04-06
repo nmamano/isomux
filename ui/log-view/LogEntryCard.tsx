@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import type { LogEntry } from "../../shared/types.ts";
+import type { LogEntry, Attachment } from "../../shared/types.ts";
 import { Markdown } from "./Markdown.tsx";
 import { CopyButton } from "../components/CopyButton.tsx";
 import { SpeakButton } from "../components/SpeakButton.tsx";
@@ -27,6 +27,112 @@ function formatDuration(ms: number): string {
   const min = Math.floor(totalSec / 60);
   const sec = Math.floor(totalSec % 60);
   return `${min}:${sec.toString().padStart(2, "0")}`;
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes === 0) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function FileChip({ att, agentId, isMobile }: { att: Attachment; agentId: string; isMobile?: boolean }) {
+  const isPdf = att.mediaType === "application/pdf";
+  const icon = isPdf ? "📄" : "📎";
+  const sizeStr = formatFileSize(att.size);
+  const href = `/api/files/${agentId}/${att.filename}`;
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        padding: "4px 10px",
+        borderRadius: 6,
+        background: "var(--bg-hover)",
+        border: "1px solid var(--border)",
+        color: "var(--text-secondary)",
+        fontSize: isMobile ? 13 : 11,
+        fontFamily: "'JetBrains Mono',monospace",
+        textDecoration: "none",
+        cursor: "pointer",
+        maxWidth: "100%",
+      }}
+    >
+      <span>{icon}</span>
+      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{att.originalName}</span>
+      {sizeStr && <span style={{ color: "var(--text-ghost)", flexShrink: 0 }}>{sizeStr}</span>}
+    </a>
+  );
+}
+
+function AttachmentDisplay({
+  attachments,
+  agentId,
+  isMobile,
+  lightboxSrc,
+  setLightboxSrc,
+  hasContent,
+}: {
+  attachments: Attachment[];
+  agentId: string;
+  isMobile?: boolean;
+  lightboxSrc: string | null;
+  setLightboxSrc: (src: string | null) => void;
+  hasContent?: boolean;
+}) {
+  const images = attachments.filter((a) => a.mediaType.startsWith("image/"));
+  const files = attachments.filter((a) => !a.mediaType.startsWith("image/"));
+
+  return (
+    <>
+      {images.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: hasContent ? 8 : 0 }}>
+          {images.map((att) => {
+            const src = `/api/files/${agentId}/${att.filename}`;
+            return (
+              <img
+                key={att.filename}
+                src={src}
+                alt={att.originalName}
+                onClick={() => setLightboxSrc(src)}
+                style={{
+                  maxWidth: isMobile ? "100%" : 300, maxHeight: 200, borderRadius: 4,
+                  cursor: "pointer", border: "1px solid var(--green-border)",
+                }}
+              />
+            );
+          })}
+        </div>
+      )}
+      {files.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: hasContent || images.length > 0 ? 8 : 0 }}>
+          {files.map((att) => (
+            <FileChip key={att.filename} att={att} agentId={agentId} isMobile={isMobile} />
+          ))}
+        </div>
+      )}
+      {lightboxSrc && (
+        <div
+          tabIndex={0}
+          ref={(el) => el?.focus()}
+          onClick={() => setLightboxSrc(null)}
+          onKeyDown={(e) => e.key === "Escape" && setLightboxSrc(null)}
+          style={{
+            position: "fixed", inset: 0, zIndex: 9999,
+            background: "rgba(0,0,0,0.85)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            cursor: "zoom-out",
+          }}
+        >
+          <img src={lightboxSrc} alt="Full size" style={{ maxWidth: "90vw", maxHeight: "90vh", borderRadius: 8 }} />
+        </div>
+      )}
+    </>
+  );
 }
 
 function DurationLabel({ ms, isMobile }: { ms: number; isMobile?: boolean }) {
@@ -57,7 +163,7 @@ export function LogEntryCard({
   switch (entry.kind) {
     case "user_message": {
       const username = entry.metadata?.username as string | undefined;
-      return <UserMessage content={entry.content} isMobile={isMobile} username={username} />;
+      return <UserMessage content={entry.content} isMobile={isMobile} username={username} attachments={entry.attachments} agentId={entry.agentId} />;
     }
     case "text":
       return (
@@ -136,12 +242,23 @@ function TurnCopyButton({ turnEntries }: { turnEntries?: LogEntry[] }) {
   );
 }
 
-function UserMessage({ content, isMobile, username }: { content: string; isMobile?: boolean; username?: string }) {
+function UserMessage({ content, isMobile, username, attachments, agentId }: { content: string; isMobile?: boolean; username?: string; attachments?: Attachment[]; agentId?: string }) {
   const getText = useCallback(() => content, [content]);
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   return (
     <div style={{ margin: "12px 0", padding: "10px 14px", paddingRight: 40, borderRadius: 10, background: "var(--user-msg-bg)", borderLeft: "3px solid var(--accent)", position: "relative" }}>
       <div style={{ fontSize: isMobile ? 12 : 10, fontWeight: 600, color: "var(--accent)", marginBottom: 4, fontFamily: "'DM Sans',sans-serif", textTransform: "uppercase", letterSpacing: "0.05em" }}>{(username ?? "You").toUpperCase()}</div>
-      <div style={{ color: "var(--text-secondary)", fontFamily: "'JetBrains Mono',monospace", fontSize: isMobile ? 15 : 13, lineHeight: 1.6, whiteSpace: "pre-wrap", overflowWrap: "break-word", wordBreak: "break-word" }}>{content}</div>
+      {content && <div style={{ color: "var(--text-secondary)", fontFamily: "'JetBrains Mono',monospace", fontSize: isMobile ? 15 : 13, lineHeight: 1.6, whiteSpace: "pre-wrap", overflowWrap: "break-word", wordBreak: "break-word" }}>{content}</div>}
+      {attachments && attachments.length > 0 && agentId && (
+        <AttachmentDisplay
+          attachments={attachments}
+          agentId={agentId}
+          isMobile={isMobile}
+          lightboxSrc={lightboxSrc}
+          setLightboxSrc={setLightboxSrc}
+          hasContent={!!content}
+        />
+      )}
       <div style={{ position: "absolute", top: 8, right: 8 }}>
         <CopyButton getText={getText} />
       </div>
@@ -238,7 +355,6 @@ function ToolResult({ entry, isLastInTurn, turnEntries, isMobile }: { entry: Log
   const [open, setOpen] = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const content = entry.content;
-  const imageAttachments = entry.attachments?.filter((a) => a.mediaType.startsWith("image/"));
   const isLong = content.length > 200;
   const preview = isLong ? content.slice(0, 150) + "..." : content;
 
@@ -264,42 +380,17 @@ function ToolResult({ entry, isLastInTurn, turnEntries, isMobile }: { entry: Log
           {open ? "Show less" : "Show more"}
         </button>
       )}
-      {imageAttachments && imageAttachments.length > 0 && (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: content ? 8 : 0 }}>
-          {imageAttachments.map((att) => {
-            const src = `/api/files/${entry.agentId}/${att.filename}`;
-            return (
-              <img
-                key={att.filename}
-                src={src}
-                alt={att.originalName}
-                onClick={() => setLightboxSrc(src)}
-                style={{
-                  maxWidth: isMobile ? "100%" : 300, maxHeight: 200, borderRadius: 4,
-                  cursor: "pointer", border: "1px solid var(--green-border)",
-                }}
-              />
-            );
-          })}
-        </div>
+      {entry.attachments && entry.attachments.length > 0 && (
+        <AttachmentDisplay
+          attachments={entry.attachments}
+          agentId={entry.agentId}
+          isMobile={isMobile}
+          lightboxSrc={lightboxSrc}
+          setLightboxSrc={setLightboxSrc}
+          hasContent={!!content}
+        />
       )}
       {isLastInTurn && <TurnCopyButton turnEntries={turnEntries} />}
-      {lightboxSrc && (
-        <div
-          tabIndex={0}
-          ref={(el) => el?.focus()}
-          onClick={() => setLightboxSrc(null)}
-          onKeyDown={(e) => e.key === "Escape" && setLightboxSrc(null)}
-          style={{
-            position: "fixed", inset: 0, zIndex: 9999,
-            background: "rgba(0,0,0,0.85)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            cursor: "zoom-out",
-          }}
-        >
-          <img src={lightboxSrc} alt="Full size" style={{ maxWidth: "90vw", maxHeight: "90vh", borderRadius: 8 }} />
-        </div>
-      )}
     </div>
   );
 }
