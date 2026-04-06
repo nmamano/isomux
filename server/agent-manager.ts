@@ -3,11 +3,13 @@ import {
   unstable_v2_resumeSession,
   unstable_v2_prompt,
   type SDKMessage,
+  type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
+import type { ContentBlockParam } from "@anthropic-ai/sdk/resources/messages/messages.mjs";
 import type { AgentInfo, AgentOutfit, AgentState, Attachment, ClaudeModel, LogEntry, SkillInfo, SkillOrigin } from "../shared/types.ts";
 import { CLAUDE_MODELS } from "../shared/types.ts";
 import { generateOutfit } from "./outfit.ts";
-import { appendLog, loadLog, loadAgents, saveAgents, listAgentSessions, writeManifest, persistSessionTopic, loadOfficePrompt, saveOfficePrompt, saveFile, type PersistedAgent } from "./persistence.ts";
+import { appendLog, loadLog, loadAgents, saveAgents, listAgentSessions, writeManifest, persistSessionTopic, loadOfficePrompt, saveOfficePrompt, saveFile, getFilePath, type PersistedAgent } from "./persistence.ts";
 import { createSafetyHooks } from "./safety-hooks.ts";
 import { commands, autocompleteCommands, unsupportedMessage, type CommandConfig } from "./commands.ts";
 import { resolve, join } from "path";
@@ -1000,7 +1002,73 @@ export async function spawn(name: string, cwd: string, permissionMode: AgentInfo
   return info;
 }
 
-export async function sendMessage(agentId: string, text: string, username?: string) {
+// Extensions that should be sent as text content blocks
+const TEXT_FILE_EXTENSIONS = new Set([
+  "txt", "md", "json", "csv", "log", "xml", "yaml", "yml", "toml", "ini", "cfg",
+  "sh", "bash", "py", "js", "ts", "go", "rs", "c", "h", "cpp", "java", "rb",
+  "html", "css", "sql", "env", "conf",
+]);
+
+const IMAGE_MEDIA_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
+
+function buildUserMessage(agentId: string, text: string, attachments: Attachment[]): SDKUserMessage {
+  const content: ContentBlockParam[] = [];
+
+  // Text block first (if non-empty)
+  if (text) {
+    content.push({ type: "text", text });
+  }
+
+  // Attachment blocks
+  for (const att of attachments) {
+    const filePath = getFilePath(agentId, att.filename);
+    if (!filePath) continue;
+
+    if (IMAGE_MEDIA_TYPES.has(att.mediaType)) {
+      const data = readFileSync(filePath).toString("base64");
+      content.push({
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: att.mediaType as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
+          data,
+        },
+      });
+    } else if (att.mediaType === "application/pdf") {
+      const data = readFileSync(filePath).toString("base64");
+      content.push({
+        type: "document",
+        source: {
+          type: "base64",
+          media_type: "application/pdf",
+          data,
+        },
+      });
+    } else {
+      const ext = att.originalName.includes(".") ? att.originalName.split(".").pop()!.toLowerCase() : "";
+      if (TEXT_FILE_EXTENSIONS.has(ext)) {
+        const fileContent = readFileSync(filePath, "utf-8");
+        content.push({
+          type: "text",
+          text: `--- File: ${att.originalName} ---\n${fileContent}\n---`,
+        });
+      } else {
+        content.push({
+          type: "text",
+          text: `Attached file ${att.originalName} (unable to see content) [Reminder: do not pretend that you can see it or infer its content]`,
+        });
+      }
+    }
+  }
+
+  return {
+    type: "user",
+    message: { role: "user", content },
+    parent_tool_use_id: null,
+  };
+}
+
+export async function sendMessage(agentId: string, text: string, username?: string, attachments?: Attachment[]) {
   const managed = agents.get(agentId);
   if (!managed?.session) return;
 
@@ -1089,7 +1157,7 @@ export async function sendMessage(agentId: string, text: string, username?: stri
     if (handled) return;
   }
 
-  addLogEntry(agentId, "user_message", text, username ? { username } : undefined);
+  addLogEntry(agentId, "user_message", text, username ? { username } : undefined, attachments);
   updateState(agentId, "thinking");
 
   // Auto-generate topic on first user message in a conversation
@@ -1099,7 +1167,12 @@ export async function sendMessage(agentId: string, text: string, username?: stri
 
   const prefixedText = username ? `[${username}] ${text}` : text;
   try {
-    await managed.session.send(prefixedText);
+    if (attachments && attachments.length > 0) {
+      const message = buildUserMessage(agentId, prefixedText, attachments);
+      await managed.session.send(message);
+    } else {
+      await managed.session.send(prefixedText);
+    }
     await consumeStream(agentId, managed);
   } catch (err: any) {
     console.error(`Agent ${agentId} send error:`, err.message);

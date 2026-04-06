@@ -1,7 +1,8 @@
 import type { ServerWebSocket } from "bun";
 import type { ServerMessage, ClientCommand } from "../shared/types.ts";
 import * as AgentManager from "./agent-manager.ts";
-import { loadRecentCwds, saveRecentCwd, loadTasks, saveTasks, getFilePath } from "./persistence.ts";
+import { loadRecentCwds, saveRecentCwd, loadTasks, saveTasks, getFilePath, saveFile } from "./persistence.ts";
+import type { Attachment } from "../shared/types.ts";
 import { startUpdateChecker, getUpdateStatus, onUpdateChange } from "./update-checker.ts";
 import type { TaskItem } from "../shared/types.ts";
 import { generateTaskId, isValidStatus, isValidPriority } from "../shared/types.ts";
@@ -36,7 +37,7 @@ async function handleCommand(cmd: ClientCommand) {
       break;
     case "send_message":
       // Don't await — let it stream in the background
-      AgentManager.sendMessage(cmd.agentId, cmd.text, cmd.username);
+      AgentManager.sendMessage(cmd.agentId, cmd.text, cmd.username, cmd.attachments);
       break;
     case "new_conversation":
       await AgentManager.newConversation(cmd.agentId);
@@ -287,6 +288,56 @@ const server = Bun.serve({
       }
 
       return new Response(JSON.stringify({ error: "not found" }), { status: 404, headers: corsHeaders });
+    }
+
+    // File upload endpoint: POST /api/upload/{agentId}
+    if (url.pathname.startsWith("/api/upload/") && req.method === "POST") {
+      const agentId = url.pathname.split("/")[3];
+      if (!agentId || !AgentManager.getAgent(agentId)) {
+        return new Response(JSON.stringify({ error: "agent not found" }), {
+          status: 404, headers: { "Content-Type": "application/json" },
+        });
+      }
+      try {
+        const formData = await req.formData();
+        const attachments: Attachment[] = [];
+        const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+        const MAX_FILES = 5;
+        const MAX_TOTAL = 20 * 1024 * 1024; // 20MB
+        let totalSize = 0;
+        let fileCount = 0;
+
+        for (const [, value] of formData) {
+          if (!(value instanceof File)) continue;
+          fileCount++;
+          if (fileCount > MAX_FILES) {
+            return new Response(JSON.stringify({ error: `Maximum ${MAX_FILES} files per upload` }), {
+              status: 400, headers: { "Content-Type": "application/json" },
+            });
+          }
+          if (value.size > MAX_FILE_SIZE) {
+            return new Response(JSON.stringify({ error: `File "${value.name}" exceeds 10MB limit` }), {
+              status: 400, headers: { "Content-Type": "application/json" },
+            });
+          }
+          totalSize += value.size;
+          if (totalSize > MAX_TOTAL) {
+            return new Response(JSON.stringify({ error: "Total upload exceeds 20MB limit" }), {
+              status: 400, headers: { "Content-Type": "application/json" },
+            });
+          }
+          const buffer = Buffer.from(await value.arrayBuffer());
+          const att = saveFile(agentId, buffer, value.type || "application/octet-stream", value.name);
+          if (att) attachments.push(att);
+        }
+        return new Response(JSON.stringify({ attachments }), {
+          headers: { "Content-Type": "application/json" },
+        });
+      } catch (err: any) {
+        return new Response(JSON.stringify({ error: err.message || "Upload failed" }), {
+          status: 500, headers: { "Content-Type": "application/json" },
+        });
+      }
     }
 
     // File serving endpoint (also handles legacy /api/images/ URLs)
