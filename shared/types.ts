@@ -43,6 +43,14 @@ export interface AgentInfo {
   customInstructions: string | null;
 }
 
+// File attachment metadata
+export interface Attachment {
+  filename: string;      // on-disk hash name: "a1b2c3.png"
+  originalName: string;  // user-facing: "photo.png"
+  mediaType: string;     // "image/png", "application/pdf", etc.
+  size: number;          // bytes
+}
+
 // Log entry in the conversation view
 export interface LogEntry {
   id: string;
@@ -51,7 +59,7 @@ export interface LogEntry {
   kind: "text" | "thinking" | "tool_call" | "tool_result" | "error" | "system" | "user_message";
   content: string;
   metadata?: Record<string, unknown>;
-  images?: string[]; // image filenames, served via /api/images/<agentId>/<filename>
+  attachments?: Attachment[]; // file attachments, served via /api/files/<agentId>/<filename>
 }
 
 // Task item (replaces todos)
@@ -128,7 +136,7 @@ export type ClientCommand =
   | { type: "spawn"; name: string; cwd: string; permissionMode: AgentInfo["permissionMode"]; desk: number; room?: number; customInstructions?: string; outfit?: AgentOutfit; model?: ClaudeModel }
   | { type: "kill"; agentId: string }
   | { type: "abort"; agentId: string }
-  | { type: "send_message"; agentId: string; text: string; username?: string }
+  | { type: "send_message"; agentId: string; text: string; username?: string; attachments?: Attachment[] }
   | { type: "new_conversation"; agentId: string }
   | { type: "resume"; agentId: string; sessionId: string }
   | { type: "list_sessions"; agentId: string }

@@ -2,7 +2,7 @@ import { join } from "path";
 import { homedir } from "os";
 import { mkdirSync, appendFileSync, readFileSync, writeFileSync, existsSync, readdirSync, unlinkSync } from "fs";
 import { createHash } from "crypto";
-import type { AgentInfo, ClaudeModel, LogEntry, TaskItem } from "../shared/types.ts";
+import type { AgentInfo, Attachment, ClaudeModel, LogEntry, TaskItem } from "../shared/types.ts";
 
 const ISOMUX_DIR = join(homedir(), ".isomux");
 const LOGS_DIR = join(ISOMUX_DIR, "logs");
@@ -34,7 +34,19 @@ export function loadLog(agentId: string, sessionId: string): LogEntry[] {
     if (!existsSync(logFile)) return [];
     const content = readFileSync(logFile, "utf-8").trim();
     if (!content) return [];
-    return content.split("\n").map((line) => JSON.parse(line) as LogEntry);
+    return content.split("\n").map((line) => {
+      const entry = JSON.parse(line) as LogEntry & { images?: string[] };
+      // Migrate legacy images field to attachments
+      if (entry.images && !entry.attachments) {
+        entry.attachments = entry.images.map((filename) => {
+          const ext = filename.split(".").pop() ?? "";
+          const mediaType = EXTENSION_TO_MIME[ext] ?? "application/octet-stream";
+          return { filename, originalName: filename, mediaType, size: 0 };
+        });
+        delete entry.images;
+      }
+      return entry as LogEntry;
+    });
   } catch (err) {
     console.error("Failed to load log:", err);
     return [];
@@ -240,47 +252,71 @@ export function saveTasks(tasks: TaskItem[]) {
 }
 
 // ---------------------------------------------------------------------------
-// Image storage for inline image display
+// File storage (unified files/ directory with SHA256 dedup)
 // ---------------------------------------------------------------------------
 
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10MB decoded
-const SUPPORTED_IMAGE_TYPES: Record<string, string> = {
+const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10MB
+
+const MIME_TO_EXTENSION: Record<string, string> = {
   "image/jpeg": "jpg",
   "image/png": "png",
   "image/gif": "gif",
   "image/webp": "webp",
+  "application/pdf": "pdf",
+  "text/plain": "txt",
+  "text/markdown": "md",
+  "text/csv": "csv",
+  "application/json": "json",
+  "text/xml": "xml",
+  "application/xml": "xml",
+  "text/yaml": "yaml",
+  "text/html": "html",
+  "text/css": "css",
 };
 
-/** Save a base64-encoded image to disk. Returns the filename or null on failure. */
-export function saveImage(agentId: string, mediaType: string, base64Data: string): string | null {
+const EXTENSION_TO_MIME: Record<string, string> = {
+  jpg: "image/jpeg", jpeg: "image/jpeg",
+  png: "image/png", gif: "image/gif", webp: "image/webp",
+  pdf: "application/pdf",
+  txt: "text/plain", md: "text/markdown", csv: "text/csv",
+  json: "application/json", xml: "text/xml",
+  yaml: "text/yaml", yml: "text/yaml",
+  html: "text/html", css: "text/css",
+};
+
+/** Save a file buffer to disk. Returns an Attachment object or null on failure. */
+export function saveFile(agentId: string, data: Buffer, mediaType: string, originalName: string): Attachment | null {
   try {
-    const ext = SUPPORTED_IMAGE_TYPES[mediaType];
-    if (!ext) return null;
+    if (data.length > MAX_FILE_BYTES) return null;
 
-    const decoded = Buffer.from(base64Data, "base64");
-    if (decoded.length > MAX_IMAGE_BYTES) return null;
+    // Extension from original filename, fall back to mediaType mapping
+    const origExt = originalName.includes(".") ? originalName.split(".").pop()! : null;
+    const ext = origExt ?? MIME_TO_EXTENSION[mediaType] ?? "bin";
 
-    const hash = createHash("sha256").update(decoded).digest("hex");
+    const hash = createHash("sha256").update(data).digest("hex");
     const filename = `${hash}.${ext}`;
-    const dir = join(LOGS_DIR, agentId, "images");
+    const dir = join(LOGS_DIR, agentId, "files");
     mkdirSync(dir, { recursive: true });
     const filepath = join(dir, filename);
     if (!existsSync(filepath)) {
-      writeFileSync(filepath, decoded);
+      writeFileSync(filepath, data);
     }
-    return filename;
+    return { filename, originalName, mediaType, size: data.length };
   } catch (err) {
-    console.error("Failed to save image:", err);
+    console.error("Failed to save file:", err);
     return null;
   }
 }
 
-const IMAGE_FILENAME_RE = /^[a-f0-9]{64}\.(jpg|png|gif|webp)$/;
+const FILE_FILENAME_RE = /^[a-f0-9]{64}\.\w+$/;
 
-/** Resolve an image filename to its disk path, or null if invalid/missing. */
-export function getImagePath(agentId: string, filename: string): string | null {
-  if (!IMAGE_FILENAME_RE.test(filename)) return null;
+/** Resolve a file's hash-name to its disk path, or null if invalid/missing. */
+export function getFilePath(agentId: string, filename: string): string | null {
+  if (!FILE_FILENAME_RE.test(filename)) return null;
   if (/[\/\\]/.test(agentId)) return null;
-  const filepath = join(LOGS_DIR, agentId, "images", filename);
-  return existsSync(filepath) ? filepath : null;
+  // Try new files/ directory first, fall back to legacy images/
+  const filePath = join(LOGS_DIR, agentId, "files", filename);
+  if (existsSync(filePath)) return filePath;
+  const legacyPath = join(LOGS_DIR, agentId, "images", filename);
+  return existsSync(legacyPath) ? legacyPath : null;
 }

@@ -1,7 +1,7 @@
 import type { ServerWebSocket } from "bun";
 import type { ServerMessage, ClientCommand } from "../shared/types.ts";
 import * as AgentManager from "./agent-manager.ts";
-import { loadRecentCwds, saveRecentCwd, loadTasks, saveTasks, getImagePath } from "./persistence.ts";
+import { loadRecentCwds, saveRecentCwd, loadTasks, saveTasks, getFilePath } from "./persistence.ts";
 import { startUpdateChecker, getUpdateStatus, onUpdateChange } from "./update-checker.ts";
 import type { TaskItem } from "../shared/types.ts";
 import { generateTaskId, isValidStatus, isValidPriority } from "../shared/types.ts";
@@ -289,23 +289,26 @@ const server = Bun.serve({
       return new Response(JSON.stringify({ error: "not found" }), { status: 404, headers: corsHeaders });
     }
 
-    // Image serving endpoint
-    if (url.pathname.startsWith("/api/images/")) {
-      const parts = url.pathname.split("/").filter(Boolean); // ["api", "images", agentId, filename]
+    // File serving endpoint (also handles legacy /api/images/ URLs)
+    if (url.pathname.startsWith("/api/files/") || url.pathname.startsWith("/api/images/")) {
+      const parts = url.pathname.split("/").filter(Boolean); // ["api", "files"|"images", agentId, filename]
       const agentId = parts[2];
       const filename = parts[3];
       if (!agentId || !filename) {
         return new Response("Not found", { status: 404 });
       }
-      const imagePath = getImagePath(agentId, filename);
-      if (!imagePath) {
+      const filePath = getFilePath(agentId, filename);
+      if (!filePath) {
         return new Response("Not found", { status: 404 });
       }
       const ext = filename.split(".").pop();
       const mimeTypes: Record<string, string> = {
-        jpg: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp",
+        jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp",
+        pdf: "application/pdf", txt: "text/plain", md: "text/markdown",
+        json: "application/json", csv: "text/csv", xml: "text/xml",
+        html: "text/html", css: "text/css",
       };
-      return new Response(Bun.file(imagePath), {
+      return new Response(Bun.file(filePath), {
         headers: {
           "Content-Type": mimeTypes[ext!] || "application/octet-stream",
           "Cache-Control": "public, max-age=31536000, immutable",

@@ -4,10 +4,10 @@ import {
   unstable_v2_prompt,
   type SDKMessage,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { AgentInfo, AgentOutfit, AgentState, ClaudeModel, LogEntry, SkillInfo, SkillOrigin } from "../shared/types.ts";
+import type { AgentInfo, AgentOutfit, AgentState, Attachment, ClaudeModel, LogEntry, SkillInfo, SkillOrigin } from "../shared/types.ts";
 import { CLAUDE_MODELS } from "../shared/types.ts";
 import { generateOutfit } from "./outfit.ts";
-import { appendLog, loadLog, loadAgents, saveAgents, listAgentSessions, writeManifest, persistSessionTopic, loadOfficePrompt, saveOfficePrompt, saveImage, type PersistedAgent } from "./persistence.ts";
+import { appendLog, loadLog, loadAgents, saveAgents, listAgentSessions, writeManifest, persistSessionTopic, loadOfficePrompt, saveOfficePrompt, saveFile, type PersistedAgent } from "./persistence.ts";
 import { createSafetyHooks } from "./safety-hooks.ts";
 import { commands, autocompleteCommands, unsupportedMessage, type CommandConfig } from "./commands.ts";
 import { resolve, join } from "path";
@@ -198,7 +198,9 @@ Task board (localhost:4000/tasks): Agents can read and create tasks via curl.
     -d '{"assignee":"${agentName}"}'                                    # claim
   curl -s -X POST localhost:4000/tasks/ID/done -d '{}'                  # mark done
 Optional fields on create/update: description, priority (P0-P3), assignee.
-Don't read or update the task board unless the boss mentions it.`;
+Don't read or update the task board unless the boss mentions it.
+
+To show an image to the user, read the image file with the Read tool — it renders inline in the conversation.`;
   if (officePrompt) {
     systemPrompt += `\n\n${officePrompt}`;
   }
@@ -546,7 +548,7 @@ function updateState(agentId: string, state: AgentState) {
   emit({ type: "agent_updated", agentId, changes: { state } });
 }
 
-function addLogEntry(agentId: string, kind: LogEntry["kind"], content: string, metadata?: Record<string, unknown>, images?: string[]) {
+function addLogEntry(agentId: string, kind: LogEntry["kind"], content: string, metadata?: Record<string, unknown>, attachments?: Attachment[]) {
   const entry: LogEntry = {
     id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     agentId,
@@ -554,7 +556,7 @@ function addLogEntry(agentId: string, kind: LogEntry["kind"], content: string, m
     kind,
     content,
     metadata,
-    ...(images && images.length > 0 ? { images } : {}),
+    ...(attachments && attachments.length > 0 ? { attachments } : {}),
   };
   // Cache locally
   const cached = logCache.get(agentId) ?? [];
@@ -793,16 +795,17 @@ function processMessage(agentId: string, msg: SDKMessage) {
                     .join("\n")
                 : JSON.stringify(block.content);
           // Extract image blocks from tool result content
-          let imageFilenames: string[] | undefined;
+          let resultAttachments: Attachment[] | undefined;
           if (Array.isArray(block.content)) {
-            const imgs: string[] = [];
+            const atts: Attachment[] = [];
             for (const c of block.content as any[]) {
               if (c.type === "image" && c.source?.type === "base64") {
-                const filename = saveImage(agentId, c.source.media_type, c.source.data);
-                if (filename) imgs.push(filename);
+                const decoded = Buffer.from(c.source.data, "base64");
+                const att = saveFile(agentId, decoded, c.source.media_type, `image.${c.source.media_type.split("/")[1] ?? "png"}`);
+                if (att) atts.push(att);
               }
             }
-            if (imgs.length > 0) imageFilenames = imgs;
+            if (atts.length > 0) resultAttachments = atts;
           }
           const managed = agents.get(agentId);
           const callStart = managed?.toolCallTimestamps.get(block.tool_use_id);
@@ -813,7 +816,7 @@ function processMessage(agentId: string, msg: SDKMessage) {
           addLogEntry(agentId, "tool_result", resultText.slice(0, 10000), {
             toolUseId: block.tool_use_id,
             ...(duration_ms != null ? { duration_ms } : {}),
-          }, imageFilenames);
+          }, resultAttachments);
         }
       }
       break;

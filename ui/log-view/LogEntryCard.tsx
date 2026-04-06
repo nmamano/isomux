@@ -238,7 +238,7 @@ function ToolResult({ entry, isLastInTurn, turnEntries, isMobile }: { entry: Log
   const [open, setOpen] = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const content = entry.content;
-  const images = entry.images;
+  const imageAttachments = entry.attachments?.filter((a) => a.mediaType.startsWith("image/"));
   const isLong = content.length > 200;
   const preview = isLong ? content.slice(0, 150) + "..." : content;
 
@@ -264,15 +264,15 @@ function ToolResult({ entry, isLastInTurn, turnEntries, isMobile }: { entry: Log
           {open ? "Show less" : "Show more"}
         </button>
       )}
-      {images && images.length > 0 && (
+      {imageAttachments && imageAttachments.length > 0 && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: content ? 8 : 0 }}>
-          {images.map((filename) => {
-            const src = `/api/images/${entry.agentId}/${filename}`;
+          {imageAttachments.map((att) => {
+            const src = `/api/files/${entry.agentId}/${att.filename}`;
             return (
               <img
-                key={filename}
+                key={att.filename}
                 src={src}
-                alt="Tool result"
+                alt={att.originalName}
                 onClick={() => setLightboxSrc(src)}
                 style={{
                   maxWidth: isMobile ? "100%" : 300, maxHeight: 200, borderRadius: 4,
