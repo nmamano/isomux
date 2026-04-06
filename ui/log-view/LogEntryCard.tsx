@@ -101,7 +101,7 @@ export function LogEntryCard({
     case "tool_result":
       return (
         <ToolResult
-          content={entry.content}
+          entry={entry}
           isLastInTurn={isLastInTurn}
           turnEntries={turnEntries}
           isMobile={isMobile}
@@ -234,8 +234,11 @@ function ToolCall({ name, input, durationMs, isLastInTurn, turnEntries, isMobile
   );
 }
 
-function ToolResult({ content, isLastInTurn, turnEntries, isMobile }: { content: string; isLastInTurn?: boolean; turnEntries?: LogEntry[]; isMobile?: boolean }) {
+function ToolResult({ entry, isLastInTurn, turnEntries, isMobile }: { entry: LogEntry; isLastInTurn?: boolean; turnEntries?: LogEntry[]; isMobile?: boolean }) {
   const [open, setOpen] = useState(false);
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const content = entry.content;
+  const images = entry.images;
   const isLong = content.length > 200;
   const preview = isLong ? content.slice(0, 150) + "..." : content;
 
@@ -247,7 +250,7 @@ function ToolResult({ content, isLastInTurn, turnEntries, isMobile }: { content:
       fontSize: isMobile ? 13 : 11, fontFamily: "'JetBrains Mono',monospace",
       color: "var(--text-dim)", lineHeight: 1.5, position: "relative",
     }}>
-      <div style={{ whiteSpace: "pre-wrap", overflowX: "auto", maxWidth: "100%" }}>{open ? content : preview}</div>
+      {content && <div style={{ whiteSpace: "pre-wrap", overflowX: "auto", maxWidth: "100%" }}>{open ? content : preview}</div>}
       {isLong && (
         <button
           onClick={() => setOpen(!open)}
@@ -261,7 +264,42 @@ function ToolResult({ content, isLastInTurn, turnEntries, isMobile }: { content:
           {open ? "Show less" : "Show more"}
         </button>
       )}
+      {images && images.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: content ? 8 : 0 }}>
+          {images.map((filename) => {
+            const src = `/api/images/${entry.agentId}/${filename}`;
+            return (
+              <img
+                key={filename}
+                src={src}
+                alt="Tool result"
+                onClick={() => setLightboxSrc(src)}
+                style={{
+                  maxWidth: isMobile ? "100%" : 300, maxHeight: 200, borderRadius: 4,
+                  cursor: "pointer", border: "1px solid var(--green-border)",
+                }}
+              />
+            );
+          })}
+        </div>
+      )}
       {isLastInTurn && <TurnCopyButton turnEntries={turnEntries} />}
+      {lightboxSrc && (
+        <div
+          tabIndex={0}
+          ref={(el) => el?.focus()}
+          onClick={() => setLightboxSrc(null)}
+          onKeyDown={(e) => e.key === "Escape" && setLightboxSrc(null)}
+          style={{
+            position: "fixed", inset: 0, zIndex: 9999,
+            background: "rgba(0,0,0,0.85)",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            cursor: "zoom-out",
+          }}
+        >
+          <img src={lightboxSrc} alt="Full size" style={{ maxWidth: "90vw", maxHeight: "90vh", borderRadius: 8 }} />
+        </div>
+      )}
     </div>
   );
 }

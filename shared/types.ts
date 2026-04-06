@@ -51,6 +51,7 @@ export interface LogEntry {
   kind: "text" | "thinking" | "tool_call" | "tool_result" | "error" | "system" | "user_message";
   content: string;
   metadata?: Record<string, unknown>;
+  images?: string[]; // image filenames, served via /api/images/<agentId>/<filename>
 }
 
 // Task item (replaces todos)

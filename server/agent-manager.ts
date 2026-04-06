@@ -7,7 +7,7 @@ import {
 import type { AgentInfo, AgentOutfit, AgentState, ClaudeModel, LogEntry, SkillInfo, SkillOrigin } from "../shared/types.ts";
 import { CLAUDE_MODELS } from "../shared/types.ts";
 import { generateOutfit } from "./outfit.ts";
-import { appendLog, loadLog, loadAgents, saveAgents, listAgentSessions, writeManifest, persistSessionTopic, loadOfficePrompt, saveOfficePrompt, type PersistedAgent } from "./persistence.ts";
+import { appendLog, loadLog, loadAgents, saveAgents, listAgentSessions, writeManifest, persistSessionTopic, loadOfficePrompt, saveOfficePrompt, saveImage, type PersistedAgent } from "./persistence.ts";
 import { createSafetyHooks } from "./safety-hooks.ts";
 import { commands, autocompleteCommands, unsupportedMessage, type CommandConfig } from "./commands.ts";
 import { resolve, join } from "path";
@@ -546,7 +546,7 @@ function updateState(agentId: string, state: AgentState) {
   emit({ type: "agent_updated", agentId, changes: { state } });
 }
 
-function addLogEntry(agentId: string, kind: LogEntry["kind"], content: string, metadata?: Record<string, unknown>) {
+function addLogEntry(agentId: string, kind: LogEntry["kind"], content: string, metadata?: Record<string, unknown>, images?: string[]) {
   const entry: LogEntry = {
     id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     agentId,
@@ -554,6 +554,7 @@ function addLogEntry(agentId: string, kind: LogEntry["kind"], content: string, m
     kind,
     content,
     metadata,
+    ...(images && images.length > 0 ? { images } : {}),
   };
   // Cache locally
   const cached = logCache.get(agentId) ?? [];
@@ -791,6 +792,18 @@ function processMessage(agentId: string, msg: SDKMessage) {
                     .map((c: any) => c.text)
                     .join("\n")
                 : JSON.stringify(block.content);
+          // Extract image blocks from tool result content
+          let imageFilenames: string[] | undefined;
+          if (Array.isArray(block.content)) {
+            const imgs: string[] = [];
+            for (const c of block.content as any[]) {
+              if (c.type === "image" && c.source?.type === "base64") {
+                const filename = saveImage(agentId, c.source.media_type, c.source.data);
+                if (filename) imgs.push(filename);
+              }
+            }
+            if (imgs.length > 0) imageFilenames = imgs;
+          }
           const managed = agents.get(agentId);
           const callStart = managed?.toolCallTimestamps.get(block.tool_use_id);
           const duration_ms = callStart ? Date.now() - callStart : undefined;
@@ -800,7 +813,7 @@ function processMessage(agentId: string, msg: SDKMessage) {
           addLogEntry(agentId, "tool_result", resultText.slice(0, 10000), {
             toolUseId: block.tool_use_id,
             ...(duration_ms != null ? { duration_ms } : {}),
-          });
+          }, imageFilenames);
         }
       }
       break;

@@ -1,6 +1,7 @@
 import { join } from "path";
 import { homedir } from "os";
 import { mkdirSync, appendFileSync, readFileSync, writeFileSync, existsSync, readdirSync, unlinkSync } from "fs";
+import { createHash } from "crypto";
 import type { AgentInfo, ClaudeModel, LogEntry, TaskItem } from "../shared/types.ts";
 
 const ISOMUX_DIR = join(homedir(), ".isomux");
@@ -236,4 +237,50 @@ export function saveTasks(tasks: TaskItem[]) {
   } catch (err) {
     console.error("Failed to save tasks:", err);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Image storage for inline image display
+// ---------------------------------------------------------------------------
+
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10MB decoded
+const SUPPORTED_IMAGE_TYPES: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/gif": "gif",
+  "image/webp": "webp",
+};
+
+/** Save a base64-encoded image to disk. Returns the filename or null on failure. */
+export function saveImage(agentId: string, mediaType: string, base64Data: string): string | null {
+  try {
+    const ext = SUPPORTED_IMAGE_TYPES[mediaType];
+    if (!ext) return null;
+
+    const decoded = Buffer.from(base64Data, "base64");
+    if (decoded.length > MAX_IMAGE_BYTES) return null;
+
+    const hash = createHash("sha256").update(decoded).digest("hex");
+    const filename = `${hash}.${ext}`;
+    const dir = join(LOGS_DIR, agentId, "images");
+    mkdirSync(dir, { recursive: true });
+    const filepath = join(dir, filename);
+    if (!existsSync(filepath)) {
+      writeFileSync(filepath, decoded);
+    }
+    return filename;
+  } catch (err) {
+    console.error("Failed to save image:", err);
+    return null;
+  }
+}
+
+const IMAGE_FILENAME_RE = /^[a-f0-9]{64}\.(jpg|png|gif|webp)$/;
+
+/** Resolve an image filename to its disk path, or null if invalid/missing. */
+export function getImagePath(agentId: string, filename: string): string | null {
+  if (!IMAGE_FILENAME_RE.test(filename)) return null;
+  if (/[\/\\]/.test(agentId)) return null;
+  const filepath = join(LOGS_DIR, agentId, "images", filename);
+  return existsSync(filepath) ? filepath : null;
 }

@@ -1,7 +1,7 @@
 import type { ServerWebSocket } from "bun";
 import type { ServerMessage, ClientCommand } from "../shared/types.ts";
 import * as AgentManager from "./agent-manager.ts";
-import { loadRecentCwds, saveRecentCwd, loadTasks, saveTasks } from "./persistence.ts";
+import { loadRecentCwds, saveRecentCwd, loadTasks, saveTasks, getImagePath } from "./persistence.ts";
 import { startUpdateChecker, getUpdateStatus, onUpdateChange } from "./update-checker.ts";
 import type { TaskItem } from "../shared/types.ts";
 import { generateTaskId, isValidStatus, isValidPriority } from "../shared/types.ts";
@@ -287,6 +287,30 @@ const server = Bun.serve({
       }
 
       return new Response(JSON.stringify({ error: "not found" }), { status: 404, headers: corsHeaders });
+    }
+
+    // Image serving endpoint
+    if (url.pathname.startsWith("/api/images/")) {
+      const parts = url.pathname.split("/").filter(Boolean); // ["api", "images", agentId, filename]
+      const agentId = parts[2];
+      const filename = parts[3];
+      if (!agentId || !filename) {
+        return new Response("Not found", { status: 404 });
+      }
+      const imagePath = getImagePath(agentId, filename);
+      if (!imagePath) {
+        return new Response("Not found", { status: 404 });
+      }
+      const ext = filename.split(".").pop();
+      const mimeTypes: Record<string, string> = {
+        jpg: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp",
+      };
+      return new Response(Bun.file(imagePath), {
+        headers: {
+          "Content-Type": mimeTypes[ext!] || "application/octet-stream",
+          "Cache-Control": "public, max-age=31536000, immutable",
+        },
+      });
     }
 
     // Static file serving
