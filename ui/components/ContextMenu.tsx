@@ -152,7 +152,7 @@ function MenuItem({
         border: "none",
         background: "transparent",
         color: danger ? "var(--red)" : "var(--text-dim)",
-        fontFamily: small ? "'JetBrains Mono',monospace" : "'DM Sans',sans-serif",
+        fontFamily: small ? "'JetBrains Mono',monospace" : undefined,
         fontSize: small ? 11 : 13,
         borderRadius: 6,
         cursor: disabled ? "default" : "pointer",

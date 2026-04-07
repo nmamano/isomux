@@ -222,7 +222,6 @@ export function MobileHeader({
                     background: "transparent", border: "none",
                     color: "var(--text-primary)", fontSize: 14,
                     cursor: "pointer", textAlign: "left",
-                    fontFamily: "'DM Sans',sans-serif",
                   }}
                 >
                   <span style={{ width: 20, display: "flex", alignItems: "center", justifyContent: "center" }}>{item.icon}</span>

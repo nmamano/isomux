@@ -195,7 +195,6 @@ const cancelBtnStyle: React.CSSProperties = {
   color: "var(--text-dim)",
   fontSize: 12,
   cursor: "pointer",
-  fontFamily: "'DM Sans',sans-serif",
 };
 
 const saveBtnStyle: React.CSSProperties = {
@@ -207,5 +206,4 @@ const saveBtnStyle: React.CSSProperties = {
   fontSize: 12,
   fontWeight: 600,
   cursor: "pointer",
-  fontFamily: "'DM Sans',sans-serif",
 };

@@ -75,7 +75,6 @@ function ActivityIndicator({ state, stateChangedAt, agentId }: { state: AgentSta
         margin: "8px 0",
         color,
         fontSize: 12,
-        fontFamily: "'DM Sans',sans-serif",
         animation: "fadeIn 0.2s ease-out",
       }}
     >
@@ -99,7 +98,6 @@ function ActivityIndicator({ state, stateChangedAt, agentId }: { state: AgentSta
             background: "transparent",
             color,
             fontSize: 11,
-            fontFamily: "'DM Sans',sans-serif",
             cursor: "pointer",
             opacity: 0.8,
           }}
@@ -123,7 +121,7 @@ function HeaderTimer({ state, stateChangedAt }: { state: AgentState; stateChange
   return (
     <>
       <span style={{ color: "var(--text-ghost)" }}>&middot;</span>
-      <span style={{ color, fontSize: 12, fontFamily: "'DM Sans',sans-serif" }}>
+      <span style={{ color, fontSize: 12 }}>
         {STATE_LABELS[state]} {formatElapsed(elapsedMs)}
       </span>
     </>
@@ -654,7 +652,6 @@ export function LogView({
               border: "1px solid var(--border-medium)",
               background: "var(--btn-surface)",
               color: "var(--text-dim)",
-              fontFamily: "'DM Sans',sans-serif",
               fontSize: 13,
               cursor: "pointer",
             }}
@@ -757,7 +754,6 @@ export function LogView({
                   color: "var(--text-muted)",
                   fontSize: 12,
                   padding: "1px 6px",
-                  fontFamily: "'DM Sans',sans-serif",
                   outline: "none",
                   width: 200,
                 }}
@@ -797,7 +793,6 @@ export function LogView({
                   color: "var(--text-dim)",
                   fontSize: 11,
                   cursor: "pointer",
-                  fontFamily: "'DM Sans',sans-serif",
                 }}
               >
                 Tasks
@@ -855,7 +850,6 @@ export function LogView({
                 border: `1px solid ${terminalOpen ? "var(--green-border)" : "var(--border-medium)"}`,
                 background: terminalOpen ? "var(--green-bg)" : "var(--btn-surface)",
                 color: terminalOpen ? "var(--green)" : "var(--text-dim)",
-                fontFamily: "'DM Sans',sans-serif",
                 fontSize: 12,
                 cursor: "pointer",
                 transition: "all 0.15s",
@@ -915,7 +909,6 @@ export function LogView({
               color: "var(--text-ghost)",
               textAlign: "center",
               marginTop: 40,
-              fontFamily: "'DM Sans',sans-serif",
             }}
           >
             Send a message to start a conversation.
@@ -1104,7 +1097,6 @@ export function LogView({
                         <span style={{
                           fontSize: 10,
                           color: "var(--text-ghost)",
-                          fontFamily: "'DM Sans',sans-serif",
                           background: "var(--bg-base)",
                           padding: "1px 6px",
                           borderRadius: 4,
@@ -1117,7 +1109,6 @@ export function LogView({
                         <span style={{
                           fontSize: 11,
                           color: "var(--text-ghost)",
-                          fontFamily: "'DM Sans',sans-serif",
                           overflow: "hidden",
                           textOverflow: "ellipsis",
                           whiteSpace: "nowrap",
@@ -1279,7 +1270,6 @@ export function LogView({
                   borderRadius: 8,
                   padding: "12px 14px",
                   fontSize: 12,
-                  fontFamily: "'DM Sans',sans-serif",
                   color: "var(--text-secondary)",
                   boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
                   zIndex: 20,

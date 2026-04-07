@@ -188,7 +188,6 @@ export function TerminalPanel({
         <span
           style={{
             fontSize: 11,
-            fontFamily: "'DM Sans',sans-serif",
             color: "var(--text-dim)",
             display: "flex",
             alignItems: "center",
@@ -241,7 +240,6 @@ export function TerminalPanel({
             alignItems: "center",
             gap: 12,
             fontSize: 12,
-            fontFamily: "'DM Sans',sans-serif",
             color: "var(--text-dim)",
             boxShadow: "0 4px 12px var(--shadow)",
           }}
@@ -256,7 +254,6 @@ export function TerminalPanel({
               background: "var(--green-bg)",
               color: "var(--green)",
               fontSize: 12,
-              fontFamily: "'DM Sans',sans-serif",
               cursor: "pointer",
             }}
           >

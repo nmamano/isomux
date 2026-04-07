@@ -498,7 +498,6 @@ const cancelBtnStyle: React.CSSProperties = {
   color: "var(--text-dim)",
   fontSize: 12,
   cursor: "pointer",
-  fontFamily: "'DM Sans',sans-serif",
 };
 
 const chipStyle: React.CSSProperties = {
@@ -525,7 +524,6 @@ const saveBtnStyle: React.CSSProperties = {
   fontSize: 12,
   fontWeight: 600,
   cursor: "pointer",
-  fontFamily: "'DM Sans',sans-serif",
 };
 
 const randomBtnStyle: React.CSSProperties = {
@@ -536,5 +534,4 @@ const randomBtnStyle: React.CSSProperties = {
   color: "var(--text-dim)",
   fontSize: 12,
   cursor: "pointer",
-  fontFamily: "'DM Sans',sans-serif",
 };

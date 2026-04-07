@@ -60,7 +60,6 @@ export function UsernameModal({
             fontWeight: 700,
             color: "var(--text-primary)",
             marginBottom: 16,
-            fontFamily: "'DM Sans',sans-serif",
           }}
         >
           What's your name? (Who's the boss?)
@@ -106,7 +105,6 @@ export function UsernameModal({
                 background: "var(--btn-surface)",
                 color: "var(--text-dim)",
                 fontSize: 13,
-                fontFamily: "'DM Sans',sans-serif",
                 cursor: "pointer",
               }}
             >
@@ -124,7 +122,6 @@ export function UsernameModal({
               color: canSubmit ? "var(--bg-base)" : "var(--text-ghost)",
               fontSize: 13,
               fontWeight: 600,
-              fontFamily: "'DM Sans',sans-serif",
               cursor: canSubmit ? "pointer" : "default",
               transition: "background 0.15s, color 0.15s",
             }}
