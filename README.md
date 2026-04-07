@@ -24,6 +24,7 @@ See [isomux.com](https://isomux.com) for setup instructions and a live demo. Rea
 - [**Custom commands**](https://x.com/Nil053/status/2040018957453918431) in addition to your own, all with autocomplete: e.g. `/isomux-peer-review` to review another agent's work, or `/isomux-all-hands` to see what everyone is up to
 - [**Agents can check on each other**](https://x.com/Nil053/status/2039494626265149778): inter-agent discovery via shared manifest
 - [**Shared task board**](https://x.com/Nil053/status/2040871759529025617): humans and agents can create, assign, claim, and close tasks — full interop via UI and HTTP API
+- **Image/PDF attachments**: agents understand images and PDFs. Agents can show images inline in the conversation
 - **Sound notifications**: get pinged when an agent finishes
 
 ## Get Started
@@ -83,6 +84,8 @@ For persistent server setup (systemd + Tailscale) and voice input configuration,
 - **Collapsible thinking and tool-call cards** with timing for each step
 - **Copy buttons** on code blocks, user messages, full agent turns, and entire conversations
 - **Send disabled while agent is busy** — type ahead freely, send when ready
+- **File attachments**: agents understand images and PDFs. Upload them via button, drag-and-drop, or paste
+- **Image display**: agents can show images inline in the conversation
 - **Embedded terminal** for direct shell access per agent
 - **Right-click context menu** — resume past sessions, edit agent, kill
 
