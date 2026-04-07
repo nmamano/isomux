@@ -69,7 +69,6 @@ export function OfficeView({ onSpawn, onContextMenu, username, onEditUsername, o
         overflow: "hidden",
         background: "var(--bg-base)",
         color: "var(--text-primary)",
-        fontFamily: "'DM Sans',sans-serif",
       }}
     >
       {/* Top HUD bar */}
@@ -169,7 +168,6 @@ export function OfficeView({ onSpawn, onContextMenu, username, onEditUsername, o
                 color: "var(--text-dim)",
                 fontSize: 11,
                 cursor: "pointer",
-                fontFamily: "'DM Sans',sans-serif",
               }}
             >
               Tasks
@@ -184,7 +182,6 @@ export function OfficeView({ onSpawn, onContextMenu, username, onEditUsername, o
                 color: "var(--text-dim)",
                 fontSize: 11,
                 cursor: "pointer",
-                fontFamily: "'DM Sans',sans-serif",
               }}
             >
               Office settings

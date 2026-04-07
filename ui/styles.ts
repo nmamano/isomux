@@ -228,11 +228,12 @@ export const CSS = `
     83% { opacity: 1; }
   }
 
-  body { background: var(--bg-base); overflow:hidden; }
+  body { background: var(--bg-base); overflow:hidden; font-family: 'DM Sans', sans-serif; }
   html, body { max-width: 100vw; overflow-x: hidden; }
+  input, select, textarea, button { font-family: inherit; }
 
   /* Markdown content styles */
-  .md-content { font-family: 'DM Sans', sans-serif; font-size: 13px; line-height: 1.7; color: var(--text-secondary); }
+  .md-content { font-size: 13px; line-height: 1.7; color: var(--text-secondary); }
   .md-content p { margin: 0 0 8px 0; }
   .md-content p:last-child { margin-bottom: 0; }
   .md-content strong { color: var(--text-primary); font-weight: 600; }

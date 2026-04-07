@@ -3,7 +3,6 @@ import { useAppState } from "../store.tsx";
 import { CopyButton } from "./CopyButton.tsx";
 
 const REPO = "nmamano/isomux";
-const FONT = "'DM Sans', sans-serif";
 
 function shortSha(sha: string) {
   return sha.slice(0, 7);
@@ -40,7 +39,6 @@ const textStyle: React.CSSProperties = {
   fontSize: 13,
   color: "var(--text-dim)",
   lineHeight: 1.6,
-  fontFamily: FONT,
 };
 
 export function UpdateModal({ onClose }: { onClose: () => void }) {
@@ -87,11 +85,10 @@ export function UpdateModal({ onClose }: { onClose: () => void }) {
           maxWidth: isMobile ? "100%" : undefined,
           boxShadow: "0 20px 60px var(--shadow-heavy)",
           animation: "hudIn 0.2s ease-out",
-          fontFamily: FONT,
         }}
       >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <h3 style={{ fontSize: 17, fontWeight: 700, margin: 0, color: "var(--text-primary)", fontFamily: FONT }}>
+          <h3 style={{ fontSize: 17, fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>
             Update Available
           </h3>
           <CopyButton getText={getText} size={28} />
@@ -122,7 +119,7 @@ export function UpdateModal({ onClose }: { onClose: () => void }) {
           </li>
         </ol>
 
-        <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 14, lineHeight: 1.5, fontStyle: "italic", fontFamily: FONT }}>
+        <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 14, lineHeight: 1.5, fontStyle: "italic" }}>
           Tip: click the copy button to copy this notice to clipboard, then ask any agent to take care of it.
         </p>
 
@@ -138,7 +135,6 @@ export function UpdateModal({ onClose }: { onClose: () => void }) {
               fontSize: 12,
               fontWeight: 600,
               cursor: "pointer",
-              fontFamily: FONT,
             }}
           >
             Got it

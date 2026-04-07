@@ -35,7 +35,6 @@ function DemoBanner() {
         padding: "6px 16px",
         background: "var(--bg-surface)",
         borderBottom: "1px solid var(--border-light)",
-        fontFamily: "'DM Sans',sans-serif",
         fontSize: 13,
         color: "var(--text-dim)",
       }}

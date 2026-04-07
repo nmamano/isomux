@@ -137,7 +137,6 @@ function TaskDetailPanel({ task, onClose, username, mode = "edit", agents = [], 
     background: "var(--bg-input)",
     color: "var(--text-primary)",
     fontSize: 13,
-    fontFamily: "'DM Sans',sans-serif",
     outline: "none",
     boxSizing: "border-box",
   };
@@ -260,7 +259,6 @@ function TaskDetailPanel({ task, onClose, username, mode = "edit", agents = [], 
               fontSize: 11,
               fontWeight: 600,
               cursor: "pointer",
-              fontFamily: "'DM Sans',sans-serif",
             }}
           >
             Discard
@@ -276,7 +274,6 @@ function TaskDetailPanel({ task, onClose, username, mode = "edit", agents = [], 
               fontSize: 11,
               fontWeight: 600,
               cursor: "pointer",
-              fontFamily: "'DM Sans',sans-serif",
             }}
           >
             Cancel
@@ -298,7 +295,6 @@ function TaskDetailPanel({ task, onClose, username, mode = "edit", agents = [], 
             fontSize: 12,
             fontWeight: 600,
             cursor: title.trim() ? "pointer" : "default",
-            fontFamily: "'DM Sans',sans-serif",
           }}
         >
           {mode === "create" ? "Create" : "Save"}
@@ -316,7 +312,6 @@ function TaskDetailPanel({ task, onClose, username, mode = "edit", agents = [], 
               fontSize: 12,
               fontWeight: 600,
               cursor: "pointer",
-              fontFamily: "'DM Sans',sans-serif",
             }}
           >
             {confirmDelete ? "Confirm?" : "Delete"}
@@ -477,7 +472,6 @@ export function TaskView({ username, onClose, onFocusAgent }: { username: string
     background: "var(--bg-input)",
     color: "var(--text-primary)",
     fontSize: 12,
-    fontFamily: "'DM Sans',sans-serif",
     outline: "none",
   };
 
@@ -489,7 +483,6 @@ export function TaskView({ username, onClose, onFocusAgent }: { username: string
         flexDirection: "column",
         background: "var(--bg-base)",
         color: "var(--text-primary)",
-        fontFamily: "'DM Sans',sans-serif",
       }}
     >
       {/* Header */}
@@ -518,7 +511,6 @@ export function TaskView({ username, onClose, onFocusAgent }: { username: string
               fontSize: 18,
               cursor: "pointer",
               padding: "2px 8px",
-              fontFamily: "'DM Sans',sans-serif",
             }}
           >
             &larr;
@@ -538,7 +530,6 @@ export function TaskView({ username, onClose, onFocusAgent }: { username: string
               fontSize: 11,
               fontWeight: 600,
               cursor: "pointer",
-              fontFamily: "'DM Sans',sans-serif",
             }}
           >
             Add
@@ -585,7 +576,6 @@ export function TaskView({ username, onClose, onFocusAgent }: { username: string
                 background: "var(--bg-input)",
                 color: "var(--text-primary)",
                 fontSize: 13,
-                fontFamily: "'DM Sans',sans-serif",
                 outline: "none",
               }}
             />

@@ -45,7 +45,6 @@ export function AgentListView({
         display: "flex",
         flexDirection: "column",
         overflow: "hidden",
-        fontFamily: "'DM Sans', sans-serif",
       }}
     >
       <MobileHeader

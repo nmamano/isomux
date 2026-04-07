@@ -269,7 +269,7 @@ function UserMessage({ content, isMobile, username, attachments, agentId, canEdi
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   return (
     <div style={{ margin: "12px 0", padding: "10px 14px", paddingRight: 40, borderRadius: 10, background: "var(--user-msg-bg)", borderLeft: "3px solid var(--accent)", position: "relative" }}>
-      <div style={{ fontSize: isMobile ? 12 : 10, fontWeight: 600, color: "var(--accent)", marginBottom: 4, fontFamily: "'DM Sans',sans-serif", textTransform: "uppercase", letterSpacing: "0.05em" }}>{(username ?? "You").toUpperCase()}</div>
+      <div style={{ fontSize: isMobile ? 12 : 10, fontWeight: 600, color: "var(--accent)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>{(username ?? "You").toUpperCase()}</div>
       {content && <div style={{ color: "var(--text-secondary)", fontFamily: "'JetBrains Mono',monospace", fontSize: isMobile ? 15 : 13, lineHeight: 1.6, whiteSpace: "pre-wrap", overflowWrap: "break-word", wordBreak: "break-word" }}>{content}</div>}
       {attachments && attachments.length > 0 && agentId && (
         <AttachmentDisplay
@@ -410,7 +410,7 @@ function ThinkingBlock({ content, durationMs, isLastInTurn, turnEntries, isMobil
           display: "flex", alignItems: "center", gap: 6,
           padding: "4px 8px", border: "none", background: "transparent",
           color: "var(--text-faint)", fontSize: isMobile ? 13 : 11, cursor: "pointer",
-          fontFamily: "'DM Sans',sans-serif", width: "100%", textAlign: "left",
+          width: "100%", textAlign: "left",
         }}
       >
         <span style={{ transform: open ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.15s", display: "inline-block" }}>&#9654;</span>
@@ -495,7 +495,6 @@ function ToolResult({ entry, isLastInTurn, turnEntries, isMobile }: { entry: Log
             marginTop: 4, padding: "2px 6px", border: "none",
             background: "var(--expand-btn)", borderRadius: 4,
             color: "var(--text-faint)", fontSize: isMobile ? 12 : 10, cursor: "pointer",
-            fontFamily: "'DM Sans',sans-serif",
           }}
         >
           {open ? "Show less" : "Show more"}
@@ -539,7 +538,7 @@ function SystemMessage({ content, isMobile }: { content: string; isMobile?: bool
       textAlign: isMultiline ? "left" : "center",
       color: isMultiline ? "var(--text-dim)" : "var(--text-ghost)",
       fontSize: isMultiline ? (isMobile ? 15 : 13) : (isMobile ? 13 : 11),
-      fontFamily: isMultiline ? "'JetBrains Mono',monospace" : "'DM Sans',sans-serif",
+      fontFamily: isMultiline ? "'JetBrains Mono',monospace" : undefined,
       fontStyle: isMultiline ? "normal" : "italic",
       ...(!isMultiline && { whiteSpace: "pre-wrap" }),
     }}>
