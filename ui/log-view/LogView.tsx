@@ -1361,7 +1361,7 @@ export function LogView({
             ) : (
               <button
                 onClick={handleSend}
-                disabled={(!input.trim() && validAttachments.length === 0) || hasUploading}
+                disabled={(!input.trim() && validAttachments.length === 0) || hasUploading || !!editingLogEntryId}
                 style={{
                   flexShrink: 0,
                   alignSelf: "flex-end",
@@ -1369,10 +1369,10 @@ export function LogView({
                   height: 36,
                   borderRadius: 8,
                   border: "none",
-                  background: (input.trim() || validAttachments.length > 0) && !hasUploading ? "var(--green)" : "var(--bg-hover)",
-                  color: (input.trim() || validAttachments.length > 0) && !hasUploading ? "var(--bg-base)" : "var(--text-ghost)",
+                  background: (input.trim() || validAttachments.length > 0) && !hasUploading && !editingLogEntryId ? "var(--green)" : "var(--bg-hover)",
+                  color: (input.trim() || validAttachments.length > 0) && !hasUploading && !editingLogEntryId ? "var(--bg-base)" : "var(--text-ghost)",
                   fontSize: 16,
-                  cursor: (input.trim() || validAttachments.length > 0) && !hasUploading ? "pointer" : "default",
+                  cursor: (input.trim() || validAttachments.length > 0) && !hasUploading && !editingLogEntryId ? "pointer" : "default",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
