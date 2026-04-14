@@ -415,6 +415,189 @@
       gap: 24px;
     }
 
+    /* ---- Chat widget ---- */
+    .chat-btn {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      z-index: 100;
+      width: 52px;
+      height: 52px;
+      border-radius: 50%;
+      border: none;
+      background: var(--accent);
+      color: #fff;
+      cursor: pointer;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.3);
+      transition: transform 0.15s, background 0.15s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .chat-btn:hover { transform: scale(1.08); background: var(--accent-hover); }
+
+    .chat-panel {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      z-index: 100;
+      width: min(400px, calc(100vw - 3rem));
+      height: min(500px, calc(100vh - 6rem));
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    }
+
+    .chat-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .chat-header-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: "Space Grotesk", sans-serif;
+      font-weight: 600;
+      font-size: 0.95rem;
+    }
+    .chat-close {
+      background: none;
+      border: none;
+      color: var(--text-dim);
+      cursor: pointer;
+      padding: 4px;
+      border-radius: 4px;
+      display: flex;
+    }
+    .chat-close:hover { background: var(--bg-card); color: var(--text); }
+
+    .chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .chat-msg {
+      max-width: 85%;
+      padding: 8px 12px;
+      border-radius: 10px;
+      font-size: 0.9rem;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+    .chat-msg-user {
+      align-self: flex-end;
+      background: var(--accent);
+      color: #fff;
+    }
+    .chat-msg-bot {
+      align-self: flex-start;
+      background: var(--bg-card);
+      color: var(--text);
+    }
+    .chat-msg-bot a { color: var(--accent); text-decoration: underline; }
+
+    .chat-starters {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .chat-starters p {
+      font-size: 0.85rem;
+      color: var(--text-dim);
+      margin-bottom: 4px;
+    }
+    .chat-starter-btn {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 0.85rem;
+      padding: 8px 12px;
+      cursor: pointer;
+      text-align: left;
+      transition: background 0.15s;
+    }
+    .chat-starter-btn:hover { background: var(--bg); }
+
+    .chat-loading {
+      align-self: flex-start;
+      background: var(--bg-card);
+      padding: 8px 12px;
+      border-radius: 10px;
+      display: flex;
+      gap: 4px;
+    }
+    .chat-loading span {
+      width: 6px; height: 6px;
+      background: var(--text-dim);
+      border-radius: 50%;
+      animation: chat-dot 1.2s ease-in-out infinite;
+    }
+    .chat-loading span:nth-child(2) { animation-delay: 0.2s; }
+    .chat-loading span:nth-child(3) { animation-delay: 0.4s; }
+    @keyframes chat-dot {
+      0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; }
+      40% { transform: scale(1); opacity: 1; }
+    }
+
+    .chat-error {
+      font-size: 0.8rem;
+      color: #f85149;
+      padding: 4px 0;
+    }
+
+    .chat-footer {
+      border-top: 1px solid var(--border);
+      padding: 10px 16px;
+    }
+    .chat-form {
+      display: flex;
+      gap: 8px;
+    }
+    .chat-input {
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 12px;
+      color: var(--text);
+      font-size: 0.9rem;
+      font-family: inherit;
+      outline: none;
+    }
+    .chat-input:focus { border-color: var(--accent); }
+    .chat-input::placeholder { color: var(--text-dim); }
+    .chat-send {
+      background: var(--accent);
+      border: none;
+      border-radius: 6px;
+      color: #fff;
+      cursor: pointer;
+      padding: 0 12px;
+      display: flex;
+      align-items: center;
+      transition: background 0.15s;
+    }
+    .chat-send:hover { background: var(--accent-hover); }
+    .chat-send:disabled { opacity: 0.4; cursor: not-allowed; }
+    .chat-powered {
+      text-align: center;
+      font-size: 10px;
+      color: var(--text-dim);
+      margin-top: 6px;
+    }
+
     /* ---- Responsive ---- */
     @media (max-width: 640px) {
       .hero { padding: 32px 16px 24px; }
@@ -622,5 +805,153 @@ lingering so it survives logout.</pre>
       .catch(() => {});
   </script>
   <script defer src="/_vercel/insights/script.js"></script>
+
+  <!-- Chat widget -->
+  <div id="chat-widget"></div>
+  <script>
+  (function() {
+    const chatSvg = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`;
+    const closeSvg = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
+    const sendSvg = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>`;
+
+    const starters = [
+      "What is Isomux?",
+      "How do I get started?",
+      "What features does it have?",
+      "Does it work on mobile?",
+    ];
+
+    let messages = [];
+    let isOpen = false;
+    let isLoading = false;
+
+    const container = document.getElementById('chat-widget');
+
+    function formatText(text) {
+      return text
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+        .replace(/(^|[^"'>])(https?:\/\/[^\s<)]+)/g, '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
+    }
+
+    function render() {
+      if (!isOpen) {
+        container.innerHTML = `<button class="chat-btn" onclick="window.__chatOpen()">${chatSvg}</button>`;
+        return;
+      }
+
+      let msgsHtml = '';
+      if (messages.length === 0) {
+        msgsHtml = `<div class="chat-starters">
+          <p>Ask me anything about Isomux!</p>
+          ${starters.map(q => `<button class="chat-starter-btn" onclick="window.__chatSend('${q.replace(/'/g, "\\'")}')">${q}</button>`).join('')}
+        </div>`;
+      } else {
+        msgsHtml = messages.map(m =>
+          `<div class="chat-msg chat-msg-${m.role === 'user' ? 'user' : 'bot'}">${m.role === 'user' ? esc(m.content) : formatText(m.content)}</div>`
+        ).join('');
+        if (isLoading && messages[messages.length - 1]?.role === 'user') {
+          msgsHtml += `<div class="chat-loading"><span></span><span></span><span></span></div>`;
+        }
+      }
+
+      container.innerHTML = `
+        <div class="chat-panel">
+          <div class="chat-header">
+            <div class="chat-header-left">${chatSvg} Ask about Isomux</div>
+            <button class="chat-close" onclick="window.__chatClose()">${closeSvg}</button>
+          </div>
+          <div class="chat-messages" id="chat-msgs">${msgsHtml}</div>
+          <div class="chat-footer">
+            <form class="chat-form" onsubmit="event.preventDefault(); window.__chatSubmit()">
+              <input class="chat-input" id="chat-input" placeholder="Type a message..." ${isLoading ? 'disabled' : ''} autocomplete="off" />
+              <button class="chat-send" type="submit" ${isLoading ? 'disabled' : ''}>${sendSvg}</button>
+            </form>
+            <div class="chat-powered">Powered by Claude</div>
+          </div>
+        </div>`;
+
+      const msgsEl = document.getElementById('chat-msgs');
+      if (msgsEl) msgsEl.scrollTop = msgsEl.scrollHeight;
+      const inputEl = document.getElementById('chat-input');
+      if (inputEl && !isLoading) inputEl.focus();
+    }
+
+    function esc(s) {
+      const d = document.createElement('div');
+      d.textContent = s;
+      return d.innerHTML;
+    }
+
+    async function sendMessage(text) {
+      if (!text.trim() || isLoading) return;
+      messages.push({ role: 'user', content: text });
+      isLoading = true;
+      render();
+
+      try {
+        const res = await fetch('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messages: messages.map(m => ({ role: m.role, content: m.content })) }),
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || 'Request failed');
+        }
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let botMsg = { role: 'assistant', content: '' };
+        messages.push(botMsg);
+        isLoading = false;
+
+        let buffer = '';
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const data = line.slice(6);
+            if (data === '[DONE]') break;
+            try {
+              const parsed = JSON.parse(data);
+              if (parsed.error) throw new Error(parsed.error);
+              if (parsed.text) {
+                botMsg.content += parsed.text;
+                render();
+              }
+            } catch (e) {
+              if (e.message && !e.message.includes('JSON')) throw e;
+            }
+          }
+        }
+        render();
+      } catch (err) {
+        isLoading = false;
+        const errorText = err.message?.includes('credit') || err.message?.includes('balance')
+          ? 'The chatbot has run out of credits. Please try again later!'
+          : 'Something went wrong. Please try again.';
+        messages.push({ role: 'assistant', content: errorText, error: true });
+        render();
+      }
+    }
+
+    window.__chatOpen = () => { isOpen = true; render(); };
+    window.__chatClose = () => { isOpen = false; render(); };
+    window.__chatSubmit = () => {
+      const input = document.getElementById('chat-input');
+      if (input) { sendMessage(input.value); }
+    };
+    window.__chatSend = (text) => { sendMessage(text); };
+
+    render();
+  })();
+  </script>
 </body>
 </html>
