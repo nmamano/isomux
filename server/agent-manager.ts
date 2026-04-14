@@ -437,13 +437,10 @@ export function reorderRooms(order: number[]): boolean {
   roomNames.length = 0;
   roomNames.push(...newNames);
 
-  // Remap every agent's room field
+  // Remap every agent's room field (no individual agent_updated events —
+  // clients remap atomically from the rooms_reordered message)
   for (const managed of agents.values()) {
-    const newRoom = reverseMap[managed.info.room];
-    if (newRoom !== managed.info.room) {
-      managed.info.room = newRoom;
-      eventHandler({ type: "agent_updated", agentId: managed.info.id, changes: { room: newRoom } });
-    }
+    managed.info.room = reverseMap[managed.info.room];
   }
 
   persistAll();

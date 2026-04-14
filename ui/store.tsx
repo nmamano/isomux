@@ -189,8 +189,11 @@ function reducer(state: AppState, action: Action): AppState {
         reverseMap[action.order[newIdx]] = newIdx;
       }
       const newNames = action.order.map((oldIdx) => state.roomNames[oldIdx]);
-      // Agent room fields are updated via agent_updated messages from server
-      return { ...state, roomNames: newNames, currentRoom: reverseMap[state.currentRoom] ?? 0 };
+      const newAgents = state.agents.map((a) => {
+        const newRoom = reverseMap[a.room];
+        return newRoom !== a.room ? { ...a, room: newRoom } : a;
+      });
+      return { ...state, agents: newAgents, roomNames: newNames, currentRoom: reverseMap[state.currentRoom] ?? 0 };
     }
     default:
       return state;
