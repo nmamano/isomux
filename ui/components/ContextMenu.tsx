@@ -95,16 +95,19 @@ export function ContextMenu({ x, y, agent, onClose, onEdit }: ContextMenuProps) 
           </div>
           {sessions.slice(0, 5).map((s) => {
             const isCurrent = s.sessionId === currentSessionId;
-            const label = s.topic || s.sessionId.slice(0, 8) + "...";
+            const rawLabel = s.topic || s.sessionId.slice(0, 8) + "...";
+            const label = s.forked ? `↳ ${rawLabel}` : rawLabel;
+            const branchedSuffix = s.branched ? " (branched)" : "";
             const displayLabel = isCurrent
               ? `● ${label}  ${formatTime(s.lastModified)}  (current)`
-              : `${label}  ${formatTime(s.lastModified)}`;
+              : `${label}  ${formatTime(s.lastModified)}${branchedSuffix}`;
             return (
               <MenuItem
                 key={s.sessionId}
                 label={displayLabel}
                 small
                 disabled={isCurrent}
+                dimmed={s.branched}
                 onClick={() => !isCurrent && handleAction("resume", s.sessionId)}
               />
             );
@@ -123,12 +126,14 @@ function MenuItem({
   danger,
   small,
   disabled,
+  dimmed,
   onClick,
 }: {
   label: string;
   danger?: boolean;
   small?: boolean;
   disabled?: boolean;
+  dimmed?: boolean;
   onClick: () => void;
 }) {
   return (
@@ -152,7 +157,8 @@ function MenuItem({
         borderRadius: 6,
         cursor: disabled ? "default" : "pointer",
         textAlign: "left",
-        opacity: disabled ? 0.5 : 1,
+        opacity: disabled ? 0.5 : dimmed ? 0.45 : 1,
+        fontStyle: dimmed ? "italic" : undefined,
       }}
     >
       {label}

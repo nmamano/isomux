@@ -53,8 +53,47 @@ export function loadLog(agentId: string, sessionId: string): LogEntry[] {
   }
 }
 
+/**
+ * Load log entries for a session, including ancestor entries from forked-from sessions.
+ * Walks the forkedFrom chain in sessions.json: for each ancestor, loads entries before
+ * forkMessageId (the edited message). Concatenates oldest-ancestor-first, then the
+ * fork's own entries. This avoids duplicating log entries across JSONL files.
+ */
+export function loadLogWithAncestors(agentId: string, sessionId: string): LogEntry[] {
+  const sessionsMap = loadSessionsMap(agentId);
+
+  // Build the ancestor chain: [oldest ancestor, ..., immediate parent, self]
+  const chain: { sessionId: string; forkMessageId?: string }[] = [];
+  let current: string | undefined = sessionId;
+  const visited = new Set<string>(); // guard against cycles
+  while (current) {
+    if (visited.has(current)) break;
+    visited.add(current);
+    const meta = sessionsMap[current];
+    chain.unshift({ sessionId: current, forkMessageId: meta?.forkMessageId });
+    current = meta?.forkedFrom;
+  }
+
+  const result: LogEntry[] = [];
+  for (let i = 0; i < chain.length; i++) {
+    const entries = loadLog(agentId, chain[i].sessionId);
+    if (i < chain.length - 1) {
+      // Ancestor: take entries before the fork point (the edited message)
+      const cutoffId = chain[i + 1].forkMessageId;
+      for (const entry of entries) {
+        if (entry.id === cutoffId) break;
+        result.push(entry);
+      }
+    } else {
+      // Self (leaf): take all entries
+      result.push(...entries);
+    }
+  }
+  return result;
+}
+
 // Per-session topic storage: ~/.isomux/logs/<agentId>/sessions.json
-type SessionsMap = Record<string, { topic: string | null; lastModified: number }>;
+type SessionsMap = Record<string, { topic: string | null; lastModified: number; forkedFrom?: string; forkMessageId?: string }>;
 
 export function loadSessionsMap(agentId: string): SessionsMap {
   try {
@@ -78,16 +117,30 @@ function saveSessionsMap(agentId: string, map: SessionsMap) {
 
 export function persistSessionTopic(agentId: string, sessionId: string, topic: string | null) {
   const map = loadSessionsMap(agentId);
-  map[sessionId] = { topic, lastModified: Date.now() };
+  const existing = map[sessionId];
+  map[sessionId] = { ...existing, topic, lastModified: Date.now() };
+  saveSessionsMap(agentId, map);
+}
+
+export function persistSessionFork(agentId: string, sessionId: string, forkedFrom: string, forkMessageId: string, topic: string | null) {
+  const map = loadSessionsMap(agentId);
+  map[sessionId] = { topic, lastModified: Date.now(), forkedFrom, forkMessageId };
   saveSessionsMap(agentId, map);
 }
 
 // List all sessions for an agent (sorted by most recent first), with topics from sessions.json
-export function listAgentSessions(agentId: string): { sessionId: string; lastModified: number; topic: string | null }[] {
+export function listAgentSessions(agentId: string): { sessionId: string; lastModified: number; topic: string | null; branched?: boolean; forked?: boolean }[] {
   try {
     const agentDir = join(LOGS_DIR, agentId);
     if (!existsSync(agentDir)) return [];
     const sessionsMap = loadSessionsMap(agentId);
+
+    // Collect all forkedFrom values to detect which sessions have been branched FROM
+    const branchedFromIds = new Set<string>();
+    for (const entry of Object.values(sessionsMap)) {
+      if (entry.forkedFrom) branchedFromIds.add(entry.forkedFrom);
+    }
+
     return readdirSync(agentDir)
       .filter((f) => f.endsWith(".jsonl"))
       .map((f) => {
@@ -97,6 +150,8 @@ export function listAgentSessions(agentId: string): { sessionId: string; lastMod
           sessionId: sid,
           lastModified: entry?.lastModified ?? Bun.file(join(agentDir, f)).lastModified,
           topic: entry?.topic ?? null,
+          ...(branchedFromIds.has(sid) ? { branched: true as const } : {}),
+          ...(entry?.forkedFrom ? { forked: true as const } : {}),
         };
       })
       .sort((a, b) => b.lastModified - a.lastModified);

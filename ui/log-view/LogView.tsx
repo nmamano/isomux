@@ -178,12 +178,20 @@ export function LogView({
   const hasUploading = stagedAttachments.some((a) => a.uploading);
   const validAttachments = stagedAttachments.filter((a) => !a.error);
   const [draggingOver, setDraggingOver] = useState(false);
+  const [editingLogEntryId, setEditingLogEntryId] = useState<string | null>(null);
   const dragCounterRef = useRef(0);
   const swipeRef = useSwipeLeftRight(onSwipeLeft ?? (() => {}), onSwipeRight ?? (() => {}), isMobile);
   const messagesRef: RefCallback<HTMLDivElement> = useCallback((node: HTMLDivElement | null) => {
     (scrollRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
     (swipeRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
   }, []);
+
+  // Dismiss edit textarea when agent is no longer idle (e.g. another tab sent a message)
+  useEffect(() => {
+    if (agent.state !== "waiting_for_response" && editingLogEntryId) {
+      setEditingLogEntryId(null);
+    }
+  }, [agent.state]);
 
   // Mobile keyboard fix: use visualViewport.height as the container height.
   // On mobile browsers, 100dvh/100vh do NOT shrink when the virtual keyboard
@@ -511,7 +519,7 @@ export function LogView({
   function handleSend() {
     const text = input.trim();
     if (!text && validAttachments.length === 0) return;
-    if (isBusy || hasUploading) return;
+    if (isBusy || hasUploading || editingLogEntryId) return;
     const attachments = validAttachments.length > 0
       ? validAttachments.map(({ id: _id, uploading: _u, error: _e, ...att }) => att as Attachment)
       : undefined;
@@ -915,6 +923,7 @@ export function LogView({
         )}
         {logs.map((entry) => {
           const td = turnData.get(entry.id);
+          const canEditMsg = entry.kind === "user_message" && agent.state === "waiting_for_response" && !editingLogEntryId;
           return (
             <LogEntryCard
               key={entry.id}
@@ -922,6 +931,14 @@ export function LogView({
               isLastInTurn={td?.isLastInTurn}
               turnEntries={td?.turnEntries}
               isMobile={isMobile}
+              canEdit={canEditMsg}
+              isEditing={editingLogEntryId === entry.id}
+              onStartEdit={(id) => setEditingLogEntryId(id)}
+              onCancelEdit={() => setEditingLogEntryId(null)}
+              onSubmitEdit={(id, newText) => {
+                setEditingLogEntryId(null);
+                send({ type: "edit_message", agentId: agent.id, logEntryId: id, newText, username });
+              }}
             />
           );
         })}
@@ -1173,7 +1190,7 @@ export function LogView({
                   send({ type: "abort", agentId: agent.id });
                 }
               }}
-              placeholder={isBusy ? (isMobile ? "Agent is busy..." : "Agent is busy — Ctrl+C to interrupt...") : isMobile ? "Type a message..." : "Type a message or / for commands..."}
+              placeholder={editingLogEntryId ? "Editing message above..." : isBusy ? (isMobile ? "Agent is busy..." : "Agent is busy — Ctrl+C to interrupt...") : isMobile ? "Type a message..." : "Type a message or / for commands..."}
               autoFocus={!isMobile}
               rows={1}
               style={{
@@ -1181,7 +1198,7 @@ export function LogView({
                 background: "transparent",
                 border: "none",
                 outline: "none",
-                color: isBusy ? "var(--text-muted)" : "var(--text-secondary)",
+                color: (isBusy || editingLogEntryId) ? "var(--text-muted)" : "var(--text-secondary)",
                 fontFamily: "'JetBrains Mono',monospace",
                 fontSize: isMobile ? 16 : 13,
                 caretColor: "var(--green)",

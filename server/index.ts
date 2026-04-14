@@ -144,6 +144,10 @@ async function handleCommand(cmd: ClientCommand) {
     case "reorder_rooms":
       AgentManager.reorderRooms(cmd.order);
       break;
+    case "edit_message":
+      // Don't await — let it stream in the background (like send_message)
+      AgentManager.editMessage(cmd.agentId, cmd.logEntryId, cmd.newText, cmd.username);
+      break;
   }
 }
 

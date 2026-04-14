@@ -103,6 +103,8 @@ export interface SessionInfo {
   sessionId: string;
   lastModified: number;
   topic: string | null;
+  branched?: boolean;      // true if another session was forked from this one
+  forked?: boolean;        // true if this session is a fork (was created by editing a message)
 }
 
 // Skill metadata for autocomplete and /help
@@ -158,4 +160,5 @@ export type ClientCommand =
   | { type: "close_room"; room: number }
   | { type: "rename_room"; room: number; name: string }
   | { type: "move_agent"; agentId: string; targetRoom: number }
-  | { type: "reorder_rooms"; order: number[] };
+  | { type: "reorder_rooms"; order: number[] }
+  | { type: "edit_message"; agentId: string; logEntryId: string; newText: string; username?: string };

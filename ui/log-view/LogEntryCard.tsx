@@ -1,8 +1,17 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import type { LogEntry, Attachment } from "../../shared/types.ts";
 import { Markdown } from "./Markdown.tsx";
 import { CopyButton } from "../components/CopyButton.tsx";
 import { SpeakButton } from "../components/SpeakButton.tsx";
+
+function EditIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M11.5 1.5L14.5 4.5L5 14H2V11L11.5 1.5Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M9.5 3.5L12.5 6.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
 
 /** Serialize entries for clipboard (text + tool_call only) */
 export function serializeEntries(entries: LogEntry[]): string {
@@ -154,16 +163,29 @@ export function LogEntryCard({
   isLastInTurn,
   turnEntries,
   isMobile,
+  canEdit,
+  isEditing,
+  onStartEdit,
+  onCancelEdit,
+  onSubmitEdit,
 }: {
   entry: LogEntry;
   isLastInTurn?: boolean;
   turnEntries?: LogEntry[];
   isMobile?: boolean;
+  canEdit?: boolean;
+  isEditing?: boolean;
+  onStartEdit?: (entryId: string) => void;
+  onCancelEdit?: () => void;
+  onSubmitEdit?: (entryId: string, newText: string) => void;
 }) {
   switch (entry.kind) {
     case "user_message": {
       const username = entry.metadata?.username as string | undefined;
-      return <UserMessage content={entry.content} isMobile={isMobile} username={username} attachments={entry.attachments} agentId={entry.agentId} />;
+      if (isEditing) {
+        return <EditableUserMessage content={entry.content} entryId={entry.id} isMobile={isMobile} username={username} onCancel={onCancelEdit} onSubmit={onSubmitEdit} />;
+      }
+      return <UserMessage content={entry.content} isMobile={isMobile} username={username} attachments={entry.attachments} agentId={entry.agentId} canEdit={canEdit} onEdit={onStartEdit ? () => onStartEdit(entry.id) : undefined} />;
     }
     case "text":
       return (
@@ -242,7 +264,7 @@ function TurnCopyButton({ turnEntries }: { turnEntries?: LogEntry[] }) {
   );
 }
 
-function UserMessage({ content, isMobile, username, attachments, agentId }: { content: string; isMobile?: boolean; username?: string; attachments?: Attachment[]; agentId?: string }) {
+function UserMessage({ content, isMobile, username, attachments, agentId, canEdit, onEdit }: { content: string; isMobile?: boolean; username?: string; attachments?: Attachment[]; agentId?: string; canEdit?: boolean; onEdit?: () => void }) {
   const getText = useCallback(() => content, [content]);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   return (
@@ -259,8 +281,107 @@ function UserMessage({ content, isMobile, username, attachments, agentId }: { co
           hasContent={!!content}
         />
       )}
-      <div style={{ position: "absolute", top: 8, right: 8 }}>
+      <div style={{ position: "absolute", top: 8, right: 8, display: "flex", gap: 4 }}>
+        {canEdit && onEdit && (
+          <button
+            onClick={onEdit}
+            title="Edit & branch"
+            style={{
+              background: "transparent", border: "none", cursor: "pointer",
+              color: "var(--text-ghost)", padding: 2, borderRadius: 4,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              transition: "color 0.15s",
+            }}
+            onMouseEnter={e => (e.currentTarget.style.color = "var(--accent)")}
+            onMouseLeave={e => (e.currentTarget.style.color = "var(--text-ghost)")}
+          >
+            <EditIcon />
+          </button>
+        )}
         <CopyButton getText={getText} />
+      </div>
+    </div>
+  );
+}
+
+function EditableUserMessage({ content, entryId, isMobile, username, onCancel, onSubmit }: {
+  content: string;
+  entryId: string;
+  isMobile?: boolean;
+  username?: string;
+  onCancel?: () => void;
+  onSubmit?: (entryId: string, newText: string) => void;
+}) {
+  const [text, setText] = useState(content);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.focus();
+      textareaRef.current.style.height = "auto";
+      textareaRef.current.style.height = textareaRef.current.scrollHeight + "px";
+    }
+  }, []);
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      if (text.trim()) onSubmit?.(entryId, text.trim());
+    }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      onCancel?.();
+    }
+  }
+
+  return (
+    <div style={{
+      margin: "12px 0", padding: "10px 14px", borderRadius: 10,
+      background: "var(--user-msg-bg)", borderLeft: "3px solid var(--accent)",
+      position: "relative",
+    }}>
+      <div style={{ fontSize: isMobile ? 12 : 10, fontWeight: 600, color: "var(--accent)", marginBottom: 4, fontFamily: "'DM Sans',sans-serif", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+        {(username ?? "You").toUpperCase()}
+      </div>
+      <textarea
+        ref={textareaRef}
+        value={text}
+        onChange={e => {
+          setText(e.target.value);
+          e.target.style.height = "auto";
+          e.target.style.height = e.target.scrollHeight + "px";
+        }}
+        onKeyDown={handleKeyDown}
+        style={{
+          width: "100%", resize: "none", border: "1px solid var(--accent)",
+          borderRadius: 6, padding: "8px 10px", fontSize: isMobile ? 15 : 13,
+          fontFamily: "'JetBrains Mono',monospace", lineHeight: 1.6,
+          background: "var(--bg-base)", color: "var(--text-secondary)",
+          outline: "none", minHeight: 40, boxSizing: "border-box",
+        }}
+      />
+      <div style={{ display: "flex", gap: 8, marginTop: 8, justifyContent: "flex-end" }}>
+        <button
+          onClick={onCancel}
+          style={{
+            padding: "4px 14px", borderRadius: 6, border: "1px solid var(--border-medium)",
+            background: "transparent", color: "var(--text-muted)",
+            fontSize: isMobile ? 14 : 12, fontFamily: "'DM Sans',sans-serif", cursor: "pointer",
+          }}
+        >
+          Cancel
+        </button>
+        <button
+          onClick={() => text.trim() && onSubmit?.(entryId, text.trim())}
+          style={{
+            padding: "4px 14px", borderRadius: 6, border: "none",
+            background: "var(--accent)", color: "#fff",
+            fontSize: isMobile ? 14 : 12, fontFamily: "'DM Sans',sans-serif", cursor: "pointer",
+            fontWeight: 600,
+          }}
+        >
+          Send
+        </button>
       </div>
     </div>
   );
