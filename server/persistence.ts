@@ -137,28 +137,41 @@ export interface PersistedAgent {
   customInstructions: string | null;
 }
 
-export function loadAgents(): PersistedAgent[][] {
+export interface PersistedRoom {
+  name: string;
+  agents: PersistedAgent[];
+}
+
+export function loadAgents(): PersistedRoom[] {
   try {
-    if (!existsSync(AGENTS_FILE)) return [[]];
+    if (!existsSync(AGENTS_FILE)) return [{ name: "Room 1", agents: [] }];
     const content = readFileSync(AGENTS_FILE, "utf-8");
     const parsed = JSON.parse(content);
-    // Migration: detect flat array (array of objects) vs nested (array of arrays)
-    if (Array.isArray(parsed) && parsed.length > 0 && !Array.isArray(parsed[0])) {
-      // Flat format — wrap in single room
-      return [parsed as PersistedAgent[]];
+    if (!Array.isArray(parsed) || parsed.length === 0) return [{ name: "Room 1", agents: [] }];
+
+    const first = parsed[0];
+
+    // Format 3: PersistedRoom[] — has name+agents properties
+    if (first && typeof first === "object" && "name" in first && "agents" in first) {
+      return parsed as PersistedRoom[];
     }
-    if (Array.isArray(parsed)) {
-      // Already nested — ensure at least one room
-      const rooms = parsed as PersistedAgent[][];
-      return rooms.length > 0 ? rooms : [[]];
+
+    // Format 2: PersistedAgent[][] — nested arrays
+    if (Array.isArray(first)) {
+      return (parsed as PersistedAgent[][]).map((agents, i) => ({
+        name: `Room ${i + 1}`,
+        agents,
+      }));
     }
-    return [[]];
+
+    // Format 1: PersistedAgent[] — flat array (oldest)
+    return [{ name: "Room 1", agents: parsed as PersistedAgent[] }];
   } catch {
-    return [[]];
+    return [{ name: "Room 1", agents: [] }];
   }
 }
 
-export function saveAgents(rooms: PersistedAgent[][]) {
+export function saveAgents(rooms: PersistedRoom[]) {
   try {
     writeFileSync(AGENTS_FILE, JSON.stringify(rooms, null, 2));
   } catch (err) {
@@ -169,13 +182,14 @@ export function saveAgents(rooms: PersistedAgent[][]) {
 // Agent manifest for discovery by other agents
 const MANIFEST_FILE = join(ISOMUX_DIR, "agents-summary.json");
 
-export function writeManifest(agents: { id: string; name: string; desk: number; room: number; topic: string | null; cwd: string; model: ClaudeModel }[]) {
+export function writeManifest(agents: { id: string; name: string; desk: number; room: number; roomName: string; topic: string | null; cwd: string; model: ClaudeModel }[]) {
   try {
     const manifest = agents.map((a) => ({
       id: a.id,
       name: a.name,
       desk: a.desk,
       room: a.room + 1, // 1-based for human readability
+      roomName: a.roomName,
       topic: a.topic,
       cwd: a.cwd,
       model: a.model,

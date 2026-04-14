@@ -115,7 +115,7 @@ export interface SkillInfo {
 
 // Server → Browser messages
 export type ServerMessage =
-  | { type: "full_state"; agents: AgentInfo[]; recentCwds: string[]; roomCount: number }
+  | { type: "full_state"; agents: AgentInfo[]; recentCwds: string[]; roomCount: number; roomNames: string[] }
   | { type: "agent_added"; agent: AgentInfo }
   | { type: "agent_removed"; agentId: string }
   | { type: "agent_updated"; agentId: string; changes: Partial<AgentInfo> }
@@ -127,8 +127,9 @@ export type ServerMessage =
   | { type: "terminal_exit"; agentId: string; exitCode: number }
   | { type: "office_prompt"; text: string }
   | { type: "tasks"; tasks: TaskItem[] }
-  | { type: "room_created"; roomCount: number }
+  | { type: "room_created"; roomCount: number; roomName: string }
   | { type: "room_closed"; room: number; roomCount: number }
+  | { type: "room_renamed"; room: number; name: string }
   | { type: "update_status"; updateAvailable: boolean; current: { sha: string; message: string; date: string }; latest: { sha: string; message: string; date: string } };
 
 // Browser → Server commands
@@ -152,6 +153,7 @@ export type ClientCommand =
   | { type: "add_task"; title: string; description?: string; priority?: TaskPriority; assignee?: string; username: string }
   | { type: "update_task"; id: string; changes: Partial<Pick<TaskItem, "title" | "description" | "priority" | "status" | "assignee">> }
   | { type: "delete_task"; id: string }
-  | { type: "create_room" }
+  | { type: "create_room"; name?: string }
   | { type: "close_room"; room: number }
+  | { type: "rename_room"; room: number; name: string }
   | { type: "move_agent"; agentId: string; targetRoom: number };

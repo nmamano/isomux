@@ -41,7 +41,7 @@ function DoorDropZone({ side, onDrop, onDragOverChange, onClick }: { side: "left
 }
 
 export function OfficeView({ onSpawn, onContextMenu, username, onEditUsername, onEditOfficePrompt, onOpenTasks, onOpenUpdate, onSwipeLeft, onSwipeRight }: { onSpawn: (deskIndex: number) => void; onContextMenu: (x: number, y: number, agent: AgentInfo) => void; username: string; onEditUsername: () => void; onEditOfficePrompt: () => void; onOpenTasks: () => void; onOpenUpdate: () => void; onSwipeLeft?: () => void; onSwipeRight?: () => void }) {
-  const { agents, needsAttention, stateChangedAt, officePrompt, tasks, currentRoom, roomCount, isMobile, updateAvailable } = useAppState();
+  const { agents, needsAttention, stateChangedAt, officePrompt, tasks, currentRoom, roomCount, roomNames, isMobile, updateAvailable } = useAppState();
   const dispatch = useDispatch();
   const { theme, toggleTheme } = useTheme();
   const { embed } = useFeatures();
@@ -242,8 +242,8 @@ export function OfficeView({ onSpawn, onContextMenu, username, onEditUsername, o
             hasOfficePrompt={!!officePrompt}
             onOpenTasks={onOpenTasks}
             taskCount={tasks.filter(t => t.status !== "done").length}
-            leftDoor={currentRoom > 0 ? { label: `Room ${currentRoom}`, onClick: () => dispatch({ type: "set_current_room", room: currentRoom - 1 }), dragOver: leftDoorDragOver, reject: leftDoorReject } : null}
-            rightDoor={currentRoom < roomCount - 1 ? { label: `Room ${currentRoom + 2}`, onClick: () => dispatch({ type: "set_current_room", room: currentRoom + 1 }), dragOver: rightDoorDragOver, reject: rightDoorReject } : null}
+            leftDoor={currentRoom > 0 ? { label: roomNames[currentRoom - 1] ?? `Room ${currentRoom}`, onClick: () => dispatch({ type: "set_current_room", room: currentRoom - 1 }), dragOver: leftDoorDragOver, reject: leftDoorReject } : null}
+            rightDoor={currentRoom < roomCount - 1 ? { label: roomNames[currentRoom + 1] ?? `Room ${currentRoom + 2}`, onClick: () => dispatch({ type: "set_current_room", room: currentRoom + 1 }), dragOver: rightDoorDragOver, reject: rightDoorReject } : null}
           />
           <Floor />
           <RoomProps />

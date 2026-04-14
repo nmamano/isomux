@@ -210,7 +210,10 @@ function emitEvents(events: OfficeEvent[]) {
         shimEmit({ type: "agent_updated", agentId: event.agentId, changes: event.changes });
         break;
       case "room_created":
-        shimEmit({ type: "room_created", roomCount: event.roomCount });
+        shimEmit({ type: "room_created", roomCount: event.roomCount, roomName: event.roomName });
+        break;
+      case "room_renamed":
+        shimEmit({ type: "room_renamed", room: event.room, name: event.name });
         break;
       case "room_closed":
         shimEmit({ type: "room_closed", room: event.room, roomCount: event.roomCount });
@@ -273,11 +276,15 @@ export function handleCommand(cmd: ClientCommand) {
       break;
     }
     case "create_room": {
-      emitEvents(state.createRoom());
+      emitEvents(state.createRoom(cmd.name));
       break;
     }
     case "close_room": {
       emitEvents(state.closeRoom(cmd.room));
+      break;
+    }
+    case "rename_room": {
+      emitEvents(state.renameRoom(cmd.room, cmd.name));
       break;
     }
     case "move_agent": {
@@ -352,7 +359,7 @@ export function handleCommand(cmd: ClientCommand) {
 export function sendInitialState() {
   ensureSeeded();
   const s = state.getState();
-  shimEmit({ type: "full_state", agents: s.agents, recentCwds: s.recentCwds, roomCount: s.roomCount });
+  shimEmit({ type: "full_state", agents: s.agents, recentCwds: s.recentCwds, roomCount: s.roomCount, roomNames: s.roomNames });
   shimEmit({ type: "office_prompt", text: s.officePrompt });
   shimEmit({ type: "tasks", tasks: s.tasks });
   seedLogs();

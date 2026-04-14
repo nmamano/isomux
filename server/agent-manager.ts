@@ -9,7 +9,7 @@ import type { ContentBlockParam } from "@anthropic-ai/sdk/resources/messages/mes
 import type { AgentInfo, AgentOutfit, AgentState, Attachment, ClaudeModel, LogEntry, SkillInfo, SkillOrigin } from "../shared/types.ts";
 import { CLAUDE_MODELS } from "../shared/types.ts";
 import { generateOutfit } from "./outfit.ts";
-import { appendLog, loadLog, loadAgents, saveAgents, listAgentSessions, writeManifest, persistSessionTopic, loadOfficePrompt, saveOfficePrompt, saveFile, getFilePath, type PersistedAgent } from "./persistence.ts";
+import { appendLog, loadLog, loadAgents, saveAgents, listAgentSessions, writeManifest, persistSessionTopic, loadOfficePrompt, saveOfficePrompt, saveFile, getFilePath, type PersistedAgent, type PersistedRoom } from "./persistence.ts";
 import { createSafetyHooks } from "./safety-hooks.ts";
 import { commands, autocompleteCommands, unsupportedMessage, type CommandConfig } from "./commands.ts";
 import { resolve, join } from "path";
@@ -251,8 +251,9 @@ type AgentEvent =
   | { type: "agent_removed"; agentId: string }
   | { type: "agent_updated"; agentId: string; changes: Partial<AgentInfo> }
   | { type: "log_entry"; entry: LogEntry }
-  | { type: "room_created"; roomCount: number }
-  | { type: "room_closed"; room: number; roomCount: number };
+  | { type: "room_created"; roomCount: number; roomName: string }
+  | { type: "room_closed"; room: number; roomCount: number }
+  | { type: "room_renamed"; room: number; name: string };
 
 type EventHandler = (event: AgentEvent) => void;
 
@@ -261,9 +262,14 @@ const logCache = new Map<string, LogEntry[]>(); // agentId → entries
 let eventHandler: EventHandler = () => {};
 let officePrompt: string = loadOfficePrompt();
 let roomCount: number = 1; // number of rooms (at least 1)
+let roomNames: string[] = ["Room 1"];
 
 export function getRoomCount(): number {
   return roomCount;
+}
+
+export function getRoomNames(): string[] {
+  return [...roomNames];
 }
 
 export function getOfficePrompt(): string {
@@ -369,10 +375,11 @@ export function swapDesks(deskA: number, deskB: number, room: number) {
   persistAll();
 }
 
-export function createRoom(): number {
+export function createRoom(name?: string): number {
   roomCount++;
+  roomNames.push((name || `Room ${roomCount}`).trim().slice(0, 40));
   persistAll();
-  eventHandler({ type: "room_created", roomCount });
+  eventHandler({ type: "room_created", roomCount, roomName: roomNames[roomCount - 1] });
   return roomCount;
 }
 
@@ -384,6 +391,7 @@ export function closeRoom(room: number): boolean {
   if (roomAgents.length > 0) return false;
 
   roomCount--;
+  roomNames.splice(room, 1);
   // Renumber agents in higher rooms
   for (const managed of agents.values()) {
     if (managed.info.room > room) {
@@ -393,6 +401,16 @@ export function closeRoom(room: number): boolean {
   }
   persistAll();
   eventHandler({ type: "room_closed", room, roomCount });
+  return true;
+}
+
+export function renameRoom(room: number, name: string): boolean {
+  if (room < 0 || room >= roomCount) return false;
+  const trimmed = name.trim().slice(0, 40);
+  if (!trimmed) return false;
+  roomNames[room] = trimmed;
+  persistAll();
+  eventHandler({ type: "room_renamed", room, name: trimmed });
   return true;
 }
 
@@ -429,6 +447,7 @@ function updateManifest() {
     name: a.info.name,
     desk: a.info.desk,
     room: a.info.room,
+    roomName: roomNames[a.info.room] ?? `Room ${a.info.room + 1}`,
     topic: a.info.topic,
     cwd: a.info.cwd,
     model: a.info.model,
@@ -436,12 +455,14 @@ function updateManifest() {
 }
 
 function persistAll() {
-  // Build nested array: rooms[roomIndex] = agents in that room
-  const rooms: PersistedAgent[][] = Array.from({ length: roomCount }, () => []);
+  const rooms: PersistedRoom[] = Array.from({ length: roomCount }, (_, i) => ({
+    name: roomNames[i] ?? `Room ${i + 1}`,
+    agents: [] as PersistedAgent[],
+  }));
   for (const a of agents.values()) {
     const room = a.info.room;
     if (room >= 0 && room < roomCount) {
-      rooms[room].push({
+      rooms[room].agents.push({
         id: a.info.id,
         name: a.info.name,
         desk: a.info.desk,
@@ -467,9 +488,10 @@ export async function restoreAgents() {
 
   const rooms = loadAgents();
   roomCount = rooms.length;
+  roomNames = rooms.map(r => r.name);
 
   for (let roomIdx = 0; roomIdx < rooms.length; roomIdx++) {
-    for (const p of rooms[roomIdx]) {
+    for (const p of rooms[roomIdx].agents) {
       const launcherPath = createLauncher(p.id, p.cwd, p.name, officePrompt, p.customInstructions);
       const info: AgentInfo = {
         id: p.id,

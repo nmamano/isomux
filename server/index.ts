@@ -130,10 +130,13 @@ async function handleCommand(cmd: ClientCommand) {
       break;
     }
     case "create_room":
-      AgentManager.createRoom();
+      AgentManager.createRoom(cmd.name);
       break;
     case "close_room":
       AgentManager.closeRoom(cmd.room);
+      break;
+    case "rename_room":
+      AgentManager.renameRoom(cmd.room, cmd.name);
       break;
     case "move_agent":
       AgentManager.moveAgent(cmd.agentId, cmd.targetRoom);
@@ -386,7 +389,7 @@ const server = Bun.serve({
       // Send current agent list
       const agents = AgentManager.getAllAgents();
       const recentCwds = loadRecentCwds();
-      ws.send(JSON.stringify({ type: "full_state", agents, recentCwds, roomCount: AgentManager.getRoomCount() } as ServerMessage));
+      ws.send(JSON.stringify({ type: "full_state", agents, recentCwds, roomCount: AgentManager.getRoomCount(), roomNames: AgentManager.getRoomNames() } as ServerMessage));
       // Send office prompt
       ws.send(JSON.stringify({ type: "office_prompt", text: AgentManager.getOfficePrompt() } as ServerMessage));
       // Send tasks

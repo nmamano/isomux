@@ -21,13 +21,14 @@ export interface AppState {
   tasks: TaskItem[];
   currentRoom: number; // 0-based room index
   roomCount: number; // total number of rooms
+  roomNames: string[]; // display name per room
   updateAvailable: boolean;
   updateCurrent: { sha: string; message: string; date: string };
   updateLatest: { sha: string; message: string; date: string };
 }
 
 type Action =
-  | { type: "full_state"; agents: AgentInfo[]; recentCwds: string[]; roomCount: number }
+  | { type: "full_state"; agents: AgentInfo[]; recentCwds: string[]; roomCount: number; roomNames: string[] }
   | { type: "agent_added"; agent: AgentInfo }
   | { type: "agent_removed"; agentId: string }
   | { type: "agent_updated"; agentId: string; changes: Partial<AgentInfo> }
@@ -43,8 +44,9 @@ type Action =
   | { type: "office_prompt"; text: string }
   | { type: "tasks"; tasks: TaskItem[] }
   | { type: "set_current_room"; room: number }
-  | { type: "room_created"; roomCount: number }
+  | { type: "room_created"; roomCount: number; roomName: string }
   | { type: "room_closed"; room: number; roomCount: number }
+  | { type: "room_renamed"; room: number; name: string }
   | { type: "update_status"; updateAvailable: boolean; current: { sha: string; message: string; date: string }; latest: { sha: string; message: string; date: string } };
 
 // States that warrant attention
@@ -58,6 +60,7 @@ function reducer(state: AppState, action: Action): AppState {
         agents: action.agents,
         recentCwds: action.recentCwds,
         roomCount: action.roomCount,
+        roomNames: action.roomNames,
         currentRoom: Math.min(state.currentRoom, action.roomCount - 1),
         logs: new Map(),
         needsAttention: new Set(),
@@ -159,17 +162,24 @@ function reducer(state: AppState, action: Action): AppState {
     case "set_current_room":
       return { ...state, currentRoom: action.room };
     case "room_created":
-      return { ...state, roomCount: action.roomCount };
+      return { ...state, roomCount: action.roomCount, roomNames: [...state.roomNames, action.roomName] };
     case "update_status":
       return { ...state, updateAvailable: action.updateAvailable, updateCurrent: action.current, updateLatest: action.latest };
     case "room_closed": {
       let currentRoom = state.currentRoom;
       if (currentRoom === action.room) {
-        currentRoom = 0; // Fall back to room 0
+        currentRoom = 0;
       } else if (currentRoom > action.room) {
-        currentRoom--; // Adjust for renumbering
+        currentRoom--;
       }
-      return { ...state, roomCount: action.roomCount, currentRoom };
+      const closedNames = [...state.roomNames];
+      closedNames.splice(action.room, 1);
+      return { ...state, roomCount: action.roomCount, roomNames: closedNames, currentRoom };
+    }
+    case "room_renamed": {
+      const renamedNames = [...state.roomNames];
+      renamedNames[action.room] = action.name;
+      return { ...state, roomNames: renamedNames };
     }
     default:
       return state;
@@ -194,6 +204,7 @@ const initialState: AppState = {
   tasks: [],
   currentRoom: 0,
   roomCount: 1,
+  roomNames: ["Room 1"],
   updateAvailable: false,
   updateCurrent: { sha: "", message: "", date: "" },
   updateLatest: { sha: "", message: "", date: "" },

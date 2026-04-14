@@ -30,7 +30,7 @@ export function AgentListView({
   onSwipeLeft?: () => void;
   onSwipeRight?: () => void;
 }) {
-  const { agents, currentRoom, roomCount, updateAvailable } = useAppState();
+  const { agents, currentRoom, roomCount, roomNames, updateAvailable } = useAppState();
   const roomAgents = agents.filter((a) => a.room === currentRoom);
   const swipeRef = useSwipeLeftRight(onSwipeLeft ?? (() => {}), onSwipeRight ?? (() => {}), true);
 
@@ -80,7 +80,7 @@ export function AgentListView({
             }}
           >
             <span style={{ fontSize: 15, color: "var(--text-muted)" }}>
-              {roomCount > 1 ? `Room ${currentRoom + 1} is empty` : "No agents yet"}
+              {roomCount > 1 ? `${roomNames[currentRoom] ?? `Room ${currentRoom + 1}`} is empty` : "No agents yet"}
             </span>
             <span style={{ fontSize: 13, color: "var(--text-faint)" }}>
               Tap + to spawn one

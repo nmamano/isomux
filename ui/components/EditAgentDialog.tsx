@@ -65,7 +65,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   const isSpawn = !props.agent;
   const agent = props.agent;
 
-  const { recentCwds: allRecentCwds, isMobile, agents, roomCount } = useAppState();
+  const { recentCwds: allRecentCwds, isMobile, agents, roomCount, roomNames } = useAppState();
   const [name, setName] = useState(agent?.name ?? "");
   const [cwd, setCwd] = useState(agent?.cwd ?? props.defaultCwd ?? "~");
   const [outfit, setOutfit] = useState<AgentOutfit>(agent ? { ...agent.outfit } : makeRandomOutfit);
@@ -137,7 +137,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         <p style={{ fontSize: 12, color: "var(--text-faint)", margin: "2px 0 18px" }}>
           {isSpawn
             ? `Desk #${props.deskIndex! + 1}`
-            : `${roomCount > 1 ? `Room ${agent!.room + 1}, ` : ""}Desk #${agent!.desk + 1}`}
+            : `${roomCount > 1 ? `${roomNames[agent!.room] ?? `Room ${agent!.room + 1}`}, ` : ""}Desk #${agent!.desk + 1}`}
         </p>
 
         <label style={labelStyle}>Name</label>
@@ -354,7 +354,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       opacity: isFull ? 0.5 : 1,
                     }}
                   >
-                    Room {i + 1} ({roomAgentCount}/8)
+                    {roomNames[i] ?? `Room ${i + 1}`} ({roomAgentCount}/8)
                   </button>
                 );
               })}

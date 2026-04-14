@@ -7,8 +7,9 @@ export type OfficeEvent =
   | { type: "agent_added"; agent: AgentInfo }
   | { type: "agent_removed"; agentId: string }
   | { type: "agent_updated"; agentId: string; changes: Partial<AgentInfo> }
-  | { type: "room_created"; roomCount: number }
+  | { type: "room_created"; roomCount: number; roomName: string }
   | { type: "room_closed"; room: number; roomCount: number }
+  | { type: "room_renamed"; room: number; name: string }
   | { type: "office_prompt_set"; value: string }
   | { type: "tasks_changed"; tasks: TaskItem[] };
 
@@ -31,6 +32,7 @@ function generateOutfit(): AgentOutfit {
 export interface OfficeStateData {
   agents: AgentInfo[];
   roomCount: number;
+  roomNames: string[];
   officePrompt: string;
   tasks: TaskItem[];
   recentCwds: string[];
@@ -39,11 +41,13 @@ export interface OfficeStateData {
 export class OfficeState {
   private agents = new Map<string, AgentInfo>();
   private _roomCount = 1;
+  private _roomNames: string[] = ["Room 1"];
   private _officePrompt = "";
   private _tasks: TaskItem[] = [];
   private _recentCwds: string[] = [];
 
   get roomCount() { return this._roomCount; }
+  get roomNames() { return this._roomNames; }
   get officePrompt() { return this._officePrompt; }
   get tasks() { return this._tasks; }
   get recentCwds() { return this._recentCwds; }
@@ -52,6 +56,7 @@ export class OfficeState {
     return {
       agents: [...this.agents.values()],
       roomCount: this._roomCount,
+      roomNames: [...this._roomNames],
       officePrompt: this._officePrompt,
       tasks: [...this._tasks],
       recentCwds: [...this._recentCwds],
@@ -74,6 +79,10 @@ export class OfficeState {
 
   setRoomCount(count: number) {
     this._roomCount = Math.max(1, count);
+  }
+
+  setRoomNames(names: string[]) {
+    this._roomNames = names;
   }
 
   setOfficePromptDirect(text: string) {
@@ -212,9 +221,11 @@ export class OfficeState {
     return events;
   }
 
-  createRoom(): OfficeEvent[] {
+  createRoom(name?: string): OfficeEvent[] {
     this._roomCount++;
-    return [{ type: "room_created", roomCount: this._roomCount }];
+    const roomName = name || `Room ${this._roomCount}`;
+    this._roomNames.push(roomName);
+    return [{ type: "room_created", roomCount: this._roomCount, roomName }];
   }
 
   closeRoom(room: number): OfficeEvent[] {
@@ -224,6 +235,7 @@ export class OfficeState {
     if (roomAgents.length > 0) return [];
 
     this._roomCount--;
+    this._roomNames.splice(room, 1);
     const events: OfficeEvent[] = [];
     for (const agent of this.agents.values()) {
       if (agent.room > room) {
@@ -233,6 +245,14 @@ export class OfficeState {
     }
     events.push({ type: "room_closed", room, roomCount: this._roomCount });
     return events;
+  }
+
+  renameRoom(room: number, name: string): OfficeEvent[] {
+    if (room < 0 || room >= this._roomCount) return [];
+    const trimmed = name.trim().slice(0, 40);
+    if (!trimmed) return [];
+    this._roomNames[room] = trimmed;
+    return [{ type: "room_renamed", room, name: trimmed }];
   }
 
   moveAgent(agentId: string, targetRoom: number): OfficeEvent[] {
