@@ -87,6 +87,7 @@ For persistent server setup (systemd + Tailscale) and voice input configuration,
 - **File attachments**: agents understand images and PDFs. Upload them via button, drag-and-drop, or paste
 - **Image display**: agents can show images inline in the conversation
 - **Embedded terminal** for direct shell access per agent
+- **Conversation branching** — edit a past message to fork the conversation from that point, preserving the original
 - **Right-click context menu** — resume past sessions, edit agent, kill
 
 ### Keyboard Shortcuts
