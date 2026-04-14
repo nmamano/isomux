@@ -130,6 +130,7 @@ export type ServerMessage =
   | { type: "room_created"; roomCount: number; roomName: string }
   | { type: "room_closed"; room: number; roomCount: number }
   | { type: "room_renamed"; room: number; name: string }
+  | { type: "rooms_reordered"; order: number[] }
   | { type: "update_status"; updateAvailable: boolean; current: { sha: string; message: string; date: string }; latest: { sha: string; message: string; date: string } };
 
 // Browser → Server commands
@@ -156,4 +157,5 @@ export type ClientCommand =
   | { type: "create_room"; name?: string }
   | { type: "close_room"; room: number }
   | { type: "rename_room"; room: number; name: string }
-  | { type: "move_agent"; agentId: string; targetRoom: number };
+  | { type: "move_agent"; agentId: string; targetRoom: number }
+  | { type: "reorder_rooms"; order: number[] };

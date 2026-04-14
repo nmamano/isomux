@@ -141,6 +141,9 @@ async function handleCommand(cmd: ClientCommand) {
     case "move_agent":
       AgentManager.moveAgent(cmd.agentId, cmd.targetRoom);
       break;
+    case "reorder_rooms":
+      AgentManager.reorderRooms(cmd.order);
+      break;
   }
 }
 

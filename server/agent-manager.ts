@@ -253,7 +253,8 @@ type AgentEvent =
   | { type: "log_entry"; entry: LogEntry }
   | { type: "room_created"; roomCount: number; roomName: string }
   | { type: "room_closed"; room: number; roomCount: number }
-  | { type: "room_renamed"; room: number; name: string };
+  | { type: "room_renamed"; room: number; name: string }
+  | { type: "rooms_reordered"; order: number[] };
 
 type EventHandler = (event: AgentEvent) => void;
 
@@ -411,6 +412,42 @@ export function renameRoom(room: number, name: string): boolean {
   roomNames[room] = trimmed;
   persistAll();
   eventHandler({ type: "room_renamed", room, name: trimmed });
+  return true;
+}
+
+export function reorderRooms(order: number[]): boolean {
+  // Validate: must be a valid permutation of [0..roomCount-1]
+  if (order.length !== roomCount) return false;
+  const seen = new Set<number>();
+  for (const idx of order) {
+    if (typeof idx !== "number" || idx < 0 || idx >= roomCount || seen.has(idx)) return false;
+    seen.add(idx);
+  }
+  // Check if it's a no-op
+  if (order.every((v, i) => v === i)) return false;
+
+  // Build reverse mapping: reverseMap[oldIndex] = newIndex
+  const reverseMap = new Array<number>(roomCount);
+  for (let newIdx = 0; newIdx < order.length; newIdx++) {
+    reverseMap[order[newIdx]] = newIdx;
+  }
+
+  // Reorder roomNames
+  const newNames = order.map((oldIdx) => roomNames[oldIdx]);
+  roomNames.length = 0;
+  roomNames.push(...newNames);
+
+  // Remap every agent's room field
+  for (const managed of agents.values()) {
+    const newRoom = reverseMap[managed.info.room];
+    if (newRoom !== managed.info.room) {
+      managed.info.room = newRoom;
+      eventHandler({ type: "agent_updated", agentId: managed.info.id, changes: { room: newRoom } });
+    }
+  }
+
+  persistAll();
+  eventHandler({ type: "rooms_reordered", order });
   return true;
 }
 

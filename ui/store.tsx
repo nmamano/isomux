@@ -47,6 +47,7 @@ type Action =
   | { type: "room_created"; roomCount: number; roomName: string }
   | { type: "room_closed"; room: number; roomCount: number }
   | { type: "room_renamed"; room: number; name: string }
+  | { type: "rooms_reordered"; order: number[] }
   | { type: "update_status"; updateAvailable: boolean; current: { sha: string; message: string; date: string }; latest: { sha: string; message: string; date: string } };
 
 // States that warrant attention
@@ -180,6 +181,16 @@ function reducer(state: AppState, action: Action): AppState {
       const renamedNames = [...state.roomNames];
       renamedNames[action.room] = action.name;
       return { ...state, roomNames: renamedNames };
+    }
+    case "rooms_reordered": {
+      // order[newIdx] = oldIdx — build reverse map to remap currentRoom
+      const reverseMap = new Array<number>(action.order.length);
+      for (let newIdx = 0; newIdx < action.order.length; newIdx++) {
+        reverseMap[action.order[newIdx]] = newIdx;
+      }
+      const newNames = action.order.map((oldIdx) => state.roomNames[oldIdx]);
+      // Agent room fields are updated via agent_updated messages from server
+      return { ...state, roomNames: newNames, currentRoom: reverseMap[state.currentRoom] ?? 0 };
     }
     default:
       return state;

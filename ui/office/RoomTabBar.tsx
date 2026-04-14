@@ -8,6 +8,8 @@ export function RoomTabBar() {
   const [editingRoom, setEditingRoom] = useState<number | null>(null);
   const [editValue, setEditValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
+  const [dragOver, setDragOver] = useState<number | null>(null);
 
   // Focus input when editing starts — must be before any early returns (rules of hooks)
   useEffect(() => {
@@ -39,6 +41,41 @@ export function RoomTabBar() {
     setEditingRoom(null);
   }
 
+  function handleDragStart(e: React.DragEvent, i: number) {
+    setDragFrom(i);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", String(i));
+  }
+
+  function handleDragOver(e: React.DragEvent, i: number) {
+    if (dragFrom === null || dragFrom === i) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setDragOver(i);
+  }
+
+  function handleDragLeave() {
+    setDragOver(null);
+  }
+
+  function handleDrop(e: React.DragEvent, dropIdx: number) {
+    e.preventDefault();
+    setDragOver(null);
+    if (dragFrom === null || dragFrom === dropIdx) { setDragFrom(null); return; }
+
+    // Build new order: remove dragFrom, insert at dropIdx
+    const order = Array.from({ length: roomCount }, (_, i) => i);
+    const [removed] = order.splice(dragFrom, 1);
+    order.splice(dropIdx, 0, removed);
+    send({ type: "reorder_rooms", order });
+    setDragFrom(null);
+  }
+
+  function handleDragEnd() {
+    setDragFrom(null);
+    setDragOver(null);
+  }
+
   return (
     <div
       className="hide-scrollbar"
@@ -63,15 +100,27 @@ export function RoomTabBar() {
         const hasAttention = roomAgents.some((a) => needsAttention.has(a.id));
         const isEmpty = roomAgents.length === 0;
         const displayName = roomNames[i] ?? `Room ${i + 1}`;
+        const isDragging = dragFrom === i;
+        const isDropTarget = dragOver === i;
 
         return (
           <div
             key={i}
+            draggable={editingRoom !== i && roomCount > 1}
+            onDragStart={(e) => handleDragStart(e, i)}
+            onDragOver={(e) => handleDragOver(e, i)}
+            onDragLeave={handleDragLeave}
+            onDrop={(e) => handleDrop(e, i)}
+            onDragEnd={handleDragEnd}
             style={{
               display: "flex",
               alignItems: "center",
               gap: 4,
               position: "relative",
+              opacity: isDragging ? 0.4 : 1,
+              borderLeft: isDropTarget && dragFrom !== null && dragFrom > i ? "2px solid var(--accent)" : "2px solid transparent",
+              borderRight: isDropTarget && dragFrom !== null && dragFrom < i ? "2px solid var(--accent)" : "2px solid transparent",
+              transition: "opacity 0.15s",
             }}
           >
             {editingRoom === i ? (
@@ -110,7 +159,7 @@ export function RoomTabBar() {
                   color: isActive ? "var(--accent)" : "var(--text-dim)",
                   fontSize: 11,
                   fontWeight: 600,
-                  cursor: "pointer",
+                  cursor: "grab",
                   fontFamily: "'JetBrains Mono',monospace",
                   letterSpacing: "0.02em",
                   outline: "none",
