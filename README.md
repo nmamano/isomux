@@ -10,7 +10,7 @@ See [isomux.com](https://isomux.com) for setup instructions and a live demo. Rea
 
 ## Feature Highlights
 
-- Manage multiple agents **with your existing Claude subscription** (a visual alternative to tmux)
+- **Works with your Claude subscription**: if `claude` works in your terminal, isomux works in your browser
 - Visual office metaphor: see what every agent is doing at a glance
   - **Animated characters**: sleeping when idle, typing when working, waving when waiting for you
   - [**Skeuomorphic touches**](https://x.com/Nil053/status/2039027360117506399): click the moon to toggle dark mode, click doors to switch rooms, etc.
