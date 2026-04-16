@@ -6,6 +6,7 @@
  *   1. Git safety — block destructive git commands (checkout --, reset --hard, etc.)
  *   2. Filesystem safety — block rm -rf and similar
  *   3. Isomux config protection — block all writes to ~/.isomux/
+ *   4. Secrets protection — block reads of .env, private keys, credentials, etc.
  *
  * Read operations on ~/.isomux/ are always allowed (agents need discovery/logs).
  */
@@ -18,7 +19,7 @@ import type {
   PreToolUseHookInput,
 } from "@anthropic-ai/claude-agent-sdk";
 import { homedir } from "os";
-import { resolve } from "path";
+import { basename, resolve } from "path";
 
 const ISOMUX_DIR = resolve(homedir(), ".isomux");
 
@@ -253,6 +254,62 @@ function commandWritesToIsomux(command: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// 4. Secrets protection — block reads of sensitive files
+// ---------------------------------------------------------------------------
+
+/** Exact basenames that are always sensitive */
+const SENSITIVE_EXACT: Set<string> = new Set([
+  ".env",
+  ".netrc",
+  ".pgpass",
+  ".my.cnf",
+  "credentials.json",
+  "service-account.json",
+  "service_account.json",
+]);
+
+/** Patterns matched against the basename */
+const SENSITIVE_PATTERNS: RegExp[] = [
+  /^\.env\./,                    // .env.local, .env.production, .env.development, etc.
+  /\.pem$/,                      // TLS/SSH private keys
+  /\.key$/,                      // private key files
+  /\.p12$/,                      // PKCS#12 keystores
+  /\.pfx$/,                      // PKCS#12 (Windows naming)
+  /\.jks$/,                      // Java keystores
+  /^id_rsa/,                     // SSH private keys (id_rsa, id_rsa.pub is harmless but block anyway)
+  /^id_ed25519/,                 // SSH ed25519 keys
+  /^id_ecdsa/,                   // SSH ECDSA keys
+  /^id_dsa/,                     // SSH DSA keys
+];
+
+/** Bash commands that read file contents */
+const FILE_READ_COMMANDS = [
+  "cat", "head", "tail", "less", "more", "bat", "batcat",
+  "strings", "xxd", "hexdump", "od", "base64",
+];
+
+/** Suffixes that indicate a template/example file, not real secrets */
+const SAFE_SUFFIXES = [".example", ".template", ".sample", ".dist"];
+
+function isSensitiveFile(filePath: string): boolean {
+  const name = basename(filePath);
+  // Allow .env.example, .env.template, etc.
+  if (SAFE_SUFFIXES.some(s => name.endsWith(s))) return false;
+  if (SENSITIVE_EXACT.has(name)) return true;
+  return SENSITIVE_PATTERNS.some(p => p.test(name));
+}
+
+function denySecretRead(target: string, tool: string): HookJSONOutput {
+  return deny(
+    `BLOCKED by isomux safety hooks\n\n` +
+    `Reason: "${basename(target)}" may contain secrets. Agents are not allowed ` +
+    `to read sensitive files (.env, private keys, credentials, etc.).\n\n` +
+    `${tool} target: ${target}\n\n` +
+    `If you need a value from this file, ask the user to provide it.`
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Hook callbacks
 // ---------------------------------------------------------------------------
 
@@ -272,6 +329,26 @@ const checkBashSafety: HookCallback = async (input) => {
       "Read operations (cat, ls, grep, etc.) are permitted.",
       command,
     );
+  }
+
+  // Check sensitive file reads via shell commands (cat .env, head key.pem, etc.)
+  const subCommands = normalized.split(/[|;&]+/).map(s => s.trim());
+  for (const sub of subCommands) {
+    const tokens = sub.split(/\s+/);
+    const cmd = tokens[0]?.replace(/^.*\//, "") ?? "";
+    if (!FILE_READ_COMMANDS.includes(cmd)) continue;
+    // Check all non-flag arguments as potential file paths
+    for (const arg of tokens.slice(1)) {
+      if (arg.startsWith("-")) continue;
+      if (isSensitiveFile(arg)) {
+        return denyMessage(
+          `"${basename(arg)}" may contain secrets. Agents are not allowed ` +
+          `to read sensitive files (.env, private keys, credentials, etc.). ` +
+          `If you need a value from this file, ask the user to provide it.`,
+          command,
+        );
+      }
+    }
   }
 
   // Check safe patterns first (allowlist)
@@ -314,6 +391,18 @@ const checkWriteEditSafety: HookCallback = async (input) => {
   return allow();
 };
 
+const checkSensitiveFileRead: HookCallback = async (input) => {
+  const { tool_name, tool_input } = input as PreToolUseHookInput;
+  const filePath = (tool_input as { file_path?: string })?.file_path;
+  if (typeof filePath !== "string" || !filePath) return allow();
+
+  if (isSensitiveFile(filePath)) {
+    return denySecretRead(filePath, tool_name);
+  }
+
+  return allow();
+};
+
 // ---------------------------------------------------------------------------
 // Export — wire into SDKSessionOptions.hooks
 // ---------------------------------------------------------------------------
@@ -322,6 +411,7 @@ export function createSafetyHooks(): Partial<Record<HookEvent, HookCallbackMatch
   return {
     PreToolUse: [
       { matcher: "Bash", hooks: [checkBashSafety] },
+      { matcher: "Read", hooks: [checkSensitiveFileRead] },
       { matcher: "Write", hooks: [checkWriteEditSafety] },
       { matcher: "Edit", hooks: [checkWriteEditSafety] },
     ],
