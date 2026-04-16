@@ -1136,12 +1136,7 @@ export function LogView({
               onPaste={handlePaste}
               onChange={(e) => {
                 setInput(e.target.value);
-                const prevHeight = e.target.offsetHeight;
                 autoResize(e.target);
-                if (e.target.offsetHeight > prevHeight && scrollRef.current) {
-                  const el = scrollRef.current;
-                  requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
-                }
               }}
               onKeyDown={(e) => {
                 // Autocomplete navigation
