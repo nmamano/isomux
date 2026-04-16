@@ -8,8 +8,8 @@ import {
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { ContentBlockParam } from "@anthropic-ai/sdk/resources/messages/messages.mjs";
-import type { AgentInfo, AgentOutfit, AgentState, Attachment, ClaudeModel, LogEntry, SkillInfo, SkillOrigin } from "../shared/types.ts";
-import { CLAUDE_MODELS } from "../shared/types.ts";
+import type { AgentInfo, AgentOutfit, AgentState, Attachment, ClaudeModel, LogEntry, ModelFamily, SkillInfo, SkillOrigin } from "../shared/types.ts";
+import { MODEL_FAMILIES, FAMILY_TO_MODEL, familyDisplayLabel } from "../shared/types.ts";
 import { generateOutfit } from "./outfit.ts";
 import { appendLog, loadLog, loadLogWithAncestors, loadSessionsMap, loadAgents, saveAgents, listAgentSessions, writeManifest, persistSessionTopic, persistSessionFork, loadOfficePrompt, saveOfficePrompt, saveFile, getFilePath, type PersistedAgent, type PersistedRoom } from "./persistence.ts";
 import { createSafetyHooks } from "./safety-hooks.ts";
@@ -309,7 +309,7 @@ export function getCurrentSessionId(agentId: string): string | null {
   return agents.get(agentId)?.sessionId ?? null;
 }
 
-export function editAgent(agentId: string, changes: { name?: string; cwd?: string; outfit?: AgentInfo["outfit"]; customInstructions?: string; model?: ClaudeModel }) {
+export function editAgent(agentId: string, changes: { name?: string; cwd?: string; outfit?: AgentInfo["outfit"]; customInstructions?: string; modelFamily?: ModelFamily }) {
   const managed = agents.get(agentId);
   if (!managed) return;
 
@@ -336,9 +336,9 @@ export function editAgent(agentId: string, changes: { name?: string; cwd?: strin
     managed.info.customInstructions = changes.customInstructions || null;
     updated.customInstructions = managed.info.customInstructions;
   }
-  if (changes.model && changes.model !== managed.info.model) {
-    managed.info.model = changes.model;
-    updated.model = changes.model;
+  if (changes.modelFamily && changes.modelFamily !== managed.info.modelFamily) {
+    managed.info.modelFamily = changes.modelFamily;
+    updated.modelFamily = changes.modelFamily;
   }
 
   if (Object.keys(updated).length === 0) return;
@@ -348,8 +348,8 @@ export function editAgent(agentId: string, changes: { name?: string; cwd?: strin
     managed.launcherPath = createLauncher(agentId, managed.info.cwd, managed.info.name, officePrompt, managed.info.customInstructions);
   }
 
-  // Recreate session if model changed so it takes effect immediately
-  if (updated.model) {
+  // Recreate session if model family changed so it takes effect immediately
+  if (updated.modelFamily) {
     const sessionId = managed.sessionId;
     try { managed.session?.close(); } catch {}
     managed.session = sessionId ? createSession(managed, sessionId) : createSession(managed);
@@ -486,7 +486,8 @@ function updateManifest() {
     roomName: roomNames[a.info.room] ?? `Room ${a.info.room + 1}`,
     topic: a.info.topic,
     cwd: a.info.cwd,
-    model: a.info.model,
+    modelFamily: a.info.modelFamily,
+    model: FAMILY_TO_MODEL[a.info.modelFamily],
   })));
 }
 
@@ -505,7 +506,7 @@ function persistAll() {
         cwd: a.info.cwd,
         outfit: a.info.outfit,
         permissionMode: a.info.permissionMode,
-        model: a.info.model,
+        modelFamily: a.info.modelFamily,
         lastSessionId: a.sessionId,
         topic: a.info.topic,
         customInstructions: a.info.customInstructions,
@@ -537,7 +538,7 @@ export async function restoreAgents() {
         cwd: p.cwd,
         outfit: p.outfit,
         permissionMode: p.permissionMode,
-        model: p.model ?? "claude-opus-4-7",
+        modelFamily: p.modelFamily ?? "opus",
         state: p.lastSessionId ? "waiting_for_response" : "idle",
         topic: p.topic ?? null,
         topicStale: false,
@@ -963,7 +964,7 @@ function sdkPermissionMode(mode: AgentInfo["permissionMode"]) {
 
 function createSession(managed: ManagedAgent, resumeSessionId?: string) {
   const opts: any = {
-    model: managed.info.model,
+    model: FAMILY_TO_MODEL[managed.info.modelFamily],
     permissionMode: sdkPermissionMode(managed.info.permissionMode),
     pathToClaudeCodeExecutable: managed.launcherPath,
     hooks: createSafetyHooks(),
@@ -976,7 +977,7 @@ function createSession(managed: ManagedAgent, resumeSessionId?: string) {
     : unstable_v2_createSession(opts);
 }
 
-export async function spawn(name: string, cwd: string, permissionMode: AgentInfo["permissionMode"], desk?: number, customInstructions?: string, room?: number, outfit?: AgentOutfit, model?: ClaudeModel): Promise<AgentInfo | null> {
+export async function spawn(name: string, cwd: string, permissionMode: AgentInfo["permissionMode"], desk?: number, customInstructions?: string, room?: number, outfit?: AgentOutfit, modelFamily?: ModelFamily): Promise<AgentInfo | null> {
   // Reject duplicate names across all rooms
   const nameLower = name.trim().toLowerCase();
   for (const a of agents.values()) {
@@ -1008,7 +1009,7 @@ export async function spawn(name: string, cwd: string, permissionMode: AgentInfo
     cwd: resolvedCwd,
     outfit: outfit ?? generateOutfit(),
     permissionMode,
-    model: model ?? "claude-opus-4-7",
+    modelFamily: modelFamily ?? "opus",
     state: "idle",
     topic: null,
     topicStale: false,
@@ -1198,20 +1199,21 @@ export async function sendMessage(agentId: string, text: string, username?: stri
     managed.pendingModelPick = false;
     const trimmed = text.trim();
     const num = parseInt(trimmed, 10);
-    if (!isNaN(num) && num >= 1 && num <= CLAUDE_MODELS.length) {
+    if (!isNaN(num) && num >= 1 && num <= MODEL_FAMILIES.length) {
       const userMeta = username ? { username } : undefined;
       emitEphemeralLog(agentId, "user_message", text, userMeta);
-      const picked = CLAUDE_MODELS[num - 1];
-      if (picked.id === managed.info.model) {
-        emitEphemeralLog(agentId, "system", `Already using ${picked.label}.`);
+      const picked = MODEL_FAMILIES[num - 1];
+      const label = familyDisplayLabel(picked.family);
+      if (picked.family === managed.info.modelFamily) {
+        emitEphemeralLog(agentId, "system", `Already using ${label}.`);
       } else {
-        managed.info.model = picked.id;
+        managed.info.modelFamily = picked.family;
         const sessionId = managed.sessionId;
         try { managed.session?.close(); } catch {}
         managed.session = sessionId ? createSession(managed, sessionId) : createSession(managed);
-        emit({ type: "agent_updated", agentId, changes: { model: picked.id } });
+        emit({ type: "agent_updated", agentId, changes: { modelFamily: picked.family } });
         persistAll();
-        addLogEntry(agentId, "system", `Model switched to ${picked.label}. The agent's context may still say they are a different model — the correct model is shown in the top bar.`);
+        addLogEntry(agentId, "system", `Model switched to ${label}. The agent's context may still say they are a different model — the correct model is shown in the top bar.`);
       }
       return;
     } else {
@@ -1466,12 +1468,12 @@ const commandHandlers: Record<string, HandlerFn> = {
   async model(agentId, managed, _args, rawText, username) {
     const userMeta = username ? { username } : undefined;
     emitEphemeralLog(agentId, "user_message", rawText, userMeta);
-    const currentLabel = CLAUDE_MODELS.find((m) => m.id === managed.info.model)?.label ?? managed.info.model;
+    const currentLabel = familyDisplayLabel(managed.info.modelFamily);
     const lines: string[] = [`Switch model (current: **${currentLabel}**):\n`];
-    for (let i = 0; i < CLAUDE_MODELS.length; i++) {
-      const m = CLAUDE_MODELS[i];
-      const marker = m.id === managed.info.model ? " (current)" : "";
-      lines.push(`  ${i + 1}. ${m.label}${marker}`);
+    for (let i = 0; i < MODEL_FAMILIES.length; i++) {
+      const m = MODEL_FAMILIES[i];
+      const marker = m.family === managed.info.modelFamily ? " (current)" : "";
+      lines.push(`  ${i + 1}. ${familyDisplayLabel(m.family)}${marker}`);
     }
     lines.push("\nReply with a number to switch, or anything else to cancel.");
     emitEphemeralLog(agentId, "system", lines.join("\n"));
@@ -1503,7 +1505,7 @@ const commandHandlers: Record<string, HandlerFn> = {
 
       for (const a of roomAgents) {
         const selfTag = a.info.id === agentId ? "  **(me)**" : "";
-        const modelLabel = CLAUDE_MODELS.find((m) => m.id === a.info.model)?.label ?? a.info.model;
+        const modelLabel = familyDisplayLabel(a.info.modelFamily);
         lines.push(`**${a.info.name}** (desk ${a.info.desk + 1})${selfTag} — ${modelLabel} — \`${a.info.cwd}\``);
 
         const sessions = listAgentSessions(a.info.id);

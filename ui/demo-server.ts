@@ -1,5 +1,5 @@
 import { OfficeState, type OfficeEvent } from "../shared/office-state.ts";
-import type { AgentInfo, ClientCommand, ServerMessage, LogEntry } from "../shared/types.ts";
+import type { AgentInfo, ClientCommand, ServerMessage, LogEntry, ModelFamily } from "../shared/types.ts";
 import { shimEmit } from "./ws.ts";
 
 const state = new OfficeState();
@@ -8,7 +8,7 @@ let embedMode = false;
 export function setEmbedMode() { embedMode = true; }
 
 // Pre-populate with The Office characters
-const OFFICE_CHARACTERS: { name: string; desk: number; room: number; cwd: string; outfit: AgentInfo["outfit"]; topic: string | null; state: AgentInfo["state"]; customInstructions: string; model: AgentInfo["model"] }[] = [
+const OFFICE_CHARACTERS: { name: string; desk: number; room: number; cwd: string; outfit: AgentInfo["outfit"]; topic: string | null; state: AgentInfo["state"]; customInstructions: string; modelFamily: ModelFamily }[] = [
   {
     name: "Michael",
     desk: 0, room: 0,
@@ -17,7 +17,7 @@ const OFFICE_CHARACTERS: { name: string; desk: number; room: number; cwd: string
     topic: "Drafting team motivation speech",
     state: "waiting_for_response",
     customInstructions: "You are the regional manager. Always be upbeat, supportive, and dramatic. You believe you are the world's best boss. Relate everything back to team morale and family.",
-    model: "claude-haiku-4-5-20251001",
+    modelFamily: "haiku",
   },
   {
     name: "Dwight",
@@ -27,7 +27,7 @@ const OFFICE_CHARACTERS: { name: string; desk: number; room: number; cwd: string
     topic: "Running farm perimeter security audit",
     state: "waiting_for_response",
     customInstructions: "You are the assistant to the regional manager and a beet farmer. You take security and efficiency extremely seriously. Always be thorough, literal, and slightly intense.",
-    model: "claude-opus-4-7",
+    modelFamily: "opus",
   },
   {
     name: "Jim",
@@ -37,7 +37,7 @@ const OFFICE_CHARACTERS: { name: string; desk: number; room: number; cwd: string
     topic: null,
     state: "idle",
     customInstructions: "You work in sales. Be laid-back, witty, and occasionally sarcastic. Keep responses casual and to the point.",
-    model: "claude-sonnet-4-6",
+    modelFamily: "sonnet",
   },
   {
     name: "Pam",
@@ -47,7 +47,7 @@ const OFFICE_CHARACTERS: { name: string; desk: number; room: number; cwd: string
     topic: null,
     state: "idle",
     customInstructions: "You are the office receptionist and an aspiring artist. Be warm, creative, and detail-oriented. You care about aesthetics and good design.",
-    model: "claude-sonnet-4-6",
+    modelFamily: "sonnet",
   },
   {
     name: "Stanley",
@@ -57,7 +57,7 @@ const OFFICE_CHARACTERS: { name: string; desk: number; room: number; cwd: string
     topic: null,
     state: "idle",
     customInstructions: "You are in sales but would rather be doing crossword puzzles. Be blunt, no-nonsense, and minimally enthusiastic. Do the work, skip the small talk.",
-    model: "claude-sonnet-4-6",
+    modelFamily: "sonnet",
   },
   {
     name: "Kevin",
@@ -67,7 +67,7 @@ const OFFICE_CHARACTERS: { name: string; desk: number; room: number; cwd: string
     topic: "Scaling chili recipe to 50 servings",
     state: "waiting_for_response",
     customInstructions: "You work in accounting but are passionate about cooking. You are lovable but slow with numbers. Always double-check your math (you need to).",
-    model: "claude-haiku-4-5-20251001",
+    modelFamily: "haiku",
   },
   {
     name: "Angela",
@@ -77,7 +77,7 @@ const OFFICE_CHARACTERS: { name: string; desk: number; room: number; cwd: string
     topic: "Deduplicating cat photo archive",
     state: "tool_executing",
     customInstructions: "You are the head of accounting. Be precise, judgmental, and organized. You maintain an extensive cat photo archive and take both accounting and cats very seriously.",
-    model: "claude-opus-4-7",
+    modelFamily: "opus",
   },
   {
     name: "Kelly",
@@ -87,7 +87,7 @@ const OFFICE_CHARACTERS: { name: string; desk: number; room: number; cwd: string
     topic: null,
     state: "idle",
     customInstructions: "You run customer service. Be chatty, enthusiastic, and easily distracted. You love pop culture and have strong opinions about everything.",
-    model: "claude-sonnet-4-6",
+    modelFamily: "sonnet",
   },
 ];
 
@@ -106,7 +106,7 @@ function seedOffice() {
       cwd: char.cwd,
       outfit: char.outfit,
       permissionMode: "bypassPermissions",
-      model: char.model,
+      modelFamily: char.modelFamily,
       state: char.state,
       topic: char.topic,
       topicStale: false,

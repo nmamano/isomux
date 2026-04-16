@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo, useCallback, type RefCallback } from "react";
 import type { AgentInfo, AgentState, LogEntry, SkillInfo, Attachment } from "../../shared/types.ts";
-import { CLAUDE_MODELS, type ClaudeModel } from "../../shared/types.ts";
+import { familyDisplayLabel, type ModelFamily } from "../../shared/types.ts";
 import { StatusLight } from "../office/StatusLight.tsx";
 import { Character } from "../office/Character.tsx";
 import { send } from "../ws.ts";
@@ -19,11 +19,10 @@ const STATE_LABELS: Partial<Record<AgentState, string>> = {
 const ESCALATION_AMBER_MS = 2 * 60 * 1000; // 2 minutes
 const ESCALATION_RED_MS = 5 * 60 * 1000; // 5 minutes
 
-const MODEL_TINT: Record<ClaudeModel, { border: string; bg: string }> = {
-  "claude-opus-4-7":          { border: "rgba(100,160,255,0.85)",  bg: "rgba(100,160,255,0.35)" },
-  "claude-opus-4-6":          { border: "rgba(100,160,255,0.85)",  bg: "rgba(100,160,255,0.35)" },
-  "claude-sonnet-4-6":        { border: "rgba(218,165,32,0.80)", bg: "rgba(218,165,32,0.32)" },
-  "claude-haiku-4-5-20251001": { border: "rgba(230,130,180,0.80)", bg: "rgba(230,130,180,0.32)" },
+const MODEL_TINT: Record<ModelFamily, { border: string; bg: string }> = {
+  opus:   { border: "rgba(100,160,255,0.85)", bg: "rgba(100,160,255,0.35)" },
+  sonnet: { border: "rgba(218,165,32,0.80)",  bg: "rgba(218,165,32,0.32)" },
+  haiku:  { border: "rgba(230,130,180,0.80)", bg: "rgba(230,130,180,0.32)" },
 };
 
 function PersonIcon() {
@@ -783,7 +782,7 @@ export function LogView({
                 whiteSpace: "nowrap",
               }}
             >
-              {CLAUDE_MODELS.find((m) => m.id === agent.model)?.label ?? agent.model}
+              {familyDisplayLabel(agent.modelFamily)}
             </span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "flex-end" }}>
@@ -897,8 +896,8 @@ export function LogView({
             alignItems: "center",
             justifyContent: "center",
             borderRadius: 8,
-            border: `2px solid ${MODEL_TINT[agent.model]?.border ?? "var(--border-medium)"}`,
-            background: MODEL_TINT[agent.model]?.bg ?? "rgba(128,128,128,0.2)",
+            border: `2px solid ${MODEL_TINT[agent.modelFamily]?.border ?? "var(--border-medium)"}`,
+            background: MODEL_TINT[agent.modelFamily]?.bg ?? "rgba(128,128,128,0.2)",
             backdropFilter: "blur(8px)",
             WebkitBackdropFilter: "blur(8px)",
             cursor: "pointer",

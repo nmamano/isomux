@@ -1,6 +1,6 @@
 import { useState } from "react";
-import type { AgentInfo, AgentOutfit, ClaudeModel } from "../../shared/types.ts";
-import { CLAUDE_MODELS } from "../../shared/types.ts";
+import type { AgentInfo, AgentOutfit, ModelFamily } from "../../shared/types.ts";
+import { MODEL_FAMILIES, modelVersionLabel } from "../../shared/types.ts";
 import { SHIRT_COLORS, HAIR_COLORS, SKIN_COLORS, HAIR_STYLES, BEARDS, HATS, ACCESSORIES } from "../../shared/outfit-options.ts";
 import { Character } from "../office/Character.tsx";
 import { send } from "../ws.ts";
@@ -71,7 +71,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   const [outfit, setOutfit] = useState<AgentOutfit>(agent ? { ...agent.outfit } : makeRandomOutfit);
   const [customInstructions, setCustomInstructions] = useState(agent?.customInstructions ?? "");
   const [permissionMode, setPermissionMode] = useState<AgentInfo["permissionMode"]>("bypassPermissions");
-  const [model, setModel] = useState<ClaudeModel>(agent?.model ?? CLAUDE_MODELS[0].id);
+  const [modelFamily, setModelFamily] = useState<ModelFamily>(agent?.modelFamily ?? MODEL_FAMILIES[0].family);
   const recentCwds = allRecentCwds.filter((c) => c !== cwd);
 
   function handleSave() {
@@ -85,7 +85,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         room: props.room!,
         outfit,
         customInstructions: customInstructions.trim() || undefined,
-        model,
+        modelFamily,
       });
     } else {
       const cmd: any = { type: "edit_agent", agentId: agent!.id };
@@ -94,8 +94,8 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       if (JSON.stringify(outfit) !== JSON.stringify(agent!.outfit)) cmd.outfit = outfit;
       const trimmedInstructions = customInstructions.trim();
       if (trimmedInstructions !== (agent!.customInstructions ?? "")) cmd.customInstructions = trimmedInstructions;
-      if (model !== agent!.model) cmd.model = model;
-      if (cmd.name || cmd.cwd || cmd.outfit || cmd.customInstructions !== undefined || cmd.model) send(cmd);
+      if (modelFamily !== agent!.modelFamily) cmd.modelFamily = modelFamily;
+      if (cmd.name || cmd.cwd || cmd.outfit || cmd.customInstructions !== undefined || cmd.modelFamily) send(cmd);
     }
     onClose();
   }
@@ -183,12 +183,12 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
 
         <label style={{ ...labelStyle, marginTop: 12 }}>Model</label>
         <select
-          value={model}
-          onChange={(e) => setModel(e.target.value as ClaudeModel)}
+          value={modelFamily}
+          onChange={(e) => setModelFamily(e.target.value as ModelFamily)}
           style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
         >
-          {CLAUDE_MODELS.map((m) => (
-            <option key={m.id} value={m.id}>{m.label}</option>
+          {MODEL_FAMILIES.map((m) => (
+            <option key={m.family} value={m.family}>{m.label} ({modelVersionLabel(m.family)})</option>
           ))}
         </select>
 

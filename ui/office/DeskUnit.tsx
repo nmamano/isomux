@@ -1,15 +1,14 @@
 import { useState, useEffect, useRef } from "react";
-import type { AgentInfo, ClaudeModel } from "../../shared/types.ts";
+import type { AgentInfo, ModelFamily } from "../../shared/types.ts";
 import { DeskSprite } from "./DeskSprite.tsx";
 import { Character } from "./Character.tsx";
 import { StatusLight } from "./StatusLight.tsx";
 import { deskPixelPos, DESK_SLOTS } from "./grid.ts";
 
-const MODEL_TINT: Record<ClaudeModel, { border: string; bg: string }> = {
-  "claude-opus-4-7":          { border: "rgba(100,160,255,0.85)",  bg: "rgba(100,160,255,0.35)" },
-  "claude-opus-4-6":          { border: "rgba(100,160,255,0.85)",  bg: "rgba(100,160,255,0.35)" },
-  "claude-sonnet-4-6":        { border: "rgba(218,165,32,0.80)", bg: "rgba(218,165,32,0.32)" },
-  "claude-haiku-4-5-20251001": { border: "rgba(230,130,180,0.80)", bg: "rgba(230,130,180,0.32)" },
+const MODEL_TINT: Record<ModelFamily, { border: string; bg: string }> = {
+  opus:   { border: "rgba(100,160,255,0.85)", bg: "rgba(100,160,255,0.35)" },
+  sonnet: { border: "rgba(218,165,32,0.80)",  bg: "rgba(218,165,32,0.32)" },
+  haiku:  { border: "rgba(230,130,180,0.80)", bg: "rgba(230,130,180,0.32)" },
 };
 
 export function DeskUnit({
@@ -139,7 +138,7 @@ export function DeskUnit({
 
       {/* Desk */}
       <div style={{ position: "relative", zIndex: 2 }}>
-        <DeskSprite state={agent.state} deskIndex={agent.desk} cwd={agent.cwd} model={agent.model} />
+        <DeskSprite state={agent.state} deskIndex={agent.desk} cwd={agent.cwd} modelFamily={agent.modelFamily} />
       </div>
 
       {/* Floating nametag — outer div handles positioning, inner handles animation */}
@@ -161,10 +160,10 @@ export function DeskUnit({
             alignItems: "center",
             gap: 6,
             padding: "3px 10px 3px 7px",
-            background: MODEL_TINT[agent.model]?.bg ?? "var(--bg-tag)",
+            background: MODEL_TINT[agent.modelFamily]?.bg ?? "var(--bg-tag)",
             backdropFilter: "blur(10px)",
             borderRadius: 20,
-            border: `1px solid ${MODEL_TINT[agent.model]?.border ?? "var(--border-medium)"}`,
+            border: `1px solid ${MODEL_TINT[agent.modelFamily]?.border ?? "var(--border-medium)"}`,
             opacity: hov ? 1 : 0.8,
             transition: "opacity 0.2s, background 0.3s, border 0.3s",
             animation: needsAttention ? "dotPulse 2s ease-in-out infinite" : undefined,

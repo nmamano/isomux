@@ -2,7 +2,8 @@ import { join } from "path";
 import { homedir } from "os";
 import { mkdirSync, appendFileSync, readFileSync, writeFileSync, existsSync, readdirSync, unlinkSync } from "fs";
 import { createHash } from "crypto";
-import type { AgentInfo, Attachment, ClaudeModel, LogEntry, TaskItem } from "../shared/types.ts";
+import type { AgentInfo, Attachment, ClaudeModel, LogEntry, ModelFamily, TaskItem } from "../shared/types.ts";
+import { familyFromLegacyModel } from "../shared/types.ts";
 
 const ISOMUX_DIR = join(homedir(), ".isomux");
 const LOGS_DIR = join(ISOMUX_DIR, "logs");
@@ -186,10 +187,20 @@ export interface PersistedAgent {
   cwd: string;
   outfit: AgentInfo["outfit"];
   permissionMode: AgentInfo["permissionMode"];
-  model?: ClaudeModel;
+  modelFamily?: ModelFamily;
   lastSessionId: string | null;
   topic: string | null;
   customInstructions: string | null;
+}
+
+// Migrate a persisted agent that may have the legacy `model: "claude-opus-4-6"`
+// field to the current `modelFamily: "opus"` shape. Mutates in place.
+function migratePersistedAgent(agent: any) {
+  if (agent.modelFamily) return;
+  if (typeof agent.model === "string") {
+    agent.modelFamily = familyFromLegacyModel(agent.model);
+    delete agent.model;
+  }
 }
 
 export interface PersistedRoom {
@@ -205,22 +216,23 @@ export function loadAgents(): PersistedRoom[] {
     if (!Array.isArray(parsed) || parsed.length === 0) return [{ name: "Room 1", agents: [] }];
 
     const first = parsed[0];
+    let rooms: PersistedRoom[];
 
-    // Format 3: PersistedRoom[] — has name+agents properties
     if (first && typeof first === "object" && "name" in first && "agents" in first) {
-      return parsed as PersistedRoom[];
-    }
-
-    // Format 2: PersistedAgent[][] — nested arrays
-    if (Array.isArray(first)) {
-      return (parsed as PersistedAgent[][]).map((agents, i) => ({
+      rooms = parsed as PersistedRoom[];
+    } else if (Array.isArray(first)) {
+      rooms = (parsed as PersistedAgent[][]).map((agents, i) => ({
         name: `Room ${i + 1}`,
         agents,
       }));
+    } else {
+      rooms = [{ name: "Room 1", agents: parsed as PersistedAgent[] }];
     }
 
-    // Format 1: PersistedAgent[] — flat array (oldest)
-    return [{ name: "Room 1", agents: parsed as PersistedAgent[] }];
+    for (const room of rooms) {
+      for (const agent of room.agents) migratePersistedAgent(agent);
+    }
+    return rooms;
   } catch {
     return [{ name: "Room 1", agents: [] }];
   }
@@ -237,7 +249,7 @@ export function saveAgents(rooms: PersistedRoom[]) {
 // Agent manifest for discovery by other agents
 const MANIFEST_FILE = join(ISOMUX_DIR, "agents-summary.json");
 
-export function writeManifest(agents: { id: string; name: string; desk: number; room: number; roomName: string; topic: string | null; cwd: string; model: ClaudeModel }[]) {
+export function writeManifest(agents: { id: string; name: string; desk: number; room: number; roomName: string; topic: string | null; cwd: string; modelFamily: ModelFamily; model: ClaudeModel }[]) {
   try {
     const manifest = agents.map((a) => ({
       id: a.id,
@@ -247,6 +259,7 @@ export function writeManifest(agents: { id: string; name: string; desk: number; 
       roomName: a.roomName,
       topic: a.topic,
       cwd: a.cwd,
+      modelFamily: a.modelFamily,
       model: a.model,
       logDir: join(LOGS_DIR, a.id),
     }));

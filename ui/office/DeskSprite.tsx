@@ -1,4 +1,4 @@
-import type { AgentState, ClaudeModel } from "../../shared/types.ts";
+import type { AgentState, ModelFamily } from "../../shared/types.ts";
 
 // Map our states to visual categories
 function visualState(state: AgentState): "working" | "waiting_for_response" | "error" | "idle" {
@@ -77,7 +77,7 @@ function wrapCwd(text: string): string[] {
   return lines;
 }
 
-export function DeskSprite({ state, deskIndex = 0, cwd, model }: { state: AgentState; deskIndex?: number; cwd?: string; model?: ClaudeModel }) {
+export function DeskSprite({ state, deskIndex = 0, cwd, modelFamily }: { state: AgentState; deskIndex?: number; cwd?: string; modelFamily?: ModelFamily }) {
   const vs = visualState(state);
   const glow = { working: "#50B86C", waiting_for_response: "#9B59B6", error: "#E85D75", idle: "#223" }[vs];
   const on = vs !== "idle";
@@ -246,7 +246,7 @@ export function DeskSprite({ state, deskIndex = 0, cwd, model }: { state: AgentS
       )}
 
       {/* Model-specific desk item — SE area */}
-      {model === "claude-haiku-4-5-20251001" && (
+      {modelFamily === "haiku" && (
         <g transform="translate(100, 68)">
           {/* Scattered crayons */}
           <rect x="0" y="0" width="14" height="3" rx="1" fill="#E85D75" transform="rotate(-15 7 1.5)" />
@@ -258,7 +258,7 @@ export function DeskSprite({ state, deskIndex = 0, cwd, model }: { state: AgentS
           <path d="M9.5 8.5 L12 10 L9.5 11.5" fill="#D8A030" transform="rotate(-5 4 10.5)" />
         </g>
       )}
-      {(model === "claude-opus-4-7" || model === "claude-opus-4-6") && (() => {
+      {modelFamily === "opus" && (() => {
         const [bookFront, bookBack, bookSpine] = BOOK_VARIANTS[deskIndex % BOOK_VARIANTS.length];
         const isGreen = deskIndex % BOOK_VARIANTS.length === 0;
         return (

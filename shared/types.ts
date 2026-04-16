@@ -18,15 +18,45 @@ export interface AgentOutfit {
   accessory: "glasses" | "headphones" | "bow_tie" | "tie" | "earrings" | null;
 }
 
-// Supported Claude models
-export type ClaudeModel = "claude-opus-4-7" | "claude-opus-4-6" | "claude-sonnet-4-6" | "claude-haiku-4-5-20251001";
+// Model families — what users pick ("I want Opus"). Exact versions are an
+// implementation detail that the system bumps centrally in FAMILY_TO_MODEL.
+export type ModelFamily = "opus" | "sonnet" | "haiku";
 
-export const CLAUDE_MODELS: { id: ClaudeModel; label: string }[] = [
-  { id: "claude-opus-4-7", label: "Opus 4.7" },
-  { id: "claude-opus-4-6", label: "Opus 4.6" },
-  { id: "claude-sonnet-4-6", label: "Sonnet 4.6" },
-  { id: "claude-haiku-4-5-20251001", label: "Haiku 4.5" },
+export type ClaudeModel = string;
+
+export const FAMILY_TO_MODEL: Record<ModelFamily, ClaudeModel> = {
+  opus: "claude-opus-4-7",
+  sonnet: "claude-sonnet-4-6",
+  haiku: "claude-haiku-4-5-20251001",
+};
+
+export const MODEL_FAMILIES: { family: ModelFamily; label: string }[] = [
+  { family: "opus", label: "Opus" },
+  { family: "sonnet", label: "Sonnet" },
+  { family: "haiku", label: "Haiku" },
 ];
+
+// Extract "4.7" from "claude-opus-4-7" for display
+export function modelVersionLabel(family: ModelFamily): string {
+  const exact = FAMILY_TO_MODEL[family];
+  const match = exact.match(/-(\d+)-(\d+)/);
+  return match ? `${match[1]}.${match[2]}` : exact;
+}
+
+// "Opus 4.7"
+export function familyDisplayLabel(family: ModelFamily): string {
+  const base = MODEL_FAMILIES.find((m) => m.family === family)?.label ?? family;
+  return `${base} ${modelVersionLabel(family)}`;
+}
+
+// Migrate a legacy exact model ID (e.g. "claude-opus-4-6") to a family.
+export function familyFromLegacyModel(model: string | undefined): ModelFamily {
+  if (!model) return "opus";
+  if (model.includes("opus")) return "opus";
+  if (model.includes("sonnet")) return "sonnet";
+  if (model.includes("haiku")) return "haiku";
+  return "opus";
+}
 
 // What the browser knows about an agent
 export interface AgentInfo {
@@ -37,7 +67,7 @@ export interface AgentInfo {
   cwd: string;
   outfit: AgentOutfit;
   permissionMode: "default" | "acceptEdits" | "bypassPermissions";
-  model: ClaudeModel;
+  modelFamily: ModelFamily;
   state: AgentState;
   topic: string | null;
   topicStale: boolean;
@@ -138,14 +168,14 @@ export type ServerMessage =
 
 // Browser → Server commands
 export type ClientCommand =
-  | { type: "spawn"; name: string; cwd: string; permissionMode: AgentInfo["permissionMode"]; desk: number; room?: number; customInstructions?: string; outfit?: AgentOutfit; model?: ClaudeModel }
+  | { type: "spawn"; name: string; cwd: string; permissionMode: AgentInfo["permissionMode"]; desk: number; room?: number; customInstructions?: string; outfit?: AgentOutfit; modelFamily?: ModelFamily }
   | { type: "kill"; agentId: string }
   | { type: "abort"; agentId: string }
   | { type: "send_message"; agentId: string; text: string; username?: string; attachments?: Attachment[] }
   | { type: "new_conversation"; agentId: string }
   | { type: "resume"; agentId: string; sessionId: string }
   | { type: "list_sessions"; agentId: string }
-  | { type: "edit_agent"; agentId: string; name?: string; cwd?: string; outfit?: AgentOutfit; customInstructions?: string; model?: ClaudeModel }
+  | { type: "edit_agent"; agentId: string; name?: string; cwd?: string; outfit?: AgentOutfit; customInstructions?: string; modelFamily?: ModelFamily }
   | { type: "swap_desks"; deskA: number; deskB: number; room: number }
   | { type: "set_topic"; agentId: string; topic: string }
   | { type: "reset_topic"; agentId: string }

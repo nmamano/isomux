@@ -27,7 +27,7 @@ async function handleCommand(cmd: ClientCommand) {
   switch (cmd.type) {
     case "spawn":
       saveRecentCwd(cmd.cwd);
-      await AgentManager.spawn(cmd.name, cmd.cwd, cmd.permissionMode, cmd.desk, cmd.customInstructions, cmd.room, cmd.outfit, cmd.model);
+      await AgentManager.spawn(cmd.name, cmd.cwd, cmd.permissionMode, cmd.desk, cmd.customInstructions, cmd.room, cmd.outfit, cmd.modelFamily);
       break;
     case "kill":
       await AgentManager.kill(cmd.agentId);
@@ -47,7 +47,7 @@ async function handleCommand(cmd: ClientCommand) {
       break;
     case "edit_agent":
       if (cmd.cwd) saveRecentCwd(cmd.cwd);
-      AgentManager.editAgent(cmd.agentId, { name: cmd.name, cwd: cmd.cwd, outfit: cmd.outfit, customInstructions: cmd.customInstructions, model: cmd.model });
+      AgentManager.editAgent(cmd.agentId, { name: cmd.name, cwd: cmd.cwd, outfit: cmd.outfit, customInstructions: cmd.customInstructions, modelFamily: cmd.modelFamily });
       break;
     case "swap_desks":
       AgentManager.swapDesks(cmd.deskA, cmd.deskB, cmd.room);
