@@ -1480,22 +1480,6 @@ const commandHandlers: Record<string, HandlerFn> = {
     return true;
   },
 
-  async login(agentId, _managed, _args, rawText, username) {
-    const userMeta = username ? { username } : undefined;
-    emitEphemeralLog(agentId, "user_message", rawText, userMeta);
-    emitEphemeralLog(agentId, "system", LOGIN_INSTRUCTIONS);
-    updateState(agentId, "waiting_for_response");
-    return true;
-  },
-
-  async logout(agentId, _managed, _args, rawText, username) {
-    const userMeta = username ? { username } : undefined;
-    emitEphemeralLog(agentId, "user_message", rawText, userMeta);
-    emitEphemeralLog(agentId, "system", "To log out:\n1. Open the built-in terminal\n2. Run `claude logout`");
-    updateState(agentId, "waiting_for_response");
-    return true;
-  },
-
   async isomuxAllHands(agentId, _managed, _args, rawText, username) {
     const userMeta = username ? { username } : undefined;
     addLogEntry(agentId, "user_message", rawText, userMeta);

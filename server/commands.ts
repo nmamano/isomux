@@ -79,20 +79,14 @@ export const commands: Record<string, CommandConfig> = {
     description: "Pick up a previous session",
   },
   login: {
-    type: "hardcoded",
-    supported: true,
-    autocomplete: true,
-    overridable: false,
-    handler: "login",
+    ...UNSUPPORTED_HARDCODED,
     description: "Log in to your Anthropic account",
+    message: "To authenticate:\n1. Open the built-in terminal\n2. Run `claude`\n3. Type `/login`\n4. Follow the auth flow\n\nOnce complete, it takes effect immediately for all Isomux agents.",
   },
   logout: {
-    type: "hardcoded",
-    supported: true,
-    autocomplete: true,
-    overridable: false,
-    handler: "logout",
+    ...UNSUPPORTED_HARDCODED,
     description: "Log out of your Anthropic account",
+    message: "To log out:\n1. Open the built-in terminal\n2. Run `claude logout`",
   },
   "isomux-all-hands": {
     type: "hardcoded",
@@ -158,7 +152,7 @@ export const commands: Record<string, CommandConfig> = {
   color:      { ...UNSUPPORTED_HARDCODED, description: "Change color theme" },
   vim:        { ...UNSUPPORTED_HARDCODED, description: "Toggle vim keybindings" },
   "terminal-setup": { ...UNSUPPORTED_HARDCODED, description: "Configure terminal integration" },
-  "reload-plugins": { ...UNSUPPORTED_HARDCODED, description: "Reload installed plugins" },
+  "reload-plugins": { ...UNSUPPORTED_HARDCODED, description: "Reload installed plugins", message: "To reload plugins, open the built-in terminal (click the terminal icon on the agent's desk), run `claude`, and type `/reload-plugins`." },
 
   // --- Background & system ---
   tasks:      { ...UNSUPPORTED_HARDCODED, description: "List/manage background tasks" },
@@ -186,7 +180,7 @@ export const commands: Record<string, CommandConfig> = {
   exit:       { ...UNSUPPORTED_HARDCODED, description: "Exit Claude Code", message: "Use the Isomux UI to manage agents. `/exit` only works in the Claude Code CLI." },
   stickers:   { ...UNSUPPORTED_HARDCODED, description: "Fun stickers" },
   upgrade:    { ...UNSUPPORTED_HARDCODED, description: "Upgrade Claude Code" },
-  plugin:     { ...UNSUPPORTED_HARDCODED, description: "Manage plugins" },
+  plugin:     { ...UNSUPPORTED_HARDCODED, description: "Manage plugins", message: "Plugin management requires the Claude Code CLI directly.\n\nTo manage plugins:\n1. Open the built-in terminal (click the terminal icon on the agent's desk)\n2. Run `claude`\n3. Type `/plugin` to browse, install, enable, or disable plugins\n\nUseful commands:\n- `/plugin` — interactive plugin manager (browse, install, enable/disable)\n- `/plugin add <name>` — install a plugin by name\n- `/plugin marketplace add owner/repo` — add a community marketplace\n\nAfter installing a plugin, run `/reload-plugins` inside the Claude session to activate it." },
 
   // =========================================================================
   // Bundled skills (overridable — users can shadow with their own skill files)
