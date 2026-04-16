@@ -6,6 +6,7 @@ import { StatusLight } from "./StatusLight.tsx";
 import { deskPixelPos, DESK_SLOTS } from "./grid.ts";
 
 const MODEL_TINT: Record<ClaudeModel, { border: string; bg: string }> = {
+  "claude-opus-4-7":          { border: "rgba(100,160,255,0.85)",  bg: "rgba(100,160,255,0.35)" },
   "claude-opus-4-6":          { border: "rgba(100,160,255,0.85)",  bg: "rgba(100,160,255,0.35)" },
   "claude-sonnet-4-6":        { border: "rgba(218,165,32,0.80)", bg: "rgba(218,165,32,0.32)" },
   "claude-haiku-4-5-20251001": { border: "rgba(230,130,180,0.80)", bg: "rgba(230,130,180,0.32)" },

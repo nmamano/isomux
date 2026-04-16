@@ -27,7 +27,7 @@ const OFFICE_CHARACTERS: { name: string; desk: number; room: number; cwd: string
     topic: "Running farm perimeter security audit",
     state: "waiting_for_response",
     customInstructions: "You are the assistant to the regional manager and a beet farmer. You take security and efficiency extremely seriously. Always be thorough, literal, and slightly intense.",
-    model: "claude-opus-4-6",
+    model: "claude-opus-4-7",
   },
   {
     name: "Jim",
@@ -77,7 +77,7 @@ const OFFICE_CHARACTERS: { name: string; desk: number; room: number; cwd: string
     topic: "Deduplicating cat photo archive",
     state: "tool_executing",
     customInstructions: "You are the head of accounting. Be precise, judgmental, and organized. You maintain an extensive cat photo archive and take both accounting and cats very seriously.",
-    model: "claude-opus-4-6",
+    model: "claude-opus-4-7",
   },
   {
     name: "Kelly",

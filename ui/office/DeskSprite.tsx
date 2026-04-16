@@ -258,7 +258,7 @@ export function DeskSprite({ state, deskIndex = 0, cwd, model }: { state: AgentS
           <path d="M9.5 8.5 L12 10 L9.5 11.5" fill="#D8A030" transform="rotate(-5 4 10.5)" />
         </g>
       )}
-      {model === "claude-opus-4-6" && (() => {
+      {(model === "claude-opus-4-7" || model === "claude-opus-4-6") && (() => {
         const [bookFront, bookBack, bookSpine] = BOOK_VARIANTS[deskIndex % BOOK_VARIANTS.length];
         const isGreen = deskIndex % BOOK_VARIANTS.length === 0;
         return (

@@ -71,7 +71,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   const [outfit, setOutfit] = useState<AgentOutfit>(agent ? { ...agent.outfit } : makeRandomOutfit);
   const [customInstructions, setCustomInstructions] = useState(agent?.customInstructions ?? "");
   const [permissionMode, setPermissionMode] = useState<AgentInfo["permissionMode"]>("bypassPermissions");
-  const [model, setModel] = useState<ClaudeModel>(agent?.model ?? "claude-opus-4-6");
+  const [model, setModel] = useState<ClaudeModel>(agent?.model ?? CLAUDE_MODELS[0].id);
   const recentCwds = allRecentCwds.filter((c) => c !== cwd);
 
   function handleSave() {

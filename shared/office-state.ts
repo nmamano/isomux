@@ -137,7 +137,7 @@ export class OfficeState {
       cwd: opts.cwd,
       outfit: generateOutfit(),
       permissionMode: opts.permissionMode,
-      model: "claude-opus-4-6",
+      model: "claude-opus-4-7",
       state: "idle",
       topic: null,
       topicStale: false,
