@@ -23,11 +23,11 @@ AgentManager.onEvent((event) => {
   broadcast(event as ServerMessage);
 });
 
-async function handleCommand(cmd: ClientCommand) {
+async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
   switch (cmd.type) {
     case "spawn":
       saveRecentCwd(cmd.cwd);
-      await AgentManager.spawn(cmd.name, cmd.cwd, cmd.permissionMode, cmd.desk, cmd.customInstructions, cmd.room, cmd.outfit, cmd.modelFamily);
+      await AgentManager.spawn(cmd.name, cmd.cwd, cmd.permissionMode, cmd.desk, cmd.customInstructions, cmd.roomId, cmd.outfit, cmd.modelFamily);
       break;
     case "kill":
       await AgentManager.kill(cmd.agentId);
@@ -50,7 +50,7 @@ async function handleCommand(cmd: ClientCommand) {
       AgentManager.editAgent(cmd.agentId, { name: cmd.name, cwd: cmd.cwd, outfit: cmd.outfit, customInstructions: cmd.customInstructions, modelFamily: cmd.modelFamily });
       break;
     case "swap_desks":
-      AgentManager.swapDesks(cmd.deskA, cmd.deskB, cmd.room);
+      AgentManager.swapDesks(cmd.deskA, cmd.deskB, cmd.roomId);
       break;
     case "set_topic":
       AgentManager.setTopic(cmd.agentId, cmd.topic);
@@ -89,10 +89,60 @@ async function handleCommand(cmd: ClientCommand) {
     case "terminal_close":
       AgentManager.closeTerminal(cmd.agentId);
       break;
-    case "set_office_prompt":
-      AgentManager.setOfficePrompt(cmd.text);
-      broadcast({ type: "office_prompt", text: cmd.text.trim() } as ServerMessage);
+    case "update_office_settings": {
+      const envFile = cmd.envFile && cmd.envFile.trim() ? cmd.envFile.trim() : null;
+      let keyCount: number | undefined;
+      if (envFile) {
+        try {
+          keyCount = AgentManager.validateEnvPath(envFile);
+        } catch (err: any) {
+          ws.send(JSON.stringify({ type: "settings_save_response", requestId: cmd.requestId, ok: false, error: err.message || "Invalid env file" } as ServerMessage));
+          break;
+        }
+      }
+      AgentManager.setOfficeSettings(cmd.prompt, envFile);
+      ws.send(JSON.stringify({ type: "settings_save_response", requestId: cmd.requestId, ok: true, keyCount } as ServerMessage));
       break;
+    }
+    case "update_room_settings": {
+      const envFile = cmd.envFile && cmd.envFile.trim() ? cmd.envFile.trim() : null;
+      let keyCount: number | undefined;
+      if (envFile) {
+        try {
+          keyCount = AgentManager.validateEnvPath(envFile);
+        } catch (err: any) {
+          ws.send(JSON.stringify({ type: "settings_save_response", requestId: cmd.requestId, ok: false, error: err.message || "Invalid env file" } as ServerMessage));
+          break;
+        }
+      }
+      const ok = AgentManager.setRoomSettings(cmd.roomId, cmd.prompt, envFile);
+      if (!ok) {
+        ws.send(JSON.stringify({ type: "settings_save_response", requestId: cmd.requestId, ok: false, error: "Room not found" } as ServerMessage));
+      } else {
+        ws.send(JSON.stringify({ type: "settings_save_response", requestId: cmd.requestId, ok: true, keyCount } as ServerMessage));
+      }
+      break;
+    }
+    case "request_settings_validation": {
+      let envFile: string | null = null;
+      if (cmd.scope === "office") {
+        envFile = AgentManager.getOfficeSettings().envFile;
+      } else if (cmd.scope === "room" && cmd.roomId) {
+        const room = AgentManager.getRooms().find((r) => r.id === cmd.roomId);
+        envFile = room?.envFile ?? null;
+      }
+      if (!envFile) {
+        ws.send(JSON.stringify({ type: "settings_validation", requestId: cmd.requestId, scope: cmd.scope, roomId: cmd.roomId, envFile: null, ok: true } as ServerMessage));
+        break;
+      }
+      try {
+        const keyCount = AgentManager.validateEnvPath(envFile);
+        ws.send(JSON.stringify({ type: "settings_validation", requestId: cmd.requestId, scope: cmd.scope, roomId: cmd.roomId, envFile, ok: true, keyCount } as ServerMessage));
+      } catch (err: any) {
+        ws.send(JSON.stringify({ type: "settings_validation", requestId: cmd.requestId, scope: cmd.scope, roomId: cmd.roomId, envFile, ok: false, error: err.message || "Invalid env file" } as ServerMessage));
+      }
+      break;
+    }
     case "add_task": {
       const task: TaskItem = {
         id: generateTaskId(tasks.map(t => t.id)),
@@ -133,13 +183,13 @@ async function handleCommand(cmd: ClientCommand) {
       AgentManager.createRoom(cmd.name);
       break;
     case "close_room":
-      AgentManager.closeRoom(cmd.room);
+      AgentManager.closeRoom(cmd.roomId);
       break;
     case "rename_room":
-      AgentManager.renameRoom(cmd.room, cmd.name);
+      AgentManager.renameRoom(cmd.roomId, cmd.name);
       break;
     case "move_agent":
-      AgentManager.moveAgent(cmd.agentId, cmd.targetRoom);
+      AgentManager.moveAgent(cmd.agentId, cmd.targetRoomId);
       break;
     case "reorder_rooms":
       AgentManager.reorderRooms(cmd.order);
@@ -396,9 +446,7 @@ const server = Bun.serve({
       // Send current agent list
       const agents = AgentManager.getAllAgents();
       const recentCwds = loadRecentCwds();
-      ws.send(JSON.stringify({ type: "full_state", agents, recentCwds, roomCount: AgentManager.getRoomCount(), roomNames: AgentManager.getRoomNames() } as ServerMessage));
-      // Send office prompt
-      ws.send(JSON.stringify({ type: "office_prompt", text: AgentManager.getOfficePrompt() } as ServerMessage));
+      ws.send(JSON.stringify({ type: "full_state", agents, recentCwds, office: AgentManager.getOfficeSettings(), rooms: AgentManager.getRooms() } as ServerMessage));
       // Send tasks
       ws.send(JSON.stringify({ type: "tasks", tasks } as ServerMessage));
       // Send update status
@@ -426,7 +474,7 @@ const server = Bun.serve({
     message(ws, data) {
       try {
         const cmd = JSON.parse(data as string) as ClientCommand;
-        handleCommand(cmd);
+        handleCommand(cmd, ws);
       } catch (e) {
         console.error("Invalid command:", e);
       }

@@ -65,7 +65,8 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   const isSpawn = !props.agent;
   const agent = props.agent;
 
-  const { recentCwds: allRecentCwds, isMobile, agents, roomCount, roomNames } = useAppState();
+  const { recentCwds: allRecentCwds, isMobile, agents, rooms } = useAppState();
+  const roomCount = rooms.length;
   const [name, setName] = useState(agent?.name ?? "");
   const [cwd, setCwd] = useState(agent?.cwd ?? props.defaultCwd ?? "~");
   const [outfit, setOutfit] = useState<AgentOutfit>(agent ? { ...agent.outfit } : makeRandomOutfit);
@@ -76,13 +77,14 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
 
   function handleSave() {
     if (isSpawn) {
+      const targetRoomId = rooms[props.room!]?.id;
       send({
         type: "spawn",
         name: name || `Agent ${props.deskIndex! + 1}`,
         cwd,
         permissionMode,
         desk: props.deskIndex!,
-        room: props.room!,
+        roomId: targetRoomId,
         outfit,
         customInstructions: customInstructions.trim() || undefined,
         modelFamily,
@@ -137,7 +139,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         <p style={{ fontSize: 12, color: "var(--text-faint)", margin: "2px 0 18px" }}>
           {isSpawn
             ? `Desk #${props.deskIndex! + 1}`
-            : `${roomCount > 1 ? `${roomNames[agent!.room] ?? `Room ${agent!.room + 1}`}, ` : ""}Desk #${agent!.desk + 1}`}
+            : `${roomCount > 1 ? `${rooms[agent!.room]?.name ?? `Room ${agent!.room + 1}`}, ` : ""}Desk #${agent!.desk + 1}`}
         </p>
 
         <label style={labelStyle}>Name</label>
@@ -339,7 +341,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                     key={i}
                     disabled={isFull}
                     onClick={() => {
-                      send({ type: "move_agent", agentId: agent!.id, targetRoom: i });
+                      const targetRoomId = rooms[i]?.id;
+                      if (!targetRoomId) return;
+                      send({ type: "move_agent", agentId: agent!.id, targetRoomId });
                       onClose();
                     }}
                     style={{
@@ -354,7 +358,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       opacity: isFull ? 0.5 : 1,
                     }}
                   >
-                    {roomNames[i] ?? `Room ${i + 1}`} ({roomAgentCount}/8)
+                    {rooms[i]?.name ?? `Room ${i + 1}`} ({roomAgentCount}/8)
                   </button>
                 );
               })}

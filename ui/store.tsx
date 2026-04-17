@@ -1,5 +1,5 @@
 import { createContext, useContext, useReducer, useEffect, useRef, useState, useCallback, type ReactNode, type Dispatch } from "react";
-import type { AgentInfo, LogEntry, SessionInfo, ServerMessage, SkillInfo, TaskItem } from "../shared/types.ts";
+import type { AgentInfo, LogEntry, SessionInfo, ServerMessage, SkillInfo, TaskItem, OfficeSettings, RoomWire, SettingsSaveResponse, SettingsValidationResponse } from "../shared/types.ts";
 import { connect } from "./ws.ts";
 import { type Features, PRODUCTION_FEATURES } from "../shared/features.ts";
 
@@ -17,18 +17,17 @@ export interface AppState {
   recentCwds: string[]; // persisted recent working directories
   slashCommands: Map<string, { commands: { name: string; description?: string }[]; skills: SkillInfo[] }>; // agentId → available commands
   stateChangedAt: Map<string, number>; // agentId → timestamp when agent state last changed
-  officePrompt: string;
+  office: OfficeSettings;
+  rooms: RoomWire[];
   tasks: TaskItem[];
-  currentRoom: number; // 0-based room index
-  roomCount: number; // total number of rooms
-  roomNames: string[]; // display name per room
+  currentRoom: number; // 0-based room index (view selection only)
   updateAvailable: boolean;
   updateCurrent: { sha: string; message: string; date: string };
   updateLatest: { sha: string; message: string; date: string };
 }
 
 type Action =
-  | { type: "full_state"; agents: AgentInfo[]; recentCwds: string[]; roomCount: number; roomNames: string[] }
+  | { type: "full_state"; agents: AgentInfo[]; recentCwds: string[]; office: OfficeSettings; rooms: RoomWire[] }
   | { type: "agent_added"; agent: AgentInfo }
   | { type: "agent_removed"; agentId: string }
   | { type: "agent_updated"; agentId: string; changes: Partial<AgentInfo> }
@@ -41,13 +40,16 @@ type Action =
   | { type: "clear_logs"; agentId: string }
   | { type: "set_mobile"; isMobile: boolean }
   | { type: "toggle_mobile_view" }
-  | { type: "office_prompt"; text: string }
+  | { type: "office_settings_updated"; prompt: string; envFile: string | null }
   | { type: "tasks"; tasks: TaskItem[] }
   | { type: "set_current_room"; room: number }
-  | { type: "room_created"; roomCount: number; roomName: string }
-  | { type: "room_closed"; room: number; roomCount: number }
-  | { type: "room_renamed"; room: number; name: string }
-  | { type: "rooms_reordered"; order: number[] }
+  | { type: "room_created"; room: RoomWire }
+  | { type: "room_closed"; roomId: string }
+  | { type: "room_renamed"; roomId: string; name: string }
+  | { type: "room_settings_updated"; roomId: string; prompt: string | null; envFile: string | null }
+  | { type: "rooms_reordered"; order: string[] }
+  | SettingsSaveResponse
+  | SettingsValidationResponse
   | { type: "update_status"; updateAvailable: boolean; current: { sha: string; message: string; date: string }; latest: { sha: string; message: string; date: string } };
 
 // States that warrant attention
@@ -60,9 +62,9 @@ function reducer(state: AppState, action: Action): AppState {
         ...state,
         agents: action.agents,
         recentCwds: action.recentCwds,
-        roomCount: action.roomCount,
-        roomNames: action.roomNames,
-        currentRoom: Math.min(state.currentRoom, action.roomCount - 1),
+        office: action.office,
+        rooms: action.rooms,
+        currentRoom: Math.min(state.currentRoom, Math.max(0, action.rooms.length - 1)),
         logs: new Map(),
         needsAttention: new Set(),
         slashCommands: new Map(),
@@ -156,44 +158,50 @@ function reducer(state: AppState, action: Action): AppState {
       if (typeof localStorage !== "undefined") localStorage.setItem("isomux-mobile-view", next);
       return { ...state, mobileViewMode: next };
     }
-    case "office_prompt":
-      return { ...state, officePrompt: action.text };
+    case "office_settings_updated":
+      return { ...state, office: { prompt: action.prompt, envFile: action.envFile } };
     case "tasks":
       return { ...state, tasks: action.tasks };
     case "set_current_room":
       return { ...state, currentRoom: action.room };
     case "room_created":
-      return { ...state, roomCount: action.roomCount, roomNames: [...state.roomNames, action.roomName] };
+      return { ...state, rooms: [...state.rooms, action.room] };
     case "update_status":
       return { ...state, updateAvailable: action.updateAvailable, updateCurrent: action.current, updateLatest: action.latest };
     case "room_closed": {
+      const idx = state.rooms.findIndex((r) => r.id === action.roomId);
+      if (idx < 0) return state;
+      const newRooms = [...state.rooms];
+      newRooms.splice(idx, 1);
       let currentRoom = state.currentRoom;
-      if (currentRoom === action.room) {
-        currentRoom = 0;
-      } else if (currentRoom > action.room) {
-        currentRoom--;
-      }
-      const closedNames = [...state.roomNames];
-      closedNames.splice(action.room, 1);
-      return { ...state, roomCount: action.roomCount, roomNames: closedNames, currentRoom };
+      if (currentRoom === idx) currentRoom = 0;
+      else if (currentRoom > idx) currentRoom--;
+      return { ...state, rooms: newRooms, currentRoom };
     }
     case "room_renamed": {
-      const renamedNames = [...state.roomNames];
-      renamedNames[action.room] = action.name;
-      return { ...state, roomNames: renamedNames };
+      const newRooms = state.rooms.map((r) => r.id === action.roomId ? { ...r, name: action.name } : r);
+      return { ...state, rooms: newRooms };
+    }
+    case "room_settings_updated": {
+      const newRooms = state.rooms.map((r) => r.id === action.roomId ? { ...r, prompt: action.prompt, envFile: action.envFile } : r);
+      return { ...state, rooms: newRooms };
     }
     case "rooms_reordered": {
-      // order[newIdx] = oldIdx — build reverse map to remap currentRoom
-      const reverseMap = new Array<number>(action.order.length);
-      for (let newIdx = 0; newIdx < action.order.length; newIdx++) {
-        reverseMap[action.order[newIdx]] = newIdx;
-      }
-      const newNames = action.order.map((oldIdx) => state.roomNames[oldIdx]);
+      // action.order is the new ordering of roomIds
+      const idToOldIdx = new Map(state.rooms.map((r, i) => [r.id, i]));
+      const newRooms = action.order.map((id) => state.rooms[idToOldIdx.get(id)!]).filter(Boolean);
+      // Recompute currentRoom: find where the previously-current room landed
+      const prevId = state.rooms[state.currentRoom]?.id;
+      const newCurrentRoom = prevId ? Math.max(0, action.order.indexOf(prevId)) : 0;
+      // Remap agents' numeric room index to the new positions
+      const idToNewIdx = new Map(newRooms.map((r, i) => [r.id, i]));
       const newAgents = state.agents.map((a) => {
-        const newRoom = reverseMap[a.room];
-        return newRoom !== a.room ? { ...a, room: newRoom } : a;
+        const oldId = state.rooms[a.room]?.id;
+        if (!oldId) return a;
+        const newIdx = idToNewIdx.get(oldId) ?? a.room;
+        return newIdx !== a.room ? { ...a, room: newIdx } : a;
       });
-      return { ...state, agents: newAgents, roomNames: newNames, currentRoom: reverseMap[state.currentRoom] ?? 0 };
+      return { ...state, rooms: newRooms, agents: newAgents, currentRoom: newCurrentRoom };
     }
     default:
       return state;
@@ -214,11 +222,10 @@ const initialState: AppState = {
   recentCwds: [],
   slashCommands: new Map(),
   stateChangedAt: new Map(),
-  officePrompt: "",
+  office: { prompt: "", envFile: null },
+  rooms: [],
   tasks: [],
   currentRoom: 0,
-  roomCount: 1,
-  roomNames: ["Room 1"],
   updateAvailable: false,
   updateCurrent: { sha: "", message: "", date: "" },
   updateLatest: { sha: "", message: "", date: "" },

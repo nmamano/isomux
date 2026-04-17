@@ -8,10 +8,10 @@ import {
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { ContentBlockParam } from "@anthropic-ai/sdk/resources/messages/messages.mjs";
-import type { AgentInfo, AgentOutfit, AgentState, Attachment, ClaudeModel, LogEntry, ModelFamily, SkillInfo, SkillOrigin } from "../shared/types.ts";
-import { MODEL_FAMILIES, FAMILY_TO_MODEL, familyDisplayLabel } from "../shared/types.ts";
+import type { AgentInfo, AgentOutfit, AgentState, Attachment, ClaudeModel, LogEntry, ModelFamily, OfficeSettings, RoomWire, SkillInfo, SkillOrigin } from "../shared/types.ts";
+import { MODEL_FAMILIES, FAMILY_TO_MODEL, familyDisplayLabel, generateRoomId } from "../shared/types.ts";
 import { generateOutfit } from "./outfit.ts";
-import { appendLog, loadLog, loadLogWithAncestors, loadSessionsMap, loadAgents, saveAgents, listAgentSessions, writeManifest, persistSessionTopic, persistSessionFork, loadOfficePrompt, saveOfficePrompt, saveFile, getFilePath, type PersistedAgent, type PersistedRoom } from "./persistence.ts";
+import { appendLog, loadLog, loadLogWithAncestors, loadSessionsMap, loadAgents, saveAgents, listAgentSessions, writeManifest, persistSessionTopic, persistSessionFork, loadOfficeConfig, saveOfficeConfig, readEnvFile, saveFile, getFilePath, type PersistedAgent, type Room, type OfficeConfig } from "./persistence.ts";
 import { createSafetyHooks } from "./safety-hooks.ts";
 import { commands, autocompleteCommands, unsupportedMessage, type CommandConfig } from "./commands.ts";
 import { resolve, join } from "path";
@@ -186,8 +186,17 @@ function deduplicateSkills(skills: SkillInfo[]): SkillInfo[] {
   return result;
 }
 
-// Create a launcher script that sets cwd and injects system prompt before running the CLI
-function createLauncher(agentId: string, cwd: string, agentName: string, officePrompt?: string, customInstructions?: string | null): string {
+// Create a launcher script that sets cwd and injects system prompt before running the CLI.
+// The prompt is the concatenation of: baseline isomux boilerplate, office prompt,
+// room prompt, and agent custom instructions — each separated by a blank line.
+function createLauncher(
+  agentId: string,
+  cwd: string,
+  agentName: string,
+  officePrompt?: string | null,
+  roomPrompt?: string | null,
+  customInstructions?: string | null,
+): string {
   const launcherPath = join(LAUNCHERS_DIR, `${agentId}.mjs`);
   let systemPrompt = `You are ${agentName}, one of the agents in the Isomux office. Your goal is to help the office bosses, who talk to you in this chat. Messages are prefixed with the sender's name in brackets.
 
@@ -207,6 +216,9 @@ Don't read or update the task board unless the boss mentions it.
 To show an image to the boss, read the image file with the Read tool — it renders inline in the conversation.`;
   if (officePrompt) {
     systemPrompt += `\n\n${officePrompt}`;
+  }
+  if (roomPrompt) {
+    systemPrompt += `\n\n${roomPrompt}`;
   }
   if (customInstructions) {
     systemPrompt += `\n\n${customInstructions}`;
@@ -253,35 +265,81 @@ type AgentEvent =
   | { type: "agent_removed"; agentId: string }
   | { type: "agent_updated"; agentId: string; changes: Partial<AgentInfo> }
   | { type: "log_entry"; entry: LogEntry }
-  | { type: "room_created"; roomCount: number; roomName: string }
-  | { type: "room_closed"; room: number; roomCount: number }
-  | { type: "room_renamed"; room: number; name: string }
-  | { type: "rooms_reordered"; order: number[] };
+  | { type: "room_created"; room: RoomWire }
+  | { type: "room_closed"; roomId: string }
+  | { type: "room_renamed"; roomId: string; name: string }
+  | { type: "room_settings_updated"; roomId: string; prompt: string | null; envFile: string | null }
+  | { type: "office_settings_updated"; prompt: string; envFile: string | null }
+  | { type: "rooms_reordered"; order: string[] };
 
 type EventHandler = (event: AgentEvent) => void;
+
+// Internal room state: an ordered list of rooms, each with a stable id and its
+// own settings. Agent membership is tracked on the agents map (agent.info.room
+// is the index into this array — kept in sync for rendering).
+interface InternalRoom {
+  id: string;
+  name: string;
+  prompt: string | null;
+  envFile: string | null;
+}
 
 const agents = new Map<string, ManagedAgent>();
 const logCache = new Map<string, LogEntry[]>(); // agentId → entries
 let eventHandler: EventHandler = () => {};
-let officePrompt: string = loadOfficePrompt();
-let roomCount: number = 1; // number of rooms (at least 1)
-let roomNames: string[] = ["Room 1"];
+let officeConfig: OfficeConfig = loadOfficeConfig();
+let rooms: InternalRoom[] = [{ id: generateRoomId(), name: "Room 1", prompt: null, envFile: null }];
 
-export function getRoomCount(): number {
-  return roomCount;
+function roomsWire(): RoomWire[] {
+  return rooms.map((r) => ({ id: r.id, name: r.name, prompt: r.prompt, envFile: r.envFile }));
 }
 
-export function getRoomNames(): string[] {
-  return [...roomNames];
+function findRoomIndex(roomId: string): number {
+  return rooms.findIndex((r) => r.id === roomId);
 }
 
-export function getOfficePrompt(): string {
-  return officePrompt;
+export function getRooms(): RoomWire[] {
+  return roomsWire();
 }
 
-export function setOfficePrompt(text: string) {
-  officePrompt = text.trim();
-  saveOfficePrompt(officePrompt);
+export function getOfficeSettings(): OfficeSettings {
+  return { prompt: officeConfig.prompt, envFile: officeConfig.envFile };
+}
+
+// Update office settings. Caller is responsible for validating envFile (see validateEnvPath).
+export function setOfficeSettings(prompt: string, envFile: string | null) {
+  officeConfig = { prompt: prompt.trim(), envFile: envFile || null };
+  saveOfficeConfig(officeConfig);
+  // Regenerate all launchers so the new office prompt takes effect on next conversation.
+  // (Env is read fresh at every createSession, but the prompt is baked into the .mjs launcher file.)
+  for (const managed of agents.values()) {
+    const room = rooms[managed.info.room];
+    managed.launcherPath = createLauncher(managed.info.id, managed.info.cwd, managed.info.name, officeConfig.prompt, room?.prompt ?? null, managed.info.customInstructions);
+  }
+  eventHandler({ type: "office_settings_updated", prompt: officeConfig.prompt, envFile: officeConfig.envFile });
+}
+
+export function setRoomSettings(roomId: string, prompt: string | null, envFile: string | null): boolean {
+  const idx = findRoomIndex(roomId);
+  if (idx < 0) return false;
+  const room = rooms[idx];
+  room.prompt = prompt && prompt.trim() ? prompt.trim() : null;
+  room.envFile = envFile || null;
+  persistAll();
+  // Regenerate launchers for agents in this room so the new room prompt takes effect next conversation.
+  for (const managed of agents.values()) {
+    if (managed.info.room === idx) {
+      managed.launcherPath = createLauncher(managed.info.id, managed.info.cwd, managed.info.name, officeConfig.prompt, room.prompt, managed.info.customInstructions);
+    }
+  }
+  eventHandler({ type: "room_settings_updated", roomId, prompt: room.prompt, envFile: room.envFile });
+  return true;
+}
+
+// Validate an env file path. Returns key count on success, throws on failure.
+export function validateEnvPath(path: string): number {
+  const parsed = readEnvFile(path);
+  return Object.keys(parsed).length;
 }
 
 export function onEvent(handler: EventHandler) {
@@ -345,7 +403,8 @@ export function editAgent(agentId: string, changes: { name?: string; cwd?: strin
 
   // Regenerate launcher if name, cwd, or customInstructions changed (takes effect on next conversation)
   if (updated.name !== undefined || updated.cwd !== undefined || updated.customInstructions !== undefined) {
-    managed.launcherPath = createLauncher(agentId, managed.info.cwd, managed.info.name, officePrompt, managed.info.customInstructions);
+    const room = rooms[managed.info.room];
+    managed.launcherPath = createLauncher(agentId, managed.info.cwd, managed.info.name, officeConfig.prompt, room?.prompt ?? null, managed.info.customInstructions);
   }
 
   // Recreate session if model family changed so it takes effect immediately
@@ -359,12 +418,13 @@ export function editAgent(agentId: string, changes: { name?: string; cwd?: strin
   eventHandler({ type: "agent_updated", agentId, changes: updated });
 }
 
-export function swapDesks(deskA: number, deskB: number, room: number) {
+export function swapDesks(deskA: number, deskB: number, roomId: string) {
   if (deskA === deskB || deskA < 0 || deskA > 7 || deskB < 0 || deskB > 7) return;
-  if (room < 0 || room >= roomCount) return;
+  const roomIdx = findRoomIndex(roomId);
+  if (roomIdx < 0) return;
   const allManaged = [...agents.values()];
-  const agentA = allManaged.find((m) => m.info.desk === deskA && m.info.room === room);
-  const agentB = allManaged.find((m) => m.info.desk === deskB && m.info.room === room);
+  const agentA = allManaged.find((m) => m.info.desk === deskA && m.info.room === roomIdx);
+  const agentB = allManaged.find((m) => m.info.desk === deskB && m.info.room === roomIdx);
   if (!agentA && !agentB) return;
 
   if (agentA) {
@@ -378,69 +438,73 @@ export function swapDesks(deskA: number, deskB: number, room: number) {
   persistAll();
 }
 
-export function createRoom(name?: string): number {
-  roomCount++;
-  roomNames.push((name || `Room ${roomCount}`).trim().slice(0, 40));
+export function createRoom(name?: string): string {
+  const existingIds = rooms.map((r) => r.id);
+  const id = generateRoomId(existingIds);
+  const displayName = (name || `Room ${rooms.length + 1}`).trim().slice(0, 40);
+  const room: InternalRoom = { id, name: displayName, prompt: null, envFile: null };
+  rooms.push(room);
   persistAll();
-  eventHandler({ type: "room_created", roomCount, roomName: roomNames[roomCount - 1] });
-  return roomCount;
+  eventHandler({ type: "room_created", room: { id: room.id, name: room.name, prompt: room.prompt, envFile: room.envFile } });
+  return id;
 }
 
-export function closeRoom(room: number): boolean {
-  if (room === 0) return false; // Room 1 is permanent
-  if (room < 0 || room >= roomCount) return false;
+export function closeRoom(roomId: string): boolean {
+  const roomIdx = findRoomIndex(roomId);
+  if (roomIdx <= 0) return false; // Room 1 is permanent, and unknown ids reject
   // Check room is empty
-  const roomAgents = [...agents.values()].filter((a) => a.info.room === room);
+  const roomAgents = [...agents.values()].filter((a) => a.info.room === roomIdx);
   if (roomAgents.length > 0) return false;
 
-  roomCount--;
-  roomNames.splice(room, 1);
+  rooms.splice(roomIdx, 1);
   // Renumber agents in higher rooms
   for (const managed of agents.values()) {
-    if (managed.info.room > room) {
+    if (managed.info.room > roomIdx) {
       managed.info.room--;
       eventHandler({ type: "agent_updated", agentId: managed.info.id, changes: { room: managed.info.room } });
     }
   }
   persistAll();
-  eventHandler({ type: "room_closed", room, roomCount });
+  eventHandler({ type: "room_closed", roomId });
   return true;
 }
 
-export function renameRoom(room: number, name: string): boolean {
-  if (room < 0 || room >= roomCount) return false;
+export function renameRoom(roomId: string, name: string): boolean {
+  const roomIdx = findRoomIndex(roomId);
+  if (roomIdx < 0) return false;
   const trimmed = name.trim().slice(0, 40);
   if (!trimmed) return false;
-  roomNames[room] = trimmed;
+  rooms[roomIdx].name = trimmed;
   persistAll();
-  eventHandler({ type: "room_renamed", room, name: trimmed });
+  eventHandler({ type: "room_renamed", roomId, name: trimmed });
   return true;
 }
 
-export function reorderRooms(order: number[]): boolean {
-  // Validate: must be a valid permutation of [0..roomCount-1]
-  if (order.length !== roomCount) return false;
-  const seen = new Set<number>();
-  for (const idx of order) {
-    if (typeof idx !== "number" || idx < 0 || idx >= roomCount || seen.has(idx)) return false;
-    seen.add(idx);
+export function reorderRooms(order: string[]): boolean {
+  // Must be a permutation of the existing room ids
+  if (order.length !== rooms.length) return false;
+  const currentIds = new Set(rooms.map((r) => r.id));
+  const seen = new Set<string>();
+  for (const id of order) {
+    if (typeof id !== "string" || !currentIds.has(id) || seen.has(id)) return false;
+    seen.add(id);
   }
-  // Check if it's a no-op
-  if (order.every((v, i) => v === i)) return false;
+  // No-op check
+  if (order.every((id, i) => id === rooms[i].id)) return false;
 
-  // Build reverse mapping: reverseMap[oldIndex] = newIndex
-  const reverseMap = new Array<number>(roomCount);
+  // Build reverseMap: oldIdx → newIdx, keyed by current position.
+  const oldIndexById = new Map(rooms.map((r, i) => [r.id, i] as const));
+  const reverseMap = new Array<number>(rooms.length);
   for (let newIdx = 0; newIdx < order.length; newIdx++) {
-    reverseMap[order[newIdx]] = newIdx;
+    reverseMap[oldIndexById.get(order[newIdx])!] = newIdx;
   }
 
-  // Reorder roomNames
-  const newNames = order.map((oldIdx) => roomNames[oldIdx]);
-  roomNames.length = 0;
-  roomNames.push(...newNames);
+  // Reorder rooms
+  const byId = new Map(rooms.map((r) => [r.id, r] as const));
+  rooms = order.map((id) => byId.get(id)!);
 
-  // Remap every agent's room field (no individual agent_updated events —
-  // clients remap atomically from the rooms_reordered message)
+  // Remap every agent's room index (no individual agent_updated — clients
+  // remap atomically from the rooms_reordered message)
   for (const managed of agents.values()) {
     managed.info.room = reverseMap[managed.info.room];
   }
@@ -450,14 +514,15 @@ export function reorderRooms(order: number[]): boolean {
   return true;
 }
 
-export function moveAgent(agentId: string, targetRoom: number): boolean {
+export function moveAgent(agentId: string, targetRoomId: string): boolean {
   const managed = agents.get(agentId);
   if (!managed) return false;
-  if (targetRoom < 0 || targetRoom >= roomCount) return false;
-  if (managed.info.room === targetRoom) return false;
+  const targetIdx = findRoomIndex(targetRoomId);
+  if (targetIdx < 0) return false;
+  if (managed.info.room === targetIdx) return false;
 
   // Find first available desk in target room
-  const targetAgents = [...agents.values()].filter((a) => a.info.room === targetRoom);
+  const targetAgents = [...agents.values()].filter((a) => a.info.room === targetIdx);
   if (targetAgents.length >= 8) return false;
   const taken = new Set(targetAgents.map((a) => a.info.desk));
   let newDesk = -1;
@@ -466,9 +531,12 @@ export function moveAgent(agentId: string, targetRoom: number): boolean {
   }
   if (newDesk === -1) return false;
 
-  managed.info.room = targetRoom;
+  managed.info.room = targetIdx;
   managed.info.desk = newDesk;
-  eventHandler({ type: "agent_updated", agentId, changes: { room: targetRoom, desk: newDesk } });
+  // Moving rooms changes room prompt context — regenerate launcher so the
+  // agent sees the new room's prompt on the next conversation.
+  managed.launcherPath = createLauncher(agentId, managed.info.cwd, managed.info.name, officeConfig.prompt, rooms[targetIdx].prompt, managed.info.customInstructions);
+  eventHandler({ type: "agent_updated", agentId, changes: { room: targetIdx, desk: newDesk } });
   persistAll();
   return true;
 }
@@ -483,7 +551,7 @@ function updateManifest() {
     name: a.info.name,
     desk: a.info.desk,
     room: a.info.room,
-    roomName: roomNames[a.info.room] ?? `Room ${a.info.room + 1}`,
+    roomName: rooms[a.info.room]?.name ?? `Room ${a.info.room + 1}`,
     topic: a.info.topic,
     cwd: a.info.cwd,
     modelFamily: a.info.modelFamily,
@@ -492,14 +560,17 @@ function updateManifest() {
 }
 
 function persistAll() {
-  const rooms: PersistedRoom[] = Array.from({ length: roomCount }, (_, i) => ({
-    name: roomNames[i] ?? `Room ${i + 1}`,
+  const persistedRooms: Room[] = rooms.map((r) => ({
+    id: r.id,
+    name: r.name,
+    prompt: r.prompt,
+    envFile: r.envFile,
     agents: [] as PersistedAgent[],
   }));
   for (const a of agents.values()) {
     const room = a.info.room;
-    if (room >= 0 && room < roomCount) {
-      rooms[room].agents.push({
+    if (room >= 0 && room < persistedRooms.length) {
+      persistedRooms[room].agents.push({
         id: a.info.id,
         name: a.info.name,
         desk: a.info.desk,
@@ -513,7 +584,7 @@ function persistAll() {
       });
     }
   }
-  saveAgents(rooms);
+  saveAgents(persistedRooms);
   updateManifest();
 }
 
@@ -523,13 +594,13 @@ export async function restoreAgents() {
   rmSync(LAUNCHERS_DIR, { recursive: true, force: true });
   mkdirSync(LAUNCHERS_DIR, { recursive: true });
 
-  const rooms = loadAgents();
-  roomCount = rooms.length;
-  roomNames = rooms.map(r => r.name);
+  const loaded = loadAgents();
+  rooms = loaded.map((r) => ({ id: r.id, name: r.name, prompt: r.prompt, envFile: r.envFile }));
 
-  for (let roomIdx = 0; roomIdx < rooms.length; roomIdx++) {
-    for (const p of rooms[roomIdx].agents) {
-      const launcherPath = createLauncher(p.id, p.cwd, p.name, officePrompt, p.customInstructions);
+  for (let roomIdx = 0; roomIdx < loaded.length; roomIdx++) {
+    const roomPrompt = loaded[roomIdx].prompt;
+    for (const p of loaded[roomIdx].agents) {
+      const launcherPath = createLauncher(p.id, p.cwd, p.name, officeConfig.prompt, roomPrompt, p.customInstructions);
       const info: AgentInfo = {
         id: p.id,
         name: p.name,
@@ -589,6 +660,10 @@ export async function restoreAgents() {
       }
     }
   }
+  // Round-trip migrations back to disk in case the load step filled in new
+  // fields (room ids, prompt/envFile defaults) that weren't present before.
+  // Must run AFTER agents are populated or persistAll writes empty rooms.
+  persistAll();
   return [...agents.values()].map((a) => a.info);
 }
 
@@ -962,6 +1037,28 @@ function sdkPermissionMode(mode: AgentInfo["permissionMode"]) {
   return mode;
 }
 
+// Merge process.env with office and room env files.
+// Room overrides office; office overrides process.env. Spawn-time failure mode:
+// if a configured env file is missing or fails to parse, throw — the caller is
+// responsible for surfacing the error to the agent log.
+function buildSessionEnv(managed: ManagedAgent): { [key: string]: string | undefined } | undefined {
+  const room = rooms[managed.info.room];
+  const roomEnvFile = room?.envFile ?? null;
+  const officeEnvFile = officeConfig.envFile;
+  if (!roomEnvFile && !officeEnvFile) return undefined;
+
+  const merged: { [key: string]: string | undefined } = { ...process.env };
+  if (officeEnvFile) {
+    const officeEnv = readEnvFile(officeEnvFile);
+    Object.assign(merged, officeEnv);
+  }
+  if (roomEnvFile) {
+    const roomEnv = readEnvFile(roomEnvFile);
+    Object.assign(merged, roomEnv);
+  }
+  return merged;
+}
+
 function createSession(managed: ManagedAgent, resumeSessionId?: string) {
   const opts: any = {
     model: FAMILY_TO_MODEL[managed.info.modelFamily],
@@ -969,6 +1066,8 @@ function createSession(managed: ManagedAgent, resumeSessionId?: string) {
     pathToClaudeCodeExecutable: managed.launcherPath,
     hooks: createSafetyHooks(),
   };
+  const env = buildSessionEnv(managed);
+  if (env) opts.env = env;
   if (resumeSessionId) {
     opts.resume = resumeSessionId;
   }
@@ -977,13 +1076,17 @@ function createSession(managed: ManagedAgent, resumeSessionId?: string) {
     : unstable_v2_createSession(opts);
 }
 
-export async function spawn(name: string, cwd: string, permissionMode: AgentInfo["permissionMode"], desk?: number, customInstructions?: string, room?: number, outfit?: AgentOutfit, modelFamily?: ModelFamily): Promise<AgentInfo | null> {
+export async function spawn(name: string, cwd: string, permissionMode: AgentInfo["permissionMode"], desk?: number, customInstructions?: string, roomId?: string, outfit?: AgentOutfit, modelFamily?: ModelFamily): Promise<AgentInfo | null> {
   // Reject duplicate names across all rooms
   const nameLower = name.trim().toLowerCase();
   for (const a of agents.values()) {
     if (a.info.name.toLowerCase() === nameLower) return null;
   }
-  const targetRoom = (room !== undefined && room >= 0 && room < roomCount) ? room : 0;
+  let targetRoom = 0;
+  if (roomId) {
+    const idx = findRoomIndex(roomId);
+    if (idx >= 0) targetRoom = idx;
+  }
   const roomAgents = [...agents.values()].filter((a) => a.info.room === targetRoom);
   const taken = new Set(roomAgents.map((a) => a.info.desk));
   if (desk !== undefined && !taken.has(desk)) {
@@ -999,7 +1102,8 @@ export async function spawn(name: string, cwd: string, permissionMode: AgentInfo
 
   const resolvedCwd = resolveCwd(cwd);
   const id = `agent-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-  const launcherPath = createLauncher(id, resolvedCwd, name, officePrompt, customInstructions);
+  const roomPrompt = rooms[targetRoom]?.prompt ?? null;
+  const launcherPath = createLauncher(id, resolvedCwd, name, officeConfig.prompt, roomPrompt, customInstructions);
 
   const info: AgentInfo = {
     id,

@@ -11,9 +11,9 @@ const CAT_PALETTES = [
 ];
 
 export function RoomProps() {
-  const { currentRoom, roomCount } = useAppState();
+  const { currentRoom, rooms } = useAppState();
   const cat = CAT_PALETTES[currentRoom % CAT_PALETTES.length];
-  const isLastRoom = currentRoom === roomCount - 1;
+  const isLastRoom = currentRoom === rooms.length - 1;
   return (
     <svg
       style={{ position: "absolute", top: 0, left: 0, pointerEvents: "none" }}

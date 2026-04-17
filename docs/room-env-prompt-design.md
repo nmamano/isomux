@@ -1,6 +1,6 @@
 # Per-Room Environment Variables and Prompt Hierarchy
 
-Design doc for supporting per-room env vars and a layered prompt system.
+Design doc for per-room env vars and a layered prompt system.
 
 ## Problem
 
@@ -12,8 +12,8 @@ Three users share one isomux office (same Linux user). Each user's agents live i
 
 Three layers, concatenated in order with clear headers. No layer overrides another; they accumulate. The agent sees all three.
 
-- **Office prompt** — already exists (`~/.isomux/office-prompt.md`, edited via OfficePromptModal)
-- **Room prompt** — new, stored inline in `Room` type within `agents.json`
+- **Office prompt** — already exists, now stored in `~/.isomux/office-config.json` (see Storage below)
+- **Room prompt** — new, stored inline on `Room`
 - **Agent prompt** — already exists (`customInstructions` field on agent)
 
 ### Env hierarchy: office → room
@@ -23,7 +23,7 @@ Two layers. Shallow merge — room env overrides matching keys from office env. 
 - **Office env** — new, loaded from a user-specified file path
 - **Room env** — new, loaded from a user-specified file path
 
-No per-agent env. Identity is per-room (all agents in a room act as the same user). If a use case emerges, adding `envFile` to the agent type is trivial.
+No per-agent env. Identity is per-room (all agents in a room act as the same user). Adding per-agent env later is trivial (new `envFile` field on the agent type).
 
 ### Env files are user-managed, paths are absolute
 
@@ -39,6 +39,18 @@ GIT_AUTHOR_EMAIL=marc@example.com
 GIT_COMMITTER_NAME=Marc
 GIT_COMMITTER_EMAIL=marc@example.com
 ```
+
+### Env merge semantics
+
+At spawn time:
+
+```
+merged = { ...process.env, ...officeEnv, ...roomEnv }
+```
+
+- Room env beats office env beats `process.env`.
+- An explicit empty-string value overrides (does not fall through). To inherit, omit the key.
+- No blocklist. Office/room env can override any key, including `PATH`, `HOME`, `SHELL`, etc. Users are responsible for the contents of their own env files.
 
 ### Env injection via SDK, not launcher scripts
 
@@ -58,13 +70,23 @@ Spawn path:
 3. Merge: `{ ...process.env, ...officeEnv, ...roomEnv }`
 4. Pass to `unstable_v2_createSession({ env: mergedEnv, ... })`
 
+### Spawn-time failure mode
+
+If `envFile` is set but the file is missing, unreadable, or fails to parse, **the spawn fails loudly** with the error surfaced in the agent log. Silent fallback is the wrong default for a credentials feature — spawning without the expected identity would risk commits under the wrong user.
+
+### Effect timing
+
+Changes to prompts and env file paths take effect on the next agent conversation, not mid-session. This matches the existing office prompt behavior.
+
 ### Rooms get stable IDs
 
 Rooms are currently identified by array index, which shifts on reorder/delete. Room names are mutable display strings. Neither is suitable for anchoring configuration.
 
 Each room gets an `id` field: 8-character random hex string, generated at creation time. Internal only, never shown in UI. Existing rooms get IDs assigned on first load (migration).
 
-### Data model changes
+All room-targeting wire messages key by `id`. Index remains a client-side rendering concern (tab order). See **Wire protocol** below.
+
+### Data model
 
 Rename `PersistedRoom` to `Room`:
 
@@ -72,57 +94,129 @@ Rename `PersistedRoom` to `Room`:
 interface Room {
   id: string;                  // stable 8-char hex, e.g. "a3f8b2e1"
   name: string;                // display name, user-editable
-  prompt: string | null;       // room-level prompt, concatenated after office prompt
+  prompt: string | null;       // room-level prompt
   envFile: string | null;      // absolute path to dotenv file
   agents: PersistedAgent[];
 }
 ```
 
-Office-level env file path needs a home. Options:
-- New field in a hypothetical office config file
-- Stored alongside `office-prompt.md` as a sibling setting
-- Added to an existing persistence structure
+### Storage
 
-This is unresolved. The office prompt is currently a standalone file (`office-prompt.md`) with its path hardcoded in `persistence.ts`. The office env file path needs similar treatment — likely a small `office-config.json` or similar. To be decided during implementation.
+**Office-level settings** live in `~/.isomux/office-config.json`:
 
-### Wire protocol changes
+```json
+{
+  "prompt": "...",
+  "envFile": "/home/nil/.secrets/office.env"
+}
+```
 
-`full_state` message adds:
-- `rooms: { id: string; name: string; prompt: string | null; envFile: string | null }[]` (agents already transmitted separately)
+The existing standalone `~/.isomux/office-prompt.md` is folded into this JSON. Migration on first load: if `office-config.json` does not exist but `office-prompt.md` does, read the prompt, write the config, and leave the old `.md` file in place as a one-time backup the user can delete.
 
-New server messages:
-- `{ type: "room_settings_updated"; room: number; prompt: string | null; envFile: string | null }`
+**Rooms** continue to live in `~/.isomux/agents.json`, now including `id`, `prompt`, and `envFile` per room. Migration on first load: any room without an `id` gets one generated and the file is rewritten.
 
-New client commands:
-- `{ type: "update_room_settings"; room: number; prompt: string | null; envFile: string | null }`
-- `{ type: "set_office_env_file"; path: string | null }`
+The office prompt is no longer hand-edited as a file — the UI is the edit surface.
 
-### Effect timing
+### Wire protocol
 
-Changes to prompts and env file paths take effect on the next agent conversation, not mid-session. This matches the existing office prompt behavior ("Changes take effect when an agent starts a new conversation").
+All room-targeting messages key by `roomId: string`, never index. Existing rename/close/reorder commands flip from `room: number` to `roomId: string` as part of this change.
 
-## Unresolved: UI
+Updates always carry the full tuple (no partial updates). Empty strings are normalized to `null` on the server for `prompt` and `envFile`.
 
-The settings UI was not fully designed. Entry points that need design:
+**Client → server commands:**
 
-- **Office level**: `OfficePromptModal` exists (prompt + boss name). Needs office env file path added.
-- **Room level**: no settings surface exists. Needs room prompt + env file path. Entry point TBD (tab context menu, gear icon, or other).
-- **Agent level**: `EditAgentDialog` exists. No changes needed for this feature.
+```typescript
+{ type: "update_office_settings"; prompt: string; envFile: string | null }
+{ type: "update_room_settings"; roomId: string; prompt: string | null; envFile: string | null }
+```
 
-The UI design should be done holistically — office settings, room settings, and how they relate visually and in interaction flow.
+`set_office_prompt` is removed (consolidated into `update_office_settings`).
+
+**Server → client broadcasts:**
+
+```typescript
+{ type: "office_settings_updated"; prompt: string; envFile: string | null }
+{ type: "room_settings_updated"; roomId: string; prompt: string | null; envFile: string | null }
+```
+
+**`full_state` shape change:**
+
+```typescript
+{
+  office: { prompt: string; envFile: string | null };
+  rooms: { id: string; name: string; prompt: string | null; envFile: string | null }[];
+  // agents still transmitted separately
+}
+```
+
+`officePrompt` at the top level is removed.
+
+### Validation
+
+When an `update_*_settings` command includes a non-null `envFile`, the server reads and parses the file before persisting.
+
+- **Valid:** persist, broadcast the update, respond with `{ ok: true, keyCount: N }` to the requesting client for inline feedback.
+- **Invalid:** reject the save. Nothing is persisted, nothing is broadcast. Respond with `{ ok: false, error: "..." }` (e.g. "file not found", "parse error at line 3"). The UI keeps the modal open and shows the error.
+
+Validation also runs on modal open: the server re-checks the saved `envFile` path so stale paths (file moved or renamed since last save) surface a warning without requiring a spawn attempt.
+
+The server never returns key names to the client — only a count. Avoids shoulder-surfing disclosure.
+
+## UI
+
+### Office settings
+
+- **Entry point (unchanged):** the existing "Office settings" button in the top HUD (desktop) and the three-dots dropdown menu (mobile).
+- **Modal (extended `OfficePromptModal`):** Boss Title → Env File Path *(optional)* → Rules (prompt textarea). Short inputs first, long textarea last, so layout stays stable during typing.
+- **Validation feedback** inline under the Env File Path input. Success: "Loaded N variables." Failure: the server error message (missing path, parse error).
+- "Changes take effect on next conversation" copy remains.
+
+### Room settings
+
+- **Entry point:**
+  - Desktop: right-click a room tab → context menu → "Room settings…"
+  - Mobile: long-press a tab opens the same context menu; the three-dots dropdown menu also includes "Room settings" scoped to the currently active room.
+- **Context menu contents:** `Rename`, `Room settings…`, `Close room`. Inline double-click-to-rename and inline `×` remain as shortcuts.
+- Right-clicking / long-pressing a non-active tab **does not switch rooms** — the menu (and the modal it opens) operates on the clicked tab's `roomId` while the current view stays put.
+- **Modal (new `RoomSettingsModal`, same visual style as `OfficePromptModal` — ~440px overlay, blurred backdrop):** Env File Path *(optional)* → Room Prompt *(optional)* textarea. Same validation feedback and "changes take effect" copy as the office modal. No Name field — inline double-click-rename stays the canonical rename affordance.
+
+### Env file path input
+
+- Plain text input, absolute path. No file picker, no autocomplete.
+- "(optional)" label on the field.
+- Validation shown inline under the input, updated on open and on save.
+
+### Prompt hierarchy visualization
+
+Not included in this feature. Each layer is edited in one place and the user can cross-reference by opening the other modal. A read-only "full stack" inspector that shows Office + Room + Agent concatenated as the agent actually receives it is tracked as a separate task (`9a1f8190`).
+
+## Client store
+
+Refactor `AppState` from parallel arrays to a unified rooms list:
+
+```typescript
+rooms: { id: string; name: string; prompt: string | null; envFile: string | null }[]
+```
+
+Replaces `roomCount`, `roomNames`. `currentRoom` remains an index for UI selection.
 
 ## Files to modify
 
-1. `shared/types.ts` — Room type (renamed from PersistedRoom), wire protocol additions
-2. `server/persistence.ts` — Room type, loadAgents migration (add IDs to existing rooms), env file reading
-3. `server/agent-manager.ts` — room settings state, env merging at spawn time, pass `env` to SDK session
-4. `server/index.ts` — handle new commands, include room metadata in full_state
-5. `ui/store.tsx` — room metadata in state, reducer cases
-6. UI components — TBD pending UI design
+1. `shared/types.ts` — `Room` type (renamed from `PersistedRoom`), wire protocol additions.
+2. `server/persistence.ts` — `Room` type, migrations (room ID assignment, `office-prompt.md` → `office-config.json` fold), read/write of `office-config.json`, env file reading.
+3. `server/agent-manager.ts` — room/office settings state, env merging at spawn time, pass `env` to SDK session, office prompt lookup moves from the `.md` file to the config.
+4. `server/index.ts` — handle `update_office_settings` / `update_room_settings`, validate env files on save and on settings fetch, include `office` + full room shape in `full_state`, remove `set_office_prompt`.
+5. `ui/store.tsx` — unified `rooms` array, reducer cases for the new broadcasts, `office` object replacing `officePrompt`.
+6. `ui/components/OfficePromptModal.tsx` — add Env File Path input and validation feedback.
+7. `ui/components/RoomSettingsModal.tsx` — new modal in the `OfficePromptModal` style.
+8. `ui/office/RoomTabBar.tsx` — context menu (desktop right-click, mobile long-press), Rename / Room settings / Close room entries, roomId-keyed updates.
+9. `ui/office/MobileHeader.tsx` — add "Room settings" entry (scoped to active room) to the dropdown menu.
+10. `ui/components/EditAgentDialog.tsx` — flip "Move to Room" to `roomId` keying (not index).
 
 ## Out of scope
 
-- Per-agent env vars
-- Env file creation/editing UI (users manage files externally)
-- Encryption at rest (inherent limitation of single Linux user; real isolation needs the hub)
-- Validating env file contents beyond basic dotenv parsing
+- Per-agent env vars.
+- Prompt stack inspector (tracked as task `9a1f8190`).
+- Env file creation/editing UI (users manage files externally).
+- Encryption at rest (inherent limitation of single Linux user; real isolation needs the hub).
+- Validating env file contents beyond basic dotenv parsing (key names, value shapes, duplicate detection).

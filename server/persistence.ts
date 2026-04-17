@@ -1,14 +1,15 @@
 import { join } from "path";
 import { homedir } from "os";
-import { mkdirSync, appendFileSync, readFileSync, writeFileSync, existsSync, readdirSync, unlinkSync } from "fs";
+import { mkdirSync, appendFileSync, readFileSync, writeFileSync, existsSync, readdirSync } from "fs";
 import { createHash } from "crypto";
 import type { AgentInfo, Attachment, ClaudeModel, LogEntry, ModelFamily, TaskItem } from "../shared/types.ts";
-import { familyFromLegacyModel } from "../shared/types.ts";
+import { familyFromLegacyModel, generateRoomId } from "../shared/types.ts";
 
 const ISOMUX_DIR = join(homedir(), ".isomux");
 const LOGS_DIR = join(ISOMUX_DIR, "logs");
 const AGENTS_FILE = join(ISOMUX_DIR, "agents.json");
 const OFFICE_PROMPT_FILE = join(ISOMUX_DIR, "office-prompt.md");
+const OFFICE_CONFIG_FILE = join(ISOMUX_DIR, "office-config.json");
 const TASKS_FILE = join(ISOMUX_DIR, "tasks.json");
 
 // Ensure directories exist
@@ -70,7 +71,7 @@ export function loadLogWithAncestors(agentId: string, sessionId: string): LogEnt
   while (current) {
     if (visited.has(current)) break;
     visited.add(current);
-    const meta = sessionsMap[current];
+    const meta: { forkedFrom?: string; forkMessageId?: string } | undefined = sessionsMap[current];
     chain.unshift({ sessionId: current, forkMessageId: meta?.forkMessageId });
     current = meta?.forkedFrom;
   }
@@ -203,42 +204,60 @@ function migratePersistedAgent(agent: any) {
   }
 }
 
-export interface PersistedRoom {
-  name: string;
+export interface Room {
+  id: string;                  // stable 8-char hex
+  name: string;                // display name
+  prompt: string | null;       // room-level prompt
+  envFile: string | null;      // absolute path to dotenv file
   agents: PersistedAgent[];
 }
 
-export function loadAgents(): PersistedRoom[] {
+export function loadAgents(): Room[] {
+  const defaultRoom = (): Room => ({ id: generateRoomId(), name: "Room 1", prompt: null, envFile: null, agents: [] });
+  let rooms: any[];
   try {
-    if (!existsSync(AGENTS_FILE)) return [{ name: "Room 1", agents: [] }];
+    if (!existsSync(AGENTS_FILE)) return [defaultRoom()];
     const content = readFileSync(AGENTS_FILE, "utf-8");
     const parsed = JSON.parse(content);
-    if (!Array.isArray(parsed) || parsed.length === 0) return [{ name: "Room 1", agents: [] }];
+    if (!Array.isArray(parsed) || parsed.length === 0) return [defaultRoom()];
 
     const first = parsed[0];
-    let rooms: PersistedRoom[];
 
     if (first && typeof first === "object" && "name" in first && "agents" in first) {
-      rooms = parsed as PersistedRoom[];
+      rooms = parsed;
     } else if (Array.isArray(first)) {
       rooms = (parsed as PersistedAgent[][]).map((agents, i) => ({
+        id: generateRoomId(),
         name: `Room ${i + 1}`,
+        prompt: null,
+        envFile: null,
         agents,
       }));
     } else {
-      rooms = [{ name: "Room 1", agents: parsed as PersistedAgent[] }];
+      rooms = [{ id: generateRoomId(), name: "Room 1", prompt: null, envFile: null, agents: parsed as PersistedAgent[] }];
     }
-
-    for (const room of rooms) {
-      for (const agent of room.agents) migratePersistedAgent(agent);
-    }
-    return rooms;
   } catch {
-    return [{ name: "Room 1", agents: [] }];
+    return [defaultRoom()];
   }
+
+  // Migrate each room: fill in missing id / prompt / envFile.
+  // Collect already-present ids to avoid collisions during migration.
+  const existingIds: string[] = rooms
+    .map((r) => r.id)
+    .filter((id): id is string => typeof id === "string" && id.length > 0);
+  for (const room of rooms) {
+    if (typeof room.id !== "string" || room.id.length === 0) {
+      room.id = generateRoomId(existingIds);
+      existingIds.push(room.id);
+    }
+    if (typeof room.prompt !== "string") room.prompt = null;
+    if (typeof room.envFile !== "string") room.envFile = null;
+    for (const agent of room.agents as PersistedAgent[]) migratePersistedAgent(agent);
+  }
+  return rooms as Room[];
 }
 
-export function saveAgents(rooms: PersistedRoom[]) {
+export function saveAgents(rooms: Room[]) {
   try {
     writeFileSync(AGENTS_FILE, JSON.stringify(rooms, null, 2));
   } catch (err) {
@@ -292,27 +311,107 @@ export function saveRecentCwd(cwd: string) {
   }
 }
 
-// Office-global system prompt
-export function loadOfficePrompt(): string {
+// Office-level settings (prompt + env file path) stored in office-config.json.
+// On first load, if the legacy office-prompt.md exists and no config file does,
+// fold the .md content into the JSON and leave the .md in place as a one-time backup.
+export interface OfficeConfig {
+  prompt: string;
+  envFile: string | null;
+}
+
+export function loadOfficeConfig(): OfficeConfig {
   try {
-    if (!existsSync(OFFICE_PROMPT_FILE)) return "";
-    return readFileSync(OFFICE_PROMPT_FILE, "utf-8");
-  } catch {
-    return "";
+    if (existsSync(OFFICE_CONFIG_FILE)) {
+      const parsed = JSON.parse(readFileSync(OFFICE_CONFIG_FILE, "utf-8")) as Partial<OfficeConfig>;
+      return {
+        prompt: typeof parsed.prompt === "string" ? parsed.prompt : "",
+        envFile: typeof parsed.envFile === "string" && parsed.envFile ? parsed.envFile : null,
+      };
+    }
+  } catch (err) {
+    console.error("Failed to load office config:", err);
+  }
+  // Migration: fold legacy office-prompt.md into the config on first load.
+  let legacyPrompt = "";
+  try {
+    if (existsSync(OFFICE_PROMPT_FILE)) {
+      legacyPrompt = readFileSync(OFFICE_PROMPT_FILE, "utf-8");
+    }
+  } catch {}
+  const config: OfficeConfig = { prompt: legacyPrompt, envFile: null };
+  // Write the config so subsequent loads skip the migration branch.
+  try {
+    writeFileSync(OFFICE_CONFIG_FILE, JSON.stringify(config, null, 2));
+  } catch (err) {
+    console.error("Failed to write initial office config:", err);
+  }
+  return config;
+}
+
+export function saveOfficeConfig(config: OfficeConfig) {
+  try {
+    writeFileSync(OFFICE_CONFIG_FILE, JSON.stringify(config, null, 2));
+  } catch (err) {
+    console.error("Failed to save office config:", err);
   }
 }
 
-export function saveOfficePrompt(text: string) {
-  try {
-    const trimmed = text.trim();
-    if (trimmed) {
-      writeFileSync(OFFICE_PROMPT_FILE, trimmed);
-    } else if (existsSync(OFFICE_PROMPT_FILE)) {
-      unlinkSync(OFFICE_PROMPT_FILE);
+// Minimal dotenv parser. Supports KEY=VALUE, comments (#), export prefix,
+// single/double-quoted values (\n escape inside double quotes). Blank lines ignored.
+// Throws with "line N" context if a non-blank line can't be parsed.
+export function parseDotenv(content: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  const lines = content.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i];
+    const raw = line;
+    // Strip BOM from the first line
+    if (i === 0 && line.charCodeAt(0) === 0xfeff) line = line.slice(1);
+    const stripped = line.trim();
+    if (!stripped || stripped.startsWith("#")) continue;
+    let working = stripped.startsWith("export ") ? stripped.slice(7).trimStart() : stripped;
+    const eqIdx = working.indexOf("=");
+    if (eqIdx <= 0) {
+      throw new Error(`parse error at line ${i + 1}: ${JSON.stringify(raw)}`);
     }
-  } catch (err) {
-    console.error("Failed to save office prompt:", err);
+    const key = working.slice(0, eqIdx).trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+      throw new Error(`parse error at line ${i + 1}: invalid key ${JSON.stringify(key)}`);
+    }
+    let value = working.slice(eqIdx + 1).trim();
+    if (value.length >= 2 && value[0] === '"' && value.endsWith('"')) {
+      value = value.slice(1, -1).replace(/\\n/g, "\n").replace(/\\r/g, "\r").replace(/\\t/g, "\t").replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+    } else if (value.length >= 2 && value[0] === "'" && value.endsWith("'")) {
+      value = value.slice(1, -1);
+    } else if (value[0] === '"' || value[0] === "'") {
+      throw new Error(`parse error at line ${i + 1}: unterminated quoted value`);
+    } else {
+      // Strip inline comment (only if preceded by whitespace)
+      const hashMatch = value.match(/\s+#/);
+      if (hashMatch && hashMatch.index !== undefined) value = value.slice(0, hashMatch.index);
+      value = value.trim();
+    }
+    result[key] = value;
   }
+  return result;
+}
+
+// Read and parse an env file. Returns the key/value map on success,
+// throws a descriptive error on failure (missing, unreadable, parse error).
+export function readEnvFile(path: string): Record<string, string> {
+  if (!path.startsWith("/")) {
+    throw new Error("env file path must be absolute");
+  }
+  if (!existsSync(path)) {
+    throw new Error(`file not found: ${path}`);
+  }
+  let content: string;
+  try {
+    content = readFileSync(path, "utf-8");
+  } catch (err: any) {
+    throw new Error(`unreadable: ${err.message || String(err)}`);
+  }
+  return parseDotenv(content);
 }
 
 // Tasks

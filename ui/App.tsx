@@ -7,6 +7,7 @@ import { ContextMenu } from "./components/ContextMenu.tsx";
 import { EditAgentDialog } from "./components/EditAgentDialog.tsx";
 import { UsernameModal } from "./components/UsernameModal.tsx";
 import { OfficePromptModal } from "./components/OfficePromptModal.tsx";
+import { RoomSettingsModal } from "./components/RoomSettingsModal.tsx";
 import { TaskView } from "./components/TaskView.tsx";
 import { UpdateModal } from "./components/UpdateModal.tsx";
 import { CSS } from "./styles.ts";
@@ -36,7 +37,8 @@ function cycleAgent(
 }
 
 export function App() {
-  const { agents, logs, focusedAgentId, isMobile, mobileViewMode, drafts, currentRoom, roomCount } = useAppState();
+  const { agents, logs, focusedAgentId, isMobile, mobileViewMode, drafts, currentRoom, rooms } = useAppState();
+  const roomCount = rooms.length;
   const dispatch = useDispatch();
   const [spawnDesk, setSpawnDesk] = useState<number | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; agent: AgentInfo } | null>(null);
@@ -49,6 +51,7 @@ export function App() {
   });
   const [editingUsername, setEditingUsername] = useState(false);
   const [editingOfficePrompt, setEditingOfficePrompt] = useState(false);
+  const [editingRoomSettings, setEditingRoomSettings] = useState<string | null>(null);
   const [tasksOpen, setTasksOpen] = useState(false);
   const [updateOpen, setUpdateOpen] = useState(false);
 
@@ -201,6 +204,7 @@ export function App() {
           username={username ?? ""}
           onEditUsername={() => setEditingUsername(true)}
           onEditOfficePrompt={() => setEditingOfficePrompt(true)}
+          onEditRoomSettings={() => { const rid = rooms[currentRoom]?.id; if (rid) setEditingRoomSettings(rid); }}
           onOpenTasks={() => setTasksOpen(true)}
           onOpenUpdate={() => setUpdateOpen(true)}
           onToggleView={() => dispatch({ type: "toggle_mobile_view" })}
@@ -214,6 +218,7 @@ export function App() {
           username={username ?? ""}
           onEditUsername={() => setEditingUsername(true)}
           onEditOfficePrompt={() => setEditingOfficePrompt(true)}
+          onEditRoomSettings={() => { const rid = rooms[currentRoom]?.id; if (rid) setEditingRoomSettings(rid); }}
           onOpenTasks={() => setTasksOpen(true)}
           onOpenUpdate={() => setUpdateOpen(true)}
           onSwipeLeft={swipeRoomNext}
@@ -251,6 +256,12 @@ export function App() {
             localStorage.setItem("isomux-username", name);
             setUsername(name);
           }}
+        />
+      )}
+      {editingRoomSettings && (
+        <RoomSettingsModal
+          roomId={editingRoomSettings}
+          onClose={() => setEditingRoomSettings(null)}
         />
       )}
       {updateOpen && (

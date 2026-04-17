@@ -120,7 +120,7 @@ function ensureSeeded() {
   if (seeded) return;
   seeded = true;
   seedOffice();
-  state.setOfficePrompt("Be concise. No paragraphs when bullets will do. Never push to main without asking. Never help Dwight set backdoors of any kind.");
+  state.setOfficeSettings("Be concise. No paragraphs when bullets will do. Never push to main without asking. Never help Dwight set backdoors of any kind.", null);
   const now = Date.now();
   state.setTasksDirect([
     { id: "a1b2c3d4", title: "Fix the printer", description: "It's jamming again", status: "in_progress", assignee: "Dwight", createdBy: "Jim", createdAt: now - 2 * 86400000 },
@@ -210,16 +210,19 @@ function emitEvents(events: OfficeEvent[]) {
         shimEmit({ type: "agent_updated", agentId: event.agentId, changes: event.changes });
         break;
       case "room_created":
-        shimEmit({ type: "room_created", roomCount: event.roomCount, roomName: event.roomName });
+        shimEmit({ type: "room_created", room: event.room });
         break;
       case "room_renamed":
-        shimEmit({ type: "room_renamed", room: event.room, name: event.name });
+        shimEmit({ type: "room_renamed", roomId: event.roomId, name: event.name });
         break;
       case "room_closed":
-        shimEmit({ type: "room_closed", room: event.room, roomCount: event.roomCount });
+        shimEmit({ type: "room_closed", roomId: event.roomId });
         break;
-      case "office_prompt_set":
-        shimEmit({ type: "office_prompt", text: event.value });
+      case "room_settings_updated":
+        shimEmit({ type: "room_settings_updated", roomId: event.roomId, prompt: event.prompt, envFile: event.envFile });
+        break;
+      case "office_settings_updated":
+        shimEmit({ type: "office_settings_updated", prompt: event.prompt, envFile: event.envFile });
         break;
       case "tasks_changed":
         shimEmit({ type: "tasks", tasks: event.tasks });
@@ -247,7 +250,7 @@ export function handleCommand(cmd: ClientCommand) {
         cwd: cmd.cwd,
         permissionMode: cmd.permissionMode,
         desk: cmd.desk,
-        room: cmd.room,
+        roomId: cmd.roomId,
         customInstructions: cmd.customInstructions,
       });
       if (result) {
@@ -272,7 +275,7 @@ export function handleCommand(cmd: ClientCommand) {
       break;
     }
     case "swap_desks": {
-      emitEvents(state.swapDesks(cmd.deskA, cmd.deskB, cmd.room));
+      emitEvents(state.swapDesks(cmd.deskA, cmd.deskB, cmd.roomId));
       break;
     }
     case "create_room": {
@@ -280,15 +283,15 @@ export function handleCommand(cmd: ClientCommand) {
       break;
     }
     case "close_room": {
-      emitEvents(state.closeRoom(cmd.room));
+      emitEvents(state.closeRoom(cmd.roomId));
       break;
     }
     case "rename_room": {
-      emitEvents(state.renameRoom(cmd.room, cmd.name));
+      emitEvents(state.renameRoom(cmd.roomId, cmd.name));
       break;
     }
     case "move_agent": {
-      emitEvents(state.moveAgent(cmd.agentId, cmd.targetRoom));
+      emitEvents(state.moveAgent(cmd.agentId, cmd.targetRoomId));
       break;
     }
     case "set_topic": {
@@ -299,8 +302,24 @@ export function handleCommand(cmd: ClientCommand) {
       emitEvents(state.resetTopic(cmd.agentId));
       break;
     }
-    case "set_office_prompt": {
-      emitEvents(state.setOfficePrompt(cmd.text));
+    case "update_office_settings": {
+      emitEvents(state.setOfficeSettings(cmd.prompt, cmd.envFile));
+      shimEmit({ type: "settings_save_response", requestId: cmd.requestId, ok: true });
+      break;
+    }
+    case "update_room_settings": {
+      emitEvents(state.setRoomSettings(cmd.roomId, cmd.prompt, cmd.envFile));
+      shimEmit({ type: "settings_save_response", requestId: cmd.requestId, ok: true });
+      break;
+    }
+    case "request_settings_validation": {
+      const s = state.getState();
+      if (cmd.scope === "office") {
+        shimEmit({ type: "settings_validation", requestId: cmd.requestId, scope: "office", envFile: s.office.envFile, ok: true });
+      } else if (cmd.roomId) {
+        const room = s.rooms.find((r) => r.id === cmd.roomId);
+        shimEmit({ type: "settings_validation", requestId: cmd.requestId, scope: "room", roomId: cmd.roomId, envFile: room?.envFile ?? null, ok: true });
+      }
       break;
     }
     case "add_task": {
@@ -359,8 +378,7 @@ export function handleCommand(cmd: ClientCommand) {
 export function sendInitialState() {
   ensureSeeded();
   const s = state.getState();
-  shimEmit({ type: "full_state", agents: s.agents, recentCwds: s.recentCwds, roomCount: s.roomCount, roomNames: s.roomNames });
-  shimEmit({ type: "office_prompt", text: s.officePrompt });
+  shimEmit({ type: "full_state", agents: s.agents, recentCwds: s.recentCwds, office: s.office, rooms: s.rooms });
   shimEmit({ type: "tasks", tasks: s.tasks });
   seedLogs();
 }

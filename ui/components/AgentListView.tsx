@@ -12,6 +12,7 @@ export function AgentListView({
   username,
   onEditUsername,
   onEditOfficePrompt,
+  onEditRoomSettings,
   onOpenTasks,
   onOpenUpdate,
   onToggleView,
@@ -24,13 +25,15 @@ export function AgentListView({
   username: string;
   onEditUsername: () => void;
   onEditOfficePrompt: () => void;
+  onEditRoomSettings?: () => void;
   onOpenTasks: () => void;
   onOpenUpdate: () => void;
   onToggleView: () => void;
   onSwipeLeft?: () => void;
   onSwipeRight?: () => void;
 }) {
-  const { agents, currentRoom, roomCount, roomNames, updateAvailable } = useAppState();
+  const { agents, currentRoom, rooms, updateAvailable } = useAppState();
+  const roomCount = rooms.length;
   const roomAgents = agents.filter((a) => a.room === currentRoom);
   const swipeRef = useSwipeLeftRight(onSwipeLeft ?? (() => {}), onSwipeRight ?? (() => {}), true);
 
@@ -51,6 +54,7 @@ export function AgentListView({
         counts={getRoomCounts(roomAgents)}
         onOpenTasks={onOpenTasks}
         onEditOfficePrompt={onEditOfficePrompt}
+        onEditRoomSettings={onEditRoomSettings}
         updateAvailable={updateAvailable}
         onOpenUpdate={onOpenUpdate}
       />
@@ -80,7 +84,7 @@ export function AgentListView({
             }}
           >
             <span style={{ fontSize: 15, color: "var(--text-muted)" }}>
-              {roomCount > 1 ? `${roomNames[currentRoom] ?? `Room ${currentRoom + 1}`} is empty` : "No agents yet"}
+              {roomCount > 1 ? `${rooms[currentRoom]?.name ?? `Room ${currentRoom + 1}`} is empty` : "No agents yet"}
             </span>
             <span style={{ fontSize: 13, color: "var(--text-faint)" }}>
               Tap + to spawn one

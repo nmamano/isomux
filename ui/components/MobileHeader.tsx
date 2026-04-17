@@ -41,6 +41,7 @@ export function MobileHeader({
   counts,
   onOpenTasks,
   onEditOfficePrompt,
+  onEditRoomSettings,
   updateAvailable,
   onOpenUpdate,
 }: {
@@ -49,6 +50,7 @@ export function MobileHeader({
   counts: RoomCounts;
   onOpenTasks: () => void;
   onEditOfficePrompt: () => void;
+  onEditRoomSettings?: () => void;
   updateAvailable?: boolean;
   onOpenUpdate?: () => void;
 }) {
@@ -184,6 +186,7 @@ export function MobileHeader({
               {[
                 { icon: <span style={{ fontSize: 15 }}>&#x2611;</span>, label: "Tasks", action: onOpenTasks },
                 { icon: <span style={{ fontSize: 15 }}>&#x2699;</span>, label: "Office settings", action: onEditOfficePrompt },
+                ...(onEditRoomSettings ? [{ icon: <span style={{ fontSize: 15 }}>&#x2302;</span>, label: "Room settings", action: onEditRoomSettings }] : []),
                 { icon: theme === "dark" ? <SunIcon size={15} /> : <MoonIcon size={15} />, label: theme === "dark" ? "Light mode" : "Dark mode", action: toggleTheme },
               ].map((item, i) => (
                 <button

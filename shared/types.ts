@@ -108,14 +108,19 @@ export interface TaskItem {
   createdAt: number;
 }
 
-export function generateTaskId(existing?: string[]): string {
+// Generate a unique 8-char hex ID, avoiding collisions with `existing`.
+function generateHexId(existing?: string[]): string {
   const ids = existing ? new Set(existing) : undefined;
   for (;;) {
     const bytes = new Uint8Array(4);
     crypto.getRandomValues(bytes);
-    const id = Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("");
+    const id = Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
     if (!ids || !ids.has(id)) return id;
   }
+}
+
+export function generateTaskId(existing?: string[]): string {
+  return generateHexId(existing);
 }
 
 const VALID_STATUSES = new Set<TaskStatus>(["open", "in_progress", "done"]);
@@ -146,9 +151,44 @@ export interface SkillInfo {
   description?: string;
 }
 
+// Office-level settings (prompt + optional env file path)
+export interface OfficeSettings {
+  prompt: string;
+  envFile: string | null;
+}
+
+// A room with stable ID, display name, and per-room config
+export interface RoomWire {
+  id: string;               // 8-char hex, stable
+  name: string;             // display name
+  prompt: string | null;
+  envFile: string | null;
+}
+
+// Response to update_*_settings (sent only to the requesting client)
+export interface SettingsSaveResponse {
+  type: "settings_save_response";
+  requestId: string;
+  ok: boolean;
+  keyCount?: number;
+  error?: string;
+}
+
+// Response to request_settings_validation (sent only to the requesting client)
+export interface SettingsValidationResponse {
+  type: "settings_validation";
+  requestId: string;
+  scope: "office" | "room";
+  roomId?: string;
+  envFile: string | null;
+  ok: boolean;
+  keyCount?: number;
+  error?: string;
+}
+
 // Server → Browser messages
 export type ServerMessage =
-  | { type: "full_state"; agents: AgentInfo[]; recentCwds: string[]; roomCount: number; roomNames: string[] }
+  | { type: "full_state"; agents: AgentInfo[]; recentCwds: string[]; office: OfficeSettings; rooms: RoomWire[] }
   | { type: "agent_added"; agent: AgentInfo }
   | { type: "agent_removed"; agentId: string }
   | { type: "agent_updated"; agentId: string; changes: Partial<AgentInfo> }
@@ -158,17 +198,20 @@ export type ServerMessage =
   | { type: "clear_logs"; agentId: string }
   | { type: "terminal_output"; agentId: string; data: string }
   | { type: "terminal_exit"; agentId: string; exitCode: number }
-  | { type: "office_prompt"; text: string }
+  | { type: "office_settings_updated"; prompt: string; envFile: string | null }
   | { type: "tasks"; tasks: TaskItem[] }
-  | { type: "room_created"; roomCount: number; roomName: string }
-  | { type: "room_closed"; room: number; roomCount: number }
-  | { type: "room_renamed"; room: number; name: string }
-  | { type: "rooms_reordered"; order: number[] }
+  | { type: "room_created"; room: RoomWire }
+  | { type: "room_closed"; roomId: string }
+  | { type: "room_renamed"; roomId: string; name: string }
+  | { type: "room_settings_updated"; roomId: string; prompt: string | null; envFile: string | null }
+  | { type: "rooms_reordered"; order: string[] }
+  | SettingsSaveResponse
+  | SettingsValidationResponse
   | { type: "update_status"; updateAvailable: boolean; current: { sha: string; message: string; date: string }; latest: { sha: string; message: string; date: string } };
 
 // Browser → Server commands
 export type ClientCommand =
-  | { type: "spawn"; name: string; cwd: string; permissionMode: AgentInfo["permissionMode"]; desk: number; room?: number; customInstructions?: string; outfit?: AgentOutfit; modelFamily?: ModelFamily }
+  | { type: "spawn"; name: string; cwd: string; permissionMode: AgentInfo["permissionMode"]; desk: number; roomId?: string; customInstructions?: string; outfit?: AgentOutfit; modelFamily?: ModelFamily }
   | { type: "kill"; agentId: string }
   | { type: "abort"; agentId: string }
   | { type: "send_message"; agentId: string; text: string; username?: string; attachments?: Attachment[] }
@@ -176,20 +219,27 @@ export type ClientCommand =
   | { type: "resume"; agentId: string; sessionId: string }
   | { type: "list_sessions"; agentId: string }
   | { type: "edit_agent"; agentId: string; name?: string; cwd?: string; outfit?: AgentOutfit; customInstructions?: string; modelFamily?: ModelFamily }
-  | { type: "swap_desks"; deskA: number; deskB: number; room: number }
+  | { type: "swap_desks"; deskA: number; deskB: number; roomId: string }
   | { type: "set_topic"; agentId: string; topic: string }
   | { type: "reset_topic"; agentId: string }
   | { type: "terminal_open"; agentId: string }
   | { type: "terminal_input"; agentId: string; data: string }
   | { type: "terminal_resize"; agentId: string; cols: number; rows: number }
   | { type: "terminal_close"; agentId: string }
-  | { type: "set_office_prompt"; text: string }
+  | { type: "update_office_settings"; requestId: string; prompt: string; envFile: string | null }
+  | { type: "update_room_settings"; requestId: string; roomId: string; prompt: string | null; envFile: string | null }
+  | { type: "request_settings_validation"; requestId: string; scope: "office" | "room"; roomId?: string }
   | { type: "add_task"; title: string; description?: string; priority?: TaskPriority; assignee?: string; username: string }
   | { type: "update_task"; id: string; changes: Partial<Pick<TaskItem, "title" | "description" | "priority" | "status" | "assignee">> }
   | { type: "delete_task"; id: string }
   | { type: "create_room"; name?: string }
-  | { type: "close_room"; room: number }
-  | { type: "rename_room"; room: number; name: string }
-  | { type: "move_agent"; agentId: string; targetRoom: number }
-  | { type: "reorder_rooms"; order: number[] }
+  | { type: "close_room"; roomId: string }
+  | { type: "rename_room"; roomId: string; name: string }
+  | { type: "move_agent"; agentId: string; targetRoomId: string }
+  | { type: "reorder_rooms"; order: string[] }
   | { type: "edit_message"; agentId: string; logEntryId: string; newText: string; username?: string };
+
+// Generate a stable 8-char hex room ID (used at room creation and during migration)
+export function generateRoomId(existing?: string[]): string {
+  return generateHexId(existing);
+}

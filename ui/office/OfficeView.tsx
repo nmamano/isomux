@@ -40,8 +40,11 @@ function DoorDropZone({ side, onDrop, onDragOverChange, onClick }: { side: "left
   );
 }
 
-export function OfficeView({ onSpawn, onContextMenu, username, onEditUsername, onEditOfficePrompt, onOpenTasks, onOpenUpdate, onSwipeLeft, onSwipeRight }: { onSpawn: (deskIndex: number) => void; onContextMenu: (x: number, y: number, agent: AgentInfo) => void; username: string; onEditUsername: () => void; onEditOfficePrompt: () => void; onOpenTasks: () => void; onOpenUpdate: () => void; onSwipeLeft?: () => void; onSwipeRight?: () => void }) {
-  const { agents, needsAttention, stateChangedAt, officePrompt, tasks, currentRoom, roomCount, roomNames, isMobile, updateAvailable } = useAppState();
+export function OfficeView({ onSpawn, onContextMenu, username, onEditUsername, onEditOfficePrompt, onEditRoomSettings, onOpenTasks, onOpenUpdate, onSwipeLeft, onSwipeRight }: { onSpawn: (deskIndex: number) => void; onContextMenu: (x: number, y: number, agent: AgentInfo) => void; username: string; onEditUsername: () => void; onEditOfficePrompt: () => void; onEditRoomSettings?: () => void; onOpenTasks: () => void; onOpenUpdate: () => void; onSwipeLeft?: () => void; onSwipeRight?: () => void }) {
+  const { agents, needsAttention, stateChangedAt, office, tasks, currentRoom, rooms, isMobile, updateAvailable } = useAppState();
+  const roomCount = rooms.length;
+  const roomNames = rooms.map((r) => r.name);
+  const officePrompt = office.prompt;
   const dispatch = useDispatch();
   const { theme, toggleTheme } = useTheme();
   const { embed } = useFeatures();
@@ -77,6 +80,7 @@ export function OfficeView({ onSpawn, onContextMenu, username, onEditUsername, o
           counts={counts}
           onOpenTasks={onOpenTasks}
           onEditOfficePrompt={onEditOfficePrompt}
+          onEditRoomSettings={onEditRoomSettings}
           updateAvailable={updateAvailable}
           onOpenUpdate={onOpenUpdate}
         />
@@ -256,8 +260,9 @@ export function OfficeView({ onSpawn, onContextMenu, username, onEditUsername, o
                 const a = roomAgents.find((a) => a.desk === deskIndex);
                 if (!a) { setLeftDoorReject(true); setTimeout(() => setLeftDoorReject(false), 400); return false; }
                 const targetRoom = currentRoom - 1;
-                if (agents.filter((x) => x.room === targetRoom).length >= 8) { setLeftDoorReject(true); setTimeout(() => setLeftDoorReject(false), 400); return false; }
-                send({ type: "move_agent", agentId: a.id, targetRoom });
+                const targetRoomId = rooms[targetRoom]?.id;
+                if (!targetRoomId || agents.filter((x) => x.room === targetRoom).length >= 8) { setLeftDoorReject(true); setTimeout(() => setLeftDoorReject(false), 400); return false; }
+                send({ type: "move_agent", agentId: a.id, targetRoomId });
                 return true;
               }}
             />
@@ -271,8 +276,9 @@ export function OfficeView({ onSpawn, onContextMenu, username, onEditUsername, o
                 const a = roomAgents.find((a) => a.desk === deskIndex);
                 if (!a) { setRightDoorReject(true); setTimeout(() => setRightDoorReject(false), 400); return false; }
                 const targetRoom = currentRoom + 1;
-                if (agents.filter((x) => x.room === targetRoom).length >= 8) { setRightDoorReject(true); setTimeout(() => setRightDoorReject(false), 400); return false; }
-                send({ type: "move_agent", agentId: a.id, targetRoom });
+                const targetRoomId = rooms[targetRoom]?.id;
+                if (!targetRoomId || agents.filter((x) => x.room === targetRoom).length >= 8) { setRightDoorReject(true); setTimeout(() => setRightDoorReject(false), 400); return false; }
+                send({ type: "move_agent", agentId: a.id, targetRoomId });
                 return true;
               }}
             />
@@ -287,12 +293,12 @@ export function OfficeView({ onSpawn, onContextMenu, username, onEditUsername, o
                   onClick={() => dispatch({ type: "focus", agentId: agent.id })}
                   onContextMenu={(e) => onContextMenu(e.clientX, e.clientY, agent)}
                   needsAttention={needsAttention.has(agent.id)}
-                  onSwap={(a, b) => send({ type: "swap_desks", deskA: a, deskB: b, room: currentRoom })}
+                  onSwap={(a, b) => { const rid = rooms[currentRoom]?.id; if (rid) send({ type: "swap_desks", deskA: a, deskB: b, roomId: rid }); }}
                   stateChangedAt={stateChangedAt.get(agent.id)}
                 />
               );
             }
-            return <EmptySlot key={`empty-${i}`} deskIndex={i} onClick={() => onSpawn(i)} onSwap={(a, b) => send({ type: "swap_desks", deskA: a, deskB: b, room: currentRoom })} />;
+            return <EmptySlot key={`empty-${i}`} deskIndex={i} onClick={() => onSpawn(i)} onSwap={(a, b) => { const rid = rooms[currentRoom]?.id; if (rid) send({ type: "swap_desks", deskA: a, deskB: b, roomId: rid }); }} />;
           })}
         </div>
 
