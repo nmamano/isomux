@@ -189,18 +189,15 @@ function deduplicateSkills(skills: SkillInfo[]): SkillInfo[] {
   return result;
 }
 
-// Create a launcher script that sets cwd and injects system prompt before running the CLI.
-// The prompt is the concatenation of: baseline isomux boilerplate, office prompt,
-// room prompt, and agent custom instructions — each separated by a blank line.
-function createLauncher(
-  agentId: string,
-  cwd: string,
+// Concatenate baseline boilerplate, office prompt, room prompt, and agent custom
+// instructions into the exact string that gets injected as --append-system-prompt.
+// Pure function so it can be reused by /isomux-system-prompt for inspection.
+export function buildSystemPrompt(
   agentName: string,
   officePrompt?: string | null,
   roomPrompt?: string | null,
   customInstructions?: string | null,
 ): string {
-  const launcherPath = join(LAUNCHERS_DIR, `${agentId}.mjs`);
   let systemPrompt = `You are ${agentName}, one of the agents in the Isomux office. Your goal is to help the office bosses, who talk to you in this chat. Messages are prefixed with the sender's name in brackets.
 
 To discover other office agents and their conversation logs, read ~/.isomux/agents-summary.json.
@@ -217,15 +214,23 @@ Optional fields on create/update: description, priority (P0-P3), assignee.
 Don't read or update the task board unless the boss mentions it.
 
 To show an image to the boss, read the image file with the Read tool — it renders inline in the conversation.`;
-  if (officePrompt) {
-    systemPrompt += `\n\n${officePrompt}`;
-  }
-  if (roomPrompt) {
-    systemPrompt += `\n\n${roomPrompt}`;
-  }
-  if (customInstructions) {
-    systemPrompt += `\n\n${customInstructions}`;
-  }
+  if (officePrompt) systemPrompt += `\n\n${officePrompt}`;
+  if (roomPrompt) systemPrompt += `\n\n${roomPrompt}`;
+  if (customInstructions) systemPrompt += `\n\n${customInstructions}`;
+  return systemPrompt;
+}
+
+// Create a launcher script that sets cwd and injects system prompt before running the CLI.
+function createLauncher(
+  agentId: string,
+  cwd: string,
+  agentName: string,
+  officePrompt?: string | null,
+  roomPrompt?: string | null,
+  customInstructions?: string | null,
+): string {
+  const launcherPath = join(LAUNCHERS_DIR, `${agentId}.mjs`);
+  const systemPrompt = buildSystemPrompt(agentName, officePrompt, roomPrompt, customInstructions);
   writeFileSync(
     launcherPath,
     `process.chdir(${JSON.stringify(cwd)});\n` +
@@ -1732,6 +1737,26 @@ const commandHandlers: Record<string, HandlerFn> = {
     lines.push("Ask your agent if you'd like to know more about any agent or conversation.");
 
     addLogEntry(agentId, "system", lines.join("\n"));
+    updateState(agentId, "waiting_for_response");
+    return true;
+  },
+
+  async isomuxSystemPrompt(agentId, managed, _args, rawText, username) {
+    const userMeta = username ? { username } : undefined;
+    emitEphemeralLog(agentId, "user_message", rawText, userMeta);
+    const room = rooms[managed.info.room];
+    const prompt = buildSystemPrompt(
+      managed.info.name,
+      officeConfig.prompt,
+      room?.prompt ?? null,
+      managed.info.customInstructions,
+    );
+    // Pick a fence longer than any backtick run inside the prompt so the block
+    // renders verbatim regardless of what office/room/agent prompts contain.
+    const longestRun = (prompt.match(/`+/g) ?? []).reduce((m, s) => Math.max(m, s.length), 0);
+    const fence = "`".repeat(Math.max(3, longestRun + 1));
+    const header = "**Full system prompt** *(reflects current settings; takes effect on next conversation)*";
+    emitEphemeralLog(agentId, "system", `${header}\n\n${fence}\n${prompt}\n${fence}`);
     updateState(agentId, "waiting_for_response");
     return true;
   },

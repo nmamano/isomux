@@ -96,6 +96,14 @@ export const commands: Record<string, CommandConfig> = {
     handler: "isomuxAllHands",
     description: "Summary of all agents and their conversations",
   },
+  "isomux-system-prompt": {
+    type: "hardcoded",
+    supported: true,
+    autocomplete: true,
+    overridable: false,
+    handler: "isomuxSystemPrompt",
+    description: "Show the full system prompt this agent receives",
+  },
 
   // =========================================================================
   // Unsupported hardcoded commands (non-overridable)
