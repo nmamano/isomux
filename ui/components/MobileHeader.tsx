@@ -35,6 +35,30 @@ const ISO_ICON = (
   </svg>
 );
 
+const DOOR_ICON = (
+  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" strokeLinecap="round" style={{ display: "block" }}>
+    <path d="M3.5 13.5V3a1 1 0 0 1 1-1h7a1 1 0 0 1 1 1v10.5" />
+    <path d="M2.5 13.5h11" />
+    <circle cx="10.5" cy="8.25" r="0.7" fill="currentColor" stroke="none" />
+  </svg>
+);
+
+const BUILDING_ICON = (
+  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" strokeLinecap="round" style={{ display: "block" }}>
+    <rect x="2.5" y="2.5" width="11" height="11" rx="1" />
+    <path d="M5 5.5h1.5M9.5 5.5H11M5 8h1.5M9.5 8H11M5 10.5h1.5M9.5 10.5H11" />
+  </svg>
+);
+
+const TASKS_ICON = (
+  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" strokeLinecap="round" style={{ display: "block" }}>
+    <path d="M3 4.5l1.3 1.3L6.8 3.3" />
+    <path d="M3 8.5l1.3 1.3L6.8 7.3" />
+    <path d="M3 12.5l1.3 1.3L6.8 11.3" />
+    <path d="M9 4.5h4.5M9 8.5h4.5M9 12.5h4.5" />
+  </svg>
+);
+
 export function MobileHeader({
   viewMode,
   onToggleView,
@@ -184,9 +208,9 @@ export function MobileHeader({
               }}
             >
               {[
-                { icon: <span style={{ fontSize: 15 }}>&#x2611;</span>, label: "Tasks", action: onOpenTasks },
-                { icon: <span style={{ fontSize: 15 }}>&#x2699;</span>, label: "Office settings", action: onEditOfficePrompt },
-                ...(onEditRoomSettings ? [{ icon: <span style={{ fontSize: 15 }}>&#x2302;</span>, label: "Room settings", action: onEditRoomSettings }] : []),
+                { icon: TASKS_ICON, label: "Tasks", action: onOpenTasks },
+                { icon: BUILDING_ICON, label: "Office settings", action: onEditOfficePrompt },
+                ...(onEditRoomSettings ? [{ icon: DOOR_ICON, label: "Room settings", action: onEditRoomSettings }] : []),
                 { icon: theme === "dark" ? <SunIcon size={15} /> : <MoonIcon size={15} />, label: theme === "dark" ? "Light mode" : "Dark mode", action: toggleTheme },
               ].map((item, i) => (
                 <button
