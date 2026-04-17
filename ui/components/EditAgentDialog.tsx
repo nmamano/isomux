@@ -183,7 +183,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         background: "rgba(0,0,0,0.55)",
         backdropFilter: "blur(10px)",
         display: "flex",
-        alignItems: isMobile ? "flex-start" : "center",
+        alignItems: isMobile ? "stretch" : "center",
         justifyContent: "center",
         overflowY: "auto",
       }}
@@ -192,20 +192,19 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         style={{
           background: "var(--bg-overlay)",
           backdropFilter: "blur(16px)",
-          border: "1px solid var(--border-light)",
-          borderRadius: 16,
+          border: isMobile ? "none" : "1px solid var(--border-light)",
+          borderRadius: isMobile ? 0 : 16,
           display: "flex",
           flexDirection: "column",
-          marginTop: isMobile ? "env(safe-area-inset-top, 16px)" : undefined,
-          marginBottom: isMobile ? 16 : undefined,
-          width: isMobile ? "calc(100% - 32px)" : 380,
+          width: isMobile ? "100%" : 380,
           maxWidth: isMobile ? "100%" : undefined,
-          maxHeight: isMobile ? "calc(100dvh - 32px)" : "90vh",
-          boxShadow: "0 20px 60px var(--shadow-heavy)",
+          height: isMobile ? "100dvh" : undefined,
+          maxHeight: isMobile ? "100dvh" : "90vh",
+          boxShadow: isMobile ? "none" : "0 20px 60px var(--shadow-heavy)",
           animation: "hudIn 0.2s ease-out",
         }}
       >
-        <div style={{ overflowY: "auto", flex: 1, padding: "24px 28px 0" }}>
+        <div style={{ overflowY: "auto", flex: 1, padding: isMobile ? "max(24px, env(safe-area-inset-top)) 20px 0" : "24px 28px 0" }}>
         <h3 style={{ fontSize: 17, fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>{isSpawn ? "Spawn New Agent" : "Edit Agent"}</h3>
         <p style={{ fontSize: 12, color: "var(--text-faint)", margin: "2px 0 18px" }}>
           {isSpawn
@@ -218,7 +217,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder={isSpawn ? `Agent ${props.deskIndex! + 1}` : undefined}
-          autoFocus
+          autoFocus={isSpawn}
           style={inputStyle}
         />
 
@@ -451,7 +450,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
           display: "flex",
           justifyContent: "flex-end",
           gap: 8,
-          padding: "16px 28px",
+          padding: isMobile ? "16px 20px max(16px, env(safe-area-inset-bottom))" : "16px 28px",
           borderTop: "1px solid var(--border)",
           flexShrink: 0,
         }}>
