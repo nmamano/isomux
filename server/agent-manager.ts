@@ -1049,10 +1049,6 @@ function resolveCwd(cwd: string): string {
   return resolve(cwd);
 }
 
-function sdkPermissionMode(mode: AgentInfo["permissionMode"]) {
-  return mode;
-}
-
 // Merge process.env with office and room env files.
 // Room overrides office; office overrides process.env. Spawn-time failure mode:
 // if a configured env file is missing or fails to parse, throw — the caller is
@@ -1110,7 +1106,7 @@ function requestPermission(managed: ManagedAgent, toolName: string, input: Recor
         managed.pendingPermission = null;
         resolve({ behavior: "deny", message: "Request aborted." });
       }
-    });
+    }, { once: true });
   });
 }
 
@@ -1123,7 +1119,7 @@ function createSession(managed: ManagedAgent, resumeSessionId?: string) {
   }
   const opts: any = {
     model: FAMILY_TO_MODEL[managed.info.modelFamily],
-    permissionMode: sdkPermissionMode(managed.info.permissionMode),
+    permissionMode: managed.info.permissionMode,
     pathToClaudeCodeExecutable: managed.launcherPath,
     hooks: createSafetyHooks(),
     canUseTool: ((toolName, input, options) => requestPermission(managed, toolName, input, options)) as CanUseTool,
@@ -1309,7 +1305,10 @@ export async function sendMessage(agentId: string, text: string, username?: stri
   const managed = agents.get(agentId);
   if (!managed?.session) return;
 
-  // Handle pending auto-mode permission prompt: interpret reply as allow/deny.
+  // Handle pending permission prompt: interpret reply as allow/deny.
+  // Runs before slash-command interception by design — any typed slash command
+  // while a prompt is pending is consumed as a deny reason, matching the
+  // "anything else denies" contract shown to the user.
   if (managed.pendingPermission) {
     const pending = managed.pendingPermission;
     managed.pendingPermission = null;
@@ -1884,6 +1883,10 @@ export async function abort(agentId: string) {
 export async function kill(agentId: string) {
   const managed = agents.get(agentId);
   if (!managed) return;
+  if (managed.pendingPermission) {
+    try { managed.pendingPermission.resolve({ behavior: "deny", message: "Agent killed." }); } catch {}
+    managed.pendingPermission = null;
+  }
   try { managed.session?.close(); } catch {}
   try { sidecarSend(managed, { type: "kill" }); managed.ptySidecar?.kill(); } catch {}
   agents.delete(agentId);

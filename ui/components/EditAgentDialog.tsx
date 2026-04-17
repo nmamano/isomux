@@ -71,8 +71,12 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   const [cwd, setCwd] = useState(agent?.cwd ?? props.defaultCwd ?? "~");
   const [outfit, setOutfit] = useState<AgentOutfit>(agent ? { ...agent.outfit } : makeRandomOutfit);
   const [customInstructions, setCustomInstructions] = useState(agent?.customInstructions ?? "");
-  const [permissionMode, setPermissionMode] = useState<AgentInfo["permissionMode"]>(agent?.permissionMode ?? "auto");
   const [modelFamily, setModelFamily] = useState<ModelFamily>(agent?.modelFamily ?? MODEL_FAMILIES[0].family);
+  const initialPermissionMode: AgentInfo["permissionMode"] =
+    agent?.permissionMode === "auto" && (agent?.modelFamily ?? MODEL_FAMILIES[0].family) !== "opus"
+      ? "bypassPermissions"
+      : (agent?.permissionMode ?? "auto");
+  const [permissionMode, setPermissionMode] = useState<AgentInfo["permissionMode"]>(initialPermissionMode);
   const recentCwds = allRecentCwds.filter((c) => c !== cwd);
 
   function handleSave() {
