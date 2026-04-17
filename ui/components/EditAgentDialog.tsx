@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { AgentInfo, AgentOutfit, ModelFamily } from "../../shared/types.ts";
+import type { AgentInfo, AgentOutfit, ClientCommand, ModelFamily } from "../../shared/types.ts";
 import { MODEL_FAMILIES, modelVersionLabel } from "../../shared/types.ts";
 import { SHIRT_COLORS, HAIR_COLORS, SKIN_COLORS, HAIR_STYLES, BEARDS, HATS, ACCESSORIES } from "../../shared/outfit-options.ts";
 import { Character } from "../office/Character.tsx";
@@ -106,7 +106,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     addRawListener(listener);
     send({ type: "request_cwd_validation", requestId: reqId, cwd: initialCwd });
     return () => removeRawListener(listener);
-  }, [isSpawn, agent]);
+  }, [isSpawn, agent?.id]);
 
   function handleSave() {
     const reqId = `agent-save-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -145,7 +145,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         modelFamily,
       });
     } else {
-      const cmd: any = { type: "edit_agent", agentId: agent!.id };
+      const cmd: Extract<ClientCommand, { type: "edit_agent" }> = { type: "edit_agent", agentId: agent!.id };
       if (name.trim() && name.trim() !== agent!.name) cmd.name = name.trim();
       if (cwd.trim() && cwd.trim() !== agent!.cwd) cmd.cwd = cwd.trim();
       if (JSON.stringify(outfit) !== JSON.stringify(agent!.outfit)) cmd.outfit = outfit;
@@ -226,7 +226,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         <input
           value={cwd}
           onChange={(e) => { setCwd(e.target.value); if (cwdError) setCwdError(null); }}
-          style={{ ...inputStyle, borderColor: cwdError ? "#ff6b6b" : inputStyle.border as string }}
+          style={cwdError ? { ...inputStyle, borderColor: "#ff6b6b" } : inputStyle}
         />
         {cwdError && <p style={{ fontSize: 10, color: "#ff6b6b", margin: "4px 0 0" }}>{cwdError}</p>}
         {recentCwds.length > 0 && (
