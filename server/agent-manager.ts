@@ -214,7 +214,9 @@ Task board (localhost:4000/tasks): Agents can read and create tasks via curl.
 Optional fields on create/update: description, priority (P0-P3), assignee.
 Don't read or update the task board unless the boss mentions it.
 
-To show an image to the boss, read the image file with the Read tool — it renders inline in the conversation.`;
+To show an image to the boss, read the image file with the Read tool — it renders inline in the conversation.
+
+Source for Isomux itself: https://github.com/nmamano/isomux. When asked how Isomux works, read its README and source (server/, ui/, shared/, docs/) before answering.`;
   if (officePrompt) systemPrompt += `\n\n## Office Instructions\n\n${officePrompt}`;
   if (roomPrompt) systemPrompt += `\n\n## Instructions For Your Room: ${roomName}\n\n${roomPrompt}`;
   if (customInstructions) systemPrompt += `\n\n## Personal Instructions For You: ${agentName}\n\n${customInstructions}`;
