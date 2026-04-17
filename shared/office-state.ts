@@ -11,7 +11,7 @@ export type OfficeEvent =
   | { type: "room_closed"; roomId: string }
   | { type: "room_renamed"; roomId: string; name: string }
   | { type: "room_settings_updated"; roomId: string; prompt: string | null; envFile: string | null }
-  | { type: "office_settings_updated"; prompt: string; envFile: string | null }
+  | { type: "office_settings_updated"; prompt: string | null; envFile: string | null }
   | { type: "tasks_changed"; tasks: TaskItem[] };
 
 function pick<T>(arr: readonly T[]): T {
@@ -41,7 +41,7 @@ export interface OfficeStateData {
 export class OfficeState {
   private agents = new Map<string, AgentInfo>();
   private _rooms: RoomWire[] = [{ id: generateRoomId(), name: "Room 1", prompt: null, envFile: null }];
-  private _office: OfficeSettings = { prompt: "", envFile: null };
+  private _office: OfficeSettings = { prompt: null, envFile: null };
   private _tasks: TaskItem[] = [];
   private _recentCwds: string[] = [];
 
@@ -279,8 +279,9 @@ export class OfficeState {
     return [{ type: "agent_updated", agentId, changes: { room: targetRoom, desk: newDesk } }];
   }
 
-  setOfficeSettings(prompt: string, envFile: string | null): OfficeEvent[] {
-    this._office = { prompt: prompt.trim(), envFile: envFile || null };
+  setOfficeSettings(prompt: string | null, envFile: string | null): OfficeEvent[] {
+    const normalizedPrompt = prompt && prompt.trim() ? prompt.trim() : null;
+    this._office = { prompt: normalizedPrompt, envFile: envFile || null };
     return [{ type: "office_settings_updated", prompt: this._office.prompt, envFile: this._office.envFile }];
   }
 

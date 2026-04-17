@@ -269,7 +269,7 @@ type AgentEvent =
   | { type: "room_closed"; roomId: string }
   | { type: "room_renamed"; roomId: string; name: string }
   | { type: "room_settings_updated"; roomId: string; prompt: string | null; envFile: string | null }
-  | { type: "office_settings_updated"; prompt: string; envFile: string | null }
+  | { type: "office_settings_updated"; prompt: string | null; envFile: string | null }
   | { type: "rooms_reordered"; order: string[] };
 
 type EventHandler = (event: AgentEvent) => void;
@@ -307,8 +307,9 @@ export function getOfficeSettings(): OfficeSettings {
 }
 
 // Update office settings. Caller is responsible for validating envFile (see validateEnvPath).
-export function setOfficeSettings(prompt: string, envFile: string | null) {
-  officeConfig = { prompt: prompt.trim(), envFile: envFile || null };
+export function setOfficeSettings(prompt: string | null, envFile: string | null) {
+  const normalizedPrompt = prompt && prompt.trim() ? prompt.trim() : null;
+  officeConfig = { prompt: normalizedPrompt, envFile: envFile || null };
   saveOfficeConfig(officeConfig);
   // Regenerate all launchers so the new office prompt takes effect on next conversation.
   // (Env is read fresh at every createSession, but the prompt is baked into the .mjs launcher file.)
@@ -1047,6 +1048,8 @@ function buildSessionEnv(managed: ManagedAgent): { [key: string]: string | undef
   const officeEnvFile = officeConfig.envFile;
   if (!roomEnvFile && !officeEnvFile) return undefined;
 
+  // Intentional: inherit parent process.env so agents see HOME/PATH/etc. Office
+  // and room files override individual keys but cannot unset inherited ones.
   const merged: { [key: string]: string | undefined } = { ...process.env };
   if (officeEnvFile) {
     const officeEnv = readEnvFile(officeEnvFile);

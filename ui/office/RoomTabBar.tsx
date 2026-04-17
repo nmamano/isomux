@@ -53,7 +53,7 @@ export function RoomTabBar() {
     if (editingRoom === null) return;
     const trimmed = editValue.trim();
     const roomId = rooms[editingRoom]?.id;
-    if (trimmed && roomId && trimmed !== (roomNames[editingRoom] ?? `Room ${editingRoom + 1}`)) {
+    if (trimmed && roomId && trimmed !== roomNames[editingRoom]) {
       send({ type: "rename_room", roomId, name: trimmed });
     }
     setEditingRoom(null);

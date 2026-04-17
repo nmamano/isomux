@@ -10,7 +10,7 @@ type ValidationStatus =
 
 export function OfficePromptModal({ onClose, username, onSaveUsername }: { onClose: () => void; username: string; onSaveUsername: (name: string) => void }) {
   const { office, isMobile } = useAppState();
-  const [text, setText] = useState(office.prompt);
+  const [text, setText] = useState(office.prompt ?? "");
   const [envFile, setEnvFile] = useState(office.envFile ?? "");
   const [name, setName] = useState(username);
   const [status, setStatus] = useState<ValidationStatus>({ kind: "idle" });
@@ -66,7 +66,7 @@ export function OfficePromptModal({ onClose, username, onSaveUsername }: { onClo
     send({
       type: "update_office_settings",
       requestId: reqId,
-      prompt: text,
+      prompt: text.trim() ? text : null,
       envFile: envFile.trim() || null,
     });
   }

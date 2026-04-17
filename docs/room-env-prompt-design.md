@@ -126,7 +126,7 @@ Updates always carry the full tuple (no partial updates). Empty strings are norm
 **Client → server commands:**
 
 ```typescript
-{ type: "update_office_settings"; prompt: string; envFile: string | null }
+{ type: "update_office_settings"; prompt: string | null; envFile: string | null }
 { type: "update_room_settings"; roomId: string; prompt: string | null; envFile: string | null }
 ```
 
@@ -135,7 +135,7 @@ Updates always carry the full tuple (no partial updates). Empty strings are norm
 **Server → client broadcasts:**
 
 ```typescript
-{ type: "office_settings_updated"; prompt: string; envFile: string | null }
+{ type: "office_settings_updated"; prompt: string | null; envFile: string | null }
 { type: "room_settings_updated"; roomId: string; prompt: string | null; envFile: string | null }
 ```
 
@@ -143,11 +143,13 @@ Updates always carry the full tuple (no partial updates). Empty strings are norm
 
 ```typescript
 {
-  office: { prompt: string; envFile: string | null };
+  office: { prompt: string | null; envFile: string | null };
   rooms: { id: string; name: string; prompt: string | null; envFile: string | null }[];
   // agents still transmitted separately
 }
 ```
+
+Office prompt and room prompt are both `string | null`. Empty strings submitted by the client are normalized to `null` on the server, keeping "absent" a single value.
 
 `officePrompt` at the top level is removed.
 

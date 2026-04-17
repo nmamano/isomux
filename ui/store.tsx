@@ -40,7 +40,7 @@ type Action =
   | { type: "clear_logs"; agentId: string }
   | { type: "set_mobile"; isMobile: boolean }
   | { type: "toggle_mobile_view" }
-  | { type: "office_settings_updated"; prompt: string; envFile: string | null }
+  | { type: "office_settings_updated"; prompt: string | null; envFile: string | null }
   | { type: "tasks"; tasks: TaskItem[] }
   | { type: "set_current_room"; room: number }
   | { type: "room_created"; room: RoomWire }
@@ -222,7 +222,7 @@ const initialState: AppState = {
   recentCwds: [],
   slashCommands: new Map(),
   stateChangedAt: new Map(),
-  office: { prompt: "", envFile: null },
+  office: { prompt: null, envFile: null },
   rooms: [],
   tasks: [],
   currentRoom: 0,

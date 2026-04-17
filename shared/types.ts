@@ -153,7 +153,7 @@ export interface SkillInfo {
 
 // Office-level settings (prompt + optional env file path)
 export interface OfficeSettings {
-  prompt: string;
+  prompt: string | null;
   envFile: string | null;
 }
 
@@ -198,7 +198,7 @@ export type ServerMessage =
   | { type: "clear_logs"; agentId: string }
   | { type: "terminal_output"; agentId: string; data: string }
   | { type: "terminal_exit"; agentId: string; exitCode: number }
-  | { type: "office_settings_updated"; prompt: string; envFile: string | null }
+  | { type: "office_settings_updated"; prompt: string | null; envFile: string | null }
   | { type: "tasks"; tasks: TaskItem[] }
   | { type: "room_created"; room: RoomWire }
   | { type: "room_closed"; roomId: string }
@@ -226,7 +226,7 @@ export type ClientCommand =
   | { type: "terminal_input"; agentId: string; data: string }
   | { type: "terminal_resize"; agentId: string; cols: number; rows: number }
   | { type: "terminal_close"; agentId: string }
-  | { type: "update_office_settings"; requestId: string; prompt: string; envFile: string | null }
+  | { type: "update_office_settings"; requestId: string; prompt: string | null; envFile: string | null }
   | { type: "update_room_settings"; requestId: string; roomId: string; prompt: string | null; envFile: string | null }
   | { type: "request_settings_validation"; requestId: string; scope: "office" | "room"; roomId?: string }
   | { type: "add_task"; title: string; description?: string; priority?: TaskPriority; assignee?: string; username: string }

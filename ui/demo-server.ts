@@ -303,12 +303,14 @@ export function handleCommand(cmd: ClientCommand) {
       break;
     }
     case "update_office_settings": {
-      emitEvents(state.setOfficeSettings(cmd.prompt, cmd.envFile));
+      const envFile = cmd.envFile && cmd.envFile.trim() ? cmd.envFile.trim() : null;
+      emitEvents(state.setOfficeSettings(cmd.prompt, envFile));
       shimEmit({ type: "settings_save_response", requestId: cmd.requestId, ok: true });
       break;
     }
     case "update_room_settings": {
-      emitEvents(state.setRoomSettings(cmd.roomId, cmd.prompt, cmd.envFile));
+      const envFile = cmd.envFile && cmd.envFile.trim() ? cmd.envFile.trim() : null;
+      emitEvents(state.setRoomSettings(cmd.roomId, cmd.prompt, envFile));
       shimEmit({ type: "settings_save_response", requestId: cmd.requestId, ok: true });
       break;
     }
