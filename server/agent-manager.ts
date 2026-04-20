@@ -19,7 +19,7 @@ import { createSafetyHooks } from "./safety-hooks.ts";
 import { commands, autocompleteCommands, unsupportedMessage, type CommandConfig } from "./commands.ts";
 import { resolve, join } from "path";
 import { homedir } from "os";
-import { writeFileSync, mkdirSync, readdirSync, existsSync, readFileSync, rmSync, statSync } from "fs";
+import { writeFileSync, mkdirSync, readdirSync, existsSync, readFileSync, rmSync, renameSync, statSync } from "fs";
 import { execSync } from "child_process";
 
 // Directory for per-agent launcher scripts
@@ -416,8 +416,10 @@ export function editAgent(agentId: string, changes: { name?: string; cwd?: strin
     }
   }
   if (changes.cwd && changes.cwd !== managed.info.cwd) {
+    const oldCwd = managed.info.cwd;
     managed.info.cwd = resolveCwd(changes.cwd);
     updated.cwd = managed.info.cwd;
+    moveClaudeSessionFiles(agentId, oldCwd, managed.info.cwd);
   }
   if (changes.outfit) {
     managed.info.outfit = changes.outfit;
@@ -1145,6 +1147,35 @@ function claudeProjectDir(cwd: string): string {
 
 function claudeSessionFileExists(cwd: string, sessionId: string): boolean {
   return existsSync(join(claudeProjectDir(cwd), `${sessionId}.jsonl`));
+}
+
+// Move an agent's Claude CLI session files from one cwd's project dir to another.
+// The Claude CLI derives its session storage path from cwd, so changing an agent's cwd
+// without moving these files orphans every session on the next respawn (e.g. server restart).
+function moveClaudeSessionFiles(agentId: string, oldCwd: string, newCwd: string) {
+  const oldDir = claudeProjectDir(oldCwd);
+  const newDir = claudeProjectDir(newCwd);
+  if (oldDir === newDir || !existsSync(oldDir)) return;
+  const sessions = listAgentSessions(agentId);
+  if (sessions.length === 0) return;
+  mkdirSync(newDir, { recursive: true });
+  for (const { sessionId } of sessions) {
+    const oldJsonl = join(oldDir, `${sessionId}.jsonl`);
+    const newJsonl = join(newDir, `${sessionId}.jsonl`);
+    if (existsSync(oldJsonl) && !existsSync(newJsonl)) {
+      try { renameSync(oldJsonl, newJsonl); } catch (err) {
+        console.error(`[cwd-change] Failed to move ${oldJsonl} -> ${newJsonl}:`, err);
+      }
+    }
+    // Claude CLI also writes a sibling <sessionId>/ dir (tool-results cache, etc.)
+    const oldSib = join(oldDir, sessionId);
+    const newSib = join(newDir, sessionId);
+    if (existsSync(oldSib) && !existsSync(newSib)) {
+      try { renameSync(oldSib, newSib); } catch (err) {
+        console.error(`[cwd-change] Failed to move ${oldSib} -> ${newSib}:`, err);
+      }
+    }
+  }
 }
 
 // Produce a human-readable hint for why the Claude CLI subprocess may have died,
