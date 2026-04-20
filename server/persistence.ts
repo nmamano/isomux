@@ -96,7 +96,12 @@ export function loadLogWithAncestors(agentId: string, sessionId: string): LogEnt
 }
 
 // Per-session metadata storage: ~/.isomux/logs/<agentId>/sessions.json.
-// - `usage` is session-cumulative, replaced on every `result` from the SDK.
+// - `usage` is current-run cumulative, replaced on every `result` from the SDK.
+//   The SDK reports cost cumulative-per-process, so when a session is resumed
+//   in a new process this counter starts over from zero.
+// - `priorRunsUsage` is the sum of all completed process-runs for this session,
+//   captured at resume time by rolling the current `usage` forward. Session
+//   lifetime = priorRunsUsage + usage.
 // - `usageSnapshots` records cumulative usage after each turn, anchored to the
 //   id of the last log entry written at that moment. /usage walks the parent's
 //   log to find the snapshot at-or-before a fork point and subtracts it from
@@ -104,7 +109,7 @@ export function loadLogWithAncestors(agentId: string, sessionId: string): LogEnt
 // - `forkBaseUsage` is the parent's cumulative-at-the-fork-point captured at
 //   fork creation (resolved via the snapshots above).
 type UsageSnapshot = { entryId: string; usage: PersistedUsage };
-type SessionsMap = Record<string, { topic: string | null; lastModified: number; forkedFrom?: string; forkMessageId?: string; usage?: PersistedUsage; forkBaseUsage?: PersistedUsage; usageSnapshots?: UsageSnapshot[] }>;
+type SessionsMap = Record<string, { topic: string | null; lastModified: number; forkedFrom?: string; forkMessageId?: string; usage?: PersistedUsage; priorRunsUsage?: PersistedUsage; forkBaseUsage?: PersistedUsage; usageSnapshots?: UsageSnapshot[] }>;
 
 export function loadSessionsMap(agentId: string): SessionsMap {
   try {
@@ -144,6 +149,27 @@ export function persistSessionUsage(agentId: string, sessionId: string, usage: P
   const map = loadSessionsMap(agentId);
   const existing = map[sessionId] ?? { topic: null, lastModified: 0 };
   map[sessionId] = { ...existing, usage, lastModified: Date.now() };
+  saveSessionsMap(agentId, map);
+}
+
+// Called at resume time to roll the current-run usage into the prior-runs
+// accumulator so the SDK can reset its per-process counter without losing
+// the cost already spent. No-op if nothing has been spent yet.
+export function rollSessionUsageOnResume(agentId: string, sessionId: string) {
+  const map = loadSessionsMap(agentId);
+  const existing = map[sessionId];
+  if (!existing?.usage) return;
+  const u = existing.usage;
+  if (u.costUSD === 0 && u.inputTokens === 0 && u.outputTokens === 0 && u.cacheReadInputTokens === 0 && u.cacheCreationInputTokens === 0) return;
+  const prior = existing.priorRunsUsage;
+  const rolled: PersistedUsage = {
+    inputTokens: (prior?.inputTokens ?? 0) + u.inputTokens,
+    outputTokens: (prior?.outputTokens ?? 0) + u.outputTokens,
+    cacheReadInputTokens: (prior?.cacheReadInputTokens ?? 0) + u.cacheReadInputTokens,
+    cacheCreationInputTokens: (prior?.cacheCreationInputTokens ?? 0) + u.cacheCreationInputTokens,
+    costUSD: (prior?.costUSD ?? 0) + u.costUSD,
+  };
+  map[sessionId] = { ...existing, priorRunsUsage: rolled, usage: undefined, lastModified: Date.now() };
   saveSessionsMap(agentId, map);
 }
 

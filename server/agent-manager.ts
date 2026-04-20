@@ -14,7 +14,7 @@ import type { ContentBlockParam } from "@anthropic-ai/sdk/resources/messages/mes
 import type { AgentInfo, AgentOutfit, AgentState, Attachment, ClaudeModel, LogEntry, ModelFamily, OfficeSettings, RoomWire, SkillInfo, SkillOrigin } from "../shared/types.ts";
 import { MODEL_FAMILIES, FAMILY_TO_MODEL, familyDisplayLabel, generateRoomId } from "../shared/types.ts";
 import { generateOutfit } from "./outfit.ts";
-import { appendLog, loadLog, loadLogWithAncestors, loadSessionsMap, loadAgents, saveAgents, listAgentSessions, listAllAgentIdsOnDisk, writeManifest, persistSessionTopic, persistSessionFork, persistSessionUsage, appendSessionUsageSnapshot, loadOfficeConfig, saveOfficeConfig, readEnvFile, saveFile, getFilePath, loadAgentHistory, saveAgentHistory, type PersistedAgent, type PersistedUsage, type Room, type OfficeConfig, type AgentHistory } from "./persistence.ts";
+import { appendLog, loadLog, loadLogWithAncestors, loadSessionsMap, loadAgents, saveAgents, listAgentSessions, listAllAgentIdsOnDisk, writeManifest, persistSessionTopic, persistSessionFork, persistSessionUsage, appendSessionUsageSnapshot, rollSessionUsageOnResume, loadOfficeConfig, saveOfficeConfig, readEnvFile, saveFile, getFilePath, loadAgentHistory, saveAgentHistory, type PersistedAgent, type PersistedUsage, type Room, type OfficeConfig, type AgentHistory } from "./persistence.ts";
 import { createSafetyHooks } from "./safety-hooks.ts";
 import { commands, autocompleteCommands, unsupportedMessage, type CommandConfig } from "./commands.ts";
 import { resolve, join } from "path";
@@ -1305,6 +1305,10 @@ function createSession(managed: ManagedAgent, resumeSessionId?: string) {
   if (env) opts.env = env;
   if (resumeSessionId) {
     opts.resume = resumeSessionId;
+    // The SDK reports cost cumulative-per-process, so a resumed session's
+    // counter starts from zero. Roll the current-run usage into the
+    // prior-runs accumulator so lifetime cost survives the reset.
+    rollSessionUsageOnResume(managed.info.id, resumeSessionId);
   }
   return resumeSessionId
     ? unstable_v2_resumeSession(resumeSessionId, opts)
@@ -1802,29 +1806,35 @@ function readAgentUsage(agentId: string, currentSessionId: string | null): { ses
   const map = loadSessionsMap(agentId);
   const lifetime = emptyBucket();
   for (const entry of Object.values(map)) {
-    if (!entry.usage) continue;
+    if (!entry.usage && !entry.priorRunsUsage) continue;
+    const u = entry.usage;
+    const p = entry.priorRunsUsage;
     const base = entry.forkBaseUsage;
-    const totalIn =
-      entry.usage.inputTokens + entry.usage.cacheReadInputTokens + entry.usage.cacheCreationInputTokens
+    // Session total = current-run + all prior completed runs (if any).
+    const inputTokens = (u?.inputTokens ?? 0) + (p?.inputTokens ?? 0);
+    const outputTokens = (u?.outputTokens ?? 0) + (p?.outputTokens ?? 0);
+    const cacheReadInputTokens = (u?.cacheReadInputTokens ?? 0) + (p?.cacheReadInputTokens ?? 0);
+    const cacheCreationInputTokens = (u?.cacheCreationInputTokens ?? 0) + (p?.cacheCreationInputTokens ?? 0);
+    const costUSD = (u?.costUSD ?? 0) + (p?.costUSD ?? 0);
+    lifetime.totalIn += inputTokens + cacheReadInputTokens + cacheCreationInputTokens
       - ((base?.inputTokens ?? 0) + (base?.cacheReadInputTokens ?? 0) + (base?.cacheCreationInputTokens ?? 0));
-    const cacheRead = entry.usage.cacheReadInputTokens - (base?.cacheReadInputTokens ?? 0);
-    const cacheCreation = entry.usage.cacheCreationInputTokens - (base?.cacheCreationInputTokens ?? 0);
-    const totalOut = entry.usage.outputTokens - (base?.outputTokens ?? 0);
-    const costDelta = entry.usage.costUSD - (base?.costUSD ?? 0);
-    lifetime.totalIn += totalIn;
-    lifetime.cacheRead += cacheRead;
-    lifetime.cacheCreation += cacheCreation;
-    lifetime.totalOut += totalOut;
-    lifetime.costUSD += costDelta;
+    lifetime.cacheRead += cacheReadInputTokens - (base?.cacheReadInputTokens ?? 0);
+    lifetime.cacheCreation += cacheCreationInputTokens - (base?.cacheCreationInputTokens ?? 0);
+    lifetime.totalOut += outputTokens - (base?.outputTokens ?? 0);
+    lifetime.costUSD += costUSD - (base?.costUSD ?? 0);
   }
   const session = emptyBucket();
-  const sessUsage = currentSessionId ? map[currentSessionId]?.usage : undefined;
-  if (sessUsage) {
-    session.totalIn = sessUsage.inputTokens + sessUsage.cacheReadInputTokens + sessUsage.cacheCreationInputTokens;
-    session.cacheRead = sessUsage.cacheReadInputTokens;
-    session.cacheCreation = sessUsage.cacheCreationInputTokens;
-    session.totalOut = sessUsage.outputTokens;
-    session.costUSD = sessUsage.costUSD;
+  const sessEntry = currentSessionId ? map[currentSessionId] : undefined;
+  if (sessEntry && (sessEntry.usage || sessEntry.priorRunsUsage)) {
+    const u = sessEntry.usage;
+    const p = sessEntry.priorRunsUsage;
+    session.totalIn = (u?.inputTokens ?? 0) + (p?.inputTokens ?? 0)
+      + (u?.cacheReadInputTokens ?? 0) + (p?.cacheReadInputTokens ?? 0)
+      + (u?.cacheCreationInputTokens ?? 0) + (p?.cacheCreationInputTokens ?? 0);
+    session.cacheRead = (u?.cacheReadInputTokens ?? 0) + (p?.cacheReadInputTokens ?? 0);
+    session.cacheCreation = (u?.cacheCreationInputTokens ?? 0) + (p?.cacheCreationInputTokens ?? 0);
+    session.totalOut = (u?.outputTokens ?? 0) + (p?.outputTokens ?? 0);
+    session.costUSD = (u?.costUSD ?? 0) + (p?.costUSD ?? 0);
   }
   return { session, lifetime };
 }
