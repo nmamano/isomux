@@ -11,6 +11,7 @@ const AGENTS_FILE = join(ISOMUX_DIR, "agents.json");
 const OFFICE_PROMPT_FILE = join(ISOMUX_DIR, "office-prompt.md");
 const OFFICE_CONFIG_FILE = join(ISOMUX_DIR, "office-config.json");
 const TASKS_FILE = join(ISOMUX_DIR, "tasks.json");
+const AGENT_HISTORY_FILE = join(ISOMUX_DIR, "agent-history.json");
 
 // Ensure directories exist
 try {
@@ -189,6 +190,20 @@ export function listAgentSessions(agentId: string): { sessionId: string; lastMod
         };
       })
       .sort((a, b) => b.lastModified - a.lastModified);
+  } catch {
+    return [];
+  }
+}
+
+// List every agent id that has a log directory on disk. Killed agents stay
+// here even though they're gone from agents.json, so /usage can still account
+// for their historical token spend.
+export function listAllAgentIdsOnDisk(): string[] {
+  try {
+    if (!existsSync(LOGS_DIR)) return [];
+    return readdirSync(LOGS_DIR, { withFileTypes: true })
+      .filter((d) => d.isDirectory() && d.name.startsWith("agent-"))
+      .map((d) => d.name);
   } catch {
     return [];
   }
@@ -457,6 +472,34 @@ export function readEnvFile(path: string): Record<string, string> {
     throw new Error(`unreadable: ${err.message || String(err)}`);
   }
   return parseDotenv(content);
+}
+
+// Agent history: per-agent last-known name + last-known room (id + name).
+// Used by /usage to attribute killed agents to the room they were in, and to
+// label the room as "(deleted)" if it no longer exists. Entries are never
+// removed — killed agents keep contributing to lifetime spend forever.
+export interface AgentHistoryEntry {
+  name: string;
+  lastRoomId: string;
+  lastRoomName: string;
+}
+export type AgentHistory = Record<string, AgentHistoryEntry>;
+
+export function loadAgentHistory(): AgentHistory {
+  try {
+    if (!existsSync(AGENT_HISTORY_FILE)) return {};
+    return JSON.parse(readFileSync(AGENT_HISTORY_FILE, "utf-8")) as AgentHistory;
+  } catch {
+    return {};
+  }
+}
+
+export function saveAgentHistory(history: AgentHistory) {
+  try {
+    writeFileSync(AGENT_HISTORY_FILE, JSON.stringify(history, null, 2));
+  } catch (err) {
+    console.error("Failed to save agent history:", err);
+  }
 }
 
 // Tasks

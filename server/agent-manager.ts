@@ -14,7 +14,7 @@ import type { ContentBlockParam } from "@anthropic-ai/sdk/resources/messages/mes
 import type { AgentInfo, AgentOutfit, AgentState, Attachment, ClaudeModel, LogEntry, ModelFamily, OfficeSettings, RoomWire, SkillInfo, SkillOrigin } from "../shared/types.ts";
 import { MODEL_FAMILIES, FAMILY_TO_MODEL, familyDisplayLabel, generateRoomId } from "../shared/types.ts";
 import { generateOutfit } from "./outfit.ts";
-import { appendLog, loadLog, loadLogWithAncestors, loadSessionsMap, loadAgents, saveAgents, listAgentSessions, writeManifest, persistSessionTopic, persistSessionFork, persistSessionUsage, appendSessionUsageSnapshot, loadOfficeConfig, saveOfficeConfig, readEnvFile, saveFile, getFilePath, type PersistedAgent, type PersistedUsage, type Room, type OfficeConfig } from "./persistence.ts";
+import { appendLog, loadLog, loadLogWithAncestors, loadSessionsMap, loadAgents, saveAgents, listAgentSessions, listAllAgentIdsOnDisk, writeManifest, persistSessionTopic, persistSessionFork, persistSessionUsage, appendSessionUsageSnapshot, loadOfficeConfig, saveOfficeConfig, readEnvFile, saveFile, getFilePath, loadAgentHistory, saveAgentHistory, type PersistedAgent, type PersistedUsage, type Room, type OfficeConfig, type AgentHistory } from "./persistence.ts";
 import { createSafetyHooks } from "./safety-hooks.ts";
 import { commands, autocompleteCommands, unsupportedMessage, type CommandConfig } from "./commands.ts";
 import { resolve, join } from "path";
@@ -630,6 +630,21 @@ function persistAll() {
   }
   saveAgents(persistedRooms);
   updateManifest();
+  updateAgentHistory();
+}
+
+// Track each live agent's current name + room so /usage can attribute killed
+// agents (and agents whose rooms were later deleted) to the right bucket.
+// Entries are never removed; they just stop getting refreshed once the agent
+// is killed, which is exactly the behavior we want.
+function updateAgentHistory() {
+  const history: AgentHistory = loadAgentHistory();
+  for (const a of agents.values()) {
+    const room = rooms[a.info.room];
+    if (!room) continue;
+    history[a.info.id] = { name: a.info.name, lastRoomId: room.id, lastRoomName: room.name };
+  }
+  saveAgentHistory(history);
 }
 
 // Restore agents from disk on startup. Creates sessions and loads log history.
@@ -1656,7 +1671,83 @@ function renderUsageReport(): string {
     );
   }
 
+  // Per-room totals + grand total. Each agent (live or killed) contributes to
+  // the room it was last in — resolved via agent-history.json, which persists
+  // each live agent's room on every persistAll. Rooms that have since been
+  // deleted still appear, labeled "(deleted)", so prior spend isn't lost.
+  // Buckets are keyed by stable roomId; current-room names override historical
+  // names so renames are reflected immediately.
+  const liveAgentIds = new Set([...agents.values()].map((a) => a.info.id));
+  const history = loadAgentHistory();
+  type RoomBucket = { id: string; name: string; deleted: boolean; sess: UsageBucket; life: UsageBucket };
+  const roomBuckets = new Map<string, RoomBucket>();
+  const getBucket = (id: string, name: string, deleted: boolean): RoomBucket => {
+    let b = roomBuckets.get(id);
+    if (!b) {
+      b = { id, name, deleted, sess: emptyBucket(), life: emptyBucket() };
+      roomBuckets.set(id, b);
+    }
+    return b;
+  };
+  // Seed with all current rooms so they show even when empty.
+  for (const r of rooms) getBucket(r.id, r.name, false);
+
+  for (const a of agents.values()) {
+    const room = rooms[a.info.room];
+    if (!room) continue;
+    const usage = readAgentUsage(a.info.id, a.sessionId);
+    const b = getBucket(room.id, room.name, false);
+    addBucket(b.sess, usage.session);
+    addBucket(b.life, usage.lifetime);
+  }
+  for (const id of listAllAgentIdsOnDisk()) {
+    if (liveAgentIds.has(id)) continue;
+    const h = history[id];
+    // Killed agents without a history entry predate this feature; drop into a
+    // synthetic bucket so their spend is still counted toward the grand total.
+    const roomId = h?.lastRoomId ?? "__unknown__";
+    const currentRoom = rooms.find((r) => r.id === roomId);
+    const name = currentRoom?.name ?? h?.lastRoomName ?? "(unknown room)";
+    const deleted = !currentRoom;
+    const usage = readAgentUsage(id, null);
+    const b = getBucket(roomId, name, deleted);
+    addBucket(b.life, usage.lifetime);
+  }
+
+  const total = { sess: emptyBucket(), life: emptyBucket() };
+  for (const b of roomBuckets.values()) {
+    addBucket(total.sess, b.sess);
+    addBucket(total.life, b.life);
+  }
+
+  const sortedBuckets = [...roomBuckets.values()].sort((a, b) => b.life.costUSD - a.life.costUSD);
+
+  lines.push("");
+  lines.push(`## Per-room usage`);
+  lines.push("");
+  lines.push(`_Agents contribute to the room they were last in (killed agents included)._`);
+  lines.push("");
+  lines.push(`| Room | In (sess) | Out (sess) | $ (sess) | In (life) | Out (life) | $ (life) |`);
+  lines.push(`| --- | ---: | ---: | ---: | ---: | ---: | ---: |`);
+  for (const r of sortedBuckets) {
+    const label = r.deleted ? `${r.name} _(deleted)_` : r.name;
+    lines.push(
+      `| ${label} | ${formatInCell(r.sess)} | ${formatTokenCount(r.sess.totalOut)} | ${formatUsd(r.sess.costUSD)} | ${formatInCell(r.life)} | ${formatTokenCount(r.life.totalOut)} | ${formatUsd(r.life.costUSD)} |`,
+    );
+  }
+  lines.push(
+    `| **Total** | ${formatInCell(total.sess)} | ${formatTokenCount(total.sess.totalOut)} | ${formatUsd(total.sess.costUSD)} | ${formatInCell(total.life)} | ${formatTokenCount(total.life.totalOut)} | ${formatUsd(total.life.costUSD)} |`,
+  );
+
   return lines.join("\n");
+}
+
+function addBucket(dst: UsageBucket, src: UsageBucket) {
+  dst.totalIn += src.totalIn;
+  dst.cacheRead += src.cacheRead;
+  dst.cacheCreation += src.cacheCreation;
+  dst.totalOut += src.totalOut;
+  dst.costUSD += src.costUSD;
 }
 
 // `cacheRead` is discounted cache hits; `cacheCreation` is the 1.25x write
