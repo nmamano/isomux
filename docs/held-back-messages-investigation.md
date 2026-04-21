@@ -1,7 +1,7 @@
 # Held-Back Messages Bug Investigation
 
-**Date**: 2026-04-01 (resolved 2026-04-20)
-**Status**: Root cause confirmed. Fix is an Isomux-side architecture change, not an SDK change.
+**Date**: 2026-04-01 (fixed and verified 2026-04-20)
+**Status**: Fixed in Isomux via the persistent-consumer architecture described below. Repro verified end-to-end (backgrounded bash + Monitor tool both deliver notifications on their own, no user message needed).
 **Tracking issue**: `nmamano/isomux#9`
 **Upstream (closed, not a bug)**: `anthropics/claude-agent-sdk-typescript#295`
 **Related Isomux commits**: `4b7ba76` (abort-race fix), `9c7600e` (stuck-thinking fix) — these were unrelated abort-path fixes; they did not address this bug.

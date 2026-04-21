@@ -248,9 +248,14 @@ interface ManagedAgent {
   info: AgentInfo;
   session: ReturnType<typeof unstable_v2_createSession> | null;
   sessionId: string | null;
-  streaming: boolean;
+  // Persistent consumer loop iterating `session.stream()` for the session's
+  // lifetime. See docs/held-back-messages-investigation.md — without this,
+  // task_notifications buffered between turns get flushed one turn late.
+  consumerPromise: Promise<void> | null;
+  // Per-turn deferred. sendMessage/executeSkill await this; the consumer
+  // resolves it when the turn's `stream()` iterator ends at `result`.
+  pendingTurn: { resolve: () => void; reject: (err: unknown) => void } | null;
   aborting: boolean;
-  streamGeneration: number; // incremented on abort to invalidate old consumeStream cleanup
   slashCommands: { name: string; description?: string }[];
   skills: SkillInfo[];
   sdkReportedCommands: string[]; // commands reported by SDK in system:init
@@ -383,7 +388,7 @@ export function getCurrentSessionId(agentId: string): string | null {
   return agents.get(agentId)?.sessionId ?? null;
 }
 
-export function editAgent(agentId: string, changes: { name?: string; cwd?: string; outfit?: AgentInfo["outfit"]; customInstructions?: string; modelFamily?: ModelFamily; permissionMode?: AgentInfo["permissionMode"] }) {
+export async function editAgent(agentId: string, changes: { name?: string; cwd?: string; outfit?: AgentInfo["outfit"]; customInstructions?: string; modelFamily?: ModelFamily; permissionMode?: AgentInfo["permissionMode"] }) {
   const managed = agents.get(agentId);
   if (!managed) return;
 
@@ -429,8 +434,8 @@ export function editAgent(agentId: string, changes: { name?: string; cwd?: strin
   // Recreate session if model or permission mode changed so it takes effect immediately
   if (updated.modelFamily || updated.permissionMode) {
     const sessionId = managed.sessionId;
-    try { managed.session?.close(); } catch {}
-    managed.session = sessionId ? createSession(managed, sessionId) : createSession(managed);
+    const newSession = sessionId ? createSession(managed, sessionId) : createSession(managed);
+    await replaceSession(agentId, managed, newSession);
   }
 
   persistAll();
@@ -653,9 +658,9 @@ export async function restoreAgents() {
         info,
         session: null,
         sessionId: p.lastSessionId,
-        streaming: false,
+        consumerPromise: null,
+        pendingTurn: null,
         aborting: false,
-        streamGeneration: 0,
         slashCommands: autocompleteCommands(),
         skills: deduplicateSkills([...discoverUserSkills(), ...discoverProjectSkills(p.cwd), ...discoverPluginSkills(), ...discoverBundledSkills()]),
         sdkReportedCommands: [],
@@ -684,11 +689,8 @@ export async function restoreAgents() {
 
       // Auto-resume session
       try {
-        if (p.lastSessionId) {
-          managed.session = createSession(managed, p.lastSessionId);
-        } else {
-          managed.session = createSession(managed);
-        }
+        const session = p.lastSessionId ? createSession(managed, p.lastSessionId) : createSession(managed);
+        installSession(p.id, managed, session);
       } catch (err: any) {
         console.error(`Failed to restore session for ${p.name}:`, err.message);
         managed.info.state = "error";
@@ -1046,60 +1048,110 @@ function processMessage(agentId: string, msg: SDKMessage) {
   }
 }
 
-// Consume the stream from an SDK session (one turn at a time)
-async function consumeStream(agentId: string, managed: ManagedAgent) {
-  if (!managed.session) return;
-  const gen = managed.streamGeneration;
-  managed.streaming = true;
-  try {
-    for await (const msg of managed.session.stream()) {
-      if (!agents.has(agentId) || gen !== managed.streamGeneration) break;
-      processMessage(agentId, msg);
-    }
-  } catch (err: any) {
-    if (!managed.aborting) {
-      // Check if this is a leftover abort error from a prior interrupt.
-      // The SDK session can throw "aborted by user" on the first stream after
-      // an abort even though we already recreated the session. When this happens,
-      // the SDK may have buffered our send() internally, causing an off-by-one
-      // response on the next message. Recreate the session to clear stale state.
-      const isAbortError = /abort/i.test(err.message || "");
-      if (isAbortError) {
-        console.warn(`Agent ${agentId}: post-abort stream error, recreating session`);
-        const sessionId = managed.sessionId;
-        try { managed.session?.close(); } catch {}
-        try {
-          managed.session = sessionId ? createSession(managed, sessionId) : createSession(managed);
-        } catch (recreateErr: any) {
-          console.error(`Agent ${agentId}: failed to recreate session:`, recreateErr.message);
-          addLogEntry(agentId, "error", `Failed to recover after abort: ${recreateErr.message}`);
-          updateState(agentId, "error");
-          return;
-        }
-        updateState(agentId, "waiting_for_response");
-      } else {
-        console.error(`Agent ${agentId} stream error:`, err.message);
-        const errorText = `Stream error: ${err.message}`;
-        addLogEntry(agentId, "error", errorText);
-        // The SDK's "process exited with code 1" is opaque; diagnose common causes.
-        const hints = diagnoseProcessExit(managed);
-        if (hints) emitEphemeralLog(agentId, "system", hints);
-        if (isAuthError(errorText)) {
-          emitEphemeralLog(agentId, "system", LOGIN_INSTRUCTIONS);
-        }
-        updateState(agentId, "error");
+// Thrown at an in-flight turn's deferred when its session is swapped out
+// from under it (abort / resume / model switch / etc.). Callers of
+// sendMessage / executeSkill / editMessage filter this out so a user-
+// initiated interrupt doesn't surface as a scary log entry.
+class SessionSwappedError extends Error {
+  constructor(message = "Session replaced.") {
+    super(message);
+    this.name = "SessionSwappedError";
+  }
+}
+
+// Create the per-turn deferred that sendMessage / executeSkill await. The
+// persistent consumer resolves it when its inner `stream()` iterator ends —
+// which, per the V2 SDK contract, happens exactly at the turn's `result`
+// message. If the SDK ever emits an empty stream between turns, this
+// deferred would resolve prematurely; the invariant is load-bearing.
+function createTurnDeferred(managed: ManagedAgent): Promise<void> {
+  // Any stale pending turn (shouldn't normally happen; agents are
+  // state-gated to one turn at a time) gets rejected so awaiting callers
+  // don't leak forever.
+  const stale = managed.pendingTurn;
+  if (stale) {
+    managed.pendingTurn = null;
+    try { stale.reject(new Error("Superseded by a new turn.")); } catch {}
+  }
+  let resolve!: () => void;
+  let reject!: (err: unknown) => void;
+  const promise = new Promise<void>((res, rej) => { resolve = res; reject = rej; });
+  managed.pendingTurn = { resolve, reject };
+  return promise;
+}
+
+// Persistent consumer. Runs for the session's lifetime, iterating `stream()`
+// in a loop so events that arrive between turns (notably `task_notification`
+// from backgrounded Bash) get processed promptly instead of being held until
+// the next user turn. See docs/held-back-messages-investigation.md.
+//
+// Bound to a specific session instance: loop exits when `managed.session` is
+// swapped out (abort / resume / fork / etc.) — `session.close()` unblocks the
+// parked `stream()` generator.
+async function runConsumer(agentId: string, managed: ManagedAgent, boundSession: ReturnType<typeof unstable_v2_createSession>) {
+  while (agents.has(agentId) && managed.session === boundSession) {
+    try {
+      for await (const msg of boundSession.stream()) {
+        processMessage(agentId, msg);
       }
-    }
-  } finally {
-    // Only clear flags if this is still the current stream generation.
-    // A newer abort() or sendMessage() may have already started a new stream.
-    if (managed.streamGeneration === gen) {
-      managed.streaming = false;
-      managed.aborting = false;
+      // Inner generator ended: either the turn's `result` arrived, or the
+      // session was closed from underneath us. Resolve any pending turn; the
+      // outer loop re-calls stream() which blocks until the next event.
+      const turn = managed.pendingTurn;
+      if (turn && managed.session === boundSession) {
+        managed.pendingTurn = null;
+        turn.resolve();
+      }
+    } catch (err: any) {
+      if (managed.aborting || managed.session !== boundSession) {
+        // Expected: abort() or a session swap closed us. The swap path
+        // already nulled + rejected pendingTurn with SessionSwappedError.
+        return;
+      }
+
+      const turn = managed.pendingTurn;
+      managed.pendingTurn = null;
+      if (turn) turn.reject(err);
+
+      console.error(`Agent ${agentId} stream error:`, err.message);
+      const errorText = `Stream error: ${err.message}`;
+      addLogEntry(agentId, "error", errorText);
+      // The SDK's "process exited with code 1" is opaque; diagnose common causes.
+      const hints = diagnoseProcessExit(managed);
+      if (hints) emitEphemeralLog(agentId, "system", hints);
+      if (isAuthError(errorText)) {
+        emitEphemeralLog(agentId, "system", LOGIN_INSTRUCTIONS);
+      }
+      updateState(agentId, "error");
+      return;
     }
   }
 }
 
+// Install a freshly-created session on managed and spawn its consumer. Caller
+// is responsible for having closed/awaited any previous session first.
+function installSession(agentId: string, managed: ManagedAgent, session: ReturnType<typeof unstable_v2_createSession>) {
+  managed.session = session;
+  managed.consumerPromise = runConsumer(agentId, managed, session);
+}
+
+// Swap the agent's session: close the current one, await its consumer to
+// drain, install the new session + consumer. Rejects any in-flight turn so
+// callers awaiting sendMessage's deferred don't hang.
+async function replaceSession(agentId: string, managed: ManagedAgent, newSession: ReturnType<typeof unstable_v2_createSession>) {
+  const oldConsumer = managed.consumerPromise;
+  const turn = managed.pendingTurn;
+  managed.pendingTurn = null;
+  if (turn) {
+    try { turn.reject(new SessionSwappedError()); } catch {}
+  }
+  try { managed.session?.close(); } catch {}
+  managed.session = null;
+  if (oldConsumer) {
+    try { await oldConsumer; } catch {}
+  }
+  installSession(agentId, managed, newSession);
+}
 
 // Resolve ~ in paths
 function resolveCwd(cwd: string): string {
@@ -1345,9 +1397,9 @@ export async function spawn(name: string, cwd: string, permissionMode: AgentInfo
     info,
     session: null,
     sessionId: null,
-    streaming: false,
+    consumerPromise: null,
+    pendingTurn: null,
     aborting: false,
-    streamGeneration: 0,
     slashCommands: autocompleteCommands(),
     skills: deduplicateSkills([...discoverUserSkills(), ...discoverProjectSkills(resolvedCwd), ...discoverPluginSkills(), ...discoverBundledSkills()]),
     sdkReportedCommands: [],
@@ -1376,9 +1428,9 @@ export async function spawn(name: string, cwd: string, permissionMode: AgentInfo
 
   // Create V2 session
   try {
-    managed.session = createSession(managed);
+    installSession(id, managed, createSession(managed));
     addLogEntry(id, "system", `Agent "${name}" ready. Working in ${resolvedCwd}. Permission mode: ${permissionMode}.`);
-    // Init message (session ID, slash commands) will be consumed on first sendMessage
+    // First stream() will deliver system/init + response to the first send().
   } catch (err: any) {
     console.error(`Failed to create session for ${name}:`, err.message);
     addLogEntry(id, "error", `Failed to start: ${err.message}`);
@@ -1470,7 +1522,7 @@ export async function sendMessage(agentId: string, text: string, username?: stri
   if (!managed.session) {
     // Try to create a fresh session so the user's next message doesn't silently vanish.
     try {
-      managed.session = createSession(managed);
+      installSession(agentId, managed, createSession(managed));
       managed.sessionId = null;
       addLogEntry(agentId, "system", "Started a fresh session (previous one could not be restored).");
       updateState(agentId, "waiting_for_response");
@@ -1524,11 +1576,10 @@ export async function sendMessage(agentId: string, text: string, username?: stri
       // Persist current session topic before switching
       persistCurrentSessionTopic(agentId, managed);
       // Perform the resume
-      try { managed.session?.close(); } catch {}
       try {
-        managed.session = createSession(managed, picked.sessionId);
+        const newSession = createSession(managed, picked.sessionId);
+        await replaceSession(agentId, managed, newSession);
         managed.sessionId = picked.sessionId;
-        managed.streaming = false;
         managed.topicGenerating = false;
         managed.topicMessageCount = 0;
         // Clear and replay resumed session's logs (walks fork ancestry)
@@ -1578,8 +1629,8 @@ export async function sendMessage(agentId: string, text: string, username?: stri
       } else {
         managed.info.modelFamily = picked.family;
         const sessionId = managed.sessionId;
-        try { managed.session?.close(); } catch {}
-        managed.session = sessionId ? createSession(managed, sessionId) : createSession(managed);
+        const newSession = sessionId ? createSession(managed, sessionId) : createSession(managed);
+        await replaceSession(agentId, managed, newSession);
         emit({ type: "agent_updated", agentId, changes: { modelFamily: picked.family } });
         persistAll();
         addLogEntry(agentId, "system", `Model switched to ${label}. The agent's context may still say they are a different model — the correct model is shown in the top bar.`);
@@ -1607,14 +1658,16 @@ export async function sendMessage(agentId: string, text: string, username?: stri
 
   const prefixedText = username ? `[${username}] ${text}` : text;
   try {
+    const turn = createTurnDeferred(managed);
     if (attachments && attachments.length > 0) {
       const message = buildUserMessage(agentId, prefixedText, attachments);
-      await managed.session.send(message);
+      await managed.session!.send(message);
     } else {
-      await managed.session.send(prefixedText);
+      await managed.session!.send(prefixedText);
     }
-    await consumeStream(agentId, managed);
+    await turn;
   } catch (err: any) {
+    if (err instanceof SessionSwappedError) return;
     console.error(`Agent ${agentId} send error:`, err.message);
     addLogEntry(agentId, "error", `Error: ${err.message}`);
     updateState(agentId, "error");
@@ -1890,10 +1943,8 @@ const commandHandlers: Record<string, HandlerFn> = {
     managed.pendingResumeSessions = [];
     managed.pendingModelPick = false;
     persistCurrentSessionTopic(agentId, managed);
-    try { managed.session?.close(); } catch {}
-    managed.session = createSession(managed);
+    await replaceSession(agentId, managed, createSession(managed));
     managed.sessionId = null;
-    managed.streaming = false;
     managed.topicGenerating = false;
     managed.topicMessageCount = 0;
     managed.info.topic = null;
@@ -2304,9 +2355,11 @@ async function executeSkill(agentId: string, managed: ManagedAgent, skillPrompt:
   updateState(agentId, "thinking");
   const prefixedSkillPrompt = username ? `[${username}] ${fullPrompt}` : fullPrompt;
   try {
+    const turn = createTurnDeferred(managed);
     await managed.session!.send(prefixedSkillPrompt);
-    await consumeStream(agentId, managed);
+    await turn;
   } catch (err: any) {
+    if (err instanceof SessionSwappedError) return true;
     addLogEntry(agentId, "error", `Skill error: ${err.message}`);
     updateState(agentId, "error");
   }
@@ -2374,10 +2427,10 @@ function resolveSkillPrompt(name: string, cwd: string): string | null {
 export async function abort(agentId: string) {
   const managed = agents.get(agentId);
   if (!managed) return;
-  // If the SDK's stream already died (e.g. subprocess exited) but the UI still
-  // shows "thinking", normal consumeStream cleanup ran but the state may not
-  // reflect what the user sees. Reset it here so Stop is never a no-op.
-  if (!managed.streaming) {
+  // If no turn is in flight, the SDK stream may have died (e.g. subprocess
+  // exited) while the UI still shows "thinking". Reset state so Stop is
+  // never a no-op.
+  if (!managed.pendingTurn) {
     if (managed.info.state === "thinking" || managed.info.state === "tool_executing") {
       updateState(agentId, "waiting_for_response");
       addLogEntry(agentId, "system", "Agent interrupted (stream was already dead — state reset).");
@@ -2385,23 +2438,18 @@ export async function abort(agentId: string) {
     return;
   }
   managed.aborting = true;
-  managed.streamGeneration++; // invalidate old consumeStream's finally cleanup
   const sessionId = managed.sessionId;
-  try { managed.session?.close(); } catch {}
-  managed.streaming = false;
 
   try {
-    if (sessionId) {
-      managed.session = createSession(managed, sessionId);
-      managed.sessionId = sessionId;
-    } else {
-      managed.session = createSession(managed);
-    }
+    const newSession = sessionId ? createSession(managed, sessionId) : createSession(managed);
+    await replaceSession(agentId, managed, newSession);
     updateState(agentId, "waiting_for_response");
     addLogEntry(agentId, "system", "Agent interrupted.");
   } catch (err: any) {
     addLogEntry(agentId, "error", `Failed to resume after interrupt: ${err.message}`);
     updateState(agentId, "error");
+  } finally {
+    managed.aborting = false;
   }
 }
 
@@ -2412,10 +2460,17 @@ export async function kill(agentId: string) {
     try { managed.pendingPermission.resolve({ behavior: "deny", message: "Agent killed." }); } catch {}
     managed.pendingPermission = null;
   }
+  const turn = managed.pendingTurn;
+  managed.pendingTurn = null;
+  if (turn) { try { turn.reject(new Error("Agent killed.")); } catch {} }
+  const oldConsumer = managed.consumerPromise;
   try { managed.session?.close(); } catch {}
-  try { sidecarSend(managed, { type: "kill" }); managed.ptySidecar?.kill(); } catch {}
+  managed.session = null;
+  // Remove from the map so the consumer's outer `agents.has(agentId)` guard exits.
   agents.delete(agentId);
   logCache.delete(agentId);
+  if (oldConsumer) { try { await oldConsumer; } catch {} }
+  try { sidecarSend(managed, { type: "kill" }); managed.ptySidecar?.kill(); } catch {}
   emit({ type: "agent_removed", agentId });
   persistAll();
 }
@@ -2427,12 +2482,11 @@ export async function newConversation(agentId: string) {
   managed.pendingResumeSessions = [];
   managed.pendingModelPick = false;
   persistCurrentSessionTopic(agentId, managed);
-  try { managed.session?.close(); } catch {}
 
   try {
-    managed.session = createSession(managed);
+    const newSession = createSession(managed);
+    await replaceSession(agentId, managed, newSession);
     managed.sessionId = null;
-    managed.streaming = false;
     managed.topicGenerating = false;
     managed.topicMessageCount = 0;
     managed.info.topic = null;
@@ -2454,12 +2508,11 @@ export async function resume(agentId: string, sessionId: string) {
   managed.pendingResumeSessions = [];
   managed.pendingModelPick = false;
   persistCurrentSessionTopic(agentId, managed);
-  try { managed.session?.close(); } catch {}
 
   try {
-    managed.session = createSession(managed, sessionId);
+    const newSession = createSession(managed, sessionId);
+    await replaceSession(agentId, managed, newSession);
     managed.sessionId = sessionId;
-    managed.streaming = false;
     managed.topicGenerating = false;
     managed.topicMessageCount = 0;
 
@@ -2621,15 +2674,12 @@ export async function editMessage(agentId: string, logEntryId: string, newText: 
 
     // 5. Create new session from fork (or fresh session for first-message edit), then close old
     const newSession = isFirstMessage ? createSession(managed) : createSession(managed, newSessionId);
-    try { managed.session?.close(); } catch {}
-    managed.session = newSession;
+    await replaceSession(agentId, managed, newSession);
     // For first-message edits, sessionId will be set by the system/init event (like newConversation).
     // For forks, set it now.
     managed.sessionId = isFirstMessage ? null : newSessionId;
-    managed.streaming = false;
     managed.topicGenerating = false;
     managed.topicMessageCount = 0;
-    managed.streamGeneration++;
 
     // --- Phase 2: UI/cache mutations (point of no return) ---
 
@@ -2664,20 +2714,27 @@ export async function editMessage(agentId: string, logEntryId: string, newText: 
     addLogEntry(agentId, "user_message", newText, username ? { username } : undefined);
 
     const prefixedNew = username ? `[${username}] ${newText}` : newText;
-    await managed.session.send(prefixedNew);
-    await consumeStream(agentId, managed);
+    const turn = createTurnDeferred(managed);
+    await managed.session!.send(prefixedNew);
+    await turn;
 
     persistAll();
   } catch (err: any) {
+    // User aborted (or another explicit session swap) after the fork was
+    // installed — the fork and its partial turn are a legitimate result,
+    // not a failure. Skip the rollback.
+    if (err instanceof SessionSwappedError) {
+      persistAll();
+      return;
+    }
     console.error(`Agent ${agentId} edit/fork error:`, err.message);
 
     if (managed.sessionId !== oldSessionId) {
       // We switched to the fork — roll back to old session and restore UI
-      try { managed.session?.close(); } catch {}
       try {
-        managed.session = createSession(managed, oldSessionId);
+        const rollbackSession = createSession(managed, oldSessionId);
+        await replaceSession(agentId, managed, rollbackSession);
         managed.sessionId = oldSessionId;
-        managed.streamGeneration++;
       } catch {
         // Can't restore session — leave in error state
       }
