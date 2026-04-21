@@ -101,7 +101,7 @@ export function MobileHeader({
         justifyContent: "space-between",
         padding: "0 12px",
         paddingTop: "env(safe-area-inset-top, 0px)",
-        height: 40,
+        height: "calc(40px + env(safe-area-inset-top, 0px))",
         background: "var(--bg-hud)",
         backdropFilter: "blur(16px)",
         borderBottom: "1px solid var(--border-subtle)",
