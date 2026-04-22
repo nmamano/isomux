@@ -8,7 +8,7 @@ See [isomux.com](https://isomux.com) for a full feature overview and setup instr
 
 - **Rebuild UI after changes:** `bun run build:ui`. This bundles JS, copies `index.html`, and copies `xterm.css` into `ui/dist/`. The server reads from `ui/dist/` on each request — no restart needed. **Do NOT build to `ui/index.js`; that path is not served.**
 - **Restart server:** `systemctl --user restart isomux`. This kills the process all agents run on — every active agent session is interrupted. The user will need to proactively continue any in-progress conversations afterward.
-- **URL:** http://localhost:4000 (server machine) or http://TAILSCALE_SERVER_ALIAS:4000 (laptop, phone, etc.)
+- **URL:** <http://localhost:4000> (server machine) or <http://TAILSCALE_SERVER_ALIAS:4000> (laptop, phone, etc.)
 - **Debug agent issues** by reading logs at `~/.isomux/logs/<agentId>/<sessionId>.jsonl` — don't ask the user to copy-paste.
 - **Don't ask the user to run commands — just do it.**
 - After completing a feature or batch of fixes, offer to the user to commit and push.

@@ -44,6 +44,7 @@ The Claude Agent SDK session object exposes:
 Timing constraint: the available integrations can only be discovered after a session exists, so the spawn dialog can't show them before the first agent is created.
 
 Options considered:
+
 - **Agent settings panel** — toggles per integration, per agent (if such a panel exists or is added).
 - **Context menu on agent nametag** — quick "Integrations" submenu.
 - **Global office-level defaults with per-agent overrides** — "These MCPs are on by default; agent X has Gmail off."

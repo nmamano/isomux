@@ -12,7 +12,7 @@ Instead of teaching isomux about offices internally, a separate program ("the hu
 
 ### Architecture
 
-```
+```text
                  ┌─────────────┐
   browser ──────▶│   hub :4000 │
                  └──┬──┬──┬────┘
@@ -29,7 +29,7 @@ The hub is a lightweight reverse proxy + process manager. Each isomux instance i
 
 ### URL Structure
 
-```
+```text
 hub:4000/              → "default" office
 hub:4000/o/alice/      → "alice" office
 hub:4000/o/team/       → "team" office
@@ -41,7 +41,7 @@ The root `/` serves the `default` office directly. The hub strips the `/o/<name>
 
 Each isomux instance listens on a Unix socket instead of a TCP port. No port allocation, no collisions, no firewall concerns.
 
-```
+```text
 /tmp/isomux-hub/
   default.sock
   alice.sock
@@ -52,7 +52,7 @@ Isomux needs a `--socket /path/to/file.sock` flag (alongside the existing `--por
 
 ### State Layout
 
-```
+```text
 ~/.isomux-hub/
   hub.json                  # hub config (office registry)
   offices/
@@ -130,11 +130,13 @@ Isomux remains a single-office application. It has no knowledge of the hub or ot
 ### Hub Internals
 
 **Process management:**
+
 - On startup, scan `~/.isomux-hub/offices/`, spawn one isomux process per office
 - Monitor child processes, restart on crash
 - On SIGTERM, gracefully stop all children
 
 **Reverse proxy:**
+
 - Parse office name from URL path
 - Strip `/o/<name>` prefix
 - Proxy HTTP and WebSocket to the corresponding Unix socket
@@ -154,12 +156,12 @@ On first hub startup, if an existing `~/.isomux/` directory exists and `~/.isomu
 
 The hub architecture decouples office management from isolation enforcement. The spawn mechanism is a deployment-time choice:
 
-| Level | Mechanism | Isolation | Cost |
-|-------|-----------|-----------|------|
-| 0 | Same user, separate processes | State dirs only | Zero — default |
-| 1 | Different Linux user per office | OS file permissions | Pre-create users, hub needs sudo |
-| 2 | Docker container per office | Filesystem + network + resources | Docker dependency, image management |
-| 3 | MicroVM per office (Firecracker) | Full VM isolation | Heavier infra, cloud-oriented |
+| Level | Mechanism                        | Isolation                        | Cost                                |
+| ----- | -------------------------------- | -------------------------------- | ----------------------------------- |
+| 0     | Same user, separate processes    | State dirs only                  | Zero — default                      |
+| 1     | Different Linux user per office  | OS file permissions              | Pre-create users, hub needs sudo    |
+| 2     | Docker container per office      | Filesystem + network + resources | Docker dependency, image management |
+| 3     | MicroVM per office (Firecracker) | Full VM isolation                | Heavier infra, cloud-oriented       |
 
 The hub's core logic (proxy + lifecycle) stays the same across all levels. Only the spawn function changes.
 
@@ -169,7 +171,7 @@ The hub architecture enables a hosted commercial offering: run a hub in the clou
 
 ### Value Proposition
 
-"Hire an AI dev office." Multiple persistent agents, collaborative task board, room-based organization, persistent memory across sessions. Not a single assistant (Cursor, Copilot) or a single autonomous agent (Devin) — a *staff*.
+"Hire an AI dev office." Multiple persistent agents, collaborative task board, room-based organization, persistent memory across sessions. Not a single assistant (Cursor, Copilot) or a single autonomous agent (Devin) — a _staff_.
 
 ### What a Customer Gets
 
@@ -186,6 +188,7 @@ The hub architecture enables a hosted commercial offering: run a hub in the clou
 **Compute is secondary but real.** Each office runs agent processes that spawn subprocesses (bash, node, etc.). Need resource limits per office to prevent one customer from starving others.
 
 **Pricing options:**
+
 - Flat monthly — simple, but you eat usage variance. A power user with 8 agents running all day could cost more than they pay.
 - Usage-based — accurate, but confusing UX ("why did my bill spike?").
 - Hybrid (base + usage cap) — probably right, but hard to calibrate early.
@@ -222,11 +225,13 @@ Commercializing too early means solving infra/security/billing problems before t
 Modify isomux internals to support multiple offices within a single process. AgentManager becomes one instance per office in a `Map<string, AgentManager>`. All API routes namespaced under `/o/:office/`. WebSocket connections tagged with office at upgrade time, broadcast scoped per-office.
 
 **Pros:**
+
 - Single process, simpler deployment
 - No proxy hop for WebSocket latency
 - No port/socket management
 
 **Cons:**
+
 - Significant isomux architecture changes (AgentManager singleton → map, broadcast scoping, route namespacing, frontend office parsing)
 - One office crashing takes down all offices
 - No process isolation — shared memory space
@@ -240,10 +245,12 @@ Modify isomux internals to support multiple offices within a single process. Age
 Each Tailscale user maps to a Linux user. Each user runs their own isomux instance as a systemd user service on a separate port.
 
 **Pros:**
+
 - True filesystem isolation enforced by the OS
 - No application changes needed
 
 **Cons:**
+
 - Per-user binary/dependency installation, or shared `/opt/isomux` setup
 - Per-user port management
 - Deploying updates requires pulling code and restarting every instance
@@ -256,9 +263,11 @@ Each Tailscale user maps to a Linux user. Each user runs their own isomux instan
 Single isomux server runs as a privileged user. Each office has a `runAsUser` field. Agent processes are spawned with `sudo -u <user> claude ...`.
 
 **Pros:**
+
 - Single deployment, filesystem isolation for execution
 
 **Cons:**
+
 - Agent cwds must be under the target user's home directory
 - Isomux process needs root or sudo privileges
 - Cascading complexity: "home" means different things per office
@@ -271,9 +280,11 @@ Single isomux server runs as a privileged user. Each office has a `runAsUser` fi
 Each agent gets a `user` field. Claude Code is spawned as that user.
 
 **Pros:**
+
 - Granular — different agents can run as different users
 
 **Cons:**
+
 - Same path/cwd problems as sudo-u per office
 - No conversation or state isolation
 - Mixed concern: agent config shouldn't know about OS users
@@ -285,10 +296,12 @@ Each agent gets a `user` field. Claude Code is spawned as that user.
 nginx/caddy resolves Tailscale identity via `tailscale whois`, proxies to per-user backends.
 
 **Pros:**
+
 - Single URL for all users — identity is invisible
 - Full isolation (separate processes)
 
 **Cons:**
+
 - All the operational overhead of separate instances, plus a proxy layer
 - Requires Tailscale-specific infrastructure
 
@@ -299,9 +312,11 @@ nginx/caddy resolves Tailscale identity via `tailscale whois`, proxies to per-us
 Rooms become the isolation boundary with access control.
 
 **Pros:**
+
 - Natural collaboration model
 
 **Cons:**
+
 - Requires an access control system
 - Agents moving between rooms conflicts with isolation
 - Tasks and office prompt don't belong to a room
@@ -313,9 +328,11 @@ Rooms become the isolation boundary with access control.
 Navigate to `/o/alice/` and the office springs into existence.
 
 **Pros:**
+
 - Lowest friction
 
 **Cons:**
+
 - Typos create empty offices that look like data loss
 
 **Verdict:** Rejected in favor of a confirmation page.
@@ -323,6 +340,7 @@ Navigate to `/o/alice/` and the office springs into existence.
 ## Scope
 
 ### In scope (hub v1)
+
 - Hub reverse proxy with Unix socket communication
 - Office creation with confirmation page
 - Per-office state isolation via separate isomux processes
@@ -332,10 +350,12 @@ Navigate to `/o/alice/` and the office springs into existence.
 - Migration of existing `~/.isomux/` state
 
 ### In scope (isomux changes)
+
 - `ISOMUX_HOME` env var for configurable state root
 - `--socket` flag for Unix socket listening
 
 ### Out of scope
+
 - Authentication or authorization
 - Stronger isolation (Linux users, containers, microVMs) — future layers
 - Office deletion UI

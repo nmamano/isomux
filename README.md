@@ -1,6 +1,6 @@
 # Isomux
 
-Friction going from 1 Claude Code to 4+? Isomux is your agent office. *Cute in a useful way.*
+Friction going from 1 Claude Code to 4+? Isomux is your agent office. _Cute in a useful way._
 
 Free · open source · no cloud · no account
 
@@ -55,13 +55,14 @@ bun run dev
 
 ### 3. Open
 
-Visit **http://localhost:4000** in your browser. Click an empty desk to spawn your first agent.
+Visit **<http://localhost:4000>** in your browser. Click an empty desk to spawn your first agent.
 
 For persistent server setup (systemd + Tailscale) and voice input configuration, see [isomux.com](https://isomux.com).
 
 ## Full Feature List
 
 ### Office View
+
 - **Isometric office with 8 desks** — see all your agents at a glance
 - **Name your agents** — each gets a nametag on their desk
 - **Unique character per agent** — customize hat, shirt, hair, accessory, or randomize
@@ -73,12 +74,14 @@ For persistent server setup (systemd + Tailscale) and voice input configuration,
 - Light / dark theme toggle
 
 ### Agent Creation & Editing
+
 - **Click empty desk to spawn** — name, working directory, permission mode, custom instructions
 - Working directory input with **recent CWD suggestions**
 - **Outfit customization**: color swatches, hat, accessory, randomize with live preview
 - **Custom instructions** per agent, editable at spawn and later
 
 ### Conversation View
+
 - **Input drafts preserved** when switching between agents
 - **Markdown rendering** for agent output
 - **Collapsible thinking and tool-call cards** with timing for each step
@@ -91,18 +94,21 @@ For persistent server setup (systemd + Tailscale) and voice input configuration,
 - **Right-click context menu** — resume past sessions, edit agent, kill
 
 ### Keyboard Shortcuts
+
 - **Number keys 1–8** jump to agents from office view
 - **Tab / Shift+Tab** cycle between agents in chat view
 - Escape returns to office
 - **Ctrl+C to interrupt** — cleanly aborts and lets you resume
 
 ### Slash Commands & Autocomplete
+
 - Built-in commands: /clear, /help, /cost, /context
 - User skills from ~/.claude/skills/ and project commands
 - **Bundled skills** like /grill-me — available to every agent out of the box
 - **Autocomplete dropdown** with keyboard navigation
 
 ### Persistence & Lifecycle
+
 - **Agents persist across server restarts**
 - **Auto-resume last conversation** on restart
 - Agent manifest for **inter-agent discovery**
@@ -110,6 +116,7 @@ For persistent server setup (systemd + Tailscale) and voice input configuration,
 - Kill removes agent and frees desk
 
 ### Mobile Support
+
 - **Open from your phone** — same Tailscale URL, touch-optimized UI
 - **Instant sync** — laptop and phone see the same state in real time over WebSocket
 - **Agent list view** as an alternative to the isometric office on small screens
@@ -119,10 +126,12 @@ For persistent server setup (systemd + Tailscale) and voice input configuration,
 - **Installable as a PWA**: add to home screen for a native app feel (HTTPS or localhost)
 
 ### Notifications
+
 - **Sound notification** when agent finishes and tab is unfocused
 - **Activity badge** on desk when attention needed
 
 ### System & Backend
+
 - **Real-time sync via WebSocket** — every connected device stays in lockstep
 - **Single Bun process** — no bundler, no database, minimal deps
 - Uses **Claude subscription via CLI auth** — no API key needed

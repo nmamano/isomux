@@ -27,15 +27,19 @@ All required APIs exist in `@anthropic-ai/claude-agent-sdk@0.2.86`:
 ## Decisions
 
 ### Fork-then-resume, not destructive rewind
+
 Fork preserves the original conversation as a separate session. `resumeSessionAt` alone would destructively rewind — rejected.
 
 ### No file checkpointing
+
 `enableFileCheckpointing` and `rewindFiles` are designed for single-agent environments where one session "owns" the filesystem. In isomux, multiple agents share a filesystem and files have lifetimes independent of sessions. Rewinding files to a conversation checkpoint would be nonsensical and potentially destructive. **Ruled out entirely — not even as a follow-up.**
 
 ### No log duplication — reference-based display
+
 Forked session's JSONL only contains entries from the branch point onward. Display walks the `forkedFrom` chain to assemble the full view. This avoids polluting search results and disk with duplicated log entries.
 
 **Sessions map entry for forked sessions:**
+
 ```typescript
 {
   topic: string | null;
@@ -45,33 +49,42 @@ Forked session's JSONL only contains entries from the branch point onward. Displ
 }
 ```
 
-**Display logic:** Walk the `forkedFrom` chain. For each ancestor, load its JSONL and take entries *before* `forkMessageId` (excluding it). Concatenate ancestors (oldest first), then append the fork's own JSONL. This handles editing the first message (zero parent entries) and recursive forks (chain of length N).
+**Display logic:** Walk the `forkedFrom` chain. For each ancestor, load its JSONL and take entries _before_ `forkMessageId` (excluding it). Concatenate ancestors (oldest first), then append the fork's own JSONL. This handles editing the first message (zero parent entries) and recursive forks (chain of length N).
 
 ### Recursive forks supported
+
 Branching from a branch works. The display logic walks the full `forkedFrom` chain. Chain depth is typically 1-2 levels.
 
 ### Edited message is text-only
+
 Attachments from the original message are dropped in the fork. The user can add attachments in a follow-up message on the new branch. Simplifies implementation — no attachment picker in edit mode, no attachment preservation logic.
 
 ### Topic: inherit and mark stale
+
 Forked session inherits the parent's topic immediately (so it's identifiable in the resume list). Topic is marked stale so the normal regeneration logic kicks in after the first exchange on the branch.
 
 ### System log entry at branch point
+
 The fork's own JSONL starts with a system LogEntry: `"Branched from: [parent topic]"`. Appears right before the edited message in the UI, giving the user context.
 
 ### Edit button placement
+
 Added next to the existing copy button on user messages (top-right of user message bubble). Same visual style. Only visible when agent is in `waiting_for_response` state — no edit while the agent is streaming.
 
 ### Edit button on all user messages
+
 Including the first message. Editing the first message creates a branch with zero parent entries — equivalent to starting a new conversation with different text, but preserving the original.
 
 ### Error handling
+
 The entire fork flow is wrapped in try/catch. If anything fails before closing the old session, an error log entry is emitted and the user stays in their current conversation. No partial state changes.
 
 ### Resume list: dim branched-from sessions
+
 Sessions that have been branched FROM (i.e., their sessionId appears as another session's `forkedFrom`) are dimmed and marked "(branched)" in the `/resume` list. The fork (child) looks normal — it's the continuation. Detection is done server-side by scanning all sessions; `SessionInfo` gets a `branched?: boolean` field.
 
 ### Edit state is component-local
+
 `editingLogEntryId: string | null` in LogView. Bottom input bar disables itself when an edit is active.
 
 ## Client Command
@@ -115,7 +128,7 @@ metadata: {
 - `resumeSessionAt` with `forkSession: true` does **NOT** work for branching — it resumes the original session and appends to it. Destructive. Ruled out.
 - Assistant UUIDs from streaming events **do** match those from `getSessionMessages` (verified).
 
-**Chosen approach: lazy match at fork time using (content, occurrence_count)**
+#### Chosen approach: lazy match at fork time using (content, occurrence_count)
 
 When the user clicks edit, call `getSessionMessages(sessionId)` and match the target LogEntry to an SDK `SessionMessage` by:
 
@@ -125,6 +138,7 @@ When the user clicks edit, call `getSessionMessages(sessionId)` and match the ta
 This is a unique key — no ambiguity possible. No per-message overhead, no stored UUIDs needed. The `getSessionMessages` call only happens on edit (rare, user-initiated).
 
 ### Edge cases to handle in implementation
+
 - Agent in `error` state: edit button should not appear (agent is idle but session may be broken)
 - Session is `null` (not yet initialized): edit button should not appear
 - Agent has no `sessionId` yet (pre-init): edit button should not appear

@@ -18,35 +18,38 @@ We do **not** use: `query()`, `startup()`, `getSessionMessages()`, `listSubagent
 ## Release-by-release analysis
 
 ### v0.2.87 (Mar 29) — CLI parity only
+
 No SDK API changes.
 
 ### v0.2.89 (Apr 1) — New APIs + bug fixes
 
-| Change | Affects us? |
-|--------|-------------|
-| `startup()` pre-warm (~20x faster first query) | No. We don't use it. Potential future opportunity. |
-| `listSubagents()` / `getSubagentMessages()` | No. Additive API, unused. |
-| `includeSystemMessages` on `getSessionMessages()` | No. We don't call `getSessionMessages()`. |
-| `includeHookEvents` option | No. Additive option, unused. |
-| `ERR_STREAM_WRITE_AFTER_END` fix | **Probably not.** Triggers on single-turn `query()` with hooks/MCP. We use multi-turn V2 sessions. |
-| Zod v4 `.describe()` fix on `createSdkMcpServer` | No. We don't use `createSdkMcpServer`. |
-| `side_question` null on resume fix | No. We don't use `side_question`. |
-| `settingSources` empty array fix | No. We don't pass `settingSources`. |
-| `is_error: true` on error result messages | No breakage. We check `result.subtype === "success"`, not `is_error`. |
+| Change                                              | Affects us?                                                                                                                                                               |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `startup()` pre-warm (~20x faster first query)      | No. We don't use it. Potential future opportunity.                                                                                                                        |
+| `listSubagents()` / `getSubagentMessages()`         | No. Additive API, unused.                                                                                                                                                 |
+| `includeSystemMessages` on `getSessionMessages()`   | No. We don't call `getSessionMessages()`.                                                                                                                                 |
+| `includeHookEvents` option                          | No. Additive option, unused.                                                                                                                                              |
+| `ERR_STREAM_WRITE_AFTER_END` fix                    | **Probably not.** Triggers on single-turn `query()` with hooks/MCP. We use multi-turn V2 sessions.                                                                        |
+| Zod v4 `.describe()` fix on `createSdkMcpServer`    | No. We don't use `createSdkMcpServer`.                                                                                                                                    |
+| `side_question` null on resume fix                  | No. We don't use `side_question`.                                                                                                                                         |
+| `settingSources` empty array fix                    | No. We don't pass `settingSources`.                                                                                                                                       |
+| `is_error: true` on error result messages           | No breakage. We check `result.subtype === "success"`, not `is_error`.                                                                                                     |
 | MCP servers stuck after connection race — now retry | **Plausibly relevant.** Agents inherit account-level MCP integrations. A connection race could leave an MCP server permanently stuck. Unconfirmed whether we've hit this. |
 
 ### v0.2.90 (Apr 1) — CLI parity only
+
 No SDK API changes.
 
 ### v0.2.91 (Apr 2)
 
-| Change | Affects us? |
-|--------|-------------|
-| `terminal_reason` field on result messages | No. Additive field, unused. |
-| `'auto'` added to `PermissionMode` type | No. We define our own type, never pass `'auto'`. |
+| Change                                         | Affects us?                                                                                      |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `terminal_reason` field on result messages     | No. Additive field, unused.                                                                      |
+| `'auto'` added to `PermissionMode` type        | No. We define our own type, never pass `'auto'`.                                                 |
 | Sandbox `failIfUnavailable` defaults to `true` | **No.** Only applies when `sandbox: { enabled: true }` is passed. We don't pass sandbox options. |
 
 ### v0.2.92 (Apr 4) — CLI parity only
+
 No SDK API changes.
 
 ## Summary

@@ -35,3 +35,6 @@ jobs:
 
       - name: Build UI
         run: bun run build:ui
+
+      - name: Check Markdown
+        uses: DavidAnson/markdownlint-cli2-action@v23

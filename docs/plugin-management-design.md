@@ -27,7 +27,7 @@ for browsing and status display. Don't reimplement the Ink component tree.
 
 ### Architecture
 
-```
+```text
 ┌─────────────────────────────────────────┐
 │  Isomux Web UI (Plugin Manager panel)   │
 │                                         │
@@ -72,13 +72,15 @@ for browsing and status display. Don't reimplement the Ink component tree.
 {
   "version": 2,
   "plugins": {
-    "plugin-name@marketplace": [{
-      "scope": "user|project|local|managed",
-      "installPath": "/path/to/cache",
-      "version": "1.0.0",
-      "installedAt": "ISO 8601",
-      "lastUpdated": "ISO 8601"
-    }]
+    "plugin-name@marketplace": [
+      {
+        "scope": "user|project|local|managed",
+        "installPath": "/path/to/cache",
+        "version": "1.0.0",
+        "installedAt": "ISO 8601",
+        "lastUpdated": "ISO 8601"
+      }
+    ]
   }
 }
 ```
@@ -94,15 +96,15 @@ or rely on `claude plugin search` CLI output.
 
 ### Server Endpoints
 
-| Endpoint | Method | Action |
-|---|---|---|
-| `/api/plugins` | GET | List installed plugins with metadata and enabled state |
-| `/api/plugins/install` | POST | `claude plugin install <name> --scope <scope>` |
-| `/api/plugins/remove` | POST | `claude plugin remove <name>` |
-| `/api/plugins/enable` | POST | `claude plugin enable <name>` |
-| `/api/plugins/disable` | POST | `claude plugin disable <name>` |
-| `/api/plugins/marketplace` | GET | List configured marketplaces |
-| `/api/plugins/marketplace/add` | POST | `claude plugin marketplace add <owner/repo>` |
+| Endpoint                       | Method | Action                                                 |
+| ------------------------------ | ------ | ------------------------------------------------------ |
+| `/api/plugins`                 | GET    | List installed plugins with metadata and enabled state |
+| `/api/plugins/install`         | POST   | `claude plugin install <name> --scope <scope>`         |
+| `/api/plugins/remove`          | POST   | `claude plugin remove <name>`                          |
+| `/api/plugins/enable`          | POST   | `claude plugin enable <name>`                          |
+| `/api/plugins/disable`         | POST   | `claude plugin disable <name>`                         |
+| `/api/plugins/marketplace`     | GET    | List configured marketplaces                           |
+| `/api/plugins/marketplace/add` | POST   | `claude plugin marketplace add <owner/repo>`           |
 
 All mutation endpoints shell out to the headless CLI and return
 success/failure. After mutations, the server re-reads
@@ -136,6 +138,7 @@ agent's `sdkReportedCommands` and auto-send it.
 ### Scope
 
 Plugins can be installed at multiple scopes:
+
 - **user** — global, applies to all projects
 - **project** — per-project, shared with team via `.claude/settings.json`
 - **local** — per-project, personal override

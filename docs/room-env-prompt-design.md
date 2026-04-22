@@ -31,7 +31,7 @@ Isomux does not own or manage an env directory. The user creates env files where
 
 Example:
 
-```
+```dotenv
 # /home/nil/.secrets/marc.env
 GH_TOKEN=ghp_...
 GIT_AUTHOR_NAME=Marc
@@ -44,7 +44,7 @@ GIT_COMMITTER_EMAIL=marc@example.com
 
 At spawn time:
 
-```
+```text
 merged = { ...process.env, ...officeEnv, ...roomEnv }
 ```
 
@@ -65,6 +65,7 @@ env?: { [envVar: string]: string | undefined };
 At spawn time, isomux reads the office and room env files, merges them, and passes the result via the SDK session options. Credentials never appear in launcher scripts or any isomux-managed file.
 
 Spawn path:
+
 1. Read office env file (if configured) → parse dotenv → `officeEnv`
 2. Read room env file (if configured) → parse dotenv → `roomEnv`
 3. Merge: `{ ...process.env, ...officeEnv, ...roomEnv }`
@@ -92,10 +93,10 @@ Rename `PersistedRoom` to `Room`:
 
 ```typescript
 interface Room {
-  id: string;                  // stable 8-char hex, e.g. "a3f8b2e1"
-  name: string;                // display name, user-editable
-  prompt: string | null;       // room-level prompt
-  envFile: string | null;      // absolute path to dotenv file
+  id: string; // stable 8-char hex, e.g. "a3f8b2e1"
+  name: string; // display name, user-editable
+  prompt: string | null; // room-level prompt
+  envFile: string | null; // absolute path to dotenv file
   agents: PersistedAgent[];
 }
 ```
@@ -126,8 +127,17 @@ Updates always carry the full tuple (no partial updates). Empty strings are norm
 **Client → server commands:**
 
 ```typescript
-{ type: "update_office_settings"; prompt: string | null; envFile: string | null }
-{ type: "update_room_settings"; roomId: string; prompt: string | null; envFile: string | null }
+{
+  type: "update_office_settings";
+  prompt: string | null;
+  envFile: string | null;
+}
+{
+  type: "update_room_settings";
+  roomId: string;
+  prompt: string | null;
+  envFile: string | null;
+}
 ```
 
 `set_office_prompt` is removed (consolidated into `update_office_settings`).
@@ -135,16 +145,34 @@ Updates always carry the full tuple (no partial updates). Empty strings are norm
 **Server → client broadcasts:**
 
 ```typescript
-{ type: "office_settings_updated"; prompt: string | null; envFile: string | null }
-{ type: "room_settings_updated"; roomId: string; prompt: string | null; envFile: string | null }
+{
+  type: "office_settings_updated";
+  prompt: string | null;
+  envFile: string | null;
+}
+{
+  type: "room_settings_updated";
+  roomId: string;
+  prompt: string | null;
+  envFile: string | null;
+}
 ```
 
 **`full_state` shape change:**
 
 ```typescript
 {
-  office: { prompt: string | null; envFile: string | null };
-  rooms: { id: string; name: string; prompt: string | null; envFile: string | null }[];
+  office: {
+    prompt: string | null;
+    envFile: string | null;
+  }
+  rooms: {
+    id: string;
+    name: string;
+    prompt: string | null;
+    envFile: string | null;
+  }
+  [];
   // agents still transmitted separately
 }
 ```
@@ -169,7 +197,7 @@ The server never returns key names to the client — only a count. Avoids should
 ### Office settings
 
 - **Entry point (unchanged):** the existing "Office settings" button in the top HUD (desktop) and the three-dots dropdown menu (mobile).
-- **Modal (extended `OfficePromptModal`):** Boss Title → Env File Path *(optional)* → Rules (prompt textarea). Short inputs first, long textarea last, so layout stays stable during typing.
+- **Modal (extended `OfficePromptModal`):** Boss Title → Env File Path _(optional)_ → Rules (prompt textarea). Short inputs first, long textarea last, so layout stays stable during typing.
 - **Validation feedback** inline under the Env File Path input. Success: "Loaded N variables." Failure: the server error message (missing path, parse error).
 - "Changes take effect on next conversation" copy remains.
 
@@ -180,7 +208,7 @@ The server never returns key names to the client — only a count. Avoids should
   - Mobile: long-press a tab opens the same context menu; the three-dots dropdown menu also includes "Room settings" scoped to the currently active room.
 - **Context menu contents:** `Rename`, `Room settings…`, `Close room`. Inline double-click-to-rename and inline `×` remain as shortcuts.
 - Right-clicking / long-pressing a non-active tab **does not switch rooms** — the menu (and the modal it opens) operates on the clicked tab's `roomId` while the current view stays put.
-- **Modal (new `RoomSettingsModal`, same visual style as `OfficePromptModal` — ~440px overlay, blurred backdrop):** Env File Path *(optional)* → Room Prompt *(optional)* textarea. Same validation feedback and "changes take effect" copy as the office modal. No Name field — inline double-click-rename stays the canonical rename affordance.
+- **Modal (new `RoomSettingsModal`, same visual style as `OfficePromptModal` — ~440px overlay, blurred backdrop):** Env File Path _(optional)_ → Room Prompt _(optional)_ textarea. Same validation feedback and "changes take effect" copy as the office modal. No Name field — inline double-click-rename stays the canonical rename affordance.
 
 ### Env file path input
 
@@ -197,7 +225,13 @@ Not included in this feature. Each layer is edited in one place and the user can
 Refactor `AppState` from parallel arrays to a unified rooms list:
 
 ```typescript
-rooms: { id: string; name: string; prompt: string | null; envFile: string | null }[]
+rooms: {
+  id: string;
+  name: string;
+  prompt: string | null;
+  envFile: string | null;
+}
+[];
 ```
 
 Replaces `roomCount`, `roomNames`. `currentRoom` remains an index for UI selection.

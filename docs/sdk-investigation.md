@@ -21,18 +21,18 @@ The Agent SDK works with a Claude Pro/Max subscription despite docs saying it re
 
 ## Feature Matrix
 
-| Feature | Supported | Details |
-|---|---|---|
-| **Auth: subscription** | **YES** (tested) | Uses CLI's auth; docs say API key required but not enforced |
-| **Multi-turn (V2)** | **YES** (tested) | `send()`/`stream()` cycles on `SDKSession` |
-| **Multi-turn (V1)** | YES | `query()` with `resume: sessionId` |
-| **Streaming output** | YES | `includePartialMessages: true` for token-level events |
-| **Permission callback** | YES | `canUseTool` async callback blocks agent until resolved |
-| **State derivation** | YES | Stream events: `text_delta`, `tool_use`, `tool_progress` |
-| **Cost tracking** | YES | `total_cost_usd` on result, per-turn usage |
-| **Tool allow/deny** | YES | `allowedTools`, `disallowedTools` |
-| **Bun compatible** | YES | First-class `executable: 'bun'` option |
-| **Session persistence** | YES | JSONL on disk, resume by ID |
+| Feature                 | Supported        | Details                                                     |
+| ----------------------- | ---------------- | ----------------------------------------------------------- |
+| **Auth: subscription**  | **YES** (tested) | Uses CLI's auth; docs say API key required but not enforced |
+| **Multi-turn (V2)**     | **YES** (tested) | `send()`/`stream()` cycles on `SDKSession`                  |
+| **Multi-turn (V1)**     | YES              | `query()` with `resume: sessionId`                          |
+| **Streaming output**    | YES              | `includePartialMessages: true` for token-level events       |
+| **Permission callback** | YES              | `canUseTool` async callback blocks agent until resolved     |
+| **State derivation**    | YES              | Stream events: `text_delta`, `tool_use`, `tool_progress`    |
+| **Cost tracking**       | YES              | `total_cost_usd` on result, per-turn usage                  |
+| **Tool allow/deny**     | YES              | `allowedTools`, `disallowedTools`                           |
+| **Bun compatible**      | YES              | First-class `executable: 'bun'` option                      |
+| **Session persistence** | YES              | JSONL on disk, resume by ID                                 |
 
 ---
 
@@ -49,12 +49,14 @@ This is a **distribution policy**, not a technical constraint. Since isomux is a
 ## CLI Headless Mode Details
 
 ### Basic usage
+
 ```bash
 claude -p "What files are here?" --output-format json
 # Returns: { result, session_id, total_cost_usd, usage, ... }
 ```
 
 ### Streaming
+
 ```bash
 claude -p "Refactor auth module" \
   --output-format stream-json \
@@ -64,6 +66,7 @@ claude -p "Refactor auth module" \
 ```
 
 ### Multi-turn
+
 ```bash
 # Turn 1
 SESSION=$(claude -p "Analyze the codebase" --output-format json | jq -r '.session_id')
@@ -73,6 +76,7 @@ claude -p "Now fix the bug we discussed" --resume "$SESSION" --output-format str
 ```
 
 ### Permission control
+
 ```bash
 claude -p "Deploy to staging" \
   --allowedTools "Bash,Read,Glob,Grep" \
@@ -81,6 +85,7 @@ claude -p "Deploy to staging" \
 ```
 
 ### Useful flags
+
 - `--max-budget-usd 5.00` — per-session cost cap
 - `--max-turns 50` — turn limit
 - `--model claude-opus-4-6` — model selection
@@ -89,6 +94,7 @@ claude -p "Deploy to staging" \
 - `--worktree` — isolated git worktree per session
 
 ### Bidirectional streaming (undocumented)
+
 ```bash
 claude -p --input-format stream-json --output-format stream-json
 # stdin: {"type":"user","message":{"role":"user","content":"..."},"session_id":"..."}
@@ -104,17 +110,18 @@ This protocol exists but is [undocumented (GitHub issue #24594)](https://github.
 
 When streaming, the following event types are emitted:
 
-| Event | Use for |
-|---|---|
-| `system` (subtype `init`) | Session start — model, tools, cwd |
-| `assistant` | Full assistant message with content blocks (text, tool_use) |
-| `stream_event` | Token-level deltas: `text_delta`, `thinking_delta`, `input_json_delta` |
-| `tool_progress` | Heartbeat during tool execution — includes `elapsed_time_seconds` |
-| `result` | Final message — `total_cost_usd`, `usage`, `session_id` |
-| `rate_limit_event` | Rate limit status: `allowed`, `allowed_warning`, `rejected` |
+| Event                     | Use for                                                                |
+| ------------------------- | ---------------------------------------------------------------------- |
+| `system` (subtype `init`) | Session start — model, tools, cwd                                      |
+| `assistant`               | Full assistant message with content blocks (text, tool_use)            |
+| `stream_event`            | Token-level deltas: `text_delta`, `thinking_delta`, `input_json_delta` |
+| `tool_progress`           | Heartbeat during tool execution — includes `elapsed_time_seconds`      |
+| `result`                  | Final message — `total_cost_usd`, `usage`, `session_id`                |
+| `rate_limit_event`        | Rate limit status: `allowed`, `allowed_warning`, `rejected`            |
 
 ### State derivation from events
-```
+
+```text
 init message received     → starting
 stream_event text_delta   → thinking/generating
 stream_event tool_use     → calling tool
@@ -135,6 +142,7 @@ result (error)            → error
 ### What the launchers do
 
 Each launcher script (e.g. `agent-xxx.mjs`) does three things before the CLI boots:
+
 1. `process.chdir(cwd)` — sets the working directory
 2. `process.argv.push("--append-system-prompt", ...)` — injects the agent identity/instructions
 3. `await import(CLI_PATH)` — starts the CLI
@@ -143,12 +151,12 @@ These are passed to the SDK via `pathToClaudeCodeExecutable` in `SDKSessionOptio
 
 ### What was tested
 
-| Approach | Result |
-|---|---|
-| `appendSystemPrompt` in `SDKSessionOptions` | **Silently ignored** — agent responded as "Claude", not custom name |
-| `systemPrompt` in `SDKSessionOptions` | **Silently ignored** — same result |
-| `cwd` in `SDKSessionOptions` | **Silently ignored** — cwd remained the process cwd, not `/tmp` |
-| `executableArgs: ["--append-system-prompt", ...]` | **Process exited with code 1** |
+| Approach                                          | Result                                                              |
+| ------------------------------------------------- | ------------------------------------------------------------------- |
+| `appendSystemPrompt` in `SDKSessionOptions`       | **Silently ignored** — agent responded as "Claude", not custom name |
+| `systemPrompt` in `SDKSessionOptions`             | **Silently ignored** — same result                                  |
+| `cwd` in `SDKSessionOptions`                      | **Silently ignored** — cwd remained the process cwd, not `/tmp`     |
+| `executableArgs: ["--append-system-prompt", ...]` | **Process exited with code 1**                                      |
 
 ### Why it doesn't work
 
@@ -163,6 +171,7 @@ Source inspection of `sdk.mjs` confirms: the V1 `query()` path constructs an `in
 ### Ephemeral launcher alternatives explored (2026-03-29)
 
 Also tested whether launchers could be made ephemeral (write to `/dev/shm`, delete after `system:init` event):
+
 - **Write to `/dev/shm` + delete after init**: Works for single sessions and multi-turn. But resume spawns a new process and needs the file again, so you're writing just as many files — just to RAM instead of disk.
 - **Delete immediately after spawn**: Fails — subprocess hasn't read the file yet (race condition).
 - **`/dev/shm` is Linux-only**: No macOS support without fallback to `os.tmpdir()`.
@@ -172,4 +181,3 @@ Also tested whether launchers could be made ephemeral (write to `/dev/shm`, dele
 ### Conclusion
 
 The launcher script approach is the only working mechanism to customize agent identity and working directory in the V2 SDK. This will remain necessary until Anthropic exposes `appendSystemPrompt` and `cwd` in `SDKSessionOptions` (or adds a public `initConfig` parameter).
-

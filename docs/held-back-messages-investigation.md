@@ -18,7 +18,8 @@ Bot responses sometimes get "held up" and don't appear in the UI until the next 
 4. Observe: the response to the background task completion appears first (instantly), followed later by the response to the new message.
 
 Example from a real conversation:
-```
+
+```text
 User: "serve the site over 8080 to test"
 Agent: [runs python3 -m http.server 8080 in background] "Serving at http://localhost:8080"
   -- background task completes, but no output appears --
