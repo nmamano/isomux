@@ -8,11 +8,10 @@ type ValidationStatus =
   | { kind: "ok"; keyCount?: number }
   | { kind: "error"; message: string };
 
-export function OfficePromptModal({ onClose, username, onSaveUsername }: { onClose: () => void; username: string; onSaveUsername: (name: string) => void }) {
+export function OfficePromptModal({ onClose }: { onClose: () => void }) {
   const { office, isMobile } = useAppState();
   const [text, setText] = useState(office.prompt ?? "");
   const [envFile, setEnvFile] = useState(office.envFile ?? "");
-  const [name, setName] = useState(username);
   const [status, setStatus] = useState<ValidationStatus>({ kind: "idle" });
   const [saving, setSaving] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -54,7 +53,6 @@ export function OfficePromptModal({ onClose, username, onSaveUsername }: { onClo
           setSaving(false);
           removeRawListener(listener);
           if (msg.ok) {
-            if (name.trim() && name.trim() !== username) onSaveUsername(name.trim());
             onClose();
           } else {
             setStatus({ kind: "error", message: msg.error || "Save failed" });
@@ -123,14 +121,7 @@ export function OfficePromptModal({ onClose, username, onSaveUsername }: { onClo
           Office Settings
         </h3>
 
-        <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "var(--text-muted)", marginTop: 18, marginBottom: 5 }}>Boss Title</label>
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          style={inputStyle}
-        />
-
-        <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "var(--text-muted)", marginTop: 14, marginBottom: 5 }}>
+        <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "var(--text-muted)", marginTop: 18, marginBottom: 5 }}>
           Env File Path <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>(optional, absolute path)</span>
         </label>
         <input

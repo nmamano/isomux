@@ -4,7 +4,7 @@ import { RoomTabBar } from "../office/RoomTabBar.tsx";
 import { MobileHeader, getRoomCounts } from "./MobileHeader.tsx";
 import { useSwipeLeftRight } from "../hooks/useSwipeLeftRight.ts";
 import { type NavAction } from "./NavActions.tsx";
-import { TasksIcon, BuildingIcon, DoorIcon, IsoIcon } from "./NavIcons.tsx";
+import { TasksIcon, BuildingIcon, DoorIcon, IsoIcon, DeviceIcon } from "./NavIcons.tsx";
 import { SunIcon, MoonIcon } from "./ThemeIcons.tsx";
 import type { AgentInfo } from "../../shared/types.ts";
 
@@ -12,8 +12,7 @@ export function AgentListView({
   onFocus,
   onSpawn,
   onContextMenu,
-  username,
-  onEditUsername,
+  onOpenDeviceSettings,
   onEditOfficePrompt,
   onEditRoomSettings,
   onOpenTasks,
@@ -25,8 +24,7 @@ export function AgentListView({
   onFocus: (agentId: string) => void;
   onSpawn: () => void;
   onContextMenu: (x: number, y: number, agent: AgentInfo) => void;
-  username: string;
-  onEditUsername: () => void;
+  onOpenDeviceSettings: () => void;
   onEditOfficePrompt: () => void;
   onEditRoomSettings?: () => void;
   onOpenTasks: () => void;
@@ -43,6 +41,7 @@ export function AgentListView({
 
   const actions: NavAction[] = [
     { id: "tasks", icon: TasksIcon, label: "Tasks", onClick: onOpenTasks },
+    { id: "device", icon: DeviceIcon, label: "Device settings", onClick: onOpenDeviceSettings },
     { id: "office", icon: BuildingIcon, label: "Office settings", onClick: onEditOfficePrompt },
     ...(onEditRoomSettings ? [{ id: "room", icon: DoorIcon, label: "Room settings", onClick: onEditRoomSettings }] : []),
     { id: "theme", icon: theme === "dark" ? <SunIcon size={15} /> : <MoonIcon size={15} />, label: theme === "dark" ? "Light mode" : "Dark mode", onClick: toggleTheme },

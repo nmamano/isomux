@@ -8,9 +8,11 @@ import { EditAgentDialog } from "./components/EditAgentDialog.tsx";
 import { UsernameModal } from "./components/UsernameModal.tsx";
 import { OfficePromptModal } from "./components/OfficePromptModal.tsx";
 import { RoomSettingsModal } from "./components/RoomSettingsModal.tsx";
+import { DeviceSettingsModal } from "./components/DeviceSettingsModal.tsx";
 import { TaskView } from "./components/TaskView.tsx";
 import { UpdateModal } from "./components/UpdateModal.tsx";
 import { CSS } from "./styles.ts";
+import { getUsername, setUsername as saveUsername } from "./device-settings.ts";
 import type { AgentInfo } from "../shared/types.ts";
 
 /** Cycle to the next/previous agent in the current room, matching Tab/Shift+Tab logic. */
@@ -43,13 +45,8 @@ export function App() {
   const [spawnDesk, setSpawnDesk] = useState<number | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; agent: AgentInfo } | null>(null);
   const [editAgent, setEditAgent] = useState<AgentInfo | null>(null);
-  const [username, setUsername] = useState<string | null>(() => {
-    if (typeof localStorage !== "undefined") {
-      return localStorage.getItem("isomux-username");
-    }
-    return null;
-  });
-  const [editingUsername, setEditingUsername] = useState(false);
+  const [username, setUsername] = useState<string | null>(() => getUsername());
+  const [editingDeviceSettings, setEditingDeviceSettings] = useState(false);
   const [editingOfficePrompt, setEditingOfficePrompt] = useState(false);
   const [editingRoomSettings, setEditingRoomSettings] = useState<string | null>(null);
   const [tasksOpen, setTasksOpen] = useState(false);
@@ -163,19 +160,18 @@ export function App() {
       <style>{CSS}</style>
       {username === null && (
         <UsernameModal onSave={(name) => {
-          localStorage.setItem("isomux-username", name);
+          saveUsername(name);
           setUsername(name);
         }} />
       )}
-      {editingUsername && username !== null && (
-        <UsernameModal
-          defaultValue={username}
-          onSave={(name) => {
-            localStorage.setItem("isomux-username", name);
+      {editingDeviceSettings && username !== null && (
+        <DeviceSettingsModal
+          username={username}
+          onSaveUsername={(name) => {
+            saveUsername(name);
             setUsername(name);
-            setEditingUsername(false);
           }}
-          onClose={() => setEditingUsername(false)}
+          onClose={() => setEditingDeviceSettings(false)}
         />
       )}
       {tasksOpen ? (
@@ -201,8 +197,7 @@ export function App() {
           onFocus={(agentId) => dispatch({ type: "focus", agentId })}
           onSpawn={() => setSpawnDesk(0)}
           onContextMenu={(x, y, agent) => setCtxMenu({ x, y, agent })}
-          username={username ?? ""}
-          onEditUsername={() => setEditingUsername(true)}
+          onOpenDeviceSettings={() => setEditingDeviceSettings(true)}
           onEditOfficePrompt={() => setEditingOfficePrompt(true)}
           onEditRoomSettings={() => { const rid = rooms[currentRoom]?.id; if (rid) setEditingRoomSettings(rid); }}
           onOpenTasks={() => setTasksOpen(true)}
@@ -215,8 +210,7 @@ export function App() {
         <OfficeView
           onSpawn={(desk) => setSpawnDesk(desk)}
           onContextMenu={(x, y, agent) => setCtxMenu({ x, y, agent })}
-          username={username ?? ""}
-          onEditUsername={() => setEditingUsername(true)}
+          onOpenDeviceSettings={() => setEditingDeviceSettings(true)}
           onEditOfficePrompt={() => setEditingOfficePrompt(true)}
           onEditRoomSettings={() => { const rid = rooms[currentRoom]?.id; if (rid) setEditingRoomSettings(rid); }}
           onOpenTasks={() => setTasksOpen(true)}
@@ -251,11 +245,6 @@ export function App() {
       {editingOfficePrompt && (
         <OfficePromptModal
           onClose={() => setEditingOfficePrompt(false)}
-          username={username ?? ""}
-          onSaveUsername={(name) => {
-            localStorage.setItem("isomux-username", name);
-            setUsername(name);
-          }}
         />
       )}
       {editingRoomSettings && (

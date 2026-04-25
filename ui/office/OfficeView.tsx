@@ -11,7 +11,7 @@ import { send } from "../ws.ts";
 import { SunIcon, MoonIcon } from "../components/ThemeIcons.tsx";
 import { MobileHeader, getRoomCounts } from "../components/MobileHeader.tsx";
 import { NavActions, type NavAction } from "../components/NavActions.tsx";
-import { TasksIcon, BuildingIcon, DoorIcon, ListIcon } from "../components/NavIcons.tsx";
+import { TasksIcon, BuildingIcon, DoorIcon, ListIcon, DeviceIcon } from "../components/NavIcons.tsx";
 import { useSwipeLeftRight } from "../hooks/useSwipeLeftRight.ts";
 import type { AgentInfo } from "../../shared/types.ts";
 
@@ -42,7 +42,7 @@ function DoorDropZone({ side, onDrop, onDragOverChange, onClick }: { side: "left
   );
 }
 
-export function OfficeView({ onSpawn, onContextMenu, username, onEditUsername, onEditOfficePrompt, onEditRoomSettings, onOpenTasks, onOpenUpdate, onSwipeLeft, onSwipeRight }: { onSpawn: (deskIndex: number) => void; onContextMenu: (x: number, y: number, agent: AgentInfo) => void; username: string; onEditUsername: () => void; onEditOfficePrompt: () => void; onEditRoomSettings?: () => void; onOpenTasks: () => void; onOpenUpdate: () => void; onSwipeLeft?: () => void; onSwipeRight?: () => void }) {
+export function OfficeView({ onSpawn, onContextMenu, onOpenDeviceSettings, onEditOfficePrompt, onEditRoomSettings, onOpenTasks, onOpenUpdate, onSwipeLeft, onSwipeRight }: { onSpawn: (deskIndex: number) => void; onContextMenu: (x: number, y: number, agent: AgentInfo) => void; onOpenDeviceSettings: () => void; onEditOfficePrompt: () => void; onEditRoomSettings?: () => void; onOpenTasks: () => void; onOpenUpdate: () => void; onSwipeLeft?: () => void; onSwipeRight?: () => void }) {
   const { agents, needsAttention, stateChangedAt, office, tasks, currentRoom, rooms, isMobile, updateAvailable } = useAppState();
   const roomCount = rooms.length;
   const roomNames = rooms.map((r) => r.name);
@@ -64,6 +64,7 @@ export function OfficeView({ onSpawn, onContextMenu, username, onEditUsername, o
 
   const officeActions: NavAction[] = [
     { id: "tasks", icon: TasksIcon, label: "Tasks", onClick: onOpenTasks },
+    { id: "device", icon: DeviceIcon, label: "Device settings", onClick: onOpenDeviceSettings },
     { id: "office", icon: BuildingIcon, label: "Office settings", onClick: onEditOfficePrompt },
     ...(onEditRoomSettings ? [{ id: "room", icon: DoorIcon, label: "Room settings", onClick: onEditRoomSettings }] : []),
     { id: "theme", icon: theme === "dark" ? <SunIcon size={15} /> : <MoonIcon size={15} />, label: theme === "dark" ? "Light mode" : "Dark mode", onClick: toggleTheme },

@@ -2,6 +2,7 @@ import { createContext, useContext, useReducer, useEffect, useRef, useState, use
 import type { AgentInfo, LogEntry, SessionInfo, ServerMessage, SkillInfo, TaskItem, OfficeSettings, RoomWire, SettingsSaveResponse, SettingsValidationResponse } from "../shared/types.ts";
 import { connect } from "./ws.ts";
 import { type Features, PRODUCTION_FEATURES } from "../shared/features.ts";
+import { getDefaultRoomId, getNotifRooms, shouldNotifyRoom } from "./device-settings.ts";
 
 export interface AppState {
   agents: AgentInfo[];
@@ -12,7 +13,10 @@ export interface AppState {
   mobileViewMode: "list" | "office"; // which view to show on mobile
   needsAttention: Set<string>; // agentIds with unread state changes
   sessionsList: Map<string, { sessions: SessionInfo[]; currentSessionId: string | null }>; // agentId → available sessions
-  soundTrigger: number; // increments when any agent finishes work (for sound regardless of focus)
+  // seq increments when any agent finishes work (for sound regardless of focus);
+  // roomId is the id of the room the triggering agent was in, used to filter
+  // per-room notification preferences. null if the room couldn't be resolved.
+  soundTrigger: { seq: number; roomId: string | null };
   drafts: Map<string, string>; // agentId → unsent chat input
   recentCwds: string[]; // persisted recent working directories
   slashCommands: Map<string, { commands: { name: string; description?: string }[]; skills: SkillInfo[] }>; // agentId → available commands
@@ -57,19 +61,32 @@ const ATTENTION_STATES = new Set(["idle", "error", "waiting_for_response"]);
 
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
-    case "full_state":
+    case "full_state": {
+      // Apply per-device default room only on the first full_state (when we
+      // haven't seen any rooms yet). Subsequent full_states (e.g. after a
+      // server reconnect) preserve whichever room the user was viewing.
+      let currentRoom = state.currentRoom;
+      if (state.rooms.length === 0) {
+        const defaultId = getDefaultRoomId();
+        if (defaultId) {
+          const idx = action.rooms.findIndex((r) => r.id === defaultId);
+          if (idx >= 0) currentRoom = idx;
+        }
+      }
+      currentRoom = Math.min(currentRoom, Math.max(0, action.rooms.length - 1));
       return {
         ...state,
         agents: action.agents,
         recentCwds: action.recentCwds,
         office: action.office,
         rooms: action.rooms,
-        currentRoom: Math.min(state.currentRoom, Math.max(0, action.rooms.length - 1)),
+        currentRoom,
         logs: new Map(),
         needsAttention: new Set(),
         slashCommands: new Map(),
         stateChangedAt: new Map(action.agents.filter((a) => a.state !== "idle" && a.state !== "stopped").map((a) => [a.id, Date.now()])),
       };
+    }
     case "agent_added":
       return { ...state, agents: [...state.agents, action.agent] };
     case "agent_removed": {
@@ -101,8 +118,10 @@ function reducer(state: AppState, action: Action): AppState {
         const wasWorking = prevAgent && !ATTENTION_STATES.has(prevAgent.state);
         let soundTrigger = state.soundTrigger;
         if (wasWorking) {
-          // Sound: always trigger when tab is hidden
-          soundTrigger = state.soundTrigger + 1;
+          // Sound: bump seq and capture roomId so the effect can filter on
+          // the device's per-room notification preference.
+          const roomId = state.rooms[prevAgent.room]?.id ?? null;
+          soundTrigger = { seq: state.soundTrigger.seq + 1, roomId };
           // Badge: only when not viewing this agent
           if (state.focusedAgentId !== action.agentId) {
             needsAttention.add(action.agentId);
@@ -217,7 +236,7 @@ const initialState: AppState = {
   mobileViewMode: (typeof localStorage !== "undefined" && localStorage.getItem("isomux-mobile-view") === "list") ? "list" : "office",
   needsAttention: new Set(),
   sessionsList: new Map(),
-  soundTrigger: 0,
+  soundTrigger: { seq: 0, roomId: null },
   drafts: new Map(),
   recentCwds: [],
   slashCommands: new Map(),
@@ -292,13 +311,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  // Sound notification when tab is hidden and any agent finishes work
-  const prevSoundTrigger = useRef(0);
+  // Sound notification when tab is hidden and any agent finishes work, gated
+  // by the device's per-room notification preference.
+  const prevSoundTriggerSeq = useRef(0);
   useEffect(() => {
-    if (state.soundTrigger > prevSoundTrigger.current && document.hidden) {
-      playNotificationSound();
+    if (state.soundTrigger.seq > prevSoundTriggerSeq.current && document.hidden) {
+      if (shouldNotifyRoom(state.soundTrigger.roomId, getNotifRooms())) {
+        playNotificationSound();
+      }
     }
-    prevSoundTrigger.current = state.soundTrigger;
+    prevSoundTriggerSeq.current = state.soundTrigger.seq;
   }, [state.soundTrigger]);
 
   return (
