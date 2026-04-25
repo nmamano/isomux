@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { AgentInfo, AgentOutfit, ClientCommand, ModelFamily } from "../../shared/types.ts";
-import { MODEL_FAMILIES, modelVersionLabel } from "../../shared/types.ts";
+import type { AgentInfo, AgentOutfit, ClientCommand, EffortLevel, ModelFamily } from "../../shared/types.ts";
+import { MODEL_FAMILIES, EFFORT_LEVELS, DEFAULT_EFFORT, modelVersionLabel } from "../../shared/types.ts";
 import { SHIRT_COLORS, HAIR_COLORS, SKIN_COLORS, HAIR_STYLES, BEARDS, HATS, ACCESSORIES } from "../../shared/outfit-options.ts";
 import { Character } from "../office/Character.tsx";
 import { send, addRawListener, removeRawListener } from "../ws.ts";
@@ -72,6 +72,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   const [outfit, setOutfit] = useState<AgentOutfit>(agent ? { ...agent.outfit } : makeRandomOutfit);
   const [customInstructions, setCustomInstructions] = useState(agent?.customInstructions ?? "");
   const [modelFamily, setModelFamily] = useState<ModelFamily>(agent?.modelFamily ?? MODEL_FAMILIES[0].family);
+  const [effort, setEffort] = useState<EffortLevel>(agent?.effort ?? DEFAULT_EFFORT);
   const initialPermissionMode: AgentInfo["permissionMode"] =
     agent?.permissionMode === "auto" && (agent?.modelFamily ?? MODEL_FAMILIES[0].family) !== "opus"
       ? "bypassPermissions"
@@ -143,6 +144,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         outfit,
         customInstructions: customInstructions.trim() || undefined,
         modelFamily,
+        effort,
       });
     } else {
       const cmd: Extract<ClientCommand, { type: "edit_agent" }> = { type: "edit_agent", agentId: agent!.id };
@@ -152,8 +154,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       const trimmedInstructions = customInstructions.trim();
       if (trimmedInstructions !== (agent!.customInstructions ?? "")) cmd.customInstructions = trimmedInstructions;
       if (modelFamily !== agent!.modelFamily) cmd.modelFamily = modelFamily;
+      if (effort !== agent!.effort) cmd.effort = effort;
       if (permissionMode !== agent!.permissionMode) cmd.permissionMode = permissionMode;
-      if (!(cmd.name || cmd.cwd || cmd.outfit || cmd.customInstructions !== undefined || cmd.modelFamily || cmd.permissionMode)) {
+      if (!(cmd.name || cmd.cwd || cmd.outfit || cmd.customInstructions !== undefined || cmd.modelFamily || cmd.effort || cmd.permissionMode)) {
         onClose();
         return;
       }
@@ -262,11 +265,23 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
             const next = e.target.value as ModelFamily;
             setModelFamily(next);
             if (next !== "opus" && permissionMode === "auto") setPermissionMode("bypassPermissions");
+            if (next !== "opus" && effort === "max") setEffort("xhigh");
           }}
           style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
         >
           {MODEL_FAMILIES.map((m) => (
             <option key={m.family} value={m.family}>{m.label} ({modelVersionLabel(m.family)})</option>
+          ))}
+        </select>
+
+        <label style={{ ...labelStyle, marginTop: 12 }}>Thinking Effort</label>
+        <select
+          value={effort}
+          onChange={(e) => setEffort(e.target.value as EffortLevel)}
+          style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
+        >
+          {EFFORT_LEVELS.filter((opt) => opt.level !== "max" || modelFamily === "opus").map((opt) => (
+            <option key={opt.level} value={opt.level}>{opt.label}</option>
           ))}
         </select>
 

@@ -2,7 +2,7 @@ import { join } from "path";
 import { homedir } from "os";
 import { mkdirSync, appendFileSync, readFileSync, writeFileSync, existsSync, readdirSync } from "fs";
 import { createHash } from "crypto";
-import type { AgentInfo, Attachment, ClaudeModel, LogEntry, ModelFamily, TaskItem } from "../shared/types.ts";
+import type { AgentInfo, Attachment, ClaudeModel, EffortLevel, LogEntry, ModelFamily, TaskItem } from "../shared/types.ts";
 import { familyFromLegacyModel, generateRoomId } from "../shared/types.ts";
 
 const ISOMUX_DIR = join(homedir(), ".isomux");
@@ -276,6 +276,7 @@ export interface PersistedAgent {
   outfit: AgentInfo["outfit"];
   permissionMode: AgentInfo["permissionMode"];
   modelFamily?: ModelFamily;
+  effort?: EffortLevel;
   lastSessionId: string | null;
   topic: string | null;
   customInstructions: string | null;

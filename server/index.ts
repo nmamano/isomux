@@ -38,7 +38,7 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
         break;
       }
       saveRecentCwd(cmd.cwd);
-      await AgentManager.spawn(cmd.name, cmd.cwd, cmd.permissionMode, cmd.desk, cmd.customInstructions, cmd.roomId, cmd.outfit, cmd.modelFamily);
+      await AgentManager.spawn(cmd.name, cmd.cwd, cmd.permissionMode, cmd.desk, cmd.customInstructions, cmd.roomId, cmd.outfit, cmd.modelFamily, cmd.effort);
       if (cmd.requestId) {
         ws.send(JSON.stringify({ type: "agent_save_response", requestId: cmd.requestId, ok: true } as ServerMessage));
       }
@@ -72,7 +72,7 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
         }
         saveRecentCwd(cmd.cwd);
       }
-      AgentManager.editAgent(cmd.agentId, { name: cmd.name, cwd: cmd.cwd, outfit: cmd.outfit, customInstructions: cmd.customInstructions, modelFamily: cmd.modelFamily, permissionMode: cmd.permissionMode });
+      AgentManager.editAgent(cmd.agentId, { name: cmd.name, cwd: cmd.cwd, outfit: cmd.outfit, customInstructions: cmd.customInstructions, modelFamily: cmd.modelFamily, effort: cmd.effort, permissionMode: cmd.permissionMode });
       if (cmd.requestId) {
         ws.send(JSON.stringify({ type: "agent_save_response", requestId: cmd.requestId, ok: true } as ServerMessage));
       }

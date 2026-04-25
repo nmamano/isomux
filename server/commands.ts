@@ -130,7 +130,7 @@ export const commands: Record<string, CommandConfig> = {
   // --- Model & performance ---
   model:      { type: "hardcoded", supported: true, autocomplete: true, overridable: false, handler: "model", description: "Switch model" },
   fast:       { ...UNSUPPORTED_HARDCODED, description: "Toggle speed-optimized mode" },
-  effort:     { ...UNSUPPORTED_HARDCODED, description: "Set thinking effort level" },
+  effort:     { type: "hardcoded", supported: true, autocomplete: true, overridable: false, handler: "effort", description: "Set thinking effort level" },
   advisor:    { ...UNSUPPORTED_HARDCODED, description: "Toggle advisor mode" },
 
   // --- Cost & usage ---

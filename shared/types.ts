@@ -36,6 +36,24 @@ export const MODEL_FAMILIES: { family: ModelFamily; label: string }[] = [
   { family: "haiku", label: "Haiku" },
 ];
 
+// Reasoning effort levels exposed via Claude Code's `--effort` flag.
+// `max` is supported only on the larger models (Opus 4.6/4.7 at time of writing).
+export type EffortLevel = "low" | "medium" | "high" | "xhigh" | "max";
+
+export const EFFORT_LEVELS: { level: EffortLevel; label: string }[] = [
+  { level: "low", label: "Low" },
+  { level: "medium", label: "Medium" },
+  { level: "high", label: "High" },
+  { level: "xhigh", label: "Extra high" },
+  { level: "max", label: "Max (Opus only)" },
+];
+
+export const DEFAULT_EFFORT: EffortLevel = "xhigh";
+
+export function effortDisplayLabel(level: EffortLevel): string {
+  return EFFORT_LEVELS.find((e) => e.level === level)?.label ?? level;
+}
+
 // Extract "4.7" from "claude-opus-4-7" for display
 export function modelVersionLabel(family: ModelFamily): string {
   const exact = FAMILY_TO_MODEL[family];
@@ -68,6 +86,7 @@ export interface AgentInfo {
   outfit: AgentOutfit;
   permissionMode: "default" | "acceptEdits" | "bypassPermissions" | "auto";
   modelFamily: ModelFamily;
+  effort: EffortLevel;
   state: AgentState;
   topic: string | null;
   topicStale: boolean;
@@ -229,14 +248,14 @@ export type ServerMessage =
 
 // Browser → Server commands
 export type ClientCommand =
-  | { type: "spawn"; requestId?: string; name: string; cwd: string; permissionMode: AgentInfo["permissionMode"]; desk: number; roomId?: string; customInstructions?: string; outfit?: AgentOutfit; modelFamily?: ModelFamily }
+  | { type: "spawn"; requestId?: string; name: string; cwd: string; permissionMode: AgentInfo["permissionMode"]; desk: number; roomId?: string; customInstructions?: string; outfit?: AgentOutfit; modelFamily?: ModelFamily; effort?: EffortLevel }
   | { type: "kill"; agentId: string }
   | { type: "abort"; agentId: string }
   | { type: "send_message"; agentId: string; text: string; username?: string; attachments?: Attachment[] }
   | { type: "new_conversation"; agentId: string }
   | { type: "resume"; agentId: string; sessionId: string }
   | { type: "list_sessions"; agentId: string }
-  | { type: "edit_agent"; requestId?: string; agentId: string; name?: string; cwd?: string; outfit?: AgentOutfit; customInstructions?: string; modelFamily?: ModelFamily; permissionMode?: AgentInfo["permissionMode"] }
+  | { type: "edit_agent"; requestId?: string; agentId: string; name?: string; cwd?: string; outfit?: AgentOutfit; customInstructions?: string; modelFamily?: ModelFamily; effort?: EffortLevel; permissionMode?: AgentInfo["permissionMode"] }
   | { type: "swap_desks"; deskA: number; deskB: number; roomId: string }
   | { type: "set_topic"; agentId: string; topic: string }
   | { type: "reset_topic"; agentId: string }

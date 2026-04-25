@@ -1,5 +1,6 @@
 import { OfficeState, type OfficeEvent } from "../shared/office-state.ts";
 import type { AgentInfo, ClientCommand, ServerMessage, LogEntry, ModelFamily } from "../shared/types.ts";
+import { DEFAULT_EFFORT } from "../shared/types.ts";
 import { shimEmit } from "./ws.ts";
 
 const state = new OfficeState();
@@ -107,6 +108,7 @@ function seedOffice() {
       outfit: char.outfit,
       permissionMode: "auto",
       modelFamily: char.modelFamily,
+      effort: DEFAULT_EFFORT,
       state: char.state,
       topic: char.topic,
       topicStale: false,

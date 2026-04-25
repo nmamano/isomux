@@ -11,8 +11,8 @@ import {
   type PermissionUpdate,
 } from "@anthropic-ai/claude-agent-sdk";
 import type { ContentBlockParam } from "@anthropic-ai/sdk/resources/messages/messages.mjs";
-import type { AgentInfo, AgentOutfit, AgentState, Attachment, ClaudeModel, LogEntry, ModelFamily, OfficeSettings, RoomWire, SkillInfo, SkillOrigin } from "../shared/types.ts";
-import { MODEL_FAMILIES, FAMILY_TO_MODEL, familyDisplayLabel, generateRoomId } from "../shared/types.ts";
+import type { AgentInfo, AgentOutfit, AgentState, Attachment, ClaudeModel, EffortLevel, LogEntry, ModelFamily, OfficeSettings, RoomWire, SkillInfo, SkillOrigin } from "../shared/types.ts";
+import { MODEL_FAMILIES, FAMILY_TO_MODEL, EFFORT_LEVELS, DEFAULT_EFFORT, familyDisplayLabel, effortDisplayLabel, generateRoomId } from "../shared/types.ts";
 import { generateOutfit } from "./outfit.ts";
 import { appendLog, loadLog, loadLogWithAncestors, loadSessionsMap, loadAgents, saveAgents, listAgentSessions, listAllAgentIdsOnDisk, writeManifest, persistSessionTopic, persistSessionFork, accumulateSessionUsage, appendSessionUsageSnapshot, rollSessionUsageOnResume, loadOfficeConfig, saveOfficeConfig, readEnvFile, saveFile, getFilePath, loadAgentHistory, saveAgentHistory, type PersistedAgent, type PersistedUsage, type Room, type OfficeConfig, type AgentHistory } from "./persistence.ts";
 import { createSafetyHooks } from "./safety-hooks.ts";
@@ -270,6 +270,8 @@ interface ManagedAgent {
   pendingResumeSessions: { sessionId: string; lastModified: number; topic: string | null }[];
   // /model two-step state
   pendingModelPick: boolean;
+  // /effort two-step state
+  pendingEffortPick: boolean;
   // Auto-mode permission prompt two-step state
   pendingPermission: {
     toolUseID: string;
@@ -388,7 +390,7 @@ export function getCurrentSessionId(agentId: string): string | null {
   return agents.get(agentId)?.sessionId ?? null;
 }
 
-export async function editAgent(agentId: string, changes: { name?: string; cwd?: string; outfit?: AgentInfo["outfit"]; customInstructions?: string; modelFamily?: ModelFamily; permissionMode?: AgentInfo["permissionMode"] }) {
+export async function editAgent(agentId: string, changes: { name?: string; cwd?: string; outfit?: AgentInfo["outfit"]; customInstructions?: string; modelFamily?: ModelFamily; effort?: EffortLevel; permissionMode?: AgentInfo["permissionMode"] }) {
   const managed = agents.get(agentId);
   if (!managed) return;
 
@@ -421,6 +423,10 @@ export async function editAgent(agentId: string, changes: { name?: string; cwd?:
     managed.info.modelFamily = changes.modelFamily;
     updated.modelFamily = changes.modelFamily;
   }
+  if (changes.effort && changes.effort !== managed.info.effort) {
+    managed.info.effort = changes.effort;
+    updated.effort = changes.effort;
+  }
   if (changes.permissionMode && changes.permissionMode !== managed.info.permissionMode) {
     managed.info.permissionMode = changes.permissionMode;
     updated.permissionMode = changes.permissionMode;
@@ -431,8 +437,8 @@ export async function editAgent(agentId: string, changes: { name?: string; cwd?:
   // System prompt + cwd are passed into every createSession, so name/cwd/
   // customInstructions changes automatically apply to the next conversation.
 
-  // Recreate session if model or permission mode changed so it takes effect immediately
-  if (updated.modelFamily || updated.permissionMode) {
+  // Recreate session if model, effort, or permission mode changed so it takes effect immediately
+  if (updated.modelFamily || updated.effort || updated.permissionMode) {
     const sessionId = managed.sessionId;
     const newSession = sessionId ? createSession(managed, sessionId) : createSession(managed);
     await replaceSession(agentId, managed, newSession);
@@ -604,6 +610,7 @@ function persistAll() {
         outfit: a.info.outfit,
         permissionMode: a.info.permissionMode,
         modelFamily: a.info.modelFamily,
+        effort: a.info.effort,
         lastSessionId: a.sessionId,
         topic: a.info.topic,
         customInstructions: a.info.customInstructions,
@@ -649,6 +656,7 @@ export async function restoreAgents() {
         outfit: p.outfit,
         permissionMode: p.permissionMode,
         modelFamily: p.modelFamily ?? "opus",
+        effort: p.effort ?? DEFAULT_EFFORT,
         state: p.lastSessionId ? "waiting_for_response" : "idle",
         topic: p.topic ?? null,
         topicStale: false,
@@ -671,6 +679,7 @@ export async function restoreAgents() {
         pendingResume: false,
         pendingResumeSessions: [],
         pendingModelPick: false,
+        pendingEffortPick: false,
         pendingPermission: null,
         ptySidecar: null,
         ptyBuffer: "",
@@ -1325,14 +1334,14 @@ function createSession(managed: ManagedAgent, resumeSessionId?: string) {
     managed.info.customInstructions,
   );
   // V2 SDKSessionOptions still doesn't expose systemPrompt / extraArgs, so we
-  // inject --append-system-prompt via executableArgs. When
+  // inject --append-system-prompt and --effort via executableArgs. When
   // pathToClaudeCodeExecutable is a native binary, executableArgs are prepended
   // to the CLI args verbatim (verified against SDK 0.2.116 sdk.mjs).
   const opts: any = {
     model: FAMILY_TO_MODEL[managed.info.modelFamily],
     permissionMode: managed.info.permissionMode,
     pathToClaudeCodeExecutable: CLAUDE_NATIVE_BIN,
-    executableArgs: ["--append-system-prompt", systemPrompt],
+    executableArgs: ["--append-system-prompt", systemPrompt, "--effort", managed.info.effort],
     cwd: managed.info.cwd,
     hooks: createSafetyHooks(),
     canUseTool: ((toolName, input, options) => requestPermission(managed, toolName, input, options)) as CanUseTool,
@@ -1351,7 +1360,7 @@ function createSession(managed: ManagedAgent, resumeSessionId?: string) {
     : unstable_v2_createSession(opts);
 }
 
-export async function spawn(name: string, cwd: string, permissionMode: AgentInfo["permissionMode"], desk?: number, customInstructions?: string, roomId?: string, outfit?: AgentOutfit, modelFamily?: ModelFamily): Promise<AgentInfo | null> {
+export async function spawn(name: string, cwd: string, permissionMode: AgentInfo["permissionMode"], desk?: number, customInstructions?: string, roomId?: string, outfit?: AgentOutfit, modelFamily?: ModelFamily, effort?: EffortLevel): Promise<AgentInfo | null> {
   // Reject duplicate names across all rooms
   const nameLower = name.trim().toLowerCase();
   for (const a of agents.values()) {
@@ -1387,6 +1396,7 @@ export async function spawn(name: string, cwd: string, permissionMode: AgentInfo
     outfit: outfit ?? generateOutfit(),
     permissionMode,
     modelFamily: modelFamily ?? "opus",
+    effort: effort ?? DEFAULT_EFFORT,
     state: "idle",
     topic: null,
     topicStale: false,
@@ -1410,6 +1420,7 @@ export async function spawn(name: string, cwd: string, permissionMode: AgentInfo
     pendingResume: false,
     pendingResumeSessions: [],
     pendingModelPick: false,
+    pendingEffortPick: false,
     pendingPermission: null,
     ptySidecar: null,
     ptyBuffer: "",
@@ -1638,6 +1649,33 @@ export async function sendMessage(agentId: string, text: string, username?: stri
       return;
     } else {
       emitEphemeralLog(agentId, "system", "Model selection cancelled.");
+    }
+  }
+
+  // Handle /effort two-step: if pendingEffortPick, check if input is a number pick
+  if (managed.pendingEffortPick) {
+    managed.pendingEffortPick = false;
+    const trimmed = text.trim();
+    const num = parseInt(trimmed, 10);
+    if (!isNaN(num) && num >= 1 && num <= EFFORT_LEVELS.length) {
+      const userMeta = username ? { username } : undefined;
+      emitEphemeralLog(agentId, "user_message", text, userMeta);
+      const picked = EFFORT_LEVELS[num - 1];
+      const label = effortDisplayLabel(picked.level);
+      if (picked.level === managed.info.effort) {
+        emitEphemeralLog(agentId, "system", `Already using ${label}.`);
+      } else {
+        managed.info.effort = picked.level;
+        const sessionId = managed.sessionId;
+        const newSession = sessionId ? createSession(managed, sessionId) : createSession(managed);
+        await replaceSession(agentId, managed, newSession);
+        emit({ type: "agent_updated", agentId, changes: { effort: picked.level } });
+        persistAll();
+        addLogEntry(agentId, "system", `Thinking effort switched to ${label}.`);
+      }
+      return;
+    } else {
+      emitEphemeralLog(agentId, "system", "Effort selection cancelled.");
     }
   }
 
@@ -1942,6 +1980,7 @@ const commandHandlers: Record<string, HandlerFn> = {
     managed.pendingResume = false;
     managed.pendingResumeSessions = [];
     managed.pendingModelPick = false;
+    managed.pendingEffortPick = false;
     persistCurrentSessionTopic(agentId, managed);
     await replaceSession(agentId, managed, createSession(managed));
     managed.sessionId = null;
@@ -2130,6 +2169,23 @@ const commandHandlers: Record<string, HandlerFn> = {
     lines.push("\nReply with a number to switch, or anything else to cancel.");
     emitEphemeralLog(agentId, "system", lines.join("\n"));
     managed.pendingModelPick = true;
+    updateState(agentId, "waiting_for_response");
+    return true;
+  },
+
+  async effort(agentId, managed, _args, rawText, username) {
+    const userMeta = username ? { username } : undefined;
+    emitEphemeralLog(agentId, "user_message", rawText, userMeta);
+    const currentLabel = effortDisplayLabel(managed.info.effort);
+    const lines: string[] = [`Switch thinking effort (current: **${currentLabel}**):\n`];
+    for (let i = 0; i < EFFORT_LEVELS.length; i++) {
+      const e = EFFORT_LEVELS[i];
+      const marker = e.level === managed.info.effort ? " (current)" : "";
+      lines.push(`  ${i + 1}. ${effortDisplayLabel(e.level)}${marker}`);
+    }
+    lines.push("\nReply with a number to switch, or anything else to cancel.");
+    emitEphemeralLog(agentId, "system", lines.join("\n"));
+    managed.pendingEffortPick = true;
     updateState(agentId, "waiting_for_response");
     return true;
   },
@@ -2481,6 +2537,7 @@ export async function newConversation(agentId: string) {
   managed.pendingResume = false;
   managed.pendingResumeSessions = [];
   managed.pendingModelPick = false;
+  managed.pendingEffortPick = false;
   persistCurrentSessionTopic(agentId, managed);
 
   try {
@@ -2507,6 +2564,7 @@ export async function resume(agentId: string, sessionId: string) {
   managed.pendingResume = false;
   managed.pendingResumeSessions = [];
   managed.pendingModelPick = false;
+  managed.pendingEffortPick = false;
   persistCurrentSessionTopic(agentId, managed);
 
   try {
