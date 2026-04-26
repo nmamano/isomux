@@ -11,7 +11,7 @@ import { send } from "../ws.ts";
 import { SunIcon, MoonIcon } from "../components/ThemeIcons.tsx";
 import { MobileHeader, getRoomCounts } from "../components/MobileHeader.tsx";
 import { NavActions, type NavAction } from "../components/NavActions.tsx";
-import { TasksIcon, BuildingIcon, DoorIcon, ListIcon, DeviceIcon } from "../components/NavIcons.tsx";
+import { TasksIcon, BuildingIcon, DoorIcon, ListIcon, DeviceIcon, ClockIcon } from "../components/NavIcons.tsx";
 import { useSwipeLeftRight } from "../hooks/useSwipeLeftRight.ts";
 import type { AgentInfo } from "../../shared/types.ts";
 
@@ -42,7 +42,7 @@ function DoorDropZone({ side, onDrop, onDragOverChange, onClick }: { side: "left
   );
 }
 
-export function OfficeView({ onSpawn, onContextMenu, onOpenDeviceSettings, onEditOfficePrompt, onEditRoomSettings, onOpenTasks, onOpenUpdate, onSwipeLeft, onSwipeRight }: { onSpawn: (deskIndex: number) => void; onContextMenu: (x: number, y: number, agent: AgentInfo) => void; onOpenDeviceSettings: () => void; onEditOfficePrompt: () => void; onEditRoomSettings?: () => void; onOpenTasks: () => void; onOpenUpdate: () => void; onSwipeLeft?: () => void; onSwipeRight?: () => void }) {
+export function OfficeView({ onSpawn, onContextMenu, onOpenDeviceSettings, onEditOfficePrompt, onEditRoomSettings, onOpenTasks, onOpenCronjobs, onOpenUpdate, onSwipeLeft, onSwipeRight }: { onSpawn: (deskIndex: number) => void; onContextMenu: (x: number, y: number, agent: AgentInfo) => void; onOpenDeviceSettings: () => void; onEditOfficePrompt: () => void; onEditRoomSettings?: () => void; onOpenTasks: () => void; onOpenCronjobs: () => void; onOpenUpdate: () => void; onSwipeLeft?: () => void; onSwipeRight?: () => void }) {
   const { agents, needsAttention, stateChangedAt, office, tasks, currentRoom, rooms, isMobile, updateAvailable } = useAppState();
   const roomCount = rooms.length;
   const roomNames = rooms.map((r) => r.name);
@@ -64,6 +64,7 @@ export function OfficeView({ onSpawn, onContextMenu, onOpenDeviceSettings, onEdi
 
   const officeActions: NavAction[] = [
     { id: "tasks", icon: TasksIcon, label: "Tasks", onClick: onOpenTasks },
+    { id: "cronjobs", icon: ClockIcon, label: "Cronjobs", onClick: onOpenCronjobs },
     { id: "device", icon: DeviceIcon, label: "Device settings", onClick: onOpenDeviceSettings },
     { id: "office", icon: BuildingIcon, label: "Office settings", onClick: onEditOfficePrompt },
     ...(onEditRoomSettings ? [{ id: "room", icon: DoorIcon, label: "Room settings", onClick: onEditRoomSettings }] : []),
@@ -207,6 +208,7 @@ export function OfficeView({ onSpawn, onContextMenu, onOpenDeviceSettings, onEdi
             onEditOfficePrompt={onEditOfficePrompt}
             hasOfficePrompt={!!officePrompt}
             onOpenTasks={onOpenTasks}
+            onOpenCronjobs={onOpenCronjobs}
             taskCount={tasks.filter(t => t.status !== "done").length}
             leftDoor={currentRoom > 0 ? { label: roomNames[currentRoom - 1] ?? `Room ${currentRoom}`, onClick: () => dispatch({ type: "set_current_room", room: currentRoom - 1 }), dragOver: leftDoorDragOver, reject: leftDoorReject } : null}
             rightDoor={currentRoom < roomCount - 1 ? { label: roomNames[currentRoom + 1] ?? `Room ${currentRoom + 2}`, onClick: () => dispatch({ type: "set_current_room", room: currentRoom + 1 }), dragOver: rightDoorDragOver, reject: rightDoorReject } : null}

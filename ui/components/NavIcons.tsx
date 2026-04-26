@@ -71,3 +71,10 @@ export const CheckIcon = (
     <polyline points="3.5 8.5 6.5 11.5 12.5 4.5" />
   </svg>
 );
+
+export const ClockIcon = (
+  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block" }}>
+    <circle cx="8" cy="8" r="6" />
+    <polyline points="8 4.5 8 8 10.5 9.5" />
+  </svg>
+);

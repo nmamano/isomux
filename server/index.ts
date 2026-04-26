@@ -1,6 +1,7 @@
 import type { ServerWebSocket } from "bun";
 import type { ServerMessage, ClientCommand } from "../shared/types.ts";
 import * as AgentManager from "./agent-manager.ts";
+import * as CronjobManager from "./cronjob-manager.ts";
 import { loadRecentCwds, saveRecentCwd, loadTasks, saveTasks, getFilePath, saveFile } from "./persistence.ts";
 import type { Attachment } from "../shared/types.ts";
 import { startUpdateChecker, getUpdateStatus, onUpdateChange } from "./update-checker.ts";
@@ -20,6 +21,11 @@ function broadcast(msg: ServerMessage) {
 
 // Wire AgentManager events to WebSocket broadcasts
 AgentManager.onEvent((event) => {
+  broadcast(event as ServerMessage);
+});
+
+// Wire CronjobManager events to WebSocket broadcasts
+CronjobManager.onCronjobEvent((event) => {
   broadcast(event as ServerMessage);
 });
 
@@ -235,6 +241,89 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
       // Don't await — let it stream in the background (like send_message)
       AgentManager.editMessage(cmd.agentId, cmd.logEntryId, cmd.newText, cmd.username);
       break;
+    case "add_cronjob": {
+      try {
+        AgentManager.validateCwd(cmd.cwd);
+      } catch (err: any) {
+        if (cmd.requestId) {
+          ws.send(JSON.stringify({ type: "agent_save_response", requestId: cmd.requestId, ok: false, error: err.message || "Invalid directory" } as ServerMessage));
+        }
+        break;
+      }
+      saveRecentCwd(cmd.cwd);
+      CronjobManager.addCronjob({
+        name: cmd.name,
+        schedule: cmd.schedule,
+        prompt: cmd.prompt,
+        cwd: cmd.cwd,
+        modelFamily: cmd.modelFamily,
+        effort: cmd.effort,
+        permissionMode: cmd.permissionMode,
+        username: cmd.username,
+        device: cmd.device,
+      });
+      if (cmd.requestId) {
+        ws.send(JSON.stringify({ type: "agent_save_response", requestId: cmd.requestId, ok: true } as ServerMessage));
+      }
+      break;
+    }
+    case "update_cronjob": {
+      if (cmd.changes.cwd) {
+        try {
+          AgentManager.validateCwd(cmd.changes.cwd);
+        } catch (err: any) {
+          if (cmd.requestId) {
+            ws.send(JSON.stringify({ type: "agent_save_response", requestId: cmd.requestId, ok: false, error: err.message || "Invalid directory" } as ServerMessage));
+          }
+          break;
+        }
+        saveRecentCwd(cmd.changes.cwd);
+      }
+      CronjobManager.updateCronjob(cmd.id, cmd.changes);
+      if (cmd.requestId) {
+        ws.send(JSON.stringify({ type: "agent_save_response", requestId: cmd.requestId, ok: true } as ServerMessage));
+      }
+      break;
+    }
+    case "delete_cronjob":
+      CronjobManager.deleteCronjob(cmd.id);
+      break;
+    case "run_cronjob_now":
+      CronjobManager.runCronjobNow(cmd.id, cmd.username, cmd.device);
+      break;
+    case "update_cronjobs_prompt":
+      CronjobManager.setCronjobsPrompt(cmd.value);
+      ws.send(JSON.stringify({ type: "settings_save_response", requestId: cmd.requestId, ok: true } as ServerMessage));
+      break;
+    case "list_cronjob_runs": {
+      const runs = CronjobManager.getRunsForCronjob(cmd.cronjobId);
+      ws.send(JSON.stringify({ type: "cronjob_runs", cronjobId: cmd.cronjobId, runs } as ServerMessage));
+      break;
+    }
+    case "list_all_cronjob_runs": {
+      // Returns runs for every cronjob dir on disk (including deleted ones)
+      // so the Runs tab can surface historical runs after a cronjob is gone.
+      for (const { jobId, runs } of CronjobManager.getAllRunsByJob()) {
+        ws.send(JSON.stringify({ type: "cronjob_runs", cronjobId: jobId, runs } as ServerMessage));
+      }
+      break;
+    }
+    case "load_cronjob_run": {
+      // The browser doesn't know which jobId a run belongs to until it has the
+      // run list. To resolve, scan all jobs.
+      const cronjobs = CronjobManager.listCronjobs();
+      let found: { jobId: string; runId: string } | null = null;
+      for (const job of cronjobs) {
+        const runs = CronjobManager.getRunsForCronjob(job.id);
+        if (runs.some((r) => r.id === cmd.runId)) { found = { jobId: job.id, runId: cmd.runId }; break; }
+      }
+      if (!found) break;
+      const { entries } = CronjobManager.getRunTranscript(found.jobId, found.runId);
+      for (const entry of entries) {
+        ws.send(JSON.stringify({ type: "log_entry", entry } as ServerMessage));
+      }
+      break;
+    }
   }
 }
 
@@ -263,6 +352,50 @@ const server = Bun.serve({
           "Access-Control-Allow-Headers": "Content-Type",
         },
       });
+    }
+
+    // CORS preflight for cronjobs API
+    if (req.method === "OPTIONS" && url.pathname.startsWith("/cronjobs")) {
+      return new Response(null, {
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type",
+        },
+      });
+    }
+
+    // Cronjobs HTTP API (read-only — mutations go through WebSocket)
+    if (url.pathname.startsWith("/cronjobs")) {
+      const corsHeaders = { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" };
+      const parts = url.pathname.split("/").filter(Boolean); // ["cronjobs"] or ["cronjobs", id] or ["cronjobs", id, "runs"] or ["cronjobs", id, "runs", runId]
+      if (req.method !== "GET") {
+        return new Response(JSON.stringify({ error: "method not allowed" }), { status: 405, headers: corsHeaders });
+      }
+      const cronjobs = CronjobManager.listCronjobs();
+      // GET /cronjobs
+      if (parts.length === 1) {
+        return new Response(JSON.stringify(cronjobs), { headers: corsHeaders });
+      }
+      const jobId = parts[1];
+      const cronjob = cronjobs.find((c) => c.id === jobId);
+      if (!cronjob) return new Response(JSON.stringify({ error: "not found" }), { status: 404, headers: corsHeaders });
+      // GET /cronjobs/:id
+      if (parts.length === 2) {
+        return new Response(JSON.stringify(cronjob), { headers: corsHeaders });
+      }
+      // GET /cronjobs/:id/runs
+      if (parts[2] === "runs" && parts.length === 3) {
+        const runs = CronjobManager.getRunsForCronjob(jobId);
+        return new Response(JSON.stringify(runs), { headers: corsHeaders });
+      }
+      // GET /cronjobs/:id/runs/:runId
+      if (parts[2] === "runs" && parts.length === 4) {
+        const { run, entries } = CronjobManager.getRunTranscript(jobId, parts[3]);
+        if (!run) return new Response(JSON.stringify({ error: "not found" }), { status: 404, headers: corsHeaders });
+        return new Response(JSON.stringify({ run, entries }), { headers: corsHeaders });
+      }
+      return new Response(JSON.stringify({ error: "not found" }), { status: 404, headers: corsHeaders });
     }
 
     // Task HTTP API
@@ -487,6 +620,12 @@ const server = Bun.serve({
       ws.send(JSON.stringify({ type: "full_state", agents, recentCwds, office: AgentManager.getOfficeSettings(), rooms: AgentManager.getRooms() } as ServerMessage));
       // Send tasks
       ws.send(JSON.stringify({ type: "tasks", tasks } as ServerMessage));
+      // Send cronjobs + cronjobsPrompt
+      ws.send(JSON.stringify({
+        type: "cronjobs_state",
+        cronjobs: CronjobManager.listCronjobs(),
+        cronjobsPrompt: CronjobManager.getCronjobsPrompt(),
+      } as ServerMessage));
       // Send update status
       const update = getUpdateStatus();
       if (update.updateAvailable) {
@@ -535,5 +674,8 @@ AgentManager.restoreAgents().then((restored) => {
     console.log(`Restored ${restored.length} agent(s): ${restored.map((a) => a.name).join(", ")}`);
   }
 });
+
+// Boot cronjob scheduler (loads configs, reconciles stale "running" rows, starts tick).
+CronjobManager.startCronjobScheduler();
 
 console.log(`Isomux running at http://localhost:${server.port}`);

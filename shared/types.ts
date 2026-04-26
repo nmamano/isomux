@@ -167,6 +167,95 @@ export function generateTaskId(existing?: string[]): string {
   return generateHexId(existing);
 }
 
+export function generateCronjobId(existing?: string[]): string {
+  return generateHexId(existing);
+}
+
+export function generateCronjobRunId(existing?: string[]): string {
+  return generateHexId(existing);
+}
+
+// ---------------------------------------------------------------------------
+// Cronjobs
+// ---------------------------------------------------------------------------
+// Cronjobs are scheduled SDK sessions. They are NOT agents — no desk, no room,
+// no persistent identity. Each scheduled fire creates a fresh session whose
+// transcript becomes a "run" row.
+
+export type Schedule =
+  | { type: "daily"; hour: number; minute: number }
+  | { type: "weekly"; weekday: 0 | 1 | 2 | 3 | 4 | 5 | 6; hour: number; minute: number }
+  | { type: "interval"; minutes: number };
+
+// Permission modes available for cronjobs. Subset of agent options:
+// "default" / "acceptEdits" / "plan" would block forever in an unattended run.
+export type CronjobPermissionMode = "bypassPermissions" | "auto";
+
+export interface Cronjob {
+  id: string;                  // 8-char hex
+  name: string;                // free text, not unique
+  schedule: Schedule;
+  prompt: string;              // first user message at each fire
+  cwd: string;
+  modelFamily: ModelFamily;
+  effort: EffortLevel;
+  permissionMode: CronjobPermissionMode;
+  enabled: boolean;
+  createdBy: string;
+  device: string | null;
+  createdAt: number;
+  lastFireAt: number | null;
+  nextFireAt: number;
+}
+
+export type CronjobRunStatus = "running" | "completed" | "failed" | "timed_out" | "skipped";
+export type CronjobRunTrigger = "scheduled" | "manual";
+
+export interface CronjobRun {
+  id: string;                  // 8-char hex
+  cronjobId: string;
+  cronjobName: string;         // denormalized so deleted-cronjob runs still display
+  trigger: CronjobRunTrigger;
+  status: CronjobRunStatus;
+  startedAt: number;
+  endedAt: number | null;
+  errorReason: string | null;
+  promptSnapshot: string;
+  modelFamilySnapshot: ModelFamily;
+  effortSnapshot: EffortLevel;
+  cwdSnapshot: string;
+  permissionModeSnapshot: CronjobPermissionMode;
+  rootSessionId: string;       // first session id created at fire time
+  previewText: string;         // last assistant text block, truncated ~120 chars
+}
+
+// Cronjob runs piggy-back on the LogEntry.agentId routing by using a
+// "cronrun-<runId>" prefix as a synthetic stream id. Entries written for a run
+// carry this in `agentId` so the existing client-side Map<streamId, entries>
+// routing works unchanged.
+export function cronjobRunStreamId(runId: string): string {
+  return `cronrun-${runId}`;
+}
+
+export function parseStreamId(id: string):
+  | { kind: "agent"; agentId: string }
+  | { kind: "cronjob_run"; runId: string } {
+  if (id.startsWith("cronrun-")) return { kind: "cronjob_run", runId: id.slice("cronrun-".length) };
+  return { kind: "agent", agentId: id };
+}
+
+export function humanizeSchedule(s: Schedule): string {
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  if (s.type === "daily") return `Daily at ${pad(s.hour)}:${pad(s.minute)}`;
+  if (s.type === "weekly") {
+    const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    return `Weekly ${weekdays[s.weekday]} at ${pad(s.hour)}:${pad(s.minute)}`;
+  }
+  if (s.minutes < 60) return `Every ${s.minutes}m`;
+  if (s.minutes % 60 === 0) return `Every ${s.minutes / 60}h`;
+  return `Every ${Math.floor(s.minutes / 60)}h${s.minutes % 60}m`;
+}
+
 const VALID_STATUSES = new Set<TaskStatus>(["open", "in_progress", "done"]);
 const VALID_PRIORITIES = new Set<TaskPriority>(["P0", "P1", "P2", "P3"]);
 
@@ -269,6 +358,13 @@ export type ServerMessage =
   | AgentSaveResponse
   | CwdValidationResponse
   | { type: "update_status"; updateAvailable: boolean; current: { sha: string; message: string; date: string }; latest: { sha: string; message: string; date: string } }
+  | { type: "cronjobs_state"; cronjobs: Cronjob[]; cronjobsPrompt: string | null }
+  | { type: "cronjob_added"; cronjob: Cronjob }
+  | { type: "cronjob_updated"; cronjob: Cronjob }
+  | { type: "cronjob_deleted"; id: string }
+  | { type: "cronjobs_prompt_updated"; value: string | null }
+  | { type: "cronjob_runs"; cronjobId: string; runs: CronjobRun[] }
+  | { type: "cronjob_run_updated"; run: CronjobRun }
   | { type: "pong" };
 
 // Browser → Server commands
@@ -301,6 +397,14 @@ export type ClientCommand =
   | { type: "move_agent"; agentId: string; targetRoomId: string }
   | { type: "reorder_rooms"; order: string[] }
   | { type: "edit_message"; agentId: string; logEntryId: string; newText: string; username?: string }
+  | { type: "add_cronjob"; requestId?: string; name: string; schedule: Schedule; prompt: string; cwd: string; modelFamily: ModelFamily; effort: EffortLevel; permissionMode: CronjobPermissionMode; username: string; device?: string }
+  | { type: "update_cronjob"; requestId?: string; id: string; changes: Partial<Pick<Cronjob, "name" | "schedule" | "prompt" | "cwd" | "modelFamily" | "effort" | "permissionMode" | "enabled">> }
+  | { type: "delete_cronjob"; id: string }
+  | { type: "run_cronjob_now"; id: string; username: string; device?: string }
+  | { type: "update_cronjobs_prompt"; requestId: string; value: string | null }
+  | { type: "list_cronjob_runs"; cronjobId: string }
+  | { type: "list_all_cronjob_runs" }
+  | { type: "load_cronjob_run"; runId: string }
   | { type: "ping" };
 
 // Generate a stable 8-char hex room ID (used at room creation and during migration)

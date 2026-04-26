@@ -116,7 +116,7 @@ export function getOfficeSettings(): OfficeSettings {
 // Update office settings. Caller is responsible for validating envFile (see validateEnvPath).
 export function setOfficeSettings(prompt: string | null, envFile: string | null) {
   const normalizedPrompt = prompt && prompt.trim() ? prompt.trim() : null;
-  officeConfig = { prompt: normalizedPrompt, envFile: envFile || null };
+  officeConfig = { ...officeConfig, prompt: normalizedPrompt, envFile: envFile || null };
   saveOfficeConfig(officeConfig);
   // System prompt is rebuilt at every createSession from current office/room/agent
   // config, so the new office prompt automatically lands on the next conversation.

@@ -57,7 +57,7 @@ interface DoorProps {
   reject?: boolean;
 }
 
-export function Walls({ onToggleTheme, onEditOfficePrompt, hasOfficePrompt, onOpenTasks, taskCount = 0, leftDoor, rightDoor }: { onToggleTheme?: () => void; onEditOfficePrompt?: () => void; hasOfficePrompt?: boolean; onOpenTasks?: () => void; taskCount?: number; leftDoor?: DoorProps | null; rightDoor?: DoorProps | null }) {
+export function Walls({ onToggleTheme, onEditOfficePrompt, hasOfficePrompt, onOpenTasks, onOpenCronjobs, taskCount = 0, leftDoor, rightDoor }: { onToggleTheme?: () => void; onEditOfficePrompt?: () => void; hasOfficePrompt?: boolean; onOpenTasks?: () => void; onOpenCronjobs?: () => void; taskCount?: number; leftDoor?: DoorProps | null; rightDoor?: DoorProps | null }) {
   const { currentRoom } = useAppState();
   const neon = NEON_COLORS[currentRoom % NEON_COLORS.length];
   const [now, setNow] = useState(new Date());
@@ -269,7 +269,9 @@ export function Walls({ onToggleTheme, onEditOfficePrompt, hasOfficePrompt, onOp
         )}
       </g>
       {/* Clock on right wall (skewed to match 2:1 wall angle ~27°) */}
-      <g transform="translate(240,-85) skewY(27)">
+      <g transform="translate(240,-85) skewY(27)" onClick={onOpenCronjobs} style={onOpenCronjobs ? { cursor: "pointer", pointerEvents: "auto" } : undefined}>
+        {/* Slightly larger transparent hit area for forgiving clicks */}
+        {onOpenCronjobs && <circle cx="0" cy="0" r={R + 4} fill="transparent" />}
         <circle cx="0" cy="0" r={R} fill="var(--wall-decor)" stroke="var(--wall-decor-stroke)" strokeWidth="1" />
         <circle cx="0" cy="0" r={r} fill="var(--wall-decor-inner)" />
         {/* Hour ticks */}

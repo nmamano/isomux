@@ -1,5 +1,5 @@
 import { createContext, useContext, useReducer, useEffect, useRef, useState, useCallback, type ReactNode, type Dispatch } from "react";
-import type { AgentInfo, LogEntry, SessionInfo, ServerMessage, SkillInfo, TaskItem, OfficeSettings, RoomWire, SettingsSaveResponse, SettingsValidationResponse } from "../shared/types.ts";
+import type { AgentInfo, LogEntry, SessionInfo, ServerMessage, SkillInfo, TaskItem, OfficeSettings, RoomWire, SettingsSaveResponse, SettingsValidationResponse, Cronjob, CronjobRun } from "../shared/types.ts";
 import { connect } from "./ws.ts";
 import { type Features, PRODUCTION_FEATURES } from "../shared/features.ts";
 import { getDefaultRoomId, getNotifRooms, shouldNotifyRoom } from "./device-settings.ts";
@@ -24,6 +24,9 @@ export interface AppState {
   office: OfficeSettings;
   rooms: RoomWire[];
   tasks: TaskItem[];
+  cronjobs: Cronjob[];
+  cronjobsPrompt: string | null;
+  cronjobRunsByJob: Map<string, CronjobRun[]>; // jobId → run list (loaded on demand)
   currentRoom: number; // 0-based room index (view selection only)
   updateAvailable: boolean;
   updateCurrent: { sha: string; message: string; date: string };
@@ -54,7 +57,14 @@ type Action =
   | { type: "rooms_reordered"; order: string[] }
   | SettingsSaveResponse
   | SettingsValidationResponse
-  | { type: "update_status"; updateAvailable: boolean; current: { sha: string; message: string; date: string }; latest: { sha: string; message: string; date: string } };
+  | { type: "update_status"; updateAvailable: boolean; current: { sha: string; message: string; date: string }; latest: { sha: string; message: string; date: string } }
+  | { type: "cronjobs_state"; cronjobs: Cronjob[]; cronjobsPrompt: string | null }
+  | { type: "cronjob_added"; cronjob: Cronjob }
+  | { type: "cronjob_updated"; cronjob: Cronjob }
+  | { type: "cronjob_deleted"; id: string }
+  | { type: "cronjobs_prompt_updated"; value: string | null }
+  | { type: "cronjob_runs"; cronjobId: string; runs: CronjobRun[] }
+  | { type: "cronjob_run_updated"; run: CronjobRun };
 
 // States that warrant attention
 const ATTENTION_STATES = new Set(["idle", "error", "waiting_for_response"]);
@@ -134,6 +144,10 @@ function reducer(state: AppState, action: Action): AppState {
     case "log_entry": {
       const logs = new Map(state.logs);
       const entries = logs.get(action.entry.agentId) ?? [];
+      // Dedupe by id: cronjob run views re-request historical entries on open
+      // even when the same entries arrived live a moment earlier. Without this
+      // the same response shows up multiple times in the transcript.
+      if (entries.some((e) => e.id === action.entry.id)) return state;
       logs.set(action.entry.agentId, [...entries, action.entry]);
       return { ...state, logs };
     }
@@ -205,6 +219,37 @@ function reducer(state: AppState, action: Action): AppState {
       const newRooms = state.rooms.map((r) => r.id === action.roomId ? { ...r, prompt: action.prompt, envFile: action.envFile } : r);
       return { ...state, rooms: newRooms };
     }
+    case "cronjobs_state":
+      return { ...state, cronjobs: action.cronjobs, cronjobsPrompt: action.cronjobsPrompt };
+    case "cronjob_added":
+      return { ...state, cronjobs: [...state.cronjobs, action.cronjob] };
+    case "cronjob_updated":
+      return {
+        ...state,
+        cronjobs: state.cronjobs.map((c) => c.id === action.cronjob.id ? action.cronjob : c),
+      };
+    case "cronjob_deleted":
+      return {
+        ...state,
+        cronjobs: state.cronjobs.filter((c) => c.id !== action.id),
+      };
+    case "cronjobs_prompt_updated":
+      return { ...state, cronjobsPrompt: action.value };
+    case "cronjob_runs": {
+      const cronjobRunsByJob = new Map(state.cronjobRunsByJob);
+      cronjobRunsByJob.set(action.cronjobId, action.runs);
+      return { ...state, cronjobRunsByJob };
+    }
+    case "cronjob_run_updated": {
+      const cronjobRunsByJob = new Map(state.cronjobRunsByJob);
+      const existing = cronjobRunsByJob.get(action.run.cronjobId) ?? [];
+      const idx = existing.findIndex((r) => r.id === action.run.id);
+      const next = idx >= 0
+        ? existing.map((r) => r.id === action.run.id ? action.run : r)
+        : [...existing, action.run];
+      cronjobRunsByJob.set(action.run.cronjobId, next);
+      return { ...state, cronjobRunsByJob };
+    }
     case "rooms_reordered": {
       // action.order is the new ordering of roomIds
       const idToOldIdx = new Map(state.rooms.map((r, i) => [r.id, i]));
@@ -244,6 +289,9 @@ const initialState: AppState = {
   office: { prompt: null, envFile: null },
   rooms: [],
   tasks: [],
+  cronjobs: [],
+  cronjobsPrompt: null,
+  cronjobRunsByJob: new Map(),
   currentRoom: 0,
   updateAvailable: false,
   updateCurrent: { sha: "", message: "", date: "" },

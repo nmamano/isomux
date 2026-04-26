@@ -1,4 +1,6 @@
 import { loadSessionsMap, listAllAgentIdsOnDisk, loadAgentHistory, loadLog, type PersistedUsage } from "./persistence.ts";
+import { listCronjobs, readCronjobLifetimeUsage } from "./cronjob-manager.ts";
+import { listAllCronjobIdsOnDisk, loadCronjobHistory } from "./cronjob-persistence.ts";
 import type { ManagedAgent, InternalRoom } from "./internal-types.ts";
 
 // `cacheRead` is discounted cache hits; `cacheCreation` is the 1.25x write
@@ -242,6 +244,60 @@ export function renderUsageReport(agents: Map<string, ManagedAgent>, rooms: Inte
       `| ${label} | ${formatInCell(r.sess)} | ${formatTokenCount(r.sess.totalOut)} | ${formatUsd(r.sess.costUSD)} | ${formatInCell(r.life)} | ${formatTokenCount(r.life.totalOut)} | ${formatUsd(r.life.costUSD)} |`,
     );
   }
+
+  // Per-cronjob lifetime usage. Mirrors the per-room shape: live cronjobs +
+  // any disk-only cronjobs (deleted) so historical spend isn't lost.
+  const liveCronjobs = listCronjobs();
+  const liveCronjobIds = new Set(liveCronjobs.map((c) => c.id));
+  const cronjobHistory = loadCronjobHistory();
+  type CronjobBucket = { id: string; name: string; deleted: boolean; life: UsageBucket };
+  const cronjobBuckets: CronjobBucket[] = [];
+  for (const job of liveCronjobs) {
+    const u = readCronjobLifetimeUsage(job.id);
+    cronjobBuckets.push({
+      id: job.id,
+      name: job.name,
+      deleted: false,
+      life: { totalIn: u.totalIn, cacheRead: u.cacheRead, cacheCreation: u.cacheCreation, totalOut: u.totalOut, costUSD: u.costUSD },
+    });
+  }
+  for (const id of listAllCronjobIdsOnDisk()) {
+    if (liveCronjobIds.has(id)) continue;
+    const u = readCronjobLifetimeUsage(id);
+    if (u.costUSD === 0 && u.totalIn === 0 && u.totalOut === 0) continue;
+    cronjobBuckets.push({
+      id,
+      name: cronjobHistory[id]?.lastName ?? "(unknown cronjob)",
+      deleted: true,
+      life: { totalIn: u.totalIn, cacheRead: u.cacheRead, cacheCreation: u.cacheCreation, totalOut: u.totalOut, costUSD: u.costUSD },
+    });
+  }
+
+  // Roll cronjob spend into the office total so the bottom line is honest.
+  const cronjobLifeTotal = emptyBucket();
+  for (const b of cronjobBuckets) addBucket(cronjobLifeTotal, b.life);
+  addBucket(total.life, cronjobLifeTotal);
+
+  if (cronjobBuckets.length > 0) {
+    cronjobBuckets.sort((a, b) => b.life.costUSD - a.life.costUSD);
+    lines.push("");
+    lines.push(`## Per-cronjob usage`);
+    lines.push("");
+    lines.push(`| Cronjob | In (life) | Out (life) | $ (life) |`);
+    lines.push(`| --- | ---: | ---: | ---: |`);
+    for (const r of cronjobBuckets) {
+      const label = r.deleted ? `${r.name} _(deleted)_` : r.name;
+      lines.push(
+        `| ${label} | ${formatInCell(r.life)} | ${formatTokenCount(r.life.totalOut)} | ${formatUsd(r.life.costUSD)} |`,
+      );
+    }
+  }
+
+  lines.push("");
+  lines.push(`## Office total`);
+  lines.push("");
+  lines.push(`| | In (sess) | Out (sess) | $ (sess) | In (life) | Out (life) | $ (life) |`);
+  lines.push(`| --- | ---: | ---: | ---: | ---: | ---: | ---: |`);
   lines.push(
     `| **Total** | ${formatInCell(total.sess)} | ${formatTokenCount(total.sess.totalOut)} | ${formatUsd(total.sess.costUSD)} | ${formatInCell(total.life)} | ${formatTokenCount(total.life.totalOut)} | ${formatUsd(total.life.costUSD)} |`,
   );
