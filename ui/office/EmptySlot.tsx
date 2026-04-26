@@ -38,6 +38,7 @@ export function EmptySlot({
       <svg width="180" height="160" viewBox="0 0 180 160" overflow="visible" style={{ pointerEvents: "none" }}>
         {/* Invisible hit area — only the diamond shape triggers hover/click */}
         <path
+          data-no-pan
           d="M40 126 L90 101 L140 126 L90 151 Z"
           fill="transparent"
           stroke="none"

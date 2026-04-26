@@ -92,6 +92,7 @@ export function DeskUnit({
     <div
       ref={containerRef}
       draggable
+      data-no-pan
       onDragStart={(e) => {
         e.dataTransfer.setData("text/plain", String(agent.desk));
         e.dataTransfer.effectAllowed = "move";

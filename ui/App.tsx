@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useAppState, useDispatch } from "./store.tsx";
-import { OfficeView } from "./office/OfficeView.tsx";
+import { OfficeView, type ViewportControls } from "./office/OfficeView.tsx";
 import { LogView } from "./log-view/LogView.tsx";
 import { AgentListView } from "./components/AgentListView.tsx";
 import { ContextMenu } from "./components/ContextMenu.tsx";
@@ -54,6 +54,7 @@ export function App() {
   const [cronjobsOpen, setCronjobsOpen] = useState(false);
   const [updateOpen, setUpdateOpen] = useState(false);
 
+  const viewportControlsRef = useRef<ViewportControls | null>(null);
   const focusedAgent = focusedAgentId ? agents.find((a) => a.id === focusedAgentId) : null;
 
   const swipeRoomNext = useCallback(() => {
@@ -103,6 +104,22 @@ export function App() {
         setSpawnDesk(null);
         setCtxMenu(null);
         setEditAgent(null);
+      }
+      // Viewport zoom/pan shortcuts (only from office view): 0 → reset, +/= → zoom in, - → zoom out.
+      // "=" accepted as an alias for "+" so users don't need Shift on US layouts.
+      // Ref is null when OfficeView isn't mounted (mobile list, log view, etc.) — don't swallow the key in those cases.
+      const vp = viewportControlsRef.current;
+      if (vp && !isInput && !focusedAgentId && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        if (e.key === "0") {
+          e.preventDefault();
+          vp.resetView();
+        } else if (e.key === "+" || e.key === "=") {
+          e.preventDefault();
+          vp.zoomIn();
+        } else if (e.key === "-") {
+          e.preventDefault();
+          vp.zoomOut();
+        }
       }
       // Number keys 1-8: focus agent at that desk in current room (only from office view)
       if (!isInput && !focusedAgentId && e.key >= "1" && e.key <= "8" && !e.metaKey && !e.ctrlKey && !e.altKey) {
@@ -228,6 +245,7 @@ export function App() {
           onOpenUpdate={() => setUpdateOpen(true)}
           onSwipeLeft={swipeRoomNext}
           onSwipeRight={swipeRoomPrev}
+          viewportControlsRef={viewportControlsRef}
         />
       )}
       {spawnDesk !== null && (

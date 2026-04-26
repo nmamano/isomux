@@ -136,7 +136,7 @@ export function Walls({ onToggleTheme, onEditOfficePrompt, hasOfficePrompt, onOp
           </circle>
         ))}
         {/* Moon — crescent via overlapping circles (clickable to toggle theme) */}
-        <g onClick={onToggleTheme} style={{ cursor: "pointer", pointerEvents: "auto" }}>
+        <g data-no-pan onClick={onToggleTheme} style={{ cursor: "pointer", pointerEvents: "auto" }}>
           <circle cx={-203} cy={-8} r={18} fill="transparent" />
           <circle cx={-203} cy={-8} r={12} fill="#E8E0C8" />
           <circle cx={-203 + moonPhase * 10} cy={-9} r={10} fill="#0a0e1a" />
@@ -149,7 +149,7 @@ export function Walls({ onToggleTheme, onEditOfficePrompt, hasOfficePrompt, onOp
       <g clipPath="url(#window-clip)" className="window-day">
         <path d="M-285 115 L-145 45 L-145 -45 L-285 25 Z" fill="#87CEEB" />
         {/* Sun (clickable to toggle theme) */}
-        <g onClick={onToggleTheme} style={{ cursor: "pointer", pointerEvents: "auto" }}>
+        <g data-no-pan onClick={onToggleTheme} style={{ cursor: "pointer", pointerEvents: "auto" }}>
           <circle cx={-205} cy={-5} r={20} fill="transparent" />
           <circle cx={-205} cy={-5} r={14} fill="#F5D060" />
           <circle cx={-205} cy={-5} r={20} fill="#F5D060" opacity="0.15" />
@@ -167,7 +167,7 @@ export function Walls({ onToggleTheme, onEditOfficePrompt, hasOfficePrompt, onOp
       <path d="M-285 70 L-145 0" stroke="var(--wall-decor)" strokeWidth="2" fill="none" />
 
       {/* Corkboard on left wall — casual, mutable feel */}
-      <g transform="translate(-55, -30) skewY(-27)" onClick={onOpenTasks} style={{ cursor: "pointer", pointerEvents: "auto" }}>
+      <g data-no-pan transform="translate(-55, -30) skewY(-27)" onClick={onOpenTasks} style={{ cursor: "pointer", pointerEvents: "auto" }}>
         {/* Board frame */}
         <rect x="-50" y="-40" width="95" height="70" rx="2" fill="#5a4430" stroke="#4a3620" strokeWidth="1" />
         {/* Cork surface */}
@@ -236,7 +236,7 @@ export function Walls({ onToggleTheme, onEditOfficePrompt, hasOfficePrompt, onOp
       </g>
 
       {/* Framed wall sign on left wall — formal, authoritative feel */}
-      <g transform="translate(50, -75) skewY(-27)" onClick={onEditOfficePrompt} style={{ cursor: "pointer", pointerEvents: "auto" }}>
+      <g data-no-pan transform="translate(50, -75) skewY(-27)" onClick={onEditOfficePrompt} style={{ cursor: "pointer", pointerEvents: "auto" }}>
         {/* Outer frame — dark wood/brass */}
         <rect x="-30" y="-32" width="60" height="58" rx="2" fill="#3a3028" stroke="#2a2018" strokeWidth="1.2" />
         {/* Inner frame — thin brass inset */}
@@ -295,7 +295,7 @@ export function Walls({ onToggleTheme, onEditOfficePrompt, hasOfficePrompt, onOp
       {/* On (dark mode) */}
       <g className="neon-sign-on" transform="translate(370, -5) skewY(27)" style={{ animation: "neonFlicker 5s ease-in-out infinite", filter: `drop-shadow(0 0 4px ${neon}) drop-shadow(0 0 12px ${neon})` }}>
         {/* Hit area */}
-        <rect x="-38" y="-18" width="92" height="32" fill="transparent" style={{ cursor: "pointer", pointerEvents: "auto" }} onClick={() => window.open("https://isomux.com", "_blank")} />
+        <rect data-no-pan x="-38" y="-18" width="92" height="32" fill="transparent" style={{ cursor: "pointer", pointerEvents: "auto" }} onClick={() => window.open("https://isomux.com", "_blank")} />
         {/* Letters as thick strokes */}
         <g fill="none" stroke={neon} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
           {/* i — dot + stem */}
@@ -334,7 +334,7 @@ export function Walls({ onToggleTheme, onEditOfficePrompt, hasOfficePrompt, onOp
       {/* Off (light mode) */}
       <g className="neon-sign-off" transform="translate(370, -5) skewY(27)">
         {/* Hit area */}
-        <rect x="-38" y="-18" width="92" height="32" fill="transparent" style={{ cursor: "pointer", pointerEvents: "auto" }} onClick={() => window.open("https://isomux.com", "_blank")} />
+        <rect data-no-pan x="-38" y="-18" width="92" height="32" fill="transparent" style={{ cursor: "pointer", pointerEvents: "auto" }} onClick={() => window.open("https://isomux.com", "_blank")} />
         <g fill="none" stroke="#444" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" opacity="0.7">
           <circle cx="-32" cy="-12" r="1.2" fill="#444" stroke="none" />
           <line x1="-32" y1="-8" x2="-32" y2="2" />
@@ -368,7 +368,7 @@ export function Walls({ onToggleTheme, onEditOfficePrompt, hasOfficePrompt, onOp
 
       {/* Left wall door — leads to previous room */}
       {leftDoor && (
-        <g onClick={leftDoor.onClick} style={{ cursor: "pointer", pointerEvents: "auto" }}>
+        <g data-no-pan onClick={leftDoor.onClick} style={{ cursor: "pointer", pointerEvents: "auto" }}>
           <g transform="translate(-315, 237) skewY(-27)">
             <rect x="-33" y="-93" width="66" height="113" rx="3" fill={leftDoor.reject ? "#5a2020" : leftDoor.dragOver ? "#5a4a2a" : "#3a2a1a"} stroke="#2a1a0a" strokeWidth="1.5" />
             <rect x="-27" y="-87" width="54" height="101" rx="1.5" fill={leftDoor.reject ? "#7a3030" : leftDoor.dragOver ? "#7a6050" : "#5a4030"} />
@@ -388,7 +388,7 @@ export function Walls({ onToggleTheme, onEditOfficePrompt, hasOfficePrompt, onOp
 
       {/* Right wall door — leads to next room */}
       {rightDoor && (
-        <g onClick={rightDoor.onClick} style={{ cursor: "pointer", pointerEvents: "auto" }}>
+        <g data-no-pan onClick={rightDoor.onClick} style={{ cursor: "pointer", pointerEvents: "auto" }}>
           <g transform="translate(555, 237) skewY(27)">
             <rect x="-33" y="-93" width="66" height="113" rx="3" fill={rightDoor.reject ? "#5a2020" : rightDoor.dragOver ? "#5a4a2a" : "#3a2a1a"} stroke="#2a1a0a" strokeWidth="1.5" />
             <rect x="-27" y="-87" width="54" height="101" rx="1.5" fill={rightDoor.reject ? "#7a3030" : rightDoor.dragOver ? "#7a6050" : "#5a4030"} />

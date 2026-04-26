@@ -175,7 +175,7 @@ export function LogView({
   const swipeRef = useSwipeLeftRight(onSwipeLeft ?? (() => {}), onSwipeRight ?? (() => {}), isMobile);
   const messagesRef: RefCallback<HTMLDivElement> = useCallback((node: HTMLDivElement | null) => {
     (scrollRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
-    (swipeRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
+    swipeRef(node);
   }, []);
 
   // Dismiss edit textarea when agent is no longer idle (e.g. another tab sent a message)
