@@ -128,3 +128,9 @@ For persistent server setup (systemd + Tailscale) and voice input configuration,
 - Uses **Claude subscription via CLI auth** — no API key needed
 - **Built-in safety hooks** — blocks `rm -rf`, `git reset --hard`, and other footguns out of the box
 - **Works on a headless server** — run on a Mac Mini or Linux box, access from anywhere via Tailscale
+
+## How it works
+
+![Isomux system design](site/architecture.png)
+
+Full design and architecture in [this blog post](https://nilmamano.com/blog/isomux).
