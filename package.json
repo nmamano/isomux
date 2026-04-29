@@ -13,7 +13,7 @@
     "@xterm/xterm": "^6.0.0",
     "diff2html": "^3.4.56",
     "highlight.js": "^11.11.1",
-    "marked": "^18.0.0",
+    "marked": "^18.0.2",
     "marked-highlight": "^2.2.4",
     "node-pty": "^1.1.0",
     "react": "^19.2.5",
