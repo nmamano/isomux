@@ -24,6 +24,7 @@ See [isomux.com](https://isomux.com) for setup instructions and a live demo. Rea
 - [**Custom commands**](https://x.com/Nil053/status/2040018957453918431) in addition to your own, all with autocomplete: e.g. `/isomux-peer-review` to review another agent's work, or `/isomux-all-hands` to see what everyone is up to
 - [**Agents can check on each other**](https://x.com/Nil053/status/2039494626265149778): inter-agent discovery via shared manifest
 - [**Shared task board**](https://x.com/Nil053/status/2040871759529025617): humans and agents can create, assign, claim, and close tasks — full interop via UI and HTTP API
+- **Cron jobs**: schedule recurring agent runs (daily, weekly, every N minutes); each run is a fresh agent session with a browsable, resumable transcript
 - **Image/PDF attachments**: agents understand images and PDFs. Agents can show images inline in the conversation
 - **Sound notifications**: get pinged when an agent finishes
 
@@ -97,10 +98,19 @@ For persistent server setup (systemd + Tailscale) and voice input configuration,
 - **Ctrl+C to interrupt** — cleanly aborts and lets you resume
 
 ### Slash Commands & Autocomplete
-- Built-in commands: /clear, /help, /cost, /context
-- User skills from ~/.claude/skills/ and project commands
-- **Bundled skills** like /grill-me — available to every agent out of the box
+- Built-in commands: `/clear`, `/help`, `/context`, `/resume`, `/model`, `/effort` (thinking effort), `/usage` (per-agent / per-room / per-cron-job token spend)
+- Isomux additions: `/isomux-all-hands`, `/isomux-system-prompt`, `/isomux-diff` (rich-rendered uncommitted changes in the agent's cwd)
+- **Bundled skills** like `/isomux-grill-me` (based on the original `/grill-me` by Matt Pocock), `/isomux-peer-review`, `/isomux-review-and-commit` — available to every agent out of the box
+- User skills from `~/.claude/skills/` and project commands
 - **Autocomplete dropdown** with keyboard navigation
+
+### Cron jobs
+- **Schedule recurring agent runs**: daily at HH:MM, weekly on a weekday, or every N minutes
+- Each run is a **fresh agent session** with the same configurability as a desk agent (model, effort, cwd, permission mode)
+- **Browsable run history**: every run is preserved as a transcript
+- **Resume or fork** any past run, turning a daily summary into an interactive follow-up
+- **Manual "Run now"** for any cron job, independent of the schedule
+- Per cron job token usage rolled into `/usage`
 
 ### Persistence & Lifecycle
 - **Agents persist across server restarts**

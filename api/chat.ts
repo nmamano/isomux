@@ -112,9 +112,10 @@ Setup:
 - Ctrl+C to interrupt — cleanly aborts and lets you resume
 
 ### Slash Commands & Autocomplete
-- Built-in commands: /clear, /help, /cost, /context
+- Built-in commands: /clear, /help, /context, /resume, /model, /effort (per-agent thinking effort), /usage (per-agent / per-room / per-cron-job token spend)
+- Isomux additions: /isomux-all-hands (shows what everyone is up to), /isomux-system-prompt (dumps the full assembled system prompt), /isomux-diff (rich-rendered uncommitted changes in the agent's cwd)
 - User skills from ~/.claude/skills/ and project commands
-- Isomux-bundled skills like /isomux-peer-review (tells an agent to review another agent's work) and /isomux-all-hands (shows what everyone is up to)
+- Isomux-bundled skills like /isomux-peer-review (tells an agent to review another agent's work), /isomux-grill-me (stress-tests a feature design; based on the original /grill-me by Matt Pocock), /isomux-review-and-commit
 - Autocomplete dropdown with keyboard navigation
 
 ### Inter-agent Communication
@@ -150,6 +151,15 @@ Setup:
 ### Notifications
 - Sound notification when agent finishes and tab is unfocused
 - Activity badge on desk when attention needed
+
+### Cron jobs
+- Schedule recurring agent runs (daily at HH:MM, weekly on a weekday, or every N minutes). Use case: a 09:00 cron job that summarizes what every agent did yesterday.
+- Cron jobs are not desk agents; they have no persistent identity. Each scheduled fire spawns a fresh SDK session that runs to completion, then the transcript is preserved.
+- Each run is browsable, resumable, and forkable from the UI: a daily report can become an interactive follow-up.
+- Same configurability as a desk agent: model, thinking effort, cwd, permission mode (bypassPermissions or auto)
+- Manual "Run now" for any cron job, independent of the schedule
+- Per cron job token usage rolled into the /usage report alongside per-agent and per-room totals
+- Accessed via the cron jobs entry in the office nav bar, or by clicking the decorative wall clock
 
 ### Other
 - Voice-to-text prompting and text-to-speech responses (works locally; requires HTTPS via Tailscale for remote)
