@@ -104,6 +104,14 @@ export const commands: Record<string, CommandConfig> = {
     handler: "isomuxSystemPrompt",
     description: "Show the full system prompt this agent receives",
   },
+  "isomux-cronjob-system-prompt": {
+    type: "hardcoded",
+    supported: true,
+    autocomplete: true,
+    overridable: false,
+    handler: "isomuxCronjobSystemPrompt",
+    description: "Show the system prompt a cron job receives (pass name or id)",
+  },
   "isomux-diff": {
     type: "hardcoded",
     supported: true,

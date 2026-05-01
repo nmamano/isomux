@@ -284,7 +284,7 @@ export function getRunTranscript(jobId: string, runId: string): { run: CronjobRu
 // System prompt for cronjobs
 // ---------------------------------------------------------------------------
 
-function buildCronjobSystemPrompt(cronjob: Cronjob): string {
+export function buildCronjobSystemPrompt(cronjob: Cronjob): string {
   const officeConfig = loadOfficeConfig();
   // humanizeSchedule produces sentence-case ("Daily at 09:00"); lowercase the
   // first letter so it reads as a sentence fragment ("You run daily at 09:00").

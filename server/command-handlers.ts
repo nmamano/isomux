@@ -3,6 +3,7 @@ import { MODEL_FAMILIES, FAMILY_TO_MODEL, EFFORT_LEVELS, familyDisplayLabel, eff
 import { listAgentSessions, type OfficeConfig } from "./persistence.ts";
 import { commands, unsupportedMessage, type CommandConfig } from "./commands.ts";
 import { buildSystemPrompt } from "./system-prompt.ts";
+import { listCronjobs, buildCronjobSystemPrompt } from "./cronjob-manager.ts";
 import { resolveSkillPrompt } from "./skills.ts";
 import { renderUsageReport, formatRelativeTime } from "./usage-report.ts";
 import { SessionSwappedError, type ManagedAgent, type InternalRoom, type AgentEvent } from "./internal-types.ts";
@@ -318,6 +319,54 @@ export function createCommandHandling(deps: HandlerDeps) {
       const fence = "`".repeat(Math.max(3, longestRun + 1));
       const header = "**Full system prompt** *(reflects current settings; takes effect on next conversation)*";
       deps.emitEphemeralLog(agentId, "system", `${header}\n\n${fence}plaintext\n${prompt}\n${fence}`);
+      deps.updateState(agentId, "waiting_for_response");
+      return true;
+    },
+
+    async isomuxCronjobSystemPrompt(agentId, _managed, args, rawText, username) {
+      const userMeta = username ? { username } : undefined;
+      deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
+
+      const query = args.join(" ").trim();
+      const all = listCronjobs();
+
+      if (!query) {
+        const lines = ["Usage: `/isomux-cronjob-system-prompt <name-or-id>`"];
+        if (all.length === 0) {
+          lines.push("\nNo cron jobs are configured.");
+        } else {
+          lines.push("\nKnown cron jobs:");
+          for (const c of all) lines.push(`  \`${c.id}\`  ${c.name}`);
+        }
+        deps.emitEphemeralLog(agentId, "system", lines.join("\n"));
+        deps.updateState(agentId, "waiting_for_response");
+        return true;
+      }
+
+      const byId = all.find((c) => c.id === query);
+      const byNameMatches = byId ? [] : all.filter((c) => c.name === query);
+      const target = byId ?? (byNameMatches.length === 1 ? byNameMatches[0] : null);
+
+      if (!target) {
+        if (byNameMatches.length > 1) {
+          const lines = [`Multiple cron jobs are named "${query}". Re-run with the id:`];
+          for (const c of byNameMatches) lines.push(`  \`${c.id}\``);
+          deps.emitEphemeralLog(agentId, "system", lines.join("\n"));
+        } else {
+          deps.emitEphemeralLog(agentId, "system", `No cron job matches \`${query}\`. Try \`/isomux-cronjob-system-prompt\` with no argument to list cron jobs.`);
+        }
+        deps.updateState(agentId, "waiting_for_response");
+        return true;
+      }
+
+      // The cronjob receives the system prompt + the configured prompt as its
+      // first user message, so display both — that's the full initial input.
+      const systemPrompt = buildCronjobSystemPrompt(target);
+      const combined = `${systemPrompt}\n\n----\nFirst user message:\n\n${target.prompt}`;
+      const longestRun = (combined.match(/`+/g) ?? []).reduce((m, s) => Math.max(m, s.length), 0);
+      const fence = "`".repeat(Math.max(3, longestRun + 1));
+      const header = `**System prompt + first user message for cron job "${target.name}"** *(reflects current settings; takes effect on next run)*`;
+      deps.emitEphemeralLog(agentId, "system", `${header}\n\n${fence}plaintext\n${combined}\n${fence}`);
       deps.updateState(agentId, "waiting_for_response");
       return true;
     },
