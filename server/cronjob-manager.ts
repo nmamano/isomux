@@ -284,7 +284,7 @@ export function getRunTranscript(jobId: string, runId: string): { run: CronjobRu
 // System prompt for cronjobs
 // ---------------------------------------------------------------------------
 
-function buildCronjobSystemPrompt(cronjob: Cronjob, jobId: string, _runId: string): string {
+function buildCronjobSystemPrompt(cronjob: Cronjob): string {
   const officeConfig = loadOfficeConfig();
   // humanizeSchedule produces sentence-case ("Daily at 09:00"); lowercase the
   // first letter so it reads as a sentence fragment ("You run daily at 09:00").
@@ -307,7 +307,11 @@ How to use the task board (localhost:4000/tasks): only touch it if your prompt d
 
 How to show an image: read the image file with the Read tool — it renders inline in the conversation.
 
-How to read prior runs of this cronjob: ~/.isomux/cronjobs/${jobId}/runs.json lists every run (newest last) with startedAt, status, and rootSessionId. The transcript for a run lives at ~/.isomux/cronjobs/${jobId}/<runId>/<rootSessionId>.jsonl.
+How to inspect cronjobs (~/.isomux/cronjobs/): cronjobs are scheduled SDK sessions, not agents — they fire daily/weekly/at an interval, run a fresh session with a configured prompt, and save the transcript as a "run". They have no desk or persistent identity. Only touch them when the boss asks.
+  ~/.isomux/cronjobs/cronjobs.json                              # all cronjob configs
+  ~/.isomux/cronjobs/<jobId>/runs.json                          # run history for one cronjob (newest last)
+  ~/.isomux/cronjobs/<jobId>/<runId>/<rootSessionId>.jsonl      # transcript of one run, one log entry per line
+To create, edit, delete, or trigger a cronjob, direct the boss to the Cronjobs tab in the UI.
 
 How to answer questions about Isomux itself: the source lives at https://github.com/nmamano/isomux.`;
 
@@ -558,7 +562,7 @@ function fire(job: Cronjob, trigger: CronjobRun["trigger"]): CronjobRun | null {
     return run;
   }
 
-  const systemPrompt = buildCronjobSystemPrompt(job, jobId, runId);
+  const systemPrompt = buildCronjobSystemPrompt(job);
   const opts: any = {
     model: FAMILY_TO_MODEL[job.modelFamily],
     permissionMode: job.permissionMode,

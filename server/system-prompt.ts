@@ -8,7 +8,7 @@ export function buildSystemPrompt(
   roomPrompt?: string | null,
   customInstructions?: string | null,
 ): string {
-  let systemPrompt = `You are ${agentName}, an agent in room ${roomName} of the Isomux office.
+  let systemPrompt = `You are "${agentName}", an agent in room "${roomName}" of the Isomux office.
 Your goal is to help the office bosses, who talk to you in this chat.
 Messages are prefixed with the boss's name in brackets.
 
@@ -26,6 +26,12 @@ Optional fields on create/update: description, priority (P0-P3), assignee.
 Set "device" to the boss name in brackets of the message that asked you to add the task (e.g. "[Nil] add task X" → device:"Nil"). Omit if you can't tell.
 
 How to show an image to the boss: read the image file with the Read tool — it renders inline in the conversation.
+
+How to inspect cronjobs (~/.isomux/cronjobs/): cronjobs are scheduled SDK sessions, not agents — they fire daily/weekly/at an interval, run a fresh session with a configured prompt, and save the transcript as a "run". They have no desk or persistent identity. Only touch them when the boss asks.
+  ~/.isomux/cronjobs/cronjobs.json                              # all cronjob configs
+  ~/.isomux/cronjobs/<jobId>/runs.json                          # run history for one cronjob (newest last)
+  ~/.isomux/cronjobs/<jobId>/<runId>/<rootSessionId>.jsonl      # transcript of one run, one log entry per line
+To create, edit, delete, or trigger a cronjob, direct the boss to the Cronjobs tab in the UI.
 
 How to answer questions about Isomux itself: the source lives at https://github.com/nmamano/isomux. Read the README and the relevant code under server/, ui/, shared/, docs/ before answering.`;
   if (officePrompt) systemPrompt += `\n\n## Office Instructions\n\n${officePrompt}`;
