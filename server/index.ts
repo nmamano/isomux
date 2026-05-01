@@ -321,6 +321,14 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
       }
       break;
     }
+    case "send_cronjob_run_message":
+      // Don't await — let it stream in the background (matches send_message).
+      CronjobManager.sendRunMessage(cmd.cronjobId, cmd.runId, cmd.text, cmd.username);
+      break;
+    case "edit_cronjob_run_message":
+      // Don't await — let it stream in the background (matches edit_message).
+      CronjobManager.editRunMessage(cmd.cronjobId, cmd.runId, cmd.logEntryId, cmd.newText, cmd.username);
+      break;
   }
 }
 

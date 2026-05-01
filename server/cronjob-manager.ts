@@ -12,6 +12,9 @@
 
 import {
   unstable_v2_createSession,
+  unstable_v2_resumeSession,
+  forkSession,
+  getSessionMessages,
   type SDKMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
@@ -27,7 +30,7 @@ import {
   type LogEntry,
   type Schedule,
 } from "../shared/types.ts";
-import { CLAUDE_NATIVE_BIN, validateCwd, resolveCwd } from "./cwd-utils.ts";
+import { CLAUDE_NATIVE_BIN, validateCwd, resolveCwd, claudeSessionFileExists, claudeProjectDir } from "./cwd-utils.ts";
 import { createSafetyHooks } from "./safety-hooks.ts";
 import { loadOfficeConfig, saveFile, type PersistedUsage } from "./persistence.ts";
 import {
@@ -44,10 +47,14 @@ import {
   updateRun,
   findRun,
   appendRunLog,
+  loadRunLog,
   loadRunLogWithAncestors,
   loadRunSessionsMap,
   accumulateRunSessionUsage,
   appendRunSessionUsageSnapshot,
+  persistRunSessionFork,
+  findUsageAtForkRun,
+  rollRunSessionUsageOnResume,
   listAllCronjobIdsOnDisk,
 } from "./cronjob-persistence.ts";
 
@@ -72,9 +79,20 @@ interface ActiveRun {
   // pre-init errors (e.g. "Failed to send prompt") get broadcast to clients
   // but never persisted to disk, so they vanish on reload.
   pendingEntries: LogEntry[];
+  // True for follow-up turns on a previously-finalized run (resumed or
+  // edit-forked). On resume the SDK reuses the existing sessionId, so init
+  // must NOT clobber rootSessionId — only currentSessionId tracks the leaf.
+  isResume: boolean;
 }
 
 const activeRuns = new Map<string, ActiveRun>(); // runId -> ActiveRun
+
+// Synchronously-claimed slot for runs whose resume/fork is mid-startup but
+// hasn't reached `activeRuns.set` yet. Without this gate, a second concurrent
+// send/edit call for the same runId would pass the activeRuns.has() check
+// during the awaits in editRunMessage (getSessionMessages → forkSession),
+// fork twice, and end up overwriting each other's ActiveRun entries.
+const startingRuns = new Set<string>();
 
 let cronjobs: Cronjob[] = [];
 let cronjobsPrompt: string | null = null;
@@ -93,7 +111,8 @@ export type CronjobEvent =
   | { type: "cronjob_deleted"; id: string }
   | { type: "cronjobs_prompt_updated"; value: string | null }
   | { type: "cronjob_run_updated"; run: CronjobRun }
-  | { type: "log_entry"; entry: LogEntry };
+  | { type: "log_entry"; entry: LogEntry }
+  | { type: "clear_logs"; agentId: string };
 
 let eventHandler: (e: CronjobEvent) => void = () => {};
 
@@ -274,9 +293,11 @@ export function getAllRunsByJob(): { jobId: string; runs: CronjobRun[] }[] {
 export function getRunTranscript(jobId: string, runId: string): { run: CronjobRun | null; entries: LogEntry[] } {
   const run = findRun(jobId, runId);
   if (!run) return { run: null, entries: [] };
-  // Transcript is the latest session in the fork chain. For v1 we use the
-  // root session id; resume/fork support will introduce a "current" session.
-  const entries = loadRunLogWithAncestors(jobId, runId, run.rootSessionId);
+  // Walk back from the leaf of the fork chain so edit-to-fork transcripts
+  // render correctly. Old runs without currentSessionId fall back to the
+  // root — equivalent to the un-forked case.
+  const leaf = run.currentSessionId ?? run.rootSessionId;
+  const entries = loadRunLogWithAncestors(jobId, runId, leaf);
   return { run, entries };
 }
 
@@ -333,11 +354,18 @@ function processCronjobMessage(active: ActiveRun, msg: SDKMessage) {
         if (sessionId && !active.sessionId) {
           active.sessionId = sessionId;
           // If the SDK assigned a different id than rootSessionId, update the
-          // run row so the transcript loads correctly.
+          // run row so the transcript loads correctly. On resume the SDK keeps
+          // the same id, so this branch only fires for fresh-fire init or a
+          // forked-then-resumed leaf where currentSessionId is already in sync.
           if (sessionId !== active.rootSessionId) {
-            const updated = updateRun(active.jobId, active.runId, { rootSessionId: sessionId });
+            // Only sync rootSessionId on the initial fire. For resumed/forked
+            // runs the root is fixed history; the leaf is currentSessionId.
+            const patch: Partial<CronjobRun> = active.isResume
+              ? { currentSessionId: sessionId }
+              : { rootSessionId: sessionId, currentSessionId: sessionId };
+            const updated = updateRun(active.jobId, active.runId, patch);
             if (updated) {
-              active.rootSessionId = sessionId;
+              if (!active.isResume) active.rootSessionId = sessionId;
               eventHandler({ type: "cronjob_run_updated", run: updated });
             }
           }
@@ -546,6 +574,7 @@ function fire(job: Cronjob, trigger: CronjobRun["trigger"]): CronjobRun | null {
     cwdSnapshot: job.cwd,
     permissionModeSnapshot: job.permissionMode,
     rootSessionId: placeholderSessionId,
+    currentSessionId: placeholderSessionId,
     previewText: cwdError ?? "",
   };
   appendRun(jobId, run);
@@ -599,6 +628,7 @@ function fire(job: Cronjob, trigger: CronjobRun["trigger"]): CronjobRun | null {
     trigger,
     killed: false,
     pendingEntries: [],
+    isResume: false,
   };
   activeRuns.set(runId, active);
   active.consumerPromise = runConsumer(active);
@@ -696,6 +726,347 @@ export function runCronjobNow(id: string, _username: string, _device?: string): 
   const job = cronjobs.find((c) => c.id === id);
   if (!job) return null;
   return fire(job, "manual");
+}
+
+// ---------------------------------------------------------------------------
+// Resume / edit-to-fork — follow-up turns into a finalized run
+// ---------------------------------------------------------------------------
+
+// Append a one-off log entry without an active session. Used to surface
+// pre-flight errors (cwd invalid, leaf is a placeholder, etc.) so the user
+// sees them in the run transcript instead of the message vanishing.
+function emitRunErrorEntry(jobId: string, runId: string, message: string) {
+  const run = findRun(jobId, runId);
+  if (!run) return;
+  const sessionId = run.currentSessionId ?? run.rootSessionId;
+  const entry: LogEntry = {
+    id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    agentId: cronjobRunStreamId(runId),
+    timestamp: Date.now(),
+    kind: "error",
+    content: message,
+  };
+  appendRunLog(jobId, runId, sessionId, entry);
+  eventHandler({ type: "log_entry", entry });
+}
+
+function buildRunResumeOpts(run: CronjobRun, resumeSessionId: string): any {
+  // Roll the current-run usage into priorRunsUsage so the SDK's per-process
+  // cost counter resetting to zero (which it does on every resume) doesn't
+  // wipe lifetime accounting. Mirrors agent-manager's createSession.
+  rollRunSessionUsageOnResume(run.cronjobId, run.id, resumeSessionId);
+  // Re-pass the system prompt when the cronjob still exists so resumed runs
+  // pick up any office/cronjobs prompt edits. For deleted cronjobs the saved
+  // session preserves the original prompt — skip --append-system-prompt
+  // entirely rather than synthesize a partial one.
+  const job = cronjobs.find((c) => c.id === run.cronjobId);
+  const systemPrompt = job ? buildCronjobSystemPrompt(job) : null;
+  const executableArgs = systemPrompt
+    ? ["--append-system-prompt", systemPrompt, "--effort", run.effortSnapshot]
+    : ["--effort", run.effortSnapshot];
+  return {
+    model: FAMILY_TO_MODEL[run.modelFamilySnapshot],
+    permissionMode: run.permissionModeSnapshot,
+    pathToClaudeCodeExecutable: CLAUDE_NATIVE_BIN,
+    executableArgs,
+    cwd: run.cwdSnapshot,
+    hooks: createSafetyHooks(),
+    resume: resumeSessionId,
+  };
+}
+
+// Wire up an ActiveRun around an SDK session (resumed or freshly forked).
+// Marks the run row "running", starts the consumer + hard timeout, and
+// returns the active so callers can persist log entries / call session.send.
+function installResumedActive(run: CronjobRun, session: ReturnType<typeof unstable_v2_resumeSession>, sessionId: string): ActiveRun {
+  const streamId = cronjobRunStreamId(run.id);
+  const active: ActiveRun = {
+    jobId: run.cronjobId,
+    runId: run.id,
+    streamId,
+    session,
+    sessionId,
+    rootSessionId: run.rootSessionId,
+    consumerPromise: Promise.resolve(),
+    hardTimeoutTimer: null,
+    lastWrittenEntryId: null,
+    lastAssistantText: "",
+    // Force trigger="manual" for resumed turns regardless of the run row's
+    // original trigger. hasInFlightScheduledRun uses active.trigger to gate
+    // the cron scheduler — if a user resumes a scheduled run, we don't want
+    // the scheduler to suppress the cronjob's next regular fire while the
+    // user-driven follow-up is in flight. (run.trigger on disk is unchanged
+    // — that's history, not in-flight semantics.)
+    trigger: "manual",
+    killed: false,
+    pendingEntries: [],
+    isResume: true,
+  };
+  activeRuns.set(run.id, active);
+  // Reset terminal state — the run row goes back to "running" until finalize.
+  const updated = updateRun(run.cronjobId, run.id, { status: "running", endedAt: null, errorReason: null });
+  if (updated) eventHandler({ type: "cronjob_run_updated", run: updated });
+  active.consumerPromise = runConsumer(active);
+  active.hardTimeoutTimer = setTimeout(() => {
+    if (!activeRuns.has(run.id)) return;
+    active.killed = true;
+    try { active.session.close(); } catch {}
+    writeLog(active, "error", "Cron job run exceeded 30-minute hard timeout.");
+    finalizeRun(active, "timed_out", "exceeded global run timeout");
+  }, HARD_TIMEOUT_MS);
+  return active;
+}
+
+// Send a follow-up message into a finalized run by resuming the leaf session.
+// No-op if the run is missing, currently in flight, or has no real SDK
+// session to resume (skipped or pre-init failed).
+export async function sendRunMessage(jobId: string, runId: string, text: string, username?: string): Promise<void> {
+  const run = findRun(jobId, runId);
+  if (!run) return;
+  // Synchronous claim — must happen before any await so a concurrent
+  // send/edit for the same runId bails immediately. installResumedActive's
+  // activeRuns.set keeps the slot held; the `finally` below releases it.
+  if (activeRuns.has(runId) || startingRuns.has(runId)) return;
+  if (run.status === "skipped") {
+    emitRunErrorEntry(jobId, runId, "Cannot resume a skipped run — it never opened a session.");
+    return;
+  }
+  const leaf = run.currentSessionId ?? run.rootSessionId;
+  if (leaf.startsWith("pending-") || leaf.startsWith("skipped-")) {
+    emitRunErrorEntry(jobId, runId, "Cannot resume: the original run never reached SDK init.");
+    return;
+  }
+  try {
+    validateCwd(run.cwdSnapshot);
+  } catch (err: any) {
+    emitRunErrorEntry(jobId, runId, `Cannot resume: cwd is invalid: ${err.message || String(err)}`);
+    return;
+  }
+  // Mirror agent-manager's claudeSessionFileExists preflight so a moved or
+  // renamed cwd surfaces a readable error instead of "process exited with 1".
+  if (!claudeSessionFileExists(run.cwdSnapshot, leaf)) {
+    emitRunErrorEntry(jobId, runId,
+      `Cannot resume session ${leaf.slice(0, 8)}…: its file is missing from ${claudeProjectDir(run.cwdSnapshot)}. ` +
+      `Most commonly this happens after the cwd was moved or renamed — the Claude CLI stores sessions under a path derived from cwd.`);
+    return;
+  }
+
+  startingRuns.add(runId);
+  try {
+    let session: ReturnType<typeof unstable_v2_resumeSession>;
+    try {
+      session = unstable_v2_resumeSession(leaf, buildRunResumeOpts(run, leaf));
+    } catch (err: any) {
+      emitRunErrorEntry(jobId, runId, `Failed to resume: ${err.message || String(err)}`);
+      return;
+    }
+
+    const active = installResumedActive(run, session, leaf);
+    // Persist the user message so it shows up in the transcript.
+    writeLog(active, "user_message", text, username ? { username } : undefined);
+
+    const prefixedText = username ? `[${username}] ${text}` : text;
+    (async () => {
+      try {
+        await session.send(prefixedText);
+      } catch (err: any) {
+        if (active.killed) return;
+        console.error(`Cronjob run ${runId} send error:`, err.message);
+        writeLog(active, "error", `Failed to send: ${err.message || String(err)}`);
+        try { session.close(); } catch {}
+        finalizeRun(active, "failed", err.message || String(err));
+      }
+    })();
+  } finally {
+    startingRuns.delete(runId);
+  }
+}
+
+// Edit-to-fork a user message in a finalized run. Mirrors agent-manager's
+// editMessage: forks the SDK session at the predecessor of the target
+// message, persists fork lineage in the run's sessions.json, then resumes
+// the new leaf and sends the edited text.
+export async function editRunMessage(jobId: string, runId: string, logEntryId: string, newText: string, username?: string): Promise<void> {
+  const run = findRun(jobId, runId);
+  if (!run) return;
+  // Synchronous claim — see sendRunMessage. Without this, getSessionMessages
+  // and forkSession below would race against a second concurrent submission.
+  if (activeRuns.has(runId) || startingRuns.has(runId)) return;
+  if (run.status === "skipped") {
+    emitRunErrorEntry(jobId, runId, "Cannot edit a skipped run — it never opened a session.");
+    return;
+  }
+  const leaf = run.currentSessionId ?? run.rootSessionId;
+  if (leaf.startsWith("pending-") || leaf.startsWith("skipped-")) {
+    emitRunErrorEntry(jobId, runId, "Cannot edit: the original run never reached SDK init.");
+    return;
+  }
+  try {
+    validateCwd(run.cwdSnapshot);
+  } catch (err: any) {
+    emitRunErrorEntry(jobId, runId, `Cannot edit: cwd is invalid: ${err.message || String(err)}`);
+    return;
+  }
+  if (!claudeSessionFileExists(run.cwdSnapshot, leaf)) {
+    emitRunErrorEntry(jobId, runId,
+      `Cannot edit: session ${leaf.slice(0, 8)}… is missing from ${claudeProjectDir(run.cwdSnapshot)}. ` +
+      `Most commonly this happens after the cwd was moved or renamed — the Claude CLI stores sessions under a path derived from cwd.`);
+    return;
+  }
+
+  startingRuns.add(runId);
+  try {
+    await editRunMessageImpl(run, logEntryId, newText, leaf, username);
+  } finally {
+    startingRuns.delete(runId);
+  }
+}
+
+async function editRunMessageImpl(run: CronjobRun, logEntryId: string, newText: string, leaf: string, username?: string): Promise<void> {
+  const jobId = run.cronjobId;
+  const runId = run.id;
+
+  // 1. Locate the target log entry in the run's transcript (with ancestry).
+  const oldEntries = loadRunLogWithAncestors(jobId, runId, leaf);
+  const targetEntry = oldEntries.find((e) => e.id === logEntryId);
+  if (!targetEntry || targetEntry.kind !== "user_message") {
+    emitRunErrorEntry(jobId, runId, "Cannot edit: message not found.");
+    return;
+  }
+
+  // 2. Match the target to a position in the SDK session's message list. Mirror
+  //    agent-manager's content + occurrence-index strategy.
+  let sdkMessages: Awaited<ReturnType<typeof getSessionMessages>>;
+  try {
+    sdkMessages = await getSessionMessages(leaf);
+  } catch (err: any) {
+    emitRunErrorEntry(jobId, runId, `Failed to load session messages: ${err.message || String(err)}`);
+    return;
+  }
+  const targetUsername = targetEntry.metadata?.username as string | undefined;
+  const targetSdkText = (targetEntry.metadata?.sdkText as string | undefined) ?? targetEntry.content;
+  const prefixedContent = targetUsername ? `[${targetUsername}] ${targetSdkText}` : targetSdkText;
+  const userLogEntries = oldEntries.filter((e) => e.kind === "user_message");
+  let occurrenceIndex = 0;
+  for (const e of userLogEntries) {
+    const u = e.metadata?.username as string | undefined;
+    const sdkText = (e.metadata?.sdkText as string | undefined) ?? e.content;
+    const prefixed = u ? `[${u}] ${sdkText}` : sdkText;
+    if (prefixed === prefixedContent) {
+      if (e.id === logEntryId) break;
+      occurrenceIndex++;
+    }
+  }
+  // Skip the cronjob's original prompt: it's the SDK's first user message but
+  // not a LogEntry, so its content will never match (it's stored only as
+  // run.promptSnapshot). occurrenceIndex therefore counts from the first
+  // post-prompt user message — i.e. the first follow-up turn.
+  const cronjobPromptIsFirstSdkUser = sdkMessages[0]?.type === "user";
+  let matchCount = 0;
+  let targetIdx = -1;
+  for (let i = cronjobPromptIsFirstSdkUser ? 1 : 0; i < sdkMessages.length; i++) {
+    const m = sdkMessages[i];
+    if (m.type !== "user") continue;
+    const msg = m.message as any;
+    const contentBlocks = Array.isArray(msg?.content) ? msg.content
+      : Array.isArray(msg) ? msg
+      : typeof msg === "string" ? [{ type: "text", text: msg }]
+      : [];
+    const msgContent = contentBlocks
+      .filter((b: any) => b.type === "text")
+      .map((b: any) => b.text)
+      .join("");
+    if (msgContent === prefixedContent) {
+      if (matchCount === occurrenceIndex) {
+        targetIdx = i;
+        break;
+      }
+      matchCount++;
+    }
+  }
+  if (targetIdx <= 0) {
+    emitRunErrorEntry(jobId, runId, "Cannot edit: could not locate message in SDK session.");
+    return;
+  }
+
+  // 3. Fork the SDK session at the predecessor (inclusive) so the original
+  //    target message is excluded from the fork.
+  const predecessorUuid = sdkMessages[targetIdx - 1].uuid;
+  let newSessionId: string;
+  try {
+    const forkResult = await forkSession(leaf, { upToMessageId: predecessorUuid });
+    newSessionId = forkResult.sessionId;
+  } catch (err: any) {
+    emitRunErrorEntry(jobId, runId, `Fork failed: ${err.message || String(err)}`);
+    return;
+  }
+
+  // 4. Try to resume the new fork. If this fails, do NOT update currentSessionId
+  //    — leave the run pointing at the old leaf so a retry can start over.
+  let session: ReturnType<typeof unstable_v2_resumeSession>;
+  try {
+    session = unstable_v2_resumeSession(newSessionId, buildRunResumeOpts(run, newSessionId));
+  } catch (err: any) {
+    emitRunErrorEntry(jobId, runId, `Failed to start fork: ${err.message || String(err)}`);
+    return;
+  }
+
+  // 5. The target log entry may live in an ancestor's JSONL (if the user has
+  //    forked before). Walk back to find which JSONL actually contains it,
+  //    and point forkedFrom at that ancestor — keeps loadRunLogWithAncestors
+  //    cutting at the right level.
+  let forkFromSessionId = leaf;
+  const leafEntries = loadRunLog(jobId, runId, leaf);
+  if (!leafEntries.some((e) => e.id === logEntryId)) {
+    const sessMap = loadRunSessionsMap(jobId, runId);
+    let walk: string | undefined = sessMap[leaf]?.forkedFrom;
+    const visited = new Set<string>([leaf]);
+    while (walk && !visited.has(walk)) {
+      visited.add(walk);
+      const ancestorEntries = loadRunLog(jobId, runId, walk);
+      if (ancestorEntries.some((e) => e.id === logEntryId)) {
+        forkFromSessionId = walk;
+        break;
+      }
+      walk = sessMap[walk]?.forkedFrom;
+    }
+  }
+
+  // 6. Persist fork metadata + parent-base usage, then update the run's
+  //    currentSessionId so getRunTranscript walks back from the fork.
+  const parentBase = findUsageAtForkRun(jobId, runId, forkFromSessionId, logEntryId);
+  persistRunSessionFork(jobId, runId, newSessionId, forkFromSessionId, logEntryId, parentBase);
+  const updatedRun = updateRun(jobId, runId, { currentSessionId: newSessionId });
+  if (updatedRun) eventHandler({ type: "cronjob_run_updated", run: updatedRun });
+
+  // 7. Re-emit the transcript up to (but not including) the edited entry so
+  //    every connected client switches to the new branch immediately.
+  const streamId = cronjobRunStreamId(runId);
+  const parentEntries: LogEntry[] = [];
+  for (const e of oldEntries) {
+    if (e.id === logEntryId) break;
+    parentEntries.push(e);
+  }
+  eventHandler({ type: "clear_logs", agentId: streamId });
+  for (const e of parentEntries) {
+    eventHandler({ type: "log_entry", entry: e });
+  }
+
+  // 8. Wire up the active run, persist the new edited message, send it.
+  const active = installResumedActive(updatedRun ?? run, session, newSessionId);
+  writeLog(active, "user_message", newText, username ? { username } : undefined);
+  const prefixedText = username ? `[${username}] ${newText}` : newText;
+  (async () => {
+    try {
+      await session.send(prefixedText);
+    } catch (err: any) {
+      if (active.killed) return;
+      console.error(`Cronjob run ${runId} edit-send error:`, err.message);
+      writeLog(active, "error", `Failed to send edited message: ${err.message || String(err)}`);
+      try { session.close(); } catch {}
+      finalizeRun(active, "failed", err.message || String(err));
+    }
+  })();
 }
 
 // ---------------------------------------------------------------------------

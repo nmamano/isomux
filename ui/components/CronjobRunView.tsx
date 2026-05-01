@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppState } from "../store.tsx";
 import { LogEntryCard } from "../log-view/LogEntryCard.tsx";
-import { send, addRawListener, removeRawListener } from "../ws.ts";
+import { send } from "../ws.ts";
 import { cronjobRunStreamId, type CronjobRun, type LogEntry } from "../../shared/types.ts";
 
 const STATUS_LABEL: Record<CronjobRun["status"], string> = {
@@ -20,22 +20,31 @@ const STATUS_COLOR: Record<CronjobRun["status"], string> = {
   skipped: "var(--text-muted)",
 };
 
-// Read-only transcript viewer for a cronjob run. Resume / edit-to-fork into
-// runs is a planned follow-up; for now the user can re-trigger the cronjob
-// with "Run now" to spawn a fresh run.
+// Cronjob runs are resumable: any boss can send follow-up turns into a past
+// run, and edit-to-fork lets them branch from any prior user message. The
+// server-side handlers live in cronjob-manager.ts (sendRunMessage,
+// editRunMessage); see send_cronjob_run_message / edit_cronjob_run_message.
 export function CronjobRunView({
   jobId,
   runId,
+  username,
   onClose,
 }: {
   jobId: string;
   runId: string;
+  username: string;
   onClose: () => void;
 }) {
   const { cronjobRunsByJob, isMobile, logs } = useAppState();
   const streamId = cronjobRunStreamId(runId);
   const runs = cronjobRunsByJob.get(jobId) ?? [];
   const run = runs.find((r) => r.id === runId);
+
+  const [input, setInput] = useState("");
+  const [editingLogEntryId, setEditingLogEntryId] = useState<string | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [autoScroll, setAutoScroll] = useState(true);
 
   // Always backfill the historical transcript on open. The previous
   // optimization (skip if any live entries are cached) dropped pre-connect
@@ -49,14 +58,18 @@ export function CronjobRunView({
     setLoaded(true);
   }, [jobId, runId, loaded]);
 
-  // ESC closes
+  // ESC closes the view, unless the user is editing a message — then ESC
+  // cancels the edit (handled inside EditableUserMessage).
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") { e.stopPropagation(); onClose(); }
+      if (e.key === "Escape" && !editingLogEntryId) {
+        e.stopPropagation();
+        onClose();
+      }
     }
     window.addEventListener("keydown", handleKey, true);
     return () => window.removeEventListener("keydown", handleKey, true);
-  }, [onClose]);
+  }, [onClose, editingLogEntryId]);
 
   // Sort by server-assigned timestamp on render. Live entries (which arrive
   // first while the user has the page open) may be appended to the store
@@ -66,7 +79,7 @@ export function CronjobRunView({
     const raw = logs.get(streamId) ?? [];
     return [...raw].sort((a, b) => a.timestamp - b.timestamp);
   }, [logs, streamId]);
-  // Compute the user_message turn boundaries for LogEntryCard's grouping.
+
   const turnData = useMemo(() => {
     type T = { isLastInTurn: boolean; turnEntries: LogEntry[] };
     const map = new Map<string, T>();
@@ -87,6 +100,60 @@ export function CronjobRunView({
     flush();
     return map;
   }, [entries]);
+
+  const isRunning = run?.status === "running";
+  // Skipped runs never opened a session and runs whose original session never
+  // initialized (the placeholder pending-/skipped- ids) can't be resumed.
+  const leafSessionId = run?.currentSessionId ?? run?.rootSessionId ?? "";
+  const hasResumableSession =
+    !leafSessionId.startsWith("pending-") &&
+    !leafSessionId.startsWith("skipped-");
+  const canResume = !!run && !isRunning && run.status !== "skipped" && hasResumableSession;
+
+  // Auto-scroll to bottom on new entries when the user hasn't scrolled up.
+  useEffect(() => {
+    if (!autoScroll || !scrollRef.current) return;
+    const el = scrollRef.current;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        el.scrollTop = el.scrollHeight;
+      });
+    });
+  }, [entries.length, autoScroll]);
+
+  // Cancel any in-progress edit when a run kicks off, so the input box (which
+  // is hidden during run) doesn't leave the inline editor stranded.
+  useEffect(() => {
+    if (isRunning && editingLogEntryId) {
+      setEditingLogEntryId(null);
+    }
+  }, [isRunning, editingLogEntryId]);
+
+  function handleScroll() {
+    if (!scrollRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
+    setAutoScroll(scrollHeight - scrollTop - clientHeight < 50);
+  }
+
+  function autoResize(el: HTMLTextAreaElement) {
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, 200) + "px";
+  }
+
+  function handleSend() {
+    const text = input.trim();
+    if (!text || !canResume) return;
+    send({ type: "send_cronjob_run_message", cronjobId: jobId, runId, text, username });
+    setInput("");
+    if (textareaRef.current) textareaRef.current.style.height = "auto";
+    setAutoScroll(true);
+  }
+
+  function handleSubmitEdit(id: string, newText: string) {
+    setEditingLogEntryId(null);
+    send({ type: "edit_cronjob_run_message", cronjobId: jobId, runId, logEntryId: id, newText, username });
+    setAutoScroll(true);
+  }
 
   return (
     <div
@@ -169,7 +236,11 @@ export function CronjobRunView({
       </div>
 
       {/* Body */}
-      <div style={{ flex: 1, overflowY: "auto", padding: isMobile ? "12px" : "16px 24px" }}>
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        style={{ flex: 1, overflowY: "auto", padding: isMobile ? "12px" : "16px 24px" }}
+      >
         {run && (
           <div style={{
             padding: "10px 14px",
@@ -200,6 +271,7 @@ export function CronjobRunView({
         ) : (
           entries.map((entry) => {
             const td = turnData.get(entry.id);
+            const canEditMsg = canResume && entry.kind === "user_message" && !editingLogEntryId;
             return (
               <LogEntryCard
                 key={entry.id}
@@ -207,27 +279,128 @@ export function CronjobRunView({
                 isLastInTurn={td?.isLastInTurn}
                 turnEntries={td?.turnEntries}
                 isMobile={isMobile}
-                canEdit={false}
-                isEditing={false}
-                onStartEdit={() => {}}
-                onCancelEdit={() => {}}
-                onSubmitEdit={() => {}}
+                canEdit={canEditMsg}
+                isEditing={editingLogEntryId === entry.id}
+                onStartEdit={setEditingLogEntryId}
+                onCancelEdit={() => setEditingLogEntryId(null)}
+                onSubmitEdit={handleSubmitEdit}
               />
             );
           })
         )}
+        {isRunning && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "12px 14px",
+              margin: "8px 0",
+              color: "var(--green)",
+              fontSize: 12,
+            }}
+          >
+            <span style={{ display: "inline-flex", gap: 3 }}>
+              <span style={{ width: 4, height: 4, borderRadius: "50%", background: "var(--green)", animation: "dotBounce 1.4s ease-in-out infinite", animationDelay: "0s" }} />
+              <span style={{ width: 4, height: 4, borderRadius: "50%", background: "var(--green)", animation: "dotBounce 1.4s ease-in-out infinite", animationDelay: "0.2s" }} />
+              <span style={{ width: 4, height: 4, borderRadius: "50%", background: "var(--green)", animation: "dotBounce 1.4s ease-in-out infinite", animationDelay: "0.4s" }} />
+            </span>
+            <span>Running...</span>
+          </div>
+        )}
       </div>
 
-      <div style={{
-        padding: "10px 16px",
-        borderTop: "1px solid var(--border-subtle)",
-        background: "var(--bg-surface)",
-        fontSize: 11,
-        color: "var(--text-muted)",
-        textAlign: "center",
-      }}>
-        Run transcripts are read-only. Use "Run now" on the cron job to start a fresh run.
-      </div>
+      {/* Input — replaces the old read-only banner. Hidden for unresumable runs. */}
+      {canResume ? (
+        <div
+          style={{
+            flexShrink: 0,
+            padding: isMobile ? "10px 12px 10px 11px" : "10px 24px 10px 11px",
+            paddingBottom: isMobile ? "calc(10px + env(safe-area-inset-bottom, 0px))" : undefined,
+            borderTop: "2px solid var(--border-strong)",
+            background: "var(--bg-surface)",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+            <span style={{ color: "var(--green)", fontWeight: 600, lineHeight: "20px", position: "relative", top: -2 }}>&#10095;</span>
+            <div style={{ flex: 1, position: "relative", top: -2 }}>
+              <textarea
+                ref={textareaRef}
+                value={input}
+                onChange={(e) => {
+                  setInput(e.target.value);
+                  autoResize(e.target);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey && !isMobile) {
+                    e.preventDefault();
+                    handleSend();
+                  }
+                }}
+                placeholder={editingLogEntryId ? "Editing message above..." : "Send a follow-up"}
+                autoFocus={!isMobile}
+                rows={1}
+                disabled={!!editingLogEntryId}
+                style={{
+                  width: "100%",
+                  background: "transparent",
+                  border: "none",
+                  outline: "none",
+                  color: editingLogEntryId ? "var(--text-muted)" : "var(--text-secondary)",
+                  fontFamily: "'JetBrains Mono',monospace",
+                  fontSize: isMobile ? 16 : 13,
+                  caretColor: "var(--green)",
+                  resize: "none",
+                  padding: "0 0 4px",
+                  lineHeight: "20px",
+                  maxHeight: 200,
+                  overflowY: "auto",
+                }}
+              />
+            </div>
+            {isMobile && (
+              <button
+                onClick={handleSend}
+                disabled={!input.trim() || !!editingLogEntryId}
+                style={{
+                  flexShrink: 0,
+                  alignSelf: "flex-end",
+                  width: 36,
+                  height: 36,
+                  borderRadius: 8,
+                  border: "none",
+                  background: input.trim() && !editingLogEntryId ? "var(--green)" : "var(--bg-hover)",
+                  color: input.trim() && !editingLogEntryId ? "var(--bg-base)" : "var(--text-ghost)",
+                  fontSize: 16,
+                  cursor: input.trim() && !editingLogEntryId ? "pointer" : "default",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  lineHeight: 1,
+                }}
+                title="Send"
+              >
+                ▲
+              </button>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div style={{
+          padding: "10px 16px",
+          borderTop: "1px solid var(--border-subtle)",
+          background: "var(--bg-surface)",
+          fontSize: 11,
+          color: "var(--text-muted)",
+          textAlign: "center",
+        }}>
+          {isRunning
+            ? "Run in progress — wait for it to finish before sending a follow-up."
+            : run?.status === "skipped"
+              ? "Skipped runs have no session to resume."
+              : "This run can't be resumed (no session was established)."}
+        </div>
+      )}
     </div>
   );
 }

@@ -226,6 +226,11 @@ export interface CronjobRun {
   cwdSnapshot: string;
   permissionModeSnapshot: CronjobPermissionMode;
   rootSessionId: string;       // first session id created at fire time
+  // Leaf of the fork chain — equals rootSessionId for un-forked runs. Tracked
+  // separately from rootSessionId so loadRunLogWithAncestors can walk back from
+  // the leaf when the user has edited a message and forked. Optional for
+  // backwards compatibility with runs persisted before resume support landed.
+  currentSessionId?: string;
   previewText: string;         // last assistant text block, truncated ~120 chars
 }
 
@@ -406,6 +411,8 @@ export type ClientCommand =
   | { type: "list_cronjob_runs"; cronjobId: string }
   | { type: "list_all_cronjob_runs" }
   | { type: "load_cronjob_run"; cronjobId: string; runId: string }
+  | { type: "send_cronjob_run_message"; cronjobId: string; runId: string; text: string; username?: string }
+  | { type: "edit_cronjob_run_message"; cronjobId: string; runId: string; logEntryId: string; newText: string; username?: string }
   | { type: "ping" };
 
 // Generate a stable 8-char hex room ID (used at room creation and during migration)

@@ -288,6 +288,7 @@ export function CronjobsView({ username, onClose }: { username: string; onClose:
         <CronjobRunView
           jobId={openRun.jobId}
           runId={openRun.runId}
+          username={username}
           onClose={() => setOpenRun(null)}
         />
       )}

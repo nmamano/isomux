@@ -216,6 +216,92 @@ function saveRunSessionsMap(jobId: string, runId: string, map: RunSessionsMap) {
   }
 }
 
+// Mirror of persistSessionFork (agent side) for cronjob runs. Records that
+// `sessionId` was forked from `forkedFrom` at log entry `forkMessageId`, so
+// loadRunLogWithAncestors can walk back through the chain when rendering.
+export function persistRunSessionFork(
+  jobId: string,
+  runId: string,
+  sessionId: string,
+  forkedFrom: string,
+  forkMessageId: string,
+  forkBaseUsage?: PersistedUsage,
+) {
+  const map = loadRunSessionsMap(jobId, runId);
+  const existing = map[sessionId] ?? { topic: null, lastModified: 0 };
+  map[sessionId] = {
+    ...existing,
+    topic: existing.topic ?? null,
+    lastModified: Date.now(),
+    forkedFrom,
+    forkMessageId,
+    ...(forkBaseUsage ? { forkBaseUsage } : {}),
+  };
+  saveRunSessionsMap(jobId, runId, map);
+}
+
+// Mirror of findUsageAtFork (agent side) for cronjob runs. Walks the parent's
+// JSONL to locate `forkMessageId`, then returns the latest usage snapshot
+// before that position. Falls back to current cumulative when no snapshot
+// pre-dates the fork.
+export function findUsageAtForkRun(
+  jobId: string,
+  runId: string,
+  parentSessionId: string,
+  forkMessageId: string,
+): PersistedUsage | undefined {
+  const entries = loadRunLog(jobId, runId, parentSessionId);
+  const positions = new Map<string, number>();
+  entries.forEach((e, i) => positions.set(e.id, i));
+  const forkPos = positions.get(forkMessageId);
+  if (forkPos === undefined) return undefined;
+  const parentMeta = loadRunSessionsMap(jobId, runId)[parentSessionId];
+  const snapshots = parentMeta?.usageSnapshots ?? [];
+  let best: PersistedUsage | undefined;
+  let bestPos = -1;
+  for (const snap of snapshots) {
+    const p = positions.get(snap.entryId);
+    if (p === undefined) continue;
+    if (p < forkPos && p > bestPos) {
+      bestPos = p;
+      best = snap.usage;
+    }
+  }
+  if (best) return best;
+  const u = parentMeta?.usage;
+  const p = parentMeta?.priorRunsUsage;
+  if (!u && !p) return undefined;
+  return {
+    inputTokens: (u?.inputTokens ?? 0) + (p?.inputTokens ?? 0),
+    outputTokens: (u?.outputTokens ?? 0) + (p?.outputTokens ?? 0),
+    cacheReadInputTokens: (u?.cacheReadInputTokens ?? 0) + (p?.cacheReadInputTokens ?? 0),
+    cacheCreationInputTokens: (u?.cacheCreationInputTokens ?? 0) + (p?.cacheCreationInputTokens ?? 0),
+    costUSD: (u?.costUSD ?? 0) + (p?.costUSD ?? 0),
+  };
+}
+
+// Mirror of rollSessionUsageOnResume (agent side). The SDK reports cost
+// cumulative-per-process, so a resumed session's counter starts from zero.
+// Roll the current-run usage into the prior-runs accumulator before the
+// resume call so lifetime cost survives the reset.
+export function rollRunSessionUsageOnResume(jobId: string, runId: string, sessionId: string) {
+  const map = loadRunSessionsMap(jobId, runId);
+  const existing = map[sessionId];
+  if (!existing?.usage) return;
+  const u = existing.usage;
+  if (u.costUSD === 0 && u.inputTokens === 0 && u.outputTokens === 0 && u.cacheReadInputTokens === 0 && u.cacheCreationInputTokens === 0) return;
+  const prior = existing.priorRunsUsage;
+  const rolled: PersistedUsage = {
+    inputTokens: (prior?.inputTokens ?? 0) + u.inputTokens,
+    outputTokens: (prior?.outputTokens ?? 0) + u.outputTokens,
+    cacheReadInputTokens: (prior?.cacheReadInputTokens ?? 0) + u.cacheReadInputTokens,
+    cacheCreationInputTokens: (prior?.cacheCreationInputTokens ?? 0) + u.cacheCreationInputTokens,
+    costUSD: (prior?.costUSD ?? 0) + u.costUSD,
+  };
+  map[sessionId] = { ...existing, priorRunsUsage: rolled, usage: undefined, lastModified: Date.now() };
+  saveRunSessionsMap(jobId, runId, map);
+}
+
 export function accumulateRunSessionUsage(
   jobId: string,
   runId: string,
