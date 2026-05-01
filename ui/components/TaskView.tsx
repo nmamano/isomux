@@ -493,11 +493,13 @@ export function TaskView({ username, onClose, onFocusAgent }: { username: string
       <div
         style={{
           display: "flex",
-          alignItems: "center",
+          flexDirection: isMobile ? "column" : "row",
+          alignItems: isMobile ? "stretch" : "center",
           justifyContent: "space-between",
-          padding: isMobile ? "0 12px" : "0 20px",
-          paddingTop: isMobile ? "env(safe-area-inset-top, 0px)" : undefined,
-          height: 44,
+          padding: isMobile ? "4px 12px 6px" : "0 20px",
+          paddingTop: isMobile ? "max(4px, env(safe-area-inset-top, 0px))" : undefined,
+          gap: isMobile ? 6 : 0,
+          minHeight: 44,
           background: "var(--bg-hud)",
           backdropFilter: "blur(16px)",
           borderBottom: "1px solid var(--border-subtle)",
@@ -505,24 +507,26 @@ export function TaskView({ username, onClose, onFocusAgent }: { username: string
           zIndex: 500,
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <button
-            onClick={onClose}
-            style={{
-              background: "none",
-              border: "none",
-              color: "var(--text-muted)",
-              fontSize: 18,
-              cursor: "pointer",
-              padding: "2px 8px",
-            }}
-          >
-            &larr;
-          </button>
-          <span style={{ fontSize: 15, fontWeight: 700, letterSpacing: "-0.02em" }}>Tasks</span>
-          <span style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "'JetBrains Mono',monospace" }}>
-            {filtered.length} shown
-          </span>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: isMobile ? "space-between" : undefined }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+            <button
+              onClick={onClose}
+              style={{
+                background: "none",
+                border: "none",
+                color: "var(--text-muted)",
+                fontSize: 18,
+                cursor: "pointer",
+                padding: "2px 8px",
+              }}
+            >
+              &larr;
+            </button>
+            <span style={{ fontSize: 15, fontWeight: 700, letterSpacing: "-0.02em" }}>Tasks</span>
+            <span style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "'JetBrains Mono',monospace" }}>
+              {filtered.length} shown
+            </span>
+          </div>
           <button
             onClick={() => { setCreating(true); setSelectedId(null); }}
             style={{
@@ -540,7 +544,7 @@ export function TaskView({ username, onClose, onFocusAgent }: { username: string
           </button>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value as TaskStatus | "all" | "active")} style={selectStyle}>
+          <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value as TaskStatus | "all" | "active")} style={isMobile ? { ...selectStyle, flex: 1 } : selectStyle}>
             <option value="active">Open + In Progress</option>
             <option value="open">Open</option>
             <option value="in_progress">In Progress</option>

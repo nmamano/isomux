@@ -105,31 +105,50 @@ export function CronjobRunView({
         style={{
           display: "flex",
           alignItems: "center",
-          justifyContent: "space-between",
-          padding: isMobile ? "0 12px" : "0 20px",
+          padding: isMobile ? "0 8px" : "0 20px",
           paddingTop: isMobile ? "env(safe-area-inset-top, 0px)" : undefined,
-          height: 48,
+          minHeight: 48,
           background: "var(--bg-surface)",
           borderBottom: "1px solid var(--border-strong)",
           flexShrink: 0,
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-          <button
-            onClick={onClose}
-            style={{
-              background: "none",
-              border: "none",
-              color: "var(--text-muted)",
-              fontSize: 18,
-              cursor: "pointer",
-              padding: "2px 8px",
-            }}
-          >
-            ←
-          </button>
-          {run ? (
-            <>
+        <button
+          onClick={onClose}
+          style={{
+            background: "none",
+            border: "none",
+            color: "var(--text-muted)",
+            fontSize: 18,
+            cursor: "pointer",
+            padding: "2px 8px",
+            flexShrink: 0,
+          }}
+        >
+          ←
+        </button>
+        {run ? (
+          isMobile ? (
+            <div style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0, padding: "6px 0", gap: 2 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                <span style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {run.cronjobName}
+                </span>
+                <span style={{ fontSize: 11, color: STATUS_COLOR[run.status], fontFamily: "'JetBrains Mono',monospace", fontWeight: 600, flexShrink: 0 }}>
+                  {STATUS_LABEL[run.status]}
+                </span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "var(--text-muted)", fontFamily: "'JetBrains Mono',monospace" }}>
+                <span>
+                  {new Date(run.startedAt).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                </span>
+                <span style={{ color: "var(--text-ghost)" }}>
+                  {run.trigger === "manual" ? "manual" : "scheduled"}
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
               <span style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {run.cronjobName}
               </span>
@@ -142,11 +161,11 @@ export function CronjobRunView({
               <span style={{ fontSize: 11, color: "var(--text-ghost)", fontFamily: "'JetBrains Mono',monospace" }}>
                 {run.trigger === "manual" ? "manual" : "scheduled"}
               </span>
-            </>
-          ) : (
-            <span style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)" }}>Run #{runId}</span>
-          )}
-        </div>
+            </div>
+          )
+        ) : (
+          <span style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)" }}>Run #{runId}</span>
+        )}
       </div>
 
       {/* Body */}
