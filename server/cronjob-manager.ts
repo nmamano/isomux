@@ -189,7 +189,7 @@ export function addCronjob(input: AddCronjobInput): Cronjob {
   const now = Date.now();
   const cronjob: Cronjob = {
     id: generateCronjobId(cronjobs.map((c) => c.id)),
-    name: input.name.trim() || "Untitled cronjob",
+    name: input.name.trim() || "Untitled cron job",
     schedule,
     prompt: input.prompt,
     cwd: resolveCwd(input.cwd),
@@ -292,7 +292,7 @@ export function buildCronjobSystemPrompt(cronjob: Cronjob): string {
   const human = humanizeSchedule(cronjob.schedule);
   const scheduleDescription = human.charAt(0).toLowerCase() + human.slice(1);
 
-  let prompt = `You are "${cronjob.name}", a scheduled cronjob in the Isomux office. You run ${scheduleDescription}.
+  let prompt = `You are "${cronjob.name}", a scheduled cron job in the Isomux office. You run ${scheduleDescription}.
 
 The Isomux office consists of agents that have persistent identity and sit at desks in various rooms of the office. You don't have a desk or persistent identity — each scheduled run starts fresh. There is no human in the loop during your run; any result must be self-contained, since someone may review it later.
 
@@ -316,7 +316,7 @@ To create, edit, delete, or trigger a cronjob, direct the boss to the Cronjobs t
 How to answer questions about Isomux itself: the source lives at https://github.com/nmamano/isomux.`;
 
   if (officeConfig.prompt) prompt += `\n\n## Office Instructions\n\n${officeConfig.prompt}`;
-  if (cronjobsPrompt) prompt += `\n\n## Cronjobs Instructions\n\n${cronjobsPrompt}`;
+  if (cronjobsPrompt) prompt += `\n\n## Cron Jobs Instructions\n\n${cronjobsPrompt}`;
   return prompt;
 }
 
@@ -606,7 +606,7 @@ function fire(job: Cronjob, trigger: CronjobRun["trigger"]): CronjobRun | null {
     if (!activeRuns.has(runId)) return;
     active.killed = true;
     try { session.close(); } catch {}
-    writeLog(active, "error", "Cronjob run exceeded 30-minute hard timeout.");
+    writeLog(active, "error", "Cron job run exceeded 30-minute hard timeout.");
     finalizeRun(active, "timed_out", "exceeded global run timeout");
   }, HARD_TIMEOUT_MS);
 

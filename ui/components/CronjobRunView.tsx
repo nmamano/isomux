@@ -207,7 +207,7 @@ export function CronjobRunView({
         color: "var(--text-muted)",
         textAlign: "center",
       }}>
-        Run transcripts are read-only. Use "Run now" on the cronjob to start a fresh run.
+        Run transcripts are read-only. Use "Run now" on the cron job to start a fresh run.
       </div>
     </div>
   );

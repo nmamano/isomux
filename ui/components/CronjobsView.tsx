@@ -12,6 +12,7 @@ import {
 } from "../../shared/types.ts";
 
 type Tab = "runs" | "cronjobs";
+const TAB_LABEL: Record<Tab, string> = { runs: "runs", cronjobs: "cron jobs" };
 
 const STATUS_ICON: Record<CronjobRunStatus, string> = {
   running: "●",
@@ -192,7 +193,7 @@ export function CronjobsView({ username, onClose }: { username: string; onClose:
                   textTransform: "capitalize",
                 }}
               >
-                {t}
+                {TAB_LABEL[t]}
               </button>
             ))}
           </div>
@@ -233,7 +234,7 @@ export function CronjobsView({ username, onClose }: { username: string; onClose:
       {/* Filter chip */}
       {tab === "runs" && runFilter && (
         <div style={{ padding: "8px 20px", borderBottom: "1px solid var(--border-subtle)", display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Cronjob:</span>
+          <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Cron job:</span>
           <button
             onClick={() => setRunFilter(null)}
             style={{
@@ -340,7 +341,7 @@ function CronjobsTable({
   if (cronjobs.length === 0) {
     return (
       <div style={{ padding: 40, textAlign: "center", color: "var(--text-muted)" }}>
-        No cronjobs yet. Click "+ New" to create one.
+        No cron jobs yet. Click "+ New" to create one.
       </div>
     );
   }

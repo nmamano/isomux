@@ -78,10 +78,10 @@ export function CronjobsPromptDialog({ onClose }: { onClose: () => void }) {
           animation: "hudIn 0.2s ease-out",
         }}
       >
-        <h3 style={{ fontSize: 17, fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>Cronjobs Settings</h3>
+        <h3 style={{ fontSize: 17, fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>Cron Jobs Settings</h3>
 
         <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "var(--text-muted)", marginTop: 18, marginBottom: 5 }}>
-          Rules <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>(system prompt for all cronjobs)</span>
+          Rules <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>(system prompt for all cron jobs)</span>
         </label>
         <textarea
           ref={textareaRef}

@@ -267,7 +267,7 @@ export function renderUsageReport(agents: Map<string, ManagedAgent>, rooms: Inte
     if (u.costUSD === 0 && u.totalIn === 0 && u.totalOut === 0) continue;
     cronjobBuckets.push({
       id,
-      name: cronjobHistory[id]?.lastName ?? "(unknown cronjob)",
+      name: cronjobHistory[id]?.lastName ?? "(unknown cron job)",
       deleted: true,
       life: { totalIn: u.totalIn, cacheRead: u.cacheRead, cacheCreation: u.cacheCreation, totalOut: u.totalOut, costUSD: u.costUSD },
     });
@@ -281,9 +281,9 @@ export function renderUsageReport(agents: Map<string, ManagedAgent>, rooms: Inte
   if (cronjobBuckets.length > 0) {
     cronjobBuckets.sort((a, b) => b.life.costUSD - a.life.costUSD);
     lines.push("");
-    lines.push(`## Per-cronjob usage`);
+    lines.push(`## Per-cron job usage`);
     lines.push("");
-    lines.push(`| Cronjob | In (life) | Out (life) | $ (life) |`);
+    lines.push(`| Cron job | In (life) | Out (life) | $ (life) |`);
     lines.push(`| --- | ---: | ---: | ---: |`);
     for (const r of cronjobBuckets) {
       const label = r.deleted ? `${r.name} _(deleted)_` : r.name;

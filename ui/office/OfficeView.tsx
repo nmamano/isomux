@@ -64,7 +64,7 @@ export function OfficeView({ onSpawn, onContextMenu, onOpenDeviceSettings, onEdi
 
   const officeActions: NavAction[] = [
     { id: "tasks", icon: TasksIcon, label: "Tasks", onClick: onOpenTasks },
-    { id: "cronjobs", icon: ClockIcon, label: "Cronjobs", onClick: onOpenCronjobs },
+    { id: "cronjobs", icon: ClockIcon, label: "Cron jobs", onClick: onOpenCronjobs },
     { id: "device", icon: DeviceIcon, label: "Device settings", onClick: onOpenDeviceSettings },
     { id: "office", icon: BuildingIcon, label: "Office settings", onClick: onEditOfficePrompt },
     ...(onEditRoomSettings ? [{ id: "room", icon: DoorIcon, label: "Room settings", onClick: onEditRoomSettings }] : []),
