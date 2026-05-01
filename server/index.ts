@@ -306,6 +306,9 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
       for (const { jobId, runs } of CronjobManager.getAllRunsByJob()) {
         ws.send(JSON.stringify({ type: "cronjob_runs", cronjobId: jobId, runs } as ServerMessage));
       }
+      // Sentinel so the client can flip its "runs loaded" flag even when no
+      // cronjob has ever fired (no run dirs on disk = zero cronjob_runs sent).
+      ws.send(JSON.stringify({ type: "cronjob_runs_complete" } as ServerMessage));
       break;
     }
     case "load_cronjob_run": {

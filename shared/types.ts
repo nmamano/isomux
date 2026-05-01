@@ -364,6 +364,7 @@ export type ServerMessage =
   | { type: "cronjob_deleted"; id: string }
   | { type: "cronjobs_prompt_updated"; value: string | null }
   | { type: "cronjob_runs"; cronjobId: string; runs: CronjobRun[] }
+  | { type: "cronjob_runs_complete" }
   | { type: "cronjob_run_updated"; run: CronjobRun }
   | { type: "pong" };
 

@@ -25,9 +25,12 @@ export interface AppState {
   office: OfficeSettings;
   rooms: RoomWire[];
   tasks: TaskItem[];
+  tasksLoaded: boolean;
   cronjobs: Cronjob[];
+  cronjobsLoaded: boolean;
   cronjobsPrompt: string | null;
   cronjobRunsByJob: Map<string, CronjobRun[]>; // jobId → run list (loaded on demand)
+  cronjobRunsLoaded: boolean;
   currentRoom: number; // 0-based room index (view selection only)
   updateAvailable: boolean;
   updateCurrent: { sha: string; message: string; date: string };
@@ -65,6 +68,7 @@ type Action =
   | { type: "cronjob_deleted"; id: string }
   | { type: "cronjobs_prompt_updated"; value: string | null }
   | { type: "cronjob_runs"; cronjobId: string; runs: CronjobRun[] }
+  | { type: "cronjob_runs_complete" }
   | { type: "cronjob_run_updated"; run: CronjobRun };
 
 // States that warrant attention
@@ -206,7 +210,7 @@ function reducer(state: AppState, action: Action): AppState {
     case "office_settings_updated":
       return { ...state, office: { prompt: action.prompt, envFile: action.envFile } };
     case "tasks":
-      return { ...state, tasks: action.tasks };
+      return { ...state, tasks: action.tasks, tasksLoaded: true };
     case "set_current_room":
       return { ...state, currentRoom: action.room };
     case "room_created":
@@ -232,7 +236,7 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, rooms: newRooms };
     }
     case "cronjobs_state":
-      return { ...state, cronjobs: action.cronjobs, cronjobsPrompt: action.cronjobsPrompt };
+      return { ...state, cronjobs: action.cronjobs, cronjobsPrompt: action.cronjobsPrompt, cronjobsLoaded: true };
     case "cronjob_added":
       return { ...state, cronjobs: [...state.cronjobs, action.cronjob] };
     case "cronjob_updated":
@@ -252,6 +256,8 @@ function reducer(state: AppState, action: Action): AppState {
       cronjobRunsByJob.set(action.cronjobId, action.runs);
       return { ...state, cronjobRunsByJob };
     }
+    case "cronjob_runs_complete":
+      return { ...state, cronjobRunsLoaded: true };
     case "cronjob_run_updated": {
       const cronjobRunsByJob = new Map(state.cronjobRunsByJob);
       const existing = cronjobRunsByJob.get(action.run.cronjobId) ?? [];
@@ -302,9 +308,12 @@ const initialState: AppState = {
   office: { prompt: null, envFile: null },
   rooms: [],
   tasks: [],
+  tasksLoaded: false,
   cronjobs: [],
+  cronjobsLoaded: false,
   cronjobsPrompt: null,
   cronjobRunsByJob: new Map(),
+  cronjobRunsLoaded: false,
   currentRoom: 0,
   updateAvailable: false,
   updateCurrent: { sha: "", message: "", date: "" },

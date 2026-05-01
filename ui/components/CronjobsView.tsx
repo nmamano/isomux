@@ -74,7 +74,7 @@ function formatStartedAt(ts: number): string {
 }
 
 export function CronjobsView({ username, onClose }: { username: string; onClose: () => void }) {
-  const { cronjobs, cronjobRunsByJob, isMobile } = useAppState();
+  const { cronjobs, cronjobsLoaded, cronjobRunsByJob, cronjobRunsLoaded, isMobile } = useAppState();
   const dispatch = useDispatch();
   const [tab, setTab] = useState<Tab>("runs");
   const [creating, setCreating] = useState(false);
@@ -262,6 +262,7 @@ export function CronjobsView({ username, onClose }: { username: string; onClose:
         {tab === "cronjobs" ? (
           <CronjobsTable
             cronjobs={cronjobs}
+            loaded={cronjobsLoaded}
             runsByJob={cronjobRunsByJob}
             isMobile={isMobile}
             onRowClick={(c) => { setRunFilter({ jobId: c.id, jobName: c.name }); setTab("runs"); }}
@@ -272,6 +273,7 @@ export function CronjobsView({ username, onClose }: { username: string; onClose:
         ) : (
           <RunsTable
             runs={filteredRuns}
+            loaded={cronjobRunsLoaded}
             liveCronjobIds={new Set(cronjobs.map((c) => c.id))}
             isMobile={isMobile}
             onRowClick={(r) => setOpenRun({ jobId: r.cronjobId, runId: r.id })}
@@ -295,6 +297,7 @@ export function CronjobsView({ username, onClose }: { username: string; onClose:
 
 function CronjobsTable({
   cronjobs,
+  loaded,
   runsByJob,
   isMobile,
   onRowClick,
@@ -303,6 +306,7 @@ function CronjobsTable({
   onRunNow,
 }: {
   cronjobs: Cronjob[];
+  loaded: boolean;
   runsByJob: Map<string, CronjobRun[]>;
   isMobile: boolean;
   onRowClick: (c: Cronjob) => void;
@@ -341,7 +345,7 @@ function CronjobsTable({
   if (cronjobs.length === 0) {
     return (
       <div style={{ padding: 40, textAlign: "center", color: "var(--text-muted)" }}>
-        No cron jobs yet. Click "+ New" to create one.
+        {loaded ? `No cron jobs yet. Click "+ New" to create one.` : "Loading..."}
       </div>
     );
   }
@@ -479,11 +483,13 @@ function CronjobsTable({
 
 function RunsTable({
   runs,
+  loaded,
   liveCronjobIds,
   isMobile,
   onRowClick,
 }: {
   runs: CronjobRun[];
+  loaded: boolean;
   liveCronjobIds: Set<string>;
   isMobile: boolean;
   onRowClick: (r: CronjobRun) => void;
@@ -510,7 +516,7 @@ function RunsTable({
   if (runs.length === 0) {
     return (
       <div style={{ padding: 40, textAlign: "center", color: "var(--text-muted)" }}>
-        No runs yet.
+        {loaded ? "No runs yet." : "Loading..."}
       </div>
     );
   }

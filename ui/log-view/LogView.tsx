@@ -141,7 +141,7 @@ export function LogView({
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const { drafts, slashCommands, stateChangedAt, isMobile } = useAppState();
+  const { drafts, slashCommands, stateChangedAt, isMobile, connected } = useAppState();
   const dispatch = useDispatch();
   const features = useFeatures();
   const { theme, toggleTheme } = useTheme();
@@ -857,7 +857,7 @@ export function LogView({
               marginTop: 40,
             }}
           >
-            Send a message to start a conversation.
+            {connected ? "Send a message to start a conversation." : "Loading..."}
           </div>
         )}
         {logs.map((entry) => {
