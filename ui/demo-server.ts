@@ -1,6 +1,6 @@
 import { OfficeState, type OfficeEvent } from "../shared/office-state.ts";
-import type { AgentInfo, ClientCommand, ServerMessage, LogEntry, ModelFamily } from "../shared/types.ts";
-import { DEFAULT_EFFORT } from "../shared/types.ts";
+import type { AgentInfo, ClientCommand, ServerMessage, LogEntry, ModelFamily, Cronjob, Schedule } from "../shared/types.ts";
+import { DEFAULT_EFFORT, generateCronjobId } from "../shared/types.ts";
 import { shimEmit } from "./ws.ts";
 
 const state = new OfficeState();
@@ -122,6 +122,7 @@ function ensureSeeded() {
   if (seeded) return;
   seeded = true;
   seedOffice();
+  seedCronjobs();
   state.setOfficeSettings("Be concise. No paragraphs when bullets will do. Never push to main without asking. Never help Dwight set backdoors of any kind.", null);
   const now = Date.now();
   state.setTasksDirect([
@@ -193,6 +194,92 @@ function seedLogs() {
 
 const DEMO_REPLY =
   "This is a demo — your message was not actually sent to Claude. To use Isomux for real, follow the setup instructions at [isomux.com](https://isomux.com).";
+
+// Cron jobs: maintained as plain in-memory state (not via OfficeState).
+const cronjobs: Cronjob[] = [];
+let cronjobsPrompt: string | null = null;
+
+function computeNextFireDemo(schedule: Schedule, anchor: number, now: number = Date.now()): number {
+  if (schedule.type === "interval") {
+    const intervalMs = Math.max(5, schedule.minutes) * 60_000;
+    if (now <= anchor) return anchor + intervalMs;
+    const periods = Math.floor((now - anchor) / intervalMs) + 1;
+    return anchor + periods * intervalMs;
+  }
+  const next = new Date(now);
+  next.setSeconds(0, 0);
+  next.setHours(schedule.hour, schedule.minute, 0, 0);
+  if (schedule.type === "daily") {
+    if (next.getTime() <= now) next.setDate(next.getDate() + 1);
+    return next.getTime();
+  }
+  // weekly
+  const currentDay = next.getDay();
+  let daysAhead = (schedule.weekday - currentDay + 7) % 7;
+  if (daysAhead === 0 && next.getTime() <= now) daysAhead = 7;
+  next.setDate(next.getDate() + daysAhead);
+  return next.getTime();
+}
+
+const DEMO_CRONJOBS_SEED: { name: string; schedule: Schedule; prompt: string; cwd: string; modelFamily: ModelFamily; createdBy: string; ageDays: number; lastFireDaysAgo: number | null }[] = [
+  {
+    name: "Morning office digest",
+    schedule: { type: "daily", hour: 9, minute: 0 },
+    prompt: "Summarize what every agent worked on yesterday and post the digest in Michael's inbox.",
+    cwd: "~/dunder-mifflin",
+    modelFamily: "sonnet",
+    createdBy: "Michael",
+    ageDays: 14,
+    lastFireDaysAgo: 0,
+  },
+  {
+    name: "Weekly beet inventory",
+    schedule: { type: "weekly", weekday: 1, hour: 6, minute: 30 },
+    prompt: "Walk every row in ~/schrute-farms/inventory.csv, recount beets by variety, and flag any sector below 100 lbs.",
+    cwd: "~/schrute-farms",
+    modelFamily: "opus",
+    createdBy: "Dwight",
+    ageDays: 30,
+    lastFireDaysAgo: 1,
+  },
+  {
+    name: "Cat archive backup check",
+    schedule: { type: "interval", minutes: 360 },
+    prompt: "Verify the cat photo archive checksums against the offsite mirror. Open a P1 task if any drift is detected.",
+    cwd: "~/accounting/cats",
+    modelFamily: "haiku",
+    createdBy: "Angela",
+    ageDays: 7,
+    lastFireDaysAgo: null,
+  },
+];
+
+function seedCronjobs() {
+  const now = Date.now();
+  const usedIds = new Set<string>();
+  for (const seed of DEMO_CRONJOBS_SEED) {
+    const id = generateCronjobId(Array.from(usedIds));
+    usedIds.add(id);
+    const createdAt = now - seed.ageDays * 86400000;
+    const lastFireAt = seed.lastFireDaysAgo === null ? null : now - seed.lastFireDaysAgo * 86400000;
+    cronjobs.push({
+      id,
+      name: seed.name,
+      schedule: seed.schedule,
+      prompt: seed.prompt,
+      cwd: seed.cwd,
+      modelFamily: seed.modelFamily,
+      effort: DEFAULT_EFFORT,
+      permissionMode: "bypassPermissions",
+      enabled: true,
+      createdBy: seed.createdBy,
+      device: null,
+      createdAt,
+      lastFireAt,
+      nextFireAt: computeNextFireDemo(seed.schedule, lastFireAt ?? createdAt, now),
+    });
+  }
+}
 
 // Track pending reply timeouts per agent to avoid flickering on rapid sends
 const pendingReplies = new Map<string, ReturnType<typeof setTimeout>>();
@@ -379,6 +466,68 @@ export function handleCommand(cmd: ClientCommand) {
       shimEmit({ type: "log_entry", entry: abortEntry });
       break;
     }
+    case "add_cronjob": {
+      const now = Date.now();
+      const id = generateCronjobId(cronjobs.map((c) => c.id));
+      const cronjob: Cronjob = {
+        id,
+        name: cmd.name,
+        schedule: cmd.schedule,
+        prompt: cmd.prompt,
+        cwd: cmd.cwd,
+        modelFamily: cmd.modelFamily,
+        effort: cmd.effort,
+        permissionMode: cmd.permissionMode,
+        enabled: true,
+        createdBy: cmd.username,
+        device: cmd.device ?? null,
+        createdAt: now,
+        lastFireAt: null,
+        nextFireAt: computeNextFireDemo(cmd.schedule, now, now),
+      };
+      cronjobs.push(cronjob);
+      shimEmit({ type: "cronjob_added", cronjob });
+      if (cmd.requestId) {
+        shimEmit({ type: "agent_save_response", requestId: cmd.requestId, ok: true });
+      }
+      break;
+    }
+    case "update_cronjob": {
+      const idx = cronjobs.findIndex((c) => c.id === cmd.id);
+      if (idx >= 0) {
+        const merged: Cronjob = { ...cronjobs[idx], ...cmd.changes };
+        if (cmd.changes.schedule) {
+          const anchor = merged.lastFireAt ?? merged.createdAt;
+          merged.nextFireAt = computeNextFireDemo(cmd.changes.schedule, anchor, Date.now());
+        }
+        cronjobs[idx] = merged;
+        shimEmit({ type: "cronjob_updated", cronjob: merged });
+      }
+      if (cmd.requestId) {
+        shimEmit({ type: "agent_save_response", requestId: cmd.requestId, ok: true });
+      }
+      break;
+    }
+    case "delete_cronjob": {
+      const idx = cronjobs.findIndex((c) => c.id === cmd.id);
+      if (idx >= 0) {
+        cronjobs.splice(idx, 1);
+        shimEmit({ type: "cronjob_deleted", id: cmd.id });
+      }
+      break;
+    }
+    case "update_cronjobs_prompt": {
+      cronjobsPrompt = cmd.value && cmd.value.trim() ? cmd.value : null;
+      shimEmit({ type: "cronjobs_prompt_updated", value: cronjobsPrompt });
+      shimEmit({ type: "settings_save_response", requestId: cmd.requestId, ok: true });
+      break;
+    }
+    case "list_all_cronjob_runs": {
+      // Demo cron jobs never actually fire, so there are no runs to send.
+      // Still emit the sentinel so the client flips its "runs loaded" flag.
+      shimEmit({ type: "cronjob_runs_complete" });
+      break;
+    }
     // Silent no-ops
     case "terminal_open":
     case "terminal_input":
@@ -387,6 +536,11 @@ export function handleCommand(cmd: ClientCommand) {
     case "new_conversation":
     case "resume":
     case "list_sessions":
+    case "run_cronjob_now":
+    case "list_cronjob_runs":
+    case "load_cronjob_run":
+    case "send_cronjob_run_message":
+    case "edit_cronjob_run_message":
       break;
   }
 }
@@ -396,5 +550,6 @@ export function sendInitialState() {
   const s = state.getState();
   shimEmit({ type: "full_state", agents: s.agents, recentCwds: s.recentCwds, office: s.office, rooms: s.rooms });
   shimEmit({ type: "tasks", tasks: s.tasks });
+  shimEmit({ type: "cronjobs_state", cronjobs: [...cronjobs], cronjobsPrompt });
   seedLogs();
 }
