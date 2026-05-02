@@ -39,7 +39,7 @@ function DesktopActions({ actions }: { actions: NavAction[] }) {
           }}
         >
           <span style={{ display: "flex", alignItems: "center" }}>{a.icon}</span>
-          <span>{a.label}</span>
+          <span className="nav-action-label">{a.label}</span>
         </button>
       ))}
     </div>

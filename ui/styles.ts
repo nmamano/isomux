@@ -298,6 +298,11 @@ export const CSS = `
     .md-content pre code { word-break: normal; }
   }
 
+  /* Narrow desktop: drop labels from header action buttons (icons + tooltips remain) */
+  @media (max-width: 1099px) {
+    .nav-action-label { display: none; }
+  }
+
   /* Copy buttons */
   .copy-btn:hover { color: var(--text-secondary) !important; border-color: var(--border-light) !important; background: var(--bg-hover) !important; }
   .code-copy-btn {
