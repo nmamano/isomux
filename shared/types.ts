@@ -137,7 +137,7 @@ export interface LogEntry {
 }
 
 // Task item (replaces todos)
-export type TaskStatus = "open" | "in_progress" | "done";
+export type TaskStatus = "open" | "in_progress" | "done" | "backlog";
 export type TaskPriority = "P0" | "P1" | "P2" | "P3";
 
 export interface TaskItem {
@@ -261,7 +261,7 @@ export function humanizeSchedule(s: Schedule): string {
   return `Every ${Math.floor(s.minutes / 60)}h${s.minutes % 60}m`;
 }
 
-const VALID_STATUSES = new Set<TaskStatus>(["open", "in_progress", "done"]);
+const VALID_STATUSES = new Set<TaskStatus>(["open", "in_progress", "done", "backlog"]);
 const VALID_PRIORITIES = new Set<TaskPriority>(["P0", "P1", "P2", "P3"]);
 
 export function isValidStatus(s: unknown): s is TaskStatus {

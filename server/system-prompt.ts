@@ -15,8 +15,9 @@ Messages are prefixed with the boss's name in brackets.
 How to discover other office agents and their conversation logs: read ~/.isomux/agents-summary.json.
 
 How to use the task board (localhost:4000/tasks): only touch it when the boss asks. When you do:
-  curl -s localhost:4000/tasks                                          # list open tasks
-  curl -s localhost:4000/tasks?status=all                               # include done
+  curl -s localhost:4000/tasks                                          # list active tasks (excludes done and backlog)
+  curl -s localhost:4000/tasks?status=all                               # include done and backlog
+  curl -s localhost:4000/tasks?status=backlog                           # only backlog tasks
   curl -s -X POST localhost:4000/tasks -H 'Content-Type: application/json' \\
     -d '{"title":"...","createdBy":"${agentName}","device":"<boss-name>"}'          # create
   curl -s -X POST localhost:4000/tasks/ID/claim -H 'Content-Type: application/json' \\

@@ -6,18 +6,20 @@ import type { TaskItem, TaskStatus, TaskPriority } from "../../shared/types.ts";
 type SortField = "status" | "priority" | "title" | "assignee" | "createdBy" | "device" | "createdAt";
 type SortDir = "asc" | "desc";
 
-const STATUS_ORDER: Record<TaskStatus, number> = { in_progress: 0, open: 1, done: 2 };
+const STATUS_ORDER: Record<TaskStatus, number> = { in_progress: 0, open: 1, backlog: 2, done: 3 };
 const PRIORITY_ORDER: Record<string, number> = { P0: 0, P1: 1, P2: 2, P3: 3 };
 
 const STATUS_COLORS: Record<TaskStatus, string> = {
   open: "var(--blue, #58a6ff)",
   in_progress: "var(--green)",
+  backlog: "var(--purple)",
   done: "var(--text-muted)",
 };
 
 const STATUS_LABELS: Record<TaskStatus, string> = {
   open: "Open",
   in_progress: "In Progress",
+  backlog: "Backlog",
   done: "Done",
 };
 
@@ -207,6 +209,7 @@ function TaskDetailPanel({ task, onClose, username, mode = "edit", agents = [], 
           <select value={status} onChange={(e) => setStatus(e.target.value as TaskStatus)} style={inputStyle}>
             <option value="open">Open</option>
             <option value="in_progress">In Progress</option>
+            <option value="backlog">Backlog</option>
             <option value="done">Done</option>
           </select>
         </div>
@@ -378,7 +381,7 @@ export function TaskView({ username, onClose, onFocusAgent }: { username: string
   const filtered = useMemo(() => {
     let list = tasks;
     if (filterStatus === "active") {
-      list = list.filter((t) => t.status !== "done");
+      list = list.filter((t) => t.status !== "done" && t.status !== "backlog");
     } else if (filterStatus !== "all") {
       list = list.filter((t) => t.status === filterStatus);
     }
@@ -548,6 +551,7 @@ export function TaskView({ username, onClose, onFocusAgent }: { username: string
             <option value="active">Open + In Progress</option>
             <option value="open">Open</option>
             <option value="in_progress">In Progress</option>
+            <option value="backlog">Backlog</option>
             <option value="done">Done</option>
             <option value="all">All</option>
           </select>
@@ -663,7 +667,7 @@ export function TaskView({ username, onClose, onFocusAgent }: { username: string
                             height: 8,
                             borderRadius: "50%",
                             background: STATUS_COLORS[task.status],
-                            boxShadow: task.status !== "done" ? `0 0 6px ${STATUS_COLORS[task.status]}` : "none",
+                            boxShadow: task.status === "open" || task.status === "in_progress" ? `0 0 6px ${STATUS_COLORS[task.status]}` : "none",
                           }}
                           title={STATUS_LABELS[task.status]}
                         />

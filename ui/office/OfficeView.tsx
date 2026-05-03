@@ -217,7 +217,7 @@ export function OfficeView({ onSpawn, onContextMenu, onOpenDeviceSettings, onEdi
             hasOfficePrompt={!!officePrompt}
             onOpenTasks={onOpenTasks}
             onOpenCronjobs={onOpenCronjobs}
-            taskCount={tasks.filter(t => t.status !== "done").length}
+            taskCount={tasks.filter(t => t.status !== "done" && t.status !== "backlog").length}
             leftDoor={currentRoom > 0 ? { label: roomNames[currentRoom - 1] ?? `Room ${currentRoom}`, onClick: () => dispatch({ type: "set_current_room", room: currentRoom - 1 }), dragOver: leftDoorDragOver, reject: leftDoorReject } : null}
             rightDoor={currentRoom < roomCount - 1 ? { label: roomNames[currentRoom + 1] ?? `Room ${currentRoom + 2}`, onClick: () => dispatch({ type: "set_current_room", room: currentRoom + 1 }), dragOver: rightDoorDragOver, reject: rightDoorReject } : null}
           />

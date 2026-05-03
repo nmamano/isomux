@@ -320,8 +320,8 @@ The Isomux office consists of agents that have persistent identity and sit at de
 How to discover other office agents and their conversation logs: read ~/.isomux/agents-summary.json.
 
 How to use the task board (localhost:4000/tasks): only touch it if your prompt directs you to. When you do:
-  curl -s localhost:4000/tasks                                          # list open tasks
-  curl -s localhost:4000/tasks?status=all                               # include done
+  curl -s localhost:4000/tasks                                          # list active tasks (excludes done and backlog)
+  curl -s localhost:4000/tasks?status=all                               # include done and backlog
   curl -s -X POST localhost:4000/tasks -H 'Content-Type: application/json' \\
     -d '{"title":"...","createdBy":"${cronjob.name}"}'                  # create
   curl -s -X POST localhost:4000/tasks/ID/done -d '{}'                  # mark done
