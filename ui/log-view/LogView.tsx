@@ -305,9 +305,73 @@ export function LogView({
     if (!scrollRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
     setAutoScroll(scrollHeight - scrollTop - clientHeight < 50);
+    recomputePinned();
   }
 
   const isBusy = agent.state === "thinking" || agent.state === "tool_executing";
+
+  // Pin a user message to the top of the chat when none are visible in the
+  // viewport, so the user always has context for what they asked. The pinned
+  // one is the most-recent user_message that's scrolled above the viewport.
+  // We measure positions from the DOM (rather than relying on IntersectionObserver
+  // history) because IO only fires on isIntersecting flips — when the auto-scroll
+  // jumps from top to bottom on initial mount, middle messages go below→above
+  // without ever being visible, and IO never fires for them.
+  const userMsgNodesRef = useRef<Map<string, HTMLElement>>(new Map());
+  // Stable per-id ref callbacks: returning the same function for the same id
+  // across renders keeps React from triggering cleanup+setup on every render.
+  const userMsgRefCbsRef = useRef<Map<string, (node: HTMLDivElement | null) => void>>(new Map());
+  const getUserMsgRefCb = useCallback((id: string) => {
+    let cb = userMsgRefCbsRef.current.get(id);
+    if (!cb) {
+      cb = (node: HTMLDivElement | null) => {
+        if (node) userMsgNodesRef.current.set(id, node);
+        else { userMsgNodesRef.current.delete(id); userMsgRefCbsRef.current.delete(id); }
+      };
+      userMsgRefCbsRef.current.set(id, cb);
+    }
+    return cb;
+  }, []);
+  const [pinnedMessageId, setPinnedMessageId] = useState<string | null>(null);
+  const recomputePinned = useCallback(() => {
+    const root = scrollRef.current;
+    if (!root) return;
+    const rootRect = root.getBoundingClientRect();
+    for (let i = logs.length - 1; i >= 0; i--) {
+      const e = logs[i];
+      if (e.kind !== "user_message") continue;
+      const node = userMsgNodesRef.current.get(e.id);
+      if (!node) continue;
+      const r = node.getBoundingClientRect();
+      if (r.bottom > rootRect.top && r.top < rootRect.bottom) {
+        // visible — no pin
+        setPinnedMessageId(null);
+        return;
+      }
+      if (r.bottom <= rootRect.top) {
+        // first one above the viewport (iterating newest→oldest) wins
+        setPinnedMessageId(e.id);
+        return;
+      }
+      // else: below viewport, keep looking earlier
+    }
+    setPinnedMessageId(null);
+  }, [logs]);
+  // Recompute after every render that could affect positions, on the next
+  // frame so layout has settled (including auto-scroll's double-rAF).
+  useEffect(() => {
+    const id = requestAnimationFrame(() => requestAnimationFrame(recomputePinned));
+    return () => cancelAnimationFrame(id);
+  }, [recomputePinned, agent.state]);
+  const pinnedMessage = useMemo(
+    () => (pinnedMessageId ? logs.find((e) => e.id === pinnedMessageId) ?? null : null),
+    [logs, pinnedMessageId]
+  );
+  function scrollToPinnedMessage() {
+    if (!pinnedMessage) return;
+    const target = userMsgNodesRef.current.get(pinnedMessage.id);
+    target?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   // Compute agent turns: group entries between user_messages
   // For each entry, determine if it's the last in its agent turn
@@ -812,6 +876,44 @@ export function LogView({
         </div>
       )}
 
+      {/* Pinned user message — sits between the header and the messages
+          when no user_message is currently visible in the scroll viewport.
+          Click scrolls the conversation back to that message. */}
+      {pinnedMessage && (
+        <div
+          onClick={scrollToPinnedMessage}
+          title={pinnedMessage.content}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            padding: isMobile ? "6px 12px" : "6px 24px",
+            background: "var(--bg-subtle)",
+            borderBottom: "1px solid var(--border)",
+            cursor: "pointer",
+            color: "var(--text-muted)",
+            fontSize: 12,
+            flexShrink: 0,
+          }}
+        >
+          <span style={{ color: "var(--text-ghost)", flexShrink: 0, fontWeight: 600 }}>↑ you:</span>
+          <span
+            style={{
+              flex: 1,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              minWidth: 0,
+            }}
+          >
+            {pinnedMessage.content}
+          </span>
+          <span style={{ color: "var(--text-ghost)", flexShrink: 0, fontSize: 11, lineHeight: 1 }}>
+            ↑
+          </span>
+        </div>
+      )}
+
       {/* Messages */}
       <div
         ref={messagesRef}
@@ -870,19 +972,24 @@ export function LogView({
         {logs.map((entry) => {
           const td = turnData.get(entry.id);
           const canEditMsg = entry.kind === "user_message" && agent.state === "waiting_for_response" && !editingLogEntryId;
+          const isUserMsg = entry.kind === "user_message";
           return (
-            <LogEntryCard
+            <div
               key={entry.id}
-              entry={entry}
-              isLastInTurn={td?.isLastInTurn}
-              turnEntries={td?.turnEntries}
-              isMobile={isMobile}
-              canEdit={canEditMsg}
-              isEditing={editingLogEntryId === entry.id}
-              onStartEdit={setEditingLogEntryId}
-              onCancelEdit={handleCancelEdit}
-              onSubmitEdit={handleSubmitEdit}
-            />
+              ref={isUserMsg ? getUserMsgRefCb(entry.id) : undefined}
+            >
+              <LogEntryCard
+                entry={entry}
+                isLastInTurn={td?.isLastInTurn}
+                turnEntries={td?.turnEntries}
+                isMobile={isMobile}
+                canEdit={canEditMsg}
+                isEditing={editingLogEntryId === entry.id}
+                onStartEdit={setEditingLogEntryId}
+                onCancelEdit={handleCancelEdit}
+                onSubmitEdit={handleSubmitEdit}
+              />
+            </div>
           );
         })}
         <ActivityIndicator state={agent.state} stateChangedAt={stateChangedAt.get(agent.id)} agentId={agent.id} />
