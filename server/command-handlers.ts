@@ -9,7 +9,8 @@ import { renderUsageReport, formatRelativeTime } from "./usage-report.ts";
 import { SessionSwappedError, type ManagedAgent, type InternalRoom, type AgentEvent } from "./internal-types.ts";
 import { execSync } from "child_process";
 import { closeSync, openSync, readSync, statSync } from "fs";
-import { join } from "path";
+import { isAbsolute, join, resolve } from "path";
+import { homedir } from "os";
 
 type HandlerFn = (agentId: string, managed: ManagedAgent, args: string[], rawText: string, username?: string) => Promise<boolean>;
 
@@ -371,10 +372,28 @@ export function createCommandHandling(deps: HandlerDeps) {
       return true;
     },
 
-    async isomuxDiff(agentId, managed, _args, rawText, username) {
+    async isomuxDiff(agentId, managed, args, rawText, username) {
       const userMeta = username ? { username } : undefined;
       deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
-      const cwd = managed.info.cwd;
+
+      // Optional directory arg — useful for peeking at a worktree without
+      // having to spawn a fresh agent there. ~ expands to the user's home;
+      // relative paths resolve against the agent's cwd; absolute paths win.
+      const rawDir = args[0]?.trim();
+      let cwd = managed.info.cwd;
+      if (rawDir) {
+        const expanded = rawDir.startsWith("~")
+          ? join(homedir(), rawDir.slice(1).replace(/^[/\\]/, ""))
+          : rawDir;
+        cwd = isAbsolute(expanded) ? expanded : resolve(managed.info.cwd, expanded);
+        try {
+          if (!statSync(cwd).isDirectory()) throw new Error("not a directory");
+        } catch {
+          deps.emitEphemeralLog(agentId, "system", `\`${cwd}\` is not a directory.`);
+          deps.updateState(agentId, "waiting_for_response");
+          return true;
+        }
+      }
 
       // -c core.quotePath=false keeps non-ASCII / spaced paths in raw UTF-8 form
       // so the client splitter can match them by-path against name-status output.

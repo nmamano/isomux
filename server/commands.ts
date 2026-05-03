@@ -118,7 +118,7 @@ export const commands: Record<string, CommandConfig> = {
     autocomplete: true,
     overridable: false,
     handler: "isomuxDiff",
-    description: "Peek uncommitted changes in the agent's cwd",
+    description: "Peek uncommitted changes in the agent's cwd (or pass a directory)",
   },
 
   // =========================================================================
