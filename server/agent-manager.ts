@@ -865,7 +865,7 @@ function createTurnDeferred(managed: ManagedAgent): Promise<void> {
 // Persistent consumer. Runs for the session's lifetime, iterating `stream()`
 // in a loop so events that arrive between turns (notably `task_notification`
 // from backgrounded Bash) get processed promptly instead of being held until
-// the next user turn. See docs/held-back-messages-investigation.md.
+// the next user turn.
 //
 // Bound to a specific session instance: loop exits when `managed.session` is
 // swapped out (abort / resume / fork / etc.) — `session.close()` unblocks the
