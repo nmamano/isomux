@@ -11,6 +11,7 @@ import { send } from "../ws.ts";
 import { SunIcon, MoonIcon } from "../components/ThemeIcons.tsx";
 import { MobileHeader, getRoomCounts } from "../components/MobileHeader.tsx";
 import { NavActions, type NavAction } from "../components/NavActions.tsx";
+import { WallPanelMenu, type WallPanelMenuItem } from "../components/WallPanelMenu.tsx";
 import { TasksIcon, BuildingIcon, DoorIcon, ListIcon, DeviceIcon, ClockIcon } from "../components/NavIcons.tsx";
 import { useSwipeLeftRight } from "../hooks/useSwipeLeftRight.ts";
 import type { AgentInfo } from "../../shared/types.ts";
@@ -59,6 +60,13 @@ export function OfficeView({ onSpawn, onContextMenu, onOpenDeviceSettings, onEdi
   const [rightDoorDragOver, setRightDoorDragOver] = useState(false);
   const [leftDoorReject, setLeftDoorReject] = useState(false);
   const [rightDoorReject, setRightDoorReject] = useState(false);
+  const [wallMenu, setWallMenu] = useState<{ x: number; y: number } | null>(null);
+
+  const wallMenuItems: WallPanelMenuItem[] = [
+    { id: "office", icon: BuildingIcon, label: "Office settings", onClick: onEditOfficePrompt },
+    ...(onEditRoomSettings ? [{ id: "room", icon: DoorIcon, label: "Room settings", onClick: onEditRoomSettings }] : []),
+    { id: "device", icon: DeviceIcon, label: "Device settings", onClick: onOpenDeviceSettings },
+  ];
 
   const counts = getRoomCounts(roomAgents);
 
@@ -205,7 +213,7 @@ export function OfficeView({ onSpawn, onContextMenu, onOpenDeviceSettings, onEdi
         >
           <Walls
             onToggleTheme={toggleTheme}
-            onEditOfficePrompt={onEditOfficePrompt}
+            onWallPanelClick={(x, y) => setWallMenu({ x, y })}
             hasOfficePrompt={!!officePrompt}
             onOpenTasks={onOpenTasks}
             onOpenCronjobs={onOpenCronjobs}
@@ -310,6 +318,14 @@ export function OfficeView({ onSpawn, onContextMenu, onOpenDeviceSettings, onEdi
           </span>
         ))}
       </div>}
+      {wallMenu && (
+        <WallPanelMenu
+          x={wallMenu.x}
+          y={wallMenu.y}
+          items={wallMenuItems}
+          onClose={() => setWallMenu(null)}
+        />
+      )}
     </div>
   );
 }

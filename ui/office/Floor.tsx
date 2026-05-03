@@ -57,7 +57,7 @@ interface DoorProps {
   reject?: boolean;
 }
 
-export function Walls({ onToggleTheme, onEditOfficePrompt, hasOfficePrompt, onOpenTasks, onOpenCronjobs, taskCount = 0, leftDoor, rightDoor }: { onToggleTheme?: () => void; onEditOfficePrompt?: () => void; hasOfficePrompt?: boolean; onOpenTasks?: () => void; onOpenCronjobs?: () => void; taskCount?: number; leftDoor?: DoorProps | null; rightDoor?: DoorProps | null }) {
+export function Walls({ onToggleTheme, onWallPanelClick, hasOfficePrompt, onOpenTasks, onOpenCronjobs, taskCount = 0, leftDoor, rightDoor }: { onToggleTheme?: () => void; onWallPanelClick?: (x: number, y: number) => void; hasOfficePrompt?: boolean; onOpenTasks?: () => void; onOpenCronjobs?: () => void; taskCount?: number; leftDoor?: DoorProps | null; rightDoor?: DoorProps | null }) {
   const { currentRoom } = useAppState();
   const neon = NEON_COLORS[currentRoom % NEON_COLORS.length];
   const [now, setNow] = useState(new Date());
@@ -236,7 +236,7 @@ export function Walls({ onToggleTheme, onEditOfficePrompt, hasOfficePrompt, onOp
       </g>
 
       {/* Framed wall sign on left wall — formal, authoritative feel */}
-      <g transform="translate(50, -75) skewY(-27)" onClick={onEditOfficePrompt} style={{ cursor: "pointer", pointerEvents: "auto" }}>
+      <g transform="translate(50, -75) skewY(-27)" onClick={(e) => onWallPanelClick?.(e.clientX, e.clientY)} style={{ cursor: "pointer", pointerEvents: "auto" }}>
         {/* Outer frame — dark wood/brass */}
         <rect x="-30" y="-32" width="60" height="58" rx="2" fill="#3a3028" stroke="#2a2018" strokeWidth="1.2" />
         {/* Inner frame — thin brass inset */}
