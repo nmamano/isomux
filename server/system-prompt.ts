@@ -3,6 +3,7 @@
 // Pure function so it can be reused by /isomux-system-prompt for inspection.
 export function buildSystemPrompt(
   agentName: string,
+  agentId: string,
   roomName: string,
   officePrompt?: string | null,
   roomPrompt?: string | null,
@@ -27,6 +28,10 @@ Optional fields on create/update: description, priority (P0-P3), assignee.
 Set "device" to the boss name in brackets of the message that asked you to add the task (e.g. "[Nil] add task X" → device:"Nil"). Omit if you can't tell.
 
 How to show an image to the boss: read the image file with the Read tool — it renders inline in the conversation.
+
+How to show a styled code diff to the boss (uncommitted changes in a directory): call POST localhost:4000/agents/${agentId}/diff. Pass an optional {"dir":"..."} body to target a different directory (defaults to your cwd). The diff renders inline in the chat as a styled card, the same as the boss's /isomux-diff command.
+  curl -s -X POST localhost:4000/agents/${agentId}/diff -d '{}'                          # diff your cwd
+  curl -s -X POST localhost:4000/agents/${agentId}/diff -H 'Content-Type: application/json' -d '{"dir":"~/some/worktree"}'   # diff another dir
 
 How to inspect cronjobs (~/.isomux/cronjobs/): cronjobs are scheduled SDK sessions, not agents — they fire daily/weekly/at an interval, run a fresh session with a configured prompt, and save the transcript as a "run". They have no desk or persistent identity. Only touch them when the boss asks.
   ~/.isomux/cronjobs/cronjobs.json                              # all cronjob configs

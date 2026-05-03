@@ -1,4 +1,4 @@
-import type { Attachment, AgentState, DiffFileSummary, DiffPayload, LogEntry, SkillInfo, SkillOrigin } from "../shared/types.ts";
+import type { Attachment, AgentState, LogEntry, SkillInfo, SkillOrigin } from "../shared/types.ts";
 import { MODEL_FAMILIES, FAMILY_TO_MODEL, EFFORT_LEVELS, familyDisplayLabel, effortDisplayLabel } from "../shared/types.ts";
 import { listAgentSessions, type OfficeConfig } from "./persistence.ts";
 import { commands, unsupportedMessage, type CommandConfig } from "./commands.ts";
@@ -6,11 +6,8 @@ import { buildSystemPrompt } from "./system-prompt.ts";
 import { listCronjobs, buildCronjobSystemPrompt } from "./cronjob-manager.ts";
 import { resolveSkillPrompt } from "./skills.ts";
 import { renderUsageReport, formatRelativeTime } from "./usage-report.ts";
+import { computeIsomuxDiff, resolveDiffCwd } from "./isomux-diff.ts";
 import { SessionSwappedError, type ManagedAgent, type InternalRoom, type AgentEvent } from "./internal-types.ts";
-import { execSync } from "child_process";
-import { closeSync, openSync, readSync, statSync } from "fs";
-import { isAbsolute, join, resolve } from "path";
-import { homedir } from "os";
 
 type HandlerFn = (agentId: string, managed: ManagedAgent, args: string[], rawText: string, username?: string) => Promise<boolean>;
 
@@ -309,6 +306,7 @@ export function createCommandHandling(deps: HandlerDeps) {
       const officeConfig = deps.getOfficeConfig();
       const prompt = buildSystemPrompt(
         managed.info.name,
+        managed.info.id,
         room.name,
         officeConfig.prompt,
         room.prompt,
@@ -376,265 +374,27 @@ export function createCommandHandling(deps: HandlerDeps) {
       const userMeta = username ? { username } : undefined;
       deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
 
-      // Optional directory arg — useful for peeking at a worktree without
-      // having to spawn a fresh agent there. ~ expands to the user's home;
-      // relative paths resolve against the agent's cwd; absolute paths win.
-      const rawDir = args[0]?.trim();
-      let cwd = managed.info.cwd;
-      if (rawDir) {
-        const expanded = rawDir.startsWith("~")
-          ? join(homedir(), rawDir.slice(1).replace(/^[/\\]/, ""))
-          : rawDir;
-        cwd = isAbsolute(expanded) ? expanded : resolve(managed.info.cwd, expanded);
-        try {
-          if (!statSync(cwd).isDirectory()) throw new Error("not a directory");
-        } catch {
-          deps.emitEphemeralLog(agentId, "system", `\`${cwd}\` is not a directory.`);
-          deps.updateState(agentId, "waiting_for_response");
-          return true;
-        }
-      }
-
-      // -c core.quotePath=false keeps non-ASCII / spaced paths in raw UTF-8 form
-      // so the client splitter can match them by-path against name-status output.
-      const runGit = (args: string, maxBuffer = 10 * 1024 * 1024) =>
-        execSync(`git -c core.quotePath=false ${args}`, { cwd, timeout: 10000, maxBuffer, stdio: ["ignore", "pipe", "pipe"] }).toString();
-      const runGitOrNull = (args: string, maxBuffer?: number): string | null => {
-        try { return runGit(args, maxBuffer); } catch { return null; }
-      };
-
-      try {
-        runGit("rev-parse --is-inside-work-tree", 1024);
-      } catch {
-        deps.emitEphemeralLog(agentId, "system", `\`${cwd}\` is not a git repository.`);
+      const resolved = resolveDiffCwd(args[0], managed.info.cwd);
+      if (resolved.kind === "bad_dir") {
+        deps.emitEphemeralLog(agentId, "system", `\`${resolved.attempted}\` is not a directory.`);
         deps.updateState(agentId, "waiting_for_response");
         return true;
       }
-
-      // Branch + HEAD short SHA. Both are null on a fresh repo with no commits.
-      const branchRaw = runGitOrNull("rev-parse --abbrev-ref HEAD", 1024)?.trim() ?? null;
-      const branch = branchRaw && branchRaw !== "HEAD" ? branchRaw : null;
-      const head = runGitOrNull("rev-parse --short HEAD", 1024)?.trim() || null;
-
-      // Pull patch + structured per-file metadata. With HEAD: `diff HEAD` covers
-      // staged+unstaged. Without HEAD (fresh repo): `diff --cached` for the
-      // staged-vs-empty side, plus `diff` for any workdir-vs-index modifications.
-      const gather = (refArgs: string) => ({
-        diff: runGit(`diff ${refArgs}`.trim(), 50 * 1024 * 1024),
-        numstat: runGit(`diff ${refArgs} --numstat`.trim()).trim(),
-        nameStatus: runGit(`diff ${refArgs} --name-status`.trim()).trim(),
-      });
-      let diff = "";
-      let numstat = "";
-      let nameStatus = "";
-      let untracked: string[] = [];
-      try {
-        if (head !== null) {
-          ({ diff, numstat, nameStatus } = gather("HEAD"));
-        } else {
-          const cached = gather("--cached");
-          const wd = gather("");
-          diff = [cached.diff, wd.diff].filter((s) => s.trim()).join("\n");
-          numstat = [cached.numstat, wd.numstat].filter(Boolean).join("\n");
-          nameStatus = [cached.nameStatus, wd.nameStatus].filter(Boolean).join("\n");
-        }
-        const untrackedOut = runGit("ls-files --others --exclude-standard").trim();
-        if (untrackedOut) untracked = untrackedOut.split("\n");
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        deps.emitEphemeralLog(agentId, "system", `Failed to run git diff in \`${cwd}\`:\n\n\`\`\`\n${msg}\n\`\`\``);
-        deps.updateState(agentId, "waiting_for_response");
-        return true;
+      const result = computeIsomuxDiff(resolved.cwd);
+      switch (result.kind) {
+        case "not_repo":
+          deps.emitEphemeralLog(agentId, "system", `\`${result.cwd}\` is not a git repository.`);
+          break;
+        case "git_error":
+          deps.emitEphemeralLog(agentId, "system", `Failed to run git diff in \`${result.cwd}\`:\n\n\`\`\`\n${result.message}\n\`\`\``);
+          break;
+        case "clean":
+          deps.emitEphemeralLog(agentId, "system", `Working tree clean in \`${result.cwd}\` — no uncommitted changes.`);
+          break;
+        case "ok":
+          deps.emitEphemeralLog(agentId, "diff", result.summary, undefined, { diff: result.payload });
+          break;
       }
-
-      const fileMap = new Map<string, DiffFileSummary>();
-
-      // Pass 1: --name-status feeds status + rename/copy info.
-      if (nameStatus) {
-        for (const line of nameStatus.split("\n")) {
-          const cols = line.split("\t");
-          const code = cols[0] ?? "";
-          let status: DiffFileSummary["status"];
-          let oldPath: string | undefined;
-          let newPath: string;
-          if (code.startsWith("R")) {
-            status = "renamed";
-            oldPath = cols[1] ?? "";
-            newPath = cols[2] ?? "";
-          } else if (code.startsWith("C")) {
-            status = "copied";
-            oldPath = cols[1] ?? "";
-            newPath = cols[2] ?? "";
-          } else if (code === "A") {
-            status = "added";
-            newPath = cols[1] ?? "";
-          } else if (code === "D") {
-            status = "deleted";
-            newPath = cols[1] ?? "";
-          } else {
-            status = "modified";
-            newPath = cols[1] ?? "";
-          }
-          if (!newPath) continue;
-          fileMap.set(newPath, {
-            path: newPath,
-            oldPath,
-            status,
-            additions: 0,
-            deletions: 0,
-            lineCount: 0,
-            inlineEligible: false,
-          });
-        }
-      }
-
-      // Pass 2: --numstat feeds line counts and binary detection. With renames
-      // detected, numstat formats the path as either `old => new` or
-      // `prefix{old => new}suffix`; we extract the post-image path and merge
-      // counts into the entry name-status already created.
-      const extractPostImagePath = (raw: string): string => {
-        const brace = raw.match(/^(.*)\{([^{}]*?) => ([^{}]*?)\}(.*)$/);
-        if (brace) return `${brace[1]}${brace[3]}${brace[4]}`.replace(/\/{2,}/g, "/");
-        const arrow = raw.indexOf(" => ");
-        if (arrow !== -1) return raw.slice(arrow + 4);
-        return raw;
-      };
-      if (numstat) {
-        for (const line of numstat.split("\n")) {
-          const parts = line.split("\t");
-          if (parts.length < 3) continue;
-          const addRaw = parts[0]!;
-          const delRaw = parts[1]!;
-          const path = extractPostImagePath(parts.slice(2).join("\t"));
-          const isBinary = addRaw === "-" && delRaw === "-";
-          const additions = isBinary ? 0 : parseInt(addRaw, 10) || 0;
-          const deletions = isBinary ? 0 : parseInt(delRaw, 10) || 0;
-          const existing = fileMap.get(path);
-          if (existing) {
-            existing.additions = additions;
-            existing.deletions = deletions;
-            existing.lineCount = additions + deletions;
-            if (isBinary) existing.status = "binary";
-          } else {
-            fileMap.set(path, {
-              path,
-              status: isBinary ? "binary" : "modified",
-              additions,
-              deletions,
-              lineCount: additions + deletions,
-              inlineEligible: false,
-            });
-          }
-        }
-      }
-
-      // Probe an untracked file: read the first 8 KB to check for null bytes,
-      // stat for size, then read the rest only if the file is small enough to
-      // fit comfortably in a synthesized patch. Avoids OOM on large logs/dumps.
-      const UNTRACKED_MAX_BYTES = 1_000_000;
-      const probeUntracked = (abs: string): { kind: "binary" | "tooLarge" | "ok" | "error"; content?: string } => {
-        let fd: number | null = null;
-        try {
-          fd = openSync(abs, "r");
-          const probe = Buffer.alloc(8192);
-          const read = readSync(fd, probe, 0, 8192, 0);
-          for (let i = 0; i < read; i++) if (probe[i] === 0) return { kind: "binary" };
-          const st = statSync(abs);
-          if (st.size > UNTRACKED_MAX_BYTES) return { kind: "tooLarge" };
-          if (st.size <= read) return { kind: "ok", content: probe.subarray(0, st.size).toString("utf8") };
-          const buf = Buffer.alloc(st.size);
-          probe.copy(buf, 0, 0, read);
-          let off = read;
-          while (off < st.size) {
-            const r = readSync(fd, buf, off, st.size - off, off);
-            if (r === 0) break;
-            off += r;
-          }
-          return { kind: "ok", content: buf.subarray(0, off).toString("utf8") };
-        } catch {
-          return { kind: "error" };
-        } finally {
-          if (fd !== null) try { closeSync(fd); } catch {}
-        }
-      };
-
-      // Synthesize patches for untracked text files; surface binaries / oversized
-      // files as rows without inline patch content.
-      const untrackedPatches: string[] = [];
-      for (const path of untracked) {
-        const probe = probeUntracked(join(cwd, path));
-        if (probe.kind === "error") continue;
-        if (probe.kind === "binary") {
-          fileMap.set(path, { path, status: "binary", additions: 0, deletions: 0, lineCount: 0, inlineEligible: false });
-          continue;
-        }
-        if (probe.kind === "tooLarge") {
-          // Re-use the otherwise-unused "untracked" status to flag "we saw it but
-          // didn't synthesize"; the overlay surfaces a friendly explanation.
-          fileMap.set(path, { path, status: "untracked", additions: 0, deletions: 0, lineCount: 0, inlineEligible: false });
-          continue;
-        }
-        const content = probe.content!;
-        const lines = content === "" ? [] : content.split("\n");
-        const trailingNewline = content.endsWith("\n");
-        const realLines = trailingNewline ? lines.slice(0, -1) : lines;
-        const additions = realLines.length;
-        const header = [
-          `diff --git a/${path} b/${path}`,
-          "new file mode 100644",
-          "--- /dev/null",
-          `+++ b/${path}`,
-          `@@ -0,0 +1,${additions} @@`,
-        ];
-        const body = realLines.map((l) => `+${l}`);
-        if (!trailingNewline && realLines.length > 0) body.push("\\ No newline at end of file");
-        untrackedPatches.push([...header, ...body].join("\n"));
-        fileMap.set(path, { path, status: "added", additions, deletions: 0, lineCount: additions, inlineEligible: false });
-      }
-
-      // Combine tracked patch + untracked synthesized patches into one unified blob.
-      let patchText: string | null = diff;
-      if (untrackedPatches.length > 0) {
-        const trail = patchText && !patchText.endsWith("\n") ? "\n" : "";
-        patchText = (patchText ?? "") + trail + untrackedPatches.join("\n") + "\n";
-      }
-      if (patchText !== null && patchText.trim() === "") patchText = null;
-
-      // Stamp inlineEligible per file. Statuses without textual content
-      // ("binary", "untracked"-as-too-large) never render inline.
-      for (const summary of fileMap.values()) {
-        const hasTextualPatch = patchText !== null && summary.status !== "binary" && summary.status !== "untracked";
-        summary.inlineEligible = hasTextualPatch && summary.lineCount <= 500;
-      }
-
-      // 2MB safety rail: drop patchText, keep summaries.
-      const MAX_PATCH_BYTES = 2 * 1024 * 1024;
-      let truncated = false;
-      if (patchText !== null && Buffer.byteLength(patchText, "utf8") > MAX_PATCH_BYTES) {
-        patchText = null;
-        truncated = true;
-        for (const summary of fileMap.values()) summary.inlineEligible = false;
-      }
-
-      const files = Array.from(fileMap.values()).sort((a, b) => a.path.localeCompare(b.path));
-      const stats = files.reduce(
-        (acc, f) => ({
-          additions: acc.additions + f.additions,
-          deletions: acc.deletions + f.deletions,
-          filesChanged: acc.filesChanged + 1,
-        }),
-        { additions: 0, deletions: 0, filesChanged: 0 },
-      );
-
-      if (files.length === 0) {
-        deps.emitEphemeralLog(agentId, "system", `Working tree clean in \`${cwd}\` — no uncommitted changes.`);
-        deps.updateState(agentId, "waiting_for_response");
-        return true;
-      }
-
-      const summaryLine = `+${stats.additions} -${stats.deletions} across ${stats.filesChanged} file${stats.filesChanged === 1 ? "" : "s"}`;
-      const payload: DiffPayload = { cwd, branch, head, stats, files, patchText, truncated };
-      deps.emitEphemeralLog(agentId, "diff", summaryLine, undefined, { diff: payload });
       deps.updateState(agentId, "waiting_for_response");
       return true;
     },

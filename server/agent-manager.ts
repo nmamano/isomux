@@ -51,6 +51,7 @@ import {
   diagnoseProcessExit,
 } from "./cwd-utils.ts";
 import { buildSystemPrompt } from "./system-prompt.ts";
+import { computeIsomuxDiff, resolveDiffCwd } from "./isomux-diff.ts";
 import {
   discoverUserSkills,
   discoverProjectSkills,
@@ -508,6 +509,34 @@ export async function restoreAgents() {
 
 export function getAgent(agentId: string): AgentInfo | undefined {
   return agents.get(agentId)?.info;
+}
+
+// Run the same diff machinery as /isomux-diff and emit the result into the
+// agent's chat stream. Used by POST /agents/:id/diff so an agent can show
+// the boss a styled diff card without the boss invoking the slash command.
+export function emitAgentDiff(agentId: string, dir?: string): { ok: true } | { ok: false; status: number; error: string } {
+  const managed = agents.get(agentId);
+  if (!managed) return { ok: false, status: 404, error: "agent not found" };
+  const resolved = resolveDiffCwd(dir, managed.info.cwd);
+  if (resolved.kind === "bad_dir") {
+    return { ok: false, status: 400, error: `\`${resolved.attempted}\` is not a directory` };
+  }
+  const result = computeIsomuxDiff(resolved.cwd);
+  switch (result.kind) {
+    case "not_repo":
+      emitEphemeralLog(agentId, "system", `\`${result.cwd}\` is not a git repository.`);
+      break;
+    case "git_error":
+      emitEphemeralLog(agentId, "system", `Failed to run git diff in \`${result.cwd}\`:\n\n\`\`\`\n${result.message}\n\`\`\``);
+      break;
+    case "clean":
+      emitEphemeralLog(agentId, "system", `Working tree clean in \`${result.cwd}\` — no uncommitted changes.`);
+      break;
+    case "ok":
+      emitEphemeralLog(agentId, "diff", result.summary, undefined, { diff: result.payload });
+      break;
+  }
+  return { ok: true };
 }
 
 function emit(event: AgentEvent) {
@@ -1020,6 +1049,7 @@ function createSession(managed: ManagedAgent, resumeSessionId?: string) {
   const room = rooms[managed.info.room]!;
   const systemPrompt = buildSystemPrompt(
     managed.info.name,
+    managed.info.id,
     room.name,
     officeConfig.prompt,
     room.prompt,

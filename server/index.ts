@@ -526,6 +526,25 @@ const server = Bun.serve({
       return new Response(JSON.stringify({ error: "not found" }), { status: 404, headers: corsHeaders });
     }
 
+    // POST /agents/:id/diff — emit a styled diff card into the agent's chat,
+    // matching the /isomux-diff slash command. Lets an agent surface a diff
+    // when the boss asks "show me your changes". Optional body: { dir }.
+    if (url.pathname.startsWith("/agents/") && req.method === "POST") {
+      const parts = url.pathname.split("/").filter(Boolean);
+      if (parts.length === 3 && parts[2] === "diff") {
+        const corsHeaders = { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" };
+        const agentId = parts[1]!;
+        let dir: string | undefined;
+        try {
+          const body = await req.json() as Record<string, unknown> | null;
+          if (body && typeof body.dir === "string") dir = body.dir;
+        } catch {}
+        const result = AgentManager.emitAgentDiff(agentId, dir);
+        if (!result.ok) return new Response(JSON.stringify({ error: result.error }), { status: result.status, headers: corsHeaders });
+        return new Response(JSON.stringify({ ok: true }), { headers: corsHeaders });
+      }
+    }
+
     // File upload endpoint: POST /api/upload/{agentId}
     if (url.pathname.startsWith("/api/upload/") && req.method === "POST") {
       const agentId = url.pathname.split("/")[3];
