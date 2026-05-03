@@ -1,6 +1,6 @@
 import { join } from "path";
 import { homedir } from "os";
-import { mkdirSync, appendFileSync, readFileSync, writeFileSync, existsSync, readdirSync } from "fs";
+import { mkdirSync, appendFileSync, readFileSync, writeFileSync, existsSync, readdirSync, renameSync } from "fs";
 import { createHash } from "crypto";
 import type { AgentInfo, Attachment, ClaudeModel, EffortLevel, LogEntry, ModelFamily, TaskItem } from "../shared/types.ts";
 import { familyFromLegacyModel, generateRoomId } from "../shared/types.ts";
@@ -18,6 +18,16 @@ try {
   mkdirSync(ISOMUX_DIR, { recursive: true });
   mkdirSync(LOGS_DIR, { recursive: true });
 } catch {}
+
+// Atomic file write: write to a sibling .tmp file then rename. Renames are
+// atomic on the same filesystem, so a concurrent reader (notably the backup
+// tarball) sees either the previous contents or the new contents, never a
+// half-written file. JSONL appends are line-tolerant and skip this.
+export function atomicWriteFileSync(path: string, data: string | Buffer) {
+  const tmp = path + ".tmp";
+  writeFileSync(tmp, data);
+  renameSync(tmp, path);
+}
 
 export function appendLog(agentId: string, sessionId: string, entry: LogEntry) {
   try {
@@ -126,7 +136,7 @@ function saveSessionsMap(agentId: string, map: SessionsMap) {
   try {
     const agentDir = join(LOGS_DIR, agentId);
     mkdirSync(agentDir, { recursive: true });
-    writeFileSync(join(agentDir, "sessions.json"), JSON.stringify(map, null, 2));
+    atomicWriteFileSync(join(agentDir, "sessions.json"), JSON.stringify(map, null, 2));
   } catch (err) {
     console.error("Failed to save sessions map:", err);
   }
@@ -355,7 +365,7 @@ export function loadAgents(): Room[] {
 
 export function saveAgents(rooms: Room[]) {
   try {
-    writeFileSync(AGENTS_FILE, JSON.stringify(rooms, null, 2));
+    atomicWriteFileSync(AGENTS_FILE, JSON.stringify(rooms, null, 2));
   } catch (err) {
     console.error("Failed to save agents:", err);
   }
@@ -378,7 +388,7 @@ export function writeManifest(agents: { id: string; name: string; desk: number; 
       model: a.model,
       logDir: join(LOGS_DIR, a.id),
     }));
-    writeFileSync(MANIFEST_FILE, JSON.stringify(manifest, null, 2));
+    atomicWriteFileSync(MANIFEST_FILE, JSON.stringify(manifest, null, 2));
   } catch (err) {
     console.error("Failed to write manifest:", err);
   }
@@ -401,7 +411,7 @@ export function saveRecentCwd(cwd: string) {
   try {
     const recent = loadRecentCwds().filter((c) => c !== cwd);
     recent.unshift(cwd);
-    writeFileSync(RECENT_CWDS_FILE, JSON.stringify(recent.slice(0, MAX_RECENT_CWDS), null, 2));
+    atomicWriteFileSync(RECENT_CWDS_FILE, JSON.stringify(recent.slice(0, MAX_RECENT_CWDS), null, 2));
   } catch (err) {
     console.error("Failed to save recent cwd:", err);
   }
@@ -441,7 +451,7 @@ export function loadOfficeConfig(): OfficeConfig {
   // it anyway once there's real data.
   if (legacyPrompt) {
     try {
-      writeFileSync(OFFICE_CONFIG_FILE, JSON.stringify(config, null, 2));
+      atomicWriteFileSync(OFFICE_CONFIG_FILE, JSON.stringify(config, null, 2));
     } catch (err) {
       console.error("Failed to write initial office config:", err);
     }
@@ -451,7 +461,7 @@ export function loadOfficeConfig(): OfficeConfig {
 
 export function saveOfficeConfig(config: OfficeConfig) {
   try {
-    writeFileSync(OFFICE_CONFIG_FILE, JSON.stringify(config, null, 2));
+    atomicWriteFileSync(OFFICE_CONFIG_FILE, JSON.stringify(config, null, 2));
   } catch (err) {
     console.error("Failed to save office config:", err);
   }
@@ -537,7 +547,7 @@ export function loadAgentHistory(): AgentHistory {
 
 export function saveAgentHistory(history: AgentHistory) {
   try {
-    writeFileSync(AGENT_HISTORY_FILE, JSON.stringify(history, null, 2));
+    atomicWriteFileSync(AGENT_HISTORY_FILE, JSON.stringify(history, null, 2));
   } catch (err) {
     console.error("Failed to save agent history:", err);
   }
@@ -555,7 +565,7 @@ export function loadTasks(): TaskItem[] {
 
 export function saveTasks(tasks: TaskItem[]) {
   try {
-    writeFileSync(TASKS_FILE, JSON.stringify(tasks, null, 2));
+    atomicWriteFileSync(TASKS_FILE, JSON.stringify(tasks, null, 2));
   } catch (err) {
     console.error("Failed to save tasks:", err);
   }

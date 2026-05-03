@@ -5,6 +5,7 @@ import * as CronjobManager from "./cronjob-manager.ts";
 import { loadRecentCwds, saveRecentCwd, loadTasks, saveTasks, getFilePath, saveFile } from "./persistence.ts";
 import type { Attachment } from "../shared/types.ts";
 import { startUpdateChecker, getUpdateStatus, onUpdateChange } from "./update-checker.ts";
+import { startBackupScheduler, getBackupStatus } from "./backup.ts";
 import type { TaskItem } from "../shared/types.ts";
 import { generateTaskId, isValidStatus, isValidPriority } from "../shared/types.ts";
 import { join } from "path";
@@ -526,6 +527,13 @@ const server = Bun.serve({
       return new Response(JSON.stringify({ error: "not found" }), { status: 404, headers: corsHeaders });
     }
 
+    // GET /backup/status — last-run timestamp, ok/error, retention, dest dir.
+    if (url.pathname === "/backup/status" && req.method === "GET") {
+      return new Response(JSON.stringify(getBackupStatus()), {
+        headers: { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" },
+      });
+    }
+
     // POST /agents/:id/diff — emit a styled diff card into the agent's chat,
     // matching the /isomux-diff slash command. Lets an agent surface a diff
     // when the boss asks "show me your changes". Optional body: { dir }.
@@ -701,5 +709,8 @@ AgentManager.restoreAgents().then((restored) => {
 
 // Boot cronjob scheduler (loads configs, reconciles stale "running" rows, starts tick).
 CronjobManager.startCronjobScheduler();
+
+// Daily ~/.isomux/ backup tarball with N=7 retention. See server/backup.ts.
+startBackupScheduler();
 
 console.log(`Isomux running at http://localhost:${server.port}`);

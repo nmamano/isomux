@@ -11,9 +11,9 @@
 //         <sessionId>.jsonl            append-only log
 import { join } from "path";
 import { homedir } from "os";
-import { mkdirSync, readFileSync, writeFileSync, existsSync, appendFileSync, readdirSync } from "fs";
+import { mkdirSync, readFileSync, existsSync, appendFileSync, readdirSync } from "fs";
 import type { Cronjob, CronjobRun, LogEntry } from "../shared/types.ts";
-import type { PersistedUsage } from "./persistence.ts";
+import { atomicWriteFileSync, type PersistedUsage } from "./persistence.ts";
 
 const ISOMUX_DIR = join(homedir(), ".isomux");
 const CRONJOBS_DIR = join(ISOMUX_DIR, "cronjobs");
@@ -39,7 +39,7 @@ export function loadCronjobsPrompt(): string | null {
 
 export function saveCronjobsPrompt(value: string | null) {
   try {
-    writeFileSync(CRONJOBS_PROMPT_FILE, value ?? "");
+    atomicWriteFileSync(CRONJOBS_PROMPT_FILE, value ?? "");
   } catch (err) {
     console.error("Failed to save cronjobs prompt:", err);
   }
@@ -55,7 +55,7 @@ export function migrateCronjobsPromptFromOfficeConfig() {
     if (!existsSync(officePath)) return;
     const parsed = JSON.parse(readFileSync(officePath, "utf-8"));
     if (typeof parsed.cronjobsPrompt === "string" && parsed.cronjobsPrompt.trim()) {
-      writeFileSync(CRONJOBS_PROMPT_FILE, parsed.cronjobsPrompt);
+      atomicWriteFileSync(CRONJOBS_PROMPT_FILE, parsed.cronjobsPrompt);
     }
   } catch {}
 }
@@ -76,7 +76,7 @@ export function loadCronjobs(): Cronjob[] {
 
 export function saveCronjobs(cronjobs: Cronjob[]) {
   try {
-    writeFileSync(CRONJOBS_FILE, JSON.stringify(cronjobs, null, 2));
+    atomicWriteFileSync(CRONJOBS_FILE, JSON.stringify(cronjobs, null, 2));
   } catch (err) {
     console.error("Failed to save cronjobs:", err);
   }
@@ -95,7 +95,7 @@ export function loadCronjobHistory(): CronjobHistory {
 
 export function saveCronjobHistory(history: CronjobHistory) {
   try {
-    writeFileSync(CRONJOB_HISTORY_FILE, JSON.stringify(history, null, 2));
+    atomicWriteFileSync(CRONJOB_HISTORY_FILE, JSON.stringify(history, null, 2));
   } catch (err) {
     console.error("Failed to save cronjob history:", err);
   }
@@ -139,7 +139,7 @@ export function loadRuns(jobId: string): CronjobRun[] {
 export function saveRuns(jobId: string, runs: CronjobRun[]) {
   try {
     mkdirSync(jobDir(jobId), { recursive: true });
-    writeFileSync(runsFile(jobId), JSON.stringify(runs, null, 2));
+    atomicWriteFileSync(runsFile(jobId), JSON.stringify(runs, null, 2));
   } catch (err) {
     console.error(`Failed to save runs for ${jobId}:`, err);
   }
@@ -210,7 +210,7 @@ export function loadRunSessionsMap(jobId: string, runId: string): RunSessionsMap
 function saveRunSessionsMap(jobId: string, runId: string, map: RunSessionsMap) {
   try {
     mkdirSync(runDir(jobId, runId), { recursive: true });
-    writeFileSync(sessionsMapFile(jobId, runId), JSON.stringify(map, null, 2));
+    atomicWriteFileSync(sessionsMapFile(jobId, runId), JSON.stringify(map, null, 2));
   } catch (err) {
     console.error(`Failed to save run sessions map ${jobId}/${runId}:`, err);
   }
