@@ -721,9 +721,6 @@ bun run dev</pre>
       <p>Isomux shines when you run it on your own always-on box/server (like a Mac Mini), and then access it from all your devices.</p>
       <p style="margin-top: 12px;">Your phone and laptop see the same conversations, in real time, with UIs optimized for each. Agents keep running even if you close the browser.</p>
       <p style="margin-top: 12px;">The best way to set this up quickly and securely is by taking advantage of <a href="https://tailscale.com/" target="_blank" rel="noopener"><strong>Tailscale</strong></a> (it's free): your server serves Isomux on <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">localhost:4000</code>, and every other device reaches it at <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">&lt;TAILSCALE_SERVER_IP&gt;:4000</code>.</p>
-      <p style="margin-top: 12px; color: var(--text-dim); font-size: 0.85rem;"><strong>Tip:</strong> On your phone, use &ldquo;Add to Home Screen&rdquo; for a native app feel.</p>
-      <img src="/add-to-home-screen.jpeg" alt="iOS Safari share menu with the &ldquo;Add to Home Screen&rdquo; option highlighted" style="display: block; max-width: 240px; width: 100%; margin: 12px auto 0; border-radius: 8px; border: 1px solid var(--border);" />
-
       <h3>1. Install Tailscale</h3>
       <p>Install Tailscale on the server, your laptop, and your phone.</p>
 <pre>curl -fsSL https://tailscale.com/install.sh | sh
@@ -737,6 +734,8 @@ tailscale ip -4</pre>
       <h3>2. Access from laptop or phone</h3>
       <p>Open from any connected device:</p>
 <pre>http://my-mac-mini:4000</pre>
+      <p style="margin-top: 12px; color: var(--text-dim); font-size: 0.85rem;"><strong>Tip:</strong> On your phone, use &ldquo;Add to Home Screen&rdquo; for a native app feel.</p>
+      <img src="/add-to-home-screen.jpeg" alt="iOS Safari share menu with the &ldquo;Add to Home Screen&rdquo; option highlighted" style="display: block; max-width: 240px; width: 100%; margin: 12px auto 0; border-radius: 8px; border: 1px solid var(--border);" />
 
       <h3>3. Make it persistent</h3>
       <p>Give this prompt to one of your Isomux agents:</p>
