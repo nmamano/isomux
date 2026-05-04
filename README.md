@@ -14,18 +14,23 @@ See [isomux.com](https://isomux.com) for setup instructions and a live demo. Rea
 - Visual office metaphor: see what every agent is doing at a glance
   - **Animated characters**: sleeping when idle, typing when working, waving when waiting for you
   - [**Skeuomorphic touches**](https://x.com/Nil053/status/2039027360117506399): click the moon to toggle dark mode, click doors to switch rooms, etc.
+  - **Auto-generated topic** below each nametag, so you remember what each agent is working on
 - [**Mobile UI**](https://x.com/Nil053/status/2039996579965542516): continue conversations on your phone with a touch-optimized interface
 - Works locally or as a **self-hosted persistent server** (Mac Mini style):
   - Run at home, access **from any device** in your [Tailscale](https://tailscale.com/) network
   - No syncing headaches: same conversations, same filesystem, every device updates **in real time**
+  - [**Multi-user collaboration**](https://x.com/Nil053/status/2050141843741081928): anyone on your Tailnet can chime in to the same conversations, in real time
 - [**Embedded terminal**](https://x.com/Nil053/status/2039504957184090281) per agent
+- **Built-in diff tool**: render uncommitted changes as a styled inline card; agents can decide when to show diffs on their own
 - **Voice-to-text** prompting and **text-to-speech** responses
 - [**Pre-tool-call safety hooks**](https://x.com/Nil053/status/2039497314826666469): blocks dangerous commands like `rm -rf`
 - [**Custom commands**](https://x.com/Nil053/status/2040018957453918431) in addition to your own, all with autocomplete: e.g. `/isomux-peer-review` to review another agent's work, or `/isomux-all-hands` to see what everyone is up to
 - [**Agents can check on each other**](https://x.com/Nil053/status/2039494626265149778): inter-agent discovery via shared manifest
+- [**Hierarchical system prompts**](https://x.com/Nil053/status/2050130563915534346): office-wide, per-room, and per-agent prompts compose into one
 - [**Shared task board**](https://x.com/Nil053/status/2040871759529025617): humans and agents can create, assign, claim, and close tasks — full interop via UI and HTTP API
-- **Cron jobs**: schedule recurring agent runs (daily, weekly, every N minutes); each run is a fresh agent session with a browsable, resumable transcript
+- [**Cron jobs**](https://x.com/Nil053/status/2048308972072079753): schedule recurring agent runs (daily, weekly, every N minutes); each run is a fresh agent session with a browsable, resumable transcript
 - **Image/PDF attachments**: agents understand images and PDFs. Agents can show images inline in the conversation
+- **Conversation branching**: edit any past message to fork the conversation from that point, preserving the original
 - **Sound notifications**: get pinged when an agent finishes
 
 ## Get Started
@@ -77,6 +82,7 @@ For persistent server setup (systemd + Tailscale) and voice input configuration,
 - **Click empty desk to spawn** — name, working directory, permission mode, custom instructions
 - Working directory input with **recent CWD suggestions**
 - **Outfit customization**: color swatches, hat, accessory, randomize with live preview
+- **Hierarchical system prompts** — office-wide, per-room, and per-agent prompts compose into one assembled system prompt for every agent, all editable from the UI
 - **Custom instructions** per agent, editable at spawn and later
 
 ### Conversation View
@@ -99,7 +105,7 @@ For persistent server setup (systemd + Tailscale) and voice input configuration,
 
 ### Slash Commands & Autocomplete
 - Built-in commands: `/clear`, `/help`, `/context`, `/resume`, `/model`, `/effort` (thinking effort), `/usage` (per-agent / per-room / per-cron-job token spend)
-- Isomux additions: `/isomux-all-hands`, `/isomux-system-prompt`, `/isomux-diff` (rich-rendered uncommitted changes in the agent's cwd)
+- Isomux additions: `/isomux-all-hands`, `/isomux-system-prompt`, `/isomux-diff` (rich-rendered uncommitted changes in the agent's cwd — agents can also choose to show a diff card on their own)
 - **Bundled skills** like `/isomux-grill-me` (based on the original `/grill-me` by Matt Pocock), `/isomux-peer-review`, `/isomux-review-and-commit` — available to every agent out of the box
 - User skills from `~/.claude/skills/` and project commands
 - **Autocomplete dropdown** with keyboard navigation
@@ -134,6 +140,7 @@ For persistent server setup (systemd + Tailscale) and voice input configuration,
 
 ### System & Backend
 - **Real-time sync via WebSocket** — every connected device stays in lockstep
+- **Multi-user real-time collaboration** — when accessed over Tailscale, multiple humans can chime in to the same conversation simultaneously
 - **Single Bun process** — no bundler, no database, minimal deps
 - Uses **Claude subscription via CLI auth** — no API key needed
 - **Built-in safety hooks** — blocks `rm -rf`, `git reset --hard`, and other footguns out of the box

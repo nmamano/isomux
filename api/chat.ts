@@ -54,6 +54,7 @@ Isomux has been built by Claude Code agents running inside Isomux since 3 hours 
 ## Self-hosted Persistent Server (Mac Mini style)
 Isomux shines when you run it on your own always-on machine (like a Mac Mini), and then access it from all your devices.
 Your phone and laptop see the same conversations, in real time, with UIs optimized for each. Agents keep running even if you close the browser.
+Bonus: anyone else on your Tailnet can chime in to the same conversation in real time, so multiple humans can collaborate with the same agent.
 
 Setup:
 1. Install Tailscale (free) on the server, your laptop, and your phone.
@@ -91,7 +92,7 @@ Setup:
 - Working directory input with recent CWD suggestions
 - Outfit customization: color swatches, hat, accessory, randomize with live preview
 - Custom instructions per agent, editable at spawn and later
-- Office-wide system prompt shared by all agents (editable via the framed sign)
+- Hierarchical system prompts — three user-defined layers compose into the assembled system prompt for every agent: office-wide (shared by every agent in every room), per-room (shared by every agent in a given room — useful for grouping by project or role), and per-agent (custom instructions for one agent). All three are editable from the UI.
 
 ### Conversation View
 - Input drafts preserved when switching between agents
@@ -113,7 +114,7 @@ Setup:
 
 ### Slash Commands & Autocomplete
 - Built-in commands: /clear, /help, /context, /resume, /model, /effort (per-agent thinking effort), /usage (per-agent / per-room / per-cron-job token spend)
-- Isomux additions: /isomux-all-hands (shows what everyone is up to), /isomux-system-prompt (dumps the full assembled system prompt), /isomux-diff (rich-rendered uncommitted changes in the agent's cwd)
+- Isomux additions: /isomux-all-hands (shows what everyone is up to), /isomux-system-prompt (dumps the full assembled system prompt), /isomux-diff (rich-rendered uncommitted changes in the agent's cwd — agents can also choose to show a diff card on their own)
 - User skills from ~/.claude/skills/ and project commands
 - Isomux-bundled skills like /isomux-peer-review (tells an agent to review another agent's work), /isomux-grill-me (stress-tests a feature design; based on the original /grill-me by Matt Pocock), /isomux-review-and-commit
 - Autocomplete dropdown with keyboard navigation
