@@ -452,6 +452,7 @@ export async function restoreAgents() {
         consumerPromise: null,
         pendingTurn: null,
         aborting: false,
+        abortPromise: null,
         slashCommands: autocompleteCommands(),
         skills: deduplicateSkills([...discoverUserSkills(), ...discoverProjectSkills(p.cwd), ...discoverPluginSkills(), ...discoverBundledSkills()]),
         sdkReportedCommands: [],
@@ -903,6 +904,12 @@ async function runConsumer(agentId: string, managed: ManagedAgent, boundSession:
   while (agents.has(agentId) && managed.session === boundSession) {
     try {
       for await (const msg of boundSession.stream()) {
+        // After an abort/resume/fork the dying session may keep yielding
+        // messages for several seconds before its stream() generator finally
+        // ends (the SDK's close() doesn't interrupt mid-chunk). We must keep
+        // draining so the inner generator terminates, but we drop the events
+        // — otherwise the user sees model output continuing after Ctrl+C.
+        if (managed.session !== boundSession) continue;
         processMessage(agentId, msg);
       }
       // Inner generator ended: either the turn's `result` arrived, or the
@@ -1142,6 +1149,7 @@ export async function spawn(
     consumerPromise: null,
     pendingTurn: null,
     aborting: false,
+    abortPromise: null,
     slashCommands: autocompleteCommands(),
     skills: deduplicateSkills([...discoverUserSkills(), ...discoverProjectSkills(resolvedCwd), ...discoverPluginSkills(), ...discoverBundledSkills()]),
     sdkReportedCommands: [],
@@ -1206,12 +1214,24 @@ const { handleSlashCommand } = createCommandHandling({
 export async function sendMessage(agentId: string, text: string, username?: string, attachments?: Attachment[]) {
   const managed = agents.get(agentId);
   if (!managed) return;
+  // If an abort is mid-handoff, wait for it to install the replacement session.
+  // Without this, a follow-up message arriving in the gap between session.close()
+  // and installSession sees session=null and falls into the recovery branch below,
+  // amputating the agent's context.
+  if (managed.abortPromise) {
+    try { await managed.abortPromise; } catch {}
+  }
   if (!managed.session) {
     // Try to create a fresh session so the user's next message doesn't silently vanish.
+    // Pass managed.sessionId so the new session resumes from the prior transcript when
+    // possible — the previous session is genuinely dead, but the on-disk transcript is
+    // still intact and worth restoring.
     try {
-      installSession(agentId, managed, createSession(managed));
-      managed.sessionId = null;
-      addLogEntry(agentId, "system", "Started a fresh session (previous one could not be restored).");
+      const sessionId = managed.sessionId;
+      installSession(agentId, managed, sessionId ? createSession(managed, sessionId) : createSession(managed));
+      addLogEntry(agentId, "system", sessionId
+        ? "Resumed prior session after the previous one ended unexpectedly."
+        : "Started a fresh session (previous one could not be restored).");
       updateState(agentId, "waiting_for_response");
       // Fall through so the message is actually sent on the new session.
     } catch (err: any) {
@@ -1408,18 +1428,28 @@ export async function abort(agentId: string) {
     return;
   }
   managed.aborting = true;
+  let abortDone!: () => void;
+  managed.abortPromise = new Promise<void>((res) => { abortDone = res; });
   const sessionId = managed.sessionId;
+
+  // Flip UI state and log the interrupt up front so the agent appears to
+  // stop immediately. The SDK's close() takes a few seconds to actually
+  // drain, but runConsumer suppresses events from the dying session — so
+  // from the user's perspective the agent stops on Ctrl+C, matching the
+  // Claude Code interactive behavior.
+  updateState(agentId, "waiting_for_response");
+  addLogEntry(agentId, "system", "Agent interrupted.");
 
   try {
     const newSession = sessionId ? createSession(managed, sessionId) : createSession(managed);
     await replaceSession(agentId, managed, newSession);
-    updateState(agentId, "waiting_for_response");
-    addLogEntry(agentId, "system", "Agent interrupted.");
   } catch (err: any) {
     addLogEntry(agentId, "error", `Failed to resume after interrupt: ${err.message}`);
     updateState(agentId, "error");
   } finally {
     managed.aborting = false;
+    managed.abortPromise = null;
+    abortDone();
   }
 }
 

@@ -40,6 +40,19 @@ function escalationColor(elapsedMs: number, baseColor: string): string {
   return baseColor;
 }
 
+// Debounce abort sends across all sites (textarea Ctrl+C, ActivityIndicator
+// button, mobile Stop). Users tap Ctrl+C twice when the first tap doesn't
+// visibly do anything, and the second frame races with the in-flight abort —
+// see task 154e2c14 for the full investigation.
+const lastAbortAtPerAgent = new Map<string, number>();
+function sendAbortDebounced(agentId: string) {
+  const now = performance.now();
+  const last = lastAbortAtPerAgent.get(agentId) ?? 0;
+  if (now - last < 2000) return;
+  lastAbortAtPerAgent.set(agentId, now);
+  send({ type: "abort", agentId });
+}
+
 function ActivityIndicator({ state, stateChangedAt, agentId }: { state: AgentState; stateChangedAt?: number; agentId: string }) {
   const label = STATE_LABELS[state];
   const [now, setNow] = useState(Date.now());
@@ -81,7 +94,7 @@ function ActivityIndicator({ state, stateChangedAt, agentId }: { state: AgentSta
       </span>
       {showAbort && (
         <button
-          onClick={() => send({ type: "abort", agentId })}
+          onClick={() => sendAbortDebounced(agentId)}
           style={{
             marginLeft: 8,
             padding: "2px 10px",
@@ -1230,7 +1243,7 @@ export function LogView({
                 }
                 if (e.key === "c" && (e.ctrlKey || e.metaKey) && isBusy) {
                   e.preventDefault();
-                  send({ type: "abort", agentId: agent.id });
+                  sendAbortDebounced(agent.id);
                 }
               }}
               placeholder={editingLogEntryId ? "Editing message above..." : isBusy ? (isMobile ? "Agent is busy..." : "Agent is busy — Ctrl+C to interrupt...") : isMobile ? "Type a message..." : "Type a message or / for commands..."}
@@ -1379,7 +1392,7 @@ export function LogView({
           {isMobile && (
             isBusy ? (
               <button
-                onClick={() => send({ type: "abort", agentId: agent.id })}
+                onClick={() => sendAbortDebounced(agent.id)}
                 style={{
                   flexShrink: 0,
                   alignSelf: "flex-end",

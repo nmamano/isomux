@@ -14,6 +14,10 @@ export interface ManagedAgent {
   // resolves it when the turn's `stream()` iterator ends at `result`.
   pendingTurn: { resolve: () => void; reject: (err: unknown) => void } | null;
   aborting: boolean;
+  // Set while abort() is mid-flight (between session.close() and installSession of the
+  // replacement). sendMessage awaits this so a follow-up message arriving in the gap
+  // doesn't see session=null and amputate context by spinning up a fresh blank session.
+  abortPromise: Promise<void> | null;
   slashCommands: { name: string; description?: string }[];
   skills: SkillInfo[];
   sdkReportedCommands: string[]; // commands reported by SDK in system:init
