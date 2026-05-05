@@ -91,6 +91,10 @@ export interface AgentInfo {
   topic: string | null;
   topicStale: boolean;
   customInstructions: string | null;
+  // The user who spawned this agent. Per-user env (git/gh credentials) is
+  // resolved through this field at session creation time. null only for
+  // legacy unowned agents migrated from before the user/device split.
+  username: string | null;
 }
 
 // File attachment metadata
@@ -147,8 +151,8 @@ export interface TaskItem {
   priority?: TaskPriority;
   status: TaskStatus;
   assignee?: string;
-  createdBy: string;
-  device?: string;      // Device (boss name) that originated the request, if known
+  createdBy: string;    // Actor that created the record (agent name or user name)
+  username?: string;    // Human boss this record is on behalf of
   createdAt: number;
 }
 
@@ -201,8 +205,8 @@ export interface Cronjob {
   effort: EffortLevel;
   permissionMode: CronjobPermissionMode;
   enabled: boolean;
-  createdBy: string;
-  device: string | null;
+  createdBy: string;        // Actor that created the record (agent name or user name)
+  username: string | null;  // Human boss this record is on behalf of
   createdAt: number;
   lastFireAt: number | null;
   nextFireAt: number;
@@ -232,6 +236,10 @@ export interface CronjobRun {
   // backwards compatibility with runs persisted before resume support landed.
   currentSessionId?: string;
   previewText: string;         // last assistant text block, truncated ~120 chars
+  // Set on manual fires only (run_cronjob_now) — captures the user that
+  // triggered the run so the UI can show "Manually triggered by Nil".
+  // Scheduled fires leave this undefined.
+  triggeredBy?: string;
 }
 
 // Cronjob runs piggy-back on the LogEntry.agentId routing by using a
@@ -300,7 +308,18 @@ export interface RoomWire {
   id: string;               // 8-char hex, stable
   name: string;             // display name
   prompt: string | null;
-  envFile: string | null;
+}
+
+// Per-user record stored server-side in ~/.isomux/users.json. Keyed in the
+// file by lowercase(name); display case is whatever the user supplied.
+export type NotifRoomsSetting = "all" | string[];
+
+export interface UserRecord {
+  name: string;                   // display case, e.g. "Nil"
+  defaultRoomId: string | null;
+  notifRooms: NotifRoomsSetting;
+  envFile: string | null;         // absolute path to dotenv file
+  createdAt: number;
 }
 
 // Response to update_*_settings (sent only to the requesting client)
@@ -315,8 +334,8 @@ export interface SettingsSaveResponse {
 export interface SettingsValidationResponse {
   type: "settings_validation";
   requestId: string;
-  scope: "office" | "room";
-  roomId?: string;
+  scope: "office" | "user";
+  username?: string;        // lowercase key when scope === "user"
   envFile: string | null;
   ok: boolean;
   keyCount?: number;
@@ -356,8 +375,10 @@ export type ServerMessage =
   | { type: "room_created"; room: RoomWire }
   | { type: "room_closed"; roomId: string }
   | { type: "room_renamed"; roomId: string; name: string }
-  | { type: "room_settings_updated"; roomId: string; prompt: string | null; envFile: string | null }
+  | { type: "room_settings_updated"; roomId: string; prompt: string | null }
   | { type: "rooms_reordered"; order: string[] }
+  | { type: "users_list"; users: UserRecord[] }
+  | { type: "user_updated"; user: UserRecord; prevName?: string }
   | SettingsSaveResponse
   | SettingsValidationResponse
   | AgentSaveResponse
@@ -375,10 +396,10 @@ export type ServerMessage =
 
 // Browser → Server commands
 export type ClientCommand =
-  | { type: "spawn"; requestId?: string; name: string; cwd: string; permissionMode: AgentInfo["permissionMode"]; desk: number; roomId?: string; customInstructions?: string; outfit?: AgentOutfit; modelFamily?: ModelFamily; effort?: EffortLevel }
+  | { type: "spawn"; requestId?: string; name: string; cwd: string; permissionMode: AgentInfo["permissionMode"]; desk: number; roomId?: string; customInstructions?: string; outfit?: AgentOutfit; modelFamily?: ModelFamily; effort?: EffortLevel; username?: string }
   | { type: "kill"; agentId: string }
   | { type: "abort"; agentId: string }
-  | { type: "send_message"; agentId: string; text: string; username?: string; attachments?: Attachment[] }
+  | { type: "send_message"; agentId: string; text: string; username?: string; device?: string; attachments?: Attachment[] }
   | { type: "new_conversation"; agentId: string }
   | { type: "resume"; agentId: string; sessionId: string }
   | { type: "list_sessions"; agentId: string }
@@ -391,10 +412,10 @@ export type ClientCommand =
   | { type: "terminal_resize"; agentId: string; cols: number; rows: number }
   | { type: "terminal_close"; agentId: string }
   | { type: "update_office_settings"; requestId: string; prompt: string | null; envFile: string | null }
-  | { type: "update_room_settings"; requestId: string; roomId: string; prompt: string | null; envFile: string | null }
-  | { type: "request_settings_validation"; requestId: string; scope: "office" | "room"; roomId?: string }
+  | { type: "update_room_settings"; requestId: string; roomId: string; prompt: string | null }
+  | { type: "request_settings_validation"; requestId: string; scope: "office" | "user"; username?: string }
   | { type: "request_cwd_validation"; requestId: string; cwd: string }
-  | { type: "add_task"; title: string; description?: string; priority?: TaskPriority; assignee?: string; username: string; device?: string }
+  | { type: "add_task"; title: string; description?: string; priority?: TaskPriority; assignee?: string; username: string }
   | { type: "update_task"; id: string; changes: Partial<Pick<TaskItem, "title" | "description" | "priority" | "status" | "assignee">> }
   | { type: "delete_task"; id: string }
   | { type: "create_room"; name?: string }
@@ -402,17 +423,20 @@ export type ClientCommand =
   | { type: "rename_room"; roomId: string; name: string }
   | { type: "move_agent"; agentId: string; targetRoomId: string }
   | { type: "reorder_rooms"; order: string[] }
-  | { type: "edit_message"; agentId: string; logEntryId: string; newText: string; username?: string }
-  | { type: "add_cronjob"; requestId?: string; name: string; schedule: Schedule; prompt: string; cwd: string; modelFamily: ModelFamily; effort: EffortLevel; permissionMode: CronjobPermissionMode; username: string; device?: string }
+  | { type: "edit_message"; agentId: string; logEntryId: string; newText: string; username?: string; device?: string }
+  | { type: "add_cronjob"; requestId?: string; name: string; schedule: Schedule; prompt: string; cwd: string; modelFamily: ModelFamily; effort: EffortLevel; permissionMode: CronjobPermissionMode; username: string }
   | { type: "update_cronjob"; requestId?: string; id: string; changes: Partial<Pick<Cronjob, "name" | "schedule" | "prompt" | "cwd" | "modelFamily" | "effort" | "permissionMode" | "enabled">> }
   | { type: "delete_cronjob"; id: string }
-  | { type: "run_cronjob_now"; id: string; username: string; device?: string }
+  | { type: "run_cronjob_now"; id: string; username: string }
   | { type: "update_cronjobs_prompt"; requestId: string; value: string | null }
   | { type: "list_cronjob_runs"; cronjobId: string }
   | { type: "list_all_cronjob_runs" }
   | { type: "load_cronjob_run"; cronjobId: string; runId: string }
-  | { type: "send_cronjob_run_message"; cronjobId: string; runId: string; text: string; username?: string }
-  | { type: "edit_cronjob_run_message"; cronjobId: string; runId: string; logEntryId: string; newText: string; username?: string }
+  | { type: "send_cronjob_run_message"; cronjobId: string; runId: string; text: string; username?: string; device?: string }
+  | { type: "edit_cronjob_run_message"; cronjobId: string; runId: string; logEntryId: string; newText: string; username?: string; device?: string }
+  | { type: "claim_user"; username: string; defaultRoomId?: string | null; notifRooms?: NotifRoomsSetting }
+  | { type: "update_user"; requestId?: string; username: string; changes: Partial<Pick<UserRecord, "name" | "defaultRoomId" | "notifRooms" | "envFile">> }
+  | { type: "delete_user"; username: string }
   | { type: "ping" };
 
 // Generate a stable 8-char hex room ID (used at room creation and during migration)

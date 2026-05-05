@@ -1,8 +1,8 @@
 import { createContext, useContext, useReducer, useEffect, useRef, useState, useCallback, type ReactNode, type Dispatch } from "react";
-import type { AgentInfo, LogEntry, SessionInfo, ServerMessage, SkillInfo, TaskItem, OfficeSettings, RoomWire, SettingsSaveResponse, SettingsValidationResponse, Cronjob, CronjobRun } from "../shared/types.ts";
-import { connect } from "./ws.ts";
+import type { AgentInfo, LogEntry, SessionInfo, ServerMessage, SkillInfo, TaskItem, OfficeSettings, RoomWire, SettingsSaveResponse, SettingsValidationResponse, Cronjob, CronjobRun, UserRecord } from "../shared/types.ts";
+import { connect, send } from "./ws.ts";
 import { type Features, PRODUCTION_FEATURES } from "../shared/features.ts";
-import { getDefaultRoomId, getNotifRooms, shouldNotifyRoom } from "./device-settings.ts";
+import { getUsername, readLegacyUserPrefs, clearLegacyUserPrefs, shouldNotifyRoom } from "./device-settings.ts";
 
 export interface AppState {
   agents: AgentInfo[];
@@ -35,6 +35,11 @@ export interface AppState {
   updateAvailable: boolean;
   updateCurrent: { sha: string; message: string; date: string };
   updateLatest: { sha: string; message: string; date: string };
+  // Server-stored boss profiles. `users` is keyed by lowercase(name). The
+  // current device's user is whichever record matches localStorage's
+  // isomux-username; null if that key is unset or the record hasn't loaded.
+  users: Map<string, UserRecord>;
+  usersLoaded: boolean;
 }
 
 type Action =
@@ -57,8 +62,10 @@ type Action =
   | { type: "room_created"; room: RoomWire }
   | { type: "room_closed"; roomId: string }
   | { type: "room_renamed"; roomId: string; name: string }
-  | { type: "room_settings_updated"; roomId: string; prompt: string | null; envFile: string | null }
+  | { type: "room_settings_updated"; roomId: string; prompt: string | null }
   | { type: "rooms_reordered"; order: string[] }
+  | { type: "users_list"; users: UserRecord[] }
+  | { type: "user_updated"; user: UserRecord; prevName?: string }
   | SettingsSaveResponse
   | SettingsValidationResponse
   | { type: "update_status"; updateAvailable: boolean; current: { sha: string; message: string; date: string }; latest: { sha: string; message: string; date: string } }
@@ -77,12 +84,14 @@ const ATTENTION_STATES = new Set(["idle", "error", "waiting_for_response"]);
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case "full_state": {
-      // Apply per-device default room only on the first full_state (when we
+      // Apply the user's default room only on the first full_state (when we
       // haven't seen any rooms yet). Subsequent full_states (e.g. after a
       // server reconnect) preserve whichever room the user was viewing.
       let currentRoom = state.currentRoom;
       if (state.rooms.length === 0) {
-        const defaultId = getDefaultRoomId();
+        const username = getUsername();
+        const me = username ? state.users.get(username.toLowerCase()) : undefined;
+        const defaultId = me?.defaultRoomId ?? null;
         if (defaultId) {
           const idx = action.rooms.findIndex((r) => r.id === defaultId);
           if (idx >= 0) currentRoom = idx;
@@ -232,8 +241,21 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, rooms: newRooms };
     }
     case "room_settings_updated": {
-      const newRooms = state.rooms.map((r) => r.id === action.roomId ? { ...r, prompt: action.prompt, envFile: action.envFile } : r);
+      const newRooms = state.rooms.map((r) => r.id === action.roomId ? { ...r, prompt: action.prompt } : r);
       return { ...state, rooms: newRooms };
+    }
+    case "users_list": {
+      const users = new Map(action.users.map((u) => [u.name.toLowerCase(), u]));
+      return { ...state, users, usersLoaded: true };
+    }
+    case "user_updated": {
+      const users = new Map(state.users);
+      // On rename, drop the old key so the map doesn't accumulate ghosts.
+      if (action.prevName && action.prevName.toLowerCase() !== action.user.name.toLowerCase()) {
+        users.delete(action.prevName.toLowerCase());
+      }
+      users.set(action.user.name.toLowerCase(), action.user);
+      return { ...state, users };
     }
     case "cronjobs_state":
       return { ...state, cronjobs: action.cronjobs, cronjobsPrompt: action.cronjobsPrompt, cronjobsLoaded: true };
@@ -318,6 +340,8 @@ const initialState: AppState = {
   updateAvailable: false,
   updateCurrent: { sha: "", message: "", date: "" },
   updateLatest: { sha: "", message: "", date: "" },
+  users: new Map(),
+  usersLoaded: false,
 };
 
 const StateCtx = createContext<AppState>(initialState);
@@ -359,9 +383,30 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
 
   useEffect(() => {
+    let claimed = false;
     connect((msg: ServerMessage) => {
       dispatch(msg as Action);
       if (msg.type === "full_state") dispatch({ type: "connected" });
+      // After the server's users_list arrives, ensure our localStorage
+      // username is registered server-side. If the record already exists the
+      // server treats this as a no-op; otherwise it creates the record using
+      // any legacy localStorage prefs we might have.
+      if (msg.type === "users_list" && !claimed) {
+        const username = getUsername();
+        if (username) {
+          const key = username.toLowerCase();
+          const exists = msg.users.some((u) => u.name.toLowerCase() === key);
+          if (!exists) {
+            const legacy = readLegacyUserPrefs();
+            send({ type: "claim_user", username, defaultRoomId: legacy.defaultRoomId, notifRooms: legacy.notifRooms });
+          }
+          // Whether the record was just created or already existed, the
+          // legacy localStorage keys are now redundant. Drop them so they
+          // don't drift if the user later edits server-side prefs.
+          clearLegacyUserPrefs();
+          claimed = true;
+        }
+      }
     });
   }, []);
 
@@ -382,16 +427,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   // Sound notification when tab is hidden and any agent finishes work, gated
-  // by the device's per-room notification preference.
+  // by the user's per-room notification preference (server-stored).
   const prevSoundTriggerSeq = useRef(0);
   useEffect(() => {
     if (state.soundTrigger.seq > prevSoundTriggerSeq.current && document.hidden) {
-      if (shouldNotifyRoom(state.soundTrigger.roomId, getNotifRooms())) {
+      const username = getUsername();
+      const me = username ? state.users.get(username.toLowerCase()) : undefined;
+      const notifRooms = me?.notifRooms ?? "all";
+      if (shouldNotifyRoom(state.soundTrigger.roomId, notifRooms)) {
         playNotificationSound();
       }
     }
     prevSoundTriggerSeq.current = state.soundTrigger.seq;
-  }, [state.soundTrigger]);
+  }, [state.soundTrigger, state.users]);
 
   return (
     <StateCtx.Provider value={state}>

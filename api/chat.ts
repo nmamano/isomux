@@ -164,6 +164,7 @@ Setup:
 
 ### Other
 - Voice-to-text prompting and text-to-speech responses (works locally; requires HTTPS via Tailscale for remote)
+- Per-user profiles — your default room, notification preferences, and credentials follow you wherever you log in from
 - The entire frontend uses a Redux-like store where server WebSocket messages are dispatched directly as actions
 
 ## Guidelines

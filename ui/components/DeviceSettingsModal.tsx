@@ -1,27 +1,13 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useAppState } from "../store.tsx";
-import {
-  getDefaultRoomId,
-  setDefaultRoomId,
-  getNotifRooms,
-  setNotifRooms,
-  shouldNotifyRoom,
-  type NotifRoomsSetting,
-} from "../device-settings.ts";
+import { getDevice, setDevice } from "../device-settings.ts";
 
-export function DeviceSettingsModal({
-  onClose,
-  username,
-  onSaveUsername,
-}: {
-  onClose: () => void;
-  username: string;
-  onSaveUsername: (name: string) => void;
-}) {
-  const { rooms, isMobile } = useAppState();
-  const [name, setName] = useState(username);
-  const [defaultRoomId, setDefaultRoomIdState] = useState<string | null>(() => getDefaultRoomId());
-  const [notifSetting, setNotifSetting] = useState<NotifRoomsSetting>(() => getNotifRooms());
+// Device-scoped settings (one record per browser, stored in localStorage).
+// Just the device label — user-level prefs (default room, notifications, env)
+// live on the server and are edited from User Settings.
+export function DeviceSettingsModal({ onClose }: { onClose: () => void }) {
+  const { isMobile } = useAppState();
+  const [label, setLabel] = useState<string>(() => getDevice() ?? "");
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
@@ -31,29 +17,10 @@ export function DeviceSettingsModal({
     return () => window.removeEventListener("keydown", handleKey, true);
   }, [onClose]);
 
-  function toggleRoomNotif(roomId: string) {
-    if (notifSetting === "all") {
-      // Drop just this room from the implicit "all" set
-      setNotifSetting(rooms.filter((r) => r.id !== roomId).map((r) => r.id));
-      return;
-    }
-    const has = notifSetting.includes(roomId);
-    const next = has ? notifSetting.filter((id) => id !== roomId) : [...notifSetting, roomId];
-    // If selection now covers every existing room, collapse to "all" so future
-    // rooms inherit the same on-by-default behavior.
-    const coversAll = rooms.length > 0 && rooms.every((r) => next.includes(r.id));
-    setNotifSetting(coversAll ? "all" : next);
-  }
-
   function handleSave() {
-    const trimmed = name.trim();
-    if (trimmed && trimmed !== username) onSaveUsername(trimmed);
-    setDefaultRoomId(defaultRoomId);
-    setNotifRooms(notifSetting);
+    setDevice(label.trim() || null);
     onClose();
   }
-
-  const canSave = name.trim().length > 0;
 
   return (
     <div
@@ -79,102 +46,31 @@ export function DeviceSettingsModal({
           padding: "24px 28px",
           marginTop: isMobile ? "env(safe-area-inset-top, 16px)" : undefined,
           marginBottom: isMobile ? 16 : undefined,
-          width: isMobile ? "calc(100% - 32px)" : 440,
+          width: isMobile ? "calc(100% - 32px)" : 420,
           maxWidth: isMobile ? "100%" : undefined,
           boxShadow: "0 20px 60px var(--shadow-heavy)",
           animation: "hudIn 0.2s ease-out",
         }}
       >
-        <h3 style={{ fontSize: 17, fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>
-          Device Settings
-        </h3>
+        <h3 style={{ fontSize: 17, fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>Device Settings</h3>
         <p style={{ fontSize: 11, color: "var(--text-ghost)", margin: "6px 0 0", lineHeight: 1.4 }}>
-          Stored locally in this browser. Not synced across devices, and may be lost if browser storage is cleared.
+          Stored locally in this browser. Tells agents which device you're on (e.g. "Phone" vs "Laptop") so they can adjust their replies.
         </p>
 
-        <label style={labelStyle}>Boss Name</label>
+        <label style={labelStyle}>Device Label <span style={hintStyle}>(optional)</span></label>
         <input
           autoFocus
-          value={name}
-          onChange={(e) => setName(e.target.value.slice(0, 16))}
-          maxLength={16}
-          placeholder="Your name"
+          value={label}
+          onChange={(e) => setLabel(e.target.value.slice(0, 24))}
+          maxLength={24}
+          placeholder="Phone, Laptop, …"
           style={inputStyle}
+          onKeyDown={(e) => { if (e.key === "Enter") handleSave(); }}
         />
-
-        <label style={labelStyle}>
-          Default Room <span style={hintStyle}>(which room opens when Isomux loads)</span>
-        </label>
-        <div style={{ position: "relative" }}>
-          <select
-            value={defaultRoomId ?? ""}
-            onChange={(e) => setDefaultRoomIdState(e.target.value || null)}
-            style={{ ...inputStyle, paddingRight: 28, appearance: "none", WebkitAppearance: "none", MozAppearance: "none" }}
-          >
-            <option value="">Whichever is first</option>
-            {rooms.map((r) => (
-              <option key={r.id} value={r.id}>{r.name}</option>
-            ))}
-          </select>
-          <span
-            aria-hidden
-            style={{
-              position: "absolute",
-              right: 12,
-              top: "50%",
-              transform: "translateY(-50%)",
-              pointerEvents: "none",
-              color: "var(--text-muted)",
-              fontSize: 10,
-              lineHeight: 1,
-            }}
-          >▾</span>
-        </div>
-
-        <label style={labelStyle}>
-          Room Notifications <span style={hintStyle}>(sound when an agent in these rooms finishes)</span>
-        </label>
-        <div
-          style={{
-            border: "1px solid var(--border)",
-            borderRadius: 8,
-            background: "var(--bg-input)",
-            padding: "4px 0",
-            maxHeight: 180,
-            overflowY: "auto",
-          }}
-        >
-          {rooms.length === 0 ? (
-            <div style={{ padding: "8px 12px", fontSize: 12, color: "var(--text-ghost)" }}>No rooms yet.</div>
-          ) : (
-            rooms.map((r) => (
-              <label
-                key={r.id}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  padding: "7px 12px",
-                  fontSize: 12,
-                  color: "var(--text-primary)",
-                  cursor: "pointer",
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={shouldNotifyRoom(r.id, notifSetting)}
-                  onChange={() => toggleRoomNotif(r.id)}
-                  style={{ accentColor: "var(--accent)", cursor: "pointer" }}
-                />
-                <span>{r.name}</span>
-              </label>
-            ))
-          )}
-        </div>
 
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
           <button onClick={onClose} style={cancelBtnStyle}>Cancel</button>
-          <button onClick={handleSave} style={{ ...saveBtnStyle, opacity: canSave ? 1 : 0.5, cursor: canSave ? "pointer" : "default" }} disabled={!canSave}>Save</button>
+          <button onClick={handleSave} style={saveBtnStyle}>Save</button>
         </div>
       </div>
     </div>
@@ -226,4 +122,5 @@ const saveBtnStyle: React.CSSProperties = {
   color: "var(--bg-base)",
   fontSize: 12,
   fontWeight: 600,
+  cursor: "pointer",
 };

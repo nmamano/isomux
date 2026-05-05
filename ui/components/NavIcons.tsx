@@ -45,6 +45,8 @@ export const PersonIcon = (
   </svg>
 );
 
+export const UserIcon = PersonIcon;
+
 export const DeviceIcon = (
   <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" strokeLinecap="round" style={{ display: "block" }}>
     <rect x="4.5" y="1.5" width="7" height="13" rx="1.4" />

@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect, memo } from "react";
 import type { LogEntry, Attachment } from "../../shared/types.ts";
+import { formatIdentity } from "../../shared/identity.ts";
 import { Markdown } from "./Markdown.tsx";
 import { CopyButton } from "../components/CopyButton.tsx";
 import { SpeakButton } from "../components/SpeakButton.tsx";
@@ -195,10 +196,12 @@ export const LogEntryCard = memo(function LogEntryCard({
   switch (entry.kind) {
     case "user_message": {
       const username = entry.metadata?.username as string | undefined;
+      const device = entry.metadata?.device as string | undefined;
+      const senderLabel = formatIdentity({ username, device }) || undefined;
       if (isEditing) {
-        return <EditableUserMessage content={entry.content} entryId={entry.id} isMobile={isMobile} username={username} onCancel={onCancelEdit} onSubmit={onSubmitEdit} />;
+        return <EditableUserMessage content={entry.content} entryId={entry.id} isMobile={isMobile} username={senderLabel} onCancel={onCancelEdit} onSubmit={onSubmitEdit} />;
       }
-      return <UserMessage content={entry.content} isMobile={isMobile} username={username} attachments={entry.attachments} agentId={entry.agentId} canEdit={canEdit} onEdit={onStartEdit ? () => onStartEdit(entry.id) : undefined} />;
+      return <UserMessage content={entry.content} isMobile={isMobile} username={senderLabel} attachments={entry.attachments} agentId={entry.agentId} canEdit={canEdit} onEdit={onStartEdit ? () => onStartEdit(entry.id) : undefined} />;
     }
     case "text":
       return (

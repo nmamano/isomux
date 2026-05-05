@@ -11,6 +11,7 @@ import { NavActions, type NavAction } from "../components/NavActions.tsx";
 import { TasksIcon, PersonIcon, TerminalIcon, CopyIcon, CheckIcon } from "../components/NavIcons.tsx";
 import { TerminalPanel } from "./TerminalPanel.tsx";
 import { useSwipeLeftRight } from "../hooks/useSwipeLeftRight.ts";
+import { getDevice } from "../device-settings.ts";
 
 const STATE_LABELS: Partial<Record<AgentState, string>> = {
   thinking: "Thinking",
@@ -157,6 +158,7 @@ export function LogView({
   const { drafts, slashCommands, stateChangedAt, isMobile, connected } = useAppState();
   const dispatch = useDispatch();
   const features = useFeatures();
+  const device = getDevice();
   const { theme, toggleTheme } = useTheme();
   const input = drafts.get(agent.id) ?? "";
   const inputRef = useRef(input);
@@ -435,9 +437,9 @@ export function LogView({
   const handleSubmitEdit = useCallback(
     (id: string, newText: string) => {
       setEditingLogEntryId(null);
-      send({ type: "edit_message", agentId: agent.id, logEntryId: id, newText, username });
+      send({ type: "edit_message", agentId: agent.id, logEntryId: id, newText, username, device: device || undefined });
     },
-    [agent.id, username],
+    [agent.id, username, device],
   );
 
   const handleCopy = useCallback(async () => {
@@ -635,7 +637,7 @@ export function LogView({
     const attachments = validAttachments.length > 0
       ? validAttachments.map(({ id: _id, uploading: _u, error: _e, ...att }) => att as Attachment)
       : undefined;
-    send({ type: "send_message", agentId: agent.id, text, username, attachments });
+    send({ type: "send_message", agentId: agent.id, text, username, device: device || undefined, attachments });
     setInput("");
     setStagedAttachments([]);
     stopListening();

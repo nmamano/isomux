@@ -64,7 +64,7 @@ export type AgentEvent =
   | { type: "room_created"; room: RoomWire }
   | { type: "room_closed"; roomId: string }
   | { type: "room_renamed"; roomId: string; name: string }
-  | { type: "room_settings_updated"; roomId: string; prompt: string | null; envFile: string | null }
+  | { type: "room_settings_updated"; roomId: string; prompt: string | null }
   | { type: "office_settings_updated"; prompt: string | null; envFile: string | null }
   | { type: "rooms_reordered"; order: string[] };
 
@@ -77,7 +77,6 @@ export interface InternalRoom {
   id: string;
   name: string;
   prompt: string | null;
-  envFile: string | null;
 }
 
 // Thrown at an in-flight turn's deferred when its session is swapped out

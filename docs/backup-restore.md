@@ -8,6 +8,7 @@ The full `~/.isomux/` directory:
 
 - `agents.json`, `agent-history.json`, `agents-summary.json` — agent configs and discovery manifest.
 - `tasks.json` — task list.
+- `users.json` — boss profiles (default room, notification rooms, env file path).
 - `office-config.json`, `office-prompt.md` — office-level prompt and env settings.
 - `recent-cwds.json` — recent working directories.
 - `cronjobs/` — cronjob configs, run index, and per-run transcripts.

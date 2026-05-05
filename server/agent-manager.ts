@@ -10,6 +10,8 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentInfo, AgentOutfit, AgentState, Attachment, EffortLevel, LogEntry, ModelFamily, OfficeSettings, RoomWire, SkillInfo } from "../shared/types.ts";
 import { MODEL_FAMILIES, FAMILY_TO_MODEL, EFFORT_LEVELS, DEFAULT_EFFORT, familyDisplayLabel, effortDisplayLabel, generateRoomId } from "../shared/types.ts";
+import { formatPrefix } from "../shared/identity.ts";
+import { getUserEnvFile } from "./users.ts";
 import { generateOutfit } from "./outfit.ts";
 import {
   appendLog,
@@ -92,14 +94,26 @@ function isAuthError(text: string): boolean {
   return AUTH_ERROR_PATTERNS.test(text);
 }
 
+// Build the metadata blob attached to a user_message log entry. Carries
+// username + device so display helpers can reconstruct `[Nil (Phone)]`. Old
+// log entries written before the device split lack the device key — readers
+// fall through to plain `[Nil]`.
+export function buildUserMeta(username?: string, device?: string): Record<string, unknown> | undefined {
+  if (!username && !device) return undefined;
+  const meta: Record<string, unknown> = {};
+  if (username) meta.username = username;
+  if (device) meta.device = device;
+  return meta;
+}
+
 const agents = new Map<string, ManagedAgent>();
 const logCache = new Map<string, LogEntry[]>(); // agentId → entries
 let eventHandler: EventHandler = () => {};
 let officeConfig: OfficeConfig = loadOfficeConfig();
-let rooms: InternalRoom[] = [{ id: generateRoomId(), name: "Room 1", prompt: null, envFile: null }];
+let rooms: InternalRoom[] = [{ id: generateRoomId(), name: "Room 1", prompt: null }];
 
 function roomsWire(): RoomWire[] {
-  return rooms.map((r) => ({ id: r.id, name: r.name, prompt: r.prompt, envFile: r.envFile }));
+  return rooms.map((r) => ({ id: r.id, name: r.name, prompt: r.prompt }));
 }
 
 function findRoomIndex(roomId: string): number {
@@ -124,16 +138,15 @@ export function setOfficeSettings(prompt: string | null, envFile: string | null)
   eventHandler({ type: "office_settings_updated", prompt: officeConfig.prompt, envFile: officeConfig.envFile });
 }
 
-export function setRoomSettings(roomId: string, prompt: string | null, envFile: string | null): boolean {
+export function setRoomSettings(roomId: string, prompt: string | null): boolean {
   const idx = findRoomIndex(roomId);
   if (idx < 0) return false;
   const room = rooms[idx];
   room.prompt = prompt && prompt.trim() ? prompt.trim() : null;
-  room.envFile = envFile || null;
   persistAll();
   // System prompt is rebuilt at every createSession — next conversation picks up
   // the new room prompt automatically.
-  eventHandler({ type: "room_settings_updated", roomId, prompt: room.prompt, envFile: room.envFile });
+  eventHandler({ type: "room_settings_updated", roomId, prompt: room.prompt });
   return true;
 }
 
@@ -255,10 +268,10 @@ export function createRoom(name?: string): string {
   const existingIds = rooms.map((r) => r.id);
   const id = generateRoomId(existingIds);
   const displayName = (name || `Room ${rooms.length + 1}`).trim().slice(0, 40);
-  const room: InternalRoom = { id, name: displayName, prompt: null, envFile: null };
+  const room: InternalRoom = { id, name: displayName, prompt: null };
   rooms.push(room);
   persistAll();
-  eventHandler({ type: "room_created", room: { id: room.id, name: room.name, prompt: room.prompt, envFile: room.envFile } });
+  eventHandler({ type: "room_created", room: { id: room.id, name: room.name, prompt: room.prompt } });
   return id;
 }
 
@@ -371,6 +384,7 @@ function updateManifest() {
     cwd: a.info.cwd,
     modelFamily: a.info.modelFamily,
     model: FAMILY_TO_MODEL[a.info.modelFamily],
+    username: a.info.username,
   })));
 }
 
@@ -379,7 +393,6 @@ function persistAll() {
     id: r.id,
     name: r.name,
     prompt: r.prompt,
-    envFile: r.envFile,
     agents: [] as PersistedAgent[],
   }));
   for (const a of agents.values()) {
@@ -397,6 +410,7 @@ function persistAll() {
         lastSessionId: a.sessionId,
         topic: a.info.topic,
         customInstructions: a.info.customInstructions,
+        username: a.info.username,
       });
     }
   }
@@ -426,7 +440,7 @@ export async function restoreAgents() {
   try { rmSync(join(homedir(), ".isomux", "launchers"), { recursive: true, force: true }); } catch {}
 
   const loaded = loadAgents();
-  rooms = loaded.map((r) => ({ id: r.id, name: r.name, prompt: r.prompt, envFile: r.envFile }));
+  rooms = loaded.map((r) => ({ id: r.id, name: r.name, prompt: r.prompt }));
 
   for (let roomIdx = 0; roomIdx < loaded.length; roomIdx++) {
     for (const p of loaded[roomIdx].agents) {
@@ -444,6 +458,7 @@ export async function restoreAgents() {
         topic: p.topic ?? null,
         topicStale: false,
         customInstructions: p.customInstructions ?? null,
+        username: p.username ?? null,
       };
       const managed: ManagedAgent = {
         info,
@@ -971,26 +986,25 @@ async function replaceSession(agentId: string, managed: ManagedAgent, newSession
   installSession(agentId, managed, newSession);
 }
 
-// Merge process.env with office and room env files.
-// Room overrides office; office overrides process.env. Spawn-time failure mode:
-// if a configured env file is missing or fails to parse, throw — the caller is
-// responsible for surfacing the error to the agent log.
+// Merge process.env with office and the agent owner's user env files.
+// User overrides office; office overrides process.env. Spawn-time failure
+// mode: if a configured env file is missing or fails to parse, throw — the
+// caller is responsible for surfacing the error to the agent log.
 function buildSessionEnv(managed: ManagedAgent): { [key: string]: string | undefined } | undefined {
-  const room = rooms[managed.info.room];
-  const roomEnvFile = room?.envFile ?? null;
   const officeEnvFile = officeConfig.envFile;
-  if (!roomEnvFile && !officeEnvFile) return undefined;
+  const userEnvFile = managed.info.username ? getUserEnvFile(managed.info.username) : null;
+  if (!officeEnvFile && !userEnvFile) return undefined;
 
   // Intentional: inherit parent process.env so agents see HOME/PATH/etc. Office
-  // and room files override individual keys but cannot unset inherited ones.
+  // and user files override individual keys but cannot unset inherited ones.
   const merged: { [key: string]: string | undefined } = { ...process.env };
   if (officeEnvFile) {
     const officeEnv = readEnvFile(officeEnvFile);
     Object.assign(merged, officeEnv);
   }
-  if (roomEnvFile) {
-    const roomEnv = readEnvFile(roomEnvFile);
-    Object.assign(merged, roomEnv);
+  if (userEnvFile) {
+    const userEnv = readEnvFile(userEnvFile);
+    Object.assign(merged, userEnv);
   }
   return merged;
 }
@@ -1061,6 +1075,7 @@ function createSession(managed: ManagedAgent, resumeSessionId?: string) {
     officeConfig.prompt,
     room.prompt,
     managed.info.customInstructions,
+    managed.info.username,
   );
   // V2 SDKSessionOptions still doesn't expose systemPrompt / extraArgs, so we
   // inject --append-system-prompt and --effort via executableArgs. When
@@ -1099,6 +1114,7 @@ export async function spawn(
   outfit?: AgentOutfit,
   modelFamily?: ModelFamily,
   effort?: EffortLevel,
+  username?: string,
 ): Promise<AgentInfo | null> {
   // Reject duplicate names across all rooms
   const nameLower = name.trim().toLowerCase();
@@ -1140,6 +1156,7 @@ export async function spawn(
     topic: null,
     topicStale: false,
     customInstructions: customInstructions || null,
+    username: username ?? null,
   };
 
   const managed: ManagedAgent = {
@@ -1211,7 +1228,7 @@ const { handleSlashCommand } = createCommandHandling({
   createTurnDeferred,
 });
 
-export async function sendMessage(agentId: string, text: string, username?: string, attachments?: Attachment[]) {
+export async function sendMessage(agentId: string, text: string, username?: string, device?: string, attachments?: Attachment[]) {
   const managed = agents.get(agentId);
   if (!managed) return;
   // If an abort is mid-handoff, wait for it to install the replacement session.
@@ -1235,7 +1252,7 @@ export async function sendMessage(agentId: string, text: string, username?: stri
       updateState(agentId, "waiting_for_response");
       // Fall through so the message is actually sent on the new session.
     } catch (err: any) {
-      addLogEntry(agentId, "user_message", text, username ? { username } : undefined, attachments);
+      addLogEntry(agentId, "user_message", text, buildUserMeta(username, device), attachments);
       addLogEntry(agentId, "error", `Cannot start session: ${err.message}`);
       updateState(agentId, "error");
       return;
@@ -1249,7 +1266,7 @@ export async function sendMessage(agentId: string, text: string, username?: stri
   if (managed.pendingPermission) {
     const pending = managed.pendingPermission;
     managed.pendingPermission = null;
-    const userMeta = username ? { username } : undefined;
+    const userMeta = buildUserMeta(username, device);
     emitEphemeralLog(agentId, "user_message", text, userMeta);
     const trimmed = text.trim();
     if (trimmed === "1") {
@@ -1276,7 +1293,7 @@ export async function sendMessage(agentId: string, text: string, username?: stri
     const trimmed = text.trim();
     const num = parseInt(trimmed, 10);
     if (!isNaN(num) && num >= 1 && num <= managed.pendingResumeSessions.length) {
-      const userMeta = username ? { username } : undefined;
+      const userMeta = buildUserMeta(username, device);
       emitEphemeralLog(agentId, "user_message", text, userMeta);
       const picked = managed.pendingResumeSessions[num - 1];
       managed.pendingResumeSessions = [];
@@ -1327,7 +1344,7 @@ export async function sendMessage(agentId: string, text: string, username?: stri
     const trimmed = text.trim();
     const num = parseInt(trimmed, 10);
     if (!isNaN(num) && num >= 1 && num <= MODEL_FAMILIES.length) {
-      const userMeta = username ? { username } : undefined;
+      const userMeta = buildUserMeta(username, device);
       emitEphemeralLog(agentId, "user_message", text, userMeta);
       const picked = MODEL_FAMILIES[num - 1];
       const label = familyDisplayLabel(picked.family);
@@ -1354,7 +1371,7 @@ export async function sendMessage(agentId: string, text: string, username?: stri
     const trimmed = text.trim();
     const num = parseInt(trimmed, 10);
     if (!isNaN(num) && num >= 1 && num <= EFFORT_LEVELS.length) {
-      const userMeta = username ? { username } : undefined;
+      const userMeta = buildUserMeta(username, device);
       emitEphemeralLog(agentId, "user_message", text, userMeta);
       const picked = EFFORT_LEVELS[num - 1];
       const label = effortDisplayLabel(picked.level);
@@ -1378,11 +1395,11 @@ export async function sendMessage(agentId: string, text: string, username?: stri
   // Intercept slash commands that are handled locally, not by the LLM
   if (text.startsWith("/")) {
     const [cmd, ...args] = text.slice(1).trim().split(/\s+/);
-    const handled = await handleSlashCommand(agentId, managed, cmd, args, text, username);
+    const handled = await handleSlashCommand(agentId, managed, cmd, args, text, username, device);
     if (handled) return;
   }
 
-  addLogEntry(agentId, "user_message", text, username ? { username } : undefined, attachments);
+  addLogEntry(agentId, "user_message", text, buildUserMeta(username, device), attachments);
   updateState(agentId, "thinking");
 
   // Auto-generate topic on first user message in a conversation
@@ -1390,7 +1407,8 @@ export async function sendMessage(agentId: string, text: string, username?: stri
     generateTopic(agentId); // fire-and-forget
   }
 
-  const prefixedText = username ? `[${username}] ${text}` : text;
+  const prefix = formatPrefix({ username, device });
+  const prefixedText = prefix ? `${prefix}${text}` : text;
   try {
     const turn = createTurnDeferred(managed);
     if (attachments && attachments.length > 0) {
@@ -1550,7 +1568,7 @@ export async function resume(agentId: string, sessionId: string) {
   }
 }
 
-export async function editMessage(agentId: string, logEntryId: string, newText: string, username?: string) {
+export async function editMessage(agentId: string, logEntryId: string, newText: string, username?: string, device?: string) {
   const managed = agents.get(agentId);
   if (!managed) return;
   if (!managed.sessionId) {
@@ -1584,16 +1602,18 @@ export async function editMessage(agentId: string, logEntryId: string, newText: 
     //    `metadata.sdkText` captures that expanded form for matching.
     const sdkMessages = await getSessionMessages(oldSessionId);
     const targetUsername = targetEntry.metadata?.username as string | undefined;
+    const targetDevice = targetEntry.metadata?.device as string | undefined;
     const targetSdkText = (targetEntry.metadata?.sdkText as string | undefined) ?? targetEntry.content;
-    const prefixedContent = targetUsername ? `[${targetUsername}] ${targetSdkText}` : targetSdkText;
+    const prefixedContent = `${formatPrefix({ username: targetUsername, device: targetDevice })}${targetSdkText}`;
 
     // Count which occurrence of this exact content this is among user_message log entries
     const userLogEntries = oldLogCache.filter(e => e.kind === "user_message");
     let occurrenceIndex = 0;
     for (const e of userLogEntries) {
       const u = e.metadata?.username as string | undefined;
+      const d = e.metadata?.device as string | undefined;
       const sdkText = (e.metadata?.sdkText as string | undefined) ?? e.content;
-      const prefixed = u ? `[${u}] ${sdkText}` : sdkText;
+      const prefixed = `${formatPrefix({ username: u, device: d })}${sdkText}`;
       if (prefixed === prefixedContent) {
         if (e.id === logEntryId) break;
         occurrenceIndex++;
@@ -1718,9 +1738,10 @@ export async function editMessage(agentId: string, logEntryId: string, newText: 
 
     // 10. Send the edited message
     updateState(agentId, "thinking");
-    addLogEntry(agentId, "user_message", newText, username ? { username } : undefined);
+    addLogEntry(agentId, "user_message", newText, buildUserMeta(username, device));
 
-    const prefixedNew = username ? `[${username}] ${newText}` : newText;
+    const editPrefix = formatPrefix({ username, device });
+    const prefixedNew = editPrefix ? `${editPrefix}${newText}` : newText;
     const turn = createTurnDeferred(managed);
     await managed.session!.send(prefixedNew);
     await turn;

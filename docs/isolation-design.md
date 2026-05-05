@@ -7,7 +7,8 @@ How isomux scopes state, identity, and execution across multiple users on a sing
 | Layer | Boundary | What it carries | Enforced by | Status |
 |-------|----------|-----------------|-------------|--------|
 | Office | Separate isomux process per workspace | All state (rooms, agents, tasks, logs) | OS process boundary + state directory | Designed |
-| Room | Inside one office | Per-room prompt + env file (Git/GH identity) | Application code, no OS enforcement | Implemented |
+| User | Inside one office, per spawning user | Env file (Git/GH identity), per-user preferences | Application code, no OS enforcement | Implemented |
+| Room | Inside one office | Per-room prompt | Application code | Implemented |
 | Process | Inside one agent spawn | Filesystem view, PID table, UID, network | Linux namespaces (`bwrap`) | Scoped |
 
 The three layers are independent and compose. Office isolation enforces that two users on the same machine see fully separate state. Room isolation lets one office host multiple identities. Process isolation closes the remaining holes (an agent in room A reading room B's env file off disk, or `ps`-ing other agents' commands).

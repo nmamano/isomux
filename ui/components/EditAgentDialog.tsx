@@ -5,6 +5,7 @@ import { SHIRT_COLORS, HAIR_COLORS, SKIN_COLORS, HAIR_STYLES, BEARDS, HATS, ACCE
 import { Character } from "../office/Character.tsx";
 import { send, addRawListener, removeRawListener } from "../ws.ts";
 import { useAppState } from "../store.tsx";
+import { getUsername } from "../device-settings.ts";
 
 const HAIR_STYLE_LABELS: Record<AgentOutfit["hairStyle"], string> = {
   short: "Short",
@@ -145,6 +146,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         customInstructions: customInstructions.trim() || undefined,
         modelFamily,
         effort,
+        username: getUsername() ?? undefined,
       });
     } else {
       const cmd: Extract<ClientCommand, { type: "edit_agent" }> = { type: "edit_agent", agentId: agent!.id };

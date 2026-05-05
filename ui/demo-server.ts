@@ -113,6 +113,7 @@ function seedOffice() {
       topic: char.topic,
       topicStale: false,
       customInstructions: char.customInstructions,
+      username: null,
     });
   }
 }
@@ -273,7 +274,7 @@ function seedCronjobs() {
       permissionMode: "bypassPermissions",
       enabled: true,
       createdBy: seed.createdBy,
-      device: null,
+      username: null,
       createdAt,
       lastFireAt,
       nextFireAt: computeNextFireDemo(seed.schedule, lastFireAt ?? createdAt, now),
@@ -308,7 +309,7 @@ function emitEvents(events: OfficeEvent[]) {
         shimEmit({ type: "room_closed", roomId: event.roomId });
         break;
       case "room_settings_updated":
-        shimEmit({ type: "room_settings_updated", roomId: event.roomId, prompt: event.prompt, envFile: event.envFile });
+        shimEmit({ type: "room_settings_updated", roomId: event.roomId, prompt: event.prompt });
         break;
       case "office_settings_updated":
         shimEmit({ type: "office_settings_updated", prompt: event.prompt, envFile: event.envFile });
@@ -405,8 +406,7 @@ export function handleCommand(cmd: ClientCommand) {
       break;
     }
     case "update_room_settings": {
-      const envFile = cmd.envFile && cmd.envFile.trim() ? cmd.envFile.trim() : null;
-      emitEvents(state.setRoomSettings(cmd.roomId, cmd.prompt, envFile));
+      emitEvents(state.setRoomSettings(cmd.roomId, cmd.prompt));
       shimEmit({ type: "settings_save_response", requestId: cmd.requestId, ok: true });
       break;
     }
@@ -419,9 +419,8 @@ export function handleCommand(cmd: ClientCommand) {
       const s = state.getState();
       if (cmd.scope === "office") {
         shimEmit({ type: "settings_validation", requestId: cmd.requestId, scope: "office", envFile: s.office.envFile, ok: true });
-      } else if (cmd.roomId) {
-        const room = s.rooms.find((r) => r.id === cmd.roomId);
-        shimEmit({ type: "settings_validation", requestId: cmd.requestId, scope: "room", roomId: cmd.roomId, envFile: room?.envFile ?? null, ok: true });
+      } else if (cmd.scope === "user") {
+        shimEmit({ type: "settings_validation", requestId: cmd.requestId, scope: "user", username: cmd.username, envFile: null, ok: true });
       }
       break;
     }
@@ -480,7 +479,7 @@ export function handleCommand(cmd: ClientCommand) {
         permissionMode: cmd.permissionMode,
         enabled: true,
         createdBy: cmd.username,
-        device: cmd.device ?? null,
+        username: cmd.username,
         createdAt: now,
         lastFireAt: null,
         nextFireAt: computeNextFireDemo(cmd.schedule, now, now),

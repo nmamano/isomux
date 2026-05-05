@@ -11,7 +11,7 @@ export type OfficeEvent =
   | { type: "room_created"; room: RoomWire }
   | { type: "room_closed"; roomId: string }
   | { type: "room_renamed"; roomId: string; name: string }
-  | { type: "room_settings_updated"; roomId: string; prompt: string | null; envFile: string | null }
+  | { type: "room_settings_updated"; roomId: string; prompt: string | null }
   | { type: "office_settings_updated"; prompt: string | null; envFile: string | null }
   | { type: "tasks_changed"; tasks: TaskItem[] };
 
@@ -41,7 +41,7 @@ export interface OfficeStateData {
 
 export class OfficeState {
   private agents = new Map<string, AgentInfo>();
-  private _rooms: RoomWire[] = [{ id: generateRoomId(), name: "Room 1", prompt: null, envFile: null }];
+  private _rooms: RoomWire[] = [{ id: generateRoomId(), name: "Room 1", prompt: null }];
   private _office: OfficeSettings = { prompt: null, envFile: null };
   private _tasks: TaskItem[] = [];
   private _recentCwds: string[] = [];
@@ -76,7 +76,7 @@ export class OfficeState {
   }
 
   setRooms(rooms: RoomWire[]) {
-    this._rooms = rooms.length > 0 ? [...rooms] : [{ id: generateRoomId(), name: "Room 1", prompt: null, envFile: null }];
+    this._rooms = rooms.length > 0 ? [...rooms] : [{ id: generateRoomId(), name: "Room 1", prompt: null }];
   }
 
   setOfficeDirect(office: OfficeSettings) {
@@ -141,6 +141,7 @@ export class OfficeState {
       topic: null,
       topicStale: false,
       customInstructions: opts.customInstructions || null,
+      username: null,
     };
 
     this.agents.set(id, agent);
@@ -231,7 +232,6 @@ export class OfficeState {
       id: generateRoomId(existingIds),
       name: name || `Room ${this._rooms.length + 1}`,
       prompt: null,
-      envFile: null,
     };
     this._rooms.push(room);
     return [{ type: "room_created", room }];
@@ -291,12 +291,12 @@ export class OfficeState {
     return [{ type: "office_settings_updated", prompt: this._office.prompt, envFile: this._office.envFile }];
   }
 
-  setRoomSettings(roomId: string, prompt: string | null, envFile: string | null): OfficeEvent[] {
+  setRoomSettings(roomId: string, prompt: string | null): OfficeEvent[] {
     const idx = this._rooms.findIndex((r) => r.id === roomId);
     if (idx < 0) return [];
     const normalizedPrompt = prompt && prompt.trim() ? prompt.trim() : null;
-    this._rooms[idx] = { ...this._rooms[idx], prompt: normalizedPrompt, envFile: envFile || null };
-    return [{ type: "room_settings_updated", roomId, prompt: normalizedPrompt, envFile: envFile || null }];
+    this._rooms[idx] = { ...this._rooms[idx], prompt: normalizedPrompt };
+    return [{ type: "room_settings_updated", roomId, prompt: normalizedPrompt }];
   }
 
   setTopic(agentId: string, topic: string): OfficeEvent[] {

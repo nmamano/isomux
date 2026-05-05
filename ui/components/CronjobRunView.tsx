@@ -3,6 +3,7 @@ import { useAppState } from "../store.tsx";
 import { LogEntryCard } from "../log-view/LogEntryCard.tsx";
 import { send } from "../ws.ts";
 import { cronjobRunStreamId, type CronjobRun, type LogEntry } from "../../shared/types.ts";
+import { getDevice } from "../device-settings.ts";
 
 const STATUS_LABEL: Record<CronjobRun["status"], string> = {
   running: "Running",
@@ -39,6 +40,7 @@ export function CronjobRunView({
   const streamId = cronjobRunStreamId(runId);
   const runs = cronjobRunsByJob.get(jobId) ?? [];
   const run = runs.find((r) => r.id === runId);
+  const device = getDevice();
 
   const [input, setInput] = useState("");
   const [editingLogEntryId, setEditingLogEntryId] = useState<string | null>(null);
@@ -143,7 +145,7 @@ export function CronjobRunView({
   function handleSend() {
     const text = input.trim();
     if (!text || !canResume) return;
-    send({ type: "send_cronjob_run_message", cronjobId: jobId, runId, text, username });
+    send({ type: "send_cronjob_run_message", cronjobId: jobId, runId, text, username, device: device || undefined });
     setInput("");
     if (textareaRef.current) textareaRef.current.style.height = "auto";
     setAutoScroll(true);
@@ -151,7 +153,7 @@ export function CronjobRunView({
 
   function handleSubmitEdit(id: string, newText: string) {
     setEditingLogEntryId(null);
-    send({ type: "edit_cronjob_run_message", cronjobId: jobId, runId, logEntryId: id, newText, username });
+    send({ type: "edit_cronjob_run_message", cronjobId: jobId, runId, logEntryId: id, newText, username, device: device || undefined });
     setAutoScroll(true);
   }
 
@@ -226,7 +228,9 @@ export function CronjobRunView({
                 {new Date(run.startedAt).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
               </span>
               <span style={{ fontSize: 11, color: "var(--text-ghost)", fontFamily: "'JetBrains Mono',monospace" }}>
-                {run.trigger === "manual" ? "manual" : "scheduled"}
+                {run.trigger === "manual"
+                  ? `manual${run.triggeredBy ? ` · ${run.triggeredBy}` : ""}`
+                  : "scheduled"}
               </span>
             </div>
           )

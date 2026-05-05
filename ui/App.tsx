@@ -5,15 +5,15 @@ import { LogView } from "./log-view/LogView.tsx";
 import { AgentListView } from "./components/AgentListView.tsx";
 import { ContextMenu } from "./components/ContextMenu.tsx";
 import { EditAgentDialog } from "./components/EditAgentDialog.tsx";
-import { UsernameModal } from "./components/UsernameModal.tsx";
 import { OfficePromptModal } from "./components/OfficePromptModal.tsx";
 import { RoomSettingsModal } from "./components/RoomSettingsModal.tsx";
 import { DeviceSettingsModal } from "./components/DeviceSettingsModal.tsx";
+import { UserManagementModal } from "./components/UserManagementModal.tsx";
 import { TaskView } from "./components/TaskView.tsx";
 import { CronjobsView } from "./components/CronjobsView.tsx";
 import { UpdateModal } from "./components/UpdateModal.tsx";
 import { CSS } from "./styles.ts";
-import { getUsername, setUsername as saveUsername } from "./device-settings.ts";
+import { getUsername } from "./device-settings.ts";
 import type { AgentInfo } from "../shared/types.ts";
 
 /** Cycle to the next/previous agent in the current room, matching Tab/Shift+Tab logic. */
@@ -40,7 +40,7 @@ function cycleAgent(
 }
 
 export function App() {
-  const { agents, logs, focusedAgentId, isMobile, mobileViewMode, drafts, currentRoom, rooms } = useAppState();
+  const { agents, logs, focusedAgentId, isMobile, mobileViewMode, drafts, currentRoom, rooms, usersLoaded } = useAppState();
   const roomCount = rooms.length;
   const dispatch = useDispatch();
   const [spawnDesk, setSpawnDesk] = useState<number | null>(null);
@@ -48,11 +48,16 @@ export function App() {
   const [editAgent, setEditAgent] = useState<AgentInfo | null>(null);
   const [username, setUsername] = useState<string | null>(() => getUsername());
   const [editingDeviceSettings, setEditingDeviceSettings] = useState(false);
+  const [editingUserSettings, setEditingUserSettings] = useState(false);
   const [editingOfficePrompt, setEditingOfficePrompt] = useState(false);
   const [editingRoomSettings, setEditingRoomSettings] = useState<string | null>(null);
   const [tasksOpen, setTasksOpen] = useState(false);
   const [cronjobsOpen, setCronjobsOpen] = useState(false);
   const [updateOpen, setUpdateOpen] = useState(false);
+
+  // Auto-open the user picker (modal-locked) on first connect when this
+  // browser has no localStorage username yet.
+  const needsInitialUser = usersLoaded && username === null;
 
   const focusedAgent = focusedAgentId ? agents.find((a) => a.id === focusedAgentId) : null;
 
@@ -162,19 +167,20 @@ export function App() {
   return (
     <>
       <style>{CSS}</style>
-      {username === null && (
-        <UsernameModal onSave={(name) => {
-          saveUsername(name);
-          setUsername(name);
-        }} />
+      {(needsInitialUser || editingUserSettings) && (
+        <UserManagementModal
+          currentUsername={username}
+          forceCreate={needsInitialUser}
+          onSwitchUser={(name) => setUsername(name)}
+          onClose={
+            editingUserSettings && !needsInitialUser
+              ? () => setEditingUserSettings(false)
+              : undefined
+          }
+        />
       )}
-      {editingDeviceSettings && username !== null && (
+      {editingDeviceSettings && (
         <DeviceSettingsModal
-          username={username}
-          onSaveUsername={(name) => {
-            saveUsername(name);
-            setUsername(name);
-          }}
           onClose={() => setEditingDeviceSettings(false)}
         />
       )}
@@ -206,6 +212,7 @@ export function App() {
           onFocus={(agentId) => dispatch({ type: "focus", agentId })}
           onSpawn={() => setSpawnDesk(0)}
           onContextMenu={(x, y, agent) => setCtxMenu({ x, y, agent })}
+          onOpenUserSettings={() => setEditingUserSettings(true)}
           onOpenDeviceSettings={() => setEditingDeviceSettings(true)}
           onEditOfficePrompt={() => setEditingOfficePrompt(true)}
           onEditRoomSettings={() => { const rid = rooms[currentRoom]?.id; if (rid) setEditingRoomSettings(rid); }}
@@ -220,6 +227,7 @@ export function App() {
         <OfficeView
           onSpawn={(desk) => setSpawnDesk(desk)}
           onContextMenu={(x, y, agent) => setCtxMenu({ x, y, agent })}
+          onOpenUserSettings={() => setEditingUserSettings(true)}
           onOpenDeviceSettings={() => setEditingDeviceSettings(true)}
           onEditOfficePrompt={() => setEditingOfficePrompt(true)}
           onEditRoomSettings={() => { const rid = rooms[currentRoom]?.id; if (rid) setEditingRoomSettings(rid); }}

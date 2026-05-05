@@ -290,6 +290,9 @@ export interface PersistedAgent {
   lastSessionId: string | null;
   topic: string | null;
   customInstructions: string | null;
+  // null on legacy agents migrated from before the user/device split. Newly
+  // spawned agents always carry the spawning user's name here.
+  username?: string | null;
 }
 
 export interface PersistedUsage {
@@ -314,12 +317,11 @@ export interface Room {
   id: string;                  // stable 8-char hex
   name: string;                // display name
   prompt: string | null;       // room-level prompt
-  envFile: string | null;      // absolute path to dotenv file
   agents: PersistedAgent[];
 }
 
 export function loadAgents(): Room[] {
-  const defaultRoom = (): Room => ({ id: generateRoomId(), name: "Room 1", prompt: null, envFile: null, agents: [] });
+  const defaultRoom = (): Room => ({ id: generateRoomId(), name: "Room 1", prompt: null, agents: [] });
   let rooms: any[];
   try {
     if (!existsSync(AGENTS_FILE)) return [defaultRoom()];
@@ -336,29 +338,46 @@ export function loadAgents(): Room[] {
         id: generateRoomId(),
         name: `Room ${i + 1}`,
         prompt: null,
-        envFile: null,
         agents,
       }));
     } else {
-      rooms = [{ id: generateRoomId(), name: "Room 1", prompt: null, envFile: null, agents: parsed as PersistedAgent[] }];
+      rooms = [{ id: generateRoomId(), name: "Room 1", prompt: null, agents: parsed as PersistedAgent[] }];
     }
   } catch {
     return [defaultRoom()];
   }
 
-  // Migrate each room: fill in missing id / prompt / envFile.
-  // Collect already-present ids to avoid collisions during migration.
+  // Migrate each room: fill in missing id / prompt; drop legacy envFile.
   const existingIds: string[] = rooms
     .map((r) => r.id)
     .filter((id): id is string => typeof id === "string" && id.length > 0);
+  let strippedRoomEnv = 0;
+  let migratedAgents = 0;
   for (const room of rooms) {
     if (typeof room.id !== "string" || room.id.length === 0) {
       room.id = generateRoomId(existingIds);
       existingIds.push(room.id);
     }
     if (typeof room.prompt !== "string") room.prompt = null;
-    if (typeof room.envFile !== "string") room.envFile = null;
-    for (const agent of room.agents as PersistedAgent[]) migratePersistedAgent(agent);
+    if (typeof room.envFile === "string" && room.envFile) {
+      console.log(`[migration] room "${room.name}" had envFile=${room.envFile} (now removed; copy to your User Settings if you still want it applied)`);
+      strippedRoomEnv++;
+    }
+    delete room.envFile;
+    for (const agent of room.agents as PersistedAgent[]) {
+      migratePersistedAgent(agent);
+      // Stamp username: null on legacy agents that pre-date the user/device split.
+      if (!("username" in agent)) {
+        (agent as any).username = null;
+        migratedAgents++;
+      }
+    }
+  }
+  if (migratedAgents > 0) {
+    console.log(`[migration] migrated ${migratedAgents} agents to unowned (username:null); spawn new agents to apply per-user env`);
+  }
+  if (strippedRoomEnv > 0) {
+    console.log(`[migration] stripped envFile from ${strippedRoomEnv} room(s); env is now per-user`);
   }
   return rooms as Room[];
 }
@@ -374,7 +393,7 @@ export function saveAgents(rooms: Room[]) {
 // Agent manifest for discovery by other agents
 const MANIFEST_FILE = join(ISOMUX_DIR, "agents-summary.json");
 
-export function writeManifest(agents: { id: string; name: string; desk: number; room: number; roomName: string; topic: string | null; cwd: string; modelFamily: ModelFamily; model: ClaudeModel }[]) {
+export function writeManifest(agents: { id: string; name: string; desk: number; room: number; roomName: string; topic: string | null; cwd: string; modelFamily: ModelFamily; model: ClaudeModel; username: string | null }[]) {
   try {
     const manifest = agents.map((a) => ({
       id: a.id,
@@ -386,6 +405,7 @@ export function writeManifest(agents: { id: string; name: string; desk: number; 
       cwd: a.cwd,
       modelFamily: a.modelFamily,
       model: a.model,
+      username: a.username,
       logDir: join(LOGS_DIR, a.id),
     }));
     atomicWriteFileSync(MANIFEST_FILE, JSON.stringify(manifest, null, 2));
@@ -557,7 +577,21 @@ export function saveAgentHistory(history: AgentHistory) {
 export function loadTasks(): TaskItem[] {
   try {
     if (!existsSync(TASKS_FILE)) return [];
-    return JSON.parse(readFileSync(TASKS_FILE, "utf-8")) as TaskItem[];
+    const records = JSON.parse(readFileSync(TASKS_FILE, "utf-8")) as Array<TaskItem & { device?: string }>;
+    // Migrate legacy `device` field → `username` (the field's actual semantics
+    // has always been "the boss's name").
+    let migrated = 0;
+    for (const r of records) {
+      if (r.device !== undefined && r.username === undefined) {
+        r.username = r.device;
+        migrated++;
+      }
+      delete (r as any).device;
+    }
+    if (migrated > 0) {
+      console.log(`[migration] migrated ${migrated} task(s) from device → username`);
+    }
+    return records;
   } catch {
     return [];
   }

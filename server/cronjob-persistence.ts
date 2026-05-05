@@ -67,7 +67,21 @@ export function migrateCronjobsPromptFromOfficeConfig() {
 export function loadCronjobs(): Cronjob[] {
   try {
     if (!existsSync(CRONJOBS_FILE)) return [];
-    return JSON.parse(readFileSync(CRONJOBS_FILE, "utf-8")) as Cronjob[];
+    const records = JSON.parse(readFileSync(CRONJOBS_FILE, "utf-8")) as Array<Cronjob & { device?: string | null }>;
+    // Migrate legacy `device` field → `username` (the field's actual semantics
+    // has always been "the boss's name").
+    let migrated = 0;
+    for (const r of records) {
+      if (r.device !== undefined && r.username === undefined) {
+        r.username = r.device ?? null;
+        migrated++;
+      }
+      delete (r as any).device;
+    }
+    if (migrated > 0) {
+      console.log(`[migration] migrated ${migrated} cronjob(s) from device → username`);
+    }
+    return records;
   } catch (err) {
     console.error("Failed to load cronjobs:", err);
     return [];

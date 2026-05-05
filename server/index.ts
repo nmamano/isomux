@@ -8,6 +8,7 @@ import { startUpdateChecker, getUpdateStatus, onUpdateChange } from "./update-ch
 import { startBackupScheduler, getBackupStatus } from "./backup.ts";
 import type { TaskItem } from "../shared/types.ts";
 import { generateTaskId, isValidStatus, isValidPriority } from "../shared/types.ts";
+import { listUsers, getUser, claimUser, updateUser, deleteUser } from "./users.ts";
 import { join } from "path";
 
 const browsers = new Set<ServerWebSocket<unknown>>();
@@ -45,7 +46,7 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
         break;
       }
       saveRecentCwd(cmd.cwd);
-      await AgentManager.spawn(cmd.name, cmd.cwd, cmd.permissionMode, cmd.desk, cmd.customInstructions, cmd.roomId, cmd.outfit, cmd.modelFamily, cmd.effort);
+      await AgentManager.spawn(cmd.name, cmd.cwd, cmd.permissionMode, cmd.desk, cmd.customInstructions, cmd.roomId, cmd.outfit, cmd.modelFamily, cmd.effort, cmd.username);
       if (cmd.requestId) {
         ws.send(JSON.stringify({ type: "agent_save_response", requestId: cmd.requestId, ok: true } as ServerMessage));
       }
@@ -59,7 +60,7 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
       break;
     case "send_message":
       // Don't await — let it stream in the background
-      AgentManager.sendMessage(cmd.agentId, cmd.text, cmd.username, cmd.attachments);
+      AgentManager.sendMessage(cmd.agentId, cmd.text, cmd.username, cmd.device, cmd.attachments);
       break;
     case "new_conversation":
       await AgentManager.newConversation(cmd.agentId);
@@ -140,16 +141,7 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
       break;
     }
     case "update_room_settings": {
-      const envFile = cmd.envFile && cmd.envFile.trim() ? cmd.envFile.trim() : null;
-      if (envFile) {
-        try {
-          AgentManager.validateEnvPath(envFile);
-        } catch (err: any) {
-          ws.send(JSON.stringify({ type: "settings_save_response", requestId: cmd.requestId, ok: false, error: err.message || "Invalid env file" } as ServerMessage));
-          break;
-        }
-      }
-      const ok = AgentManager.setRoomSettings(cmd.roomId, cmd.prompt, envFile);
+      const ok = AgentManager.setRoomSettings(cmd.roomId, cmd.prompt);
       if (!ok) {
         ws.send(JSON.stringify({ type: "settings_save_response", requestId: cmd.requestId, ok: false, error: "Room not found" } as ServerMessage));
       } else {
@@ -170,19 +162,18 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
       let envFile: string | null = null;
       if (cmd.scope === "office") {
         envFile = AgentManager.getOfficeSettings().envFile;
-      } else if (cmd.scope === "room" && cmd.roomId) {
-        const room = AgentManager.getRooms().find((r) => r.id === cmd.roomId);
-        envFile = room?.envFile ?? null;
+      } else if (cmd.scope === "user" && cmd.username) {
+        envFile = getUser(cmd.username)?.envFile ?? null;
       }
       if (!envFile) {
-        ws.send(JSON.stringify({ type: "settings_validation", requestId: cmd.requestId, scope: cmd.scope, roomId: cmd.roomId, envFile: null, ok: true } as ServerMessage));
+        ws.send(JSON.stringify({ type: "settings_validation", requestId: cmd.requestId, scope: cmd.scope, username: cmd.username, envFile: null, ok: true } as ServerMessage));
         break;
       }
       try {
         const keyCount = AgentManager.validateEnvPath(envFile);
-        ws.send(JSON.stringify({ type: "settings_validation", requestId: cmd.requestId, scope: cmd.scope, roomId: cmd.roomId, envFile, ok: true, keyCount } as ServerMessage));
+        ws.send(JSON.stringify({ type: "settings_validation", requestId: cmd.requestId, scope: cmd.scope, username: cmd.username, envFile, ok: true, keyCount } as ServerMessage));
       } catch (err: any) {
-        ws.send(JSON.stringify({ type: "settings_validation", requestId: cmd.requestId, scope: cmd.scope, roomId: cmd.roomId, envFile, ok: false, error: err.message || "Invalid env file" } as ServerMessage));
+        ws.send(JSON.stringify({ type: "settings_validation", requestId: cmd.requestId, scope: cmd.scope, username: cmd.username, envFile, ok: false, error: err.message || "Invalid env file" } as ServerMessage));
       }
       break;
     }
@@ -195,7 +186,7 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
         status: "open",
         assignee: cmd.assignee,
         createdBy: cmd.username,
-        device: cmd.device ?? cmd.username,
+        username: cmd.username,
         createdAt: Date.now(),
       };
       tasks.push(task);
@@ -240,7 +231,7 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
       break;
     case "edit_message":
       // Don't await — let it stream in the background (like send_message)
-      AgentManager.editMessage(cmd.agentId, cmd.logEntryId, cmd.newText, cmd.username);
+      AgentManager.editMessage(cmd.agentId, cmd.logEntryId, cmd.newText, cmd.username, cmd.device);
       break;
     case "add_cronjob": {
       try {
@@ -261,7 +252,6 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
         effort: cmd.effort,
         permissionMode: cmd.permissionMode,
         username: cmd.username,
-        device: cmd.device,
       });
       if (cmd.requestId) {
         ws.send(JSON.stringify({ type: "agent_save_response", requestId: cmd.requestId, ok: true } as ServerMessage));
@@ -290,7 +280,7 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
       CronjobManager.deleteCronjob(cmd.id);
       break;
     case "run_cronjob_now":
-      CronjobManager.runCronjobNow(cmd.id, cmd.username, cmd.device);
+      CronjobManager.runCronjobNow(cmd.id, cmd.username);
       break;
     case "update_cronjobs_prompt":
       CronjobManager.setCronjobsPrompt(cmd.value);
@@ -324,12 +314,53 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
     }
     case "send_cronjob_run_message":
       // Don't await — let it stream in the background (matches send_message).
-      CronjobManager.sendRunMessage(cmd.cronjobId, cmd.runId, cmd.text, cmd.username);
+      CronjobManager.sendRunMessage(cmd.cronjobId, cmd.runId, cmd.text, cmd.username, cmd.device);
       break;
     case "edit_cronjob_run_message":
       // Don't await — let it stream in the background (matches edit_message).
-      CronjobManager.editRunMessage(cmd.cronjobId, cmd.runId, cmd.logEntryId, cmd.newText, cmd.username);
+      CronjobManager.editRunMessage(cmd.cronjobId, cmd.runId, cmd.logEntryId, cmd.newText, cmd.username, cmd.device);
       break;
+    case "claim_user": {
+      const user = claimUser(cmd.username, { defaultRoomId: cmd.defaultRoomId, notifRooms: cmd.notifRooms });
+      broadcast({ type: "user_updated", user } as ServerMessage);
+      broadcast({ type: "users_list", users: listUsers() } as ServerMessage);
+      break;
+    }
+    case "update_user": {
+      // Validate envFile if present.
+      if (cmd.changes.envFile && cmd.changes.envFile.trim()) {
+        try {
+          AgentManager.validateEnvPath(cmd.changes.envFile.trim());
+        } catch (err: any) {
+          if (cmd.requestId) {
+            ws.send(JSON.stringify({ type: "settings_save_response", requestId: cmd.requestId, ok: false, error: err.message || "Invalid env file" } as ServerMessage));
+          }
+          break;
+        }
+      }
+      const result = updateUser(cmd.username, cmd.changes);
+      if (!result.ok) {
+        if (cmd.requestId) {
+          ws.send(JSON.stringify({ type: "settings_save_response", requestId: cmd.requestId, ok: false, error: result.error } as ServerMessage));
+        }
+        break;
+      }
+      if (cmd.requestId) {
+        ws.send(JSON.stringify({ type: "settings_save_response", requestId: cmd.requestId, ok: true } as ServerMessage));
+      }
+      // Tell the client the old key when a re-key rename happened, so it can
+      // drop the stale entry from its keyed map without waiting for the
+      // follow-up users_list rebroadcast.
+      const renamed = cmd.username.toLowerCase() !== result.user.name.toLowerCase();
+      broadcast({ type: "user_updated", user: result.user, ...(renamed ? { prevName: cmd.username } : {}) } as ServerMessage);
+      broadcast({ type: "users_list", users: listUsers() } as ServerMessage);
+      break;
+    }
+    case "delete_user": {
+      deleteUser(cmd.username);
+      broadcast({ type: "users_list", users: listUsers() } as ServerMessage);
+      break;
+    }
   }
 }
 
@@ -464,7 +495,7 @@ const server = Bun.serve({
           status: "open",
           assignee: body.assignee ? String(body.assignee) : undefined,
           createdBy: String(body.createdBy),
-          device: body.device ? String(body.device) : undefined,
+          username: body.username ? String(body.username) : undefined,
           createdAt: Date.now(),
         };
         tasks.push(task);
@@ -646,6 +677,9 @@ const server = Bun.serve({
   websocket: {
     open(ws) {
       browsers.add(ws);
+      // Send users (boss profiles) FIRST so the full_state reducer can apply
+      // the current user's defaultRoomId from server-stored prefs.
+      ws.send(JSON.stringify({ type: "users_list", users: listUsers() } as ServerMessage));
       // Send current agent list
       const agents = AgentManager.getAllAgents();
       const recentCwds = loadRecentCwds();

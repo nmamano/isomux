@@ -31,6 +31,7 @@ import {
   type Schedule,
 } from "../shared/types.ts";
 import { CLAUDE_NATIVE_BIN, validateCwd, resolveCwd, claudeSessionFileExists, claudeProjectDir } from "./cwd-utils.ts";
+import { formatPrefix } from "../shared/identity.ts";
 import { createSafetyHooks } from "./safety-hooks.ts";
 import { loadOfficeConfig, saveFile, type PersistedUsage } from "./persistence.ts";
 import {
@@ -200,7 +201,6 @@ export interface AddCronjobInput {
   effort: Cronjob["effort"];
   permissionMode: CronjobPermissionMode;
   username: string;
-  device?: string;
 }
 
 export function addCronjob(input: AddCronjobInput): Cronjob {
@@ -217,7 +217,7 @@ export function addCronjob(input: AddCronjobInput): Cronjob {
     permissionMode: input.permissionMode,
     enabled: true,
     createdBy: input.username,
-    device: input.device ?? null,
+    username: input.username,
     createdAt: now,
     lastFireAt: null,
     nextFireAt: computeNextFire(schedule, now, now),
@@ -542,7 +542,7 @@ function finalizeRun(active: ActiveRun, status: CronjobRun["status"], errorReaso
   // nextFireAt at fire time — no further schedule update needed here.
 }
 
-function fire(job: Cronjob, trigger: CronjobRun["trigger"]): CronjobRun | null {
+function fire(job: Cronjob, trigger: CronjobRun["trigger"], triggeredBy?: string): CronjobRun | null {
   const jobId = job.id;
 
   // Validate cwd before spawning so a moved directory surfaces as a failed
@@ -576,6 +576,7 @@ function fire(job: Cronjob, trigger: CronjobRun["trigger"]): CronjobRun | null {
     rootSessionId: placeholderSessionId,
     currentSessionId: placeholderSessionId,
     previewText: cwdError ?? "",
+    ...(triggeredBy ? { triggeredBy } : {}),
   };
   appendRun(jobId, run);
   eventHandler({ type: "cronjob_run_updated", run });
@@ -722,10 +723,10 @@ function tick() {
 // Manual trigger
 // ---------------------------------------------------------------------------
 
-export function runCronjobNow(id: string, _username: string, _device?: string): CronjobRun | null {
+export function runCronjobNow(id: string, username: string): CronjobRun | null {
   const job = cronjobs.find((c) => c.id === id);
   if (!job) return null;
-  return fire(job, "manual");
+  return fire(job, "manual", username);
 }
 
 // ---------------------------------------------------------------------------
@@ -820,7 +821,7 @@ function installResumedActive(run: CronjobRun, session: ReturnType<typeof unstab
 // Send a follow-up message into a finalized run by resuming the leaf session.
 // No-op if the run is missing, currently in flight, or has no real SDK
 // session to resume (skipped or pre-init failed).
-export async function sendRunMessage(jobId: string, runId: string, text: string, username?: string): Promise<void> {
+export async function sendRunMessage(jobId: string, runId: string, text: string, username?: string, device?: string): Promise<void> {
   const run = findRun(jobId, runId);
   if (!run) return;
   // Synchronous claim — must happen before any await so a concurrent
@@ -863,9 +864,13 @@ export async function sendRunMessage(jobId: string, runId: string, text: string,
 
     const active = installResumedActive(run, session, leaf);
     // Persist the user message so it shows up in the transcript.
-    writeLog(active, "user_message", text, username ? { username } : undefined);
+    const meta: Record<string, unknown> | undefined = (username || device)
+      ? { ...(username ? { username } : {}), ...(device ? { device } : {}) }
+      : undefined;
+    writeLog(active, "user_message", text, meta);
 
-    const prefixedText = username ? `[${username}] ${text}` : text;
+    const prefix = formatPrefix({ username, device });
+    const prefixedText = prefix ? `${prefix}${text}` : text;
     (async () => {
       try {
         await session.send(prefixedText);
@@ -886,7 +891,7 @@ export async function sendRunMessage(jobId: string, runId: string, text: string,
 // editMessage: forks the SDK session at the predecessor of the target
 // message, persists fork lineage in the run's sessions.json, then resumes
 // the new leaf and sends the edited text.
-export async function editRunMessage(jobId: string, runId: string, logEntryId: string, newText: string, username?: string): Promise<void> {
+export async function editRunMessage(jobId: string, runId: string, logEntryId: string, newText: string, username?: string, device?: string): Promise<void> {
   const run = findRun(jobId, runId);
   if (!run) return;
   // Synchronous claim — see sendRunMessage. Without this, getSessionMessages
@@ -916,13 +921,13 @@ export async function editRunMessage(jobId: string, runId: string, logEntryId: s
 
   startingRuns.add(runId);
   try {
-    await editRunMessageImpl(run, logEntryId, newText, leaf, username);
+    await editRunMessageImpl(run, logEntryId, newText, leaf, username, device);
   } finally {
     startingRuns.delete(runId);
   }
 }
 
-async function editRunMessageImpl(run: CronjobRun, logEntryId: string, newText: string, leaf: string, username?: string): Promise<void> {
+async function editRunMessageImpl(run: CronjobRun, logEntryId: string, newText: string, leaf: string, username?: string, device?: string): Promise<void> {
   const jobId = run.cronjobId;
   const runId = run.id;
 
@@ -944,14 +949,16 @@ async function editRunMessageImpl(run: CronjobRun, logEntryId: string, newText: 
     return;
   }
   const targetUsername = targetEntry.metadata?.username as string | undefined;
+  const targetDevice = targetEntry.metadata?.device as string | undefined;
   const targetSdkText = (targetEntry.metadata?.sdkText as string | undefined) ?? targetEntry.content;
-  const prefixedContent = targetUsername ? `[${targetUsername}] ${targetSdkText}` : targetSdkText;
+  const prefixedContent = `${formatPrefix({ username: targetUsername, device: targetDevice })}${targetSdkText}`;
   const userLogEntries = oldEntries.filter((e) => e.kind === "user_message");
   let occurrenceIndex = 0;
   for (const e of userLogEntries) {
     const u = e.metadata?.username as string | undefined;
+    const d = e.metadata?.device as string | undefined;
     const sdkText = (e.metadata?.sdkText as string | undefined) ?? e.content;
-    const prefixed = u ? `[${u}] ${sdkText}` : sdkText;
+    const prefixed = `${formatPrefix({ username: u, device: d })}${sdkText}`;
     if (prefixed === prefixedContent) {
       if (e.id === logEntryId) break;
       occurrenceIndex++;
@@ -1054,8 +1061,12 @@ async function editRunMessageImpl(run: CronjobRun, logEntryId: string, newText: 
 
   // 8. Wire up the active run, persist the new edited message, send it.
   const active = installResumedActive(updatedRun ?? run, session, newSessionId);
-  writeLog(active, "user_message", newText, username ? { username } : undefined);
-  const prefixedText = username ? `[${username}] ${newText}` : newText;
+  const editMeta: Record<string, unknown> | undefined = (username || device)
+    ? { ...(username ? { username } : {}), ...(device ? { device } : {}) }
+    : undefined;
+  writeLog(active, "user_message", newText, editMeta);
+  const editPrefix = formatPrefix({ username, device });
+  const prefixedText = editPrefix ? `${editPrefix}${newText}` : newText;
   (async () => {
     try {
       await session.send(prefixedText);

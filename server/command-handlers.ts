@@ -1,5 +1,6 @@
 import type { Attachment, AgentState, LogEntry, SkillInfo, SkillOrigin } from "../shared/types.ts";
 import { MODEL_FAMILIES, FAMILY_TO_MODEL, EFFORT_LEVELS, familyDisplayLabel, effortDisplayLabel } from "../shared/types.ts";
+import { formatPrefix } from "../shared/identity.ts";
 import { listAgentSessions, type OfficeConfig } from "./persistence.ts";
 import { commands, unsupportedMessage, type CommandConfig } from "./commands.ts";
 import { buildSystemPrompt } from "./system-prompt.ts";
@@ -9,7 +10,15 @@ import { renderUsageReport, formatRelativeTime } from "./usage-report.ts";
 import { computeIsomuxDiff, resolveDiffCwd } from "./isomux-diff.ts";
 import { SessionSwappedError, type ManagedAgent, type InternalRoom, type AgentEvent } from "./internal-types.ts";
 
-type HandlerFn = (agentId: string, managed: ManagedAgent, args: string[], rawText: string, username?: string) => Promise<boolean>;
+type HandlerFn = (agentId: string, managed: ManagedAgent, args: string[], rawText: string, username?: string, device?: string) => Promise<boolean>;
+
+function buildMeta(username?: string, device?: string): Record<string, unknown> | undefined {
+  if (!username && !device) return undefined;
+  const meta: Record<string, unknown> = {};
+  if (username) meta.username = username;
+  if (device) meta.device = device;
+  return meta;
+}
 
 interface HandlerDeps {
   // State accessors (live references — read at call time)
@@ -34,8 +43,8 @@ interface HandlerDeps {
 
 export function createCommandHandling(deps: HandlerDeps) {
   const commandHandlers: Record<string, HandlerFn> = {
-    async clear(agentId, managed, _args, rawText, username) {
-      const userMeta = username ? { username } : undefined;
+    async clear(agentId, managed, _args, rawText, username, device) {
+      const userMeta = buildMeta(username, device);
       deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
       managed.pendingResume = false;
       managed.pendingResumeSessions = [];
@@ -57,8 +66,8 @@ export function createCommandHandling(deps: HandlerDeps) {
       return true;
     },
 
-    async context(agentId, managed, _args, rawText, username) {
-      const userMeta = username ? { username } : undefined;
+    async context(agentId, managed, _args, rawText, username, device) {
+      const userMeta = buildMeta(username, device);
       deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
       if (!managed.session) {
         deps.emitEphemeralLog(agentId, "system", "No active session.");
@@ -116,8 +125,8 @@ export function createCommandHandling(deps: HandlerDeps) {
       return true;
     },
 
-    async help(agentId, managed, _args, rawText, username) {
-      const userMeta = username ? { username } : undefined;
+    async help(agentId, managed, _args, rawText, username, device) {
+      const userMeta = buildMeta(username, device);
       deps.addLogEntry(agentId, "user_message", rawText, userMeta);
 
       const lines: string[] = [];
@@ -177,8 +186,8 @@ export function createCommandHandling(deps: HandlerDeps) {
       return true;
     },
 
-    async resume(agentId, managed, _args, rawText, username) {
-      const userMeta = username ? { username } : undefined;
+    async resume(agentId, managed, _args, rawText, username, device) {
+      const userMeta = buildMeta(username, device);
       deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
       const sessions = listAgentSessions(agentId);
       if (sessions.length === 0) {
@@ -216,8 +225,8 @@ export function createCommandHandling(deps: HandlerDeps) {
       return true;
     },
 
-    async model(agentId, managed, _args, rawText, username) {
-      const userMeta = username ? { username } : undefined;
+    async model(agentId, managed, _args, rawText, username, device) {
+      const userMeta = buildMeta(username, device);
       deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
       const currentLabel = familyDisplayLabel(managed.info.modelFamily);
       const lines: string[] = [`Switch model (current: **${currentLabel}**):\n`];
@@ -233,8 +242,8 @@ export function createCommandHandling(deps: HandlerDeps) {
       return true;
     },
 
-    async effort(agentId, managed, _args, rawText, username) {
-      const userMeta = username ? { username } : undefined;
+    async effort(agentId, managed, _args, rawText, username, device) {
+      const userMeta = buildMeta(username, device);
       deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
       const currentLabel = effortDisplayLabel(managed.info.effort);
       const lines: string[] = [`Switch thinking effort (current: **${currentLabel}**):\n`];
@@ -250,8 +259,8 @@ export function createCommandHandling(deps: HandlerDeps) {
       return true;
     },
 
-    async isomuxAllHands(agentId, _managed, _args, rawText, username) {
-      const userMeta = username ? { username } : undefined;
+    async isomuxAllHands(agentId, _managed, _args, rawText, username, device) {
+      const userMeta = buildMeta(username, device);
       deps.addLogEntry(agentId, "user_message", rawText, userMeta);
 
       // Gather all agents grouped by room
@@ -299,8 +308,8 @@ export function createCommandHandling(deps: HandlerDeps) {
       return true;
     },
 
-    async isomuxSystemPrompt(agentId, managed, _args, rawText, username) {
-      const userMeta = username ? { username } : undefined;
+    async isomuxSystemPrompt(agentId, managed, _args, rawText, username, device) {
+      const userMeta = buildMeta(username, device);
       deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
       const room = deps.getRooms()[managed.info.room]!;
       const officeConfig = deps.getOfficeConfig();
@@ -322,8 +331,8 @@ export function createCommandHandling(deps: HandlerDeps) {
       return true;
     },
 
-    async isomuxCronjobSystemPrompt(agentId, _managed, args, rawText, username) {
-      const userMeta = username ? { username } : undefined;
+    async isomuxCronjobSystemPrompt(agentId, _managed, args, rawText, username, device) {
+      const userMeta = buildMeta(username, device);
       deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
 
       const query = args.join(" ").trim();
@@ -370,8 +379,8 @@ export function createCommandHandling(deps: HandlerDeps) {
       return true;
     },
 
-    async isomuxDiff(agentId, managed, args, rawText, username) {
-      const userMeta = username ? { username } : undefined;
+    async isomuxDiff(agentId, managed, args, rawText, username, device) {
+      const userMeta = buildMeta(username, device);
       deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
 
       const resolved = resolveDiffCwd(args[0], managed.info.cwd);
@@ -399,8 +408,8 @@ export function createCommandHandling(deps: HandlerDeps) {
       return true;
     },
 
-    async usage(agentId, _managed, _args, rawText, username) {
-      const userMeta = username ? { username } : undefined;
+    async usage(agentId, _managed, _args, rawText, username, device) {
+      const userMeta = buildMeta(username, device);
       deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
       deps.emitEphemeralLog(agentId, "system", renderUsageReport(deps.agents, deps.getRooms()));
       deps.updateState(agentId, "waiting_for_response");
@@ -416,7 +425,7 @@ export function createCommandHandling(deps: HandlerDeps) {
   }
 
   // Execute a resolved skill prompt by sending it to the agent
-  async function executeSkill(agentId: string, managed: ManagedAgent, skillPrompt: string, args: string[], rawText: string, username?: string): Promise<boolean> {
+  async function executeSkill(agentId: string, managed: ManagedAgent, skillPrompt: string, args: string[], rawText: string, username?: string, device?: string): Promise<boolean> {
     const userArgs = args.join(" ");
     const fullPrompt = userArgs
       ? `${skillPrompt}\n\nUser context: ${userArgs}`
@@ -426,9 +435,11 @@ export function createCommandHandling(deps: HandlerDeps) {
     // command and won't match).
     const userMeta: Record<string, unknown> = { sdkText: fullPrompt };
     if (username) userMeta.username = username;
+    if (device) userMeta.device = device;
     deps.addLogEntry(agentId, "user_message", rawText, userMeta);
     deps.updateState(agentId, "thinking");
-    const prefixedSkillPrompt = username ? `[${username}] ${fullPrompt}` : fullPrompt;
+    const prefix = formatPrefix({ username, device });
+    const prefixedSkillPrompt = prefix ? `${prefix}${fullPrompt}` : fullPrompt;
     try {
       const turn = deps.createTurnDeferred(managed);
       await managed.session!.send(prefixedSkillPrompt);
@@ -442,14 +453,14 @@ export function createCommandHandling(deps: HandlerDeps) {
   }
 
   // Slash command resolution — 5-step priority order (see docs/slash-command-design.md)
-  async function handleSlashCommand(agentId: string, managed: ManagedAgent, cmd: string, args: string[], rawText: string, username?: string): Promise<boolean> {
-    const userMeta = username ? { username } : undefined;
+  async function handleSlashCommand(agentId: string, managed: ManagedAgent, cmd: string, args: string[], rawText: string, username?: string, device?: string): Promise<boolean> {
+    const userMeta = buildMeta(username, device);
     const cfg: CommandConfig | undefined = commands[cmd];
 
     // Step 1: Config lookup (non-overridable)
     if (cfg && !cfg.overridable) {
       if (cfg.supported && cfg.handler && commandHandlers[cfg.handler]) {
-        return commandHandlers[cfg.handler](agentId, managed, args, rawText, username);
+        return commandHandlers[cfg.handler](agentId, managed, args, rawText, username, device);
       }
       // Unsupported non-overridable command — show message
       deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
@@ -460,13 +471,13 @@ export function createCommandHandling(deps: HandlerDeps) {
     // Step 2: Skill override check (for overridable config entries OR unknown commands)
     const skillPrompt = resolveSkillPrompt(cmd, managed.info.cwd);
     if (skillPrompt) {
-      return executeSkill(agentId, managed, skillPrompt, args, rawText, username);
+      return executeSkill(agentId, managed, skillPrompt, args, rawText, username, device);
     }
 
     // Step 3: Config lookup (overridable, no skill found)
     if (cfg && cfg.overridable) {
       if (cfg.supported && cfg.handler && commandHandlers[cfg.handler]) {
-        return commandHandlers[cfg.handler](agentId, managed, args, rawText, username);
+        return commandHandlers[cfg.handler](agentId, managed, args, rawText, username, device);
       }
       // Unsupported overridable command with no skill override
       deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
