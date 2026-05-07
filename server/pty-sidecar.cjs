@@ -8,6 +8,21 @@
 //   ← { type: "output", data }
 //   ← { type: "exit", exitCode, signal }
 
+// Bun's installer sometimes drops the execute bit on node-pty's prebuilt
+// spawn-helper binary, which makes pty.spawn() fail with `posix_spawnp failed`
+// and produces a blank terminal. Restore it before loading node-pty.
+(() => {
+  const fs = require("fs");
+  const path = require("path");
+  const prebuilds = path.join(__dirname, "..", "node_modules", "node-pty", "prebuilds");
+  try {
+    for (const entry of fs.readdirSync(prebuilds)) {
+      const helper = path.join(prebuilds, entry, "spawn-helper");
+      if (fs.existsSync(helper)) fs.chmodSync(helper, 0o755);
+    }
+  } catch {}
+})();
+
 const pty = require("node-pty");
 const readline = require("readline");
 
