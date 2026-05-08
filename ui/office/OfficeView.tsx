@@ -74,11 +74,11 @@ export function OfficeView({ onSpawn, onContextMenu, onOpenUserSettings, onOpenD
   const officeActions: NavAction[] = [
     { id: "tasks", icon: TasksIcon, label: "Tasks", onClick: onOpenTasks },
     { id: "cronjobs", icon: ClockIcon, label: "Cron jobs", onClick: onOpenCronjobs },
-    { id: "user", icon: UserIcon, label: "User settings", onClick: onOpenUserSettings },
-    { id: "device", icon: DeviceIcon, label: "Device settings", onClick: onOpenDeviceSettings },
-    { id: "office", icon: BuildingIcon, label: "Office settings", onClick: onEditOfficePrompt },
-    ...(onEditRoomSettings ? [{ id: "room", icon: DoorIcon, label: "Room settings", onClick: onEditRoomSettings }] : []),
-    { id: "theme", icon: theme === "dark" ? <SunIcon size={15} /> : <MoonIcon size={15} />, label: theme === "dark" ? "Light mode" : "Dark mode", onClick: toggleTheme },
+    { id: "user", icon: UserIcon, label: "User", onClick: onOpenUserSettings, title: "User settings" },
+    { id: "device", icon: DeviceIcon, label: "Device", onClick: onOpenDeviceSettings, title: "Device settings" },
+    { id: "office", icon: BuildingIcon, label: "Office", onClick: onEditOfficePrompt, title: "Office settings" },
+    ...(onEditRoomSettings ? [{ id: "room", icon: DoorIcon, label: "Room", onClick: onEditRoomSettings, title: "Room settings" }] : []),
+    { id: "theme", icon: theme === "dark" ? <MoonIcon size={15} /> : <SunIcon size={15} />, label: theme === "dark" ? "Dark" : "Light", onClick: toggleTheme, title: theme === "dark" ? "Switch to light mode" : "Switch to dark mode" },
   ];
 
   const mobileOfficeActions: NavAction[] = [

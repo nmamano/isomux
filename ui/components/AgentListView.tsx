@@ -50,7 +50,7 @@ export function AgentListView({
     { id: "device", icon: DeviceIcon, label: "Device settings", onClick: onOpenDeviceSettings },
     { id: "office", icon: BuildingIcon, label: "Office settings", onClick: onEditOfficePrompt },
     ...(onEditRoomSettings ? [{ id: "room", icon: DoorIcon, label: "Room settings", onClick: onEditRoomSettings }] : []),
-    { id: "theme", icon: theme === "dark" ? <SunIcon size={15} /> : <MoonIcon size={15} />, label: theme === "dark" ? "Light mode" : "Dark mode", onClick: toggleTheme },
+    { id: "theme", icon: theme === "dark" ? <MoonIcon size={15} /> : <SunIcon size={15} />, label: theme === "dark" ? "Dark" : "Light", onClick: toggleTheme, title: theme === "dark" ? "Switch to light mode" : "Switch to dark mode" },
     { id: "list", icon: IsoIcon, label: "Show floor view", onClick: onToggleView },
   ];
 

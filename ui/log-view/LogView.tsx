@@ -513,9 +513,9 @@ export function LogView({
   const baseAgentActions: NavAction[] = [
     ...(onOpenTasks ? [{ id: "tasks", icon: TasksIcon, label: "Tasks", onClick: onOpenTasks }] : []),
     ...(logs.length > 0 ? [{ id: "copy", icon: copied ? CheckIcon : CopyIcon, label: copied ? "Copied" : "Copy", onClick: handleCopy, active: copied }] : []),
-    { id: "settings", icon: AgentIcon, label: "Agent settings", onClick: onEditAgent },
-    { id: "viewAvatar", icon: EyeIcon, label: "View avatar", onClick: toggleAvatar, active: showAvatar },
-    { id: "theme", icon: theme === "dark" ? <SunIcon size={15} /> : <MoonIcon size={15} />, label: theme === "dark" ? "Light mode" : "Dark mode", onClick: toggleTheme },
+    { id: "settings", icon: AgentIcon, label: "Agent", onClick: onEditAgent, title: "Agent settings" },
+    { id: "viewAvatar", icon: EyeIcon, label: "Avatar", onClick: toggleAvatar, active: showAvatar, title: "View avatar" },
+    { id: "theme", icon: theme === "dark" ? <MoonIcon size={15} /> : <SunIcon size={15} />, label: theme === "dark" ? "Dark" : "Light", onClick: toggleTheme, title: theme === "dark" ? "Switch to light mode" : "Switch to dark mode" },
   ];
 
   const desktopAgentActions: NavAction[] = (() => {
