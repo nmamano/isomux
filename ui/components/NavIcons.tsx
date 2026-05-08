@@ -47,6 +47,23 @@ export const PersonIcon = (
 
 export const UserIcon = PersonIcon;
 
+export const AgentIcon = (
+  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" strokeLinecap="round" style={{ display: "block" }}>
+    <circle cx="8" cy="5" r="2" />
+    <path d="M5 10 Q 8 7, 11 10" />
+    <path d="M2 10 L 14 10" />
+    <path d="M3 10 L 3 14" />
+    <path d="M13 10 L 13 14" />
+  </svg>
+);
+
+export const EyeIcon = (
+  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" strokeLinecap="round" style={{ display: "block" }}>
+    <path d="M2 8 Q 8 3.5, 14 8 Q 8 12.5, 2 8 Z" />
+    <circle cx="8" cy="8" r="1.8" fill="currentColor" stroke="none" />
+  </svg>
+);
+
 export const DeviceIcon = (
   <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" strokeLinecap="round" style={{ display: "block" }}>
     <rect x="4.5" y="1.5" width="7" height="13" rx="1.4" />

@@ -8,7 +8,7 @@ import { useAppState, useDispatch, useFeatures, useTheme } from "../store.tsx";
 import { LogEntryCard, serializeEntries } from "./LogEntryCard.tsx";
 import { SunIcon, MoonIcon } from "../components/ThemeIcons.tsx";
 import { NavActions, type NavAction } from "../components/NavActions.tsx";
-import { TasksIcon, PersonIcon, TerminalIcon, CopyIcon, CheckIcon } from "../components/NavIcons.tsx";
+import { TasksIcon, AgentIcon, EyeIcon, TerminalIcon, CopyIcon, CheckIcon } from "../components/NavIcons.tsx";
 import { TerminalPanel } from "./TerminalPanel.tsx";
 import { useSwipeLeftRight } from "../hooks/useSwipeLeftRight.ts";
 import { getDevice } from "../device-settings.ts";
@@ -464,7 +464,8 @@ export function LogView({
   const baseAgentActions: NavAction[] = [
     ...(onOpenTasks ? [{ id: "tasks", icon: TasksIcon, label: "Tasks", onClick: onOpenTasks }] : []),
     ...(logs.length > 0 ? [{ id: "copy", icon: copied ? CheckIcon : CopyIcon, label: copied ? "Copied" : "Copy", onClick: handleCopy, active: copied }] : []),
-    { id: "agent", icon: PersonIcon, label: "Agent avatar", onClick: toggleAvatar, active: showAvatar },
+    { id: "settings", icon: AgentIcon, label: "Agent settings", onClick: onEditAgent },
+    { id: "viewAvatar", icon: EyeIcon, label: "View avatar", onClick: toggleAvatar, active: showAvatar },
     { id: "theme", icon: theme === "dark" ? <SunIcon size={15} /> : <MoonIcon size={15} />, label: theme === "dark" ? "Light mode" : "Dark mode", onClick: toggleTheme },
   ];
 
