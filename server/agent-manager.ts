@@ -540,16 +540,16 @@ export function emitAgentDiff(agentId: string, dir?: string): { ok: true } | { o
   const result = computeIsomuxDiff(resolved.cwd);
   switch (result.kind) {
     case "not_repo":
-      emitEphemeralLog(agentId, "system", `\`${result.cwd}\` is not a git repository.`);
+      addLogEntry(agentId, "system", `\`${result.cwd}\` is not a git repository.`);
       break;
     case "git_error":
-      emitEphemeralLog(agentId, "system", `Failed to run git diff in \`${result.cwd}\`:\n\n\`\`\`\n${result.message}\n\`\`\``);
+      addLogEntry(agentId, "system", `Failed to run git diff in \`${result.cwd}\`:\n\n\`\`\`\n${result.message}\n\`\`\``);
       break;
     case "clean":
-      emitEphemeralLog(agentId, "system", `Working tree clean in \`${result.cwd}\` — no uncommitted changes.`);
+      addLogEntry(agentId, "system", `Working tree clean in \`${result.cwd}\` — no uncommitted changes.`);
       break;
     case "ok":
-      emitEphemeralLog(agentId, "diff", result.summary, undefined, { diff: result.payload });
+      addLogEntry(agentId, "diff", result.summary, undefined, undefined, { diff: result.payload });
       break;
   }
   return { ok: true };
@@ -569,7 +569,7 @@ function updateState(agentId: string, state: AgentState) {
   emit({ type: "agent_updated", agentId, changes: { state } });
 }
 
-function addLogEntry(agentId: string, kind: LogEntry["kind"], content: string, metadata?: Record<string, unknown>, attachments?: Attachment[]) {
+function addLogEntry(agentId: string, kind: LogEntry["kind"], content: string, metadata?: Record<string, unknown>, attachments?: Attachment[], extra?: Partial<Pick<LogEntry, "diff">>) {
   const entry: LogEntry = {
     id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     agentId,
@@ -578,6 +578,7 @@ function addLogEntry(agentId: string, kind: LogEntry["kind"], content: string, m
     content,
     metadata,
     ...(attachments && attachments.length > 0 ? { attachments } : {}),
+    ...(extra ?? {}),
   };
   // Cache locally
   const cached = logCache.get(agentId) ?? [];
@@ -877,7 +878,7 @@ function processMessage(agentId: string, msg: SDKMessage) {
         const errorText = `Agent stopped: ${subtype}. ${errors?.join(", ") || ""}`;
         addLogEntry(agentId, "error", errorText);
         if (isAuthError(errorText)) {
-          emitEphemeralLog(agentId, "system", LOGIN_INSTRUCTIONS);
+          addLogEntry(agentId, "system", LOGIN_INSTRUCTIONS);
         }
         updateState(agentId, "error");
       }
@@ -951,9 +952,9 @@ async function runConsumer(agentId: string, managed: ManagedAgent, boundSession:
       addLogEntry(agentId, "error", errorText);
       // The SDK's "process exited with code 1" is opaque; diagnose common causes.
       const hints = diagnoseProcessExit(managed.info.cwd, managed.sessionId);
-      if (hints) emitEphemeralLog(agentId, "system", hints);
+      if (hints) addLogEntry(agentId, "system", hints);
       if (isAuthError(errorText)) {
-        emitEphemeralLog(agentId, "system", LOGIN_INSTRUCTIONS);
+        addLogEntry(agentId, "system", LOGIN_INSTRUCTIONS);
       }
       updateState(agentId, "error");
       return;

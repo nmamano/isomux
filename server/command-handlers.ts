@@ -29,7 +29,7 @@ interface HandlerDeps {
 
   // Logging / events
   emit: (event: AgentEvent) => void;
-  addLogEntry: (agentId: string, kind: LogEntry["kind"], content: string, metadata?: Record<string, unknown>, attachments?: Attachment[]) => void;
+  addLogEntry: (agentId: string, kind: LogEntry["kind"], content: string, metadata?: Record<string, unknown>, attachments?: Attachment[], extra?: Partial<Pick<LogEntry, "diff">>) => void;
   emitEphemeralLog: (agentId: string, kind: LogEntry["kind"], content: string, metadata?: Record<string, unknown>, extra?: Partial<Pick<LogEntry, "diff">>) => void;
   updateState: (agentId: string, state: AgentState) => void;
 
@@ -68,15 +68,15 @@ export function createCommandHandling(deps: HandlerDeps) {
 
     async context(agentId, managed, _args, rawText, username, device) {
       const userMeta = buildMeta(username, device);
-      deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
+      deps.addLogEntry(agentId, "user_message", rawText, userMeta);
       if (!managed.session) {
-        deps.emitEphemeralLog(agentId, "system", "No active session.");
+        deps.addLogEntry(agentId, "system", "No active session.");
         return true;
       }
       try {
         const query = (managed.session as any).query;
         if (!query?.getContextUsage) {
-          deps.emitEphemeralLog(agentId, "system", "Context usage not available for this session.");
+          deps.addLogEntry(agentId, "system", "Context usage not available for this session.");
           return true;
         }
         const ctx = await query.getContextUsage();
@@ -118,9 +118,9 @@ export function createCommandHandling(deps: HandlerDeps) {
           lines.push(`\nAuto-compact at ${compactPct}% (${ctx.autoCompactThreshold.toLocaleString()} tokens)`);
         }
 
-        deps.emitEphemeralLog(agentId, "system", lines.join("\n"));
+        deps.addLogEntry(agentId, "system", lines.join("\n"));
       } catch (err: any) {
-        deps.emitEphemeralLog(agentId, "system", `Failed to get context usage: ${err.message}`);
+        deps.addLogEntry(agentId, "system", `Failed to get context usage: ${err.message}`);
       }
       return true;
     },
@@ -310,7 +310,7 @@ export function createCommandHandling(deps: HandlerDeps) {
 
     async isomuxSystemPrompt(agentId, managed, _args, rawText, username, device) {
       const userMeta = buildMeta(username, device);
-      deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
+      deps.addLogEntry(agentId, "user_message", rawText, userMeta);
       const room = deps.getRooms()[managed.info.room]!;
       const officeConfig = deps.getOfficeConfig();
       const prompt = buildSystemPrompt(
@@ -326,14 +326,14 @@ export function createCommandHandling(deps: HandlerDeps) {
       const longestRun = (prompt.match(/`+/g) ?? []).reduce((m, s) => Math.max(m, s.length), 0);
       const fence = "`".repeat(Math.max(3, longestRun + 1));
       const header = "**Full system prompt** *(reflects current settings; takes effect on next conversation)*";
-      deps.emitEphemeralLog(agentId, "system", `${header}\n\n${fence}plaintext\n${prompt}\n${fence}`);
+      deps.addLogEntry(agentId, "system", `${header}\n\n${fence}plaintext\n${prompt}\n${fence}`);
       deps.updateState(agentId, "waiting_for_response");
       return true;
     },
 
     async isomuxCronjobSystemPrompt(agentId, _managed, args, rawText, username, device) {
       const userMeta = buildMeta(username, device);
-      deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
+      deps.addLogEntry(agentId, "user_message", rawText, userMeta);
 
       const query = args.join(" ").trim();
       const all = listCronjobs();
@@ -346,7 +346,7 @@ export function createCommandHandling(deps: HandlerDeps) {
           lines.push("\nKnown cron jobs:");
           for (const c of all) lines.push(`  \`${c.id}\`  ${c.name}`);
         }
-        deps.emitEphemeralLog(agentId, "system", lines.join("\n"));
+        deps.addLogEntry(agentId, "system", lines.join("\n"));
         deps.updateState(agentId, "waiting_for_response");
         return true;
       }
@@ -359,9 +359,9 @@ export function createCommandHandling(deps: HandlerDeps) {
         if (byNameMatches.length > 1) {
           const lines = [`Multiple cron jobs are named "${query}". Re-run with the id:`];
           for (const c of byNameMatches) lines.push(`  \`${c.id}\``);
-          deps.emitEphemeralLog(agentId, "system", lines.join("\n"));
+          deps.addLogEntry(agentId, "system", lines.join("\n"));
         } else {
-          deps.emitEphemeralLog(agentId, "system", `No cron job matches \`${query}\`. Try \`/isomux-cronjob-system-prompt\` with no argument to list cron jobs.`);
+          deps.addLogEntry(agentId, "system", `No cron job matches \`${query}\`. Try \`/isomux-cronjob-system-prompt\` with no argument to list cron jobs.`);
         }
         deps.updateState(agentId, "waiting_for_response");
         return true;
@@ -374,34 +374,34 @@ export function createCommandHandling(deps: HandlerDeps) {
       const longestRun = (combined.match(/`+/g) ?? []).reduce((m, s) => Math.max(m, s.length), 0);
       const fence = "`".repeat(Math.max(3, longestRun + 1));
       const header = `**System prompt + first user message for cron job "${target.name}"** *(reflects current settings; takes effect on next run)*`;
-      deps.emitEphemeralLog(agentId, "system", `${header}\n\n${fence}plaintext\n${combined}\n${fence}`);
+      deps.addLogEntry(agentId, "system", `${header}\n\n${fence}plaintext\n${combined}\n${fence}`);
       deps.updateState(agentId, "waiting_for_response");
       return true;
     },
 
     async isomuxDiff(agentId, managed, args, rawText, username, device) {
       const userMeta = buildMeta(username, device);
-      deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
+      deps.addLogEntry(agentId, "user_message", rawText, userMeta);
 
       const resolved = resolveDiffCwd(args[0], managed.info.cwd);
       if (resolved.kind === "bad_dir") {
-        deps.emitEphemeralLog(agentId, "system", `\`${resolved.attempted}\` is not a directory.`);
+        deps.addLogEntry(agentId, "system", `\`${resolved.attempted}\` is not a directory.`);
         deps.updateState(agentId, "waiting_for_response");
         return true;
       }
       const result = computeIsomuxDiff(resolved.cwd);
       switch (result.kind) {
         case "not_repo":
-          deps.emitEphemeralLog(agentId, "system", `\`${result.cwd}\` is not a git repository.`);
+          deps.addLogEntry(agentId, "system", `\`${result.cwd}\` is not a git repository.`);
           break;
         case "git_error":
-          deps.emitEphemeralLog(agentId, "system", `Failed to run git diff in \`${result.cwd}\`:\n\n\`\`\`\n${result.message}\n\`\`\``);
+          deps.addLogEntry(agentId, "system", `Failed to run git diff in \`${result.cwd}\`:\n\n\`\`\`\n${result.message}\n\`\`\``);
           break;
         case "clean":
-          deps.emitEphemeralLog(agentId, "system", `Working tree clean in \`${result.cwd}\` — no uncommitted changes.`);
+          deps.addLogEntry(agentId, "system", `Working tree clean in \`${result.cwd}\` — no uncommitted changes.`);
           break;
         case "ok":
-          deps.emitEphemeralLog(agentId, "diff", result.summary, undefined, { diff: result.payload });
+          deps.addLogEntry(agentId, "diff", result.summary, undefined, undefined, { diff: result.payload });
           break;
       }
       deps.updateState(agentId, "waiting_for_response");
@@ -410,8 +410,8 @@ export function createCommandHandling(deps: HandlerDeps) {
 
     async usage(agentId, _managed, _args, rawText, username, device) {
       const userMeta = buildMeta(username, device);
-      deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
-      deps.emitEphemeralLog(agentId, "system", renderUsageReport(deps.agents, deps.getRooms()));
+      deps.addLogEntry(agentId, "user_message", rawText, userMeta);
+      deps.addLogEntry(agentId, "system", renderUsageReport(deps.agents, deps.getRooms()));
       deps.updateState(agentId, "waiting_for_response");
       return true;
     },
