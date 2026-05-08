@@ -194,6 +194,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       }}
     >
       <div
+        className={isMobile ? undefined : "edit-agent-dialog-desktop"}
         style={{
           background: "var(--bg-overlay)",
           backdropFilter: "blur(16px)",
@@ -201,7 +202,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
           borderRadius: isMobile ? 0 : 16,
           display: "flex",
           flexDirection: "column",
-          width: isMobile ? "100%" : 380,
+          width: isMobile ? "100%" : undefined,
           maxWidth: isMobile ? "100%" : undefined,
           height: isMobile ? "100dvh" : undefined,
           maxHeight: isMobile ? "100dvh" : "90vh",

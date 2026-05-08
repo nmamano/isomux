@@ -299,8 +299,14 @@ export const CSS = `
   }
 
   /* Narrow desktop: drop labels from header action buttons (icons + tooltips remain) */
-  @media (max-width: 1099px) {
+  @media (max-width: 1199px) {
     .nav-action-label { display: none; }
+  }
+
+  /* Edit-agent dialog widens on wide-enough screens */
+  .edit-agent-dialog-desktop { width: 380px; }
+  @media (min-width: 1100px) {
+    .edit-agent-dialog-desktop { width: 460px; }
   }
 
   /* Copy buttons */

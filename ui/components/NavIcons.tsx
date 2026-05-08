@@ -59,8 +59,8 @@ export const AgentIcon = (
 
 export const EyeIcon = (
   <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" strokeLinecap="round" style={{ display: "block" }}>
-    <path d="M2 8 Q 8 3.5, 14 8 Q 8 12.5, 2 8 Z" />
-    <circle cx="8" cy="8" r="1.8" fill="currentColor" stroke="none" />
+    <path d="M2 8 Q 8 2, 14 8 Q 8 14, 2 8 Z" />
+    <circle cx="8" cy="8" r="2" fill="currentColor" stroke="none" />
   </svg>
 );
 
