@@ -1,5 +1,5 @@
 ---
-name: report-isomux-bug
+name: isomux-report-bug
 description: File a bug report against the isomux repo on GitHub. Gathers system info, shows a full draft for user approval before filing.
 ---
 

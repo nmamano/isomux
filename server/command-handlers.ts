@@ -178,7 +178,7 @@ export function createCommandHandling(deps: HandlerDeps) {
       lines.push("  • Isomux agents can check what other agents are up to in real time. Just ask naturally.");
       lines.push("  • Use voice-to-text for faster prompting. The shortcut is ctrl+space.");
       lines.push("  • Use `/isomux-all-hands` to check what every agent is up to.");
-      lines.push("  • Use `/report-isomux-bug` if you find any issues.");
+      lines.push("  • Use `/isomux-report-bug` if you find any issues.");
       lines.push("  • Use `/isomux-grill-me` to make your feature designs more robust.");
 
       deps.addLogEntry(agentId, "system", lines.join("\n"));
