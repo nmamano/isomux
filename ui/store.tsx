@@ -19,6 +19,11 @@ export interface AppState {
   // per-room notification preferences. null if the room couldn't be resolved.
   soundTrigger: { seq: number; roomId: string | null };
   drafts: Map<string, string>; // agentId → unsent chat input
+  // agentId → which side panel was open (terminal/editor) when the user last
+  // viewed this agent. Persists across LogView remount on agent switch so
+  // the panel reopens automatically when the boss returns. `undefined` means
+  // never opened a panel; missing entries default to closed.
+  sidePanels: Map<string, "terminal" | "editor">;
   recentCwds: string[]; // persisted recent working directories
   slashCommands: Map<string, { commands: { name: string; description?: string }[]; skills: SkillInfo[] }>; // agentId → available commands
   stateChangedAt: Map<string, number>; // agentId → timestamp when agent state last changed
@@ -52,6 +57,7 @@ type Action =
   | { type: "connected" }
   | { type: "sessions_list"; agentId: string; sessions: SessionInfo[]; currentSessionId: string | null }
   | { type: "set_draft"; agentId: string; text: string }
+  | { type: "set_side_panel"; agentId: string; panel: "terminal" | "editor" | null }
   | { type: "slash_commands"; agentId: string; commands: { name: string; description?: string }[]; skills: SkillInfo[] }
   | { type: "clear_logs"; agentId: string }
   | { type: "set_mobile"; isMobile: boolean }
@@ -121,12 +127,15 @@ function reducer(state: AppState, action: Action): AppState {
       logEntryIds.delete(action.agentId);
       const needsAttention = new Set(state.needsAttention);
       needsAttention.delete(action.agentId);
+      const sidePanels = new Map(state.sidePanels);
+      sidePanels.delete(action.agentId);
       return {
         ...state,
         agents: state.agents.filter((a) => a.id !== action.agentId),
         logs,
         logEntryIds,
         needsAttention,
+        sidePanels,
         focusedAgentId: state.focusedAgentId === action.agentId ? null : state.focusedAgentId,
       };
     }
@@ -196,6 +205,15 @@ function reducer(state: AppState, action: Action): AppState {
         drafts.delete(action.agentId);
       }
       return { ...state, drafts };
+    }
+    case "set_side_panel": {
+      const sidePanels = new Map(state.sidePanels);
+      if (action.panel === null) {
+        sidePanels.delete(action.agentId);
+      } else {
+        sidePanels.set(action.agentId, action.panel);
+      }
+      return { ...state, sidePanels };
     }
     case "slash_commands": {
       const slashCommands = new Map(state.slashCommands);
@@ -324,6 +342,7 @@ const initialState: AppState = {
   sessionsList: new Map(),
   soundTrigger: { seq: 0, roomId: null },
   drafts: new Map(),
+  sidePanels: new Map(),
   recentCwds: [],
   slashCommands: new Map(),
   stateChangedAt: new Map(),

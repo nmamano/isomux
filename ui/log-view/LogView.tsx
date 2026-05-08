@@ -156,7 +156,7 @@ export function LogView({
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const { drafts, slashCommands, stateChangedAt, isMobile, connected } = useAppState();
+  const { drafts, slashCommands, stateChangedAt, isMobile, connected, sidePanels } = useAppState();
   const dispatch = useDispatch();
   const features = useFeatures();
   const device = getDevice();
@@ -171,26 +171,36 @@ export function LogView({
   const [topicDraft, setTopicDraft] = useState("");
   const topicInputRef = useRef<HTMLInputElement>(null);
   const topicSavedRef = useRef(false);
-  const [terminalOpen, setTerminalOpen] = useState(false);
-  const [editorOpen, setEditorOpen] = useState(false);
-  // Once the editor has been opened we keep its panel mounted (just hidden)
-  // so unsaved buffers, tabs, and CodeMirror state survive close/reopen and
-  // terminal-toggle. Mounting eagerly would fire WS opens for stored tabs
-  // before the boss asks for the editor at all.
-  const [editorMounted, setEditorMounted] = useState(false);
+  // Side panel state (terminal vs editor vs none) lives in the store keyed
+  // by agent id so it survives LogView remount on agent switch. Toggling a
+  // panel dispatches set_side_panel; opening one closes the other.
+  const sidePanel = sidePanels.get(agent.id) ?? null;
+  const terminalOpen = sidePanel === "terminal";
+  const editorOpen = sidePanel === "editor";
+  // First-render flag so we can tell "user just toggled the terminal open"
+  // from "agent-switch restored a previously-open terminal" — only the
+  // former should grab keyboard focus from the chat textarea.
+  const isFirstRenderRef = useRef(true);
+  useEffect(() => { isFirstRenderRef.current = false; }, []);
+  const terminalAutoFocus = !isFirstRenderRef.current;
+  const setTerminalOpen = useCallback((value: boolean | ((prev: boolean) => boolean)) => {
+    const prev = sidePanels.get(agent.id) === "terminal";
+    const next = typeof value === "function" ? value(prev) : value;
+    dispatch({ type: "set_side_panel", agentId: agent.id, panel: next ? "terminal" : null });
+  }, [dispatch, agent.id, sidePanels]);
+  const setEditorOpen = useCallback((value: boolean | ((prev: boolean) => boolean)) => {
+    const prev = sidePanels.get(agent.id) === "editor";
+    const next = typeof value === "function" ? value(prev) : value;
+    dispatch({ type: "set_side_panel", agentId: agent.id, panel: next ? "editor" : null });
+  }, [dispatch, agent.id, sidePanels]);
   // Path to focus when the editor is opened or re-targeted. Cleared after the
   // panel reads it so the user can later switch to other tabs without
   // jumping back here.
   const [editorInitialPath, setEditorInitialPath] = useState<string | null>(null);
   const openInEditor = useCallback((path: string) => {
     setEditorInitialPath(path);
-    setEditorOpen(true);
-    setEditorMounted(true);
-    setTerminalOpen(false);
-  }, []);
-  useEffect(() => {
-    if (editorOpen) setEditorMounted(true);
-  }, [editorOpen]);
+    dispatch({ type: "set_side_panel", agentId: agent.id, panel: "editor" });
+  }, [dispatch, agent.id]);
   const [showAvatar, setShowAvatar] = useState(() => localStorage.getItem("isomux-show-avatar") !== "false");
   const toggleAvatar = () => setShowAvatar((prev) => { const next = !prev; localStorage.setItem("isomux-show-avatar", String(next)); return next; });
   const [copied, setCopied] = useState(false);
@@ -329,10 +339,7 @@ export function LogView({
       if (isMobile || !features.terminal) return;
       if (e.key === "`" && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
-        setTerminalOpen((prev) => {
-          if (!prev) setEditorOpen(false);
-          return !prev;
-        });
+        setTerminalOpen((prev) => !prev);
       }
     }
     window.addEventListener("keydown", handleTerminalShortcut);
@@ -351,10 +358,7 @@ export function LogView({
         const tag = (document.activeElement?.tagName ?? "").toLowerCase();
         if (tag === "textarea" || tag === "input") return;
         e.preventDefault();
-        setEditorOpen((prev) => {
-          if (!prev) setTerminalOpen(false);
-          return !prev;
-        });
+        setEditorOpen((prev) => !prev);
       }
     }
     window.addEventListener("keydown", handleEditorShortcut);
@@ -521,10 +525,7 @@ export function LogView({
         id: "editor",
         icon: EditorIcon,
         label: "Editor",
-        onClick: () => setEditorOpen((v) => {
-          if (!v) setTerminalOpen(false);
-          return !v;
-        }),
+        onClick: () => setEditorOpen((v) => !v),
         active: editorOpen,
         title: "Open file editor (Ctrl+E)",
       }];
@@ -534,10 +535,7 @@ export function LogView({
         id: "terminal",
         icon: TerminalIcon,
         label: "Terminal",
-        onClick: () => setTerminalOpen((v) => {
-          if (!v) setEditorOpen(false);
-          return !v;
-        }),
+        onClick: () => setTerminalOpen((v) => !v),
         active: terminalOpen,
         title: "Open terminal (Ctrl+`)",
       }];
@@ -1523,16 +1521,15 @@ export function LogView({
     </div>
     {features.terminal && !isMobile && terminalOpen && (
       <div style={{ width: "40%", minWidth: 300, maxWidth: 600, flexShrink: 0 }}>
-        <TerminalPanel agentId={agent.id} onClose={() => setTerminalOpen(false)} />
+        <TerminalPanel agentId={agent.id} onClose={() => setTerminalOpen(false)} autoFocus={terminalAutoFocus} />
       </div>
     )}
-    {features.editor && !isMobile && editorMounted && (
+    {features.editor && !isMobile && editorOpen && (
       <div style={{
         width: "45%",
         minWidth: 380,
         maxWidth: 800,
         flexShrink: 0,
-        display: editorOpen ? undefined : "none",
       }}>
         <EditorPanel
           agentId={agent.id}

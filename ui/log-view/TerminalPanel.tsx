@@ -56,9 +56,15 @@ const LIGHT_THEME = {
 export function TerminalPanel({
   agentId,
   onClose,
+  autoFocus = true,
 }: {
   agentId: string;
   onClose: () => void;
+  // When the panel mounts because the boss explicitly toggled it open we
+  // grab keyboard focus (default). When the mount is a side-effect of an
+  // agent-switch restore, the boss expects to keep typing in the chat box,
+  // so the parent passes false.
+  autoFocus?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -98,11 +104,11 @@ export function TerminalPanel({
     term.loadAddon(fitAddon);
     term.open(containerRef.current);
 
-    // Fit and focus after open (needs a frame to measure)
+    // Fit and (optionally) focus after open. requestAnimationFrame so the
+    // container has measurable size before fitAddon runs.
     requestAnimationFrame(() => {
       fitAddon.fit();
-      term.focus();
-      // Tell server the initial size
+      if (autoFocus) term.focus();
       send({
         type: "terminal_resize",
         agentId,
