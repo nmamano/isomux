@@ -128,16 +128,25 @@ export interface DiffPayload {
   truncated: boolean;               // true when patchText was dropped
 }
 
+// Structured payload attached to LogEntry when kind === "edit-request".
+// Emitted by /isomux-edit or POST /agents/:id/edit-file. The card surfaces
+// an [Open in editor] button that opens the side panel for this path.
+export interface FilePayload {
+  cwd: string;                  // agent cwd at emission time (for trimming display)
+  path: string;                 // resolved absolute path
+}
+
 // Log entry in the conversation view
 export interface LogEntry {
   id: string;
   agentId: string;
   timestamp: number;
-  kind: "text" | "thinking" | "tool_call" | "tool_result" | "error" | "system" | "user_message" | "diff";
+  kind: "text" | "thinking" | "tool_call" | "tool_result" | "error" | "system" | "user_message" | "diff" | "edit-request";
   content: string;
   metadata?: Record<string, unknown>;
   attachments?: Attachment[]; // file attachments, served via /api/files/<agentId>/<filename>
   diff?: DiffPayload;         // present only when kind === "diff"
+  file?: FilePayload;         // present only when kind === "edit-request"
 }
 
 // Task item (replaces todos)
@@ -363,6 +372,10 @@ export type ServerMessage =
   | { type: "clear_logs"; agentId: string }
   | { type: "terminal_output"; agentId: string; data: string }
   | { type: "terminal_exit"; agentId: string; exitCode: number }
+  | { type: "editor_content"; agentId: string; path: string; content: string; mtime: number; language: string; size: number }
+  | { type: "editor_save_response"; agentId: string; path: string; ok: boolean; mtime?: number; error?: string; reason?: "stale"; currentMtime?: number }
+  | { type: "editor_external_change"; agentId: string; path: string; mtime: number }
+  | { type: "editor_open_error"; agentId: string; path: string; reason: "not_found" | "not_file" | "binary" | "too_large" | "io_error" | "bad_path"; message?: string; size?: number }
   | { type: "office_settings_updated"; prompt: string | null; envFile: string | null }
   | { type: "tasks"; tasks: TaskItem[] }
   | { type: "room_created"; room: RoomWire }
@@ -404,6 +417,9 @@ export type ClientCommand =
   | { type: "terminal_input"; agentId: string; data: string }
   | { type: "terminal_resize"; agentId: string; cols: number; rows: number }
   | { type: "terminal_close"; agentId: string }
+  | { type: "editor_open"; agentId: string; path: string }
+  | { type: "editor_save"; agentId: string; path: string; content: string; expectedMtime: number; force?: boolean }
+  | { type: "editor_close"; agentId: string; path: string }
   | { type: "update_office_settings"; requestId: string; prompt: string | null; envFile: string | null }
   | { type: "update_room_settings"; requestId: string; roomId: string; prompt: string | null }
   | { type: "request_settings_validation"; requestId: string; scope: "office" | "user"; username?: string }

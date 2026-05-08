@@ -120,6 +120,14 @@ export const commands: Record<string, CommandConfig> = {
     handler: "isomuxDiff",
     description: "Peek uncommitted changes in the agent's cwd (or pass a directory)",
   },
+  "isomux-edit": {
+    type: "hardcoded",
+    supported: true,
+    autocomplete: true,
+    overridable: false,
+    handler: "isomuxEdit",
+    description: "Open a file in the editor side panel (relative to cwd, absolute, or ~/...)",
+  },
 
   // =========================================================================
   // Unsupported hardcoded commands (non-overridable)

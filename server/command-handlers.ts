@@ -8,6 +8,7 @@ import { listCronjobs, buildCronjobSystemPrompt } from "./cronjob-manager.ts";
 import { resolveSkillPrompt } from "./skills.ts";
 import { renderUsageReport, formatRelativeTime } from "./usage-report.ts";
 import { computeIsomuxDiff, resolveDiffCwd } from "./isomux-diff.ts";
+import { resolveEditorPath, openFile as openEditorFile } from "./file-editor.ts";
 import { SessionSwappedError, type ManagedAgent, type InternalRoom, type AgentEvent } from "./internal-types.ts";
 
 type HandlerFn = (agentId: string, managed: ManagedAgent, args: string[], rawText: string, username?: string, device?: string) => Promise<boolean>;
@@ -29,8 +30,8 @@ interface HandlerDeps {
 
   // Logging / events
   emit: (event: AgentEvent) => void;
-  addLogEntry: (agentId: string, kind: LogEntry["kind"], content: string, metadata?: Record<string, unknown>, attachments?: Attachment[], extra?: Partial<Pick<LogEntry, "diff">>) => void;
-  emitEphemeralLog: (agentId: string, kind: LogEntry["kind"], content: string, metadata?: Record<string, unknown>, extra?: Partial<Pick<LogEntry, "diff">>) => void;
+  addLogEntry: (agentId: string, kind: LogEntry["kind"], content: string, metadata?: Record<string, unknown>, attachments?: Attachment[], extra?: Partial<Pick<LogEntry, "diff" | "file">>) => void;
+  emitEphemeralLog: (agentId: string, kind: LogEntry["kind"], content: string, metadata?: Record<string, unknown>, extra?: Partial<Pick<LogEntry, "diff" | "file">>) => void;
   updateState: (agentId: string, state: AgentState) => void;
 
   // Session ops
@@ -375,6 +376,42 @@ export function createCommandHandling(deps: HandlerDeps) {
       const fence = "`".repeat(Math.max(3, longestRun + 1));
       const header = `**System prompt + first user message for cron job "${target.name}"** *(reflects current settings; takes effect on next run)*`;
       deps.addLogEntry(agentId, "system", `${header}\n\n${fence}plaintext\n${combined}\n${fence}`);
+      deps.updateState(agentId, "waiting_for_response");
+      return true;
+    },
+
+    async isomuxEdit(agentId, managed, args, rawText, username, device) {
+      const userMeta = buildMeta(username, device);
+      deps.addLogEntry(agentId, "user_message", rawText, userMeta);
+
+      const rawPath = args[0];
+      if (!rawPath) {
+        deps.addLogEntry(agentId, "system", `Usage: \`/isomux-edit <path>\`. Path can be relative (resolves against ${managed.info.cwd}), absolute, or \`~/...\`.`);
+        deps.updateState(agentId, "waiting_for_response");
+        return true;
+      }
+      const resolved = resolveEditorPath(rawPath, managed.info.cwd);
+      if (resolved.kind === "bad_path") {
+        deps.addLogEntry(agentId, "system", `Empty path.`);
+        deps.updateState(agentId, "waiting_for_response");
+        return true;
+      }
+      const probe = openEditorFile(resolved.path);
+      if (probe.kind === "not_found") {
+        deps.addLogEntry(agentId, "system", `\`${resolved.path}\` does not exist.`);
+      } else if (probe.kind === "not_file") {
+        deps.addLogEntry(agentId, "system", `\`${resolved.path}\` is not a file.`);
+      } else if (probe.kind === "binary") {
+        deps.addLogEntry(agentId, "system", `\`${resolved.path}\` is a binary file — the editor panel only supports text.`);
+      } else if (probe.kind === "too_large") {
+        deps.addLogEntry(agentId, "system", `\`${resolved.path}\` is ${(probe.size / 1024).toFixed(1)} KB — too large for the editor panel (1 MB limit).`);
+      } else if (probe.kind === "io_error") {
+        deps.addLogEntry(agentId, "system", `Failed to open \`${resolved.path}\`: ${probe.message}`);
+      } else {
+        deps.addLogEntry(agentId, "edit-request", resolved.path, undefined, undefined, {
+          file: { cwd: managed.info.cwd, path: resolved.path },
+        });
+      }
       deps.updateState(agentId, "waiting_for_response");
       return true;
     },

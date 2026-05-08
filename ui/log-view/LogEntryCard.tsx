@@ -5,6 +5,7 @@ import { Markdown } from "./Markdown.tsx";
 import { CopyButton } from "../components/CopyButton.tsx";
 import { SpeakButton } from "../components/SpeakButton.tsx";
 import { DiffCard } from "./DiffCard.tsx";
+import { EditRequestCard } from "./EditRequestCard.tsx";
 
 function EditIcon() {
   return (
@@ -182,6 +183,7 @@ export const LogEntryCard = memo(function LogEntryCard({
   onStartEdit,
   onCancelEdit,
   onSubmitEdit,
+  onOpenInEditor,
 }: {
   entry: LogEntry;
   isLastInTurn?: boolean;
@@ -192,6 +194,7 @@ export const LogEntryCard = memo(function LogEntryCard({
   onStartEdit?: (entryId: string) => void;
   onCancelEdit?: () => void;
   onSubmitEdit?: (entryId: string, newText: string) => void;
+  onOpenInEditor?: (path: string) => void;
 }) {
   switch (entry.kind) {
     case "user_message": {
@@ -265,6 +268,10 @@ export const LogEntryCard = memo(function LogEntryCard({
     case "diff": {
       if (!entry.diff) return <SystemMessage content={entry.content} isMobile={isMobile} />;
       return <DiffCard payload={entry.diff} />;
+    }
+    case "edit-request": {
+      if (!entry.file || !onOpenInEditor) return <SystemMessage content={entry.content} isMobile={isMobile} />;
+      return <EditRequestCard payload={entry.file} onOpen={onOpenInEditor} />;
     }
     default:
       return <div style={{ padding: "4px 0", color: "var(--text-muted)", fontSize: isMobile ? 14 : 12 }}>{entry.content}</div>;

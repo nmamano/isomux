@@ -298,7 +298,12 @@ export const CSS = `
     .md-content pre code { word-break: normal; }
   }
 
-  /* Narrow desktop: drop labels from header action buttons (icons + tooltips remain) */
+  /* Narrow log view: drop labels from header action buttons (icons + tooltips remain).
+     Container query keys off the chat column's actual width so opening the side
+     editor/terminal collapses labels even when the window itself is wide. */
+  @container (max-width: 1199px) {
+    .log-view-column .nav-action-label { display: none; }
+  }
   @media (max-width: 1199px) {
     .nav-action-label { display: none; }
   }

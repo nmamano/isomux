@@ -55,6 +55,13 @@ import {
 import { buildSystemPrompt } from "./system-prompt.ts";
 import { computeIsomuxDiff, resolveDiffCwd } from "./isomux-diff.ts";
 import {
+  resolveEditorPath,
+  openFile as openEditorFileImpl,
+  saveFile as saveEditorFileImpl,
+  type OpenFileResult,
+  type SaveFileResult,
+} from "./file-editor.ts";
+import {
   discoverUserSkills,
   discoverProjectSkills,
   discoverPluginSkills,
@@ -527,6 +534,46 @@ export function getAgent(agentId: string): AgentInfo | undefined {
   return agents.get(agentId)?.info;
 }
 
+// Run the same path-resolution as /isomux-edit and emit an `edit-request` log
+// entry so the boss can open the file in the editor side panel. Mirrors
+// emitAgentDiff. The card shows an [Open in editor] button — the panel never
+// auto-opens (matches the rejected "server auto-opens panel" decision).
+export function emitAgentEditRequest(agentId: string, rawPath: string): { ok: true } | { ok: false; status: number; error: string } {
+  const managed = agents.get(agentId);
+  if (!managed) return { ok: false, status: 404, error: "agent not found" };
+  const resolved = resolveEditorPath(rawPath, managed.info.cwd);
+  if (resolved.kind === "bad_path") {
+    return { ok: false, status: 400, error: "missing or empty path" };
+  }
+  // Don't open here — the user will trigger that. We do a cheap existence
+  // check so a typo'd path produces a system message instead of a dead card.
+  const probe = openEditorFileImpl(resolved.path);
+  if (probe.kind === "not_found") {
+    addLogEntry(agentId, "system", `\`${resolved.path}\` does not exist.`);
+    return { ok: true };
+  }
+  if (probe.kind === "not_file") {
+    addLogEntry(agentId, "system", `\`${resolved.path}\` is not a file.`);
+    return { ok: true };
+  }
+  if (probe.kind === "binary") {
+    addLogEntry(agentId, "system", `\`${resolved.path}\` is a binary file — the editor panel only supports text.`);
+    return { ok: true };
+  }
+  if (probe.kind === "too_large") {
+    addLogEntry(agentId, "system", `\`${resolved.path}\` is ${(probe.size / 1024).toFixed(1)} KB — too large for the editor panel (1 MB limit).`);
+    return { ok: true };
+  }
+  if (probe.kind === "io_error") {
+    addLogEntry(agentId, "system", `Failed to open \`${resolved.path}\`: ${probe.message}`);
+    return { ok: true };
+  }
+  addLogEntry(agentId, "edit-request", resolved.path, undefined, undefined, {
+    file: { cwd: managed.info.cwd, path: resolved.path },
+  });
+  return { ok: true };
+}
+
 // Run the same diff machinery as /isomux-diff and emit the result into the
 // agent's chat stream. Used by POST /agents/:id/diff so an agent can show
 // the boss a styled diff card without the boss invoking the slash command.
@@ -569,7 +616,7 @@ function updateState(agentId: string, state: AgentState) {
   emit({ type: "agent_updated", agentId, changes: { state } });
 }
 
-function addLogEntry(agentId: string, kind: LogEntry["kind"], content: string, metadata?: Record<string, unknown>, attachments?: Attachment[], extra?: Partial<Pick<LogEntry, "diff">>) {
+function addLogEntry(agentId: string, kind: LogEntry["kind"], content: string, metadata?: Record<string, unknown>, attachments?: Attachment[], extra?: Partial<Pick<LogEntry, "diff" | "file">>) {
   const entry: LogEntry = {
     id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     agentId,
@@ -609,7 +656,7 @@ function addLogEntry(agentId: string, kind: LogEntry["kind"], content: string, m
 // Note: entries are still added to logCache for UI display. If sessionId is null when this is
 // called, the backfill logic in processMessage (system/init) would write them to disk. In practice
 // this doesn't happen because /resume requires existing sessions (sessionId already set).
-function emitEphemeralLog(agentId: string, kind: LogEntry["kind"], content: string, metadata?: Record<string, unknown>, extra?: Partial<Pick<LogEntry, "diff">>) {
+function emitEphemeralLog(agentId: string, kind: LogEntry["kind"], content: string, metadata?: Record<string, unknown>, extra?: Partial<Pick<LogEntry, "diff" | "file">>) {
   const entry: LogEntry = {
     id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     agentId,
@@ -1885,4 +1932,29 @@ export function terminalResize(agentId: string, cols: number, rows: number) {
 
 export function closeTerminal(agentId: string) {
   closeTerminalImpl(agentId, terminalDeps);
+}
+
+// --- Editor file open/save — implementation in file-editor.ts ---
+//
+// The editor is per-WS state (watchers, dirty buffers, tabs); these wrappers
+// just resolve paths against the agent's cwd and run the disk ops. Watch
+// lifecycle lives in server/index.ts where the WS connection is in scope.
+
+export function openEditorFile(agentId: string, rawPath: string): { ok: true; result: OpenFileResult } | { ok: false; error: "not_agent" | "bad_path" } {
+  const managed = agents.get(agentId);
+  if (!managed) return { ok: false, error: "not_agent" };
+  const resolved = resolveEditorPath(rawPath, managed.info.cwd);
+  if (resolved.kind === "bad_path") return { ok: false, error: "bad_path" };
+  return { ok: true, result: openEditorFileImpl(resolved.path) };
+}
+
+export function saveEditorFile(absPath: string, content: string, expectedMtime: number, force: boolean): SaveFileResult {
+  return saveEditorFileImpl(absPath, content, expectedMtime, force);
+}
+
+export function resolveEditorPathForAgent(agentId: string, rawPath: string): string | null {
+  const managed = agents.get(agentId);
+  if (!managed) return null;
+  const resolved = resolveEditorPath(rawPath, managed.info.cwd);
+  return resolved.kind === "ok" ? resolved.path : null;
 }

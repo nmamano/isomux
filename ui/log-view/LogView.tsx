@@ -8,8 +8,9 @@ import { useAppState, useDispatch, useFeatures, useTheme } from "../store.tsx";
 import { LogEntryCard, serializeEntries } from "./LogEntryCard.tsx";
 import { SunIcon, MoonIcon } from "../components/ThemeIcons.tsx";
 import { NavActions, type NavAction } from "../components/NavActions.tsx";
-import { TasksIcon, AgentIcon, EyeIcon, TerminalIcon, CopyIcon, CheckIcon } from "../components/NavIcons.tsx";
+import { TasksIcon, AgentIcon, EyeIcon, TerminalIcon, EditorIcon, CopyIcon, CheckIcon } from "../components/NavIcons.tsx";
 import { TerminalPanel } from "./TerminalPanel.tsx";
+import { EditorPanel } from "./EditorPanel.tsx";
 import { useSwipeLeftRight } from "../hooks/useSwipeLeftRight.ts";
 import { getDevice } from "../device-settings.ts";
 
@@ -171,6 +172,25 @@ export function LogView({
   const topicInputRef = useRef<HTMLInputElement>(null);
   const topicSavedRef = useRef(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
+  const [editorOpen, setEditorOpen] = useState(false);
+  // Once the editor has been opened we keep its panel mounted (just hidden)
+  // so unsaved buffers, tabs, and CodeMirror state survive close/reopen and
+  // terminal-toggle. Mounting eagerly would fire WS opens for stored tabs
+  // before the boss asks for the editor at all.
+  const [editorMounted, setEditorMounted] = useState(false);
+  // Path to focus when the editor is opened or re-targeted. Cleared after the
+  // panel reads it so the user can later switch to other tabs without
+  // jumping back here.
+  const [editorInitialPath, setEditorInitialPath] = useState<string | null>(null);
+  const openInEditor = useCallback((path: string) => {
+    setEditorInitialPath(path);
+    setEditorOpen(true);
+    setEditorMounted(true);
+    setTerminalOpen(false);
+  }, []);
+  useEffect(() => {
+    if (editorOpen) setEditorMounted(true);
+  }, [editorOpen]);
   const [showAvatar, setShowAvatar] = useState(() => localStorage.getItem("isomux-show-avatar") !== "false");
   const toggleAvatar = () => setShowAvatar((prev) => { const next = !prev; localStorage.setItem("isomux-show-avatar", String(next)); return next; });
   const [copied, setCopied] = useState(false);
@@ -309,12 +329,37 @@ export function LogView({
       if (isMobile || !features.terminal) return;
       if (e.key === "`" && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
-        setTerminalOpen((prev) => !prev);
+        setTerminalOpen((prev) => {
+          if (!prev) setEditorOpen(false);
+          return !prev;
+        });
       }
     }
     window.addEventListener("keydown", handleTerminalShortcut);
     return () => window.removeEventListener("keydown", handleTerminalShortcut);
   }, [isMobile, features.terminal]);
+
+  // Ctrl+E to toggle editor panel. Sharing the side slot with the terminal —
+  // opening one closes the other for v1 (40% width × two panels would crush
+  // the chat).
+  useEffect(() => {
+    function handleEditorShortcut(e: KeyboardEvent) {
+      if (isMobile || !features.editor) return;
+      if (e.key === "e" && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+        // Only intercept when no editor input is focused — Ctrl+E is also
+        // "go to end of line" in the textarea on some platforms.
+        const tag = (document.activeElement?.tagName ?? "").toLowerCase();
+        if (tag === "textarea" || tag === "input") return;
+        e.preventDefault();
+        setEditorOpen((prev) => {
+          if (!prev) setTerminalOpen(false);
+          return !prev;
+        });
+      }
+    }
+    window.addEventListener("keydown", handleEditorShortcut);
+    return () => window.removeEventListener("keydown", handleEditorShortcut);
+  }, [isMobile, features.editor]);
 
   function handleScroll() {
     if (!scrollRef.current) return;
@@ -469,9 +514,36 @@ export function LogView({
     { id: "theme", icon: theme === "dark" ? <SunIcon size={15} /> : <MoonIcon size={15} />, label: theme === "dark" ? "Light mode" : "Dark mode", onClick: toggleTheme },
   ];
 
-  const desktopAgentActions: NavAction[] = features.terminal
-    ? [...baseAgentActions, { id: "terminal", icon: TerminalIcon, label: "Terminal", onClick: () => setTerminalOpen((v) => !v), active: terminalOpen, title: "Open terminal (Ctrl+`)" }]
-    : baseAgentActions;
+  const desktopAgentActions: NavAction[] = (() => {
+    let acts = baseAgentActions;
+    if (features.editor) {
+      acts = [...acts, {
+        id: "editor",
+        icon: EditorIcon,
+        label: "Editor",
+        onClick: () => setEditorOpen((v) => {
+          if (!v) setTerminalOpen(false);
+          return !v;
+        }),
+        active: editorOpen,
+        title: "Open file editor (Ctrl+E)",
+      }];
+    }
+    if (features.terminal) {
+      acts = [...acts, {
+        id: "terminal",
+        icon: TerminalIcon,
+        label: "Terminal",
+        onClick: () => setTerminalOpen((v) => {
+          if (!v) setEditorOpen(false);
+          return !v;
+        }),
+        active: terminalOpen,
+        title: "Open terminal (Ctrl+`)",
+      }];
+    }
+    return acts;
+  })();
 
   function autoResize(el: HTMLTextAreaElement) {
     el.style.height = "auto";
@@ -668,6 +740,7 @@ export function LogView({
       }}
     >
     <div
+      className="log-view-column"
       onDragOver={handleDragOver}
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
@@ -678,6 +751,7 @@ export function LogView({
         flexDirection: "column",
         minWidth: 0,
         position: "relative",
+        containerType: "inline-size",
       }}
     >
       {/* Header */}
@@ -1004,6 +1078,7 @@ export function LogView({
                 onStartEdit={setEditingLogEntryId}
                 onCancelEdit={handleCancelEdit}
                 onSubmitEdit={handleSubmitEdit}
+                onOpenInEditor={features.editor && !isMobile ? openInEditor : undefined}
               />
             </div>
           );
@@ -1449,6 +1524,22 @@ export function LogView({
     {features.terminal && !isMobile && terminalOpen && (
       <div style={{ width: "40%", minWidth: 300, maxWidth: 600, flexShrink: 0 }}>
         <TerminalPanel agentId={agent.id} onClose={() => setTerminalOpen(false)} />
+      </div>
+    )}
+    {features.editor && !isMobile && editorMounted && (
+      <div style={{
+        width: "45%",
+        minWidth: 380,
+        maxWidth: 800,
+        flexShrink: 0,
+        display: editorOpen ? undefined : "none",
+      }}>
+        <EditorPanel
+          agentId={agent.id}
+          initialPath={editorInitialPath}
+          onClose={() => setEditorOpen(false)}
+          onPathOpened={() => setEditorInitialPath(null)}
+        />
       </div>
     )}
     </div>

@@ -78,6 +78,15 @@ export const TerminalIcon = (
   </svg>
 );
 
+export const EditorIcon = (
+  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" strokeLinecap="round" style={{ display: "block" }}>
+    <path d="M3 1.5h6.5L13 5v9.5H3z" />
+    <path d="M9 1.5V5h4" />
+    <line x1="5.5" y1="8.5" x2="10.5" y2="8.5" />
+    <line x1="5.5" y1="11" x2="10.5" y2="11" />
+  </svg>
+);
+
 export const CopyIcon = (
   <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" style={{ display: "block" }}>
     <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" />

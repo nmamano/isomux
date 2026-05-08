@@ -9,10 +9,29 @@ import { startBackupScheduler, getBackupStatus } from "./backup.ts";
 import type { TaskItem } from "../shared/types.ts";
 import { generateTaskId, isValidStatus, isValidPriority } from "../shared/types.ts";
 import { listUsers, getUser, claimUser, updateUser, deleteUser } from "./users.ts";
+import { watchFile, stopWatch, type FileWatcher } from "./file-editor.ts";
 import { join } from "path";
 
 const browsers = new Set<ServerWebSocket<unknown>>();
 let tasks: TaskItem[] = loadTasks();
+
+// Per-WS editor file watchers. Each open file gets one fs.watch handle keyed
+// by `${agentId}\0${absPath}` so the same path can be watched independently
+// across agents. Watchers close on editor_close or WS disconnect.
+const editorWatchers = new WeakMap<ServerWebSocket<unknown>, Map<string, FileWatcher>>();
+
+function editorKey(agentId: string, absPath: string): string {
+  return `${agentId}\0${absPath}`;
+}
+
+function getWatcherMap(ws: ServerWebSocket<unknown>): Map<string, FileWatcher> {
+  let map = editorWatchers.get(ws);
+  if (!map) {
+    map = new Map();
+    editorWatchers.set(ws, map);
+  }
+  return map;
+}
 
 function broadcast(msg: ServerMessage) {
   const data = JSON.stringify(msg);
@@ -126,6 +145,87 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
     case "terminal_close":
       AgentManager.closeTerminal(cmd.agentId);
       break;
+    case "editor_open": {
+      const probe = AgentManager.openEditorFile(cmd.agentId, cmd.path);
+      if (!probe.ok) {
+        ws.send(JSON.stringify({
+          type: "editor_open_error", agentId: cmd.agentId, path: cmd.path,
+          reason: probe.error === "not_agent" ? "io_error" : "bad_path",
+          message: probe.error === "not_agent" ? "agent not found" : undefined,
+        } as ServerMessage));
+        break;
+      }
+      const r = probe.result;
+      if (r.kind !== "ok") {
+        ws.send(JSON.stringify({
+          type: "editor_open_error", agentId: cmd.agentId, path: r.path,
+          reason: r.kind,
+          message: r.kind === "io_error" ? r.message : undefined,
+          size: r.kind === "too_large" ? r.size : undefined,
+        } as ServerMessage));
+        break;
+      }
+      ws.send(JSON.stringify({
+        type: "editor_content", agentId: cmd.agentId, path: r.path,
+        content: r.content, mtime: r.mtime, language: r.language, size: r.size,
+      } as ServerMessage));
+      // Install (or replace) the per-WS watcher so external edits surface as
+      // `editor_external_change`. Replacing collapses duplicate opens.
+      const map = getWatcherMap(ws);
+      const key = editorKey(cmd.agentId, r.path);
+      const old = map.get(key);
+      if (old) stopWatch(old);
+      const watcher = watchFile(r.path, cmd.agentId, (mtime) => {
+        ws.send(JSON.stringify({
+          type: "editor_external_change", agentId: cmd.agentId, path: r.path, mtime,
+        } as ServerMessage));
+      });
+      if (watcher) map.set(key, watcher);
+      break;
+    }
+    case "editor_save": {
+      // Resolve against the agent's cwd in case the client sent a relative
+      // path (it shouldn't, but the resolution is cheap and matches open).
+      const abs = AgentManager.resolveEditorPathForAgent(cmd.agentId, cmd.path);
+      if (!abs) {
+        ws.send(JSON.stringify({
+          type: "editor_save_response", agentId: cmd.agentId, path: cmd.path,
+          ok: false, error: "agent not found",
+        } as ServerMessage));
+        break;
+      }
+      const result = AgentManager.saveEditorFile(abs, cmd.content, cmd.expectedMtime, cmd.force ?? false);
+      if (result.kind === "ok") {
+        ws.send(JSON.stringify({
+          type: "editor_save_response", agentId: cmd.agentId, path: result.path,
+          ok: true, mtime: result.mtime,
+        } as ServerMessage));
+      } else if (result.kind === "stale") {
+        ws.send(JSON.stringify({
+          type: "editor_save_response", agentId: cmd.agentId, path: result.path,
+          ok: false, reason: "stale", currentMtime: result.currentMtime,
+          error: "File changed on disk since you opened it.",
+        } as ServerMessage));
+      } else {
+        ws.send(JSON.stringify({
+          type: "editor_save_response", agentId: cmd.agentId, path: result.path,
+          ok: false, error: result.message,
+        } as ServerMessage));
+      }
+      break;
+    }
+    case "editor_close": {
+      const abs = AgentManager.resolveEditorPathForAgent(cmd.agentId, cmd.path);
+      if (!abs) break;
+      const map = getWatcherMap(ws);
+      const key = editorKey(cmd.agentId, abs);
+      const w = map.get(key);
+      if (w) {
+        stopWatch(w);
+        map.delete(key);
+      }
+      break;
+    }
     case "update_office_settings": {
       const envFile = cmd.envFile && cmd.envFile.trim() ? cmd.envFile.trim() : null;
       if (envFile) {
@@ -582,6 +682,23 @@ const server = Bun.serve({
         if (!result.ok) return new Response(JSON.stringify({ error: result.error }), { status: result.status, headers: corsHeaders });
         return new Response(JSON.stringify({ ok: true }), { headers: corsHeaders });
       }
+      // POST /agents/:id/edit-file — emit an `edit-request` card so the boss
+      // can open the file in the editor side panel. Mirrors /diff. Body: { path }.
+      if (parts.length === 3 && parts[2] === "edit-file") {
+        const corsHeaders = { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" };
+        const agentId = parts[1]!;
+        let path: string | undefined;
+        try {
+          const body = await req.json() as Record<string, unknown> | null;
+          if (body && typeof body.path === "string") path = body.path;
+        } catch {}
+        if (!path) {
+          return new Response(JSON.stringify({ error: "missing path" }), { status: 400, headers: corsHeaders });
+        }
+        const result = AgentManager.emitAgentEditRequest(agentId, path);
+        if (!result.ok) return new Response(JSON.stringify({ error: result.error }), { status: result.status, headers: corsHeaders });
+        return new Response(JSON.stringify({ ok: true }), { headers: corsHeaders });
+      }
     }
 
     // File upload endpoint: POST /api/upload/{agentId}
@@ -724,6 +841,12 @@ const server = Bun.serve({
     },
     close(ws) {
       browsers.delete(ws);
+      // Drop any per-WS editor watchers on disconnect.
+      const map = editorWatchers.get(ws);
+      if (map) {
+        for (const w of map.values()) stopWatch(w);
+        editorWatchers.delete(ws);
+      }
     },
   },
 });
