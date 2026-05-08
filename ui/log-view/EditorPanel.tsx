@@ -420,7 +420,8 @@ export function EditorPanel({
         display: "flex",
         flexDirection: "column",
         height: "100%",
-        borderLeft: "1px solid var(--border-strong)",
+        // borderLeft removed — the parent container's PanelResizer renders
+        // the divider so it can be drag-targeted and hover-tinted.
         background: "var(--bg-base)",
         position: "relative",
       }}

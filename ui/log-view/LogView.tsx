@@ -11,6 +11,7 @@ import { NavActions, type NavAction } from "../components/NavActions.tsx";
 import { TasksIcon, AgentIcon, EyeIcon, TerminalIcon, EditorIcon, CopyIcon, CheckIcon } from "../components/NavIcons.tsx";
 import { TerminalPanel } from "./TerminalPanel.tsx";
 import { EditorPanel } from "./EditorPanel.tsx";
+import { PanelResizer } from "./PanelResizer.tsx";
 import { useSwipeLeftRight } from "../hooks/useSwipeLeftRight.ts";
 import { getDevice } from "../device-settings.ts";
 
@@ -18,6 +19,34 @@ const STATE_LABELS: Partial<Record<AgentState, string>> = {
   thinking: "Thinking",
   tool_executing: "Running tool",
 };
+
+// Side panel size constraints. Mins below differ between terminal and editor
+// because the editor's tab strip + line numbers need more horizontal room
+// before content starts wrapping uselessly.
+const PANEL_MIN = { terminal: 300, editor: 380 } as const;
+const PANEL_MAX = { terminal: 1000, editor: 1200 } as const;
+// The chat column always keeps at least this many pixels regardless of how
+// far the boss drags the panel. Window-resize clamping shrinks the panel
+// rather than letting the chat dip below this floor.
+const CHAT_COLUMN_FLOOR = 300;
+
+function readPanelWidth(kind: "terminal" | "editor", fallback: number): number {
+  if (typeof localStorage === "undefined") return fallback;
+  try {
+    const raw = localStorage.getItem(`isomux:panel-width:${kind}`);
+    if (raw === null) return fallback;
+    const n = parseInt(raw, 10);
+    if (!Number.isFinite(n) || n <= 0) return fallback;
+    return Math.max(PANEL_MIN[kind], Math.min(PANEL_MAX[kind], n));
+  } catch { return fallback; }
+}
+
+function writePanelWidth(kind: "terminal" | "editor", width: number): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(`isomux:panel-width:${kind}`, String(Math.round(width)));
+  } catch {}
+}
 
 const ESCALATION_AMBER_MS = 2 * 60 * 1000; // 2 minutes
 const ESCALATION_RED_MS = 5 * 60 * 1000; // 5 minutes
@@ -177,6 +206,39 @@ export function LogView({
   const sidePanel = sidePanels.get(agent.id) ?? null;
   const terminalOpen = sidePanel === "terminal";
   const editorOpen = sidePanel === "editor";
+  const [terminalWidth, setTerminalWidth] = useState<number>(() => readPanelWidth("terminal", 500));
+  const [editorWidth, setEditorWidth] = useState<number>(() => readPanelWidth("editor", 600));
+  const terminalContainerRef = useRef<HTMLDivElement>(null);
+  const editorContainerRef = useRef<HTMLDivElement>(null);
+  const commitTerminalWidth = useCallback((w: number) => {
+    setTerminalWidth(w);
+    writePanelWidth("terminal", w);
+  }, []);
+  const commitEditorWidth = useCallback((w: number) => {
+    setEditorWidth(w);
+    writePanelWidth("editor", w);
+  }, []);
+  // Live max: reading window.innerWidth at call time so a window-resize
+  // mid-drag is reflected immediately (vs a value captured at mousedown).
+  const getTerminalMax = useCallback(() => {
+    return Math.max(PANEL_MIN.terminal, Math.min(PANEL_MAX.terminal, window.innerWidth - CHAT_COLUMN_FLOOR));
+  }, []);
+  const getEditorMax = useCallback(() => {
+    return Math.max(PANEL_MIN.editor, Math.min(PANEL_MAX.editor, window.innerWidth - CHAT_COLUMN_FLOOR));
+  }, []);
+  // Window-resize clamp: when the boss shrinks the browser window so far
+  // that the panel + min chat column would overflow, shrink the panel.
+  useEffect(() => {
+    function clamp() {
+      const maxAllowed = Math.max(PANEL_MIN.terminal, window.innerWidth - CHAT_COLUMN_FLOOR);
+      setTerminalWidth((w) => (w > maxAllowed ? maxAllowed : w));
+      const maxAllowedEditor = Math.max(PANEL_MIN.editor, window.innerWidth - CHAT_COLUMN_FLOOR);
+      setEditorWidth((w) => (w > maxAllowedEditor ? maxAllowedEditor : w));
+    }
+    window.addEventListener("resize", clamp);
+    clamp();
+    return () => window.removeEventListener("resize", clamp);
+  }, []);
   // First-render flag so we can tell "user just toggled the terminal open"
   // from "agent-switch restored a previously-open terminal" — only the
   // former should grab keyboard focus from the chat textarea.
@@ -1520,17 +1582,24 @@ export function LogView({
       </div>
     </div>
     {features.terminal && !isMobile && terminalOpen && (
-      <div style={{ width: "40%", minWidth: 300, maxWidth: 600, flexShrink: 0 }}>
+      <div ref={terminalContainerRef} style={{ width: terminalWidth, flexShrink: 0, position: "relative" }}>
+        <PanelResizer
+          panelRef={terminalContainerRef}
+          min={PANEL_MIN.terminal}
+          getMax={getTerminalMax}
+          onCommit={commitTerminalWidth}
+        />
         <TerminalPanel agentId={agent.id} onClose={() => setTerminalOpen(false)} autoFocus={terminalAutoFocus} />
       </div>
     )}
     {features.editor && !isMobile && editorOpen && (
-      <div style={{
-        width: "45%",
-        minWidth: 380,
-        maxWidth: 800,
-        flexShrink: 0,
-      }}>
+      <div ref={editorContainerRef} style={{ width: editorWidth, flexShrink: 0, position: "relative" }}>
+        <PanelResizer
+          panelRef={editorContainerRef}
+          min={PANEL_MIN.editor}
+          getMax={getEditorMax}
+          onCommit={commitEditorWidth}
+        />
         <EditorPanel
           agentId={agent.id}
           initialPath={editorInitialPath}

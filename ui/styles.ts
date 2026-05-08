@@ -304,6 +304,27 @@ export const CSS = `
   @container (max-width: 1199px) {
     .log-view-column .nav-action-label { display: none; }
   }
+
+  /* Side panel resizer: invisible 6 px hit target with a 1 px visible line
+     drawn via ::after so the line tints on hover/drag without layout reflow. */
+  .panel-resizer { background: transparent; }
+  .panel-resizer::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 3px;
+    width: 1px;
+    background: var(--border-strong);
+    transition: background 0.15s, width 0.1s;
+    pointer-events: none;
+  }
+  .panel-resizer:hover::after,
+  .panel-resizer:active::after {
+    background: var(--accent);
+    width: 2px;
+    left: 2.5px;
+  }
   @media (max-width: 1199px) {
     .nav-action-label { display: none; }
   }
