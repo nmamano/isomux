@@ -412,9 +412,7 @@ function processCronjobMessage(active: ActiveRun, msg: SDKMessage) {
           // Extract image attachments from tool_result blocks (e.g. from the
           // Read tool reading an image). Files are saved under the cronjob run
           // stream id so the existing /api/files/<agentId>/... route resolves
-          // them; this couples cronjob attachments to the agent storage tree
-          // (~/.isomux/logs/cronrun-<runId>/files/) — see follow-up task to
-          // plumb parseStreamId through file-route resolution.
+          // them (~/.isomux/logs/cronrun-<runId>/files/).
           let resultAttachments: Attachment[] | undefined;
           if (Array.isArray(block.content)) {
             const atts: Attachment[] = [];

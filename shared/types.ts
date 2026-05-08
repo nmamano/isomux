@@ -250,13 +250,6 @@ export function cronjobRunStreamId(runId: string): string {
   return `cronrun-${runId}`;
 }
 
-export function parseStreamId(id: string):
-  | { kind: "agent"; agentId: string }
-  | { kind: "cronjob_run"; runId: string } {
-  if (id.startsWith("cronrun-")) return { kind: "cronjob_run", runId: id.slice("cronrun-".length) };
-  return { kind: "agent", agentId: id };
-}
-
 export function humanizeSchedule(s: Schedule): string {
   const pad = (n: number) => n.toString().padStart(2, "0");
   if (s.type === "daily") return `Daily at ${pad(s.hour)}:${pad(s.minute)}`;
