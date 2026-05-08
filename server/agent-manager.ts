@@ -971,6 +971,17 @@ function installSession(agentId: string, managed: ManagedAgent, session: ReturnT
 // Swap the agent's session: close the current one, await its consumer to
 // drain, install the new session + consumer. Rejects any in-flight turn so
 // callers awaiting sendMessage's deferred don't hang.
+//
+// IMPORTANT — drain-before-install is load-bearing. Switching to swap-then-
+// drain (install new synchronously, drain old in background) is tempting
+// because it would let follow-up messages typed after Ctrl+C reach the LLM
+// without waiting ~3s for the old session to drain. Don't do it without
+// first verifying there's no on-disk race on the shared sessionId .jsonl
+// between the dying-old and starting-new subprocesses — both write to the
+// same file when the new session is created with --resume. See task
+// 154e2c14's STILL OPEN section for context. The current sendMessage
+// papers over the user-visible delay by echoing the typed message to the
+// log before awaiting abortPromise (see echoEarly there).
 async function replaceSession(agentId: string, managed: ManagedAgent, newSession: ReturnType<typeof unstable_v2_createSession>) {
   const oldConsumer = managed.consumerPromise;
   const turn = managed.pendingTurn;
@@ -1231,12 +1242,47 @@ const { handleSlashCommand } = createCommandHandling({
 export async function sendMessage(agentId: string, text: string, username?: string, device?: string, attachments?: Attachment[]) {
   const managed = agents.get(agentId);
   if (!managed) return;
+  // Echo "normal" user messages to the log before awaiting abortPromise. The
+  // wait below can take ~3s while the SDK's old session drains, and without
+  // this echo the user sees no feedback after typing a message right after
+  // Ctrl+C. Pending-* replies and slash commands have their own echo paths
+  // (or no echo at all for handled slash commands), so we only echo here for
+  // the path that ends up at the addLogEntry/send block at the bottom of
+  // this function.
+  const echoEarly =
+    !managed.pendingPermission &&
+    !managed.pendingResume &&
+    !managed.pendingModelPick &&
+    !managed.pendingEffortPick &&
+    !text.startsWith("/");
+  if (echoEarly) {
+    addLogEntry(agentId, "user_message", text, buildUserMeta(username, device), attachments);
+    updateState(agentId, "thinking");
+    if (managed.info.topic === null && !managed.topicGenerating) {
+      generateTopic(agentId); // fire-and-forget
+    }
+  }
   // If an abort is mid-handoff, wait for it to install the replacement session.
   // Without this, a follow-up message arriving in the gap between session.close()
   // and installSession sees session=null and falls into the recovery branch below,
   // amputating the agent's context.
   if (managed.abortPromise) {
     try { await managed.abortPromise; } catch {}
+  }
+  // Defensive: a permission request can briefly appear during the abort drain
+  // (the SDK's `canUseTool` can fire from buffered events before the dying
+  // session's signal listener at line 1051 clears pendingPermission). If
+  // echoEarly was true at the snapshot, the user typed thinking they were
+  // sending a normal message — pendingPermission was null then. Resolve any
+  // race-set pendingPermission as deny so the SDK cleans up, and proceed with
+  // the normal-message path below; otherwise the user's message would be
+  // misinterpreted as a deny reason and lost. Pending-resume/model/effort are
+  // user-initiated only, so they can't transition here.
+  if (echoEarly && managed.pendingPermission) {
+    try {
+      managed.pendingPermission.resolve({ behavior: "deny", message: "Session interrupted." });
+    } catch {}
+    managed.pendingPermission = null;
   }
   if (!managed.session) {
     // Try to create a fresh session so the user's next message doesn't silently vanish.
@@ -1252,7 +1298,7 @@ export async function sendMessage(agentId: string, text: string, username?: stri
       updateState(agentId, "waiting_for_response");
       // Fall through so the message is actually sent on the new session.
     } catch (err: any) {
-      addLogEntry(agentId, "user_message", text, buildUserMeta(username, device), attachments);
+      if (!echoEarly) addLogEntry(agentId, "user_message", text, buildUserMeta(username, device), attachments);
       addLogEntry(agentId, "error", `Cannot start session: ${err.message}`);
       updateState(agentId, "error");
       return;
@@ -1399,12 +1445,19 @@ export async function sendMessage(agentId: string, text: string, username?: stri
     if (handled) return;
   }
 
-  addLogEntry(agentId, "user_message", text, buildUserMeta(username, device), attachments);
-  updateState(agentId, "thinking");
+  // Skip if the early echo at the top already covered this. We use the
+  // snapshot rather than re-checking pending-* flags because pending-*
+  // handlers above clear their flags, so a fall-through (e.g., non-numeric
+  // reply during /resume) reaches here with the flag now false but still
+  // needs the echo.
+  if (!echoEarly) {
+    addLogEntry(agentId, "user_message", text, buildUserMeta(username, device), attachments);
+    updateState(agentId, "thinking");
 
-  // Auto-generate topic on first user message in a conversation
-  if (managed.info.topic === null && !managed.topicGenerating) {
-    generateTopic(agentId); // fire-and-forget
+    // Auto-generate topic on first user message in a conversation
+    if (managed.info.topic === null && !managed.topicGenerating) {
+      generateTopic(agentId); // fire-and-forget
+    }
   }
 
   const prefix = formatPrefix({ username, device });

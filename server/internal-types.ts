@@ -17,6 +17,10 @@ export interface ManagedAgent {
   // Set while abort() is mid-flight (between session.close() and installSession of the
   // replacement). sendMessage awaits this so a follow-up message arriving in the gap
   // doesn't see session=null and amputate context by spinning up a fresh blank session.
+  // Also serves as a partial swap-lock: serializes the most user-visible variant
+  // (sendMessage-during-abort) of the broader concurrency hole where multiple swap
+  // callers (newConversation/resume/editAgent/editMessage/`/clear`) can race and
+  // orphan the loser's session. See task 154e2c14. Don't remove without replacing.
   abortPromise: Promise<void> | null;
   slashCommands: { name: string; description?: string }[];
   skills: SkillInfo[];
