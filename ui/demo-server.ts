@@ -114,6 +114,7 @@ function seedOffice() {
       topicStale: false,
       customInstructions: char.customInstructions,
       username: null,
+      queue: [],
     });
   }
 }

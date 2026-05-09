@@ -15,6 +15,14 @@ export function formatIdentity({ username, device }: { username?: string | null;
   return `${username} (${device})`;
 }
 
+// Sender prefix for messages that come from another agent. Distinguishes
+// agent-to-agent traffic from human boss messages (which use `[Name]`) so the
+// receiving agent can apply different authority rules.
+// Format: `Isomuxer3 <agent from Room "Isomux Dev">`.
+export function formatAgentSenderPrefix(agentName: string, roomName: string): string {
+  return `${agentName} <agent from Room "${roomName}">`;
+}
+
 // Lowercase key used for users.json lookup. Display case is whatever the
 // client sent; the key only normalizes for matching.
 export function lowercaseKey(name: string): string {

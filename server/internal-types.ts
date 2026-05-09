@@ -1,5 +1,5 @@
 import type { unstable_v2_createSession, SDKMessage, PermissionResult, PermissionUpdate } from "@anthropic-ai/claude-agent-sdk";
-import type { AgentInfo, LogEntry, RoomWire, SkillInfo } from "../shared/types.ts";
+import type { AgentInfo, LogEntry, QueuedMessage, RoomWire, SkillInfo } from "../shared/types.ts";
 
 // Internal agent state
 export interface ManagedAgent {
@@ -54,6 +54,17 @@ export interface ManagedAgent {
   // and aggregates per agent. Forked sessions subtract the parent's
   // cumulative-at-the-fork-point so shared turns aren't double-counted.
   lastWrittenEntryId: string | null;
+  // Message queue: human + agent senders accumulate here while the agent is
+  // busy (state thinking/tool_executing). On transition to idle/waiting_for_response,
+  // all entries flush together as one coalesced SDK prompt with sender labels.
+  // In-memory only — not persisted across restarts.
+  messageQueue: QueuedMessage[];
+  // Set while flushQueue is mid-flight to prevent re-entry from the
+  // updateState trigger inside the same flush's await chain.
+  flushInProgress: boolean;
+  // clientMessageId → expiresAtMs. Per-receiver dedup window for HTTP retries.
+  // 5 min TTL; entries are pruned lazily inside enqueueMessage.
+  queueDedupe: Map<string, number>;
 }
 
 export type AgentEvent =

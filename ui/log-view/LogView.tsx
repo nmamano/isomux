@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useMemo, useCallback, type RefCallback } from "react";
-import type { AgentInfo, AgentState, LogEntry, SkillInfo, Attachment } from "../../shared/types.ts";
+import type { AgentInfo, AgentState, LogEntry, QueuedMessage, SkillInfo, Attachment } from "../../shared/types.ts";
+import { formatIdentity } from "../../shared/identity.ts";
 import { familyDisplayLabel, type ModelFamily } from "../../shared/types.ts";
 import { StatusLight } from "../office/StatusLight.tsx";
 import { Character } from "../office/Character.tsx";
@@ -84,7 +85,7 @@ function sendAbortDebounced(agentId: string) {
   send({ type: "abort", agentId });
 }
 
-function ActivityIndicator({ state, stateChangedAt, agentId }: { state: AgentState; stateChangedAt?: number; agentId: string }) {
+function ActivityIndicator({ state, stateChangedAt, agentId, queueLength }: { state: AgentState; stateChangedAt?: number; agentId: string; queueLength: number }) {
   const label = STATE_LABELS[state];
   const [now, setNow] = useState(Date.now());
 
@@ -99,7 +100,8 @@ function ActivityIndicator({ state, stateChangedAt, agentId }: { state: AgentSta
   const elapsedMs = stateChangedAt ? now - stateChangedAt : 0;
   const baseColor = state === "waiting_for_response" ? "var(--purple)" : "var(--green)";
   const color = escalationColor(elapsedMs, baseColor);
-  const showAbort = elapsedMs >= ESCALATION_AMBER_MS;
+  const showAbort = elapsedMs >= ESCALATION_AMBER_MS && queueLength === 0;
+  const showSendNow = queueLength > 0;
 
   return (
     <div
@@ -123,6 +125,25 @@ function ActivityIndicator({ state, stateChangedAt, agentId }: { state: AgentSta
       <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, opacity: 0.7 }}>
         {formatElapsed(elapsedMs)}
       </span>
+      {showSendNow && (
+        <button
+          onClick={() => send({ type: "send_now", agentId })}
+          style={{
+            marginLeft: 8,
+            padding: "2px 10px",
+            borderRadius: 4,
+            border: "1px solid var(--green)",
+            background: "var(--green)",
+            color: "var(--bg-base)",
+            fontSize: 11,
+            fontWeight: 600,
+            cursor: "pointer",
+          }}
+          title="Stop the current turn and flush the queued messages"
+        >
+          Send now
+        </button>
+      )}
       {showAbort && (
         <button
           onClick={() => sendAbortDebounced(agentId)}
@@ -141,6 +162,102 @@ function ActivityIndicator({ state, stateChangedAt, agentId }: { state: AgentSta
           Abort
         </button>
       )}
+    </div>
+  );
+}
+
+function QueueChips({ queue, agentId, isMobile }: { queue: QueuedMessage[]; agentId: string; isMobile?: boolean }) {
+  if (queue.length === 0) return null;
+  return (
+    <div style={{
+      display: "flex",
+      flexDirection: "column",
+      gap: 6,
+      marginBottom: 8,
+      // Keep the textarea reachable when many messages are queued. The cap
+      // is 50 server-side so this can grow tall; constrain and scroll.
+      maxHeight: isMobile ? 200 : 240,
+      overflowY: "auto",
+    }}>
+      {queue.map((msg) => {
+        const isAgent = msg.sender.kind === "agent";
+        const label = msg.sender.kind === "agent"
+          ? `${msg.sender.agentName} · agent · Room "${msg.sender.roomName}"`
+          : (formatIdentity({ username: msg.sender.username, device: msg.sender.device }) || "You");
+        const attachmentCount = msg.attachments?.length ?? 0;
+        return (
+          <div
+            key={msg.id}
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 8,
+              padding: "6px 10px",
+              borderRadius: 8,
+              background: isAgent ? "var(--bg-base)" : "var(--bg-hover)",
+              border: `1px ${isAgent ? "dashed" : "solid"} var(--border-medium)`,
+              fontSize: isMobile ? 13 : 12,
+              fontFamily: "'JetBrains Mono',monospace",
+              color: "var(--text-secondary)",
+            }}
+          >
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{
+                fontSize: isMobile ? 11 : 10,
+                fontWeight: 600,
+                color: isAgent ? "var(--text-muted)" : "var(--accent)",
+                marginBottom: 2,
+                textTransform: "uppercase",
+                letterSpacing: "0.05em",
+                fontStyle: isAgent ? "italic" : "normal",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}>
+                queued · {label}
+              </div>
+              {msg.text && (
+                <div style={{
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                  lineHeight: 1.4,
+                  maxHeight: isMobile ? "4.2em" : "3.5em",
+                  overflow: "hidden",
+                  opacity: 0.9,
+                }}>
+                  {msg.text}
+                </div>
+              )}
+              {attachmentCount > 0 && (
+                <div style={{
+                  fontSize: isMobile ? 11 : 10,
+                  color: "var(--text-muted)",
+                  marginTop: msg.text ? 4 : 0,
+                  fontStyle: "italic",
+                }}>
+                  📎 {attachmentCount} attachment{attachmentCount !== 1 ? "s" : ""}
+                </div>
+              )}
+            </div>
+            <button
+              onClick={() => send({ type: "cancel_queued", agentId, messageId: msg.id })}
+              style={{
+                background: "none",
+                border: "none",
+                color: "var(--text-ghost)",
+                cursor: "pointer",
+                padding: "0 2px",
+                fontSize: 16,
+                lineHeight: 1,
+                flexShrink: 0,
+              }}
+              title="Cancel this queued message"
+            >
+              ×
+            </button>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -766,7 +883,7 @@ export function LogView({
   function handleSend() {
     const text = input.trim();
     if (!text && validAttachments.length === 0) return;
-    if (isBusy || hasUploading || editingLogEntryId) return;
+    if (hasUploading || editingLogEntryId) return;
     const attachments = validAttachments.length > 0
       ? validAttachments.map(({ id: _id, uploading: _u, error: _e, ...att }) => att as Attachment)
       : undefined;
@@ -1143,7 +1260,7 @@ export function LogView({
             </div>
           );
         })}
-        <ActivityIndicator state={agent.state} stateChangedAt={stateChangedAt.get(agent.id)} agentId={agent.id} />
+        <ActivityIndicator state={agent.state} stateChangedAt={stateChangedAt.get(agent.id)} agentId={agent.id} queueLength={(agent.queue ?? []).length} />
       </div>
 
       {/* Scroll to bottom */}
@@ -1198,6 +1315,7 @@ export function LogView({
           style={{ display: "none" }}
           onChange={(e) => handleFileSelect(e.target.files)}
         />
+        <QueueChips queue={agent.queue ?? []} agentId={agent.id} isMobile={isMobile} />
         {stagedAttachments.length > 0 && (
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
             {stagedAttachments.map((att) => (
@@ -1235,14 +1353,13 @@ export function LogView({
         <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
           <button
             onClick={() => fileInputRef.current?.click()}
-            disabled={isBusy}
             style={{
               background: "none", border: "none", padding: 0,
-              color: isBusy ? "var(--text-ghost)" : "var(--text-muted)",
-              cursor: isBusy ? "default" : "pointer",
+              color: "var(--text-muted)",
+              cursor: "pointer",
               lineHeight: "20px",
               fontSize: 16, flexShrink: 0,
-              opacity: isBusy ? 0.4 : 0.7,
+              opacity: 0.7,
               transition: "opacity 0.15s",
             }}
             title="Attach files"
@@ -1380,11 +1497,18 @@ export function LogView({
                   handleSend();
                 }
                 if (e.key === "c" && (e.ctrlKey || e.metaKey) && isBusy) {
-                  e.preventDefault();
-                  sendAbortDebounced(agent.id);
+                  // Don't intercept Ctrl/Cmd+C while the user has a real
+                  // selection — they're trying to copy. The textarea is no
+                  // longer disabled while busy (typing now queues), so this
+                  // path is more reachable than before.
+                  const sel = window.getSelection()?.toString() ?? "";
+                  if (!sel) {
+                    e.preventDefault();
+                    sendAbortDebounced(agent.id);
+                  }
                 }
               }}
-              placeholder={editingLogEntryId ? "Editing message above..." : isBusy ? (isMobile ? "Agent is busy..." : "Agent is busy — Ctrl+C to interrupt...") : isMobile ? "Type a message..." : "Type a message or / for commands..."}
+              placeholder={editingLogEntryId ? "Editing message above..." : isBusy ? (isMobile ? "Type to queue..." : "Type to queue — sends when current turn ends") : isMobile ? "Type a message..." : "Type a message or / for commands..."}
               autoFocus={!isMobile}
               rows={1}
               style={{
@@ -1528,7 +1652,7 @@ export function LogView({
             </div>
           ) : null}
           {isMobile && (
-            isBusy ? (
+            isBusy && (agent.queue ?? []).length === 0 && !input.trim() && validAttachments.length === 0 ? (
               <button
                 onClick={() => sendAbortDebounced(agent.id)}
                 style={{
@@ -1572,7 +1696,7 @@ export function LogView({
                   lineHeight: 1,
                   transition: "background 0.15s, color 0.15s",
                 }}
-                title="Send"
+                title={isBusy ? "Queue message" : "Send"}
               >
                 ▲
               </button>

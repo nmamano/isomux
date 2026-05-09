@@ -81,6 +81,12 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
       // Don't await — let it stream in the background
       AgentManager.sendMessage(cmd.agentId, cmd.text, cmd.username, cmd.device, cmd.attachments);
       break;
+    case "cancel_queued":
+      AgentManager.cancelQueued(cmd.agentId, cmd.messageId);
+      break;
+    case "send_now":
+      AgentManager.sendNow(cmd.agentId);
+      break;
     case "new_conversation":
       await AgentManager.newConversation(cmd.agentId);
       break;
@@ -698,6 +704,53 @@ const server = Bun.serve({
         const result = AgentManager.emitAgentEditRequest(agentId, path);
         if (!result.ok) return new Response(JSON.stringify({ error: result.error }), { status: result.status, headers: corsHeaders });
         return new Response(JSON.stringify({ ok: true }), { headers: corsHeaders });
+      }
+      // POST /agents/:id/message — queue a message into the receiving agent's
+      // chat. The sender's identity (name + room) is looked up server-side
+      // from senderAgentId so callers can't spoof identity or inject
+      // prefix-delimiter characters into the prompt the receiver sees.
+      // Body: { text, senderAgentId, clientMessageId? }
+      if (parts.length === 3 && parts[2] === "message") {
+        const corsHeaders = { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" };
+        const receiverId = parts[1]!;
+        let body: Record<string, unknown> | null = null;
+        try {
+          body = await req.json() as Record<string, unknown> | null;
+        } catch {}
+        if (!body) {
+          return new Response(JSON.stringify({ error: "invalid JSON body" }), { status: 400, headers: corsHeaders });
+        }
+        const text = typeof body.text === "string" ? body.text : null;
+        const senderAgentId = typeof body.senderAgentId === "string" ? body.senderAgentId : null;
+        const clientMessageId = typeof body.clientMessageId === "string" ? body.clientMessageId : undefined;
+        if (!text || !senderAgentId) {
+          return new Response(
+            JSON.stringify({ error: "required: text, senderAgentId" }),
+            { status: 400, headers: corsHeaders },
+          );
+        }
+        if (senderAgentId === receiverId) {
+          return new Response(
+            JSON.stringify({ error: "cannot send to self" }),
+            { status: 400, headers: corsHeaders },
+          );
+        }
+        const senderInfo = AgentManager.getAgentDisplay(senderAgentId);
+        if (!senderInfo) {
+          return new Response(
+            JSON.stringify({ error: "senderAgentId is not a known agent" }),
+            { status: 400, headers: corsHeaders },
+          );
+        }
+        const result = AgentManager.enqueueMessage(receiverId, {
+          sender: { kind: "agent", agentId: senderAgentId, agentName: senderInfo.name, roomName: senderInfo.roomName },
+          text,
+          clientMessageId,
+        });
+        if (!result.ok) {
+          return new Response(JSON.stringify({ error: result.error }), { status: result.status, headers: corsHeaders });
+        }
+        return new Response(JSON.stringify(result), { headers: corsHeaders });
       }
     }
 

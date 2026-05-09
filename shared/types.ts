@@ -76,6 +76,19 @@ export function familyFromLegacyModel(model: string | undefined): ModelFamily {
   return "opus";
 }
 
+// A pending message waiting for the agent to flush it. Senders can be human
+// bosses or other agents; both go through the same queue and flush together
+// when the agent next transitions to an idle state.
+export interface QueuedMessage {
+  id: string;             // 8-char hex; UI uses this to cancel
+  sender:
+    | { kind: "user"; username?: string; device?: string }
+    | { kind: "agent"; agentId: string; agentName: string; roomName: string };
+  text: string;
+  attachments?: Attachment[];
+  queuedAt: number;
+}
+
 // What the browser knows about an agent
 export interface AgentInfo {
   id: string;
@@ -95,6 +108,8 @@ export interface AgentInfo {
   // resolved through this field at session creation time. null only for
   // legacy unowned agents migrated from before the user/device split.
   username: string | null;
+  // In-memory only; never persisted. Empty after server restart.
+  queue: QueuedMessage[];
 }
 
 // File attachment metadata
@@ -406,6 +421,8 @@ export type ClientCommand =
   | { type: "kill"; agentId: string }
   | { type: "abort"; agentId: string }
   | { type: "send_message"; agentId: string; text: string; username?: string; device?: string; attachments?: Attachment[] }
+  | { type: "cancel_queued"; agentId: string; messageId: string }
+  | { type: "send_now"; agentId: string }
   | { type: "new_conversation"; agentId: string }
   | { type: "resume"; agentId: string; sessionId: string }
   | { type: "list_sessions"; agentId: string }

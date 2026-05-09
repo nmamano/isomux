@@ -142,6 +142,7 @@ export class OfficeState {
       topicStale: false,
       customInstructions: opts.customInstructions || null,
       username: null,
+      queue: [],
     };
 
     this.agents.set(id, agent);

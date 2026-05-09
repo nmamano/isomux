@@ -51,6 +51,13 @@ export function createCommandHandling(deps: HandlerDeps) {
       managed.pendingResumeSessions = [];
       managed.pendingModelPick = false;
       managed.pendingEffortPick = false;
+      // /clear is a fresh start; queued messages were addressed to the prior
+      // context and shouldn't bleed into the new conversation. Must run BEFORE
+      // replaceSession — otherwise the post-swap idle trigger flushes them.
+      if (managed.messageQueue.length > 0) {
+        managed.messageQueue.length = 0;
+        deps.emit({ type: "agent_updated", agentId, changes: { queue: [] } });
+      }
       deps.persistCurrentSessionTopic(agentId, managed);
       await deps.replaceSession(agentId, managed, deps.createSession(managed));
       managed.sessionId = null;

@@ -200,11 +200,19 @@ export const LogEntryCard = memo(function LogEntryCard({
     case "user_message": {
       const username = entry.metadata?.username as string | undefined;
       const device = entry.metadata?.device as string | undefined;
-      const senderLabel = formatIdentity({ username, device }) || undefined;
+      const senderAgentName = entry.metadata?.sender_agent_name as string | undefined;
+      const senderAgentRoom = entry.metadata?.sender_agent_room as string | undefined;
+      // Agent-sender flushed messages carry sender_agent_* metadata; display
+      // them with a different label and styling from human bosses so the
+      // authority distinction stays visible after the chip lands in the log.
+      const senderLabel = senderAgentName
+        ? `${senderAgentName} · agent${senderAgentRoom ? ` · Room "${senderAgentRoom}"` : ""}`
+        : (formatIdentity({ username, device }) || undefined);
+      const fromAgent = !!senderAgentName;
       if (isEditing) {
         return <EditableUserMessage content={entry.content} entryId={entry.id} isMobile={isMobile} username={senderLabel} onCancel={onCancelEdit} onSubmit={onSubmitEdit} />;
       }
-      return <UserMessage content={entry.content} isMobile={isMobile} username={senderLabel} attachments={entry.attachments} agentId={entry.agentId} canEdit={canEdit} onEdit={onStartEdit ? () => onStartEdit(entry.id) : undefined} />;
+      return <UserMessage content={entry.content} isMobile={isMobile} username={senderLabel} fromAgent={fromAgent} attachments={entry.attachments} agentId={entry.agentId} canEdit={canEdit && !fromAgent} onEdit={onStartEdit ? () => onStartEdit(entry.id) : undefined} />;
     }
     case "text":
       return (
@@ -291,12 +299,13 @@ function TurnCopyButton({ turnEntries }: { turnEntries?: LogEntry[] }) {
   );
 }
 
-function UserMessage({ content, isMobile, username, attachments, agentId, canEdit, onEdit }: { content: string; isMobile?: boolean; username?: string; attachments?: Attachment[]; agentId?: string; canEdit?: boolean; onEdit?: () => void }) {
+function UserMessage({ content, isMobile, username, fromAgent, attachments, agentId, canEdit, onEdit }: { content: string; isMobile?: boolean; username?: string; fromAgent?: boolean; attachments?: Attachment[]; agentId?: string; canEdit?: boolean; onEdit?: () => void }) {
   const getText = useCallback(() => content, [content]);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const accentColor = fromAgent ? "var(--text-muted)" : "var(--accent)";
   return (
-    <div style={{ margin: "12px 0", padding: "10px 14px", paddingRight: 40, borderRadius: 10, background: "var(--user-msg-bg)", borderLeft: "3px solid var(--accent)", position: "relative" }}>
-      <div style={{ fontSize: isMobile ? 12 : 10, fontWeight: 600, color: "var(--accent)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>{(username ?? "You").toUpperCase()}</div>
+    <div style={{ margin: "12px 0", padding: "10px 14px", paddingRight: 40, borderRadius: 10, background: "var(--user-msg-bg)", borderLeft: `3px ${fromAgent ? "dashed" : "solid"} ${accentColor}`, position: "relative" }}>
+      <div style={{ fontSize: isMobile ? 12 : 10, fontWeight: 600, color: accentColor, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.05em", fontStyle: fromAgent ? "italic" : "normal" }}>{(username ?? "You").toUpperCase()}</div>
       {content && <div style={{ color: "var(--text-secondary)", fontFamily: "'JetBrains Mono',monospace", fontSize: isMobile ? 15 : 13, lineHeight: 1.6, whiteSpace: "pre-wrap", overflowWrap: "break-word", wordBreak: "break-word" }}>{content}</div>}
       {attachments && attachments.length > 0 && agentId && (
         <AttachmentDisplay

@@ -8,9 +8,9 @@ import {
   type CanUseTool,
   type PermissionResult,
 } from "@anthropic-ai/claude-agent-sdk";
-import type { AgentInfo, AgentOutfit, AgentState, Attachment, EffortLevel, LogEntry, ModelFamily, OfficeSettings, RoomWire, SkillInfo } from "../shared/types.ts";
+import type { AgentInfo, AgentOutfit, AgentState, Attachment, EffortLevel, LogEntry, ModelFamily, OfficeSettings, QueuedMessage, RoomWire, SkillInfo } from "../shared/types.ts";
 import { MODEL_FAMILIES, FAMILY_TO_MODEL, EFFORT_LEVELS, DEFAULT_EFFORT, familyDisplayLabel, effortDisplayLabel, generateRoomId } from "../shared/types.ts";
-import { formatPrefix } from "../shared/identity.ts";
+import { formatPrefix, formatAgentSenderPrefix } from "../shared/identity.ts";
 import { getUserEnvFile } from "./users.ts";
 import { generateOutfit } from "./outfit.ts";
 import {
@@ -186,6 +186,18 @@ export function listSessions(agentId: string) {
 
 export function getCurrentSessionId(agentId: string): string | null {
   return agents.get(agentId)?.sessionId ?? null;
+}
+
+// Server-controlled view of an agent's identity, used by the HTTP message
+// endpoint to derive the sender label instead of trusting the request body.
+// Prevents an attacker from spoofing identity or injecting prefix-delimiter
+// characters into the prompt that follows.
+export function getAgentDisplay(agentId: string): { name: string; roomName: string } | null {
+  const managed = agents.get(agentId);
+  if (!managed) return null;
+  const room = rooms[managed.info.room];
+  if (!room) return null;
+  return { name: managed.info.name, roomName: room.name };
 }
 
 export { validateCwd };
@@ -466,6 +478,7 @@ export async function restoreAgents() {
         topicStale: false,
         customInstructions: p.customInstructions ?? null,
         username: p.username ?? null,
+        queue: [],
       };
       const managed: ManagedAgent = {
         info,
@@ -490,6 +503,9 @@ export async function restoreAgents() {
         ptySidecar: null,
         ptyBuffer: "",
         lastWrittenEntryId: null,
+        messageQueue: [],
+        flushInProgress: false,
+        queueDedupe: new Map(),
       };
       agents.set(p.id, managed);
 
@@ -612,8 +628,24 @@ function updateState(agentId: string, state: AgentState) {
   if (state === "thinking" && managed.info.state !== "thinking") {
     managed.thinkingStartedAt = Date.now();
   }
+  const prev = managed.info.state;
   managed.info = { ...managed.info, state };
   emit({ type: "agent_updated", agentId, changes: { state } });
+
+  // Trigger queue flush on transition into an idle state (and only when the
+  // queue actually has items waiting). Swapping into the same state is a
+  // no-op so we don't re-fire the trigger from intra-state edits.
+  if (
+    state !== prev &&
+    isQueueIdleState(state) &&
+    managed.messageQueue.length > 0 &&
+    !managed.flushInProgress &&
+    !inMultiStepFlow(managed)
+  ) {
+    flushQueue(agentId).catch((err: any) => {
+      console.error(`flushQueue (state-transition) failed for ${agentId}:`, err.message);
+    });
+  }
 }
 
 function addLogEntry(agentId: string, kind: LogEntry["kind"], content: string, metadata?: Record<string, unknown>, attachments?: Attachment[], extra?: Partial<Pick<LogEntry, "diff" | "file">>) {
@@ -1216,6 +1248,7 @@ export async function spawn(
     topicStale: false,
     customInstructions: customInstructions || null,
     username: username ?? null,
+    queue: [],
   };
 
   const managed: ManagedAgent = {
@@ -1241,6 +1274,9 @@ export async function spawn(
     ptySidecar: null,
     ptyBuffer: "",
     lastWrittenEntryId: null,
+    messageQueue: [],
+    flushInProgress: false,
+    queueDedupe: new Map(),
   };
   agents.set(id, managed);
   emit({ type: "agent_added", agent: info });
@@ -1287,9 +1323,329 @@ const { handleSlashCommand } = createCommandHandling({
   createTurnDeferred,
 });
 
+// === Message queue ===
+//
+// Messages addressed to an agent that's currently busy (thinking / tool_executing)
+// land here instead of superseding the in-flight turn. On the next idle
+// transition they flush together as one coalesced SDK prompt, with each
+// message labelled by sender. Both human senders (WS send_message) and agent
+// senders (HTTP POST /agents/:id/message) go through the same queue.
+//
+// Persistence: in-memory only. The boss accepted that restarts (a developer-only
+// event in practice) drop the queue.
+
+const QUEUE_MAX = 50;
+const QUEUE_DEDUPE_TTL_MS = 5 * 60_000;
+
+function senderMeta(sender: QueuedMessage["sender"]): Record<string, unknown> | undefined {
+  switch (sender.kind) {
+    case "user":
+      return buildUserMeta(sender.username, sender.device);
+    case "agent":
+      return {
+        sender_agent_id: sender.agentId,
+        sender_agent_name: sender.agentName,
+        sender_agent_room: sender.roomName,
+      };
+    default: {
+      const _exhaustive: never = sender;
+      throw new Error(`unhandled sender kind: ${JSON.stringify(_exhaustive)}`);
+    }
+  }
+}
+
+function senderPrefixText(sender: QueuedMessage["sender"]): string {
+  switch (sender.kind) {
+    case "user":
+      return formatPrefix({ username: sender.username, device: sender.device });
+    case "agent":
+      return `${formatAgentSenderPrefix(sender.agentName, sender.roomName)} `;
+    default: {
+      const _exhaustive: never = sender;
+      throw new Error(`unhandled sender kind: ${JSON.stringify(_exhaustive)}`);
+    }
+  }
+}
+
+function emitQueueUpdate(agentId: string, managed: ManagedAgent) {
+  emit({ type: "agent_updated", agentId, changes: { queue: [...managed.messageQueue] } });
+}
+
+function generateQueuedId(existing: QueuedMessage[]): string {
+  const ids = new Set(existing.map((m) => m.id));
+  for (;;) {
+    const bytes = new Uint8Array(4);
+    crypto.getRandomValues(bytes);
+    const id = Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+    if (!ids.has(id)) return id;
+  }
+}
+
+function isQueueIdleState(s: AgentState): boolean {
+  return s === "idle" || s === "waiting_for_response";
+}
+
+function inMultiStepFlow(managed: ManagedAgent): boolean {
+  return !!(
+    managed.pendingPermission ||
+    managed.pendingResume ||
+    managed.pendingModelPick ||
+    managed.pendingEffortPick
+  );
+}
+
+export type EnqueueResult =
+  | { ok: true; queued: boolean; deduped?: boolean; messageId?: string }
+  | { ok: false; error: string; status: number };
+
+function recordDedupe(managed: ManagedAgent, clientMessageId: string) {
+  const now = Date.now();
+  // Lazy prune only when the map has grown past a small threshold so the
+  // common (small) case stays O(1). Drops expired entries to bound steady-
+  // state memory; the queue cap of QUEUE_MAX provides the true upper bound
+  // on accepted distinct ids per minute.
+  if (managed.queueDedupe.size > 100) {
+    for (const [k, v] of managed.queueDedupe) {
+      if (v < now) managed.queueDedupe.delete(k);
+    }
+  }
+  managed.queueDedupe.set(clientMessageId, now + QUEUE_DEDUPE_TTL_MS);
+}
+
+// Single entry point for human (via sendMessage) and agent (via HTTP) senders.
+// Decides whether to queue, send-immediately, or reject based on agent state.
+// `state === "error" | "stopped"` is rejected with 409 per the agreed design
+// (see Q3/Q14). Note: the WS textarea path doesn't reach this rejection in
+// those states because sendMessage's busy-check returns false for them, so
+// the existing session-recovery path takes over. Aligning the two paths is a
+// follow-up; intentionally not done here.
+export function enqueueMessage(
+  agentId: string,
+  msg: { sender: QueuedMessage["sender"]; text: string; attachments?: Attachment[]; clientMessageId?: string },
+): EnqueueResult {
+  const managed = agents.get(agentId);
+  if (!managed) return { ok: false, error: "agent not found", status: 404 };
+
+  const state = managed.info.state;
+  if (state === "stopped" || state === "error") {
+    return { ok: false, error: `agent_${state}`, status: 409 };
+  }
+
+  // Idempotency check first; record only after a successful accept below so
+  // a 429-rejected retry doesn't poison the dedup map.
+  if (msg.clientMessageId && managed.queueDedupe.has(msg.clientMessageId)) {
+    return { ok: true, queued: false, deduped: true };
+  }
+
+  if (managed.messageQueue.length >= QUEUE_MAX) {
+    return { ok: false, error: "queue_full", status: 429 };
+  }
+
+  const id = generateQueuedId(managed.messageQueue);
+  managed.messageQueue.push({
+    id,
+    sender: msg.sender,
+    text: msg.text,
+    attachments: msg.attachments,
+    queuedAt: Date.now(),
+  });
+  emitQueueUpdate(agentId, managed);
+  if (msg.clientMessageId) recordDedupe(managed, msg.clientMessageId);
+
+  // Idle/waiting_for_response with no multi-step in flight: kick off a flush
+  // immediately. flushQueue is gated by flushInProgress and re-checks state
+  // post-defer, so this is safe to call unconditionally.
+  if (isQueueIdleState(state) && !inMultiStepFlow(managed)) {
+    flushQueue(agentId).catch((err: any) => {
+      console.error(`flushQueue (idle) failed for ${agentId}:`, err.message);
+    });
+    return { ok: true, queued: false, messageId: id };
+  }
+  return { ok: true, queued: true, messageId: id };
+}
+
+async function flushQueue(agentId: string): Promise<void> {
+  const managed = agents.get(agentId);
+  if (!managed) return;
+  if (managed.flushInProgress) return;
+  if (managed.messageQueue.length === 0) return;
+
+  managed.flushInProgress = true;
+  try {
+    // Wait for any in-flight turn to truly end before starting a new one. The
+    // trigger from updateState fires synchronously inside processMessage,
+    // before runConsumer's post-loop code can clear the about-to-resolve
+    // pendingTurn — without this wait, createTurnDeferred below would reject
+    // that turn and surface a bogus "Superseded" error to the original caller.
+    // Wraps the existing deferred so we wake on either resolve or reject.
+    if (managed.pendingTurn) {
+      const original = managed.pendingTurn;
+      await new Promise<void>((wakeUp) => {
+        managed.pendingTurn = {
+          resolve: () => { original.resolve(); wakeUp(); },
+          reject: (e: unknown) => { original.reject(e); wakeUp(); },
+        };
+      });
+    }
+    // Re-check post-wait — state and queue can change while we waited. The
+    // agents.has() guard catches a kill() during the wait: kill rejects the
+    // pendingTurn wrapper (waking us) and removes the agent from the map but
+    // doesn't update state, so without this check the session-recovery branch
+    // below would spawn an SDK subprocess for a deleted agent.
+    if (!agents.has(agentId)) return;
+    if (!isQueueIdleState(managed.info.state)) return;
+    if (inMultiStepFlow(managed)) return;
+    if (managed.messageQueue.length === 0) return;
+
+    if (managed.abortPromise) {
+      try { await managed.abortPromise; } catch {}
+      // Re-check again after the abort handoff.
+      if (!agents.has(agentId)) return;
+      if (!isQueueIdleState(managed.info.state)) return;
+      if (inMultiStepFlow(managed)) return;
+      if (managed.messageQueue.length === 0) return;
+    }
+    if (!managed.session) {
+      try {
+        const sessionId = managed.sessionId;
+        installSession(agentId, managed, sessionId ? createSession(managed, sessionId) : createSession(managed));
+        addLogEntry(agentId, "system", sessionId
+          ? "Resumed prior session before flushing queued messages."
+          : "Started a fresh session before flushing queued messages.");
+      } catch (err: any) {
+        addLogEntry(agentId, "error", `Cannot start session to flush queue: ${err.message}`);
+        updateState(agentId, "error");
+        return;
+      }
+    }
+
+    // Snapshot the items to send. We DON'T drain yet: a session swap during
+    // the await below (e.g. a concurrent /model change) would reject the turn
+    // with SessionSwappedError, and silent splice-then-fail would leave the
+    // user with chip-less log entries for messages the agent never received.
+    // Instead, we send first and then drain + log only on success; on a swap
+    // the items remain in the queue and the post-swap idle trigger re-flushes.
+    const items = [...managed.messageQueue];
+
+    const promptParts: string[] = [];
+    const allAttachments: Attachment[] = [];
+    for (const m of items) {
+      promptParts.push(`${senderPrefixText(m.sender)}${m.text}`);
+      if (m.attachments) allAttachments.push(...m.attachments);
+    }
+    const prompt = promptParts.join("\n\n");
+
+    updateState(agentId, "thinking");
+    if (managed.info.topic === null && !managed.topicGenerating) {
+      generateTopic(agentId);
+    }
+
+    try {
+      const turn = createTurnDeferred(managed);
+      if (allAttachments.length > 0) {
+        const message = buildUserMessage(agentId, prompt, allAttachments);
+        await managed.session!.send(message);
+      } else {
+        await managed.session!.send(prompt);
+      }
+      // Send accepted by the SDK. Now finalize: write per-message log entries
+      // (provenance) and remove the items from the live queue. Items cancelled
+      // mid-send are still in `items` (they did reach the SDK) — log them so
+      // chat history matches what the receiver actually saw.
+      for (const m of items) {
+        addLogEntry(agentId, "user_message", m.text, senderMeta(m.sender), m.attachments);
+      }
+      const sentIds = new Set(items.map((m) => m.id));
+      managed.messageQueue = managed.messageQueue.filter((m) => !sentIds.has(m.id));
+      emitQueueUpdate(agentId, managed);
+      await turn;
+    } catch (err: any) {
+      // Agent killed mid-flush: nothing to log on a deleted agent, and any
+      // log entry would leak into logCache for an id that no longer exists.
+      if (!agents.has(agentId)) return;
+      if (err instanceof SessionSwappedError) {
+        // Items still in queue (we didn't drain on the failed attempt). The
+        // post-swap state transition will re-trigger flushQueue. Surface a
+        // system message only if the queue still has items — when the swap
+        // path explicitly cleared the queue (newConversation/resume/editMessage)
+        // there's nothing to retry and the message would be misleading noise.
+        if (managed.messageQueue.length > 0) {
+          addLogEntry(agentId, "system", "Queue flush interrupted by session change; will retry.");
+        }
+        return;
+      }
+      console.error(`Agent ${agentId} flush error:`, err.message);
+      addLogEntry(agentId, "error", `Error flushing queue: ${err.message}`);
+      updateState(agentId, "error");
+    }
+  } finally {
+    if (agents.has(agentId)) {
+      managed.flushInProgress = false;
+      // Re-flush if more arrived during the await, and we're still in an idle state.
+      if (
+        managed.messageQueue.length > 0 &&
+        isQueueIdleState(managed.info.state) &&
+        !inMultiStepFlow(managed)
+      ) {
+        flushQueue(agentId).catch(() => {});
+      }
+    }
+  }
+}
+
+export function cancelQueued(agentId: string, messageId: string): boolean {
+  const managed = agents.get(agentId);
+  if (!managed) return false;
+  const idx = managed.messageQueue.findIndex((m) => m.id === messageId);
+  if (idx < 0) return false;
+  managed.messageQueue.splice(idx, 1);
+  emitQueueUpdate(agentId, managed);
+  return true;
+}
+
+// Steering action: stop whatever the agent is doing and flush the queue.
+// Mapped to the UI "Send now" button. No-op when the queue is empty so users
+// who hit it accidentally don't kill an in-flight turn for no reason.
+export async function sendNow(agentId: string): Promise<void> {
+  const managed = agents.get(agentId);
+  if (!managed) return;
+  if (managed.messageQueue.length === 0) return;
+  const state = managed.info.state;
+  if (state === "thinking" || state === "tool_executing") {
+    // abort transitions to waiting_for_response (synchronously) and fires the
+    // queue-flush trigger in updateState, but that flush awaits abortPromise
+    // — so the actual flush happens AFTER replaceSession installs the new
+    // session. Net effect: the queued items land in the resumed session, not
+    // a half-closed one.
+    await abort(agentId);
+  } else {
+    flushQueue(agentId).catch(() => {});
+  }
+}
+
 export async function sendMessage(agentId: string, text: string, username?: string, device?: string, attachments?: Attachment[]) {
   const managed = agents.get(agentId);
   if (!managed) return;
+
+  // Route through queue when busy. Multi-step pending flows (permission /
+  // resume / model / effort) need the existing path because the user's reply
+  // is interpreted as a pick. Slash commands also pass through so /clear,
+  // /new etc. can preempt rather than queue.
+  const state = managed.info.state;
+  const busy = state === "thinking" || state === "tool_executing";
+  const isSlash = text.startsWith("/");
+  if (busy && !inMultiStepFlow(managed) && !isSlash) {
+    const result = enqueueMessage(agentId, {
+      sender: { kind: "user", username, device },
+      text,
+      attachments,
+    });
+    if (!result.ok) {
+      addLogEntry(agentId, "system", `Could not queue message: ${result.error}`);
+    }
+    return;
+  }
+
   // Echo "normal" user messages to the log before awaiting abortPromise. The
   // wait below can take ~3s while the SDK's old session drains, and without
   // this echo the user sees no feedback after typing a message right after
@@ -1391,6 +1747,14 @@ export async function sendMessage(agentId: string, text: string, username?: stri
       emitEphemeralLog(agentId, "user_message", text, userMeta);
       const picked = managed.pendingResumeSessions[num - 1];
       managed.pendingResumeSessions = [];
+      // Resuming a different past session is a context switch; queued
+      // messages were addressed to the current session and shouldn't bleed
+      // into the resumed transcript. Must run BEFORE replaceSession so the
+      // post-swap idle trigger doesn't flush them.
+      if (managed.messageQueue.length > 0) {
+        managed.messageQueue.length = 0;
+        emitQueueUpdate(agentId, managed);
+      }
       // Persist current session topic before switching
       persistCurrentSessionTopic(agentId, managed);
       // Perform the resume
@@ -1601,6 +1965,12 @@ export async function newConversation(agentId: string) {
   managed.pendingResumeSessions = [];
   managed.pendingModelPick = false;
   managed.pendingEffortPick = false;
+  // /clear is a fresh start; queued messages from the prior context shouldn't
+  // bleed into the new conversation.
+  if (managed.messageQueue.length > 0) {
+    managed.messageQueue.length = 0;
+    emitQueueUpdate(agentId, managed);
+  }
   persistCurrentSessionTopic(agentId, managed);
 
   try {
@@ -1628,6 +1998,12 @@ export async function resume(agentId: string, sessionId: string) {
   managed.pendingResumeSessions = [];
   managed.pendingModelPick = false;
   managed.pendingEffortPick = false;
+  // Resuming switches context; queued messages from the prior session
+  // shouldn't bleed into the resumed transcript.
+  if (managed.messageQueue.length > 0) {
+    managed.messageQueue.length = 0;
+    emitQueueUpdate(agentId, managed);
+  }
   persistCurrentSessionTopic(agentId, managed);
 
   try {
@@ -1679,6 +2055,14 @@ export async function editMessage(agentId: string, logEntryId: string, newText: 
   if (managed.info.state !== "waiting_for_response") {
     addLogEntry(agentId, "error", "Cannot edit while agent is busy.");
     return;
+  }
+
+  // Editing forks the conversation; queued messages were addressed to the
+  // pre-edit context and shouldn't bleed into the new branch. Mirrors the
+  // behavior of /clear (newConversation) and /resume.
+  if (managed.messageQueue.length > 0) {
+    managed.messageQueue.length = 0;
+    emitQueueUpdate(agentId, managed);
   }
 
   const oldSessionId = managed.sessionId;
