@@ -654,9 +654,9 @@
       <li><strong>Works with your Claude subscription</strong>: if <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">claude</code> works in your terminal, isomux works in your browser</li>
       <li>Works locally (run the server on localhost:4000, access it through your browser) or as a <strong>self-hosted persistent server</strong>:
         <ul>
-          <li>Run at home, access <strong>from any device and by anyone</strong> in your <a href="https://tailscale.com/" target="_blank" rel="noopener">Tailscale</a> network</li>
+          <li>Run at home, access <strong>from any device and by anyone</strong> in your VPN (we use <a href="https://tailscale.com/" target="_blank" rel="noopener">Tailscale</a>)</li>
           <li>No syncing headaches: same conversations, same filesystem, every device updates <strong>in real time</strong></li>
-          <li><a href="https://x.com/Nil053/status/2050141843741081928" target="_blank" rel="noopener"><strong>Conversation-level collaboration</strong></a>: anyone on your Tailnet can chime in</li>
+          <li><a href="https://x.com/Nil053/status/2050141843741081928" target="_blank" rel="noopener"><strong>Conversation-level collaboration</strong></a>: anyone on your VPN can chime in</li>
         </ul>
       </li>
       <li>Visual office metaphor: see what every agent is doing at a glance
@@ -667,18 +667,17 @@
         </ul>
       </li>
       <li><a href="https://x.com/Nil053/status/2039996579965542516" target="_blank" rel="noopener"><strong>Mobile UI</strong></a>: continue conversations on your phone with a touch-optimized UI</li>
-      <li><a href="https://x.com/Nil053/status/2039504957184090281" target="_blank" rel="noopener"><strong>Embedded terminal</strong></a> per agent</li>
-      <li>Built-in <a href="/built-in-editor.jpeg" target="_blank" rel="noopener"><strong>code editor</strong></a> and <a href="/built-in-diff.jpeg" target="_blank" rel="noopener"><strong>diff tool</strong></a></li>
+      <li>Built-in <a href="https://x.com/Nil053/status/2039504957184090281" target="_blank" rel="noopener"><strong>terminal</strong></a>, <a href="/built-in-editor.jpeg" target="_blank" rel="noopener"><strong>editor</strong></a>, and <a href="/built-in-diff.jpeg" target="_blank" rel="noopener"><strong>diff tool</strong></a></li>
       <li><strong>Voice-to-text</strong> prompting and <strong>text-to-speech</strong> responses</li>
-      <li><a href="https://x.com/Nil053/status/2039497314826666469" target="_blank" rel="noopener"><strong>Pre-tool-call safety hooks</strong></a>: blocks dangerous commands like <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">rm -rf</code></li>
-      <li><a href="https://x.com/Nil053/status/2040018957453918431" target="_blank" rel="noopener"><strong>Custom commands</strong></a> in addition to your own, with autocomplete: e.g. <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">/isomux-peer-review</code>, <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">/isomux-all-hands</code> (see <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">/help</code>)</li>
+      <li><a href="https://x.com/Nil053/status/2039497314826666469" target="_blank" rel="noopener"><strong>Pre-tool-call safety hooks</strong></a></li>
+      <li><a href="https://x.com/Nil053/status/2040018957453918431" target="_blank" rel="noopener"><strong>Custom commands</strong></a> in addition to your own: <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">/isomux-peer-review</code>, <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">/isomux-all-hands</code>, etc. (see <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">/help</code>)</li>
       <li>Agents can <a href="https://x.com/Nil053/status/2039494626265149778" target="_blank" rel="noopener"><strong>check on each other</strong></a> and <a href="https://x.com/Nil053/status/2053179885108232328" target="_blank" rel="noopener"><strong>message each other</strong></a>: all messages (human and agent) get queued while agents are busy.</li>
       <li><a href="https://x.com/Nil053/status/2050130563915534346" target="_blank" rel="noopener"><strong>Hierarchical system prompts</strong></a>: office-wide, per-room, and per-agent prompts</li>
       <li><a href="https://x.com/Nil053/status/2040871759529025617" target="_blank" rel="noopener"><strong>Shared task board</strong></a>: humans and agents can create, assign, claim, and close tasks</li>
       <li><a href="https://x.com/Nil053/status/2048308972072079753" target="_blank" rel="noopener"><strong>Cron jobs</strong></a>: schedule recurring agent runs; each run is a fresh chat (that can be continued)</li>
       <li><strong>Image/PDF attachments</strong>: agents understand images and PDFs and can show images inline</li>
       <li><strong>Conversation branching</strong>: edit any past message to fork the conversation</li>
-      <li><strong>Sound notifications</strong>: get pinged when an agent finishes</li>
+      <li><strong>Notifications</strong>: get pinged (and waved at) when an agent finishes</li>
     </ul>
 
     <p style="color: var(--text-dim); font-size: 0.95rem;">See the <a href="https://github.com/nmamano/isomux#full-feature-list" target="_blank" rel="noopener">full feature list</a> on GitHub.</p>
@@ -720,7 +719,7 @@ bun run dev</pre>
     <div class="setup-card">
       <p>Isomux shines when you run it on your own always-on box/server (like a Mac Mini), and then access it from all your devices.</p>
       <p style="margin-top: 12px;">Your phone and laptop see the same conversations, in real time, with UIs optimized for each. Agents keep running even if you close the browser.</p>
-      <p style="margin-top: 12px;">The best way to set this up quickly and securely is by taking advantage of <a href="https://tailscale.com/" target="_blank" rel="noopener"><strong>Tailscale</strong></a> (it's free): your server serves Isomux on <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">localhost:4000</code>, and every other device reaches it at <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">&lt;TAILSCALE_SERVER_IP&gt;:4000</code>.</p>
+      <p style="margin-top: 12px;">The easiest way is to use <a href="https://tailscale.com/" target="_blank" rel="noopener"><strong>Tailscale</strong></a> (free, zero-config): your server serves Isomux on <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">localhost:4000</code>, and every other device reaches it at <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">&lt;TAILSCALE_SERVER_IP&gt;:4000</code>.</p>
       <h3>1. Install Tailscale</h3>
       <p>Install Tailscale on the server, your laptop, and your phone.</p>
 <pre>curl -fsSL https://tailscale.com/install.sh | sh
@@ -780,7 +779,6 @@ lingering so it survives logout.</pre>
       <p style="margin-top: 12px;">A <strong>WebSocket layer</strong> keeps every connected device in sync in real time. Open the same URL on your laptop and phone &mdash; both see the same office, same conversations.</p>
       <p style="margin-top: 12px;"><strong>Agent sessions persist</strong> across server restarts. Your agents pick up right where they left off.</p>
       <p style="margin-top: 12px;">There's <strong>no database, no cloud dependency, no API key</strong>. Isomux piggybacks on your existing Claude CLI authentication and inherits your global Claude skills.</p>
-      <p style="margin-top: 12px;">Optionally, pair it with <a href="https://tailscale.com/" target="_blank" rel="noopener"><strong>Tailscale</strong></a> to turn any always-on machine into a persistent agent server. Every device on your Tailnet &mdash; laptop, phone, tablet &mdash; reaches the same Isomux instance at the same URL, with conversations syncing instantly over WebSocket.</p>
       <p style="margin-top: 12px;">For a deeper dive, see the <a href="https://nilmamano.com/blog/isomux" target="_blank" rel="noopener"><strong>Design and Architecture blog post</strong></a>.</p>
       <img src="/architecture.png" alt="Isomux system design: browser clients connect over WebSocket to the Bun service, which runs persistent agents backed by Claude Code SDK sessions and persists state to the local file system" style="width: 100%; margin-top: 16px; border-radius: 6px;" />
     </div>
