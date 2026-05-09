@@ -99,10 +99,11 @@ Setup:
 - Markdown rendering for agent output
 - Collapsible thinking and tool-call cards with timing for each step
 - Copy buttons on code blocks, user messages, full agent turns, and entire conversations
-- Send disabled while agent is busy — type ahead freely, send when ready
+- Message queueing: messages sent while the agent is busy are queued. The "Send now" button flushes the queue immediately.
 - File attachments: agents understand images and PDFs. Upload via button, drag-and-drop, or paste
 - Image display: agents can show images inline in the conversation (e.g., matplotlib plots)
 - Embedded terminal for direct shell access per agent
+- Built-in file editor: syntax highlighting, file tabs. Resizable alongside the chat. Open files via /isomux-edit <path> or by clicking "[Open in editor]" cards that agents emit.
 - Conversation branching — edit a past message to fork the conversation from that point, preserving the original
 - Right-click context menu — resume past sessions, edit agent, kill
 
@@ -114,16 +115,18 @@ Setup:
 
 ### Slash Commands & Autocomplete
 - Built-in commands: /clear, /help, /context, /resume, /model, /effort (per-agent thinking effort), /usage (per-agent / per-room / per-cron-job token spend)
-- Isomux additions: /isomux-all-hands (shows what everyone is up to), /isomux-system-prompt (dumps the full assembled system prompt), /isomux-diff (rich-rendered uncommitted changes in the agent's cwd — agents can also choose to show a diff card on their own)
+- Isomux additions: /isomux-all-hands (shows what everyone is up to), /isomux-system-prompt (dumps the full assembled system prompt), /isomux-cronjob-system-prompt (same for cron jobs), /isomux-diff (rich-rendered uncommitted changes in the agent's cwd — agents can also choose to show a diff card on their own), /isomux-edit (open a file in the side-panel editor; agents can offer this on their own too)
 - User skills from ~/.claude/skills/ and project commands
-- Isomux-bundled skills like /isomux-peer-review (tells an agent to review another agent's work), /isomux-grill-me (stress-tests a feature design; based on the original /grill-me by Matt Pocock), /isomux-review-and-commit
+- Isomux-bundled skills like /isomux-peer-review (tells an agent to review another agent's work), /isomux-grill-me (stress-tests a feature design; based on the original /grill-me by Matt Pocock), /isomux-review-and-commit, /isomux-report-bug
 - Autocomplete dropdown with keyboard navigation
 
 ### Inter-agent Communication
 - Agents discover each other via a shared manifest (agents-summary.json)
 - Each agent can read every other agent's current conversation logs
-- You can ask one agent "What do you think of Agent X's approach?" and it just works — it reads the other agent's conversation and gives feedback
-- Shared task board: humans and agents can create, assign, claim, and close tasks — full interop via UI and HTTP API
+- Ask one agent "What do you think of Agent X's approach?" and it just works — it reads the other agent's conversation and gives feedback
+- Agents can message other agents directly.
+- Mixed message queue: humans (across multiple devices) and agents share one queue per receiving agent. If the receiver is busy, queued messages coalesce into a single follow-up turn.
+- Shared task board: humans and agents can create, assign, claim, close, or shelve tasks to a backlog — full interop via UI and HTTP API
 
 ### Persistence & Lifecycle
 - Agents persist across server restarts — sessions are recreated from disk
@@ -165,6 +168,8 @@ Setup:
 ### Other
 - Voice-to-text prompting and text-to-speech responses (works locally; requires HTTPS via Tailscale for remote)
 - Per-user profiles — your default room, notification preferences, and credentials follow you wherever you log in from
+- Sender + device labels: every message in chat is tagged with the username and device (e.g. \`[Nil (Phone)]\`) so agents and other humans can tell who's saying what from where
+- Daily local backup: your office (agents, conversations, settings) is snapshotted once a day, so you can restore from a recent snapshot if anything goes wrong
 - The entire frontend uses a Redux-like store where server WebSocket messages are dispatched directly as actions
 
 ## Guidelines

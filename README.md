@@ -19,13 +19,15 @@ See [isomux.com](https://isomux.com) for setup instructions and a live demo. Rea
 - Works locally or as a **self-hosted persistent server** (Mac Mini style):
   - Run at home, access **from any device** in your [Tailscale](https://tailscale.com/) network
   - No syncing headaches: same conversations, same filesystem, every device updates **in real time**
-  - [**Multi-user collaboration**](https://x.com/Nil053/status/2050141843741081928): anyone on your Tailnet can chime in to the same conversations, in real time
+  - [**Multi-user collaboration**](https://x.com/Nil053/status/2050141843741081928): anyone on your Tailnet can chime in to the same conversations, in real time; messages are tagged with sender and device
 - [**Embedded terminal**](https://x.com/Nil053/status/2039504957184090281) per agent
+- **Built-in code editor side panel**: open files in a tabbed editor next to the chat. Use `/isomux-edit`, or agents can offer "[Open in editor]" cards mid-conversation
 - **Built-in diff tool**: render uncommitted changes as a styled inline card; agents can decide when to show diffs on their own
 - **Voice-to-text** prompting and **text-to-speech** responses
 - [**Pre-tool-call safety hooks**](https://x.com/Nil053/status/2039497314826666469): blocks dangerous commands like `rm -rf`
 - [**Custom commands**](https://x.com/Nil053/status/2040018957453918431) in addition to your own, all with autocomplete: e.g. `/isomux-peer-review` to review another agent's work, or `/isomux-all-hands` to see what everyone is up to
 - [**Agents can check on each other**](https://x.com/Nil053/status/2039494626265149778): inter-agent discovery via shared manifest
+- [**Agents can message each other**](https://x.com/Nil053/status/2053179885108232328): one agent can drop a message into another's chat; the same queue handles messages from humans, multiple devices, and other agents
 - [**Hierarchical system prompts**](https://x.com/Nil053/status/2050130563915534346): office-wide, per-room, and per-agent prompts compose into one
 - [**Shared task board**](https://x.com/Nil053/status/2040871759529025617): humans and agents can create, assign, claim, and close tasks — full interop via UI and HTTP API
 - [**Cron jobs**](https://x.com/Nil053/status/2048308972072079753): schedule recurring agent runs (daily, weekly, every N minutes); each run is a fresh agent session with a browsable, resumable transcript
@@ -90,10 +92,11 @@ For persistent server setup (systemd + Tailscale) and voice input configuration,
 - **Markdown rendering** for agent output
 - **Collapsible thinking and tool-call cards** with timing for each step
 - **Copy buttons** on code blocks, user messages, full agent turns, and entire conversations
-- **Send disabled while agent is busy** — type ahead freely, send when ready
+- **Message queueing**: messages sent while the agent is busy are queued. Click **Send now** to flush the queue immediately
 - **File attachments**: agents understand images and PDFs. Upload them via button, drag-and-drop, or paste
 - **Image display**: agents can show images inline in the conversation
 - **Embedded terminal** for direct shell access per agent
+- **Built-in file editor**: syntax highlighting, file tabs. Resizable alongside the chat. Open files via `/isomux-edit`, or click "[Open in editor]" cards that agents emit
 - **Conversation branching** — edit a past message to fork the conversation from that point, preserving the original
 - **Right-click context menu** — resume past sessions, edit agent, kill
 
@@ -105,8 +108,8 @@ For persistent server setup (systemd + Tailscale) and voice input configuration,
 
 ### Slash Commands & Autocomplete
 - Built-in commands: `/clear`, `/help`, `/context`, `/resume`, `/model`, `/effort` (thinking effort), `/usage` (per-agent / per-room / per-cron-job token spend)
-- Isomux additions: `/isomux-all-hands`, `/isomux-system-prompt`, `/isomux-diff` (rich-rendered uncommitted changes in the agent's cwd — agents can also choose to show a diff card on their own)
-- **Bundled skills** like `/isomux-grill-me` (based on the original `/grill-me` by Matt Pocock), `/isomux-peer-review`, `/isomux-review-and-commit` — available to every agent out of the box
+- Isomux additions: `/isomux-all-hands`, `/isomux-system-prompt`, `/isomux-cronjob-system-prompt`, `/isomux-diff` (rich-rendered uncommitted changes; agents can also choose to show a diff card on their own), `/isomux-edit` (open a file in the side-panel editor; agents can offer this on their own too)
+- **Bundled skills** like `/isomux-grill-me` (based on the original `/grill-me` by Matt Pocock), `/isomux-peer-review`, `/isomux-review-and-commit`, `/isomux-report-bug` — available to every agent out of the box
 - User skills from `~/.claude/skills/` and project commands
 - **Autocomplete dropdown** with keyboard navigation
 
@@ -117,6 +120,13 @@ For persistent server setup (systemd + Tailscale) and voice input configuration,
 - **Resume or fork** any past run, turning a daily summary into an interactive follow-up
 - **Manual "Run now"** for any cron job, independent of the schedule
 - Per cron job token usage rolled into `/usage`
+
+### Inter-agent Communication
+- **Discovery**: every agent reads the shared `agents-summary.json` for who else is in the office (name, room, desk, cwd, model, topic)
+- **Cross-conversation reads**: each agent has access to the live conversation logs of every other agent. Ask "what does Isomuxer3 think of this?" and it just works
+- **Agent-to-agent messages**: one agent can drop a message into another's chat
+- **Mixed queue**: messages from any human (across devices) and any other agent share one queue per receiver. If the receiver is busy, queued messages coalesce into a single follow-up turn
+- **Shared task board**: humans and agents can create, assign, claim, close, or shelve tasks to a backlog. Full interop via UI and HTTP API
 
 ### Persistence & Lifecycle
 - **Agents persist across server restarts**
@@ -145,6 +155,7 @@ For persistent server setup (systemd + Tailscale) and voice input configuration,
 - Uses **Claude subscription via CLI auth** — no API key needed
 - **Built-in safety hooks** — blocks `rm -rf`, `git reset --hard`, and other footguns out of the box
 - **Works on a headless server** — run on a Mac Mini or Linux box, access from anywhere via Tailscale
+- **Daily local backup**: your office (agents, conversations, settings) is snapshotted once a day; restore from a recent snapshot if anything goes wrong
 
 ## How it works
 

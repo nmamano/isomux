@@ -184,6 +184,9 @@ export function createCommandHandling(deps: HandlerDeps) {
       lines.push("  • The built-in side-panel terminal is useful for one-off situations where you need to run something manually, like auth flows.");
       lines.push("  • Isomux comes with safety pre-tool-call hooks to prevent destructive commands, like `rm -rf /`.");
       lines.push("  • Isomux agents can check what other agents are up to in real time. Just ask naturally.");
+      lines.push("  • Agents can also message each other directly — ask one agent to ask another, or to relay a message.");
+      lines.push("  • Type ahead while an agent is busy: messages queue and flush when it's idle. Hit \"Send now\" to interrupt and flush immediately.");
+      lines.push("  • Use `/isomux-edit <path>` to open a file in the side-panel editor; agents can offer the same affordance from chat.");
       lines.push("  • Use voice-to-text for faster prompting. The shortcut is ctrl+space.");
       lines.push("  • Use `/isomux-all-hands` to check what every agent is up to.");
       lines.push("  • Use `/isomux-report-bug` if you find any issues.");
