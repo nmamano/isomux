@@ -1,6 +1,6 @@
 # Isomux
 
-Friction going from 1 Claude Code to 4+? Isomux is your agent office. *Cute in a useful way.*
+**Give your agents a cute office.** Multi-device, multi-user, multi-agent collaboration.
 
 Free · open source · no cloud · no account
 
