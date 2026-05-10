@@ -77,11 +77,17 @@ export function EditorPanel({
   initialPath,
   onClose,
   onPathOpened,
+  mobile = false,
 }: {
   agentId: string;
   initialPath: string | null;
   onClose: () => void;
   onPathOpened?: (path: string) => void;
+  // When true, renders mobile-friendly chrome: a tab dropdown instead of an
+  // overflowing tab strip, an explicit Save button (mobile has no Ctrl+S),
+  // a hidden line-number gutter, no autocomplete popup, and contentAttributes
+  // that disable iOS autocorrect/autocapitalize on the editable surface.
+  mobile?: boolean;
 }) {
   const { theme } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -108,6 +114,9 @@ export function EditorPanel({
     return getEditorState(agentId)?.activePath ?? null;
   });
   const [pendingError, setPendingError] = useState<string | null>(null);
+  const [tabMenuOpen, setTabMenuOpen] = useState(false);
+  const tabMenuRef = useRef<HTMLDivElement>(null);
+  const tabMenuButtonRef = useRef<HTMLButtonElement>(null);
 
   const tabsRef = useRef<Tab[]>([]);
   tabsRef.current = tabs;
@@ -286,16 +295,20 @@ export function EditorPanel({
       }));
     });
 
+    // Mobile gets a leaner extension set: no gutter (eats ~40px on a 390px
+    // screen), no autocompletion popup (lands off-screen with the soft
+    // keyboard up — see tab board), and contentAttributes that turn off iOS
+    // autocorrect/autocapitalize/spellcheck so it doesn't mangle code.
     const view = new EditorView({
       parent: containerRef.current,
       state: EditorState.create({
         doc: "",
         extensions: [
-          lineNumbers(),
+          ...(mobile ? [] : [lineNumbers()]),
           highlightActiveLine(),
           history(),
           highlightSelectionMatches(),
-          autocompletion(),
+          ...(mobile ? [] : [autocompletion()]),
           closeBrackets(),
           keymap.of([
             ...defaultKeymap,
@@ -304,6 +317,13 @@ export function EditorPanel({
             indentWithTab,
           ]),
           EditorView.lineWrapping,
+          ...(mobile ? [
+            EditorView.contentAttributes.of({
+              autocorrect: "off",
+              autocapitalize: "off",
+              spellcheck: "false",
+            }),
+          ] : []),
           langCompartmentRef.current.of([]),
           themeCompartmentRef.current.of(theme === "dark" ? oneDark : syntaxHighlighting(defaultHighlightStyle)),
           readonlyCompartmentRef.current.of([]),
@@ -359,6 +379,14 @@ export function EditorPanel({
     }
   }, [tabs, activePath]);
 
+  const saveActiveTab = useCallback(() => {
+    const path = activePathRef.current;
+    if (!path) return;
+    const tab = tabsRef.current.find((t) => t.path === path);
+    if (!tab) return;
+    send({ type: "editor_save", agentId, path, content: tab.content, expectedMtime: tab.mtime });
+  }, [agentId]);
+
   // Save with Ctrl+S / Cmd+S — must capture to suppress browser save dialog.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -368,15 +396,26 @@ export function EditorPanel({
       if (!view) return;
       if (!view.dom.contains(document.activeElement)) return;
       e.preventDefault();
-      const path = activePathRef.current;
-      if (!path) return;
-      const tab = tabsRef.current.find((t) => t.path === path);
-      if (!tab) return;
-      send({ type: "editor_save", agentId, path, content: tab.content, expectedMtime: tab.mtime });
+      saveActiveTab();
     }
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [agentId]);
+  }, [saveActiveTab]);
+
+  // Close the mobile tab menu when the boss taps anywhere outside it (or its
+  // anchor button). pointerdown beats click so we close before a competing
+  // tap target reads the open state.
+  useEffect(() => {
+    if (!tabMenuOpen) return;
+    function onPointerDown(e: PointerEvent) {
+      const target = e.target as Node;
+      if (tabMenuRef.current?.contains(target)) return;
+      if (tabMenuButtonRef.current?.contains(target)) return;
+      setTabMenuOpen(false);
+    }
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => document.removeEventListener("pointerdown", onPointerDown, true);
+  }, [tabMenuOpen]);
 
   const closeTab = useCallback((path: string) => {
     send({ type: "editor_close", agentId, path });
@@ -424,96 +463,273 @@ export function EditorPanel({
         // the divider so it can be drag-targeted and hover-tinted.
         background: "var(--bg-base)",
         position: "relative",
+        // Clip the mobile tab-dropdown so a deep file list never overflows
+        // past the editor's bottom edge into the chat column behind. Desktop
+        // has no popover, so the clipping is a no-op there.
+        overflow: mobile ? "hidden" : undefined,
       }}
     >
-      {/* Header: tabs + close */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "stretch",
-          borderBottom: "1px solid var(--border-strong)",
-          background: "var(--bg-surface)",
-          flexShrink: 0,
-          minHeight: 36,
-          overflowX: "auto",
-        }}
-      >
-        <div style={{ display: "flex", flex: 1, minWidth: 0 }}>
-          {tabs.length === 0 && (
+      {/* Header: tabs + close. Two layouts — desktop is a horizontally
+          scrolling tab strip; mobile is a single dropdown switcher with a
+          dirty-only Save button next to the close ×. The mobile branch keeps
+          the close affordance reachable even with many files open. */}
+      {mobile ? (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            borderBottom: "1px solid var(--border-strong)",
+            background: "var(--bg-surface)",
+            flexShrink: 0,
+            minHeight: 44,
+            position: "relative",
+          }}
+        >
+          {tabs.length === 0 ? (
             <div style={{
-              fontSize: 11,
+              flex: 1,
+              fontSize: 12,
               color: "var(--text-dim)",
               padding: "0 12px",
-              display: "flex",
-              alignItems: "center",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
             }}>
-              No file open. Use <code style={{ margin: "0 4px", color: "var(--text-secondary)" }}>/isomux-edit &lt;path&gt;</code> or have the agent send one.
+              No file open
             </div>
-          )}
-          {tabs.map((t) => (
-            <div
-              key={t.path}
-              onClick={() => setActivePath(t.path)}
+          ) : (
+            <button
+              ref={tabMenuButtonRef}
+              onClick={() => setTabMenuOpen((v) => !v)}
               style={{
                 display: "flex",
                 alignItems: "center",
                 gap: 6,
-                padding: "0 8px 0 12px",
+                flex: 1,
+                minWidth: 0,
+                height: "100%",
+                padding: "0 12px",
+                background: "transparent",
+                border: "none",
+                color: "var(--text-secondary)",
                 fontFamily: "'JetBrains Mono',monospace",
-                fontSize: 11,
-                color: t.path === activePath ? "var(--text-secondary)" : "var(--text-muted)",
-                background: t.path === activePath ? "var(--bg-base)" : "transparent",
-                borderRight: "1px solid var(--border)",
+                fontSize: 13,
                 cursor: "pointer",
-                flexShrink: 0,
-                maxWidth: 200,
-                position: "relative",
-                ...(t.path === activePath ? { borderTop: "2px solid var(--green)" } : {}),
+                textAlign: "left",
               }}
-              title={t.path}
+              title={activeTab?.path ?? ""}
             >
               <span style={{
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
+                minWidth: 0,
               }}>
-                {basename(t.path)}{t.dirty ? "*" : ""}
+                {activeTab ? basename(activeTab.path) + (activeTab.dirty ? "*" : "") : "Select file"}
               </span>
-              <button
-                onClick={(e) => { e.stopPropagation(); closeTab(t.path); }}
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: "var(--text-ghost)",
-                  cursor: "pointer",
-                  fontSize: 14,
-                  padding: "0 2px",
-                  lineHeight: 1,
-                }}
-                title="Close tab"
-              >
-                &times;
-              </button>
+              <span style={{
+                fontSize: 11,
+                color: "var(--text-muted)",
+                flexShrink: 0,
+              }}>
+                {tabs.length > 1 ? `▼ ${tabs.length}` : "▼"}
+              </span>
+            </button>
+          )}
+          {activeTab?.dirty && (
+            <button
+              onClick={saveActiveTab}
+              style={{
+                flexShrink: 0,
+                marginRight: 6,
+                padding: "6px 14px",
+                borderRadius: 6,
+                border: "1px solid var(--green-border)",
+                background: "var(--green-bg)",
+                color: "var(--green)",
+                fontFamily: "'JetBrains Mono', monospace",
+                fontSize: 13,
+                fontWeight: 500,
+                cursor: "pointer",
+              }}
+              title="Save"
+            >
+              Save
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            style={{
+              background: "none",
+              border: "none",
+              color: "var(--text-muted)",
+              cursor: "pointer",
+              fontSize: 24,
+              padding: "4px 12px",
+              lineHeight: 1,
+              flexShrink: 0,
+            }}
+            title="Close editor"
+          >
+            &times;
+          </button>
+          {tabMenuOpen && tabs.length > 0 && (
+            <div
+              ref={tabMenuRef}
+              style={{
+                position: "absolute",
+                top: "100%",
+                left: 0,
+                right: 0,
+                background: "var(--bg-surface)",
+                border: "1px solid var(--border-strong)",
+                borderTop: "none",
+                maxHeight: 300,
+                overflowY: "auto",
+                zIndex: 5,
+                boxShadow: "0 4px 12px var(--shadow)",
+              }}
+            >
+              {tabs.map((t) => {
+                const isActive = t.path === activePath;
+                return (
+                  <div
+                    key={t.path}
+                    onClick={() => { setActivePath(t.path); setTabMenuOpen(false); }}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "10px 12px",
+                      fontFamily: "'JetBrains Mono', monospace",
+                      fontSize: 13,
+                      color: isActive ? "var(--text-primary)" : "var(--text-secondary)",
+                      background: isActive ? "var(--bg-base)" : "transparent",
+                      borderLeft: isActive ? "3px solid var(--green)" : "3px solid transparent",
+                      borderBottom: "1px solid var(--border)",
+                      cursor: "pointer",
+                    }}
+                    title={t.path}
+                  >
+                    <span style={{
+                      flex: 1,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      minWidth: 0,
+                    }}>
+                      {basename(t.path)}{t.dirty ? "*" : ""}
+                    </span>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); closeTab(t.path); }}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: "var(--text-ghost)",
+                        cursor: "pointer",
+                        fontSize: 20,
+                        padding: "0 8px",
+                        lineHeight: 1,
+                      }}
+                      title="Close tab"
+                    >
+                      &times;
+                    </button>
+                  </div>
+                );
+              })}
             </div>
-          ))}
+          )}
         </div>
-        <button
-          onClick={onClose}
+      ) : (
+        <div
           style={{
-            background: "none",
-            border: "none",
-            color: "var(--text-muted)",
-            cursor: "pointer",
-            fontSize: 16,
-            padding: "0 12px",
-            lineHeight: 1,
+            display: "flex",
+            alignItems: "stretch",
+            borderBottom: "1px solid var(--border-strong)",
+            background: "var(--bg-surface)",
             flexShrink: 0,
+            minHeight: 36,
+            overflowX: "auto",
           }}
-          title="Close editor"
         >
-          &times;
-        </button>
-      </div>
+          <div style={{ display: "flex", flex: 1, minWidth: 0 }}>
+            {tabs.length === 0 && (
+              <div style={{
+                fontSize: 11,
+                color: "var(--text-dim)",
+                padding: "0 12px",
+                display: "flex",
+                alignItems: "center",
+              }}>
+                No file open. Use <code style={{ margin: "0 4px", color: "var(--text-secondary)" }}>/isomux-edit &lt;path&gt;</code> or have the agent send one.
+              </div>
+            )}
+            {tabs.map((t) => (
+              <div
+                key={t.path}
+                onClick={() => setActivePath(t.path)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "0 8px 0 12px",
+                  fontFamily: "'JetBrains Mono',monospace",
+                  fontSize: 11,
+                  color: t.path === activePath ? "var(--text-secondary)" : "var(--text-muted)",
+                  background: t.path === activePath ? "var(--bg-base)" : "transparent",
+                  borderRight: "1px solid var(--border)",
+                  cursor: "pointer",
+                  flexShrink: 0,
+                  maxWidth: 200,
+                  position: "relative",
+                  ...(t.path === activePath ? { borderTop: "2px solid var(--green)" } : {}),
+                }}
+                title={t.path}
+              >
+                <span style={{
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}>
+                  {basename(t.path)}{t.dirty ? "*" : ""}
+                </span>
+                <button
+                  onClick={(e) => { e.stopPropagation(); closeTab(t.path); }}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "var(--text-ghost)",
+                    cursor: "pointer",
+                    fontSize: 14,
+                    padding: "0 2px",
+                    lineHeight: 1,
+                  }}
+                  title="Close tab"
+                >
+                  &times;
+                </button>
+              </div>
+            ))}
+          </div>
+          <button
+            onClick={onClose}
+            style={{
+              background: "none",
+              border: "none",
+              color: "var(--text-muted)",
+              cursor: "pointer",
+              fontSize: 16,
+              padding: "0 12px",
+              lineHeight: 1,
+              flexShrink: 0,
+            }}
+            title="Close editor"
+          >
+            &times;
+          </button>
+        </div>
+      )}
 
       {/* Banner row (per active tab) */}
       {activeTab?.banner && (
@@ -578,7 +794,10 @@ export function EditorPanel({
         }}
       />
 
-      {/* Footer status */}
+      {/* Footer status. Mobile drops the path (low value at 320px and already
+          available in the tab-dropdown tooltip) and the Ctrl+S hint (no Ctrl
+          key on touch). The bottom safe-area inset is handled by the outer
+          overlay container in LogView, so the footer keeps a flat 4px pad. */}
       {activeTab && (
         <div style={{
           padding: "4px 12px",
@@ -591,10 +810,15 @@ export function EditorPanel({
           fontFamily: "'JetBrains Mono', monospace",
           flexShrink: 0,
         }}>
-          <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{activeTab.path}</span>
+          {!mobile && (
+            <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{activeTab.path}</span>
+          )}
+          {mobile && <span style={{ flex: 1 }} />}
           <span>{activeTab.language}</span>
           <span>{activeTab.dirty ? "modified" : "saved"}</span>
-          <span title="Ctrl+S to save">{(navigator.platform || "").includes("Mac") ? "⌘S" : "Ctrl+S"}</span>
+          {!mobile && (
+            <span title="Ctrl+S to save">{(navigator.platform || "").includes("Mac") ? "⌘S" : "Ctrl+S"}</span>
+          )}
         </div>
       )}
     </div>

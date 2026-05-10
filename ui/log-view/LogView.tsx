@@ -722,20 +722,31 @@ export function LogView({
     return acts;
   })();
 
-  // Mobile overflow menu — adds Terminal entry when the feature is enabled.
-  // Editor stays desktop-only until its own mobile-polish task ships.
-  const mobileAgentActions: NavAction[] = features.terminal
-    ? [
-        ...baseAgentActions,
-        {
-          id: "terminal",
-          icon: TerminalIcon,
-          label: terminalOpen ? "Close terminal" : "Terminal",
-          onClick: () => setTerminalOpen((v) => !v),
-          active: terminalOpen,
-        },
-      ]
-    : baseAgentActions;
+  // Mobile overflow menu — adds Editor and Terminal entries when their
+  // features are enabled. The flow mirrors desktop (full-screen overlay
+  // instead of a side panel — see the {isMobile && ... overlay blocks below).
+  const mobileAgentActions: NavAction[] = (() => {
+    let acts = baseAgentActions;
+    if (features.editor) {
+      acts = [...acts, {
+        id: "editor",
+        icon: EditorIcon,
+        label: editorOpen ? "Close editor" : "Editor",
+        onClick: () => setEditorOpen((v) => !v),
+        active: editorOpen,
+      }];
+    }
+    if (features.terminal) {
+      acts = [...acts, {
+        id: "terminal",
+        icon: TerminalIcon,
+        label: terminalOpen ? "Close terminal" : "Terminal",
+        onClick: () => setTerminalOpen((v) => !v),
+        active: terminalOpen,
+      }];
+    }
+    return acts;
+  })();
 
   function autoResize(el: HTMLTextAreaElement) {
     el.style.height = "auto";
@@ -1270,7 +1281,7 @@ export function LogView({
                 onStartEdit={setEditingLogEntryId}
                 onCancelEdit={handleCancelEdit}
                 onSubmitEdit={handleSubmitEdit}
-                onOpenInEditor={features.editor && !isMobile ? openInEditor : undefined}
+                onOpenInEditor={features.editor ? openInEditor : undefined}
               />
             </div>
           );
@@ -1770,6 +1781,37 @@ export function LogView({
         }}
       >
         <TerminalPanel agentId={agent.id} onClose={() => setTerminalOpen(false)} autoFocus={terminalAutoFocus} mobile />
+      </div>
+    )}
+    {isMobile && features.editor && editorOpen && (
+      <div
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          height: "100%",
+          // Symmetric notch + home-indicator insets so the editor chrome
+          // never sits under the camera island or the home bar. The editor
+          // has no soft-key bar (CodeMirror 6 handles touch input natively),
+          // so we don't need the keyboard-aware bottom-pad gymnastics that
+          // TerminalPanel does.
+          paddingTop: "env(safe-area-inset-top, 0px)",
+          paddingBottom: "env(safe-area-inset-bottom, 0px)",
+          boxSizing: "border-box",
+          background: "var(--bg-base)",
+          zIndex: 30,
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        <EditorPanel
+          agentId={agent.id}
+          initialPath={editorInitialPath}
+          onClose={() => setEditorOpen(false)}
+          onPathOpened={() => setEditorInitialPath(null)}
+          mobile
+        />
       </div>
     )}
     </div>
