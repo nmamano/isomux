@@ -722,6 +722,21 @@ export function LogView({
     return acts;
   })();
 
+  // Mobile overflow menu — adds Terminal entry when the feature is enabled.
+  // Editor stays desktop-only until its own mobile-polish task ships.
+  const mobileAgentActions: NavAction[] = features.terminal
+    ? [
+        ...baseAgentActions,
+        {
+          id: "terminal",
+          icon: TerminalIcon,
+          label: terminalOpen ? "Close terminal" : "Terminal",
+          onClick: () => setTerminalOpen((v) => !v),
+          active: terminalOpen,
+        },
+      ]
+    : baseAgentActions;
+
   function autoResize(el: HTMLTextAreaElement) {
     el.style.height = "auto";
     el.style.height = Math.min(el.scrollHeight, 200) + "px";
@@ -964,7 +979,7 @@ export function LogView({
               {STATE_LABELS[agent.state] && (
                 <HeaderTimer state={agent.state} stateChangedAt={stateChangedAt.get(agent.id)} />
               )}
-              <NavActions actions={baseAgentActions} viewport="mobile" />
+              <NavActions actions={mobileAgentActions} viewport="mobile" />
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 6, paddingLeft: 16 }}>
               <span style={{
@@ -1730,6 +1745,28 @@ export function LogView({
           onClose={() => setEditorOpen(false)}
           onPathOpened={() => setEditorInitialPath(null)}
         />
+      </div>
+    )}
+    {/* Mobile side panel: full-screen overlay above the chat column. The
+        outer LogView is position:fixed and sized to vpHeight on mobile, so
+        this absolute child inherits the visible viewport via height: 100%
+        — when the soft keyboard opens vpHeight shrinks and we shrink
+        with it. */}
+    {isMobile && features.terminal && terminalOpen && (
+      <div
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          height: "100%",
+          background: "var(--bg-base)",
+          zIndex: 30,
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        <TerminalPanel agentId={agent.id} onClose={() => setTerminalOpen(false)} autoFocus={terminalAutoFocus} mobile />
       </div>
     )}
     </div>
