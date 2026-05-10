@@ -1456,11 +1456,15 @@ function recordDedupe(managed: ManagedAgent, clientMessageId: string) {
 
 // Single entry point for human (via sendMessage) and agent (via HTTP) senders.
 // Decides whether to queue, send-immediately, or reject based on agent state.
-// `state === "error" | "stopped"` is rejected with 409 per the agreed design
-// (see Q3/Q14). Note: the WS textarea path doesn't reach this rejection in
-// those states because sendMessage's busy-check returns false for them, so
-// the existing session-recovery path takes over. Aligning the two paths is a
-// follow-up; intentionally not done here.
+// `state === "error" | "stopped"` is rejected with 409.
+//
+// The WS textarea path (sendMessage) is intentionally more permissive: in
+// `error`/`stopped`/null-session it falls into a session-recovery branch that
+// resumes the prior transcript and continues. The asymmetry is by design.
+// A human at a textarea can read the recovery system message and react, while
+// a programmatic HTTP caller benefits from an explicit failure so it can
+// retry, escalate, or fall back. Hiding a state-recovering side effect behind
+// an "ok, queued" response would mislead the sender.
 export function enqueueMessage(
   agentId: string,
   msg: { sender: QueuedMessage["sender"]; text: string; attachments?: Attachment[]; clientMessageId?: string },
