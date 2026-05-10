@@ -166,6 +166,30 @@ function ActivityIndicator({ state, stateChangedAt, agentId, queueLength }: { st
   );
 }
 
+function SessionSwapIndicator({ swapping }: { swapping: boolean }) {
+  if (!swapping) return null;
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        marginBottom: 8,
+        color: "var(--text-muted)",
+        fontSize: 12,
+        animation: "fadeIn 0.2s ease-out",
+      }}
+    >
+      <span style={{ display: "inline-flex", gap: 3 }}>
+        <span style={{ width: 4, height: 4, borderRadius: "50%", background: "var(--text-muted)", animation: "dotBounce 1.4s ease-in-out infinite", animationDelay: "0s" }} />
+        <span style={{ width: 4, height: 4, borderRadius: "50%", background: "var(--text-muted)", animation: "dotBounce 1.4s ease-in-out infinite", animationDelay: "0.2s" }} />
+        <span style={{ width: 4, height: 4, borderRadius: "50%", background: "var(--text-muted)", animation: "dotBounce 1.4s ease-in-out infinite", animationDelay: "0.4s" }} />
+      </span>
+      <span>Restarting session...</span>
+    </div>
+  );
+}
+
 function QueueChips({ queue, agentId, isMobile }: { queue: QueuedMessage[]; agentId: string; isMobile?: boolean }) {
   if (queue.length === 0) return null;
   return (
@@ -1341,6 +1365,7 @@ export function LogView({
           style={{ display: "none" }}
           onChange={(e) => handleFileSelect(e.target.files)}
         />
+        <SessionSwapIndicator swapping={agent.sessionSwapping ?? false} />
         <QueueChips queue={agent.queue ?? []} agentId={agent.id} isMobile={isMobile} />
         {stagedAttachments.length > 0 && (
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>

@@ -110,6 +110,9 @@ export interface AgentInfo {
   username: string | null;
   // In-memory only; never persisted. Empty after server restart.
   queue: QueuedMessage[];
+  // True while server is closing the old SDK session and installing a new one
+  // (~3s drain). UI shows a "restarting session" hint while this is true.
+  sessionSwapping: boolean;
 }
 
 // File attachment metadata

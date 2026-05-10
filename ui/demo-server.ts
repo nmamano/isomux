@@ -115,6 +115,7 @@ function seedOffice() {
       customInstructions: char.customInstructions,
       username: null,
       queue: [],
+      sessionSwapping: false,
     });
   }
 }

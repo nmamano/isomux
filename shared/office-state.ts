@@ -143,6 +143,7 @@ export class OfficeState {
       customInstructions: opts.customInstructions || null,
       username: null,
       queue: [],
+      sessionSwapping: false,
     };
 
     this.agents.set(id, agent);

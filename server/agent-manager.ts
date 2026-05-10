@@ -479,6 +479,7 @@ export async function restoreAgents() {
         customInstructions: p.customInstructions ?? null,
         username: p.username ?? null,
         queue: [],
+        sessionSwapping: false,
       };
       const managed: ManagedAgent = {
         info,
@@ -1063,18 +1064,25 @@ function installSession(agentId: string, managed: ManagedAgent, session: ReturnT
 // papers over the user-visible delay by echoing the typed message to the
 // log before awaiting abortPromise (see echoEarly there).
 async function replaceSession(agentId: string, managed: ManagedAgent, newSession: ReturnType<typeof unstable_v2_createSession>) {
-  const oldConsumer = managed.consumerPromise;
-  const turn = managed.pendingTurn;
-  managed.pendingTurn = null;
-  if (turn) {
-    try { turn.reject(new SessionSwappedError()); } catch {}
+  managed.info.sessionSwapping = true;
+  emit({ type: "agent_updated", agentId, changes: { sessionSwapping: true } });
+  try {
+    const oldConsumer = managed.consumerPromise;
+    const turn = managed.pendingTurn;
+    managed.pendingTurn = null;
+    if (turn) {
+      try { turn.reject(new SessionSwappedError()); } catch {}
+    }
+    try { managed.session?.close(); } catch {}
+    managed.session = null;
+    if (oldConsumer) {
+      try { await oldConsumer; } catch {}
+    }
+    installSession(agentId, managed, newSession);
+  } finally {
+    managed.info.sessionSwapping = false;
+    emit({ type: "agent_updated", agentId, changes: { sessionSwapping: false } });
   }
-  try { managed.session?.close(); } catch {}
-  managed.session = null;
-  if (oldConsumer) {
-    try { await oldConsumer; } catch {}
-  }
-  installSession(agentId, managed, newSession);
 }
 
 // Merge process.env with office and the agent owner's user env files.
@@ -1249,6 +1257,7 @@ export async function spawn(
     customInstructions: customInstructions || null,
     username: username ?? null,
     queue: [],
+    sessionSwapping: false,
   };
 
   const managed: ManagedAgent = {
