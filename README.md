@@ -11,29 +11,29 @@ See [isomux.com](https://isomux.com) for setup instructions and a live demo. Rea
 ## Feature Highlights
 
 - **Works with your Claude subscription**: if `claude` works in your terminal, isomux works in your browser
+- Works locally or as a **self-hosted persistent server** (Mac Mini style):
+  - Run at home, access **from any device** in your [Tailscale](https://tailscale.com/) network
+  - No syncing headaches: same conversations, same filesystem, every device updates **in real time**
+  - [**Multi-user collaboration**](https://x.com/Nil053/status/2050141843741081928): anyone on your Tailnet can chime in to the same conversations, in real time; messages are tagged with sender and device
 - Visual office metaphor: see what every agent is doing at a glance
   - **Animated characters**: sleeping when idle, typing when working, waving when waiting for you
   - [**Skeuomorphic touches**](https://x.com/Nil053/status/2039027360117506399): click the moon to toggle dark mode, click doors to switch rooms, etc.
   - **Auto-generated topic** below each nametag, so you remember what each agent is working on
 - [**Mobile UI**](https://x.com/Nil053/status/2039996579965542516): continue conversations on your phone with a touch-optimized interface
-- Works locally or as a **self-hosted persistent server** (Mac Mini style):
-  - Run at home, access **from any device** in your [Tailscale](https://tailscale.com/) network
-  - No syncing headaches: same conversations, same filesystem, every device updates **in real time**
-  - [**Multi-user collaboration**](https://x.com/Nil053/status/2050141843741081928): anyone on your Tailnet can chime in to the same conversations, in real time; messages are tagged with sender and device
+- [**Agents can check on each other**](https://x.com/Nil053/status/2039494626265149778): inter-agent discovery via shared manifest
+- [**Agents can message each other**](https://x.com/Nil053/status/2053179885108232328): one agent can drop a message into another's chat; the same queue handles messages from humans, multiple devices, and other agents
 - [**Embedded terminal**](https://x.com/Nil053/status/2039504957184090281) per agent
 - **Built-in code editor side panel**: open files in a tabbed editor next to the chat. Use `/isomux-edit`, or agents can offer "[Open in editor]" cards mid-conversation
 - **Built-in diff tool**: render uncommitted changes as a styled inline card; agents can decide when to show diffs on their own
 - **Voice-to-text** prompting and **text-to-speech** responses
-- [**Pre-tool-call safety hooks**](https://x.com/Nil053/status/2039497314826666469): blocks dangerous commands like `rm -rf`
 - [**Custom commands**](https://x.com/Nil053/status/2040018957453918431) in addition to your own, all with autocomplete: e.g. `/isomux-peer-review` to review another agent's work, or `/isomux-all-hands` to see what everyone is up to
-- [**Agents can check on each other**](https://x.com/Nil053/status/2039494626265149778): inter-agent discovery via shared manifest
-- [**Agents can message each other**](https://x.com/Nil053/status/2053179885108232328): one agent can drop a message into another's chat; the same queue handles messages from humans, multiple devices, and other agents
 - [**Hierarchical system prompts**](https://x.com/Nil053/status/2050130563915534346): office-wide, per-room, and per-agent prompts compose into one
 - [**Shared task board**](https://x.com/Nil053/status/2040871759529025617): humans and agents can create, assign, claim, and close tasks — full interop via UI and HTTP API
 - [**Cron jobs**](https://x.com/Nil053/status/2048308972072079753): schedule recurring agent runs (daily, weekly, every N minutes); each run is a fresh agent session with a browsable, resumable transcript
 - **Image/PDF attachments**: agents understand images and PDFs. Agents can show images inline in the conversation
 - **Conversation branching**: edit any past message to fork the conversation from that point, preserving the original
 - **Sound notifications**: get pinged when an agent finishes
+- [**Pre-tool-call safety hooks**](https://x.com/Nil053/status/2039497314826666469)
 
 ## Get Started
 
