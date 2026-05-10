@@ -155,7 +155,7 @@ export function renderUsageReport(agents: Map<string, ManagedAgent>, rooms: Inte
   const lines: string[] = [];
 
   lines.push(
-    `_Subscription plan limits aren't shown here — open the embedded terminal (desktop only), run \`claude\`, then \`/usage\`._`,
+    `_Subscription plan limits aren't shown here — open the embedded terminal, run \`claude\`, then \`/usage\`._`,
   );
   lines.push("");
 
