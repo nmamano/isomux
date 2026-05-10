@@ -4,9 +4,9 @@
 
 Free · open source · no cloud · no account
 
-See [isomux.com](https://isomux.com) for setup instructions and a live demo. Read the [blog post](https://nilmamano.com/blog/isomux) for a deeper dive.
-
-Join the [Discord](https://discord.gg/FrjEYyNvYs) to ask questions, share setups, or report bugs.
+- [isomux.com](https://isomux.com): setup instructions and a live demo
+- [nilmamano.com/blog/isomux](https://nilmamano.com/blog/isomux): technical deep dive
+- [Discord](https://discord.gg/FrjEYyNvYs): ask questions, share setups, or report bugs
 
 ![Isomux office view](site/office.gif)
 
