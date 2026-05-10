@@ -302,8 +302,8 @@
       transition: transform 0.15s;
     }
 
-    .section-collapse[open] summary h2::before,
-    .section-collapse[open] summary h3::before {
+    .section-collapse[open] > summary h2::before,
+    .section-collapse[open] > summary h3::before {
       transform: rotate(90deg);
     }
 
@@ -720,7 +720,7 @@ bun run dev</pre>
       <summary><h2 style="display: inline;">Self-hosted Server Setup <em style="font-weight: 400; font-size: 0.85em; color: var(--text-dim);">(Mac Mini style)</em></h2></summary>
     <div class="setup-card">
       <p>Isomux shines when you run it on your own always-on box/server (like a Mac Mini), and then access it from all your devices.</p>
-      <p style="margin-top: 12px;">Your phone and laptop see the same conversations, in real time, with UIs optimized for each. Agents keep running even if you close the browser.</p>
+      <p style="margin-top: 12px;">Same office for all your devices. Agents keep running even if you close the browser.</p>
       <p style="margin-top: 12px;">The easiest way is to use <a href="https://tailscale.com/" target="_blank" rel="noopener"><strong>Tailscale</strong></a> (free, zero-config): your server serves Isomux on <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">localhost:4000</code>, and every other device reaches it at <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">&lt;TAILSCALE_SERVER_IP&gt;:4000</code>.</p>
       <h3>1. Install Tailscale</h3>
       <p>Install Tailscale on the server, your laptop, and your phone.</p>
@@ -761,7 +761,7 @@ lingering so it survives logout.</pre>
         <h4>3. Start the HTTPS proxy</h4>
         <p>Run this on the server (you can use the built-in terminal in Isomux):</p>
 <pre>tailscale serve --bg http://localhost:4000</pre>
-        <p style="margin-top: 8px; color: var(--text-dim); font-size: 0.85rem;">This tells Tailscale to proxy HTTPS traffic to your local Isomux server with a valid certificate. The <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">--bg</code> flag makes it persist across reboots. Next time you visit <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">http://my-mac-mini:4000</code>, Isomux will auto-redirect to HTTPS and both voice input and PWA install will be available.</p>
+        <p style="margin-top: 8px; color: var(--text-dim); font-size: 0.85rem;"><code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">--bg</code> persists the proxy across reboots. Visit the HTTPS URL it prints (e.g. <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">https://my-mac-mini.&lt;tailnet&gt;.ts.net</code>) for voice input and PWA install.</p>
       </details>
     </div>
     </details>

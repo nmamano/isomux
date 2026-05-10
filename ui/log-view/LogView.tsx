@@ -1629,7 +1629,7 @@ export function LogView({
                     {`sudo tailscale set --operator=$USER\ntailscale serve --bg http://localhost:4000`}
                   </code>
                   <div style={{ marginTop: 8, lineHeight: 1.5, color: "var(--text-muted)" }}>
-                    Restart isomux and reload this page. You'll be auto-redirected to HTTPS.
+                    Visit the HTTPS URL Tailscale prints (e.g. <code style={{ background: "var(--bg-base)", padding: "1px 5px", borderRadius: 3, fontFamily: "'JetBrains Mono',monospace", fontSize: 11 }}>https://my-mac-mini.&lt;tailnet&gt;.ts.net</code>).
                   </div>
                   <button
                     onClick={() => setShowMicHint(false)}
