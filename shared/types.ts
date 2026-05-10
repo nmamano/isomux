@@ -154,17 +154,26 @@ export interface FilePayload {
   path: string;                 // resolved absolute path
 }
 
+// Structured payload attached to LogEntry when kind === "terminal-command".
+// Emitted by POST /agents/:id/terminal-command. The card surfaces a
+// [Copy to terminal] button that opens the terminal side panel and types
+// the command at the prompt without executing it (boss presses Enter).
+export interface TerminalCommandPayload {
+  command: string;              // single-line shell command
+}
+
 // Log entry in the conversation view
 export interface LogEntry {
   id: string;
   agentId: string;
   timestamp: number;
-  kind: "text" | "thinking" | "tool_call" | "tool_result" | "error" | "system" | "user_message" | "diff" | "edit-request";
+  kind: "text" | "thinking" | "tool_call" | "tool_result" | "error" | "system" | "user_message" | "diff" | "edit-request" | "terminal-command";
   content: string;
   metadata?: Record<string, unknown>;
   attachments?: Attachment[]; // file attachments, served via /api/files/<agentId>/<filename>
   diff?: DiffPayload;         // present only when kind === "diff"
   file?: FilePayload;         // present only when kind === "edit-request"
+  terminal?: TerminalCommandPayload; // present only when kind === "terminal-command"
 }
 
 // Task item (replaces todos)

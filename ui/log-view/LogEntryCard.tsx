@@ -6,6 +6,7 @@ import { CopyButton } from "../components/CopyButton.tsx";
 import { SpeakButton } from "../components/SpeakButton.tsx";
 import { DiffCard } from "./DiffCard.tsx";
 import { EditRequestCard } from "./EditRequestCard.tsx";
+import { TerminalCommandCard } from "./TerminalCommandCard.tsx";
 
 function EditIcon() {
   return (
@@ -184,6 +185,7 @@ export const LogEntryCard = memo(function LogEntryCard({
   onCancelEdit,
   onSubmitEdit,
   onOpenInEditor,
+  onCopyToTerminal,
 }: {
   entry: LogEntry;
   isLastInTurn?: boolean;
@@ -195,6 +197,7 @@ export const LogEntryCard = memo(function LogEntryCard({
   onCancelEdit?: () => void;
   onSubmitEdit?: (entryId: string, newText: string) => void;
   onOpenInEditor?: (path: string) => void;
+  onCopyToTerminal?: (command: string) => void;
 }) {
   switch (entry.kind) {
     case "user_message": {
@@ -280,6 +283,10 @@ export const LogEntryCard = memo(function LogEntryCard({
     case "edit-request": {
       if (!entry.file || !onOpenInEditor) return <SystemMessage content={entry.content} isMobile={isMobile} />;
       return <EditRequestCard payload={entry.file} onOpen={onOpenInEditor} />;
+    }
+    case "terminal-command": {
+      if (!entry.terminal || !onCopyToTerminal) return <SystemMessage content={entry.content} isMobile={isMobile} />;
+      return <TerminalCommandCard payload={entry.terminal} onCopy={onCopyToTerminal} />;
     }
     default:
       return <div style={{ padding: "4px 0", color: "var(--text-muted)", fontSize: isMobile ? 14 : 12 }}>{entry.content}</div>;

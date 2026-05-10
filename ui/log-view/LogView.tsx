@@ -404,6 +404,21 @@ export function LogView({
     setEditorInitialPath(path);
     dispatch({ type: "set_side_panel", agentId: agent.id, panel: "editor" });
   }, [dispatch, agent.id]);
+  // Open the terminal panel and prefill the command at the prompt without
+  // executing it. The 250ms delay covers the panel-mount → terminal_open →
+  // PTY-spawn → first-prompt sequence; if the panel is already open it just
+  // adds a small lag before the command appears. WS messages are ordered
+  // per-connection, so terminal_open (sent on panel mount) lands before
+  // terminal_input only because of this delay — sending synchronously here
+  // would race ahead of mount and the bytes would hit a non-existent PTY.
+  const copyToTerminal = useCallback((command: string) => {
+    const wasOpen = sidePanels.get(agent.id) === "terminal";
+    dispatch({ type: "set_side_panel", agentId: agent.id, panel: "terminal" });
+    const delay = wasOpen ? 0 : 250;
+    setTimeout(() => {
+      send({ type: "terminal_input", agentId: agent.id, data: command });
+    }, delay);
+  }, [dispatch, agent.id, sidePanels]);
   const [showAvatar, setShowAvatar] = useState(() => localStorage.getItem("isomux-show-avatar") !== "false");
   const toggleAvatar = () => setShowAvatar((prev) => { const next = !prev; localStorage.setItem("isomux-show-avatar", String(next)); return next; });
   const [copied, setCopied] = useState(false);
@@ -1306,6 +1321,7 @@ export function LogView({
                 onCancelEdit={handleCancelEdit}
                 onSubmitEdit={handleSubmitEdit}
                 onOpenInEditor={features.editor ? openInEditor : undefined}
+                onCopyToTerminal={features.terminal ? copyToTerminal : undefined}
               />
             </div>
           );

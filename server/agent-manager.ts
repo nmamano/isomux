@@ -592,6 +592,29 @@ export function emitAgentEditRequest(agentId: string, rawPath: string): { ok: tr
   return { ok: true };
 }
 
+// Validate a command string and emit a `terminal-command` log entry so the
+// boss sees a [Copy to terminal] card. Mirrors emitAgentEditRequest.
+// Single-line only at first; agents that need multiple steps can join with
+// `&&` / `;` or set up a one-line wrapper.
+const TERMINAL_COMMAND_MAX_LEN = 4096;
+export function emitAgentTerminalCommand(agentId: string, rawCommand: string): { ok: true } | { ok: false; status: number; error: string } {
+  const managed = agents.get(agentId);
+  if (!managed) return { ok: false, status: 404, error: "agent not found" };
+  if (typeof rawCommand !== "string") return { ok: false, status: 400, error: "command must be a string" };
+  const command = rawCommand.replace(/\s+$/u, "");
+  if (!command) return { ok: false, status: 400, error: "empty command" };
+  if (command.length > TERMINAL_COMMAND_MAX_LEN) {
+    return { ok: false, status: 400, error: `command too long (max ${TERMINAL_COMMAND_MAX_LEN} chars)` };
+  }
+  if (/[\r\n]/u.test(command)) {
+    return { ok: false, status: 400, error: "command must be single-line; join steps with && or ;" };
+  }
+  addLogEntry(agentId, "terminal-command", command, undefined, undefined, {
+    terminal: { command },
+  });
+  return { ok: true };
+}
+
 // Run the same diff machinery as /isomux-diff and emit the result into the
 // agent's chat stream. Used by POST /agents/:id/diff so an agent can show
 // the boss a styled diff card without the boss invoking the slash command.
@@ -650,7 +673,7 @@ function updateState(agentId: string, state: AgentState) {
   }
 }
 
-function addLogEntry(agentId: string, kind: LogEntry["kind"], content: string, metadata?: Record<string, unknown>, attachments?: Attachment[], extra?: Partial<Pick<LogEntry, "diff" | "file">>) {
+function addLogEntry(agentId: string, kind: LogEntry["kind"], content: string, metadata?: Record<string, unknown>, attachments?: Attachment[], extra?: Partial<Pick<LogEntry, "diff" | "file" | "terminal">>) {
   const entry: LogEntry = {
     id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     agentId,

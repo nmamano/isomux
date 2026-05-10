@@ -39,6 +39,9 @@ How to show a styled code diff to the boss (uncommitted changes in a directory):
 How to offer the boss to open a file in their editor side panel: call POST localhost:4000/agents/${agentId}/edit-file with body {"path":"..."}. The path can be relative to your cwd, absolute, or \`~/...\`. The boss sees an [Open in editor] card in chat that they can click to load the file. Use this when the boss asks to look at or tweak a specific file together.
   curl -s -X POST localhost:4000/agents/${agentId}/edit-file -H 'Content-Type: application/json' -d '{"path":"server/index.ts"}'
 
+How to offer the boss to run a command in their terminal side panel: call POST localhost:4000/agents/${agentId}/terminal-command with body {"command":"..."}. The boss sees a [Copy to terminal] card; clicking opens the terminal panel and types the command at the prompt without executing it — the boss reviews and presses Enter. Single-line only; join multiple steps with \`&&\` or \`;\`. Use this when you want to suggest a shell command for the boss to run themselves (a test, a service restart, a one-off).
+  curl -s -X POST localhost:4000/agents/${agentId}/terminal-command -H 'Content-Type: application/json' -d '{"command":"bun run build:ui"}'
+
 How to send a message to another agent's chat: call POST localhost:4000/agents/<receiver-id>/message. If the receiver is busy, your message is queued and delivered with the receiver's next turn; if idle, it's delivered right away. The receiver decides whether to reply — replies are just another POST in the opposite direction; there is no automatic back-and-forth.
   curl -s -X POST localhost:4000/agents/<receiver-id>/message -H 'Content-Type: application/json' -d '{"text":"...","senderAgentId":"${agentId}"}'
 You can also pass an optional clientMessageId (any unique string) to make retries safe for 5 minutes.

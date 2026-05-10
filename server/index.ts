@@ -705,6 +705,24 @@ const server = Bun.serve({
         if (!result.ok) return new Response(JSON.stringify({ error: result.error }), { status: result.status, headers: corsHeaders });
         return new Response(JSON.stringify({ ok: true }), { headers: corsHeaders });
       }
+      // POST /agents/:id/terminal-command — emit a `terminal-command` card so
+      // the boss can prefill the terminal panel with this command. Mirrors
+      // /edit-file. Body: { command }. Single-line; not auto-executed.
+      if (parts.length === 3 && parts[2] === "terminal-command") {
+        const corsHeaders = { "Access-Control-Allow-Origin": "*", "Content-Type": "application/json" };
+        const agentId = parts[1]!;
+        let command: string | undefined;
+        try {
+          const body = await req.json() as Record<string, unknown> | null;
+          if (body && typeof body.command === "string") command = body.command;
+        } catch {}
+        if (!command) {
+          return new Response(JSON.stringify({ error: "missing command" }), { status: 400, headers: corsHeaders });
+        }
+        const result = AgentManager.emitAgentTerminalCommand(agentId, command);
+        if (!result.ok) return new Response(JSON.stringify({ error: result.error }), { status: result.status, headers: corsHeaders });
+        return new Response(JSON.stringify({ ok: true }), { headers: corsHeaders });
+      }
       // POST /agents/:id/message — queue a message into the receiving agent's
       // chat. The sender's identity (name + room) is looked up server-side
       // from senderAgentId so callers can't spoof identity or inject
