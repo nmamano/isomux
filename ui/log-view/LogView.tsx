@@ -1751,7 +1751,8 @@ export function LogView({
         outer LogView is position:fixed and sized to vpHeight on mobile, so
         this absolute child inherits the visible viewport via height: 100%
         — when the soft keyboard opens vpHeight shrinks and we shrink
-        with it. */}
+        with it. paddingTop honors the safe-area inset so the panel header
+        clears the camera notch / Dynamic Island on iOS. */}
     {isMobile && features.terminal && terminalOpen && (
       <div
         style={{
@@ -1760,6 +1761,8 @@ export function LogView({
           left: 0,
           right: 0,
           height: "100%",
+          paddingTop: "env(safe-area-inset-top, 0px)",
+          boxSizing: "border-box",
           background: "var(--bg-base)",
           zIndex: 30,
           display: "flex",

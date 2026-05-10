@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState } from "react";
+import { useEffect, useRef, useCallback, useState, forwardRef } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { send, addRawListener, removeRawListener } from "../ws.ts";
@@ -86,33 +86,25 @@ function ensureMobileTerminalStyle() {
   if (document.getElementById(MOBILE_TERMINAL_STYLE_ID)) return;
   const style = document.createElement("style");
   style.id = MOBILE_TERMINAL_STYLE_ID;
-  // The xterm helper textarea defaults to 0×0 at left:-9999em with z-index:-5.
-  // iOS Safari refuses to show the soft keyboard when the focused input is
-  // both off-screen and zero-sized. Scoping these overrides to the
-  // `.isomux-mobile-term` wrapper gives the textarea a real footprint
-  // (overlapping the cursor row) while keeping it invisible (opacity 0,
-  // pointer-events: none so taps fall through to the terminal body which
-  // re-focuses it via term.focus()).
+  // We render our own input proxy textarea on mobile (see MobileInputProxy
+  // below) so we own the input pipeline end-to-end — including swipe-typing
+  // and IME composition events that xterm's helper textarea historically
+  // mishandles. xterm's own helper textarea is hidden so it doesn't compete
+  // for focus or buffer composition state out from under us.
   style.textContent = `
 .isomux-mobile-term .xterm .xterm-helper-textarea {
-  left: 0 !important;
-  top: 0 !important;
-  width: 100% !important;
-  height: 24px !important;
-  opacity: 0 !important;
-  z-index: 0 !important;
-  pointer-events: none !important;
-  font-size: 16px !important;
-  caret-color: transparent !important;
+  display: none !important;
 }
 /* touch-action is consulted on the element where the touch starts, not on
    ancestors, so applying it to the body wrapper alone leaves xterm's inner
    canvas/text layers free to fire native pinch-zoom and double-tap-zoom.
    Force pan-y across all descendants of the body wrapper to keep our
-   custom pinch-zoom handler in charge. */
+   custom pinch-zoom handler in charge. overscroll-behavior: contain stops
+   rubber-band scroll from chaining up to the document body on iOS. */
 .isomux-mobile-term-body,
 .isomux-mobile-term-body * {
   touch-action: pan-y !important;
+  overscroll-behavior: contain !important;
 }
 `;
   document.head.appendChild(style);
@@ -126,14 +118,124 @@ type SoftKey = {
   toggleCtrl?: boolean;
 };
 
+// Mobile input proxy: a real (invisible) textarea that owns input on mobile.
+// We listen to compositionend (swipe-typing on Android, IME on iOS), input,
+// and beforeinput so deletes and line breaks reach the PTY no matter which
+// keyboard the user is on. Each delivery clears the textarea so it stays
+// empty for the next char. Backspace on an empty textarea doesn't fire
+// `input`, so we also fall back to keydown.
+//
+// TODO (CJK IME): hiding xterm's helper textarea (display:none) means the
+// in-place IME composition decoration users see while composing CJK / voice
+// dictation isn't rendered. Acceptable for English/swipe; revisit if mobile
+// CJK support is requested.
+const MobileInputProxy = forwardRef<HTMLTextAreaElement, { onInput: (data: string) => void }>(
+  function MobileInputProxy({ onInput }, ref) {
+    const composingRef = useRef(false);
+    // Tracks the most recent beforeinput firing so the keydown fallback can
+    // tell whether the same gesture already produced a beforeinput. Without
+    // this, a Bluetooth keyboard's Backspace fires keydown AND beforeinput
+    // and we'd send DEL twice. (iOS soft keyboards rarely fire keydown, so
+    // the issue only shows up on iPad with a hardware keyboard.)
+    const lastBeforeInputAtRef = useRef(0);
+    function deliver(value: string, target: HTMLTextAreaElement) {
+      if (!value) return;
+      onInput(value);
+      target.value = "";
+    }
+    return (
+      <textarea
+        ref={ref}
+        autoCapitalize="off"
+        autoCorrect="off"
+        autoComplete="off"
+        spellCheck={false}
+        onCompositionStart={() => { composingRef.current = true; }}
+        onCompositionEnd={(e) => {
+          composingRef.current = false;
+          deliver(e.currentTarget.value, e.currentTarget);
+        }}
+        onInput={(e) => {
+          if (composingRef.current) return;
+          deliver(e.currentTarget.value, e.currentTarget);
+        }}
+        onBeforeInput={(e) => {
+          const native = e.nativeEvent as InputEvent;
+          // deleteContentBackward fires on Backspace even when value is empty
+          // and even when no input event would follow. We translate to DEL
+          // (\x7f) which is what readline expects for backspace.
+          if (native.inputType === "deleteContentBackward") {
+            e.preventDefault();
+            lastBeforeInputAtRef.current = Date.now();
+            onInput("\x7f");
+          } else if (native.inputType === "deleteWordBackward") {
+            e.preventDefault();
+            lastBeforeInputAtRef.current = Date.now();
+            onInput("\x17"); // Ctrl-W
+          } else if (
+            native.inputType === "insertLineBreak" ||
+            native.inputType === "insertParagraph"
+          ) {
+            e.preventDefault();
+            lastBeforeInputAtRef.current = Date.now();
+            onInput("\r");
+          }
+        }}
+        onKeyDown={(e) => {
+          // Backup for keyboards that don't fire beforeinput cleanly.
+          if (composingRef.current) return;
+          if (e.key === "Enter") {
+            e.preventDefault();
+            onInput("\r");
+          } else if (e.key === "Tab") {
+            e.preventDefault();
+            onInput("\t");
+          } else if (e.key === "Backspace" && !e.currentTarget.value) {
+            // Only intercept the empty case — if there's pending text,
+            // beforeinput already handled it. Also skip if beforeinput just
+            // fired for this gesture (Bluetooth keyboard fires both).
+            if (Date.now() - lastBeforeInputAtRef.current < 100) return;
+            e.preventDefault();
+            onInput("\x7f");
+          }
+        }}
+        style={{
+          position: "absolute",
+          left: 0,
+          bottom: 0,
+          width: "100%",
+          height: 24,
+          padding: 0,
+          border: "none",
+          background: "transparent",
+          color: "transparent",
+          // 16px keeps iOS Safari from auto-zooming when focused.
+          fontSize: 16,
+          opacity: 0,
+          // Pointer events skipped so taps fall through to the body div,
+          // which programmatically focuses us — we never want this textarea
+          // to actually receive a tap (the cursor would land in it).
+          pointerEvents: "none",
+          caretColor: "transparent",
+          resize: "none",
+          outline: "none",
+          zIndex: 1,
+        }}
+      />
+    );
+  }
+);
+
+// Filled triangles render at consistent widths in iOS's fallback font; the
+// thin Unicode arrows (↑↓←→) come out narrower on left/right than up/down.
 const SOFT_KEYS: SoftKey[] = [
   { id: "esc", label: "Esc", data: ESC },
   { id: "tab", label: "Tab", data: TAB },
   { id: "ctrl", label: "Ctrl", toggleCtrl: true },
-  { id: "up", label: "↑", arrow: ARROW_UP },
-  { id: "down", label: "↓", arrow: ARROW_DOWN },
-  { id: "left", label: "←", arrow: ARROW_LEFT },
-  { id: "right", label: "→", arrow: ARROW_RIGHT },
+  { id: "up", label: "▲", arrow: ARROW_UP },
+  { id: "down", label: "▼", arrow: ARROW_DOWN },
+  { id: "left", label: "◀", arrow: ARROW_LEFT },
+  { id: "right", label: "▶", arrow: ARROW_RIGHT },
   { id: "pipe", label: "|", data: "|" },
   { id: "tilde", label: "~", data: "~" },
   { id: "slash", label: "/", data: "/" },
@@ -162,12 +264,22 @@ export function TerminalPanel({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
+  const inputProxyRef = useRef<HTMLTextAreaElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
+  // Lets handleBodyTap query whether the just-completed touch was a scroll
+  // gesture (in which case we should NOT focus the input proxy and pop the
+  // keyboard). The function is set by the touch-handling effect.
+  const scrollMovedRef = useRef<(() => boolean) | null>(null);
   const { theme } = useTheme();
   const [exited, setExited] = useState<number | null>(null);
   const [ctrlActive, setCtrlActive] = useState(false);
   const ctrlActiveRef = useRef(false);
+  // Tracks whether the soft keyboard is currently up (visualViewport noticeably
+  // shorter than layout viewport). When up, the env(safe-area-inset-bottom)
+  // padding under the soft-key bar is wasted space — the home indicator zone
+  // is hidden behind the keyboard — so we drop it.
+  const [keyboardOpen, setKeyboardOpen] = useState(false);
   // Wrap the state setter so the ref stays in sync without a render-time
   // write. sendInput / handleSoftKey both read the ref synchronously inside
   // event handlers, so it must lead the React render.
@@ -230,6 +342,20 @@ export function TerminalPanel({
         cols: term.cols,
         rows: term.rows,
       });
+      if (mobile) {
+        // Trick xterm into rendering its focused cursor (block + blink) even
+        // though we route input via our own proxy and the helper textarea is
+        // hidden. xterm registers a real DOM "focus" listener on the
+        // textarea that just sets _isFocused=true; dispatching the event
+        // synthetically fires that listener regardless of display state.
+        // CAUTION: depends on xterm's internal focus tracking being a pure
+        // DOM-event listener — verified in @xterm/xterm 6.0.0. If a future
+        // release polls document.activeElement instead, the cursor will
+        // stop blinking on mobile and this needs revisiting. Tightening
+        // the version pin in package.json would harden against that.
+        const helper = containerRef.current?.querySelector(".xterm-helper-textarea") as HTMLTextAreaElement | null;
+        helper?.dispatchEvent(new Event("focus"));
+      }
     });
 
     term.onData((data) => {
@@ -274,10 +400,31 @@ export function TerminalPanel({
     }
   }, [theme]);
 
-  // Pinch-to-zoom on mobile: two-finger drag scales font size between 10–22px.
-  // The container size is unchanged by a font change, so the panel's
-  // ResizeObserver does not fire; we manually run fit() (rAF-throttled) and
-  // send terminal_resize on touchend so the PTY reflects the new cols/rows.
+  // Track keyboard-open state by comparing visualViewport.height to
+  // window.innerHeight. 100px threshold ignores toolbar appear/disappear and
+  // only flips when a full soft keyboard opens. Calibrated for iPhone soft
+  // keyboards (≥250px tall); the iPad split / floating mini keyboard is
+  // shorter and won't cross the threshold — revisit if iPad becomes a
+  // first-class target.
+  useEffect(() => {
+    if (!mobile) return;
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => {
+      setKeyboardOpen(window.innerHeight - vv.height > 100);
+    };
+    update();
+    vv.addEventListener("resize", update);
+    return () => vv.removeEventListener("resize", update);
+  }, [mobile]);
+
+  // Mobile touch handling: single-finger pan scrolls the scrollback buffer,
+  // two-finger pinch scales font size between 10–22px. xterm's canvas
+  // renderer hijacks single-finger drag for selection, so the .xterm-viewport
+  // never receives the touch — we have to translate the pan to scrollLines()
+  // ourselves. Pinch needs a manual fit() (font change doesn't change
+  // container size, so ResizeObserver doesn't fire) and a terminal_resize
+  // dispatch on touchend so the PTY tracks the new cols/rows.
   useEffect(() => {
     if (!mobile) return;
     const el = bodyRef.current;
@@ -286,45 +433,88 @@ export function TerminalPanel({
     let initialFontSize = 14;
     let pinching = false;
     let rafScheduled = false;
+    let scrollLastY: number | null = null;
+    let scrollAcc = 0;
+    let scrollMoved = false;
     function distance(e: TouchEvent) {
       const [a, b] = [e.touches[0], e.touches[1]];
       return Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
     }
+    function lineHeightPx() {
+      const term = termRef.current;
+      if (!term) return 18;
+      const fs = (term.options.fontSize as number) ?? 14;
+      const lh = (term.options.lineHeight as number) ?? 1;
+      return fs * lh;
+    }
     function onStart(e: TouchEvent) {
-      if (e.touches.length !== 2 || !termRef.current) return;
-      pinching = true;
-      initialDistance = distance(e);
-      initialFontSize = (termRef.current.options.fontSize as number) ?? 14;
+      if (!termRef.current) return;
+      if (e.touches.length === 2) {
+        pinching = true;
+        initialDistance = distance(e);
+        initialFontSize = (termRef.current.options.fontSize as number) ?? 14;
+        scrollLastY = null;
+      } else if (e.touches.length === 1) {
+        scrollLastY = e.touches[0].clientY;
+        scrollAcc = 0;
+        scrollMoved = false;
+      }
     }
     function onMove(e: TouchEvent) {
-      if (!pinching || e.touches.length !== 2 || !termRef.current) return;
-      e.preventDefault();
-      const ratio = distance(e) / initialDistance;
-      const next = Math.max(10, Math.min(22, Math.round(initialFontSize * ratio)));
-      if (next !== termRef.current.options.fontSize) {
-        termRef.current.options.fontSize = next;
-        if (!rafScheduled) {
-          rafScheduled = true;
-          requestAnimationFrame(() => {
-            rafScheduled = false;
-            fitRef.current?.fit();
-          });
+      const term = termRef.current;
+      if (!term) return;
+      if (pinching && e.touches.length === 2) {
+        e.preventDefault();
+        const ratio = distance(e) / initialDistance;
+        const next = Math.max(10, Math.min(22, Math.round(initialFontSize * ratio)));
+        if (next !== term.options.fontSize) {
+          term.options.fontSize = next;
+          if (!rafScheduled) {
+            rafScheduled = true;
+            requestAnimationFrame(() => {
+              rafScheduled = false;
+              fitRef.current?.fit();
+            });
+          }
+        }
+      } else if (!pinching && e.touches.length === 1 && scrollLastY !== null) {
+        // Always preventDefault on single-finger pan inside the terminal —
+        // we own this gesture (xterm scrollback). Without this, sub-pixel
+        // early frames let iOS engage document-body rubber-band overscroll
+        // on top of our scroll, producing the "two nested scrolls" effect.
+        e.preventDefault();
+        const currentY = e.touches[0].clientY;
+        const dy = currentY - scrollLastY;
+        scrollLastY = currentY;
+        // Drag down (dy > 0) → reveal earlier content → scrollLines(negative).
+        scrollAcc -= dy / lineHeightPx();
+        const lines = Math.trunc(scrollAcc);
+        if (lines !== 0) {
+          term.scrollLines(lines);
+          scrollAcc -= lines;
+          scrollMoved = true;
         }
       }
     }
     function onEnd(e: TouchEvent) {
-      if (e.touches.length >= 2 || !pinching) return;
-      pinching = false;
-      // Final fit + push the new geometry to the PTY. Doing this only on
-      // touchend (not per touchmove) keeps WebSocket traffic sane during the
-      // gesture; readline-driven prompts redraw at the new dimensions once
-      // the gesture completes.
-      fitRef.current?.fit();
-      const term = termRef.current;
-      if (term) {
-        send({ type: "terminal_resize", agentId, cols: term.cols, rows: term.rows });
+      if (e.touches.length >= 2) return;
+      if (pinching) {
+        pinching = false;
+        // Final fit + push the new geometry to the PTY. Doing this only on
+        // touchend (not per touchmove) keeps WebSocket traffic sane during
+        // the gesture; readline prompts redraw at the new cols/rows after.
+        fitRef.current?.fit();
+        if (termRef.current) {
+          send({ type: "terminal_resize", agentId, cols: termRef.current.cols, rows: termRef.current.rows });
+        }
       }
+      scrollLastY = null;
+      // scrollMoved is read by handleBodyTap to suppress the focus-on-tap
+      // that would otherwise pop the keyboard right after a scroll gesture.
+      // It's reset on the next touchstart.
     }
+    function getScrollMoved() { return scrollMoved; }
+    scrollMovedRef.current = getScrollMoved;
     el.addEventListener("touchstart", onStart, { passive: true });
     el.addEventListener("touchmove", onMove, { passive: false });
     el.addEventListener("touchend", onEnd, { passive: true });
@@ -334,15 +524,19 @@ export function TerminalPanel({
       el.removeEventListener("touchmove", onMove);
       el.removeEventListener("touchend", onEnd);
       el.removeEventListener("touchcancel", onEnd);
+      scrollMovedRef.current = null;
     };
   }, [mobile, agentId]);
 
-  // Tap on the terminal body re-focuses xterm so the soft keyboard re-opens
-  // after the user has dismissed it. Mobile only — desktop relies on xterm's
-  // built-in click-to-focus.
+  // Tap on the terminal body focuses our input proxy so the soft keyboard
+  // opens. Mobile only — desktop relies on xterm's built-in click-to-focus.
+  // Suppress focus when the click came from a scroll gesture: the synthetic
+  // click fires after touchend even if the touch panned the buffer, and
+  // popping the keyboard mid-scroll is jarring.
   const handleBodyTap = useCallback(() => {
     if (!mobile) return;
-    termRef.current?.focus();
+    if (scrollMovedRef.current?.()) return;
+    inputProxyRef.current?.focus();
   }, [mobile]);
 
   function handleRespawn() {
@@ -356,9 +550,9 @@ export function TerminalPanel({
   function handleSoftKey(key: SoftKey) {
     if (key.toggleCtrl) {
       setCtrl(!ctrlActiveRef.current);
-      // Re-focus so the next typed key (from the on-screen keyboard) is
-      // captured by xterm's textarea.
-      termRef.current?.focus();
+      // Re-focus the proxy so the next typed key from the on-screen keyboard
+      // is still captured.
+      inputProxyRef.current?.focus();
       return;
     }
     if (key.arrow) {
@@ -367,7 +561,7 @@ export function TerminalPanel({
     } else if (key.data !== undefined) {
       sendInput(key.data);
     }
-    termRef.current?.focus();
+    inputProxyRef.current?.focus();
   }
 
   return (
@@ -405,7 +599,11 @@ export function TerminalPanel({
             gap: 6,
           }}
         >
-          <span style={{ color: "var(--green)", fontSize: 13 }}>&#9654;</span>
+          {/* Skip the ▶ on mobile: iOS Safari forces it through the system
+              emoji renderer which overrides our green CSS color and looks
+              like an out-of-place colored emoji. Desktop renders it as a
+              proper CSS-colored glyph, which is the intended brand mark. */}
+          {!mobile && <span style={{ color: "var(--green)", fontSize: 13 }}>&#9654;</span>}
           Terminal
         </span>
         <button
@@ -440,6 +638,7 @@ export function TerminalPanel({
         }}
       >
         <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
+        {mobile && <MobileInputProxy ref={inputProxyRef} onInput={sendInput} />}
         {/* Exit overlay — anchored to the body so it floats above whatever
             sits below (soft-key bar on mobile, nothing on desktop). */}
         {exited !== null && (
@@ -463,7 +662,7 @@ export function TerminalPanel({
           >
             <span>Shell exited ({exited})</span>
             <button
-              onClick={handleRespawn}
+              onClick={(e) => { e.stopPropagation(); handleRespawn(); }}
               style={{
                 padding: "3px 12px",
                 borderRadius: 6,
@@ -480,16 +679,19 @@ export function TerminalPanel({
         )}
       </div>
 
-      {/* Soft-key bar (mobile only) — sits above the safe-area inset so it
-          stays clear of the home indicator on iOS while the soft keyboard
-          is dismissed. */}
+      {/* Soft-key bar (mobile only). Adds the home-indicator safe-area
+          inset only when the soft keyboard is dismissed — when it's up, the
+          keyboard already covers the home indicator zone, so the inset
+          becomes wasted vertical space. */}
       {mobile && (
         <div
           style={{
             display: "flex",
             gap: 6,
             padding: "6px 8px",
-            paddingBottom: "calc(6px + env(safe-area-inset-bottom, 0px))",
+            paddingBottom: keyboardOpen
+              ? 6
+              : "calc(6px + env(safe-area-inset-bottom, 0px))",
             background: "var(--bg-surface)",
             borderTop: "1px solid var(--border-strong)",
             overflowX: "auto",
