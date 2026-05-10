@@ -1401,7 +1401,7 @@ function senderPrefixText(sender: QueuedMessage["sender"]): string {
     case "user":
       return formatPrefix({ username: sender.username, device: sender.device });
     case "agent":
-      return `${formatAgentSenderPrefix(sender.agentName, sender.roomName)} `;
+      return `${formatAgentSenderPrefix(sender.agentId, sender.agentName, sender.roomName)} `;
     default: {
       const _exhaustive: never = sender;
       throw new Error(`unhandled sender kind: ${JSON.stringify(_exhaustive)}`);

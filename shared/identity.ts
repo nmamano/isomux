@@ -17,10 +17,12 @@ export function formatIdentity({ username, device }: { username?: string | null;
 
 // Sender prefix for messages that come from another agent. Distinguishes
 // agent-to-agent traffic from human boss messages (which use `[Name]`) so the
-// receiving agent can apply different authority rules.
-// Format: `Isomuxer3 <agent from Room "Isomux Dev">`.
-export function formatAgentSenderPrefix(agentName: string, roomName: string): string {
-  return `${agentName} <agent from Room "${roomName}">`;
+// receiving agent can apply different authority rules. The id is included so
+// the receiver can POST a reply directly without looking it up in
+// agents-summary.json.
+// Format: `Isomuxer3 (agent id: agent-1774747441394-bm2g) from Room "Isomux Dev"`.
+export function formatAgentSenderPrefix(agentId: string, agentName: string, roomName: string): string {
+  return `${agentName} (agent id: ${agentId}) from Room "${roomName}"`;
 }
 
 // Lowercase key used for users.json lookup. Display case is whatever the
