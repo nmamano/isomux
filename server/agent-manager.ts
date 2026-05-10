@@ -520,6 +520,16 @@ export async function restoreAgents() {
         }
       }
 
+      // If the prior session died owing a response (e.g. server restart while
+      // mid-stream), record the gap before auto-resume. Parity with the SDK's
+      // lazy synthetic placeholder injected into its own transcript on resume.
+      if (p.lastSessionId) {
+        const tail = (logCache.get(p.id) ?? []).at(-1);
+        if (tail?.kind === "user_message") {
+          addLogEntry(p.id, "system", "Previous response was interrupted.");
+        }
+      }
+
       // Auto-resume session
       try {
         const session = p.lastSessionId ? createSession(managed, p.lastSessionId) : createSession(managed);
@@ -895,11 +905,16 @@ function processMessage(agentId: string, msg: SDKMessage) {
       break;
     }
     case "assistant": {
-      const content = (msg as any).message?.content;
+      const message = (msg as any).message;
+      const content = message?.content;
       if (!Array.isArray(content)) break;
+      // SDK injects synthetic assistant turns (model === "<synthetic>") for
+      // things like usage-limit hits and queue-flush gaps. Persist text from
+      // those as system breadcrumbs so they don't render as Claude-voice.
+      const isSynthetic = message?.model === "<synthetic>";
       for (const block of content) {
         if (block.type === "text" && block.text) {
-          addLogEntry(agentId, "text", block.text);
+          addLogEntry(agentId, isSynthetic ? "system" : "text", block.text);
         } else if (block.type === "tool_use") {
           const managed = agents.get(agentId);
           if (managed) {
@@ -1555,6 +1570,12 @@ async function flushQueue(agentId: string): Promise<void> {
       try {
         const sessionId = managed.sessionId;
         installSession(agentId, managed, sessionId ? createSession(managed, sessionId) : createSession(managed));
+        // If the prior session died owing a response, mark the gap. Parity
+        // with the SDK's lazy synthetic placeholder injected at this moment.
+        const tail = (logCache.get(agentId) ?? []).at(-1);
+        if (tail?.kind === "user_message") {
+          addLogEntry(agentId, "system", "Previous response was interrupted.");
+        }
         addLogEntry(agentId, "system", sessionId
           ? "Resumed prior session before flushing queued messages."
           : "Started a fresh session before flushing queued messages.");
@@ -1690,6 +1711,16 @@ export async function sendMessage(agentId: string, text: string, username?: stri
       addLogEntry(agentId, "system", `Could not queue message: ${result.error}`);
     }
     return;
+  }
+
+  // If the prior session ended owing a response, write the gap breadcrumb
+  // before any new entries land. Parity with the SDK's lazy synthetic
+  // placeholder injected into its own transcript at this moment.
+  if (!managed.session) {
+    const tail = (logCache.get(agentId) ?? []).at(-1);
+    if (tail?.kind === "user_message") {
+      addLogEntry(agentId, "system", "Previous response was interrupted.");
+    }
   }
 
   // Echo "normal" user messages to the log before awaiting abortPromise. The
