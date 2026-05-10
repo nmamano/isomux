@@ -425,6 +425,12 @@ export function EditorPanel({
       const remaining = tabsRef.current.filter((t) => t.path !== path);
       return remaining.length > 0 ? remaining[remaining.length - 1]!.path : null;
     });
+    // If we just closed the last tab, force the mobile dropdown shut so a
+    // fresh editor_content arrival (e.g. an EditRequestCard tap) doesn't
+    // surprise the user by re-opening the menu they thought they'd left.
+    if (tabsRef.current.length <= 1) {
+      setTabMenuOpen(false);
+    }
   }, [agentId, setTabsAndPersist]);
 
   const activeTab = useMemo(
@@ -628,8 +634,17 @@ export function EditorPanel({
                         color: "var(--text-ghost)",
                         cursor: "pointer",
                         fontSize: 20,
-                        padding: "0 8px",
+                        // 44×44pt hit target — Apple's minimum, important for
+                        // a button that sits next to a row tap area where a
+                        // miss switches tabs instead of closing them.
+                        minWidth: 44,
+                        minHeight: 44,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        padding: 0,
                         lineHeight: 1,
+                        flexShrink: 0,
                       }}
                       title="Close tab"
                     >
