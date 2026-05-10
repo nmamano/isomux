@@ -496,6 +496,7 @@ export async function restoreAgents() {
         toolCallTimestamps: new Map(),
         topicGenerating: false,
         topicMessageCount: 0,
+        topicGenToken: 0,
         pendingResume: false,
         pendingResumeSessions: [],
         pendingModelPick: false,
@@ -714,6 +715,9 @@ async function generateTopic(agentId: string) {
   managed.info.topic = "...";
   managed.info.topicStale = false;
   emit({ type: "agent_updated", agentId, changes: { topic: "...", topicStale: false } });
+  // Capture before the await; if /clear, /resume, fork, etc. ran during the
+  // LLM call, the token will have changed and we drop the stale result.
+  const startToken = managed.topicGenToken;
 
   // Build context: first user message + last 5 text entries
   const logs = logCache.get(agentId) ?? [];
@@ -745,7 +749,7 @@ async function generateTopic(agentId: string) {
       pathToClaudeCodeExecutable: CLAUDE_NATIVE_BIN,
       permissionMode: "plan",
     });
-    if (result.subtype === "success" && agents.has(agentId)) {
+    if (result.subtype === "success" && agents.has(agentId) && managed.topicGenToken === startToken) {
       const topic = result.result.trim().slice(0, 80);
       managed.info.topic = topic;
       managed.info.topicStale = false;
@@ -759,13 +763,18 @@ async function generateTopic(agentId: string) {
     }
   } catch (err: any) {
     console.error(`Topic generation failed for ${agentId}:`, err.message);
-    // Silently fail — clear the "..." placeholder
-    if (agents.has(agentId)) {
+    // Silently fail — clear the "..." placeholder, but only if it's still ours
+    if (agents.has(agentId) && managed.topicGenToken === startToken) {
       managed.info.topic = null;
       emit({ type: "agent_updated", agentId, changes: { topic: null } });
     }
   } finally {
-    managed.topicGenerating = false;
+    // Only release the generating flag if the conversation hasn't been reset.
+    // If it has, the reset already cleared the flag and a fresh generateTopic
+    // may have set it true again — leave that one alone.
+    if (agents.has(agentId) && managed.topicGenToken === startToken) {
+      managed.topicGenerating = false;
+    }
   }
 }
 
@@ -1275,6 +1284,7 @@ export async function spawn(
     toolCallTimestamps: new Map(),
     topicGenerating: false,
     topicMessageCount: 0,
+    topicGenToken: 0,
     pendingResume: false,
     pendingResumeSessions: [],
     pendingModelPick: false,
@@ -1773,6 +1783,7 @@ export async function sendMessage(agentId: string, text: string, username?: stri
         managed.sessionId = picked.sessionId;
         managed.topicGenerating = false;
         managed.topicMessageCount = 0;
+        managed.topicGenToken++;
         // Clear and replay resumed session's logs (walks fork ancestry)
         const history = loadLogWithAncestors(agentId, picked.sessionId);
         logCache.set(agentId, []);
@@ -1988,6 +1999,7 @@ export async function newConversation(agentId: string) {
     managed.sessionId = null;
     managed.topicGenerating = false;
     managed.topicMessageCount = 0;
+    managed.topicGenToken++;
     managed.info.topic = null;
     managed.info.topicStale = false;
     emit({ type: "agent_updated", agentId, changes: { topic: null, topicStale: false } });
@@ -2021,6 +2033,7 @@ export async function resume(agentId: string, sessionId: string) {
     managed.sessionId = sessionId;
     managed.topicGenerating = false;
     managed.topicMessageCount = 0;
+    managed.topicGenToken++;
 
     // Clear and replay resumed session's logs (walks fork ancestry for branched sessions)
     const history = loadLogWithAncestors(agentId, sessionId);
@@ -2201,6 +2214,7 @@ export async function editMessage(agentId: string, logEntryId: string, newText: 
     managed.sessionId = isFirstMessage ? null : newSessionId;
     managed.topicGenerating = false;
     managed.topicMessageCount = 0;
+    managed.topicGenToken++;
 
     // --- Phase 2: UI/cache mutations (point of no return) ---
 
@@ -2282,6 +2296,9 @@ export async function editMessage(agentId: string, logEntryId: string, newText: 
 export function setTopic(agentId: string, topic: string) {
   const managed = agents.get(agentId);
   if (!managed) return;
+  // Invalidate any in-flight generateTopic so its delayed LLM result doesn't
+  // overwrite the user's manual choice.
+  managed.topicGenToken++;
   managed.info.topic = topic.slice(0, 80);
   managed.info.topicStale = false;
   const textCount = (logCache.get(agentId) ?? []).filter(e => e.kind === "user_message" || e.kind === "text").length;

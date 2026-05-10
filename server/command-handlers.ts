@@ -63,6 +63,7 @@ export function createCommandHandling(deps: HandlerDeps) {
       managed.sessionId = null;
       managed.topicGenerating = false;
       managed.topicMessageCount = 0;
+      managed.topicGenToken++;
       managed.info.topic = null;
       managed.info.topicStale = false;
       deps.logCache.set(agentId, []);

@@ -31,6 +31,11 @@ export interface ManagedAgent {
   // Topic generation
   topicGenerating: boolean;
   topicMessageCount: number; // text entry count when topic was last generated
+  // Bumped by any path that resets the conversation (/clear, /resume, fork,
+  // newConversation). generateTopic captures this at start and discards the
+  // result if it changed during the await — otherwise an in-flight LLM call
+  // would stomp on the cleared state when it finally returns.
+  topicGenToken: number;
   // /resume two-step state
   pendingResume: boolean;
   pendingResumeSessions: { sessionId: string; lastModified: number; topic: string | null }[];
