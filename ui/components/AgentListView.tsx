@@ -37,7 +37,7 @@ export function AgentListView({
   onSwipeLeft?: () => void;
   onSwipeRight?: () => void;
 }) {
-  const { agents, currentRoom, rooms, updateAvailable } = useAppState();
+  const { agents, currentRoom, rooms, updateAvailable, needsAttention } = useAppState();
   const { theme, toggleTheme } = useTheme();
   const roomCount = rooms.length;
   const roomAgents = agents.filter((a) => a.room === currentRoom);
@@ -126,17 +126,37 @@ export function AgentListView({
                 <StatusLight state={agent.state} size={10} />
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div
-                  style={{
-                    fontSize: 14,
-                    fontWeight: 600,
-                    color: "var(--text-primary)",
-                    whiteSpace: "nowrap",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                  }}
-                >
-                  {agent.name}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                  <span
+                    style={{
+                      fontSize: 14,
+                      fontWeight: 600,
+                      color: "var(--text-primary)",
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      minWidth: 0,
+                    }}
+                  >
+                    {agent.name}
+                  </span>
+                  {needsAttention.has(agent.id) && (
+                    <span
+                      style={{
+                        fontSize: 9,
+                        fontWeight: 700,
+                        color: "white",
+                        background: "var(--purple)",
+                        padding: "1px 6px",
+                        borderRadius: 8,
+                        letterSpacing: "0.02em",
+                        boxShadow: "0 0 4px var(--purple)",
+                        flexShrink: 0,
+                      }}
+                    >
+                      unread
+                    </span>
+                  )}
                 </div>
                 {agent.topic && (
                   <div

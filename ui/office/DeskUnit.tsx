@@ -174,6 +174,23 @@ export function DeskUnit({
           <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-primary)", letterSpacing: "-0.01em" }}>
             <span style={{ opacity: 0.5 }}>{agent.desk + 1} ·</span> {agent.name}
           </span>
+          {needsAttention && (
+            <span
+              style={{
+                fontSize: 9,
+                fontWeight: 700,
+                color: "white",
+                background: "var(--purple)",
+                padding: "1px 6px",
+                borderRadius: 8,
+                letterSpacing: "0.02em",
+                boxShadow: "0 0 4px var(--purple)",
+                flexShrink: 0,
+              }}
+            >
+              unread
+            </span>
+          )}
         </div>
         {agent.topic && agent.topic !== "..." && (
           <div
