@@ -67,9 +67,21 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
       }
       saveRecentCwd(cmd.cwd);
       try {
-        await AgentManager.spawn(cmd.name, cmd.cwd, cmd.permissionMode, cmd.desk, cmd.customInstructions, cmd.roomId, cmd.outfit, cmd.modelFamily, cmd.effort, cmd.username, cmd.agentType, cmd.codexSandbox);
+        const created = await AgentManager.spawn(cmd.name, cmd.cwd, cmd.permissionMode, cmd.desk, cmd.customInstructions, cmd.roomId, cmd.outfit, cmd.modelFamily, cmd.effort, cmd.username, cmd.agentType, cmd.codexSandbox);
         if (cmd.requestId) {
-          ws.send(JSON.stringify({ type: "agent_save_response", requestId: cmd.requestId, ok: true } as ServerMessage));
+          if (created) {
+            ws.send(JSON.stringify({ type: "agent_save_response", requestId: cmd.requestId, ok: true } as ServerMessage));
+          } else {
+            // spawn() returns null on duplicate name or full room — neither
+            // throws, so without this branch we'd report ok:true on logical
+            // failure and the UI would close the dialog as if it worked.
+            ws.send(JSON.stringify({
+              type: "agent_save_response",
+              requestId: cmd.requestId,
+              ok: false,
+              error: "Cannot create agent: name may be taken or the target room has no free desks.",
+            } as ServerMessage));
+          }
         }
       } catch (err: any) {
         if (cmd.requestId) {
@@ -112,9 +124,15 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
         }
         saveRecentCwd(cmd.cwd);
       }
-      AgentManager.editAgent(cmd.agentId, { name: cmd.name, cwd: cmd.cwd, outfit: cmd.outfit, customInstructions: cmd.customInstructions, modelFamily: cmd.modelFamily, effort: cmd.effort, permissionMode: cmd.permissionMode, codexSandbox: cmd.codexSandbox });
-      if (cmd.requestId) {
-        ws.send(JSON.stringify({ type: "agent_save_response", requestId: cmd.requestId, ok: true } as ServerMessage));
+      try {
+        await AgentManager.editAgent(cmd.agentId, { name: cmd.name, cwd: cmd.cwd, outfit: cmd.outfit, customInstructions: cmd.customInstructions, modelFamily: cmd.modelFamily, effort: cmd.effort, permissionMode: cmd.permissionMode, codexSandbox: cmd.codexSandbox });
+        if (cmd.requestId) {
+          ws.send(JSON.stringify({ type: "agent_save_response", requestId: cmd.requestId, ok: true } as ServerMessage));
+        }
+      } catch (err: any) {
+        if (cmd.requestId) {
+          ws.send(JSON.stringify({ type: "agent_save_response", requestId: cmd.requestId, ok: false, error: err?.message ?? "Edit failed" } as ServerMessage));
+        }
       }
       break;
     }

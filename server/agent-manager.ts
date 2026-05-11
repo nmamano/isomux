@@ -1,5 +1,5 @@
-import type { AgentInfo, AgentOutfit, AgentState, Attachment, EffortLevel, LogEntry, ModelFamily, OfficeSettings, QueuedMessage, RoomWire, SkillInfo } from "../shared/types.ts";
-import { MODEL_FAMILIES, FAMILY_TO_MODEL, EFFORT_LEVELS, DEFAULT_EFFORT, familyDisplayLabel, effortDisplayLabel, generateRoomId, isClaudeFamily } from "../shared/types.ts";
+import type { AgentInfo, AgentOutfit, AgentState, Attachment, CodexSandboxMode, EffortLevel, LogEntry, ModelFamily, OfficeSettings, QueuedMessage, RoomWire, SkillInfo } from "../shared/types.ts";
+import { CODEX_MODELS, MODEL_FAMILIES, FAMILY_TO_MODEL, EFFORT_LEVELS, DEFAULT_EFFORT, familyDisplayLabel, effortDisplayLabel, generateRoomId, isClaudeFamily } from "../shared/types.ts";
 import { formatPrefix, formatAgentSenderPrefix } from "../shared/identity.ts";
 import { getUserEnvFile } from "./users.ts";
 import { generateOutfit } from "./outfit.ts";
@@ -75,7 +75,7 @@ import {
   type InternalRoom,
 } from "./internal-types.ts";
 import { getBackend } from "./backends/index.ts";
-import { getCodexVersionStatus } from "./backends/codex/version-check.ts";
+import { checkCodexVersion, getCodexVersionStatus } from "./backends/codex/version-check.ts";
 import type { BackendSession, NormalizedEvent } from "./backends/types.ts";
 
 const LOGIN_INSTRUCTIONS = `To authenticate:
@@ -206,6 +206,62 @@ export function getAgentDisplay(agentId: string): { name: string; roomName: stri
 
 export { validateCwd };
 
+// Server-side validation for backend-specific spawn/edit options. The wire
+// types are permissive (AgentInfo's permissionMode is a union of both
+// backends' modes), so we narrow per agentType here and fall back to a safe
+// default when the value is outside the backend's allowlist. UI shouldn't
+// send mismatched values, but a stale tab or hand-crafted client could.
+function validatePermissionMode(
+  agentType: AgentInfo["agentType"],
+  raw: AgentInfo["permissionMode"] | undefined,
+): AgentInfo["permissionMode"] {
+  if (agentType === "codex") {
+    // "on-failure" is deprecated in codex 0.130 (warns on use); migrate
+    // to "on-request" at the boundary so we never persist the legacy value.
+    if (raw === "on-failure") return "on-request";
+    if (raw === "untrusted" || raw === "on-request" || raw === "never") return raw;
+    return "on-request";
+  }
+  if (raw === "default" || raw === "acceptEdits" || raw === "bypassPermissions" || raw === "auto") return raw;
+  return "auto";
+}
+
+function validateModelFamily(
+  agentType: AgentInfo["agentType"],
+  raw: string | undefined,
+): string {
+  if (agentType === "codex") {
+    if (raw && CODEX_MODELS.some((m) => m.value === raw)) return raw;
+    return CODEX_MODELS[0].value;
+  }
+  if (raw && isClaudeFamily(raw)) return raw;
+  return "opus";
+}
+
+function validateCodexSandbox(
+  raw: AgentInfo["codexSandbox"] | undefined,
+): CodexSandboxMode | undefined {
+  if (raw === "read-only" || raw === "workspace-write" || raw === "danger-full-access") return raw;
+  return undefined;
+}
+
+function validateEffort(
+  agentType: AgentInfo["agentType"],
+  modelFamily: string,
+  raw: EffortLevel | undefined,
+): EffortLevel {
+  if (!raw || !EFFORT_LEVELS.some((e) => e.level === raw)) return DEFAULT_EFFORT;
+  // Per EFFORT_LEVELS labels: "minimal" is Codex-only; "max" is Claude-Opus-only.
+  // A stale UI sending the wrong combo (e.g. Claude+minimal, Sonnet+max) falls
+  // back to the global default rather than going to the backend and failing.
+  if (agentType === "codex" && raw === "max") return DEFAULT_EFFORT;
+  if (agentType === "claude") {
+    if (raw === "minimal") return DEFAULT_EFFORT;
+    if (raw === "max" && modelFamily !== "opus") return DEFAULT_EFFORT;
+  }
+  return raw;
+}
+
 export async function editAgent(
   agentId: string,
   changes: { name?: string; cwd?: string; outfit?: AgentInfo["outfit"]; customInstructions?: string; modelFamily?: string; effort?: EffortLevel; permissionMode?: AgentInfo["permissionMode"]; codexSandbox?: AgentInfo["codexSandbox"] },
@@ -249,21 +305,48 @@ export async function editAgent(
     managed.info.customInstructions = changes.customInstructions || null;
     updated.customInstructions = managed.info.customInstructions;
   }
-  if (changes.modelFamily && changes.modelFamily !== managed.info.modelFamily) {
-    managed.info.modelFamily = changes.modelFamily;
-    updated.modelFamily = changes.modelFamily;
+  if (changes.modelFamily) {
+    const valid = validateModelFamily(managed.info.agentType, changes.modelFamily);
+    if (valid !== managed.info.modelFamily) {
+      managed.info.modelFamily = valid;
+      updated.modelFamily = valid;
+    }
   }
-  if (changes.codexSandbox && changes.codexSandbox !== managed.info.codexSandbox) {
-    managed.info.codexSandbox = changes.codexSandbox;
-    updated.codexSandbox = changes.codexSandbox;
+  if (changes.codexSandbox && managed.info.agentType === "codex") {
+    const valid = validateCodexSandbox(changes.codexSandbox);
+    if (valid && valid !== managed.info.codexSandbox) {
+      managed.info.codexSandbox = valid;
+      updated.codexSandbox = valid;
+    }
   }
-  if (changes.effort && changes.effort !== managed.info.effort) {
-    managed.info.effort = changes.effort;
-    updated.effort = changes.effort;
+  if (changes.effort) {
+    // modelFamily may have been updated just above; validate against the
+    // current (post-update) value so a paired model+effort change is
+    // consistent.
+    const valid = validateEffort(managed.info.agentType, managed.info.modelFamily, changes.effort);
+    if (valid !== managed.info.effort) {
+      managed.info.effort = valid;
+      updated.effort = valid;
+    }
   }
-  if (changes.permissionMode && changes.permissionMode !== managed.info.permissionMode) {
-    managed.info.permissionMode = changes.permissionMode;
-    updated.permissionMode = changes.permissionMode;
+  if (changes.permissionMode) {
+    const valid = validatePermissionMode(managed.info.agentType, changes.permissionMode);
+    if (valid !== managed.info.permissionMode) {
+      managed.info.permissionMode = valid;
+      updated.permissionMode = valid;
+    }
+  }
+
+  // Cross-update sanitization: if modelFamily changed but effort wasn't part
+  // of this edit, the existing effort may now be invalid (e.g. "max" survives
+  // on an agent whose model just moved from opus to sonnet). Re-validate the
+  // current state against the new model and downgrade if needed.
+  if (updated.modelFamily) {
+    const valid = validateEffort(managed.info.agentType, managed.info.modelFamily, managed.info.effort);
+    if (valid !== managed.info.effort) {
+      managed.info.effort = valid;
+      updated.effort = valid;
+    }
   }
 
   if (Object.keys(updated).length === 0) return;
@@ -489,15 +572,16 @@ export async function restoreAgents() {
   for (let roomIdx = 0; roomIdx < loaded.length; roomIdx++) {
     for (const p of loaded[roomIdx].agents) {
       const agentType = p.agentType ?? "claude";
-      const defaultModelFamily = agentType === "codex" ? "gpt-5.5" : "opus";
-      // Codex 0.130 deprecated the "on-failure" AskForApproval variant
-      // (warns on use). Quietly migrate to "on-request" at load time so
-      // legacy agents stop emitting the deprecation warning every new
-      // conversation. The next persistAll save bakes in the corrected value.
-      const permissionMode =
-        agentType === "codex" && p.permissionMode === "on-failure"
-          ? "on-request"
-          : p.permissionMode;
+      // Run persisted values through the same validators as spawn/edit so
+      // stored data is canonicalized at load time. Notably: codex 0.130
+      // deprecated "on-failure" (warns on use) — validatePermissionMode
+      // migrates it to "on-request"; the next persistAll save bakes the
+      // corrected value back to disk so the deprecation warning stops.
+      const modelFamily = validateModelFamily(agentType, p.modelFamily);
+      const permissionMode = validatePermissionMode(agentType, p.permissionMode);
+      const effort = validateEffort(agentType, modelFamily, p.effort);
+      const codexSandbox =
+        agentType === "codex" ? validateCodexSandbox(p.codexSandbox) : undefined;
       const info: AgentInfo = {
         id: p.id,
         name: p.name,
@@ -506,14 +590,14 @@ export async function restoreAgents() {
         cwd: p.cwd,
         outfit: p.outfit,
         permissionMode,
-        modelFamily: p.modelFamily ?? defaultModelFamily,
-        effort: p.effort ?? DEFAULT_EFFORT,
+        modelFamily,
+        effort,
         state: p.lastSessionId ? "waiting_for_response" : "idle",
         topic: p.topic ?? null,
         topicStale: false,
         customInstructions: p.customInstructions ?? null,
         agentType,
-        ...(p.codexSandbox ? { codexSandbox: p.codexSandbox } : {}),
+        ...(codexSandbox ? { codexSandbox } : {}),
         capabilities: getBackend(agentType).capabilities,
         username: p.username ?? null,
         queue: [],
@@ -1296,10 +1380,13 @@ export async function spawn(
 ): Promise<AgentInfo | null> {
   // Reject Codex spawn if the version check signalled the CLI is missing.
   // Other check outcomes (ok / mismatch / unknown) still allow spawn — codex
-  // is present and we hope for compatibility.
+  // is present and we hope for compatibility. Run the check now if it hasn't
+  // settled yet (a spawn racing the boot-time logCodexVersionAtBoot would
+  // previously see null and bypass the guard, deferring failure to the codex
+  // subprocess spawn).
   if (agentType === "codex") {
-    const status = getCodexVersionStatus();
-    if (status?.kind === "not_installed") {
+    const status = getCodexVersionStatus() ?? (await checkCodexVersion());
+    if (status.kind === "not_installed") {
       throw new Error(
         "Codex CLI is not installed on the server. Install with `sudo npm install -g @openai/codex@0.130.0` and restart isomux.",
       );
@@ -1331,14 +1418,15 @@ export async function spawn(
   const resolvedCwd = resolveCwd(cwd);
   const id = `agent-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
-  // Pick sensible per-backend defaults when the caller doesn't supply.
-  const defaultModelFamily = agentType === "codex" ? "gpt-5" : "opus";
-  const defaultPermissionMode: AgentInfo["permissionMode"] =
-    agentType === "codex" ? "on-request" : "auto";
-  // permissionMode comes from the wire; if it's not in this backend's value
-  // space, fall back to the default. Server-side validation; UI should not
-  // send a mismatched value but we protect against it.
-  const validatedPermissionMode = permissionMode ?? defaultPermissionMode;
+  // Server-side validation. Anything outside the backend's allowlist falls
+  // back to a safe default; the wire shapes are permissive (union types over
+  // both backends), so a stale UI or hand-crafted client can't pin us to an
+  // invalid mode/model/effort.
+  const validatedPermissionMode = validatePermissionMode(agentType, permissionMode);
+  const validatedModelFamily = validateModelFamily(agentType, modelFamily);
+  const validatedEffort = validateEffort(agentType, validatedModelFamily, effort);
+  const validatedCodexSandbox =
+    agentType === "codex" ? validateCodexSandbox(codexSandbox) : undefined;
 
   const info: AgentInfo = {
     id,
@@ -1348,15 +1436,15 @@ export async function spawn(
     cwd: resolvedCwd,
     outfit: outfit ?? generateOutfit(),
     permissionMode: validatedPermissionMode,
-    modelFamily: modelFamily ?? defaultModelFamily,
-    effort: effort ?? DEFAULT_EFFORT,
+    modelFamily: validatedModelFamily,
+    effort: validatedEffort,
     state: "idle",
     topic: null,
     topicStale: false,
     customInstructions: customInstructions || null,
     agentType,
     capabilities: getBackend(agentType).capabilities,
-    ...(codexSandbox ? { codexSandbox } : {}),
+    ...(validatedCodexSandbox ? { codexSandbox: validatedCodexSandbox } : {}),
     username: username ?? null,
     queue: [],
     sessionSwapping: false,
@@ -1404,7 +1492,7 @@ export async function spawn(
   // Create V2 session
   try {
     installSession(id, managed, createSession(managed));
-    addLogEntry(id, "system", `Agent "${name}" ready. Working in ${resolvedCwd}. Permission mode: ${permissionMode}.`);
+    addLogEntry(id, "system", `Agent "${name}" ready. Working in ${resolvedCwd}. Permission mode: ${info.permissionMode}.`);
     // First stream() will deliver system/init + response to the first send().
   } catch (err: any) {
     console.error(`Failed to create session for ${name}:`, err.message);
@@ -1662,8 +1750,9 @@ async function flushQueue(agentId: string): Promise<void> {
       generateTopic(agentId);
     }
 
+    const turn = createTurnDeferred(managed);
+    const ownPending = managed.pendingTurn;
     try {
-      const turn = createTurnDeferred(managed);
       await managed.session!.send(prompt, allAttachments.length > 0 ? allAttachments : undefined);
       // Send accepted by the backend. Now finalize: write per-message log entries
       // (provenance) and remove the items from the live queue. Items cancelled
@@ -1677,6 +1766,13 @@ async function flushQueue(agentId: string): Promise<void> {
       emitQueueUpdate(agentId, managed);
       await turn;
     } catch (err: any) {
+      // If we still own the deferred (no session swap, no fresh turn), reject
+      // and clear it so awaiting callers don't hang. Done before the kill /
+      // SessionSwapped branches because both also benefit from the cleanup.
+      if (ownPending && managed.pendingTurn === ownPending) {
+        managed.pendingTurn = null;
+        try { ownPending.reject(err); } catch {}
+      }
       // Agent killed mid-flush: nothing to log on a deleted agent, and any
       // log entry would leak into logCache for an id that no longer exists.
       if (!agents.has(agentId)) return;
@@ -2005,11 +2101,20 @@ export async function sendMessage(agentId: string, text: string, username?: stri
 
   const prefix = formatPrefix({ username, device });
   const prefixedText = prefix ? `${prefix}${text}` : text;
+  const turn = createTurnDeferred(managed);
+  const ownPending = managed.pendingTurn;
   try {
-    const turn = createTurnDeferred(managed);
     await managed.session!.send(prefixedText, attachments && attachments.length > 0 ? attachments : undefined);
     await turn;
   } catch (err: any) {
+    // If session.send() (or anything before turn settled) threw, the deferred
+    // we just created is still parked in managed.pendingTurn — unless a
+    // session swap or a fresh turn took ownership of the slot. Reject + clear
+    // only when we still own it so awaiting callers don't hang forever.
+    if (ownPending && managed.pendingTurn === ownPending) {
+      managed.pendingTurn = null;
+      try { ownPending.reject(err); } catch {}
+    }
     if (err instanceof SessionSwappedError) return;
     console.error(`Agent ${agentId} send error:`, err.message);
     addLogEntry(agentId, "error", `Error: ${err.message}`);

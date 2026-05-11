@@ -27,7 +27,7 @@
 //      than the one we spawn here (PATH changes, version managers). We
 //      re-verify against InitializeResponse.userAgent.
 
-import { readFileSync } from "fs";
+import { readFileSync, statSync } from "fs";
 
 import type { Attachment } from "../../../shared/types.ts";
 import { getFilePath } from "../../persistence.ts";
@@ -121,6 +121,27 @@ const DEFAULT_SANDBOX_MODE = "workspace-write";
 const CLIENT_INFO_NAME = "isomux";
 const CLIENT_INFO_VERSION = "1.0.0";
 
+// Cap for inlined text-ish attachments. Larger files get a stub pointer so the
+// model still knows the file is there without us blasting megabytes of stray
+// logs / build output into context.
+const MAX_INLINE_ATTACHMENT_BYTES = 64 * 1024;
+
+// Media-type allowlist for inlining attachment contents into the prompt.
+// Anything outside this list (binary blobs, unknown formats) gets a stub.
+const INLINE_TEXT_MEDIA_PREFIXES = [
+  "text/",
+  "application/json",
+  "application/xml",
+  "application/yaml",
+  "application/x-yaml",
+  "application/javascript",
+  "application/typescript",
+];
+
+function isInlinableTextMedia(mediaType: string): boolean {
+  return INLINE_TEXT_MEDIA_PREFIXES.some((prefix) => mediaType.startsWith(prefix));
+}
+
 // ---------------------------------------------------------------------------
 // CodexSession
 // ---------------------------------------------------------------------------
@@ -150,6 +171,13 @@ interface PendingApproval {
   // CommandExecutionApprovalDecision vs v2 FileChangeApprovalDecision); we
   // keep the method here so approve() can pick the right wire shape.
   method: string;
+  // Settles the JsonRpcLiteClient handler-chain promise that's anchoring this
+  // approval. Resolving it lets the client auto-respond with the payload and
+  // releases the parked handler frame; rejecting unwinds the await. Without
+  // these the handler held a `new Promise(() => {})` that never settled, so
+  // each approval leaked one parked handler frame for the life of the session.
+  resolve: (response: unknown) => void;
+  reject: (err: unknown) => void;
 }
 
 interface CodexSessionInitOpts {
@@ -334,11 +362,15 @@ class CodexSession implements BackendSession {
     if (!this.threadId) throw new Error("CodexSession.send: codex bootstrap failed; cannot send");
 
     const input = buildCodexUserInput(text, attachments, this.opts.agentId);
-    this.turnInFlight = true;
+    // Only flip turnInFlight after turn/start succeeds. If the request throws
+    // (e.g. wire error) we don't want handleSubprocessExit to later synthesize
+    // a phantom failed turn_completed for a turn that never actually started
+    // — the orchestrator would surface a bogus mid-turn failure.
     await this.client.request("turn/start", {
       threadId: this.threadId,
       input,
     });
+    this.turnInFlight = true;
   }
 
   async approve(approvalId: string, decision: ApprovalDecision): Promise<void> {
@@ -347,11 +379,12 @@ class CodexSession implements BackendSession {
     if (!pending) return;
     this.pendingApprovals.delete(approvalId);
     const decisionWire = mapApprovalDecision(pending.method, decision);
-    // All current approval methods respond with `{ decision: <enum> }`. The
-    // enum variant set differs per method (ReviewDecision for the legacy
-    // applyPatchApproval/execCommandApproval, command/file-change-specific
-    // enums for the v2 methods); mapApprovalDecision routes that.
-    this.client.respond(pending.jsonRpcId, { decision: decisionWire });
+    // Resolving the deferred releases the JsonRpcLiteClient's handler-chain
+    // await; the client auto-responds with this payload. (Previously we
+    // called client.respond() directly while leaving the promise pending,
+    // which leaked one parked handler frame per approval.) The enum variant
+    // set differs per method — see mapApprovalDecision for the routing.
+    pending.resolve({ decision: decisionWire });
   }
 
   async abort(): Promise<void> {
@@ -378,11 +411,17 @@ class CodexSession implements BackendSession {
   close(): void {
     if (this.closed) return;
     this.closed = true;
-    // Resolve in-flight approvals with deny so the codex side stops waiting.
+    // Tell codex about in-flight approvals before tearing down. Respond on
+    // the wire FIRST: the deferred rejection below would also trigger an
+    // auto-respond, but by the time that fires we've called client.close()
+    // and the response is dropped — so the explicit respondWithError is what
+    // codex actually sees. Then reject the deferred so the parked handler
+    // frame unwinds and the promise frees.
     for (const [, pending] of this.pendingApprovals) {
       try {
         this.client.respondWithError(pending.jsonRpcId, -32000, "Session closed");
       } catch {}
+      try { pending.reject(new Error("Session closed")); } catch {}
     }
     this.pendingApprovals.clear();
     // Fire-and-forget close on the client; subprocess exit handler tidies up.
@@ -690,20 +729,27 @@ class CodexSession implements BackendSession {
         const toolName = inferToolNameFromApproval(req.method, params);
         const title = inferApprovalTitle(req.method, params);
         const description = inferApprovalDescription(req.method, params);
-        this.pendingApprovals.set(approvalId, { jsonRpcId: req.id, toolName, method: req.method });
-        this.enqueue({
-          kind: "approval_request",
-          approvalId,
-          toolName,
-          input: extractApprovalInput(req.method, params),
-          title,
-          description,
+        // The promise we return is what the JsonRpcLiteClient's handler chain
+        // awaits. session.approve() resolves it with the right enum-variant
+        // response shape, the client auto-responds, and the handler frame
+        // frees. close() rejects any still-pending entries.
+        return new Promise<unknown>((resolve, reject) => {
+          this.pendingApprovals.set(approvalId, {
+            jsonRpcId: req.id,
+            toolName,
+            method: req.method,
+            resolve,
+            reject,
+          });
+          this.enqueue({
+            kind: "approval_request",
+            approvalId,
+            toolName,
+            input: extractApprovalInput(req.method, params),
+            title,
+            description,
+          });
         });
-        // Defer the response — session.approve() looks up the request id and
-        // calls client.respond() with the right enum variant for this method.
-        // The promise here never resolves; close() cleans up by error-
-        // responding any still-pending approvals.
-        return new Promise<unknown>(() => {});
       }
 
       // ---- Permissions request: auto-decline with JSON-RPC error ----
@@ -926,14 +972,28 @@ function buildCodexUserInput(
         inputs.push({ type: "localImage", path: filePath });
       } else if (att.mediaType === "application/pdf") {
         textChunks.push(`Attached PDF "${att.originalName}" at ${filePath}`);
-      } else {
-        // Text-ish file: inline up to a reasonable cap.
+      } else if (isInlinableTextMedia(att.mediaType)) {
+        // Text-ish file: inline up to MAX_INLINE_ATTACHMENT_BYTES. Stat first
+        // so we don't read the whole file when it would just get dropped.
         try {
-          const content = readFileSync(filePath, "utf-8");
-          textChunks.push(`--- File: ${att.originalName} ---\n${content}\n---`);
+          const size = statSync(filePath).size;
+          if (size > MAX_INLINE_ATTACHMENT_BYTES) {
+            textChunks.push(
+              `Attached file "${att.originalName}" (${size} bytes; exceeds ${MAX_INLINE_ATTACHMENT_BYTES}-byte inline cap). Path: ${filePath}`,
+            );
+          } else {
+            const content = readFileSync(filePath, "utf-8");
+            textChunks.push(`--- File: ${att.originalName} ---\n${content}\n---`);
+          }
         } catch {
           textChunks.push(`Attached file ${att.originalName} (could not read content) at ${filePath}`);
         }
+      } else {
+        // Unknown / binary media: don't inline. Hand codex the path so it can
+        // open the file with a tool if it needs to.
+        textChunks.push(
+          `Attached file "${att.originalName}" (${att.mediaType}) at ${filePath}`,
+        );
       }
     }
     if (textChunks.length > 0) {
@@ -1071,6 +1131,11 @@ export const codexBackend: Backend = {
       const threadId = startResp.thread.id;
       let result = "";
       let resolved = false;
+      // Fail closed: callers (topic generation, etc.) need to distinguish a
+      // genuine empty response from a turn that errored or was interrupted.
+      // We keep awaiting the same `done` to collect any final state, but throw
+      // after archive so the caller sees the real failure.
+      let failure: Error | null = null;
       const done = new Promise<void>((resolve) => {
         client.onNotification((n) => {
           if ((n.params as any)?.threadId !== threadId) return;
@@ -1080,8 +1145,20 @@ export const codexBackend: Backend = {
               result = item.text;
             }
           } else if (n.method === "turn/completed") {
+            const turn = (n.params as any)?.turn as
+              | { status?: string; error?: { message?: string } | null }
+              | undefined;
+            if (turn?.status && turn.status !== "completed") {
+              failure = new Error(
+                `Codex one-shot turn ${turn.status}: ${turn.error?.message ?? "no detail"}`,
+              );
+            }
             if (!resolved) { resolved = true; resolve(); }
           } else if (n.method === "error") {
+            const msg = (n.params as any)?.message;
+            failure = new Error(
+              `Codex one-shot error: ${typeof msg === "string" ? msg : "unknown"}`,
+            );
             if (!resolved) { resolved = true; resolve(); }
           }
         });
@@ -1093,6 +1170,7 @@ export const codexBackend: Backend = {
       await done;
       // Best-effort archive; ignore errors.
       try { await client.request("thread/archive", { threadId }); } catch {}
+      if (failure) throw failure;
       return result;
     } finally {
       await client.close();
