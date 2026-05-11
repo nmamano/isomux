@@ -49,6 +49,10 @@ export interface CreateSessionOptions {
   modelFamily: string;
   effort: string;
   permissionMode: string;
+  // Codex-only: SandboxMode string ("read-only" / "workspace-write" /
+  // "danger-full-access"). Claude backend ignores. Undefined falls back to
+  // the backend's default ("workspace-write" for Codex).
+  sandbox?: string;
   env?: { [key: string]: string | undefined };
 }
 

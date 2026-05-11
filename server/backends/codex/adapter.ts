@@ -71,37 +71,45 @@ const AUTH_ERROR_PATTERNS = /unauthori[zs]ed|not authenticated|authentication|au
 // Capability flags for the Codex backend. Match the spec's parity table.
 // hooks: false — Codex emits hook/* notifications but provides no programmatic
 // register-from-client surface at 0.130, so the v1 capability flag is off.
+// hooks: false — Codex emits hook/* notifications but provides no
+// programmatic register-from-client surface at 0.130 (v1).
+// edit: false — Codex 0.130 thread/fork only supports whole-thread fork
+// (by threadId or by rollout path), not the per-message fork that
+// edit-message needs. Workable via thread/rollback but destructive (loses
+// the preserved-old-branch UX). See task f489ad36 (P2) for the follow-up.
 const CAPABILITIES: BackendCapabilities = {
-  fork: true,
+  fork: false,
   hooks: false,
   skills: true,
   oneShot: true,
   canUseTool: true,
   topicGen: true,
-  edit: true,
+  edit: false,
   mcp: true,
 };
 
 // Model options. Hardcoded at v1 — known limitation: model/list (Codex RPC)
-// would return the auth-appropriate subset (ChatGPT-login users get a
-// different set than API-key users, and each model declares its own
-// supportedReasoningEfforts). The current static list assumes API-key auth;
-// ChatGPT-login users may see "model not supported" errors on send. Wiring
-// model/list at session bootstrap + per-model effort picker is a follow-up
-// (see task f352984f review notes).
+// would return the auth-appropriate subset (ChatGPT-login vs API-key users
+// see different sets, and each model declares its own
+// supportedReasoningEfforts). Wiring model/list at session bootstrap +
+// per-model effort picker is task 3929f8ec. Slugs verified against `codex
+// debug models` on codex-cli 0.130.0 (2026-05-11); mirror of CODEX_MODELS
+// in shared/types.ts.
 const MODEL_OPTIONS: ModelOption[] = [
-  { value: "gpt-5", label: "GPT-5" },
-  { value: "gpt-5-mini", label: "GPT-5 mini" },
-  { value: "gpt-5-codex", label: "GPT-5 Codex" },
+  { value: "gpt-5.5", label: "GPT-5.5" },
+  { value: "gpt-5.4", label: "GPT-5.4" },
+  { value: "gpt-5.4-mini", label: "GPT-5.4 mini" },
+  { value: "gpt-5.3-codex", label: "GPT-5.3 Codex" },
+  { value: "gpt-5.2", label: "GPT-5.2" },
 ];
 
-// Permission/approval mode options. AskForApproval enum + we expose the four
-// string variants. The granular variant is gated behind experimentalApi but
-// deferred to v1.x per the spec.
+// Permission/approval mode options. AskForApproval enum minus the deprecated
+// "on-failure" variant (codex 0.130 emits a deprecation warning on use). The
+// granular variant is gated behind experimentalApi but deferred to v1.x per
+// the spec.
 const PERMISSION_MODES: PermissionModeOption[] = [
   { value: "untrusted", label: "Untrusted — ask on every tool" },
   { value: "on-request", label: "On request — ask when model asks" },
-  { value: "on-failure", label: "On failure — ask only when blocked" },
   { value: "never", label: "Never ask (use with sandbox)" },
 ];
 
@@ -417,15 +425,14 @@ class CodexSession implements BackendSession {
         const error = turn?.error?.message ?? undefined;
         this.activeTurnId = null;
         this.turnInFlight = false;
-        // "Model not supported" guidance. CODEX_MODELS is hardcoded at v1,
-        // and ChatGPT-login users can't use the full gpt-5 (API-key only).
-        // Hint at the spawn dialog so they don't think the integration is
-        // broken on first try.
+        // "Model not supported" guidance. CODEX_MODELS is hardcoded at v1
+        // and some slugs may not be available on every auth tier. Hint at
+        // the spawn dialog so users don't think the integration is broken.
         if (error && /model.*not supported|not supported.*model/i.test(error)) {
           this.enqueue({
             kind: "system_text",
             text:
-              "This Codex model isn't available on your current login. Open the agent's settings (click the name in the header) to pick a different one. ChatGPT-login users typically need `gpt-5-codex` or `gpt-5-mini`; full `gpt-5` is API-key only.",
+              "This Codex model isn't available on your current login. Open the agent's settings (click the name in the header) to pick a different one — `gpt-5.5` is the default for ChatGPT-login.",
           });
         }
         this.enqueue({
@@ -459,24 +466,26 @@ class CodexSession implements BackendSession {
 
       // ---- Item lifecycle ----
       case "item/started":
-        // Carries the full ThreadItem but we wait for completion or deltas.
+        // Carries the full ThreadItem but we wait for completion.
         break;
       case "item/completed": {
         const item = params?.item;
         if (item) this.translateCompletedItem(item);
         break;
       }
-      case "item/agentMessage/delta": {
-        const delta = params?.delta as string | undefined;
-        if (delta) this.enqueue({ kind: "assistant_text", text: delta });
-        break;
-      }
+      // Streaming deltas (item/agentMessage/delta, item/reasoning/textDelta,
+      // item/reasoning/summaryTextDelta) are intentionally ignored. Codex
+      // emits them at sub-word granularity (one entry per token), and
+      // Isomux's log-view treats each text entry as its own row — surfacing
+      // every delta produces a wall of one-word lines followed by the same
+      // text repeated whole on item/completed. Single-entry-per-message
+      // matches Claude's behavior and is much more readable. Streaming UX
+      // could be reintroduced later via an in-place "append to last text
+      // entry" mechanism, but that's a UI-level change, not a wire change.
+      case "item/agentMessage/delta":
       case "item/reasoning/textDelta":
-      case "item/reasoning/summaryTextDelta": {
-        const delta = params?.delta as string | undefined;
-        if (delta) this.enqueue({ kind: "thinking", text: delta });
+      case "item/reasoning/summaryTextDelta":
         break;
-      }
 
       // ---- Mid-conversation compaction ----
       case "thread/compacted": {
@@ -745,6 +754,17 @@ class CodexSession implements BackendSession {
     // skip pure whitespace.
     const text = chunk.trimEnd();
     if (!text) return;
+    // Drop known-benign startup notices. Codex logs these at ERROR level
+    // but they're informational: the bubblewrap line is a "here's how our
+    // Linux sandbox works" note, and the trusted-project line tells the
+    // user how to opt into project-local config — neither is actionable
+    // for Isomux users in the chat.
+    if (
+      /bubblewrap.*needs access to create user namespaces/i.test(text) ||
+      /until the project is trusted, but skills still load/i.test(text)
+    ) {
+      return;
+    }
     this.enqueue({ kind: "system_text", text: `[codex stderr] ${text}` });
   }
 
@@ -928,6 +948,7 @@ export const codexBackend: Backend = {
       modelFamily: opts.modelFamily,
       effort: opts.effort,
       permissionMode: opts.permissionMode,
+      sandbox: opts.sandbox,
       env: opts.env,
     });
   },
@@ -940,6 +961,7 @@ export const codexBackend: Backend = {
       modelFamily: opts.modelFamily,
       effort: opts.effort,
       permissionMode: opts.permissionMode,
+      sandbox: opts.sandbox,
       env: opts.env,
       resumeThreadId: sessionId,
     });
@@ -967,8 +989,11 @@ export const codexBackend: Backend = {
   },
 
   async getSessionMessages(sessionId: string): Promise<NormalizedMessage[]> {
-    // thread/read returns the full thread state including items. We flatten
-    // user and assistant items into NormalizedMessage[].
+    // thread/read returns the Thread, with rollout history populated in
+    // thread.turns[].items[] only when includeTurns:true is set. Each Turn
+    // is one round of work; we flatten user and assistant items across all
+    // turns in order so the orchestrator's edit-message matching can find
+    // user messages by content + occurrence index.
     const client = new JsonRpcLiteClient();
     try {
       client.start();
@@ -976,17 +1001,23 @@ export const codexBackend: Backend = {
         clientInfo: { name: CLIENT_INFO_NAME, version: CLIENT_INFO_VERSION, title: null },
         capabilities: { experimentalApi: true, optOutNotificationMethods: null },
       });
-      const resp = await client.request<{ thread: { items?: any[] } }>("thread/read", { threadId: sessionId });
-      const items = resp.thread?.items ?? [];
+      const resp = await client.request<{ thread: { turns?: any[] } }>(
+        "thread/read",
+        { threadId: sessionId, includeTurns: true },
+      );
+      const turns = resp.thread?.turns ?? [];
       const out: NormalizedMessage[] = [];
-      for (const item of items) {
-        if (item?.type === "userMessage") {
-          const text = Array.isArray(item.content)
-            ? item.content.filter((c: any) => c.type === "text").map((c: any) => c.text).join("")
-            : "";
-          out.push({ uuid: item.id, role: "user", text });
-        } else if (item?.type === "agentMessage") {
-          out.push({ uuid: item.id, role: "assistant", text: item.text ?? "" });
+      for (const turn of turns) {
+        const items = Array.isArray(turn?.items) ? turn.items : [];
+        for (const item of items) {
+          if (item?.type === "userMessage") {
+            const text = Array.isArray(item.content)
+              ? item.content.filter((c: any) => c.type === "text").map((c: any) => c.text).join("")
+              : "";
+            out.push({ uuid: item.id, role: "user", text });
+          } else if (item?.type === "agentMessage") {
+            out.push({ uuid: item.id, role: "assistant", text: item.text ?? "" });
+          }
         }
       }
       return out;

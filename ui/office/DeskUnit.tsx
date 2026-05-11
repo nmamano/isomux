@@ -9,9 +9,11 @@ const MODEL_TINT: Record<string, { border: string; bg: string }> = {
   opus:           { border: "rgba(100,160,255,0.85)", bg: "rgba(100,160,255,0.35)" },
   sonnet:         { border: "rgba(218,165,32,0.80)",  bg: "rgba(218,165,32,0.32)" },
   haiku:          { border: "rgba(230,130,180,0.80)", bg: "rgba(230,130,180,0.32)" },
-  "gpt-5":        { border: "rgba(120,220,160,0.85)", bg: "rgba(120,220,160,0.32)" },
-  "gpt-5-mini":   { border: "rgba(120,220,160,0.70)", bg: "rgba(120,220,160,0.22)" },
-  "gpt-5-codex":  { border: "rgba(80,200,140,0.90)",  bg: "rgba(80,200,140,0.36)" },
+  "gpt-5.5":       { border: "rgba(120,220,160,0.90)", bg: "rgba(120,220,160,0.36)" },
+  "gpt-5.4":       { border: "rgba(120,220,160,0.78)", bg: "rgba(120,220,160,0.28)" },
+  "gpt-5.4-mini":  { border: "rgba(120,220,160,0.62)", bg: "rgba(120,220,160,0.20)" },
+  "gpt-5.3-codex": { border: "rgba(80,200,140,0.90)",  bg: "rgba(80,200,140,0.36)" },
+  "gpt-5.2":       { border: "rgba(120,220,160,0.50)", bg: "rgba(120,220,160,0.16)" },
 };
 
 export function DeskUnit({

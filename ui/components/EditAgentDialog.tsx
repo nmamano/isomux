@@ -292,7 +292,6 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
             <>
               <option value="untrusted">Untrusted (ask on every tool)</option>
               <option value="on-request">On request (model asks when needed)</option>
-              <option value="on-failure">On failure (only when blocked by sandbox)</option>
               <option value="never">Never ask (use sandbox-only)</option>
             </>
           ) : (

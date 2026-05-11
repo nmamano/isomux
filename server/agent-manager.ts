@@ -228,7 +228,18 @@ export async function editAgent(
     const oldCwd = managed.info.cwd;
     managed.info.cwd = resolveCwd(changes.cwd);
     updated.cwd = managed.info.cwd;
-    moveClaudeSessionFiles(agentId, oldCwd, managed.info.cwd);
+    if (managed.info.agentType === "claude") {
+      // Claude stores sessions in ~/.claude/projects/<cwd-hash>/; moving cwd
+      // means the .jsonl files need to follow, otherwise resume can't find
+      // them. moveClaudeSessionFiles relocates them in place.
+      moveClaudeSessionFiles(agentId, oldCwd, managed.info.cwd);
+    } else {
+      // Codex stores per-cwd rollouts in ~/.codex/; the existing thread is
+      // not addressable under the new cwd. Drop the sessionId so the next
+      // conversation starts a fresh thread (matches the "applies to next
+      // conversation" UX users expect from changing cwd).
+      managed.sessionId = null;
+    }
   }
   if (changes.outfit) {
     managed.info.outfit = changes.outfit;
@@ -260,8 +271,10 @@ export async function editAgent(
   // System prompt + cwd are passed into every createSession, so name/cwd/
   // customInstructions changes automatically apply to the next conversation.
 
-  // Recreate session if model, effort, or permission mode changed so it takes effect immediately
-  if (updated.modelFamily || updated.effort || updated.permissionMode) {
+  // Recreate session if model, effort, permission mode, or Codex sandbox
+  // changed so it takes effect immediately. Sandbox is set at thread/start
+  // for Codex, so the change only lands on a new session.
+  if (updated.modelFamily || updated.effort || updated.permissionMode || updated.codexSandbox) {
     const sessionId = managed.sessionId;
     const newSession = sessionId ? createSession(managed, sessionId) : createSession(managed);
     await replaceSession(agentId, managed, newSession);
@@ -411,7 +424,7 @@ function updateManifest() {
     cwd: a.info.cwd,
     modelFamily: a.info.modelFamily,
     // Concrete model id: for Claude families resolve via FAMILY_TO_MODEL, for
-    // Codex agents the value itself IS the codex model id (e.g. "gpt-5").
+    // Codex agents the value itself IS the codex model id (e.g. "gpt-5.5").
     model: isClaudeFamily(a.info.modelFamily) ? FAMILY_TO_MODEL[a.info.modelFamily] : a.info.modelFamily,
     username: a.info.username,
   })));
@@ -476,7 +489,15 @@ export async function restoreAgents() {
   for (let roomIdx = 0; roomIdx < loaded.length; roomIdx++) {
     for (const p of loaded[roomIdx].agents) {
       const agentType = p.agentType ?? "claude";
-      const defaultModelFamily = agentType === "codex" ? "gpt-5" : "opus";
+      const defaultModelFamily = agentType === "codex" ? "gpt-5.5" : "opus";
+      // Codex 0.130 deprecated the "on-failure" AskForApproval variant
+      // (warns on use). Quietly migrate to "on-request" at load time so
+      // legacy agents stop emitting the deprecation warning every new
+      // conversation. The next persistAll save bakes in the corrected value.
+      const permissionMode =
+        agentType === "codex" && p.permissionMode === "on-failure"
+          ? "on-request"
+          : p.permissionMode;
       const info: AgentInfo = {
         id: p.id,
         name: p.name,
@@ -484,7 +505,7 @@ export async function restoreAgents() {
         room: roomIdx,
         cwd: p.cwd,
         outfit: p.outfit,
-        permissionMode: p.permissionMode,
+        permissionMode,
         modelFamily: p.modelFamily ?? defaultModelFamily,
         effort: p.effort ?? DEFAULT_EFFORT,
         state: p.lastSessionId ? "waiting_for_response" : "idle",
@@ -1023,10 +1044,10 @@ function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
     case "error": {
       const managed = agents.get(agentId);
       addLogEntry(agentId, "error", ev.message);
-      // Backend's diagnoseProcessExit (Claude: "process exited with code 1"
-      // hints based on session jsonl / cwd state). Keeps parity with the
-      // pre-refactor runConsumer catch path.
-      if (managed) {
+      // diagnoseProcessExit gives Claude-specific hints (~/.claude/projects/
+      // path, "session .jsonl missing" wording). Don't run it for non-Claude
+      // agents — the message would be wrong and misleading.
+      if (managed && managed.info.agentType === "claude") {
         const hints = diagnoseProcessExit(managed.info.cwd, managed.sessionId);
         if (hints) addLogEntry(agentId, "system", hints);
       }
@@ -1248,6 +1269,9 @@ function createSession(managed: ManagedAgent, resumeSessionId?: string): Backend
     modelFamily: managed.info.modelFamily,
     effort: managed.info.effort,
     permissionMode: managed.info.permissionMode,
+    // Codex-only sandbox; Claude backend ignores. Undefined falls back to
+    // the Codex adapter's "workspace-write" default.
+    sandbox: managed.info.codexSandbox,
     env: buildSessionEnv(managed),
   };
   const backend = getBackend(managed.info.agentType);

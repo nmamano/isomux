@@ -108,10 +108,15 @@ export function effortDisplayLabel(level: EffortLevel): string {
 
 // Codex model identifiers and their UI labels. Lives here (shared) so both
 // the UI's display helpers and the server can reference the canonical set.
+// Verified against `codex debug models` on codex-cli 0.130.0 (2026-05-11).
+// Default first: gpt-5.5 is what the standalone codex CLI uses for
+// ChatGPT-login users.
 export const CODEX_MODELS: { value: string; label: string }[] = [
-  { value: "gpt-5", label: "GPT-5" },
-  { value: "gpt-5-mini", label: "GPT-5 mini" },
-  { value: "gpt-5-codex", label: "GPT-5 Codex" },
+  { value: "gpt-5.5", label: "GPT-5.5" },
+  { value: "gpt-5.4", label: "GPT-5.4" },
+  { value: "gpt-5.4-mini", label: "GPT-5.4 mini" },
+  { value: "gpt-5.3-codex", label: "GPT-5.3 Codex" },
+  { value: "gpt-5.2", label: "GPT-5.2" },
 ];
 
 // Extract "4.7" from "claude-opus-4-7" for display
@@ -176,8 +181,8 @@ export interface AgentInfo {
   permissionMode: AgentPermissionMode;
   // Backend-specific model identifier. For Claude this is a ModelFamily
   // ("opus"/"sonnet"/"haiku"); for Codex this is the GPT-5 family value
-  // ("gpt-5"/"gpt-5-mini"/"gpt-5-codex"). Display logic narrows on
-  // agentType before rendering.
+  // ("gpt-5.5"/"gpt-5.4"/"gpt-5.4-mini"/"gpt-5.3-codex"/"gpt-5.2"). Display
+  // logic narrows on agentType before rendering.
   modelFamily: string;
   effort: EffortLevel;
   state: AgentState;
