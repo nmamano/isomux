@@ -1,0 +1,996 @@
+// Codex backend adapter.
+//
+// Implements the Backend / BackendSession contracts (server/backends/types.ts)
+// against the Codex App Server's JSON-RPC lite protocol via the
+// JsonRpcLiteClient in ./client.ts. One CodexSession owns one threadId and
+// one subprocess for v1 — symmetric with Claude. The client layer is built so
+// a future shared-subprocess deployment can swap in without touching this
+// adapter (subscribers filter by threadId from day one).
+//
+// Critical invariants this code maintains (per the Codex Expert's review):
+//
+//   1. Exactly one turn_completed NormalizedEvent per send(). Codex emits one
+//      turn/completed per turn (Completed or Failed); turn/interrupted maps
+//      to status:"interrupted". Subprocess death mid-turn synthesizes a
+//      failed turn_completed so the orchestrator's pendingTurn unblocks.
+//
+//   2. Per-thread filtering. Every codex notification with a threadId is
+//      filtered against this session's threadId. Sub-agent / review-mode
+//      child threads have their own ids and must never resolve our turn.
+//
+//   3. experimentalApi: true at initialize. We generated schemas with
+//      --experimental, so missing this flag would silently strip experimental
+//      fields on the wire.
+//
+//   4. userAgent cross-check at handshake. The version-check at boot reads
+//      `codex --version` from PATH, which may resolve to a different binary
+//      than the one we spawn here (PATH changes, version managers). We
+//      re-verify against InitializeResponse.userAgent.
+
+import { readFileSync } from "fs";
+
+import type { Attachment } from "../../../shared/types.ts";
+import { getFilePath } from "../../persistence.ts";
+
+import type {
+  ApprovalDecision,
+  AttachmentSpec,
+  Backend,
+  BackendCapabilities,
+  BackendSession,
+  CreateSessionOptions,
+  ModelOption,
+  NormalizedEvent,
+  NormalizedMessage,
+  OneShotOptions,
+  PermissionModeOption,
+  TokenUsage,
+} from "../types.ts";
+
+import {
+  JsonRpcLiteClient,
+  PASS,
+  type JsonRpcId,
+  type JsonRpcLiteClientOptions,
+  type JsonRpcNotification,
+  type JsonRpcRequest,
+} from "./client.ts";
+import { CODEX_CLI_PINNED_VERSION } from "./version-check.ts";
+
+import type { InitializeParams } from "./_generated/InitializeParams.ts";
+import type { InitializeResponse } from "./_generated/InitializeResponse.ts";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const LOGIN_INSTRUCTIONS = `Codex is not signed in. Run \`codex login\` in a terminal, or set OPENAI_API_KEY.`;
+
+const AUTH_ERROR_PATTERNS = /unauthori[zs]ed|not authenticated|authentication|auth.*expired|invalid.*token|login.*required|chatgpt.*login|openai_api_key|403|401/i;
+
+// Capability flags for the Codex backend. Match the spec's parity table.
+// hooks: false — Codex emits hook/* notifications but provides no programmatic
+// register-from-client surface at 0.130, so the v1 capability flag is off.
+const CAPABILITIES: BackendCapabilities = {
+  fork: true,
+  hooks: false,
+  skills: true,
+  oneShot: true,
+  canUseTool: true,
+  topicGen: true,
+  edit: true,
+  mcp: true,
+};
+
+// Model options. We expose the families users typically pick; codex resolves
+// the underlying provider/model.
+const MODEL_OPTIONS: ModelOption[] = [
+  { value: "gpt-5", label: "GPT-5" },
+  { value: "gpt-5-mini", label: "GPT-5 mini" },
+  { value: "gpt-5-codex", label: "GPT-5 Codex" },
+];
+
+// Permission/approval mode options. AskForApproval enum + we expose the four
+// string variants. The granular variant is gated behind experimentalApi but
+// deferred to v1.x per the spec.
+const PERMISSION_MODES: PermissionModeOption[] = [
+  { value: "untrusted", label: "Untrusted — ask on every tool" },
+  { value: "on-request", label: "On request — ask when model asks" },
+  { value: "on-failure", label: "On failure — ask only when blocked" },
+  { value: "never", label: "Never ask (use with sandbox)" },
+];
+
+// Default sandbox if the caller doesn't pass one. workspace-write is the
+// "Claude-equivalent default" preset from the spec's reference mapping.
+const DEFAULT_SANDBOX_MODE = "workspace-write";
+
+const CLIENT_INFO_NAME = "isomux";
+const CLIENT_INFO_VERSION = "1.0.0";
+
+// ---------------------------------------------------------------------------
+// CodexSession
+// ---------------------------------------------------------------------------
+//
+// State machine:
+//
+//   constructor()
+//        │  (spawn subprocess; start bootstrap)
+//        ▼
+//   INITIALIZING ──── initialize() + thread/start ────► READY (system_init emitted)
+//        │                                                  │
+//        │                                                  │  send()/approve()/abort()
+//        ▼                                                  │
+//      CLOSED  ◄──────── close() ────────────────────────── │
+//
+// While INITIALIZING, send/approve/abort calls queue or reject (we just
+// reject — orchestrator-level state prevents calls until system_init lands).
+//
+// Stream output is buffered exactly like ClaudeSession: enqueue + wake the
+// stream's parked promise; stream() yields from buffer.
+
+interface PendingApproval {
+  jsonRpcId: JsonRpcId;
+  toolName: string;
+}
+
+interface CodexSessionInitOpts {
+  agentId: string;
+  cwd: string;
+  systemPrompt: string;
+  modelFamily: string;
+  effort: string;
+  permissionMode: string;
+  sandbox?: string;       // SandboxMode enum string; falls back to DEFAULT_SANDBOX_MODE
+  env?: { [key: string]: string | undefined };
+  resumeThreadId?: string;
+  ephemeral?: boolean;
+}
+
+class CodexSession implements BackendSession {
+  private client: JsonRpcLiteClient;
+  private threadId: string | null = null;
+  private activeTurnId: string | null = null;
+  private buffer: NormalizedEvent[] = [];
+  private resolveWake: (() => void) | null = null;
+  private ended = false;
+  private closed = false;
+  // Tracks whether we've yielded turn_completed for the current turn so we
+  // can synthesize a failed one on subprocess exit if not.
+  private turnInFlight = false;
+  // jsonRpcId-keyed map of in-flight server-initiated approval requests. The
+  // orchestrator references these by approvalId == jsonRpcId.
+  private pendingApprovals = new Map<string, PendingApproval>();
+  // Running totals from Codex's cumulative tokenUsage notifications. We diff
+  // against this when emitting usage_update so the orchestrator's accumulator
+  // (which sums deltas) gets the right value.
+  private lastCumulativeUsage: TokenUsage = {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadInputTokens: 0,
+    cacheCreationInputTokens: 0,
+  };
+
+  constructor(
+    private readonly opts: CodexSessionInitOpts,
+  ) {
+    const clientOpts: JsonRpcLiteClientOptions = {
+      cwd: opts.cwd,
+      env: opts.env,
+    };
+    this.client = new JsonRpcLiteClient(clientOpts);
+    this.client.onStderr((chunk) => this.handleStderr(chunk));
+    this.client.onNotification((n) => this.handleNotification(n));
+    this.client.onServerRequest((req) => this.handleServerRequest(req));
+    this.client.onExit((code, signal) => this.handleSubprocessExit(code, signal));
+    void this.bootstrap();
+  }
+
+  // -------------------------------------------------------------------------
+  // Bootstrap: spawn → initialize → thread/start → emit system_init
+  // -------------------------------------------------------------------------
+
+  private async bootstrap(): Promise<void> {
+    try {
+      this.client.start();
+      const initParams: InitializeParams = {
+        clientInfo: {
+          name: CLIENT_INFO_NAME,
+          version: CLIENT_INFO_VERSION,
+          title: null,
+        },
+        capabilities: {
+          experimentalApi: true,
+          optOutNotificationMethods: null,
+        },
+      };
+      const initResp = await this.client.initialize(initParams);
+      this.verifyUserAgent(initResp.userAgent);
+
+      if (this.opts.resumeThreadId) {
+        // Resume an existing thread.
+        const resumeResp = await this.client.request<{ thread: { id: string } }>(
+          "thread/resume",
+          { threadId: this.opts.resumeThreadId },
+        );
+        this.threadId = resumeResp.thread.id;
+      } else {
+        // Start a new thread.
+        const startParams = this.buildThreadStartParams();
+        const startResp = await this.client.request<{ thread: { id: string } }>(
+          "thread/start",
+          startParams,
+        );
+        this.threadId = startResp.thread.id;
+      }
+
+      this.enqueue({
+        kind: "system_init",
+        sessionId: this.threadId,
+        slashCommands: [],
+        model: this.opts.modelFamily,
+      });
+    } catch (err: any) {
+      this.enqueue({
+        kind: "error",
+        message: `Codex bootstrap failed: ${err?.message ?? String(err)}`,
+      });
+      this.markEnded();
+    }
+  }
+
+  private buildThreadStartParams(): Record<string, unknown> {
+    // sandbox is a SandboxMode enum string; approvalPolicy is the
+    // AskForApproval enum string. We deliberately keep this as a plain
+    // Record so the codegen union strictness doesn't fight us — the wire
+    // schema is what we're targeting.
+    const params: Record<string, unknown> = {
+      cwd: this.opts.cwd,
+      developerInstructions: this.opts.systemPrompt,
+      model: this.opts.modelFamily,
+      sandbox: this.opts.sandbox ?? DEFAULT_SANDBOX_MODE,
+      approvalPolicy: this.opts.permissionMode,
+      experimentalRawEvents: false,
+      // persistExtendedHistory is deprecated in 0.130 and ignored by the
+      // server, but the wire schema still requires the field.
+      persistExtendedHistory: false,
+    };
+    if (this.opts.ephemeral) params.ephemeral = true;
+    if (this.opts.effort) {
+      // ReasoningEffort enum string. Best-effort pass-through; codex
+      // accepts a subset, mismatched values fail at handshake time.
+      params.reasoningEffort = this.opts.effort;
+    }
+    return params;
+  }
+
+  private verifyUserAgent(userAgent: string): void {
+    // userAgent format example:
+    //   "isomux/1.0.0 (Ubuntu 24.4.0; x86_64) unknown (isomux; 1.0.0)"
+    //                          ^ that's the codex server's UA composite
+    // The codex CLI version is embedded after the server slug — but the
+    // format is enough of a moving target that we just look for the pinned
+    // version substring anywhere in the string. Mismatch is a warning, not
+    // a hard fail (we still try to operate).
+    if (!userAgent.includes(CODEX_CLI_PINNED_VERSION)) {
+      this.enqueue({
+        kind: "system_text",
+        text:
+          `Note: connected codex server reports user agent "${userAgent}" ` +
+          `which does not contain pinned version ${CODEX_CLI_PINNED_VERSION}. ` +
+          `Generated TS schemas may not match the running CLI; regenerate via \`bun run gen:codex-schemas\` if issues arise.`,
+      });
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // BackendSession surface
+  // -------------------------------------------------------------------------
+
+  async *stream(): AsyncGenerator<NormalizedEvent, void> {
+    while (true) {
+      while (this.buffer.length > 0) {
+        yield this.buffer.shift()!;
+      }
+      if (this.ended) return;
+      await new Promise<void>((resolve) => {
+        this.resolveWake = resolve;
+      });
+    }
+  }
+
+  async send(text: string, attachments?: AttachmentSpec[]): Promise<void> {
+    if (this.closed) throw new Error("CodexSession.send: session is closed");
+    if (!this.threadId) throw new Error("CodexSession.send: not initialized yet");
+
+    const input = buildCodexUserInput(text, attachments, this.opts.agentId);
+    this.turnInFlight = true;
+    await this.client.request("turn/start", {
+      threadId: this.threadId,
+      input,
+    });
+  }
+
+  async approve(approvalId: string, decision: ApprovalDecision): Promise<void> {
+    const pending = this.pendingApprovals.get(approvalId);
+    if (!pending) return;
+    this.pendingApprovals.delete(approvalId);
+    const decisionWire = mapApprovalDecision(decision);
+    // Codex's approval responses always use { decision: <ReviewDecision> }.
+    this.client.respond(pending.jsonRpcId, { decision: decisionWire });
+  }
+
+  async abort(): Promise<void> {
+    if (this.closed) return;
+    if (!this.threadId || !this.activeTurnId) {
+      // Nothing to interrupt — no in-flight turn.
+      return;
+    }
+    try {
+      await this.client.request("turn/interrupt", {
+        threadId: this.threadId,
+        turnId: this.activeTurnId,
+      });
+    } catch (err: any) {
+      this.enqueue({
+        kind: "system_text",
+        text: `Codex interrupt failed: ${err?.message ?? String(err)}`,
+      });
+    }
+  }
+
+  close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    // Resolve in-flight approvals with deny so the codex side stops waiting.
+    for (const [, pending] of this.pendingApprovals) {
+      try {
+        this.client.respondWithError(pending.jsonRpcId, -32000, "Session closed");
+      } catch {}
+    }
+    this.pendingApprovals.clear();
+    // Fire-and-forget close on the client; subprocess exit handler tidies up.
+    void this.client.close();
+    this.markEnded();
+  }
+
+  // -------------------------------------------------------------------------
+  // Buffer / wake helpers
+  // -------------------------------------------------------------------------
+
+  private enqueue(ev: NormalizedEvent): void {
+    this.buffer.push(ev);
+    this.wake();
+  }
+
+  private wake(): void {
+    if (this.resolveWake) {
+      const r = this.resolveWake;
+      this.resolveWake = null;
+      r();
+    }
+  }
+
+  private markEnded(): void {
+    this.ended = true;
+    this.wake();
+  }
+
+  // -------------------------------------------------------------------------
+  // Notification routing
+  // -------------------------------------------------------------------------
+
+  private handleNotification(n: JsonRpcNotification): void {
+    const params = n.params as any;
+    // Per-thread filter: every notification carrying a threadId must match
+    // ours. Sub-agent / review-mode child threads have their own ids.
+    const eventThreadId = params?.threadId;
+    if (eventThreadId !== undefined && this.threadId && eventThreadId !== this.threadId) {
+      return;
+    }
+
+    switch (n.method) {
+      // ---- Turn lifecycle ----
+      case "turn/started": {
+        const turn = params?.turn as { id?: string } | undefined;
+        if (turn?.id) this.activeTurnId = turn.id;
+        break;
+      }
+      case "turn/completed": {
+        const turn = params?.turn as {
+          status?: string;
+          error?: { message?: string } | null;
+        } | undefined;
+        const status = mapTurnStatus(turn?.status);
+        const error = turn?.error?.message ?? undefined;
+        this.activeTurnId = null;
+        this.turnInFlight = false;
+        this.enqueue({
+          kind: "turn_completed",
+          status,
+          error,
+        });
+        break;
+      }
+
+      // ---- Token usage (cumulative; convert to delta) ----
+      case "thread/tokenUsage/updated": {
+        const usage = params?.usage as any;
+        if (!usage) break;
+        const cumulative: TokenUsage = {
+          inputTokens: usage.inputTokens ?? 0,
+          outputTokens: usage.outputTokens ?? 0,
+          cacheReadInputTokens: usage.cacheReadInputTokens ?? 0,
+          cacheCreationInputTokens: usage.cacheCreationInputTokens ?? 0,
+        };
+        const delta: TokenUsage = {
+          inputTokens: Math.max(0, cumulative.inputTokens - this.lastCumulativeUsage.inputTokens),
+          outputTokens: Math.max(0, cumulative.outputTokens - this.lastCumulativeUsage.outputTokens),
+          cacheReadInputTokens: Math.max(0, cumulative.cacheReadInputTokens - this.lastCumulativeUsage.cacheReadInputTokens),
+          cacheCreationInputTokens: Math.max(0, cumulative.cacheCreationInputTokens - this.lastCumulativeUsage.cacheCreationInputTokens),
+        };
+        this.lastCumulativeUsage = cumulative;
+        this.enqueue({ kind: "usage_update", tokenUsage: delta });
+        break;
+      }
+
+      // ---- Item lifecycle ----
+      case "item/started":
+        // Carries the full ThreadItem but we wait for completion or deltas.
+        break;
+      case "item/completed": {
+        const item = params?.item;
+        if (item) this.translateCompletedItem(item);
+        break;
+      }
+      case "item/agentMessage/delta": {
+        const delta = params?.delta as string | undefined;
+        if (delta) this.enqueue({ kind: "assistant_text", text: delta });
+        break;
+      }
+      case "item/reasoning/textDelta":
+      case "item/reasoning/summaryTextDelta": {
+        const delta = params?.delta as string | undefined;
+        if (delta) this.enqueue({ kind: "thinking", text: delta });
+        break;
+      }
+
+      // ---- Mid-conversation compaction ----
+      case "thread/compacted": {
+        const summary = params?.summary as string | undefined;
+        this.enqueue({ kind: "compacted", summary });
+        break;
+      }
+
+      // ---- Failure / warnings ----
+      case "error": {
+        const message = params?.message as string | undefined;
+        if (message) this.enqueue({ kind: "error", message });
+        break;
+      }
+      case "warning":
+      case "guardianWarning":
+      case "deprecationNotice":
+      case "configWarning":
+      case "model/rerouted": {
+        const text = params?.message as string | undefined;
+        if (text) this.enqueue({ kind: "system_text", text: `[${n.method}] ${text}` });
+        break;
+      }
+
+      // ---- Plan stream (collapse to system_text at v1) ----
+      case "item/plan/delta": {
+        const text = params?.delta as string | undefined;
+        if (text) this.enqueue({ kind: "system_text", text });
+        break;
+      }
+
+      // Everything else (hook/*, fuzzy*, mcpServer/*, thread/realtime/*,
+      // account/*, app/*, fs/*, process/*, windows*, externalAgentConfig/*,
+      // remoteControl/*, thread/goal/*, rawResponseItem/*, item/auto-
+      // ApprovalReview/*, item/commandExecution/outputDelta, etc.): ignored
+      // at v1. The "item/...outputDelta" streams could feed richer UI later.
+      default:
+        break;
+    }
+  }
+
+  private translateCompletedItem(item: any): void {
+    switch (item?.type) {
+      case "agentMessage": {
+        const text = item.text as string | undefined;
+        if (text) this.enqueue({ kind: "assistant_text", text });
+        break;
+      }
+      case "reasoning": {
+        const summary = Array.isArray(item.summary) ? item.summary.join("\n") : "";
+        const content = Array.isArray(item.content) ? item.content.join("\n") : "";
+        const joined = [summary, content].filter(Boolean).join("\n\n");
+        if (joined) this.enqueue({ kind: "thinking", text: joined });
+        break;
+      }
+      case "commandExecution": {
+        const command = item.command as string | undefined;
+        const cwd = item.cwd as string | undefined;
+        const aggregatedOutput = item.aggregatedOutput as string | undefined;
+        const exitCode = item.exitCode as number | undefined;
+        const durationMs = item.durationMs as number | undefined;
+        const toolUseId = item.id as string;
+        this.enqueue({
+          kind: "tool_call",
+          toolUseId,
+          name: "Bash",
+          input: cwd ? { command, cwd } : { command },
+        });
+        const content =
+          (aggregatedOutput ?? "") +
+          (exitCode != null ? `\n(exit code ${exitCode})` : "");
+        this.enqueue({
+          kind: "tool_result",
+          toolUseId,
+          content,
+          durationMs: durationMs ?? undefined,
+          isError: exitCode != null && exitCode !== 0,
+        });
+        break;
+      }
+      case "fileChange": {
+        const toolUseId = item.id as string;
+        const changes = Array.isArray(item.changes) ? item.changes : [];
+        const summary = changes
+          .map((c: any) => `${c.path ?? "?"} (${c.kind ?? "modified"})`)
+          .join("\n");
+        const status = item.status as string | undefined;
+        this.enqueue({
+          kind: "tool_call",
+          toolUseId,
+          name: "Edit",
+          input: { changes },
+        });
+        this.enqueue({
+          kind: "tool_result",
+          toolUseId,
+          content: `${summary}\n\nstatus: ${status ?? "unknown"}`,
+          isError: status != null && status !== "applied",
+        });
+        break;
+      }
+      case "mcpToolCall": {
+        const toolUseId = item.id as string;
+        const server = item.server as string;
+        const tool = item.tool as string;
+        const durationMs = item.durationMs as number | undefined;
+        this.enqueue({
+          kind: "tool_call",
+          toolUseId,
+          name: `mcp__${server}__${tool}`,
+          input: (item.arguments ?? {}) as Record<string, unknown>,
+        });
+        const result = item.result;
+        const error = item.error;
+        const content = error
+          ? `Error: ${JSON.stringify(error)}`
+          : JSON.stringify(result ?? {});
+        this.enqueue({
+          kind: "tool_result",
+          toolUseId,
+          content,
+          durationMs: durationMs ?? undefined,
+          isError: !!error,
+        });
+        break;
+      }
+      case "webSearch": {
+        const toolUseId = item.id as string;
+        const query = item.query as string | undefined;
+        this.enqueue({
+          kind: "tool_call",
+          toolUseId,
+          name: "WebSearch",
+          input: query ? { query } : {},
+        });
+        this.enqueue({
+          kind: "tool_result",
+          toolUseId,
+          content: JSON.stringify(item.action ?? {}),
+        });
+        break;
+      }
+      case "plan": {
+        const text = item.text as string | undefined;
+        if (text) this.enqueue({ kind: "system_text", text });
+        break;
+      }
+      case "contextCompaction":
+        this.enqueue({ kind: "compacted" });
+        break;
+      // userMessage, hookPrompt, dynamicToolCall, collabAgentToolCall,
+      // imageView, imageGeneration, enteredReviewMode, exitedReviewMode:
+      // ignored at v1.
+      default:
+        break;
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Server-initiated request routing
+  // -------------------------------------------------------------------------
+
+  private async handleServerRequest(req: JsonRpcRequest): Promise<unknown | typeof PASS> {
+    const params = req.params as any;
+    // Per-thread filter on server requests that target a thread.
+    if (params?.threadId !== undefined && this.threadId && params.threadId !== this.threadId) {
+      return PASS;
+    }
+
+    switch (req.method) {
+      // ---- Approvals (route through orchestrator) ----
+      case "applyPatchApproval":
+      case "execCommandApproval":
+      case "item/commandExecution/requestApproval":
+      case "item/fileChange/requestApproval":
+      case "item/permissions/requestApproval": {
+        const approvalId = String(req.id);
+        const toolName = inferToolNameFromApproval(req.method, params);
+        const title = inferApprovalTitle(req.method, params);
+        const description = inferApprovalDescription(req.method, params);
+        this.pendingApprovals.set(approvalId, { jsonRpcId: req.id, toolName });
+        this.enqueue({
+          kind: "approval_request",
+          approvalId,
+          toolName,
+          input: extractApprovalInput(req.method, params),
+          title,
+          description,
+        });
+        // Defer the response — approve() will respond. Returning a never-
+        // resolving promise here would leak; instead we return PASS-like
+        // semantics by NOT returning (so the handler waits) ... but the
+        // client expects a return value. Workaround: return a never-
+        // resolving promise so the response is sent only when approve() is
+        // called. The client's onServerRequest handler awaits us; we keep
+        // the promise pending and respond manually from approve().
+        return new Promise<unknown>(() => {});
+      }
+
+      // ---- Auto-decline (with system_text note) ----
+      case "item/tool/requestUserInput":
+        this.enqueue({
+          kind: "system_text",
+          text: `Auto-declined tool requestUserInput from codex (v1 doesn't support structured Q&A from agents).`,
+        });
+        return { canceled: true };
+
+      case "mcpServer/elicitation/request":
+        this.enqueue({
+          kind: "system_text",
+          text: `Auto-declined MCP elicitation request (v1 doesn't surface MCP elicitation UX).`,
+        });
+        return { action: "decline" };
+
+      case "item/tool/call":
+        this.enqueue({
+          kind: "system_text",
+          text: `Auto-declined dynamicToolCall from codex (v1 doesn't expose dynamic tools).`,
+        });
+        return { canceled: true };
+
+      // ---- Auth token refresh (handle silently if possible) ----
+      case "account/chatgptAuthTokens/refresh":
+        // We don't have a token store; respond with an error so codex falls
+        // back to user-facing login flow.
+        this.enqueue({
+          kind: "error",
+          message: `Codex requested a ChatGPT auth token refresh, but Isomux has no token store. ${LOGIN_INSTRUCTIONS}`,
+        });
+        return PASS;
+
+      default:
+        // Unknown server request — let the client respond method-not-found.
+        return PASS;
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Stderr + subprocess exit
+  // -------------------------------------------------------------------------
+
+  private handleStderr(chunk: string): void {
+    // Codex stderr is opaque process output. Route to the agent log as
+    // system_text so the boss has visibility. Trim trailing newlines and
+    // skip pure whitespace.
+    const text = chunk.trimEnd();
+    if (!text) return;
+    this.enqueue({ kind: "system_text", text: `[codex stderr] ${text}` });
+  }
+
+  private handleSubprocessExit(code: number | null, signal: NodeJS.Signals | null): void {
+    if (this.closed) return;
+    // If a turn was in flight when codex died, synthesize a failed
+    // turn_completed so the orchestrator's pendingTurn unblocks.
+    if (this.turnInFlight) {
+      this.turnInFlight = false;
+      this.enqueue({
+        kind: "turn_completed",
+        status: "failed",
+        error: `codex subprocess exited${code != null ? ` (code ${code})` : ""}${signal ? ` (signal ${signal})` : ""} mid-turn`,
+      });
+    } else {
+      this.enqueue({
+        kind: "system_text",
+        text: `Codex subprocess exited${code != null ? ` (code ${code})` : ""}${signal ? ` (signal ${signal})` : ""}.`,
+      });
+    }
+    this.markEnded();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function mapTurnStatus(status: string | undefined): "completed" | "interrupted" | "failed" {
+  switch (status) {
+    case "completed":
+      return "completed";
+    case "interrupted":
+      return "interrupted";
+    case "failed":
+      return "failed";
+    default:
+      return "failed";
+  }
+}
+
+function mapApprovalDecision(decision: ApprovalDecision): string {
+  // Codex's ReviewDecision enum: "approved" | "approved_for_session" | "denied"
+  switch (decision.kind) {
+    case "allow_persistent":
+      return "approved_for_session";
+    case "allow_once":
+      return "approved";
+    case "deny":
+      return "denied";
+  }
+}
+
+function inferToolNameFromApproval(method: string, _params: any): string {
+  switch (method) {
+    case "applyPatchApproval":
+    case "item/fileChange/requestApproval":
+      return "Edit";
+    case "execCommandApproval":
+    case "item/commandExecution/requestApproval":
+      return "Bash";
+    case "item/permissions/requestApproval":
+      return "Permissions";
+    default:
+      return method;
+  }
+}
+
+function inferApprovalTitle(method: string, params: any): string {
+  switch (method) {
+    case "applyPatchApproval":
+    case "item/fileChange/requestApproval":
+      return `Codex wants to apply a patch`;
+    case "execCommandApproval":
+    case "item/commandExecution/requestApproval": {
+      const cmd = (params?.command ?? params?.commandActions?.[0]?.command ?? "") as string;
+      return cmd ? `Codex wants to run: \`${cmd.slice(0, 80)}\`` : `Codex wants to run a command`;
+    }
+    case "item/permissions/requestApproval":
+      return `Codex wants to change permissions`;
+    default:
+      return `Codex wants approval`;
+  }
+}
+
+function inferApprovalDescription(_method: string, params: any): string | undefined {
+  const reason = params?.reason;
+  if (typeof reason === "string" && reason.trim()) return reason;
+  return undefined;
+}
+
+function extractApprovalInput(_method: string, params: any): Record<string, unknown> {
+  // The orchestrator displays this for context; just hand back the params
+  // verbatim, copied as a plain object.
+  if (params && typeof params === "object") {
+    return { ...params };
+  }
+  return {};
+}
+
+// Build the UserInput[] for turn/start from plain text + Isomux attachments.
+// Codex's UserInput variants are: text, image, localImage, skill, mention. For
+// v1 we pass text + localImage paths for image attachments; non-image
+// attachments (PDFs, text files) get inlined as a text description. This is
+// a UX simplification — richer attachment support is a follow-up.
+function buildCodexUserInput(
+  text: string,
+  attachments: AttachmentSpec[] | undefined,
+  agentId: string,
+): Array<Record<string, unknown>> {
+  const inputs: Array<Record<string, unknown>> = [];
+  if (text) {
+    inputs.push({ type: "text", text, text_elements: [] });
+  }
+  if (attachments && attachments.length > 0) {
+    const textChunks: string[] = [];
+    for (const att of attachments) {
+      const filePath = getFilePath(agentId, att.filename);
+      if (!filePath) continue;
+      if (att.mediaType.startsWith("image/")) {
+        inputs.push({ type: "localImage", path: filePath });
+      } else if (att.mediaType === "application/pdf") {
+        textChunks.push(`Attached PDF "${att.originalName}" at ${filePath}`);
+      } else {
+        // Text-ish file: inline up to a reasonable cap.
+        try {
+          const content = readFileSync(filePath, "utf-8");
+          textChunks.push(`--- File: ${att.originalName} ---\n${content}\n---`);
+        } catch {
+          textChunks.push(`Attached file ${att.originalName} (could not read content) at ${filePath}`);
+        }
+      }
+    }
+    if (textChunks.length > 0) {
+      inputs.push({ type: "text", text: textChunks.join("\n\n"), text_elements: [] });
+    }
+  }
+  // turn/start with empty input is invalid; ensure at least an empty text.
+  if (inputs.length === 0) {
+    inputs.push({ type: "text", text: "", text_elements: [] });
+  }
+  return inputs;
+}
+
+// ---------------------------------------------------------------------------
+// Backend implementation
+// ---------------------------------------------------------------------------
+
+export const codexBackend: Backend = {
+  capabilities: CAPABILITIES,
+
+  getModelOptions(): ModelOption[] {
+    return MODEL_OPTIONS;
+  },
+
+  getPermissionModes(): PermissionModeOption[] {
+    return PERMISSION_MODES;
+  },
+
+  createSession(opts: CreateSessionOptions): BackendSession {
+    return new CodexSession({
+      agentId: opts.agentId,
+      cwd: opts.cwd,
+      systemPrompt: opts.systemPrompt,
+      modelFamily: opts.modelFamily,
+      effort: opts.effort,
+      permissionMode: opts.permissionMode,
+      env: opts.env,
+    });
+  },
+
+  resumeSession(sessionId: string, opts: CreateSessionOptions): BackendSession {
+    return new CodexSession({
+      agentId: opts.agentId,
+      cwd: opts.cwd,
+      systemPrompt: opts.systemPrompt,
+      modelFamily: opts.modelFamily,
+      effort: opts.effort,
+      permissionMode: opts.permissionMode,
+      env: opts.env,
+      resumeThreadId: sessionId,
+    });
+  },
+
+  async forkSession(sessionId: string, upToMessageId: string): Promise<{ sessionId: string }> {
+    // thread/fork is a standalone request: spawn a temporary client just to
+    // issue the RPC, then close it. Codex's app-server treats fork as a
+    // server-state operation; the new thread id is returned in the response.
+    const client = new JsonRpcLiteClient();
+    try {
+      client.start();
+      await client.initialize({
+        clientInfo: { name: CLIENT_INFO_NAME, version: CLIENT_INFO_VERSION, title: null },
+        capabilities: { experimentalApi: true, optOutNotificationMethods: null },
+      });
+      const resp = await client.request<{ thread: { id: string } }>("thread/fork", {
+        threadId: sessionId,
+        path: upToMessageId,
+      });
+      return { sessionId: resp.thread.id };
+    } finally {
+      await client.close();
+    }
+  },
+
+  async getSessionMessages(sessionId: string): Promise<NormalizedMessage[]> {
+    // thread/read returns the full thread state including items. We flatten
+    // user and assistant items into NormalizedMessage[].
+    const client = new JsonRpcLiteClient();
+    try {
+      client.start();
+      await client.initialize({
+        clientInfo: { name: CLIENT_INFO_NAME, version: CLIENT_INFO_VERSION, title: null },
+        capabilities: { experimentalApi: true, optOutNotificationMethods: null },
+      });
+      const resp = await client.request<{ thread: { items?: any[] } }>("thread/read", { threadId: sessionId });
+      const items = resp.thread?.items ?? [];
+      const out: NormalizedMessage[] = [];
+      for (const item of items) {
+        if (item?.type === "userMessage") {
+          const text = Array.isArray(item.content)
+            ? item.content.filter((c: any) => c.type === "text").map((c: any) => c.text).join("")
+            : "";
+          out.push({ uuid: item.id, role: "user", text });
+        } else if (item?.type === "agentMessage") {
+          out.push({ uuid: item.id, role: "assistant", text: item.text ?? "" });
+        }
+      }
+      return out;
+    } finally {
+      await client.close();
+    }
+  },
+
+  async oneShotPrompt(prompt: string, opts: OneShotOptions): Promise<string> {
+    // Per the spec: thread/start ephemeral:true → turn/start → consume one
+    // agentMessage → thread/archive. Costs one turn but mirrors Claude's
+    // unstable_v2_prompt flow.
+    const client = new JsonRpcLiteClient({ cwd: opts.cwd, env: opts.env });
+    try {
+      client.start();
+      await client.initialize({
+        clientInfo: { name: CLIENT_INFO_NAME, version: CLIENT_INFO_VERSION, title: null },
+        capabilities: { experimentalApi: true, optOutNotificationMethods: null },
+      });
+      const startResp = await client.request<{ thread: { id: string } }>("thread/start", {
+        cwd: opts.cwd,
+        model: opts.modelFamily,
+        sandbox: "read-only",
+        approvalPolicy: "never",
+        ephemeral: true,
+        experimentalRawEvents: false,
+        persistExtendedHistory: false,
+      });
+      const threadId = startResp.thread.id;
+      let result = "";
+      let resolved = false;
+      const done = new Promise<void>((resolve) => {
+        client.onNotification((n) => {
+          if ((n.params as any)?.threadId !== threadId) return;
+          if (n.method === "item/completed") {
+            const item = (n.params as any)?.item;
+            if (item?.type === "agentMessage" && typeof item.text === "string") {
+              result = item.text;
+            }
+          } else if (n.method === "turn/completed") {
+            if (!resolved) { resolved = true; resolve(); }
+          } else if (n.method === "error") {
+            if (!resolved) { resolved = true; resolve(); }
+          }
+        });
+      });
+      await client.request("turn/start", {
+        threadId,
+        input: [{ type: "text", text: prompt, text_elements: [] }],
+      });
+      await done;
+      // Best-effort archive; ignore errors.
+      try { await client.request("thread/archive", { threadId }); } catch {}
+      return result;
+    } finally {
+      await client.close();
+    }
+  },
+
+  detectAuthError(text: string): boolean {
+    return AUTH_ERROR_PATTERNS.test(text);
+  },
+
+  getLoginInstructions(): string {
+    return LOGIN_INSTRUCTIONS;
+  },
+};
+

@@ -8,13 +8,14 @@
 import type { AgentBackendType } from "../../shared/types.ts";
 import type { Backend } from "./types.ts";
 import { claudeBackend } from "./claude.ts";
+import { codexBackend } from "./codex/adapter.ts";
 
 export function getBackend(agentType: AgentBackendType): Backend {
   switch (agentType) {
     case "claude":
       return claudeBackend;
     case "codex":
-      throw new Error("Codex backend is not yet wired (planned for step 7 of task f352984f).");
+      return codexBackend;
     default: {
       const _exhaustive: never = agentType;
       throw new Error(`Unknown agentType: ${JSON.stringify(_exhaustive)}`);

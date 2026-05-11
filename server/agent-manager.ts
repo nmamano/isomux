@@ -74,7 +74,6 @@ import {
   type EventHandler,
   type InternalRoom,
 } from "./internal-types.ts";
-import { claudeBackend } from "./backends/claude.ts";
 import { getBackend } from "./backends/index.ts";
 import type { BackendSession, NormalizedEvent } from "./backends/types.ts";
 
@@ -89,6 +88,20 @@ Once complete, it takes effect immediately for all Isomux agents.`;
 const AUTH_ERROR_PATTERNS = /unauthori[zs]ed|not authenticated|authentication|auth.*expired|invalid.*token|login.*required|403|401/i;
 function isAuthError(text: string): boolean {
   return AUTH_ERROR_PATTERNS.test(text);
+}
+
+// Per-agent auth-error check + login instructions. Routes through the agent's
+// backend so a Codex agent sees Codex's login message, not Claude's. Falls
+// back to the orchestrator-local check + Claude instructions for callers that
+// don't have an agent context (legacy paths or paths where the agent's
+// backend is genuinely uncertain).
+function detectAgentAuthError(managed: ManagedAgent | undefined, text: string): boolean {
+  if (!managed) return isAuthError(text);
+  return getBackend(managed.info.agentType).detectAuthError(text);
+}
+function agentLoginInstructions(managed: ManagedAgent | undefined): string {
+  if (!managed) return LOGIN_INSTRUCTIONS;
+  return getBackend(managed.info.agentType).getLoginInstructions();
 }
 
 // Build the metadata blob attached to a user_message log entry. Carries
@@ -771,9 +784,14 @@ async function generateTopic(agentId: string) {
   const prompt = `${context}\n\nRespond with ONLY a short topic description for this conversation, max 8 words. No quotes, no punctuation at the end.`;
 
   try {
-    const text = await claudeBackend.oneShotPrompt(prompt, {
+    const backend = getBackend(managed.info.agentType);
+    // Topic-gen model is backend-specific: Claude uses sonnet (cheap); Codex
+    // uses its default GPT-5 family. Per-backend `oneShotPrompt` honors the
+    // modelFamily arg, so we let the backend pick something sensible.
+    const topicModel = managed.info.agentType === "claude" ? "sonnet" : managed.info.modelFamily;
+    const text = await backend.oneShotPrompt(prompt, {
       cwd: managed.info.cwd,
-      modelFamily: "sonnet",
+      modelFamily: topicModel,
       effort: "medium",
     });
     if (agents.has(agentId) && managed.topicGenToken === startToken) {
@@ -957,8 +975,8 @@ function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
       if (ev.status !== "completed") {
         const errorText = ev.error ?? `Agent stopped: ${ev.status}.`;
         addLogEntry(agentId, "error", errorText);
-        if (isAuthError(errorText)) {
-          addLogEntry(agentId, "system", LOGIN_INSTRUCTIONS);
+        if (detectAgentAuthError(managed, errorText)) {
+          addLogEntry(agentId, "system", agentLoginInstructions(managed));
         }
         updateState(agentId, "error");
       }
@@ -992,13 +1010,15 @@ function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
         ? `Context compacted: ${ev.summary}`
         : "Context compacted.");
       break;
-    case "error":
+    case "error": {
+      const managed = agents.get(agentId);
       addLogEntry(agentId, "error", ev.message);
-      if (isAuthError(ev.message)) {
-        addLogEntry(agentId, "system", LOGIN_INSTRUCTIONS);
+      if (detectAgentAuthError(managed, ev.message)) {
+        addLogEntry(agentId, "system", agentLoginInstructions(managed));
       }
       updateState(agentId, "error");
       break;
+    }
     case "approval_request": {
       const managed = agents.get(agentId);
       if (!managed) break;
@@ -1078,10 +1098,14 @@ async function runConsumer(agentId: string, managed: ManagedAgent, boundSession:
     const errorText = `Stream error: ${err.message}`;
     addLogEntry(agentId, "error", errorText);
     // The SDK's "process exited with code 1" is opaque; diagnose common causes.
-    const hints = diagnoseProcessExit(managed.info.cwd, managed.sessionId);
-    if (hints) addLogEntry(agentId, "system", hints);
-    if (isAuthError(errorText)) {
-      addLogEntry(agentId, "system", LOGIN_INSTRUCTIONS);
+    // diagnoseProcessExit is Claude-specific (reads ~/.claude/projects); only
+    // call it for claude-typed agents.
+    if (managed.info.agentType === "claude") {
+      const hints = diagnoseProcessExit(managed.info.cwd, managed.sessionId);
+      if (hints) addLogEntry(agentId, "system", hints);
+    }
+    if (detectAgentAuthError(managed, errorText)) {
+      addLogEntry(agentId, "system", agentLoginInstructions(managed));
     }
     updateState(agentId, "error");
   }
@@ -1167,7 +1191,11 @@ function createSession(managed: ManagedAgent, resumeSessionId?: string): Backend
   } catch (err: any) {
     throw new Error(`cwd is invalid: ${err.message}. Click the agent name in the log view header to fix it.`);
   }
-  if (resumeSessionId && !claudeSessionFileExists(managed.info.cwd, resumeSessionId)) {
+  if (
+    resumeSessionId &&
+    managed.info.agentType === "claude" &&
+    !claudeSessionFileExists(managed.info.cwd, resumeSessionId)
+  ) {
     throw new Error(
       `Cannot resume session ${resumeSessionId.slice(0, 8)}…: its file is missing from ${claudeProjectDir(managed.info.cwd)}. ` +
       `Most commonly this happens after the agent's cwd was moved or renamed — the Claude CLI stores sessions under a path derived from cwd. ` +
@@ -1199,9 +1227,10 @@ function createSession(managed: ManagedAgent, resumeSessionId?: string): Backend
     permissionMode: managed.info.permissionMode,
     env: buildSessionEnv(managed),
   };
+  const backend = getBackend(managed.info.agentType);
   return resumeSessionId
-    ? claudeBackend.resumeSession(resumeSessionId, opts)
-    : claudeBackend.createSession(opts);
+    ? backend.resumeSession(resumeSessionId, opts)
+    : backend.createSession(opts);
 }
 
 export async function spawn(
@@ -2121,7 +2150,8 @@ export async function editMessage(agentId: string, logEntryId: string, newText: 
     //    For skill-expanded slash commands the log entry's `content` is the
     //    raw command (e.g. "/grill") but the SDK received the expanded prompt;
     //    `metadata.sdkText` captures that expanded form for matching.
-    const backendMessages = await claudeBackend.getSessionMessages(oldSessionId, managed.info.cwd);
+    const backend = getBackend(managed.info.agentType);
+    const backendMessages = await backend.getSessionMessages(oldSessionId, managed.info.cwd);
     const targetUsername = targetEntry.metadata?.username as string | undefined;
     const targetDevice = targetEntry.metadata?.device as string | undefined;
     const targetSdkText = (targetEntry.metadata?.sdkText as string | undefined) ?? targetEntry.content;
@@ -2176,7 +2206,7 @@ export async function editMessage(agentId: string, logEntryId: string, newText: 
       newSessionId = ""; // placeholder, set after createSession
     } else {
       const predecessorUuid = backendMessages[targetIdx - 1].uuid;
-      const forkResult = await claudeBackend.forkSession(oldSessionId, predecessorUuid);
+      const forkResult = await backend.forkSession(oldSessionId, predecessorUuid);
       newSessionId = forkResult.sessionId;
     }
 
