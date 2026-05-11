@@ -14,7 +14,8 @@ import { CronjobsView } from "./components/CronjobsView.tsx";
 import { UpdateModal } from "./components/UpdateModal.tsx";
 import { CSS } from "./styles.ts";
 import { getUsername } from "./device-settings.ts";
-import type { AgentInfo } from "../shared/types.ts";
+import type { AgentBackendType, AgentInfo } from "../shared/types.ts";
+import { EngineChooserDialog } from "./components/EngineChooserDialog.tsx";
 
 /** Cycle to the next/previous agent in the current room, matching Tab/Shift+Tab logic. */
 function cycleAgent(
@@ -43,7 +44,11 @@ export function App() {
   const { agents, logs, focusedAgentId, isMobile, mobileViewMode, drafts, currentRoom, rooms, usersLoaded } = useAppState();
   const roomCount = rooms.length;
   const dispatch = useDispatch();
-  const [spawnDesk, setSpawnDesk] = useState<number | null>(null);
+  // Spawn flow: clicking an empty slot opens the engine chooser. Picking an
+  // engine in the chooser sets spawnReady, which opens EditAgentDialog with
+  // agentType locked. Cancelling either step clears state.
+  const [spawnPickerDesk, setSpawnPickerDesk] = useState<number | null>(null);
+  const [spawnReady, setSpawnReady] = useState<{ desk: number; agentType: AgentBackendType } | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; agent: AgentInfo } | null>(null);
   const [editAgent, setEditAgent] = useState<AgentInfo | null>(null);
   const [username, setUsername] = useState<string | null>(() => getUsername());
@@ -105,7 +110,8 @@ export function App() {
       const isInput = tag === "INPUT" || tag === "TEXTAREA" || (e.target as HTMLElement)?.isContentEditable;
       if (e.key === "Escape") {
         goHome();
-        setSpawnDesk(null);
+        setSpawnPickerDesk(null);
+        setSpawnReady(null);
         setCtxMenu(null);
         setEditAgent(null);
       }
@@ -210,7 +216,7 @@ export function App() {
       ) : isMobile && mobileViewMode === "list" ? (
         <AgentListView
           onFocus={(agentId) => dispatch({ type: "focus", agentId })}
-          onSpawn={() => setSpawnDesk(0)}
+          onSpawn={() => setSpawnPickerDesk(0)}
           onContextMenu={(x, y, agent) => setCtxMenu({ x, y, agent })}
           onOpenUserSettings={() => setEditingUserSettings(true)}
           onOpenDeviceSettings={() => setEditingDeviceSettings(true)}
@@ -225,7 +231,7 @@ export function App() {
         />
       ) : (
         <OfficeView
-          onSpawn={(desk) => setSpawnDesk(desk)}
+          onSpawn={(desk) => setSpawnPickerDesk(desk)}
           onContextMenu={(x, y, agent) => setCtxMenu({ x, y, agent })}
           onOpenUserSettings={() => setEditingUserSettings(true)}
           onOpenDeviceSettings={() => setEditingDeviceSettings(true)}
@@ -238,11 +244,22 @@ export function App() {
           onSwipeRight={swipeRoomPrev}
         />
       )}
-      {spawnDesk !== null && (
+      {spawnPickerDesk !== null && (
+        <EngineChooserDialog
+          onCancel={() => setSpawnPickerDesk(null)}
+          onPick={(agentType) => {
+            const desk = spawnPickerDesk;
+            setSpawnPickerDesk(null);
+            if (desk !== null) setSpawnReady({ desk, agentType });
+          }}
+        />
+      )}
+      {spawnReady !== null && (
         <EditAgentDialog
-          deskIndex={spawnDesk}
+          deskIndex={spawnReady.desk}
           defaultCwd="~"
-          onClose={() => setSpawnDesk(null)}
+          spawnAgentType={spawnReady.agentType}
+          onClose={() => setSpawnReady(null)}
           room={currentRoom}
         />
       )}

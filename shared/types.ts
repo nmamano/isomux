@@ -23,6 +23,20 @@ export interface AgentOutfit {
 // tooltip pointing users at "spawn a new agent" for the other engine).
 export type AgentBackendType = "claude" | "codex";
 
+// Claude's 4-mode permission enum.
+export type ClaudePermissionMode = "default" | "acceptEdits" | "bypassPermissions" | "auto";
+
+// Codex's AskForApproval enum (the four string variants — the experimental
+// `granular` object variant is deferred per the spec).
+export type CodexApprovalPolicy = "untrusted" | "on-request" | "on-failure" | "never";
+
+// Codex's SandboxMode enum.
+export type CodexSandboxMode = "read-only" | "workspace-write" | "danger-full-access";
+
+// Union of both backends' permission/approval modes. UI uses agentType to
+// pick which set is valid.
+export type AgentPermissionMode = ClaudePermissionMode | CodexApprovalPolicy;
+
 // Static per-backend capability flags. Embedded in AgentInfo so the UI can
 // hide affordances without knowing about specific backends — e.g. greying
 // out the "branch" button when capabilities.fork is false. Same shape used
@@ -72,11 +86,13 @@ export const MODEL_FAMILIES: { family: ModelFamily; label: string }[] = [
   { family: "haiku", label: "Haiku" },
 ];
 
-// Reasoning effort levels exposed via Claude Code's `--effort` flag.
-// `max` is supported only on the larger models (Opus 4.6/4.7 at time of writing).
-export type EffortLevel = "low" | "medium" | "high" | "xhigh" | "max";
+// Reasoning effort levels. Most are shared across Claude (--effort flag) and
+// Codex (ReasoningEffort enum); `minimal` is Codex-only and `max` is
+// Claude-only. UI filters per-backend.
+export type EffortLevel = "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 export const EFFORT_LEVELS: { level: EffortLevel; label: string }[] = [
+  { level: "minimal", label: "Minimal (Codex only)" },
   { level: "low", label: "Low" },
   { level: "medium", label: "Medium" },
   { level: "high", label: "High" },
@@ -90,6 +106,14 @@ export function effortDisplayLabel(level: EffortLevel): string {
   return EFFORT_LEVELS.find((e) => e.level === level)?.label ?? level;
 }
 
+// Codex model identifiers and their UI labels. Lives here (shared) so both
+// the UI's display helpers and the server can reference the canonical set.
+export const CODEX_MODELS: { value: string; label: string }[] = [
+  { value: "gpt-5", label: "GPT-5" },
+  { value: "gpt-5-mini", label: "GPT-5 mini" },
+  { value: "gpt-5-codex", label: "GPT-5 Codex" },
+];
+
 // Extract "4.7" from "claude-opus-4-7" for display
 export function modelVersionLabel(family: ModelFamily): string {
   const exact = FAMILY_TO_MODEL[family];
@@ -97,10 +121,21 @@ export function modelVersionLabel(family: ModelFamily): string {
   return match ? `${match[1]}.${match[2]}` : exact;
 }
 
-// "Opus 4.7"
-export function familyDisplayLabel(family: ModelFamily): string {
-  const base = MODEL_FAMILIES.find((m) => m.family === family)?.label ?? family;
-  return `${base} ${modelVersionLabel(family)}`;
+// Type guard for Claude's three families.
+export function isClaudeFamily(s: string): s is ModelFamily {
+  return s === "opus" || s === "sonnet" || s === "haiku";
+}
+
+// "Opus 4.7" for Claude families; "GPT-5 mini" etc for Codex. Falls back to
+// the raw value for unknown strings.
+export function familyDisplayLabel(family: string): string {
+  if (isClaudeFamily(family)) {
+    const base = MODEL_FAMILIES.find((m) => m.family === family)?.label ?? family;
+    return `${base} ${modelVersionLabel(family)}`;
+  }
+  const codex = CODEX_MODELS.find((m) => m.value === family);
+  if (codex) return codex.label;
+  return family;
 }
 
 // Migrate a legacy exact model ID (e.g. "claude-opus-4-6") to a family.
@@ -133,8 +168,17 @@ export interface AgentInfo {
   room: number; // 0-based room index
   cwd: string;
   outfit: AgentOutfit;
-  permissionMode: "default" | "acceptEdits" | "bypassPermissions" | "auto";
-  modelFamily: ModelFamily;
+  // Backend-specific permission/approval mode. For Claude this is the
+  // canonical 4-mode enum; for Codex this is the AskForApproval enum
+  // (untrusted/on-request/on-failure/never). Kept as a typed union that
+  // covers both backends — the spawn UX picks one backend at a time so
+  // we never need to combine them.
+  permissionMode: AgentPermissionMode;
+  // Backend-specific model identifier. For Claude this is a ModelFamily
+  // ("opus"/"sonnet"/"haiku"); for Codex this is the GPT-5 family value
+  // ("gpt-5"/"gpt-5-mini"/"gpt-5-codex"). Display logic narrows on
+  // agentType before rendering.
+  modelFamily: string;
   effort: EffortLevel;
   state: AgentState;
   topic: string | null;
@@ -146,6 +190,11 @@ export interface AgentInfo {
   // Static capabilities of this agent's backend. Populated server-side from
   // the Backend implementation; UI uses these to gate affordances.
   capabilities: AgentCapabilities;
+  // Codex-only: sandbox mode (CodexSandboxMode). Stored separately from
+  // permissionMode because Codex's permission model has two orthogonal axes
+  // (sandbox + approval-policy) while Claude has one. Undefined for Claude
+  // agents.
+  codexSandbox?: CodexSandboxMode;
   // The user who spawned this agent. Per-user env (git/gh credentials) is
   // resolved through this field at session creation time. null only for
   // legacy unowned agents migrated from before the user/device split.
@@ -471,7 +520,7 @@ export type ServerMessage =
 
 // Browser → Server commands
 export type ClientCommand =
-  | { type: "spawn"; requestId?: string; name: string; cwd: string; permissionMode: AgentInfo["permissionMode"]; desk: number; roomId?: string; customInstructions?: string; outfit?: AgentOutfit; modelFamily?: ModelFamily; effort?: EffortLevel; username?: string }
+  | { type: "spawn"; requestId?: string; name: string; cwd: string; permissionMode: AgentInfo["permissionMode"]; desk: number; roomId?: string; customInstructions?: string; outfit?: AgentOutfit; modelFamily?: string; effort?: EffortLevel; username?: string; agentType?: AgentBackendType; codexSandbox?: CodexSandboxMode }
   | { type: "kill"; agentId: string }
   | { type: "abort"; agentId: string }
   | { type: "send_message"; agentId: string; text: string; username?: string; device?: string; attachments?: Attachment[] }
@@ -480,7 +529,7 @@ export type ClientCommand =
   | { type: "new_conversation"; agentId: string }
   | { type: "resume"; agentId: string; sessionId: string }
   | { type: "list_sessions"; agentId: string }
-  | { type: "edit_agent"; requestId?: string; agentId: string; name?: string; cwd?: string; outfit?: AgentOutfit; customInstructions?: string; modelFamily?: ModelFamily; effort?: EffortLevel; permissionMode?: AgentInfo["permissionMode"] }
+  | { type: "edit_agent"; requestId?: string; agentId: string; name?: string; cwd?: string; outfit?: AgentOutfit; customInstructions?: string; modelFamily?: string; effort?: EffortLevel; permissionMode?: AgentInfo["permissionMode"]; codexSandbox?: CodexSandboxMode }
   | { type: "swap_desks"; deskA: number; deskB: number; roomId: string }
   | { type: "set_topic"; agentId: string; topic: string }
   | { type: "reset_topic"; agentId: string }

@@ -1,4 +1,4 @@
-import type { AgentState, ModelFamily } from "../../shared/types.ts";
+import type { AgentState } from "../../shared/types.ts";
 
 // Map our states to visual categories
 function visualState(state: AgentState): "working" | "waiting_for_response" | "error" | "idle" {
@@ -77,7 +77,7 @@ function wrapCwd(text: string): string[] {
   return lines;
 }
 
-export function DeskSprite({ state, deskIndex = 0, cwd, modelFamily }: { state: AgentState; deskIndex?: number; cwd?: string; modelFamily?: ModelFamily }) {
+export function DeskSprite({ state, deskIndex = 0, cwd, modelFamily }: { state: AgentState; deskIndex?: number; cwd?: string; modelFamily?: string }) {
   const vs = visualState(state);
   const glow = { working: "#50B86C", waiting_for_response: "#9B59B6", error: "#E85D75", idle: "#223" }[vs];
   const on = vs !== "idle";

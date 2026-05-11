@@ -52,10 +52,15 @@ function writePanelWidth(kind: "terminal" | "editor", width: number): void {
 const ESCALATION_AMBER_MS = 2 * 60 * 1000; // 2 minutes
 const ESCALATION_RED_MS = 5 * 60 * 1000; // 5 minutes
 
-const MODEL_TINT: Record<ModelFamily, { border: string; bg: string }> = {
-  opus:   { border: "rgba(100,160,255,0.85)", bg: "rgba(100,160,255,0.35)" },
-  sonnet: { border: "rgba(218,165,32,0.80)",  bg: "rgba(218,165,32,0.32)" },
-  haiku:  { border: "rgba(230,130,180,0.80)", bg: "rgba(230,130,180,0.32)" },
+// Tints for Claude families + GPT-5 family. Lookup falls back gracefully for
+// unknown model strings (the callsites already use ?? defaults).
+const MODEL_TINT: Record<string, { border: string; bg: string }> = {
+  opus:           { border: "rgba(100,160,255,0.85)", bg: "rgba(100,160,255,0.35)" },
+  sonnet:         { border: "rgba(218,165,32,0.80)",  bg: "rgba(218,165,32,0.32)" },
+  haiku:          { border: "rgba(230,130,180,0.80)", bg: "rgba(230,130,180,0.32)" },
+  "gpt-5":        { border: "rgba(120,220,160,0.85)", bg: "rgba(120,220,160,0.32)" },
+  "gpt-5-mini":   { border: "rgba(120,220,160,0.70)", bg: "rgba(120,220,160,0.22)" },
+  "gpt-5-codex":  { border: "rgba(80,200,140,0.90)",  bg: "rgba(80,200,140,0.36)" },
 };
 
 function formatElapsed(ms: number): string {

@@ -285,11 +285,14 @@ export interface PersistedAgent {
   cwd: string;
   outfit: AgentInfo["outfit"];
   permissionMode: AgentInfo["permissionMode"];
-  modelFamily?: ModelFamily;
+  // Backend-specific string. Claude: ModelFamily; Codex: GPT-5 family id.
+  modelFamily?: string;
   effort?: EffortLevel;
   // Engine. Missing field defaults to "claude" on load (legacy agents spawned
   // before this field was added). Fixed at spawn — see task f352984f Round 3.
   agentType?: AgentInfo["agentType"];
+  // Codex-only sandbox setting.
+  codexSandbox?: AgentInfo["codexSandbox"];
   lastSessionId: string | null;
   topic: string | null;
   customInstructions: string | null;
@@ -396,7 +399,7 @@ export function saveAgents(rooms: Room[]) {
 // Agent manifest for discovery by other agents
 const MANIFEST_FILE = join(ISOMUX_DIR, "agents-summary.json");
 
-export function writeManifest(agents: { id: string; name: string; desk: number; room: number; roomName: string; topic: string | null; cwd: string; modelFamily: ModelFamily; model: ClaudeModel; username: string | null }[]) {
+export function writeManifest(agents: { id: string; name: string; desk: number; room: number; roomName: string; topic: string | null; cwd: string; modelFamily: string; model: string; username: string | null }[]) {
   try {
     const manifest = agents.map((a) => ({
       id: a.id,

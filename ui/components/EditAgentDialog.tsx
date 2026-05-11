@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import type { AgentInfo, AgentOutfit, ClientCommand, EffortLevel, ModelFamily } from "../../shared/types.ts";
-import { MODEL_FAMILIES, EFFORT_LEVELS, DEFAULT_EFFORT, modelVersionLabel } from "../../shared/types.ts";
+import type { AgentBackendType, AgentInfo, AgentOutfit, ClientCommand, CodexSandboxMode, EffortLevel, ModelFamily } from "../../shared/types.ts";
+import { MODEL_FAMILIES, EFFORT_LEVELS, DEFAULT_EFFORT, modelVersionLabel, CODEX_MODELS } from "../../shared/types.ts";
 import { SHIRT_COLORS, HAIR_COLORS, SKIN_COLORS, HAIR_STYLES, BEARDS, HATS, ACCESSORIES } from "../../shared/outfit-options.ts";
 import { Character } from "../office/Character.tsx";
 import { send, addRawListener, removeRawListener } from "../ws.ts";
@@ -57,14 +57,16 @@ function makeRandomOutfit(): AgentOutfit {
 type EditAgentDialogProps = {
   onClose: () => void;
 } & (
-  | { agent: AgentInfo; deskIndex?: undefined; room?: undefined; defaultCwd?: undefined }
-  | { agent?: undefined; deskIndex: number; room: number; defaultCwd: string }
+  | { agent: AgentInfo; deskIndex?: undefined; room?: undefined; defaultCwd?: undefined; spawnAgentType?: undefined }
+  | { agent?: undefined; deskIndex: number; room: number; defaultCwd: string; spawnAgentType: AgentBackendType }
 );
 
 export function EditAgentDialog(props: EditAgentDialogProps) {
   const { onClose } = props;
   const isSpawn = !props.agent;
   const agent = props.agent;
+  const agentType: AgentBackendType = agent?.agentType ?? props.spawnAgentType ?? "claude";
+  const isCodex = agentType === "codex";
 
   const { recentCwds: allRecentCwds, isMobile, agents, rooms } = useAppState();
   const roomCount = rooms.length;
@@ -72,12 +74,16 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   const [cwd, setCwd] = useState(agent?.cwd ?? props.defaultCwd ?? "~");
   const [outfit, setOutfit] = useState<AgentOutfit>(agent ? { ...agent.outfit } : makeRandomOutfit);
   const [customInstructions, setCustomInstructions] = useState(agent?.customInstructions ?? "");
-  const [modelFamily, setModelFamily] = useState<ModelFamily>(agent?.modelFamily ?? MODEL_FAMILIES[0].family);
-  const [effort, setEffort] = useState<EffortLevel>(agent?.effort ?? DEFAULT_EFFORT);
-  const initialPermissionMode: AgentInfo["permissionMode"] =
+  const defaultModel = isCodex ? CODEX_MODELS[0].value : MODEL_FAMILIES[0].family;
+  const [modelFamily, setModelFamily] = useState<string>(agent?.modelFamily ?? defaultModel);
+  const [effort, setEffort] = useState<EffortLevel>(agent?.effort ?? (isCodex ? "medium" : DEFAULT_EFFORT));
+  const [codexSandbox, setCodexSandbox] = useState<CodexSandboxMode>(agent?.codexSandbox ?? "workspace-write");
+  const claudeDefaultMode: AgentInfo["permissionMode"] =
     agent?.permissionMode === "auto" && (agent?.modelFamily ?? MODEL_FAMILIES[0].family) !== "opus"
       ? "bypassPermissions"
       : (agent?.permissionMode ?? "auto");
+  const codexDefaultMode: AgentInfo["permissionMode"] = (agent?.permissionMode as AgentInfo["permissionMode"]) ?? "on-request";
+  const initialPermissionMode: AgentInfo["permissionMode"] = isCodex ? codexDefaultMode : claudeDefaultMode;
   const [permissionMode, setPermissionMode] = useState<AgentInfo["permissionMode"]>(initialPermissionMode);
   const [saving, setSaving] = useState(false);
   const [cwdError, setCwdError] = useState<string | null>(null);
@@ -147,6 +153,8 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         modelFamily,
         effort,
         username: getUsername() ?? undefined,
+        agentType,
+        ...(isCodex ? { codexSandbox } : {}),
       });
     } else {
       const cmd: Extract<ClientCommand, { type: "edit_agent" }> = { type: "edit_agent", agentId: agent!.id };
@@ -158,7 +166,8 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       if (modelFamily !== agent!.modelFamily) cmd.modelFamily = modelFamily;
       if (effort !== agent!.effort) cmd.effort = effort;
       if (permissionMode !== agent!.permissionMode) cmd.permissionMode = permissionMode;
-      if (!(cmd.name || cmd.cwd || cmd.outfit || cmd.customInstructions !== undefined || cmd.modelFamily || cmd.effort || cmd.permissionMode)) {
+      if (isCodex && codexSandbox !== (agent!.codexSandbox ?? "workspace-write")) cmd.codexSandbox = codexSandbox;
+      if (!(cmd.name || cmd.cwd || cmd.outfit || cmd.customInstructions !== undefined || cmd.modelFamily || cmd.effort || cmd.permissionMode || cmd.codexSandbox)) {
         onClose();
         return;
       }
@@ -249,32 +258,84 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         )}
         {!isSpawn && <p style={{ fontSize: 10, color: "var(--text-ghost)", margin: "3px 0 0" }}>Changes take effect on next conversation.</p>}
 
-        <label style={{ ...labelStyle, marginTop: 12 }}>Permission Mode</label>
+        {/* Engine badge — agentType is fixed at spawn (Round 3) and shown here
+            for clarity in edit mode. Spawn flow already locked it via the
+            EngineChooserDialog. */}
+        <label style={{ ...labelStyle, marginTop: 12 }}>Engine</label>
+        <div
+          title={isSpawn ? "Pick a different engine by cancelling and using the other button." : "agentType is fixed at spawn — to switch engines, create a new agent."}
+          style={{
+            ...inputStyle,
+            display: "flex",
+            alignItems: "center",
+            color: "var(--text-muted)",
+            fontFamily: "'JetBrains Mono',monospace",
+            textTransform: "uppercase",
+            letterSpacing: 0.5,
+            fontWeight: 600,
+            cursor: "not-allowed",
+            background: "var(--bg-elevated)",
+          }}
+        >
+          {agentType}
+        </div>
+
+        <label style={{ ...labelStyle, marginTop: 12 }}>
+          {isCodex ? "Approval Policy" : "Permission Mode"}
+        </label>
         <select
           value={permissionMode}
           onChange={(e) => setPermissionMode(e.target.value as AgentInfo["permissionMode"])}
           style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
         >
-          {modelFamily === "opus" && <option value="auto">Auto (classifier auto-approves safe actions)</option>}
-          <option value="default">Default (ask for everything)</option>
-          <option value="acceptEdits">Accept Edits (auto-approve file changes)</option>
-          <option value="bypassPermissions">Bypass (auto-approve all)</option>
+          {isCodex ? (
+            <>
+              <option value="untrusted">Untrusted (ask on every tool)</option>
+              <option value="on-request">On request (model asks when needed)</option>
+              <option value="on-failure">On failure (only when blocked by sandbox)</option>
+              <option value="never">Never ask (use sandbox-only)</option>
+            </>
+          ) : (
+            <>
+              {modelFamily === "opus" && <option value="auto">Auto (classifier auto-approves safe actions)</option>}
+              <option value="default">Default (ask for everything)</option>
+              <option value="acceptEdits">Accept Edits (auto-approve file changes)</option>
+              <option value="bypassPermissions">Bypass (auto-approve all)</option>
+            </>
+          )}
         </select>
+
+        {isCodex && (
+          <>
+            <label style={{ ...labelStyle, marginTop: 12 }}>Sandbox</label>
+            <select
+              value={codexSandbox}
+              onChange={(e) => setCodexSandbox(e.target.value as CodexSandboxMode)}
+              style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
+            >
+              <option value="read-only">Read-only (model can read, never write)</option>
+              <option value="workspace-write">Workspace write (write inside cwd only)</option>
+              <option value="danger-full-access">Danger: full access (no sandbox)</option>
+            </select>
+          </>
+        )}
 
         <label style={{ ...labelStyle, marginTop: 12 }}>Model</label>
         <select
           value={modelFamily}
           onChange={(e) => {
-            const next = e.target.value as ModelFamily;
+            const next = e.target.value;
             setModelFamily(next);
-            if (next !== "opus" && permissionMode === "auto") setPermissionMode("bypassPermissions");
-            if (next !== "opus" && effort === "max") setEffort("xhigh");
+            if (!isCodex && next !== "opus" && permissionMode === "auto") setPermissionMode("bypassPermissions");
+            if (!isCodex && next !== "opus" && effort === "max") setEffort("xhigh");
           }}
           style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
         >
-          {MODEL_FAMILIES.map((m) => (
-            <option key={m.family} value={m.family}>{m.label} ({modelVersionLabel(m.family)})</option>
-          ))}
+          {isCodex
+            ? CODEX_MODELS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)
+            : MODEL_FAMILIES.map((m) => (
+                <option key={m.family} value={m.family}>{m.label} ({modelVersionLabel(m.family)})</option>
+              ))}
         </select>
 
         <label style={{ ...labelStyle, marginTop: 12 }}>Thinking Effort</label>
@@ -283,9 +344,16 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
           onChange={(e) => setEffort(e.target.value as EffortLevel)}
           style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
         >
-          {EFFORT_LEVELS.filter((opt) => opt.level !== "max" || modelFamily === "opus").map((opt) => (
-            <option key={opt.level} value={opt.level}>{opt.label}</option>
-          ))}
+          {EFFORT_LEVELS
+            .filter((opt) => {
+              // `max` is Claude (opus only). `minimal` is Codex only.
+              if (opt.level === "max") return !isCodex && modelFamily === "opus";
+              if (opt.level === "minimal") return isCodex;
+              return true;
+            })
+            .map((opt) => (
+              <option key={opt.level} value={opt.level}>{opt.label}</option>
+            ))}
         </select>
 
         <label style={{ ...labelStyle, marginTop: 14 }}>Appearance</label>

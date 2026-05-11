@@ -1,5 +1,5 @@
 import type { AgentInfo, AgentOutfit, AgentState, Attachment, EffortLevel, LogEntry, ModelFamily, OfficeSettings, QueuedMessage, RoomWire, SkillInfo } from "../shared/types.ts";
-import { MODEL_FAMILIES, FAMILY_TO_MODEL, EFFORT_LEVELS, DEFAULT_EFFORT, familyDisplayLabel, effortDisplayLabel, generateRoomId } from "../shared/types.ts";
+import { MODEL_FAMILIES, FAMILY_TO_MODEL, EFFORT_LEVELS, DEFAULT_EFFORT, familyDisplayLabel, effortDisplayLabel, generateRoomId, isClaudeFamily } from "../shared/types.ts";
 import { formatPrefix, formatAgentSenderPrefix } from "../shared/identity.ts";
 import { getUserEnvFile } from "./users.ts";
 import { generateOutfit } from "./outfit.ts";
@@ -75,6 +75,7 @@ import {
   type InternalRoom,
 } from "./internal-types.ts";
 import { getBackend } from "./backends/index.ts";
+import { getCodexVersionStatus } from "./backends/codex/version-check.ts";
 import type { BackendSession, NormalizedEvent } from "./backends/types.ts";
 
 const LOGIN_INSTRUCTIONS = `To authenticate:
@@ -207,7 +208,7 @@ export { validateCwd };
 
 export async function editAgent(
   agentId: string,
-  changes: { name?: string; cwd?: string; outfit?: AgentInfo["outfit"]; customInstructions?: string; modelFamily?: ModelFamily; effort?: EffortLevel; permissionMode?: AgentInfo["permissionMode"] },
+  changes: { name?: string; cwd?: string; outfit?: AgentInfo["outfit"]; customInstructions?: string; modelFamily?: string; effort?: EffortLevel; permissionMode?: AgentInfo["permissionMode"]; codexSandbox?: AgentInfo["codexSandbox"] },
 ) {
   const managed = agents.get(agentId);
   if (!managed) return;
@@ -240,6 +241,10 @@ export async function editAgent(
   if (changes.modelFamily && changes.modelFamily !== managed.info.modelFamily) {
     managed.info.modelFamily = changes.modelFamily;
     updated.modelFamily = changes.modelFamily;
+  }
+  if (changes.codexSandbox && changes.codexSandbox !== managed.info.codexSandbox) {
+    managed.info.codexSandbox = changes.codexSandbox;
+    updated.codexSandbox = changes.codexSandbox;
   }
   if (changes.effort && changes.effort !== managed.info.effort) {
     managed.info.effort = changes.effort;
@@ -405,7 +410,9 @@ function updateManifest() {
     topic: a.info.topic,
     cwd: a.info.cwd,
     modelFamily: a.info.modelFamily,
-    model: FAMILY_TO_MODEL[a.info.modelFamily],
+    // Concrete model id: for Claude families resolve via FAMILY_TO_MODEL, for
+    // Codex agents the value itself IS the codex model id (e.g. "gpt-5").
+    model: isClaudeFamily(a.info.modelFamily) ? FAMILY_TO_MODEL[a.info.modelFamily] : a.info.modelFamily,
     username: a.info.username,
   })));
 }
@@ -430,6 +437,7 @@ function persistAll() {
         modelFamily: a.info.modelFamily,
         effort: a.info.effort,
         agentType: a.info.agentType,
+        codexSandbox: a.info.codexSandbox,
         lastSessionId: a.sessionId,
         topic: a.info.topic,
         customInstructions: a.info.customInstructions,
@@ -468,6 +476,7 @@ export async function restoreAgents() {
   for (let roomIdx = 0; roomIdx < loaded.length; roomIdx++) {
     for (const p of loaded[roomIdx].agents) {
       const agentType = p.agentType ?? "claude";
+      const defaultModelFamily = agentType === "codex" ? "gpt-5" : "opus";
       const info: AgentInfo = {
         id: p.id,
         name: p.name,
@@ -476,13 +485,14 @@ export async function restoreAgents() {
         cwd: p.cwd,
         outfit: p.outfit,
         permissionMode: p.permissionMode,
-        modelFamily: p.modelFamily ?? "opus",
+        modelFamily: p.modelFamily ?? defaultModelFamily,
         effort: p.effort ?? DEFAULT_EFFORT,
         state: p.lastSessionId ? "waiting_for_response" : "idle",
         topic: p.topic ?? null,
         topicStale: false,
         customInstructions: p.customInstructions ?? null,
         agentType,
+        ...(p.codexSandbox ? { codexSandbox: p.codexSandbox } : {}),
         capabilities: getBackend(agentType).capabilities,
         username: p.username ?? null,
         queue: [],
@@ -1241,10 +1251,23 @@ export async function spawn(
   customInstructions?: string,
   roomId?: string,
   outfit?: AgentOutfit,
-  modelFamily?: ModelFamily,
+  modelFamily?: string,
   effort?: EffortLevel,
   username?: string,
+  agentType: AgentInfo["agentType"] = "claude",
+  codexSandbox?: AgentInfo["codexSandbox"],
 ): Promise<AgentInfo | null> {
+  // Reject Codex spawn if the version check signalled the CLI is missing.
+  // Other check outcomes (ok / mismatch / unknown) still allow spawn — codex
+  // is present and we hope for compatibility.
+  if (agentType === "codex") {
+    const status = getCodexVersionStatus();
+    if (status?.kind === "not_installed") {
+      throw new Error(
+        "Codex CLI is not installed on the server. Install with `sudo npm install -g @openai/codex@0.130.0` and restart isomux.",
+      );
+    }
+  }
   // Reject duplicate names across all rooms
   const nameLower = name.trim().toLowerCase();
   for (const a of agents.values()) {
@@ -1271,9 +1294,14 @@ export async function spawn(
   const resolvedCwd = resolveCwd(cwd);
   const id = `agent-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
-  // Only Claude is wired today; the spawn flow that surfaces a backend choice
-  // lands in step 8.
-  const agentType: AgentInfo["agentType"] = "claude";
+  // Pick sensible per-backend defaults when the caller doesn't supply.
+  const defaultModelFamily = agentType === "codex" ? "gpt-5" : "opus";
+  const defaultPermissionMode: AgentInfo["permissionMode"] =
+    agentType === "codex" ? "on-request" : "auto";
+  // permissionMode comes from the wire; if it's not in this backend's value
+  // space, fall back to the default. Server-side validation; UI should not
+  // send a mismatched value but we protect against it.
+  const validatedPermissionMode = permissionMode ?? defaultPermissionMode;
 
   const info: AgentInfo = {
     id,
@@ -1282,8 +1310,8 @@ export async function spawn(
     room: targetRoom,
     cwd: resolvedCwd,
     outfit: outfit ?? generateOutfit(),
-    permissionMode,
-    modelFamily: modelFamily ?? "opus",
+    permissionMode: validatedPermissionMode,
+    modelFamily: modelFamily ?? defaultModelFamily,
     effort: effort ?? DEFAULT_EFFORT,
     state: "idle",
     topic: null,
@@ -1291,6 +1319,7 @@ export async function spawn(
     customInstructions: customInstructions || null,
     agentType,
     capabilities: getBackend(agentType).capabilities,
+    ...(codexSandbox ? { codexSandbox } : {}),
     username: username ?? null,
     queue: [],
     sessionSwapping: false,
