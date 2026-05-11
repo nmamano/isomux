@@ -1,11 +1,10 @@
-import type { PermissionResult, PermissionUpdate } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentInfo, LogEntry, QueuedMessage, RoomWire, SkillInfo } from "../shared/types.ts";
-import type { ClaudeBackendSession } from "./backends/claude.ts";
+import type { BackendSession } from "./backends/types.ts";
 
 // Internal agent state
 export interface ManagedAgent {
   info: AgentInfo;
-  session: ClaudeBackendSession | null;
+  session: BackendSession | null;
   sessionId: string | null;
   // Persistent consumer loop iterating `session.stream()` for the session's
   // lifetime. Without this, task_notifications buffered between turns get
@@ -44,12 +43,13 @@ export interface ManagedAgent {
   pendingModelPick: boolean;
   // /effort two-step state
   pendingEffortPick: boolean;
-  // Auto-mode permission prompt two-step state
+  // Auto-mode permission prompt two-step state. Carries only the approvalId
+  // for routing; the backend holds the SDK-side resolver and the suggestion
+  // rules, applied automatically when session.approve() is called with
+  // "allow_persistent".
   pendingPermission: {
-    toolUseID: string;
-    input: Record<string, unknown>;
-    suggestions?: PermissionUpdate[];
-    resolve: (r: PermissionResult) => void;
+    approvalId: string;
+    toolName: string;
   } | null;
   // Terminal PTY sidecar (spawned on demand via Node.js)
   ptySidecar: import("bun").Subprocess | null;

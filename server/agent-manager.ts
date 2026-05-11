@@ -1,12 +1,3 @@
-import {
-  unstable_v2_createSession,
-  unstable_v2_resumeSession,
-  unstable_v2_prompt,
-  forkSession,
-  getSessionMessages,
-  type CanUseTool,
-  type PermissionResult,
-} from "@anthropic-ai/claude-agent-sdk";
 import type { AgentInfo, AgentOutfit, AgentState, Attachment, EffortLevel, LogEntry, ModelFamily, OfficeSettings, QueuedMessage, RoomWire, SkillInfo } from "../shared/types.ts";
 import { MODEL_FAMILIES, FAMILY_TO_MODEL, EFFORT_LEVELS, DEFAULT_EFFORT, familyDisplayLabel, effortDisplayLabel, generateRoomId } from "../shared/types.ts";
 import { formatPrefix, formatAgentSenderPrefix } from "../shared/identity.ts";
@@ -36,7 +27,6 @@ import {
   type OfficeConfig,
   type AgentHistory,
 } from "./persistence.ts";
-import { createSafetyHooks } from "./safety-hooks.ts";
 import { autocompleteCommands } from "./commands.ts";
 import { join } from "path";
 import { homedir } from "os";
@@ -66,7 +56,6 @@ import {
   discoverBundledSkills,
   deduplicateSkills,
 } from "./skills.ts";
-import { buildUserMessage } from "./user-message.ts";
 import { findUsageAtFork } from "./usage-report.ts";
 import {
   openTerminal as openTerminalImpl,
@@ -85,8 +74,8 @@ import {
   type EventHandler,
   type InternalRoom,
 } from "./internal-types.ts";
-import { ClaudeBackendSession } from "./backends/claude.ts";
-import type { NormalizedEvent } from "./backends/types.ts";
+import { claudeBackend } from "./backends/claude.ts";
+import type { BackendSession, NormalizedEvent } from "./backends/types.ts";
 
 const LOGIN_INSTRUCTIONS = `To authenticate:
 1. Open the built-in terminal
@@ -777,13 +766,13 @@ async function generateTopic(agentId: string) {
   const prompt = `${context}\n\nRespond with ONLY a short topic description for this conversation, max 8 words. No quotes, no punctuation at the end.`;
 
   try {
-    const result = await unstable_v2_prompt(prompt, {
-      model: FAMILY_TO_MODEL.sonnet,
-      pathToClaudeCodeExecutable: CLAUDE_NATIVE_BIN,
-      permissionMode: "plan",
+    const text = await claudeBackend.oneShotPrompt(prompt, {
+      cwd: managed.info.cwd,
+      modelFamily: "sonnet",
+      effort: "medium",
     });
-    if (result.subtype === "success" && agents.has(agentId) && managed.topicGenToken === startToken) {
-      const topic = result.result.trim().slice(0, 80);
+    if (agents.has(agentId) && managed.topicGenToken === startToken) {
+      const topic = text.trim().slice(0, 80);
       managed.info.topic = topic;
       managed.info.topicStale = false;
       managed.topicMessageCount = textEntries.length;
@@ -846,11 +835,15 @@ function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
   switch (ev.kind) {
     case "system_init": {
       const managed = agents.get(agentId);
-      if (managed) {
+      // Defensive: backends should always supply sessionId in practice, but
+      // we still process the event (slash_commands/skills land below) if
+      // it's missing.
+      if (managed && ev.sessionId) {
+        const sessionId = ev.sessionId;
         const hadPreviousSession = !!managed.sessionId;
         // Load prior log history if this session was seen before (walks fork ancestry)
         if (!managed.sessionId) {
-          const history = loadLogWithAncestors(agentId, ev.sessionId);
+          const history = loadLogWithAncestors(agentId, sessionId);
           if (history.length > 0) {
             for (const entry of history) {
               emit({ type: "log_entry", entry });
@@ -858,17 +851,17 @@ function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
           }
         }
         // If we already had a session and got a new init, this is a /clear
-        if (hadPreviousSession && ev.sessionId !== managed.sessionId) {
+        if (hadPreviousSession && sessionId !== managed.sessionId) {
           logCache.set(agentId, []);
           emit({ type: "clear_logs", agentId });
           addLogEntry(agentId, "system", "Conversation cleared.");
         }
-        managed.sessionId = ev.sessionId;
+        managed.sessionId = sessionId;
         // Backfill: write any cached log entries that were created before sessionId was known
         if (!hadPreviousSession) {
           const cached = logCache.get(agentId) ?? [];
           for (const entry of cached) {
-            appendLog(agentId, ev.sessionId, entry);
+            appendLog(agentId, sessionId, entry);
           }
         }
         persistAll();
@@ -964,6 +957,16 @@ function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
         }
         updateState(agentId, "error");
       }
+      // Resolve the per-turn deferred. Pre-refactor this lived in runConsumer
+      // and fired when the SDK's stream() returned at the result message.
+      // Post-refactor stream() is persistent across turns, so we resolve at
+      // the turn_completed normalized event instead — same semantic, just at
+      // the orchestrator layer.
+      const turn = managed?.pendingTurn;
+      if (turn) {
+        managed!.pendingTurn = null;
+        turn.resolve();
+      }
       break;
     }
     case "usage_update": {
@@ -992,21 +995,33 @@ function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
       updateState(agentId, "error");
       break;
     case "approval_request": {
-      // Claude routes approvals through canUseTool today (orchestrator-level
-      // pendingPermission), so this branch is unreachable from the Claude
-      // backend until step 2c. Codex will use it. Log conservatively if it
-      // ever fires from Claude unexpectedly so we notice rather than swallow.
-      addLogEntry(agentId, "system", `Approval requested for ${ev.toolName} (id=${ev.approvalId})`);
+      const managed = agents.get(agentId);
+      if (!managed) break;
+      // Build the 3-option /resolve prompt. Same UX as the pre-2c
+      // requestPermission flow; only difference is the backend now owns the
+      // SDK resolver and we route the decision back via session.approve().
+      const lines: string[] = [`**${ev.title ?? `Wants to use ${ev.toolName}`}**`];
+      if (ev.description) lines.push(ev.description);
+      lines.push("");
+      lines.push("Reply:");
+      lines.push("  1. Allow — and don't ask again for similar calls this session");
+      lines.push("  2. Allow — just this time");
+      lines.push("  3. Deny");
+      lines.push("");
+      lines.push("Or type any other message to deny with that as the reason.");
+      emitEphemeralLog(agentId, "system", lines.join("\n"));
+      managed.pendingPermission = { approvalId: ev.approvalId, toolName: ev.toolName };
+      updateState(agentId, "waiting_for_response");
       break;
     }
   }
 }
 
-// Create the per-turn deferred that sendMessage / executeSkill await. The
-// persistent consumer resolves it when its inner `stream()` iterator ends —
-// which, per the V2 SDK contract, happens exactly at the turn's `result`
-// message. If the SDK ever emits an empty stream between turns, this
-// deferred would resolve prematurely; the invariant is load-bearing.
+// Create the per-turn deferred that sendMessage / executeSkill await.
+// Resolved from processNormalizedEvent's `turn_completed` case — fires
+// when the backend signals end-of-turn (Claude: result message; Codex:
+// turn/completed). Backends MUST emit exactly one turn_completed per
+// send() for this contract to hold.
 function createTurnDeferred(managed: ManagedAgent): Promise<void> {
   // Any stale pending turn (shouldn't normally happen; agents are
   // state-gated to one turn at a time) gets rejected so awaiting callers
@@ -1024,62 +1039,52 @@ function createTurnDeferred(managed: ManagedAgent): Promise<void> {
 }
 
 // Persistent consumer. Runs for the session's lifetime, iterating `stream()`
-// in a loop so events that arrive between turns (notably `task_notification`
-// from backgrounded Bash) get processed promptly instead of being held until
-// the next user turn.
+// once — the BackendSession contract is that stream() yields events for the
+// whole session and only returns when the session is closed/exhausted.
+// Per-turn boundaries are signalled via `turn_completed` NormalizedEvents,
+// which processNormalizedEvent uses to resolve `pendingTurn`.
 //
-// Bound to a specific session instance: loop exits when `managed.session` is
+// Bound to a specific session instance: returns when `managed.session` is
 // swapped out (abort / resume / fork / etc.) — `session.close()` unblocks the
 // parked `stream()` generator.
-async function runConsumer(agentId: string, managed: ManagedAgent, boundSession: ClaudeBackendSession) {
-  while (agents.has(agentId) && managed.session === boundSession) {
-    try {
-      for await (const ev of boundSession.stream()) {
-        // After an abort/resume/fork the dying session may keep yielding
-        // events for several seconds before its stream() generator finally
-        // ends (the SDK's close() doesn't interrupt mid-chunk). We must keep
-        // draining so the inner generator terminates, but we drop the events
-        // — otherwise the user sees model output continuing after Ctrl+C.
-        if (managed.session !== boundSession) continue;
-        processNormalizedEvent(agentId, ev);
-      }
-      // Inner generator ended: either the turn's `result` arrived, or the
-      // session was closed from underneath us. Resolve any pending turn; the
-      // outer loop re-calls stream() which blocks until the next event.
-      const turn = managed.pendingTurn;
-      if (turn && managed.session === boundSession) {
-        managed.pendingTurn = null;
-        turn.resolve();
-      }
-    } catch (err: any) {
-      if (managed.aborting || managed.session !== boundSession) {
-        // Expected: abort() or a session swap closed us. The swap path
-        // already nulled + rejected pendingTurn with SessionSwappedError.
-        return;
-      }
-
-      const turn = managed.pendingTurn;
-      managed.pendingTurn = null;
-      if (turn) turn.reject(err);
-
-      console.error(`Agent ${agentId} stream error:`, err.message);
-      const errorText = `Stream error: ${err.message}`;
-      addLogEntry(agentId, "error", errorText);
-      // The SDK's "process exited with code 1" is opaque; diagnose common causes.
-      const hints = diagnoseProcessExit(managed.info.cwd, managed.sessionId);
-      if (hints) addLogEntry(agentId, "system", hints);
-      if (isAuthError(errorText)) {
-        addLogEntry(agentId, "system", LOGIN_INSTRUCTIONS);
-      }
-      updateState(agentId, "error");
+async function runConsumer(agentId: string, managed: ManagedAgent, boundSession: BackendSession) {
+  try {
+    for await (const ev of boundSession.stream()) {
+      // After an abort/resume/fork the dying session may keep yielding
+      // events for several seconds before its stream() generator finally
+      // ends (the SDK's close() doesn't interrupt mid-chunk). We must keep
+      // draining so the inner generator terminates, but we drop the events
+      // — otherwise the user sees model output continuing after Ctrl+C.
+      if (managed.session !== boundSession) continue;
+      processNormalizedEvent(agentId, ev);
+    }
+  } catch (err: any) {
+    if (managed.aborting || managed.session !== boundSession) {
+      // Expected: abort() or a session swap closed us. The swap path
+      // already nulled + rejected pendingTurn with SessionSwappedError.
       return;
     }
+
+    const turn = managed.pendingTurn;
+    managed.pendingTurn = null;
+    if (turn) turn.reject(err);
+
+    console.error(`Agent ${agentId} stream error:`, err.message);
+    const errorText = `Stream error: ${err.message}`;
+    addLogEntry(agentId, "error", errorText);
+    // The SDK's "process exited with code 1" is opaque; diagnose common causes.
+    const hints = diagnoseProcessExit(managed.info.cwd, managed.sessionId);
+    if (hints) addLogEntry(agentId, "system", hints);
+    if (isAuthError(errorText)) {
+      addLogEntry(agentId, "system", LOGIN_INSTRUCTIONS);
+    }
+    updateState(agentId, "error");
   }
 }
 
 // Install a freshly-created session on managed and spawn its consumer. Caller
 // is responsible for having closed/awaited any previous session first.
-function installSession(agentId: string, managed: ManagedAgent, session: ClaudeBackendSession) {
+function installSession(agentId: string, managed: ManagedAgent, session: BackendSession) {
   managed.session = session;
   managed.consumerPromise = runConsumer(agentId, managed, session);
 }
@@ -1098,7 +1103,7 @@ function installSession(agentId: string, managed: ManagedAgent, session: ClaudeB
 // 154e2c14's STILL OPEN section for context. The current sendMessage
 // papers over the user-visible delay by echoing the typed message to the
 // log before awaiting abortPromise (see echoEarly there).
-async function replaceSession(agentId: string, managed: ManagedAgent, newSession: ClaudeBackendSession) {
+async function replaceSession(agentId: string, managed: ManagedAgent, newSession: BackendSession) {
   managed.info.sessionSwapping = true;
   emit({ type: "agent_updated", agentId, changes: { sessionSwapping: true } });
   try {
@@ -1143,52 +1148,15 @@ function buildSessionEnv(managed: ManagedAgent): { [key: string]: string | undef
   return merged;
 }
 
-function requestPermission(managed: ManagedAgent, toolName: string, input: Record<string, unknown>, opts: Parameters<CanUseTool>[2]): Promise<PermissionResult> {
-  const agentId = managed.info.id;
-  return new Promise<PermissionResult>((resolve) => {
-    const title = opts.title ?? `Claude wants to use ${toolName}`;
-    const lines: string[] = [`**${title}**`];
-    if (opts.description) lines.push(opts.description);
-    if (opts.decisionReason) lines.push(`\n_${opts.decisionReason}_`);
-    lines.push("");
-    lines.push("Reply:");
-    lines.push("  1. Allow — and don't ask again for similar calls this session");
-    lines.push("  2. Allow — just this time");
-    lines.push("  3. Deny");
-    lines.push("");
-    lines.push("Or type any other message to deny with that as the reason.");
-    emitEphemeralLog(agentId, "system", lines.join("\n"));
-
-    // If a prior pending permission was never resolved, deny it now so we don't leak.
-    if (managed.pendingPermission) {
-      try { managed.pendingPermission.resolve({ behavior: "deny", message: "Superseded by newer request." }); } catch {}
-    }
-    managed.pendingPermission = {
-      toolUseID: opts.toolUseID,
-      input,
-      suggestions: opts.suggestions,
-      resolve,
-    };
-    updateState(agentId, "waiting_for_response");
-
-    opts.signal.addEventListener("abort", () => {
-      if (managed.pendingPermission?.toolUseID === opts.toolUseID) {
-        managed.pendingPermission = null;
-        resolve({ behavior: "deny", message: "Request aborted." });
-      }
-    }, { once: true });
-  });
-}
-
-function createSession(managed: ManagedAgent, resumeSessionId?: string) {
-  // Drop any pending permission prompt from a prior (now-closed) session so the
-  // next user message isn't swallowed by a dead request.
+function createSession(managed: ManagedAgent, resumeSessionId?: string): BackendSession {
+  // Clear pendingPermission so a stale approvalId from the old (about-to-close)
+  // session can't accidentally route a future user message into a dead approval.
+  // The backend's close() resolves any in-flight SDK resolver with deny.
   if (managed.pendingPermission) {
-    try { managed.pendingPermission.resolve({ behavior: "deny", message: "Session restarted." }); } catch {}
     managed.pendingPermission = null;
   }
-  // Preflight checks so failures surface as readable errors instead of the SDK's
-  // opaque "Claude Code process exited with code 1".
+  // Preflight checks so failures surface as readable errors instead of the
+  // backend's opaque process-exit messages.
   try {
     validateCwd(managed.info.cwd);
   } catch (err: any) {
@@ -1211,32 +1179,24 @@ function createSession(managed: ManagedAgent, resumeSessionId?: string) {
     managed.info.customInstructions,
     managed.info.username,
   );
-  // V2 SDKSessionOptions still doesn't expose systemPrompt / extraArgs, so we
-  // inject --append-system-prompt and --effort via executableArgs. When
-  // pathToClaudeCodeExecutable is a native binary, executableArgs are prepended
-  // to the CLI args verbatim (verified against SDK 0.2.116 sdk.mjs).
-  const opts: any = {
-    model: FAMILY_TO_MODEL[managed.info.modelFamily],
-    permissionMode: managed.info.permissionMode,
-    pathToClaudeCodeExecutable: CLAUDE_NATIVE_BIN,
-    executableArgs: ["--append-system-prompt", systemPrompt, "--effort", managed.info.effort],
-    cwd: managed.info.cwd,
-    hooks: createSafetyHooks(),
-    canUseTool: ((toolName, input, options) => requestPermission(managed, toolName, input, options)) as CanUseTool,
-  };
-  const env = buildSessionEnv(managed);
-  if (env) opts.env = env;
   if (resumeSessionId) {
-    opts.resume = resumeSessionId;
     // The SDK reports cost cumulative-per-process, so a resumed session's
     // counter starts from zero. Roll the current-run usage into the
     // prior-runs accumulator so lifetime cost survives the reset.
     rollSessionUsageOnResume(managed.info.id, resumeSessionId);
   }
-  const sdkSession = resumeSessionId
-    ? unstable_v2_resumeSession(resumeSessionId, opts)
-    : unstable_v2_createSession(opts);
-  return new ClaudeBackendSession(sdkSession, managed.info.id);
+  const opts = {
+    agentId: managed.info.id,
+    cwd: managed.info.cwd,
+    systemPrompt,
+    modelFamily: managed.info.modelFamily,
+    effort: managed.info.effort,
+    permissionMode: managed.info.permissionMode,
+    env: buildSessionEnv(managed),
+  };
+  return resumeSessionId
+    ? claudeBackend.resumeSession(resumeSessionId, opts)
+    : claudeBackend.createSession(opts);
 }
 
 export async function spawn(
@@ -1598,13 +1558,8 @@ async function flushQueue(agentId: string): Promise<void> {
 
     try {
       const turn = createTurnDeferred(managed);
-      if (allAttachments.length > 0) {
-        const message = buildUserMessage(agentId, prompt, allAttachments);
-        await managed.session!.send(message);
-      } else {
-        await managed.session!.send(prompt);
-      }
-      // Send accepted by the SDK. Now finalize: write per-message log entries
+      await managed.session!.send(prompt, allAttachments.length > 0 ? allAttachments : undefined);
+      // Send accepted by the backend. Now finalize: write per-message log entries
       // (provenance) and remove the items from the live queue. Items cancelled
       // mid-send are still in `items` (they did reach the SDK) — log them so
       // chat history matches what the receiver actually saw.
@@ -1749,9 +1704,9 @@ export async function sendMessage(agentId: string, text: string, username?: stri
   // misinterpreted as a deny reason and lost. Pending-resume/model/effort are
   // user-initiated only, so they can't transition here.
   if (echoEarly && managed.pendingPermission) {
-    try {
-      managed.pendingPermission.resolve({ behavior: "deny", message: "Session interrupted." });
-    } catch {}
+    // Race-set during the abort drain. The dying session (now closed) already
+    // resolved its SDK callback with deny inside close(); we just clear the
+    // orchestrator-side pointer so the normal-message path proceeds.
     managed.pendingPermission = null;
   }
   if (!managed.session) {
@@ -1785,20 +1740,23 @@ export async function sendMessage(agentId: string, text: string, username?: stri
     const userMeta = buildUserMeta(username, device);
     emitEphemeralLog(agentId, "user_message", text, userMeta);
     const trimmed = text.trim();
+    const session = managed.session;
+    if (!session) {
+      emitEphemeralLog(agentId, "system", "Permission could not be resolved — session is gone.");
+      return;
+    }
     if (trimmed === "1") {
-      // Scope suggested rules to this session only so they don't leak across sessions.
-      const sessionScoped = pending.suggestions?.map((s) => ({ ...s, destination: "session" as const }));
       emitEphemeralLog(agentId, "system", "Permission granted (rule added for this session).");
-      pending.resolve({ behavior: "allow", updatedInput: pending.input, updatedPermissions: sessionScoped });
+      await session.approve(pending.approvalId, { kind: "allow_persistent" });
     } else if (trimmed === "2") {
       emitEphemeralLog(agentId, "system", "Permission granted (once).");
-      pending.resolve({ behavior: "allow", updatedInput: pending.input });
+      await session.approve(pending.approvalId, { kind: "allow_once" });
     } else if (trimmed === "3") {
       emitEphemeralLog(agentId, "system", "Permission denied.");
-      pending.resolve({ behavior: "deny", message: "User denied." });
+      await session.approve(pending.approvalId, { kind: "deny" });
     } else {
       emitEphemeralLog(agentId, "system", "Permission denied with reason forwarded to agent.");
-      pending.resolve({ behavior: "deny", message: text });
+      await session.approve(pending.approvalId, { kind: "deny", reason: text });
     }
     return;
   }
@@ -1943,12 +1901,7 @@ export async function sendMessage(agentId: string, text: string, username?: stri
   const prefixedText = prefix ? `${prefix}${text}` : text;
   try {
     const turn = createTurnDeferred(managed);
-    if (attachments && attachments.length > 0) {
-      const message = buildUserMessage(agentId, prefixedText, attachments);
-      await managed.session!.send(message);
-    } else {
-      await managed.session!.send(prefixedText);
-    }
+    await managed.session!.send(prefixedText, attachments && attachments.length > 0 ? attachments : undefined);
     await turn;
   } catch (err: any) {
     if (err instanceof SessionSwappedError) return;
@@ -2006,8 +1959,11 @@ export async function abort(agentId: string) {
 export async function kill(agentId: string) {
   const managed = agents.get(agentId);
   if (!managed) return;
+  // The backend's close() (below, via managed.session?.close()) resolves any
+  // in-flight SDK approval with deny; clearing pendingPermission here just
+  // drops the orchestrator's pointer so the next message path doesn't think
+  // an approval is pending.
   if (managed.pendingPermission) {
-    try { managed.pendingPermission.resolve({ behavior: "deny", message: "Agent killed." }); } catch {}
     managed.pendingPermission = null;
   }
   const turn = managed.pendingTurn;
@@ -2150,11 +2106,11 @@ export async function editMessage(agentId: string, logEntryId: string, newText: 
       return;
     }
 
-    // 2. Get SDK session messages and match by content + occurrence index.
+    // 2. Get backend session messages and match by content + occurrence index.
     //    For skill-expanded slash commands the log entry's `content` is the
     //    raw command (e.g. "/grill") but the SDK received the expanded prompt;
     //    `metadata.sdkText` captures that expanded form for matching.
-    const sdkMessages = await getSessionMessages(oldSessionId);
+    const backendMessages = await claudeBackend.getSessionMessages(oldSessionId, managed.info.cwd);
     const targetUsername = targetEntry.metadata?.username as string | undefined;
     const targetDevice = targetEntry.metadata?.device as string | undefined;
     const targetSdkText = (targetEntry.metadata?.sdkText as string | undefined) ?? targetEntry.content;
@@ -2174,25 +2130,16 @@ export async function editMessage(agentId: string, logEntryId: string, newText: 
       }
     }
 
-    // Find the matching SDK user message, and track the message just before it.
-    // forkSession's upToMessageId is inclusive, so we fork at the predecessor to
-    // exclude the original message — the edited text replaces it.
+    // Find the matching user message in the backend transcript, and track the
+    // message just before it. forkSession's upToMessageId is inclusive, so we
+    // fork at the predecessor to exclude the original message — the edited
+    // text replaces it.
     let matchCount = 0;
     let targetIdx = -1;
-    for (let i = 0; i < sdkMessages.length; i++) {
-      const m = sdkMessages[i];
-      if (m.type !== "user") continue;
-      // SDK message format: { role: "user", content: [{ type: "text", text: "..." }, ...] }
-      const msg = m.message as any;
-      const contentBlocks = Array.isArray(msg?.content) ? msg.content
-        : Array.isArray(msg) ? msg
-        : typeof msg === "string" ? [{ type: "text", text: msg }]
-        : [];
-      const msgContent = contentBlocks
-        .filter((b: any) => b.type === "text")
-        .map((b: any) => b.text)
-        .join("");
-      if (msgContent === prefixedContent) {
+    for (let i = 0; i < backendMessages.length; i++) {
+      const m = backendMessages[i];
+      if (m.role !== "user") continue;
+      if (m.text === prefixedContent) {
         if (matchCount === occurrenceIndex) {
           targetIdx = i;
           break;
@@ -2202,7 +2149,7 @@ export async function editMessage(agentId: string, logEntryId: string, newText: 
     }
 
     if (targetIdx === -1) {
-      addLogEntry(agentId, "error", "Cannot edit: could not locate message in SDK session.");
+      addLogEntry(agentId, "error", "Cannot edit: could not locate message in backend session.");
       return;
     }
 
@@ -2217,8 +2164,8 @@ export async function editMessage(agentId: string, logEntryId: string, newText: 
       // No fork needed — we'll create a fresh session below (step 5)
       newSessionId = ""; // placeholder, set after createSession
     } else {
-      const predecessorUuid = sdkMessages[targetIdx - 1].uuid;
-      const forkResult = await forkSession(oldSessionId, { upToMessageId: predecessorUuid });
+      const predecessorUuid = backendMessages[targetIdx - 1].uuid;
+      const forkResult = await claudeBackend.forkSession(oldSessionId, predecessorUuid);
       newSessionId = forkResult.sessionId;
     }
 

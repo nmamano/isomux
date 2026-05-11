@@ -87,9 +87,13 @@ export interface TokenUsage {
 export type NormalizedEvent =
   // First event from a fresh or resumed session/thread. Carries the backend-
   // assigned id; orchestrator persists this as ManagedAgent.sessionId.
+  // sessionId is optional only as a defensive fallback for transports that
+  // could emit an init without it (the Claude SDK always supplies one); the
+  // orchestrator guards session-related side effects on its presence so
+  // slash_commands/skills still reach the UI in the edge case.
   | {
       kind: "system_init";
-      sessionId: string;
+      sessionId?: string;
       slashCommands?: string[];
       model?: string;
     }
@@ -134,7 +138,11 @@ export type NormalizedEvent =
       cost?: number;
       error?: string;
     }
-  // Running token totals between turns (Codex-only at v1).
+  // Running token totals between turns (Codex-only at v1). `tokenUsage` is
+  // the *delta* since the prior usage event — the orchestrator's accumulator
+  // sums these into the session's cumulative total. Backends whose transport
+  // reports cumulative totals (e.g. Codex `thread/tokenUsage/updated`) must
+  // compute the delta against their last-known cumulative before emitting.
   | { kind: "usage_update"; tokenUsage: TokenUsage }
   // Context compaction occurred mid-conversation (Codex-only at v1).
   | { kind: "compacted"; summary?: string }
