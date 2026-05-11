@@ -18,6 +18,42 @@ export interface AgentOutfit {
   accessory: "glasses" | "headphones" | "bow_tie" | "tie" | "earrings" | null;
 }
 
+// Agent engine. New agents are spawned with one of these; the field is fixed
+// at spawn time (Round 3 decision: edit-agent treats it as read-only, with a
+// tooltip pointing users at "spawn a new agent" for the other engine).
+export type AgentBackendType = "claude" | "codex";
+
+// Static per-backend capability flags. Embedded in AgentInfo so the UI can
+// hide affordances without knowing about specific backends — e.g. greying
+// out the "branch" button when capabilities.fork is false. Same shape used
+// internally by the Backend interface (server/backends/types.ts re-exports
+// it as BackendCapabilities for symmetry).
+export interface AgentCapabilities {
+  fork: boolean;
+  hooks: boolean;
+  skills: boolean;
+  oneShot: boolean;
+  canUseTool: boolean;
+  topicGen: boolean;
+  edit: boolean;
+  mcp: boolean;
+}
+
+// All-capabilities-on default. Real server-spawned agents pull capabilities
+// from their Backend impl; this fallback is for demo-state fixtures and any
+// other shared-code path that needs to instantiate an AgentInfo without
+// reaching into the server-side Backend registry.
+export const DEFAULT_AGENT_CAPABILITIES: AgentCapabilities = {
+  fork: true,
+  hooks: true,
+  skills: true,
+  oneShot: true,
+  canUseTool: true,
+  topicGen: true,
+  edit: true,
+  mcp: true,
+};
+
 // Model families — what users pick ("I want Opus"). Exact versions are an
 // implementation detail that the system bumps centrally in FAMILY_TO_MODEL.
 export type ModelFamily = "opus" | "sonnet" | "haiku";
@@ -104,6 +140,12 @@ export interface AgentInfo {
   topic: string | null;
   topicStale: boolean;
   customInstructions: string | null;
+  // Which engine this agent runs on. Fixed at spawn time. Existing agents
+  // persisted before this field landed default to "claude" on load.
+  agentType: AgentBackendType;
+  // Static capabilities of this agent's backend. Populated server-side from
+  // the Backend implementation; UI uses these to gate affordances.
+  capabilities: AgentCapabilities;
   // The user who spawned this agent. Per-user env (git/gh credentials) is
   // resolved through this field at session creation time. null only for
   // legacy unowned agents migrated from before the user/device split.

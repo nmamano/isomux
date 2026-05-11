@@ -15,18 +15,12 @@
 // ---------------------------------------------------------------------------
 // Static per-backend, embedded in the agent payload sent to the UI. The UI
 // hides affordances when a capability is false (e.g. greys out the "branch"
-// button on a backend without fork support).
+// button on a backend without fork support). The wire shape lives in
+// shared/types.ts as AgentCapabilities; this is just an alias so backend
+// code reads naturally.
 
-export interface BackendCapabilities {
-  fork: boolean;        // forkSession() — branched conversations / edit-message
-  hooks: boolean;       // programmatic PreToolUse-style hook registration (Claude only at v1)
-  skills: boolean;      // skill discovery surfaced as slash commands
-  oneShot: boolean;     // single-prompt-without-persistent-session (used by topic gen)
-  canUseTool: boolean;  // per-tool approval flow (callback or paused-turn equivalent)
-  topicGen: boolean;    // topic generation flow is supported
-  edit: boolean;        // edit-message (needs fork + getSessionMessages)
-  mcp: boolean;         // MCP servers can be configured for this backend
-}
+import type { AgentCapabilities } from "../../shared/types.ts";
+export type BackendCapabilities = AgentCapabilities;
 
 // ---------------------------------------------------------------------------
 // Attachments

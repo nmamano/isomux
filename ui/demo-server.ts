@@ -1,6 +1,6 @@
 import { OfficeState, type OfficeEvent } from "../shared/office-state.ts";
 import type { AgentInfo, ClientCommand, ServerMessage, LogEntry, ModelFamily, Cronjob, Schedule } from "../shared/types.ts";
-import { DEFAULT_EFFORT, generateCronjobId } from "../shared/types.ts";
+import { DEFAULT_AGENT_CAPABILITIES, DEFAULT_EFFORT, generateCronjobId } from "../shared/types.ts";
 import { shimEmit } from "./ws.ts";
 
 const state = new OfficeState();
@@ -113,6 +113,8 @@ function seedOffice() {
       topic: char.topic,
       topicStale: false,
       customInstructions: char.customInstructions,
+      agentType: "claude",
+      capabilities: DEFAULT_AGENT_CAPABILITIES,
       username: null,
       queue: [],
       sessionSwapping: false,

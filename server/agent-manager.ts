@@ -75,6 +75,7 @@ import {
   type InternalRoom,
 } from "./internal-types.ts";
 import { claudeBackend } from "./backends/claude.ts";
+import { getBackend } from "./backends/index.ts";
 import type { BackendSession, NormalizedEvent } from "./backends/types.ts";
 
 const LOGIN_INSTRUCTIONS = `To authenticate:
@@ -415,6 +416,7 @@ function persistAll() {
         permissionMode: a.info.permissionMode,
         modelFamily: a.info.modelFamily,
         effort: a.info.effort,
+        agentType: a.info.agentType,
         lastSessionId: a.sessionId,
         topic: a.info.topic,
         customInstructions: a.info.customInstructions,
@@ -452,6 +454,7 @@ export async function restoreAgents() {
 
   for (let roomIdx = 0; roomIdx < loaded.length; roomIdx++) {
     for (const p of loaded[roomIdx].agents) {
+      const agentType = p.agentType ?? "claude";
       const info: AgentInfo = {
         id: p.id,
         name: p.name,
@@ -466,6 +469,8 @@ export async function restoreAgents() {
         topic: p.topic ?? null,
         topicStale: false,
         customInstructions: p.customInstructions ?? null,
+        agentType,
+        capabilities: getBackend(agentType).capabilities,
         username: p.username ?? null,
         queue: [],
         sessionSwapping: false,
@@ -1237,6 +1242,10 @@ export async function spawn(
   const resolvedCwd = resolveCwd(cwd);
   const id = `agent-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
+  // Only Claude is wired today; the spawn flow that surfaces a backend choice
+  // lands in step 8.
+  const agentType: AgentInfo["agentType"] = "claude";
+
   const info: AgentInfo = {
     id,
     name,
@@ -1251,6 +1260,8 @@ export async function spawn(
     topic: null,
     topicStale: false,
     customInstructions: customInstructions || null,
+    agentType,
+    capabilities: getBackend(agentType).capabilities,
     username: username ?? null,
     queue: [],
     sessionSwapping: false,

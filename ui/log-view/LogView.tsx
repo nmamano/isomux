@@ -1207,6 +1207,26 @@ export function LogView({
             >
               {familyDisplayLabel(agent.modelFamily)}
             </span>
+            {agent.agentType !== "claude" && (
+              <>
+                <span style={{ color: "var(--text-ghost)", flexShrink: 0 }}>&middot;</span>
+                <span
+                  style={{
+                    fontFamily: "'JetBrains Mono',monospace",
+                    fontSize: 10,
+                    fontWeight: 600,
+                    letterSpacing: 0.5,
+                    textTransform: "uppercase",
+                    color: "var(--accent-blue, #5eafff)",
+                    whiteSpace: "nowrap",
+                    flexShrink: 0,
+                  }}
+                  title={`Backend: ${agent.agentType}`}
+                >
+                  {agent.agentType}
+                </span>
+              </>
+            )}
           </div>
           <div style={{ display: "flex", alignItems: "center", flexShrink: 0, marginLeft: 12 }}>
             <NavActions actions={desktopAgentActions} viewport="desktop" />

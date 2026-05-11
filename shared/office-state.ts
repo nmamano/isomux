@@ -1,5 +1,5 @@
 import type { AgentInfo, AgentOutfit, TaskItem, TaskPriority, TaskStatus, RoomWire, OfficeSettings } from "./types.ts";
-import { DEFAULT_EFFORT } from "./types.ts";
+import { DEFAULT_AGENT_CAPABILITIES, DEFAULT_EFFORT } from "./types.ts";
 import { generateTaskId, generateRoomId, isValidStatus, isValidPriority } from "./types.ts";
 import { SHIRT_COLORS, HAIR_COLORS, SKIN_COLORS, HAIR_STYLES, BEARDS, HATS, ACCESSORIES } from "./outfit-options.ts";
 
@@ -141,6 +141,8 @@ export class OfficeState {
       topic: null,
       topicStale: false,
       customInstructions: opts.customInstructions || null,
+      agentType: "claude",
+      capabilities: DEFAULT_AGENT_CAPABILITIES,
       username: null,
       queue: [],
       sessionSwapping: false,

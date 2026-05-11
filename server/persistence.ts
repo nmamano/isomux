@@ -287,6 +287,9 @@ export interface PersistedAgent {
   permissionMode: AgentInfo["permissionMode"];
   modelFamily?: ModelFamily;
   effort?: EffortLevel;
+  // Engine. Missing field defaults to "claude" on load (legacy agents spawned
+  // before this field was added). Fixed at spawn — see task f352984f Round 3.
+  agentType?: AgentInfo["agentType"];
   lastSessionId: string | null;
   topic: string | null;
   customInstructions: string | null;
