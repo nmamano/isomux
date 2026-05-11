@@ -38,6 +38,7 @@ import type {
   Backend,
   BackendCapabilities,
   BackendSession,
+  ContextUsage,
   CreateSessionOptions,
   ModelOption,
   NormalizedEvent,
@@ -187,6 +188,11 @@ class CodexSession implements BackendSession {
     cacheReadInputTokens: 0,
     cacheCreationInputTokens: 0,
   };
+  // Resolves when bootstrap (initialize + thread/start) completes — success
+  // or failure. send() / approve() / abort() await this so they don't race
+  // the async setup. On failure threadId stays null; callers see a clear
+  // "bootstrap failed" error instead of "not initialized yet."
+  private bootstrapPromise: Promise<void>;
 
   constructor(
     private readonly opts: CodexSessionInitOpts,
@@ -200,7 +206,7 @@ class CodexSession implements BackendSession {
     this.client.onNotification((n) => this.handleNotification(n));
     this.client.onServerRequest((req) => this.handleServerRequest(req));
     this.client.onExit((code, signal) => this.handleSubprocessExit(code, signal));
-    void this.bootstrap();
+    this.bootstrapPromise = this.bootstrap();
   }
 
   // -------------------------------------------------------------------------
@@ -317,8 +323,15 @@ class CodexSession implements BackendSession {
   }
 
   async send(text: string, attachments?: AttachmentSpec[]): Promise<void> {
+    // Wait for bootstrap (initialize + thread/start) to finish so callers
+    // who fire send() immediately after a session swap don't race. After
+    // bootstrap, threadId is either set (success) or still null (bootstrap
+    // failed — the orchestrator already saw the `error` event from
+    // bootstrap and routed it; raising here surfaces the same condition to
+    // the awaiting sendMessage / flushQueue caller).
+    await this.bootstrapPromise;
     if (this.closed) throw new Error("CodexSession.send: session is closed");
-    if (!this.threadId) throw new Error("CodexSession.send: not initialized yet");
+    if (!this.threadId) throw new Error("CodexSession.send: codex bootstrap failed; cannot send");
 
     const input = buildCodexUserInput(text, attachments, this.opts.agentId);
     this.turnInFlight = true;
@@ -329,6 +342,7 @@ class CodexSession implements BackendSession {
   }
 
   async approve(approvalId: string, decision: ApprovalDecision): Promise<void> {
+    await this.bootstrapPromise;
     const pending = this.pendingApprovals.get(approvalId);
     if (!pending) return;
     this.pendingApprovals.delete(approvalId);
@@ -341,9 +355,11 @@ class CodexSession implements BackendSession {
   }
 
   async abort(): Promise<void> {
+    await this.bootstrapPromise;
     if (this.closed) return;
     if (!this.threadId || !this.activeTurnId) {
-      // Nothing to interrupt — no in-flight turn.
+      // Nothing to interrupt — no in-flight turn (either bootstrap failed
+      // or no send happened yet).
       return;
     }
     try {
@@ -372,6 +388,12 @@ class CodexSession implements BackendSession {
     // Fire-and-forget close on the client; subprocess exit handler tidies up.
     void this.client.close();
     this.markEnded();
+  }
+
+  async getContextUsage(): Promise<ContextUsage | null> {
+    // Codex doesn't expose a context-window breakdown RPC at v1. The
+    // /context handler shows "not available" when null is returned.
+    return null;
   }
 
   // -------------------------------------------------------------------------

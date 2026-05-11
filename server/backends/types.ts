@@ -181,10 +181,29 @@ export interface NormalizedMessage {
 // BackendSession — per-conversation handle
 // ---------------------------------------------------------------------------
 
+// Subset of SDKControlGetContextUsageResponse used by the /context UI. Codex
+// doesn't expose an equivalent at v1; backends that don't support it return
+// null from getContextUsage.
+export interface ContextUsage {
+  model: string;
+  totalTokens: number;
+  maxTokens: number;
+  percentage: number;
+  categories?: { name: string; tokens: number }[];
+  memoryFiles?: { path: string; tokens: number }[];
+  systemPromptSections?: { name: string; tokens: number }[];
+  isAutoCompactEnabled?: boolean;
+  autoCompactThreshold?: number;
+}
+
 export interface BackendSession {
   // Stream of normalized events. The persistent consumer in agent-manager
   // iterates this for the session's lifetime; `close()` ends the iteration.
   stream(): AsyncIterable<NormalizedEvent>;
+
+  // Per-session context usage breakdown for /context. Returns null when the
+  // backend doesn't support it (Codex at v1) or the session isn't ready.
+  getContextUsage(): Promise<ContextUsage | null>;
 
   // Send a user turn. Attachments are inlined per backend's preferred shape
   // (Claude: ContentBlockParam[]; Codex: per-Item input variants).

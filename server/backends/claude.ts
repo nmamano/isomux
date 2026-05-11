@@ -52,6 +52,7 @@ import type {
   Backend,
   BackendCapabilities,
   BackendSession,
+  ContextUsage,
   CreateSessionOptions,
   ModelOption,
   NormalizedEvent,
@@ -298,6 +299,24 @@ class ClaudeSession implements BackendSession {
     // install a replacement). close() is sufficient here; the orchestrator
     // wraps with replaceSession().
     this.close();
+  }
+
+  async getContextUsage(): Promise<ContextUsage | null> {
+    // The SDKSession runtime carries a `.query` property holding the
+    // underlying V1 Query instance — it's not in the public type, but it's
+    // how /context worked pre-refactor. We delegate to its getContextUsage
+    // method when present. Returns null if the SDK shape changes or the
+    // session hasn't reached a state where it can answer.
+    const query = (this.sdkSession as any).query;
+    if (!query || typeof query.getContextUsage !== "function") return null;
+    try {
+      const ctx = await query.getContextUsage();
+      // SDKControlGetContextUsageResponse is a superset of our ContextUsage
+      // shape; pass through with a structural cast.
+      return ctx as unknown as ContextUsage;
+    } catch {
+      return null;
+    }
   }
 
   close(): void {
