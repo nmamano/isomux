@@ -1,0 +1,2 @@
+server/backends/codex/_generated/** linguist-generated=true
+ui/dist/** linguist-generated=true
