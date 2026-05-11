@@ -1,4 +1,4 @@
-import type { SDKMessage, PermissionResult, PermissionUpdate } from "@anthropic-ai/claude-agent-sdk";
+import type { PermissionResult, PermissionUpdate } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentInfo, LogEntry, QueuedMessage, RoomWire, SkillInfo } from "../shared/types.ts";
 import type { ClaudeBackendSession } from "./backends/claude.ts";
 
@@ -111,5 +111,3 @@ export class SessionSwappedError extends Error {
   }
 }
 
-// Re-export SDKMessage for convenience
-export type { SDKMessage };

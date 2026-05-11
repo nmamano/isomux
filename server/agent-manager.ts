@@ -4,7 +4,6 @@ import {
   unstable_v2_prompt,
   forkSession,
   getSessionMessages,
-  type SDKMessage,
   type CanUseTool,
   type PermissionResult,
 } from "@anthropic-ai/claude-agent-sdk";
@@ -30,7 +29,6 @@ import {
   loadOfficeConfig,
   saveOfficeConfig,
   readEnvFile,
-  saveFile,
   loadAgentHistory,
   saveAgentHistory,
   type PersistedAgent,
@@ -88,6 +86,7 @@ import {
   type InternalRoom,
 } from "./internal-types.ts";
 import { ClaudeBackendSession } from "./backends/claude.ts";
+import type { NormalizedEvent } from "./backends/types.ts";
 
 const LOGIN_INSTRUCTIONS = `To authenticate:
 1. Open the built-in terminal
@@ -812,204 +811,192 @@ async function generateTopic(agentId: string) {
   }
 }
 
-// Derive agent state from SDK message
-function deriveState(msg: SDKMessage): AgentState | null {
-  switch (msg.type) {
-    case "assistant": {
-      const content = (msg as any).message?.content;
-      if (Array.isArray(content) && content.some((b: any) => b.type === "tool_use")) {
-        return "tool_executing";
-      }
+// Derive agent state from one normalized event.
+function deriveStateFromEvent(ev: NormalizedEvent): AgentState | null {
+  switch (ev.kind) {
+    case "assistant_text":
+    case "thinking":
       return "thinking";
-    }
-    case "tool_progress":
+    case "tool_call":
       return "tool_executing";
-    case "result":
-      return "waiting_for_response";
+    case "turn_completed":
+      // On failure, processNormalizedEvent sets "error" inside the body;
+      // returning null here avoids clobbering that with "waiting_for_response".
+      return ev.status === "completed" ? "waiting_for_response" : null;
     default:
       return null;
   }
 }
 
-// Process SDK messages into log entries
-function processMessage(agentId: string, msg: SDKMessage) {
-  const newState = deriveState(msg);
+// Process one normalized event from a BackendSession stream.
+function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
+  const newState = deriveStateFromEvent(ev);
   if (newState) {
-    updateState(agentId, newState);
+    // Don't downgrade tool_executing → thinking within the same turn. The
+    // original SDK-shape deriveState looked at the whole assistant message
+    // and elevated to tool_executing whenever ANY block was a tool_use; in
+    // normalized form events arrive per-block, so we keep the elevation
+    // sticky until the turn ends.
+    const currentState = agents.get(agentId)?.info.state;
+    if (!(currentState === "tool_executing" && newState === "thinking")) {
+      updateState(agentId, newState);
+    }
   }
 
-  switch (msg.type) {
-    case "system": {
-      const subtype = (msg as any).subtype;
-      if (subtype === "init") {
-        const sessionId = (msg as any).session_id;
-        const managed = agents.get(agentId);
-        if (managed && sessionId) {
-          const hadPreviousSession = !!managed.sessionId;
-          // Load prior log history if this session was seen before (walks fork ancestry)
-          if (!managed.sessionId && sessionId) {
-            const history = loadLogWithAncestors(agentId, sessionId);
-            if (history.length > 0) {
-              for (const entry of history) {
-                emit({ type: "log_entry", entry });
-              }
+  switch (ev.kind) {
+    case "system_init": {
+      const managed = agents.get(agentId);
+      if (managed) {
+        const hadPreviousSession = !!managed.sessionId;
+        // Load prior log history if this session was seen before (walks fork ancestry)
+        if (!managed.sessionId) {
+          const history = loadLogWithAncestors(agentId, ev.sessionId);
+          if (history.length > 0) {
+            for (const entry of history) {
+              emit({ type: "log_entry", entry });
             }
           }
-          // If we already had a session and got a new init, this is a /clear
-          if (hadPreviousSession && sessionId !== managed.sessionId) {
-            logCache.set(agentId, []);
-            emit({ type: "clear_logs", agentId });
-            addLogEntry(agentId, "system", "Conversation cleared.");
+        }
+        // If we already had a session and got a new init, this is a /clear
+        if (hadPreviousSession && ev.sessionId !== managed.sessionId) {
+          logCache.set(agentId, []);
+          emit({ type: "clear_logs", agentId });
+          addLogEntry(agentId, "system", "Conversation cleared.");
+        }
+        managed.sessionId = ev.sessionId;
+        // Backfill: write any cached log entries that were created before sessionId was known
+        if (!hadPreviousSession) {
+          const cached = logCache.get(agentId) ?? [];
+          for (const entry of cached) {
+            appendLog(agentId, ev.sessionId, entry);
           }
-          managed.sessionId = sessionId;
-          // Backfill: write any cached log entries that were created before sessionId was known
-          if (!hadPreviousSession) {
-            const cached = logCache.get(agentId) ?? [];
-            for (const entry of cached) {
-              appendLog(agentId, sessionId, entry);
-            }
-          }
-          persistAll();
         }
-        // Capture available slash commands and skills from init
-        const sdkCommands: string[] = (msg as any).slash_commands ?? [];
-        // Filter out MCP internal command names (mcp__...) — they clutter autocomplete
-        const filteredSdkCommands = sdkCommands.filter((c) => !c.startsWith("mcp__"));
-        // Store SDK-reported commands for pass-through resolution (step 4)
-        if (managed) {
-          managed.sdkReportedCommands = filteredSdkCommands;
-        }
-        // Autocomplete: config entries with autocomplete:true + all discovered skills
-        // SDK-reported commands are NOT added to autocomplete (per design)
-        // Skills are listed in priority order; deduplicate by name (highest priority wins)
-        const discoveredSkills = managed
-          ? [...discoverUserSkills(), ...discoverProjectSkills(managed.info.cwd), ...discoverPluginSkills(), ...discoverBundledSkills()]
-          : [];
-        const uniqueSkills = deduplicateSkills(discoveredSkills);
-        const configCommands = autocompleteCommands();
-        if (managed) {
-          managed.slashCommands = configCommands;
-          managed.skills = uniqueSkills;
-        }
-        emit({
-          type: "slash_commands",
-          agentId,
-          commands: configCommands,
-          skills: uniqueSkills,
-        });
-      } else if (subtype === "local_command_output") {
-        const content = (msg as any).content;
-        if (content) {
-          addLogEntry(agentId, "system", content);
-        }
+        persistAll();
       }
+      // Capture available slash commands and skills from init.
+      const sdkCommands = ev.slashCommands ?? [];
+      // Filter out MCP internal command names (mcp__...) — they clutter autocomplete.
+      const filteredSdkCommands = sdkCommands.filter((c) => !c.startsWith("mcp__"));
+      if (managed) {
+        managed.sdkReportedCommands = filteredSdkCommands;
+      }
+      // Autocomplete: config entries with autocomplete:true + all discovered skills.
+      // SDK-reported commands are NOT added to autocomplete (per design).
+      // Skills are listed in priority order; deduplicate by name (highest priority wins).
+      const discoveredSkills = managed
+        ? [...discoverUserSkills(), ...discoverProjectSkills(managed.info.cwd), ...discoverPluginSkills(), ...discoverBundledSkills()]
+        : [];
+      const uniqueSkills = deduplicateSkills(discoveredSkills);
+      const configCommands = autocompleteCommands();
+      if (managed) {
+        managed.slashCommands = configCommands;
+        managed.skills = uniqueSkills;
+      }
+      emit({
+        type: "slash_commands",
+        agentId,
+        commands: configCommands,
+        skills: uniqueSkills,
+      });
       break;
     }
-    case "assistant": {
-      const message = (msg as any).message;
-      const content = message?.content;
-      if (!Array.isArray(content)) break;
-      // SDK injects synthetic assistant turns (model === "<synthetic>") for
-      // things like usage-limit hits and queue-flush gaps. Persist text from
-      // those as system breadcrumbs so they don't render as Claude-voice.
-      const isSynthetic = message?.model === "<synthetic>";
-      for (const block of content) {
-        if (block.type === "text" && block.text) {
-          addLogEntry(agentId, isSynthetic ? "system" : "text", block.text);
-        } else if (block.type === "tool_use") {
-          const managed = agents.get(agentId);
-          if (managed) {
-            managed.toolCallTimestamps.set(block.id, Date.now());
-          }
-          addLogEntry(agentId, "tool_call", block.name, {
-            toolId: block.id,
-            input: block.input,
-          });
-        } else if (block.type === "thinking" && block.thinking) {
-          const managed = agents.get(agentId);
-          const duration_ms = managed?.thinkingStartedAt
-            ? Date.now() - managed.thinkingStartedAt
-            : undefined;
-          addLogEntry(agentId, "thinking", block.thinking, duration_ms != null ? { duration_ms } : undefined);
-        }
-      }
+    case "assistant_text":
+      addLogEntry(agentId, "text", ev.text);
+      break;
+    case "system_text":
+      addLogEntry(agentId, "system", ev.text);
+      break;
+    case "thinking": {
+      const managed = agents.get(agentId);
+      const duration_ms =
+        ev.durationMs ??
+        (managed?.thinkingStartedAt ? Date.now() - managed.thinkingStartedAt : undefined);
+      addLogEntry(agentId, "thinking", ev.text, duration_ms != null ? { duration_ms } : undefined);
       break;
     }
-    case "user": {
-      const content = (msg as any).message?.content;
-      if (!Array.isArray(content)) break;
-      for (const block of content) {
-        if (block.type === "tool_result") {
-          const resultText =
-            typeof block.content === "string"
-              ? block.content
-              : Array.isArray(block.content)
-                ? block.content
-                    .filter((c: any) => c.type === "text")
-                    .map((c: any) => c.text)
-                    .join("\n")
-                : JSON.stringify(block.content);
-          // Extract image blocks from tool result content
-          let resultAttachments: Attachment[] | undefined;
-          if (Array.isArray(block.content)) {
-            const atts: Attachment[] = [];
-            for (const c of block.content as any[]) {
-              if (c.type === "image" && c.source?.type === "base64") {
-                const decoded = Buffer.from(c.source.data, "base64");
-                const att = saveFile(agentId, decoded, c.source.media_type, `image.${c.source.media_type.split("/")[1] ?? "png"}`);
-                if (att) atts.push(att);
-              }
-            }
-            if (atts.length > 0) resultAttachments = atts;
-          }
-          const managed = agents.get(agentId);
-          const callStart = managed?.toolCallTimestamps.get(block.tool_use_id);
-          const duration_ms = callStart ? Date.now() - callStart : undefined;
-          if (managed && callStart) {
-            managed.toolCallTimestamps.delete(block.tool_use_id);
-          }
-          addLogEntry(agentId, "tool_result", resultText.slice(0, 10000), {
-            toolUseId: block.tool_use_id,
-            ...(duration_ms != null ? { duration_ms } : {}),
-          }, resultAttachments);
-        }
+    case "tool_call": {
+      const managed = agents.get(agentId);
+      if (managed) {
+        managed.toolCallTimestamps.set(ev.toolUseId, Date.now());
       }
+      addLogEntry(agentId, "tool_call", ev.name, {
+        toolId: ev.toolUseId,
+        input: ev.input,
+      });
       break;
     }
-    case "result": {
-      // SDK reports tokens per-turn and cost cumulative-per-process on every
-      // `result`. We accumulate tokens and overwrite cost into sessions.json
-      // (`usage`) and append the resulting cumulative as a snapshot anchored
+    case "tool_result": {
+      const managed = agents.get(agentId);
+      const callStart = managed?.toolCallTimestamps.get(ev.toolUseId);
+      const duration_ms = ev.durationMs ?? (callStart ? Date.now() - callStart : undefined);
+      if (managed && callStart) {
+        managed.toolCallTimestamps.delete(ev.toolUseId);
+      }
+      addLogEntry(agentId, "tool_result", ev.content.slice(0, 10000), {
+        toolUseId: ev.toolUseId,
+        ...(duration_ms != null ? { duration_ms } : {}),
+      }, ev.attachments);
+      break;
+    }
+    case "turn_completed": {
+      // Backends report token totals per turn. We accumulate cumulative
+      // totals into sessions.json (`usage`) and append a snapshot anchored
       // to the most recently written log entry. The snapshots let /usage's
       // fork accounting subtract the parent's cumulative-at-the-fork-point
       // exactly, instead of double-counting the resumed prefix.
-      // Only trust usage from success results. Error-subtype results may omit
-      // `usage` entirely, and `?? 0` would overwrite the accurate cumulative
-      // with zeros.
       const managed = agents.get(agentId);
-      const usageField = (msg as any).usage;
-      if (managed?.sessionId && usageField) {
-        const cost = (msg as any).total_cost_usd ?? 0;
-        const cumulative = accumulateSessionUsage(agentId, managed.sessionId, {
-          inputTokens: usageField.input_tokens ?? 0,
-          outputTokens: usageField.output_tokens ?? 0,
-          cacheReadInputTokens: usageField.cache_read_input_tokens ?? 0,
-          cacheCreationInputTokens: usageField.cache_creation_input_tokens ?? 0,
-        }, cost);
+      if (managed?.sessionId && ev.usage) {
+        const cumulative = accumulateSessionUsage(
+          agentId,
+          managed.sessionId,
+          ev.usage,
+          ev.cost ?? 0,
+        );
         if (managed.lastWrittenEntryId) {
           appendSessionUsageSnapshot(agentId, managed.sessionId, managed.lastWrittenEntryId, cumulative);
         }
       }
-      const subtype = (msg as any).subtype;
-      if (subtype !== "success") {
-        const errors = (msg as any).errors;
-        const errorText = `Agent stopped: ${subtype}. ${errors?.join(", ") || ""}`;
+      if (ev.status !== "completed") {
+        const errorText = ev.error ?? `Agent stopped: ${ev.status}.`;
         addLogEntry(agentId, "error", errorText);
         if (isAuthError(errorText)) {
           addLogEntry(agentId, "system", LOGIN_INSTRUCTIONS);
         }
         updateState(agentId, "error");
       }
+      break;
+    }
+    case "usage_update": {
+      // Backend emitted running totals outside a turn boundary (Codex). Treat
+      // it like a turn_completed for the purposes of accumulation; no
+      // turn-completed log/state side effects.
+      const managed = agents.get(agentId);
+      if (managed?.sessionId) {
+        const cumulative = accumulateSessionUsage(agentId, managed.sessionId, ev.tokenUsage, 0);
+        if (managed.lastWrittenEntryId) {
+          appendSessionUsageSnapshot(agentId, managed.sessionId, managed.lastWrittenEntryId, cumulative);
+        }
+      }
+      break;
+    }
+    case "compacted":
+      addLogEntry(agentId, "system", ev.summary
+        ? `Context compacted: ${ev.summary}`
+        : "Context compacted.");
+      break;
+    case "error":
+      addLogEntry(agentId, "error", ev.message);
+      if (isAuthError(ev.message)) {
+        addLogEntry(agentId, "system", LOGIN_INSTRUCTIONS);
+      }
+      updateState(agentId, "error");
+      break;
+    case "approval_request": {
+      // Claude routes approvals through canUseTool today (orchestrator-level
+      // pendingPermission), so this branch is unreachable from the Claude
+      // backend until step 2c. Codex will use it. Log conservatively if it
+      // ever fires from Claude unexpectedly so we notice rather than swallow.
+      addLogEntry(agentId, "system", `Approval requested for ${ev.toolName} (id=${ev.approvalId})`);
       break;
     }
   }
@@ -1047,14 +1034,14 @@ function createTurnDeferred(managed: ManagedAgent): Promise<void> {
 async function runConsumer(agentId: string, managed: ManagedAgent, boundSession: ClaudeBackendSession) {
   while (agents.has(agentId) && managed.session === boundSession) {
     try {
-      for await (const msg of boundSession.stream()) {
+      for await (const ev of boundSession.stream()) {
         // After an abort/resume/fork the dying session may keep yielding
-        // messages for several seconds before its stream() generator finally
+        // events for several seconds before its stream() generator finally
         // ends (the SDK's close() doesn't interrupt mid-chunk). We must keep
         // draining so the inner generator terminates, but we drop the events
         // — otherwise the user sees model output continuing after Ctrl+C.
         if (managed.session !== boundSession) continue;
-        processMessage(agentId, msg);
+        processNormalizedEvent(agentId, ev);
       }
       // Inner generator ended: either the turn's `result` arrived, or the
       // session was closed from underneath us. Resolve any pending turn; the
@@ -1249,7 +1236,7 @@ function createSession(managed: ManagedAgent, resumeSessionId?: string) {
   const sdkSession = resumeSessionId
     ? unstable_v2_resumeSession(resumeSessionId, opts)
     : unstable_v2_createSession(opts);
-  return new ClaudeBackendSession(sdkSession);
+  return new ClaudeBackendSession(sdkSession, managed.info.id);
 }
 
 export async function spawn(
