@@ -417,6 +417,17 @@ class CodexSession implements BackendSession {
         const error = turn?.error?.message ?? undefined;
         this.activeTurnId = null;
         this.turnInFlight = false;
+        // "Model not supported" guidance. CODEX_MODELS is hardcoded at v1,
+        // and ChatGPT-login users can't use the full gpt-5 (API-key only).
+        // Hint at the spawn dialog so they don't think the integration is
+        // broken on first try.
+        if (error && /model.*not supported|not supported.*model/i.test(error)) {
+          this.enqueue({
+            kind: "system_text",
+            text:
+              "This Codex model isn't available on your current login. Open the agent's settings (click the name in the header) to pick a different one. ChatGPT-login users typically need `gpt-5-codex` or `gpt-5-mini`; full `gpt-5` is API-key only.",
+          });
+        }
         this.enqueue({
           kind: "turn_completed",
           status,
@@ -713,6 +724,11 @@ class CodexSession implements BackendSession {
         });
         throw new Error(`No token store: ${LOGIN_INSTRUCTIONS}`);
 
+      // Untested at v1: attestation/generate (codex requests an attestation
+      // token for upstream OpenAI calls). Falls to method-not-found via PASS
+      // below. If codex hard-fails on missing attestation in some flows,
+      // wire a real handler here. Subprocess-death synthesis covers the
+      // worst-case (hung turn) regardless.
       default:
         // Unknown server request — let the client respond method-not-found.
         return PASS;
