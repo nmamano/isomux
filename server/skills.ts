@@ -19,33 +19,40 @@ function extractSkillDescription(filePath: string): string | undefined {
   }
 }
 
-// Scan disk for user-defined skills and commands that the SDK doesn't report
+// Scan disk for user-defined skills and commands that the SDK doesn't report.
+// Backend-agnostic dirs (.isomux) come first so they win on name collisions
+// against Claude-specific dirs (.claude); both are still scanned so existing
+// user setups keep working unchanged.
+function scanSkillsDir(dir: string, origin: SkillInfo["origin"], skills: SkillInfo[]) {
+  if (!existsSync(dir)) return;
+  try {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) {
+        const description = extractSkillDescription(join(dir, entry.name, "SKILL.md"));
+        skills.push({ name: entry.name, origin, description });
+      }
+    }
+  } catch {}
+}
+
+function scanCommandsDir(dir: string, origin: SkillInfo["origin"], skills: SkillInfo[]) {
+  if (!existsSync(dir)) return;
+  try {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isFile() && entry.name.endsWith(".md")) {
+        const description = extractSkillDescription(join(dir, entry.name));
+        skills.push({ name: entry.name.replace(/\.md$/, ""), origin, description });
+      }
+    }
+  } catch {}
+}
+
 export function discoverUserSkills(): SkillInfo[] {
   const skills: SkillInfo[] = [];
-  // Global user skills: ~/.claude/skills/<name>/SKILL.md
-  const globalSkillsDir = join(homedir(), ".claude", "skills");
-  if (existsSync(globalSkillsDir)) {
-    try {
-      for (const entry of readdirSync(globalSkillsDir, { withFileTypes: true })) {
-        if (entry.isDirectory()) {
-          const description = extractSkillDescription(join(globalSkillsDir, entry.name, "SKILL.md"));
-          skills.push({ name: entry.name, origin: "user", description });
-        }
-      }
-    } catch {}
-  }
-  // Global user commands: ~/.claude/commands/<name>.md
-  const globalCmdsDir = join(homedir(), ".claude", "commands");
-  if (existsSync(globalCmdsDir)) {
-    try {
-      for (const entry of readdirSync(globalCmdsDir, { withFileTypes: true })) {
-        if (entry.isFile() && entry.name.endsWith(".md")) {
-          const description = extractSkillDescription(join(globalCmdsDir, entry.name));
-          skills.push({ name: entry.name.replace(/\.md$/, ""), origin: "user", description });
-        }
-      }
-    } catch {}
-  }
+  const home = homedir();
+  scanSkillsDir(join(home, ".isomux", "skills"), "user", skills);
+  scanSkillsDir(join(home, ".claude", "skills"), "user", skills);
+  scanCommandsDir(join(home, ".claude", "commands"), "user", skills);
   return skills;
 }
 
@@ -65,21 +72,16 @@ export function discoverBundledSkills(): SkillInfo[] {
   return skills;
 }
 
-// Also scan project-level skills for a given cwd
+// Also scan project-level skills for a given cwd. Same priority rationale as
+// discoverUserSkills: backend-agnostic dirs (.isomux, .agents) first, then
+// Claude-specific (.claude). All are scanned so existing project setups
+// continue to work.
 export function discoverProjectSkills(cwd: string): SkillInfo[] {
   const skills: SkillInfo[] = [];
-  // Project commands: <cwd>/.claude/commands/<name>.md
-  const projCmdsDir = join(cwd, ".claude", "commands");
-  if (existsSync(projCmdsDir)) {
-    try {
-      for (const entry of readdirSync(projCmdsDir, { withFileTypes: true })) {
-        if (entry.isFile() && entry.name.endsWith(".md")) {
-          const description = extractSkillDescription(join(projCmdsDir, entry.name));
-          skills.push({ name: entry.name.replace(/\.md$/, ""), origin: "project", description });
-        }
-      }
-    } catch {}
-  }
+  scanSkillsDir(join(cwd, ".isomux", "skills"), "project", skills);
+  scanSkillsDir(join(cwd, ".agents", "skills"), "project", skills);
+  scanSkillsDir(join(cwd, ".claude", "skills"), "project", skills);
+  scanCommandsDir(join(cwd, ".claude", "commands"), "project", skills);
   return skills;
 }
 
@@ -184,11 +186,21 @@ function resolvePluginSkillPrompt(pluginName: string, skillName: string): string
     ?? readSkillFile(join(installPath, "commands", `${skillName}.md`));
 }
 
-// Resolve a skill name to its prompt text, checking skill dirs in priority order:
-// 1. User skills (~/.claude/) — highest skill tier
-// 2. Project skills (<cwd>/.claude/)
-// 3. Plugin skills (~/.claude/plugins/) — namespaced with "plugin:skill"
-// 4. Isomux bundled skills (isomux/skills/)
+// Resolve a skill name to its prompt text, checking skill dirs in priority
+// order. Mirrors the discovery order: backend-agnostic dirs (.isomux,
+// .agents) first, then Claude-specific (.claude); user globals before
+// project locals; plugins are namespaced separately.
+//
+// Priority:
+//   1. ~/.isomux/skills/<name>/SKILL.md          (global user, isomux)
+//   2. ~/.claude/skills/<name>/SKILL.md          (global user, claude)
+//   3. ~/.claude/commands/<name>.md              (global user, claude commands)
+//   4. <cwd>/.isomux/skills/<name>/SKILL.md      (project, isomux)
+//   5. <cwd>/.agents/skills/<name>/SKILL.md      (project, .agents)
+//   6. <cwd>/.claude/skills/<name>/SKILL.md      (project, claude)
+//   7. <cwd>/.claude/commands/<name>.md          (project, claude commands)
+//   8. Bundled isomux skills (server/skills/)
+// Plugin-namespaced skills ("pluginName:skillName") short-circuit above the list.
 export function resolveSkillPrompt(name: string, cwd: string): string | null {
   // Handle plugin-namespaced skills: "pluginName:skillName"
   if (name.includes(":")) {
@@ -196,9 +208,13 @@ export function resolveSkillPrompt(name: string, cwd: string): string | null {
     return resolvePluginSkillPrompt(pluginName, skillName);
   }
 
+  const home = homedir();
   const candidates = [
-    join(homedir(), ".claude", "skills", name, "SKILL.md"),
-    join(homedir(), ".claude", "commands", `${name}.md`),
+    join(home, ".isomux", "skills", name, "SKILL.md"),
+    join(home, ".claude", "skills", name, "SKILL.md"),
+    join(home, ".claude", "commands", `${name}.md`),
+    join(cwd, ".isomux", "skills", name, "SKILL.md"),
+    join(cwd, ".agents", "skills", name, "SKILL.md"),
     join(cwd, ".claude", "skills", name, "SKILL.md"),
     join(cwd, ".claude", "commands", `${name}.md`),
     join(BUNDLED_SKILLS_DIR, name, "SKILL.md"),
