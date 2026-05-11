@@ -82,8 +82,13 @@ const CAPABILITIES: BackendCapabilities = {
   mcp: true,
 };
 
-// Model options. We expose the families users typically pick; codex resolves
-// the underlying provider/model.
+// Model options. Hardcoded at v1 — known limitation: model/list (Codex RPC)
+// would return the auth-appropriate subset (ChatGPT-login users get a
+// different set than API-key users, and each model declares its own
+// supportedReasoningEfforts). The current static list assumes API-key auth;
+// ChatGPT-login users may see "model not supported" errors on send. Wiring
+// model/list at session bootstrap + per-model effort picker is a follow-up
+// (see task f352984f review notes).
 const MODEL_OPTIONS: ModelOption[] = [
   { value: "gpt-5", label: "GPT-5" },
   { value: "gpt-5-mini", label: "GPT-5 mini" },
@@ -131,6 +136,11 @@ const CLIENT_INFO_VERSION = "1.0.0";
 interface PendingApproval {
   jsonRpcId: JsonRpcId;
   toolName: string;
+  // The server-request method that issued this approval. Different methods
+  // have different response enums (legacy ReviewDecision vs v2
+  // CommandExecutionApprovalDecision vs v2 FileChangeApprovalDecision); we
+  // keep the method here so approve() can pick the right wire shape.
+  method: string;
 }
 
 interface CodexSessionInitOpts {
@@ -314,8 +324,11 @@ class CodexSession implements BackendSession {
     const pending = this.pendingApprovals.get(approvalId);
     if (!pending) return;
     this.pendingApprovals.delete(approvalId);
-    const decisionWire = mapApprovalDecision(decision);
-    // Codex's approval responses always use { decision: <ReviewDecision> }.
+    const decisionWire = mapApprovalDecision(pending.method, decision);
+    // All current approval methods respond with `{ decision: <enum> }`. The
+    // enum variant set differs per method (ReviewDecision for the legacy
+    // applyPatchApproval/execCommandApproval, command/file-change-specific
+    // enums for the v2 methods); mapApprovalDecision routes that.
     this.client.respond(pending.jsonRpcId, { decision: decisionWire });
   }
 
@@ -623,17 +636,19 @@ class CodexSession implements BackendSession {
     }
 
     switch (req.method) {
-      // ---- Approvals (route through orchestrator) ----
+      // ---- Approvals routed through orchestrator (binary allow/deny UX) ----
+      // item/permissions/requestApproval has a richer response shape
+      // (GrantedPermissionProfile + scope + strictAutoReview) that doesn't
+      // map cleanly to our 3-option /resolve UX — auto-decline at v1.
       case "applyPatchApproval":
       case "execCommandApproval":
       case "item/commandExecution/requestApproval":
-      case "item/fileChange/requestApproval":
-      case "item/permissions/requestApproval": {
+      case "item/fileChange/requestApproval": {
         const approvalId = String(req.id);
         const toolName = inferToolNameFromApproval(req.method, params);
         const title = inferApprovalTitle(req.method, params);
         const description = inferApprovalDescription(req.method, params);
-        this.pendingApprovals.set(approvalId, { jsonRpcId: req.id, toolName });
+        this.pendingApprovals.set(approvalId, { jsonRpcId: req.id, toolName, method: req.method });
         this.enqueue({
           kind: "approval_request",
           approvalId,
@@ -642,25 +657,34 @@ class CodexSession implements BackendSession {
           title,
           description,
         });
-        // Defer the response — approve() will respond. Returning a never-
-        // resolving promise here would leak; instead we return PASS-like
-        // semantics by NOT returning (so the handler waits) ... but the
-        // client expects a return value. Workaround: return a never-
-        // resolving promise so the response is sent only when approve() is
-        // called. The client's onServerRequest handler awaits us; we keep
-        // the promise pending and respond manually from approve().
+        // Defer the response — session.approve() looks up the request id and
+        // calls client.respond() with the right enum variant for this method.
+        // The promise here never resolves; close() cleans up by error-
+        // responding any still-pending approvals.
         return new Promise<unknown>(() => {});
       }
 
-      // ---- Auto-decline (with system_text note) ----
-      case "item/tool/requestUserInput":
+      // ---- Permissions request: auto-decline with JSON-RPC error ----
+      case "item/permissions/requestApproval":
         this.enqueue({
           kind: "system_text",
-          text: `Auto-declined tool requestUserInput from codex (v1 doesn't support structured Q&A from agents).`,
+          text: `Auto-declined permissions request from codex (v1 doesn't expose permission-profile changes — use the spawn dialog to pick a different sandbox/approval policy).`,
         });
-        return { canceled: true };
+        throw new Error("Permissions profile changes are not supported in Isomux v1.");
+
+      // ---- Auto-decline (correct response shapes per server schema) ----
+      case "item/tool/requestUserInput":
+        // ToolRequestUserInputResponse shape is { answers: HashMap<...> }, no
+        // canceled/decline field. Sending a JSON-RPC error is the correct
+        // way to say "the client can't answer this."
+        this.enqueue({
+          kind: "system_text",
+          text: `Auto-declined structured tool-input request from codex (v1 doesn't support agent-issued Q&A).`,
+        });
+        throw new Error("Isomux v1 does not implement item/tool/requestUserInput.");
 
       case "mcpServer/elicitation/request":
+        // Confirmed against the schema: { action: "accept" | "decline" | "cancel" }.
         this.enqueue({
           kind: "system_text",
           text: `Auto-declined MCP elicitation request (v1 doesn't surface MCP elicitation UX).`,
@@ -668,13 +692,18 @@ class CodexSession implements BackendSession {
         return { action: "decline" };
 
       case "item/tool/call":
+        // DynamicToolCallResponse shape is { contentItems, success }, no
+        // canceled field. We could synthesize a "tool not implemented"
+        // failure response, but a JSON-RPC error is clearer for v1: the
+        // agent sees the tool call failed at the protocol level rather than
+        // as an opaque "tool returned this" reply.
         this.enqueue({
           kind: "system_text",
-          text: `Auto-declined dynamicToolCall from codex (v1 doesn't expose dynamic tools).`,
+          text: `Auto-declined dynamic tool call from codex (v1 doesn't expose dynamic tools).`,
         });
-        return { canceled: true };
+        throw new Error("Isomux v1 does not implement item/tool/call (dynamic tools).");
 
-      // ---- Auth token refresh (handle silently if possible) ----
+      // ---- Auth token refresh ----
       case "account/chatgptAuthTokens/refresh":
         // We don't have a token store; respond with an error so codex falls
         // back to user-facing login flow.
@@ -682,7 +711,7 @@ class CodexSession implements BackendSession {
           kind: "error",
           message: `Codex requested a ChatGPT auth token refresh, but Isomux has no token store. ${LOGIN_INSTRUCTIONS}`,
         });
-        return PASS;
+        throw new Error(`No token store: ${LOGIN_INSTRUCTIONS}`);
 
       default:
         // Unknown server request — let the client respond method-not-found.
@@ -741,15 +770,31 @@ function mapTurnStatus(status: string | undefined): "completed" | "interrupted" 
   }
 }
 
-function mapApprovalDecision(decision: ApprovalDecision): string {
-  // Codex's ReviewDecision enum: "approved" | "approved_for_session" | "denied"
+// The approval response enums differ by method:
+//   applyPatchApproval / execCommandApproval (legacy):  ReviewDecision
+//     -> "approved" | "approved_for_session" | "denied"
+//   item/commandExecution/requestApproval (v2):  CommandExecutionApprovalDecision
+//     -> "accept" | "acceptForSession" | "acceptWithExecpolicyAmendment"
+//        | "decline" | "cancel"
+//   item/fileChange/requestApproval (v2):  FileChangeApprovalDecision
+//     -> "accept" | "acceptForSession" | "decline" | "cancel"
+// We map our 3-button /resolve UX to: allow_persistent -> acceptForSession,
+// allow_once -> accept, deny -> decline. "cancel" is intentionally not used:
+// it interrupts the whole turn, which is harsher than the user typically
+// means by a single-tool deny.
+function mapApprovalDecision(method: string, decision: ApprovalDecision): string {
+  if (method === "applyPatchApproval" || method === "execCommandApproval") {
+    switch (decision.kind) {
+      case "allow_persistent": return "approved_for_session";
+      case "allow_once":       return "approved";
+      case "deny":             return "denied";
+    }
+  }
+  // v2 command-execution + file-change approvals — same enum variant names.
   switch (decision.kind) {
-    case "allow_persistent":
-      return "approved_for_session";
-    case "allow_once":
-      return "approved";
-    case "deny":
-      return "denied";
+    case "allow_persistent": return "acceptForSession";
+    case "allow_once":       return "accept";
+    case "deny":             return "decline";
   }
 }
 
