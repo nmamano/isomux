@@ -87,6 +87,7 @@ import {
   type EventHandler,
   type InternalRoom,
 } from "./internal-types.ts";
+import { ClaudeBackendSession } from "./backends/claude.ts";
 
 const LOGIN_INSTRUCTIONS = `To authenticate:
 1. Open the built-in terminal
@@ -1043,7 +1044,7 @@ function createTurnDeferred(managed: ManagedAgent): Promise<void> {
 // Bound to a specific session instance: loop exits when `managed.session` is
 // swapped out (abort / resume / fork / etc.) — `session.close()` unblocks the
 // parked `stream()` generator.
-async function runConsumer(agentId: string, managed: ManagedAgent, boundSession: ReturnType<typeof unstable_v2_createSession>) {
+async function runConsumer(agentId: string, managed: ManagedAgent, boundSession: ClaudeBackendSession) {
   while (agents.has(agentId) && managed.session === boundSession) {
     try {
       for await (const msg of boundSession.stream()) {
@@ -1091,7 +1092,7 @@ async function runConsumer(agentId: string, managed: ManagedAgent, boundSession:
 
 // Install a freshly-created session on managed and spawn its consumer. Caller
 // is responsible for having closed/awaited any previous session first.
-function installSession(agentId: string, managed: ManagedAgent, session: ReturnType<typeof unstable_v2_createSession>) {
+function installSession(agentId: string, managed: ManagedAgent, session: ClaudeBackendSession) {
   managed.session = session;
   managed.consumerPromise = runConsumer(agentId, managed, session);
 }
@@ -1110,7 +1111,7 @@ function installSession(agentId: string, managed: ManagedAgent, session: ReturnT
 // 154e2c14's STILL OPEN section for context. The current sendMessage
 // papers over the user-visible delay by echoing the typed message to the
 // log before awaiting abortPromise (see echoEarly there).
-async function replaceSession(agentId: string, managed: ManagedAgent, newSession: ReturnType<typeof unstable_v2_createSession>) {
+async function replaceSession(agentId: string, managed: ManagedAgent, newSession: ClaudeBackendSession) {
   managed.info.sessionSwapping = true;
   emit({ type: "agent_updated", agentId, changes: { sessionSwapping: true } });
   try {
@@ -1245,9 +1246,10 @@ function createSession(managed: ManagedAgent, resumeSessionId?: string) {
     // prior-runs accumulator so lifetime cost survives the reset.
     rollSessionUsageOnResume(managed.info.id, resumeSessionId);
   }
-  return resumeSessionId
+  const sdkSession = resumeSessionId
     ? unstable_v2_resumeSession(resumeSessionId, opts)
     : unstable_v2_createSession(opts);
+  return new ClaudeBackendSession(sdkSession);
 }
 
 export async function spawn(

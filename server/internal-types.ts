@@ -1,10 +1,11 @@
-import type { unstable_v2_createSession, SDKMessage, PermissionResult, PermissionUpdate } from "@anthropic-ai/claude-agent-sdk";
+import type { SDKMessage, PermissionResult, PermissionUpdate } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentInfo, LogEntry, QueuedMessage, RoomWire, SkillInfo } from "../shared/types.ts";
+import type { ClaudeBackendSession } from "./backends/claude.ts";
 
 // Internal agent state
 export interface ManagedAgent {
   info: AgentInfo;
-  session: ReturnType<typeof unstable_v2_createSession> | null;
+  session: ClaudeBackendSession | null;
   sessionId: string | null;
   // Persistent consumer loop iterating `session.stream()` for the session's
   // lifetime. Without this, task_notifications buffered between turns get
