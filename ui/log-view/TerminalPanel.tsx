@@ -116,6 +116,7 @@ type SoftKey = {
   data?: string;
   arrow?: string;
   toggleCtrl?: boolean;
+  action?: "paste";
 };
 
 // Mobile input proxy: a real (invisible) textarea that owns input on mobile.
@@ -231,6 +232,7 @@ const MobileInputProxy = forwardRef<HTMLTextAreaElement, { onInput: (data: strin
 const SOFT_KEYS: SoftKey[] = [
   { id: "esc", label: "Esc", data: ESC },
   { id: "tab", label: "Tab", data: TAB },
+  { id: "paste", label: "Paste", action: "paste" },
   { id: "ctrl", label: "Ctrl", toggleCtrl: true },
   { id: "up", label: "▲", arrow: ARROW_UP },
   { id: "down", label: "▼", arrow: ARROW_DOWN },
@@ -547,12 +549,36 @@ export function TerminalPanel({
     setTimeout(() => send({ type: "terminal_open", agentId }), 100);
   }
 
+  async function doPaste() {
+    // Try the async Clipboard API first. Requires a secure context, so on
+    // plain-HTTP tailnet access (the common case here) it'll usually reject
+    // and we fall back to window.prompt, where the user long-presses to
+    // paste from the iOS/Android system paste menu. term.paste handles
+    // bracketed-paste wrapping based on whether the shell enabled it.
+    let text = "";
+    try {
+      if (navigator.clipboard?.readText) {
+        text = await navigator.clipboard.readText();
+      }
+    } catch {}
+    if (!text) {
+      const fromPrompt = window.prompt("Paste:");
+      if (fromPrompt) text = fromPrompt;
+    }
+    if (text) termRef.current?.paste(text);
+    inputProxyRef.current?.focus();
+  }
+
   function handleSoftKey(key: SoftKey) {
     if (key.toggleCtrl) {
       setCtrl(!ctrlActiveRef.current);
       // Re-focus the proxy so the next typed key from the on-screen keyboard
       // is still captured.
       inputProxyRef.current?.focus();
+      return;
+    }
+    if (key.action === "paste") {
+      void doPaste();
       return;
     }
     if (key.arrow) {
