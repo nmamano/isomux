@@ -155,11 +155,29 @@ class ClaudeSession implements BackendSession {
       // yielded a `result` (process exit / close()).
       while (!this.closed) {
         let lastWasResult = false;
-        for await (const msg of this.sdkSession.stream()) {
-          if (msg.type === "result") lastWasResult = true;
-          for (const ev of translateSDKMessage(msg, this.agentId)) {
-            this.enqueue(ev);
+        try {
+          for await (const msg of this.sdkSession.stream()) {
+            if (msg.type === "result") lastWasResult = true;
+            for (const ev of translateSDKMessage(msg, this.agentId)) {
+              this.enqueue(ev);
+            }
           }
+        } catch (err: any) {
+          // SDK threw — typically subprocess exit, mid-stream abort, or
+          // transport failure. If we initiated the close (this.closed=true),
+          // it's expected and we exit quietly. Otherwise surface as a
+          // normalized `error` event so the orchestrator can log + update
+          // state. Either way stop looping: queryIterator is unusable past
+          // this point. We MUST swallow here — feedSDKMessages runs as
+          // `void this.feedSDKMessages()`, so an uncaught rejection becomes
+          // unhandled and crashes the whole Bun process.
+          if (!this.closed) {
+            this.enqueue({
+              kind: "error",
+              message: err?.message ?? String(err),
+            });
+          }
+          break;
         }
         if (!lastWasResult) break;
       }

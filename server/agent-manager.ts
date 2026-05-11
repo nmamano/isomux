@@ -1023,8 +1023,21 @@ function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
     case "error": {
       const managed = agents.get(agentId);
       addLogEntry(agentId, "error", ev.message);
+      // Backend's diagnoseProcessExit (Claude: "process exited with code 1"
+      // hints based on session jsonl / cwd state). Keeps parity with the
+      // pre-refactor runConsumer catch path.
+      if (managed) {
+        const hints = diagnoseProcessExit(managed.info.cwd, managed.sessionId);
+        if (hints) addLogEntry(agentId, "system", hints);
+      }
       if (detectAgentAuthError(managed, ev.message)) {
         addLogEntry(agentId, "system", agentLoginInstructions(managed));
+      }
+      // Reject any in-flight turn so sendMessage / executeSkill don't hang.
+      const turn = managed?.pendingTurn;
+      if (turn) {
+        managed!.pendingTurn = null;
+        try { turn.reject(new Error(ev.message)); } catch {}
       }
       updateState(agentId, "error");
       break;
