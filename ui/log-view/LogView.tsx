@@ -325,12 +325,6 @@ export function LogView({
   onSwipeRight?: () => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const contentRef = useRef<HTMLDivElement>(null);
-  // Tracks the scrollTop value we most recently set programmatically so
-  // handleScroll can distinguish our own scroll-to-bottom writes (whose
-  // delivered scroll events may arrive after scrollHeight has grown) from
-  // user-initiated scrolling. See the long comment on handleScroll.
-  const lastProgrammaticTopRef = useRef<number | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const { drafts, slashCommands, stateChangedAt, isMobile, connected, sidePanels } = useAppState();
   const dispatch = useDispatch();
@@ -342,12 +336,6 @@ export function LogView({
   inputRef.current = input;
   const setInput = (text: string) => dispatch({ type: "set_draft", agentId: agent.id, text });
   const [autoScroll, setAutoScroll] = useState(true);
-  // Mirror autoScroll in a ref so deferred callbacks (rAF, ResizeObserver)
-  // can read the current value instead of a stale closure. Without this,
-  // a callback scheduled while autoScroll was true can fire after the user
-  // scrolled up and undo their gesture.
-  const autoScrollRef = useRef(autoScroll);
-  autoScrollRef.current = autoScroll;
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [editingTopic, setEditingTopic] = useState(false);
   const [topicDraft, setTopicDraft] = useState("");
@@ -459,18 +447,6 @@ export function LogView({
     (swipeRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
   }, []);
 
-  // Snap to the bottom and bookmark the resulting scrollTop. Bookmarking is
-  // what lets handleScroll ignore the scroll event that this write will
-  // queue: if scrollHeight grows between this assignment and the event
-  // delivery, the event still reads the bookmarked scrollTop and gets
-  // ignored, instead of being misread as the user scrolling away.
-  const scrollToBottom = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    el.scrollTop = el.scrollHeight;
-    lastProgrammaticTopRef.current = el.scrollTop;
-  }, []);
-
   // Dismiss edit textarea when agent is no longer idle (e.g. another tab sent a message)
   useEffect(() => {
     if (agent.state !== "waiting_for_response" && editingLogEntryId) {
@@ -493,12 +469,14 @@ export function LogView({
       setVpHeight(vv.height - bannerH);
       window.scrollTo(0, 0);
       // When keyboard opens (viewport shrinks), scroll chat to bottom
-      scrollToBottom();
+      if (scrollRef.current) {
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      }
     };
     update();
     vv.addEventListener("resize", update);
     return () => vv.removeEventListener("resize", update);
-  }, [isMobile, scrollToBottom]);
+  }, [isMobile]);
 
   // Build merged command list for autocomplete, with origin labels and descriptions
   const agentCmds = slashCommands.get(agent.id);
@@ -560,34 +538,15 @@ export function LogView({
     // Double-rAF ensures content (images, code blocks, etc.) has been measured.
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        // Re-check autoScroll via the ref: between the effect running and
-        // this rAF firing, the user may have scrolled up and flipped it off.
-        if (!autoScrollRef.current) return;
         // Skip if the user has an active selection inside the log — a
         // scrollTop assignment here combined with sibling DOM churn (e.g.
         // the sticky avatar remounting on agent.state change) clears it.
         const sel = window.getSelection();
         if (sel && !sel.isCollapsed && sel.anchorNode && el.contains(sel.anchorNode)) return;
-        scrollToBottom();
+        el.scrollTop = el.scrollHeight;
       });
     });
-  }, [logs, autoScroll, agent.state, scrollToBottom]);
-
-  // Catch async DOM growth (image loads, font swaps, code highlighting) that
-  // doesn't trigger a React re-render. Without this, scrollHeight can grow
-  // after the auto-scroll effect's last rAF fired, leaving the user parked
-  // above the new bottom until the next message arrives. Reads autoScroll
-  // via ref so the observer doesn't need to be re-created on every flip,
-  // and so a still-pending entry doesn't fire with a stale closure value.
-  useEffect(() => {
-    const content = contentRef.current;
-    if (!content) return;
-    const ro = new ResizeObserver(() => {
-      if (autoScrollRef.current) scrollToBottom();
-    });
-    ro.observe(content);
-    return () => ro.disconnect();
-  }, [scrollToBottom]);
+  }, [logs, autoScroll, agent.state]);
 
   // Auto-resize textarea and place cursor at end when draft is restored
   useEffect(() => {
@@ -633,20 +592,8 @@ export function LogView({
   function handleScroll() {
     if (!scrollRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
-    recomputePinned();
-    // Scroll events are queued asynchronously by `scrollTop = scrollHeight`
-    // writes. If scrollHeight grew between the write and the event delivery
-    // (a new log_entry, an image load, a font swap), reading scrollHeight
-    // here against the stale scrollTop produces a bogus "user is far from
-    // bottom" reading and flips autoScroll off — after which no further
-    // logs trigger a scroll. Bookmark the scrollTop we last wrote and
-    // ignore any event whose scrollTop matches the bookmark.
-    if (lastProgrammaticTopRef.current !== null
-        && Math.abs(scrollTop - lastProgrammaticTopRef.current) < 1) {
-      return;
-    }
-    lastProgrammaticTopRef.current = null;
     setAutoScroll(scrollHeight - scrollTop - clientHeight < 50);
+    recomputePinned();
   }
 
   const isBusy = agent.state === "thinking" || agent.state === "tool_executing";
@@ -1349,56 +1296,52 @@ export function LogView({
             <Character key={agent.state} state={agent.state} outfit={agent.outfit} />
           </div>
         )}
-        {/* contentRef wraps the dynamic content so ResizeObserver can detect
-            height changes from late-arriving DOM (image loads, font swaps).
-            The avatar stays outside the wrapper because position:sticky needs
-            to be a direct child of the scrollable container. */}
-        <div ref={contentRef}>
-          {logs.length === 0 && (
+        {logs.length === 0 && (
+          <div
+            style={{
+              color: "var(--text-ghost)",
+              textAlign: "center",
+              marginTop: 40,
+            }}
+          >
+            {connected ? "Send a message to start a conversation." : "Loading..."}
+          </div>
+        )}
+        {logs.map((entry) => {
+          const td = turnData.get(entry.id);
+          const canEditMsg = entry.kind === "user_message" && agent.state === "waiting_for_response" && !editingLogEntryId;
+          const isUserMsg = entry.kind === "user_message";
+          return (
             <div
-              style={{
-                color: "var(--text-ghost)",
-                textAlign: "center",
-                marginTop: 40,
-              }}
+              key={entry.id}
+              ref={isUserMsg ? getUserMsgRefCb(entry.id) : undefined}
             >
-              {connected ? "Send a message to start a conversation." : "Loading..."}
+              <LogEntryCard
+                entry={entry}
+                isLastInTurn={td?.isLastInTurn}
+                turnEntries={td?.turnEntries}
+                isMobile={isMobile}
+                canEdit={canEditMsg}
+                isEditing={editingLogEntryId === entry.id}
+                onStartEdit={setEditingLogEntryId}
+                onCancelEdit={handleCancelEdit}
+                onSubmitEdit={handleSubmitEdit}
+                onOpenInEditor={features.editor ? openInEditor : undefined}
+                onCopyToTerminal={features.terminal ? copyToTerminal : undefined}
+              />
             </div>
-          )}
-          {logs.map((entry) => {
-            const td = turnData.get(entry.id);
-            const canEditMsg = entry.kind === "user_message" && agent.state === "waiting_for_response" && !editingLogEntryId;
-            const isUserMsg = entry.kind === "user_message";
-            return (
-              <div
-                key={entry.id}
-                ref={isUserMsg ? getUserMsgRefCb(entry.id) : undefined}
-              >
-                <LogEntryCard
-                  entry={entry}
-                  isLastInTurn={td?.isLastInTurn}
-                  turnEntries={td?.turnEntries}
-                  isMobile={isMobile}
-                  canEdit={canEditMsg}
-                  isEditing={editingLogEntryId === entry.id}
-                  onStartEdit={setEditingLogEntryId}
-                  onCancelEdit={handleCancelEdit}
-                  onSubmitEdit={handleSubmitEdit}
-                  onOpenInEditor={features.editor ? openInEditor : undefined}
-                  onCopyToTerminal={features.terminal ? copyToTerminal : undefined}
-                />
-              </div>
-            );
-          })}
-          <ActivityIndicator state={agent.state} stateChangedAt={stateChangedAt.get(agent.id)} agentId={agent.id} queueLength={(agent.queue ?? []).length} />
-        </div>
+          );
+        })}
+        <ActivityIndicator state={agent.state} stateChangedAt={stateChangedAt.get(agent.id)} agentId={agent.id} queueLength={(agent.queue ?? []).length} />
       </div>
 
       {/* Scroll to bottom */}
       {!autoScroll && (
         <button
           onClick={() => {
-            scrollToBottom();
+            if (scrollRef.current) {
+              scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+            }
             setAutoScroll(true);
           }}
           style={{
