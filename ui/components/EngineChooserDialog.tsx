@@ -49,12 +49,15 @@ export function EngineChooserDialog({ onPick, onCancel }: Props) {
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
-          background: "var(--bg-modal)",
-          border: "1px solid var(--border-medium)",
-          borderRadius: 10,
+          background: "var(--bg-overlay)",
+          backdropFilter: "blur(16px)",
+          border: "1px solid var(--border-light)",
+          borderRadius: 16,
           padding: 20,
           width: 460,
           maxWidth: "90vw",
+          boxShadow: "0 20px 60px var(--shadow-heavy)",
+          animation: "hudIn 0.2s ease-out",
         }}
       >
         <h3 style={{ margin: 0, marginBottom: 4, fontSize: 17, fontWeight: 700, color: "var(--text-primary)" }}>
@@ -69,7 +72,7 @@ export function EngineChooserDialog({ onPick, onCancel }: Props) {
               key={opt.agentType}
               onClick={() => onPick(opt.agentType)}
               style={{
-                background: "var(--bg-elevated)",
+                background: "var(--bg-surface)",
                 border: `2px solid ${opt.accent}`,
                 borderRadius: 8,
                 padding: "12px 14px",
