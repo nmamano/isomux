@@ -92,7 +92,7 @@ function sendAbortDebounced(agentId: string) {
   send({ type: "abort", agentId });
 }
 
-function ActivityIndicator({ state, stateChangedAt, agentId, queueLength }: { state: AgentState; stateChangedAt?: number; agentId: string; queueLength: number }) {
+function ActivityIndicator({ state, stateChangedAt, agentId }: { state: AgentState; stateChangedAt?: number; agentId: string }) {
   const label = STATE_LABELS[state];
   const [now, setNow] = useState(Date.now());
 
@@ -107,8 +107,7 @@ function ActivityIndicator({ state, stateChangedAt, agentId, queueLength }: { st
   const elapsedMs = stateChangedAt ? now - stateChangedAt : 0;
   const baseColor = state === "waiting_for_response" ? "var(--purple)" : "var(--green)";
   const color = escalationColor(elapsedMs, baseColor);
-  const showAbort = elapsedMs >= ESCALATION_AMBER_MS && queueLength === 0;
-  const showSendNow = queueLength > 0;
+  const showAbort = elapsedMs >= ESCALATION_AMBER_MS;
 
   return (
     <div
@@ -132,25 +131,6 @@ function ActivityIndicator({ state, stateChangedAt, agentId, queueLength }: { st
       <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, opacity: 0.7 }}>
         {formatElapsed(elapsedMs)}
       </span>
-      {showSendNow && (
-        <button
-          onClick={() => send({ type: "send_now", agentId })}
-          style={{
-            marginLeft: 8,
-            padding: "2px 10px",
-            borderRadius: 4,
-            border: "1px solid var(--green)",
-            background: "var(--green)",
-            color: "var(--bg-base)",
-            fontSize: 11,
-            fontWeight: 600,
-            cursor: "pointer",
-          }}
-          title="Stop the current turn and flush the queued messages"
-        >
-          Send now
-        </button>
-      )}
       {showAbort && (
         <button
           onClick={() => sendAbortDebounced(agentId)}
@@ -205,11 +185,48 @@ function QueueChips({ queue, agentId, isMobile }: { queue: QueuedMessage[]; agen
       flexDirection: "column",
       gap: 6,
       marginBottom: 8,
-      // Keep the textarea reachable when many messages are queued. The cap
-      // is 50 server-side so this can grow tall; constrain and scroll.
-      maxHeight: isMobile ? 200 : 240,
-      overflowY: "auto",
     }}>
+      <div style={{
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 8,
+      }}>
+        <span style={{
+          fontSize: isMobile ? 11 : 10,
+          fontWeight: 600,
+          color: "var(--text-muted)",
+          textTransform: "uppercase",
+          letterSpacing: "0.05em",
+        }}>
+          {queue.length} queued
+        </span>
+        <button
+          onClick={() => send({ type: "send_now", agentId })}
+          style={{
+            padding: "2px 10px",
+            borderRadius: 4,
+            border: "1px solid var(--green)",
+            background: "var(--green)",
+            color: "var(--bg-base)",
+            fontSize: 11,
+            fontWeight: 600,
+            cursor: "pointer",
+          }}
+          title="Flush queued messages now (interrupts the current turn)"
+        >
+          Send now
+        </button>
+      </div>
+      <div style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 6,
+        // Keep the textarea reachable when many messages are queued. The cap
+        // is 50 server-side so this can grow tall; constrain and scroll.
+        maxHeight: isMobile ? 200 : 240,
+        overflowY: "auto",
+      }}>
       {queue.map((msg) => {
         const isAgent = msg.sender.kind === "agent";
         const label = msg.sender.kind === "agent"
@@ -289,6 +306,7 @@ function QueueChips({ queue, agentId, isMobile }: { queue: QueuedMessage[]; agen
           </div>
         );
       })}
+      </div>
     </div>
   );
 }
@@ -1359,7 +1377,7 @@ export function LogView({
             </div>
           );
         })}
-        <ActivityIndicator state={agent.state} stateChangedAt={stateChangedAt.get(agent.id)} agentId={agent.id} queueLength={(agent.queue ?? []).length} />
+        <ActivityIndicator state={agent.state} stateChangedAt={stateChangedAt.get(agent.id)} agentId={agent.id} />
       </div>
 
       {/* Scroll to bottom */}
