@@ -868,7 +868,12 @@ async function generateTopic(agentId: string) {
       recent.map(e => `${e.kind === "user_message" ? "User" : "Assistant"}: ${e.content.slice(0, 200)}`).join("\n");
   }
 
-  const prompt = `${context}\n\nRespond with ONLY a short topic description for this conversation, max 8 words. No quotes, no punctuation at the end.`;
+  // System framing matters: without it, Sonnet occasionally roleplayed as the
+  // agent in the conversation and "responded" to the task (e.g. asking for
+  // file access) instead of labelling. Wrapping the snippet in a tag and
+  // pinning the model to a labeller role suppresses that.
+  const topicSystemPrompt = `You are a labelling tool. You receive a snippet of a conversation between a user and an AI assistant and you output a short topic label that summarizes what the conversation is about. You are NOT the assistant in the conversation, you do NOT have access to any files or systems mentioned, and you must NOT attempt to do the task. You only label.`;
+  const prompt = `<conversation>\n${context}\n</conversation>\n\nOutput ONLY a topic label, max 8 words. No quotes, no trailing punctuation.`;
 
   try {
     const backend = getBackend(managed.info.agentType);
@@ -879,7 +884,7 @@ async function generateTopic(agentId: string) {
     const text = await backend.oneShotPrompt(prompt, {
       cwd: managed.info.cwd,
       modelFamily: topicModel,
-      effort: "medium",
+      systemPrompt: topicSystemPrompt,
     });
     if (agents.has(agentId) && managed.topicGenToken === startToken) {
       const topic = text.trim().slice(0, 80);

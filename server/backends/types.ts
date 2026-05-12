@@ -239,9 +239,12 @@ export interface PermissionModeOption {
 }
 
 export interface OneShotOptions {
-  cwd: string;
+  // Working directory. Used by Codex (sandbox + RPC client) but ignored by
+  // the Claude backend, which forces a neutral cwd internally so caller-cwd
+  // context (git status, CLAUDE.md autoload) can't leak into the response.
+  cwd?: string;
   modelFamily: string;
-  effort: string;
+  systemPrompt?: string;
   env?: { [key: string]: string | undefined };
 }
 

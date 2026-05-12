@@ -660,12 +660,32 @@ export const claudeBackend: Backend = {
   async oneShotPrompt(prompt: string, opts: OneShotOptions): Promise<string> {
     const familyKey = opts.modelFamily as ModelFamily;
     const model = FAMILY_TO_MODEL[familyKey] ?? opts.modelFamily;
+    // One-shot text completion: no tools, no extended thinking, no filesystem
+    // context. The earlier `permissionMode: "plan"` config added a planning
+    // system prompt + adaptive thinking, which produced 200+-token outputs,
+    // ~10s+ latency, and a 20%-ish rate of the model roleplaying as an agent
+    // attempting the conversation's task (e.g. returning "I need read access
+    // to tasks.json" as a topic). The combination below keeps it a pure
+    // single-turn label task.
+    //
+    // - tools:[] / thinking:disabled — the model can only emit text
+    // - settingSources:[] — don't auto-load CLAUDE.md from the caller's cwd
+    // - cwd:"/tmp" — even with the above, the caller's cwd leaks into the
+    //   prompt (auto-injected dir/git context) and the model occasionally
+    //   labels with an unrelated recent commit. Force a neutral cwd; the
+    //   `cwd` passed in opts is unused for Claude one-shots.
+    // TODO: SDK .d.ts (v2 surface) doesn't declare `tools` / `thinking` /
+    // `settingSources` / `systemPrompt` on SDKSessionOptions, but the bundled
+    // sdk.mjs handles them at runtime. The `as any` cast is load-bearing for
+    // those four fields — revisit when the SDK types catch up.
     const result = await unstable_v2_prompt(prompt, {
       model,
       pathToClaudeCodeExecutable: CLAUDE_NATIVE_BIN,
-      // plan mode disables tool execution — the topic-gen prompt only needs the
-      // model to think and reply, never run anything.
-      permissionMode: "plan",
+      tools: [],
+      thinking: { type: "disabled" },
+      settingSources: [],
+      cwd: "/tmp",
+      ...(opts.systemPrompt ? { systemPrompt: opts.systemPrompt } : {}),
       ...(opts.env ? { env: opts.env } : {}),
     } as any);
     if (result.subtype !== "success") {
