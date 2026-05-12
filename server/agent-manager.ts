@@ -1762,9 +1762,6 @@ async function flushQueue(agentId: string): Promise<void> {
     const prompt = promptParts.join("\n\n");
 
     updateState(agentId, "thinking");
-    if (managed.info.topic === null && !managed.topicGenerating) {
-      generateTopic(agentId);
-    }
 
     const turn = createTurnDeferred(managed);
     const ownPending = managed.pendingTurn;
@@ -1781,6 +1778,14 @@ async function flushQueue(agentId: string): Promise<void> {
         const base = senderMeta(m.sender);
         const meta = m.sdkText ? { ...(base ?? {}), sdkText: m.sdkText } : base;
         addLogEntry(agentId, "user_message", m.text, meta, m.attachments);
+      }
+      // Trigger topic generation only after the user_message log entries land
+      // in logCache. generateTopic reads the first user message synchronously
+      // before its first await — running it earlier (e.g. before the send) on
+      // a fresh conversation finds an empty cache and bails out, leaving topic
+      // null. Matches the sendMessage path which also logs before triggering.
+      if (managed.info.topic === null && !managed.topicGenerating) {
+        generateTopic(agentId);
       }
       const sentIds = new Set(items.map((m) => m.id));
       managed.messageQueue = managed.messageQueue.filter((m) => !sentIds.has(m.id));
