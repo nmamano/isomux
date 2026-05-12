@@ -1,43 +1,41 @@
 # Isomux
 
-An isometric 2D office UI for managing multiple concurrent Claude Code agents. Each agent sits at a desk in a browser-based office. The core abstraction separates the **agent** (persistent identity) from the **conversation** (ephemeral task).
-
-See [isomux.com](https://isomux.com) for a full feature overview and setup instructions.
+Isomux is an agent management system. See the README.md for a full feature overview and setup instructions.
 
 ## How to develop
 
-- **Rebuild UI after changes:** `bun run build:ui`. This bundles JS, copies `index.html`, and copies `xterm.css` into `ui/dist/`. The server reads from `ui/dist/` on each request — no restart needed. **Do NOT build to `ui/index.js`; that path is not served.**
-- **Restart server:** `systemctl --user restart isomux`. This kills the process all agents run on — every active agent session is interrupted. The user will need to proactively continue any in-progress conversations afterward.
-- **URL:** http://localhost:4000 (server machine) or http://TAILSCALE_SERVER_ALIAS:4000 (laptop, phone, etc.)
-- **Debug agent issues** by reading logs at `~/.isomux/logs/<agentId>/<sessionId>.jsonl` — don't ask the user to copy-paste.
-- **Don't ask the user to run commands — just do it.**
-- After completing a feature or batch of fixes, offer to the user to commit and push.
+The running server is on localhost:4000, managed by systemd as the user-level service `isomux`.
+
+Server-side code changes always require a restart. Restarting the server is mildly disruptive: it stops every agent in the office until the user re-engages them.
+
+For UI changes, run `bun run build:ui`. Outputs to `ui/dist/`, which the server reads per-request. No server restart needed, only a page refresh.
+
+Proactively remind the user of what steps they need to take to do what they want: e.g., to test a front-end only change, or a server change in main, or a change in a worktree. Offer to do the steps yourself. After completing a feature or batch of fixes, offer to the user to commit.
+
+If an action runs into permission issues because it's a destructive action, let the user know and give them the command they need to run to do it themselves.
+
+Debug agent issues by reading logs at `~/.isomux/logs/<agentId>/<sessionId>.jsonl`.
 
 ## Key decisions (do not revisit)
 
-- Single Bun process (no Node) — serves UI, manages agents in-process via SDK, talks to browser over WebSocket.
-- Agent SDK V2 (`unstable_v2_createSession`) with subscription auth. High risk tolerance on alpha API.
-- Primarily WebSocket. Lightweight HTTP endpoints exist where needed (e.g. task board API).
-- React/SVG for rendering. No Vite. Bun's bundler, manual refresh.
-- No database. In-memory state, flat file logs, `agents.json` for persistence.
-- 8 desks max. Agent = persistent identity (name, desk, outfit, cwd). Conversation = ephemeral SDK session.
-- Agents persist across restarts. Auto-resume last conversation on startup.
-- Default model: Opus 4.6. No per-agent model selection.
-- SDK spawns CLI subprocesses which inherit the user's global Claude skills and MCP config.
-- Not in scope: agent-to-agent communication (but they can see each other's logs), remote agents (we support remote connections via Tailscale instead), a CLI isomux tool.
+- Single Bun process. No Node, no separate API server, no database — flat-file state only.
+- Agent = persistent identity. Conversation = resumable session.
+- 8 desks per room.
+- Subscription auth via the provider's own CLI — Isomux never handles API keys.
+- REST API to give agents extra affordances (like messaging other agents or showing a diff).
+- Codex integration uses the App Server, not `@openai/codex-sdk`. App Server is OpenAI's first-class integration for UI clients.
+- React/SVG for rendering. Bun's bundler, no Vite.
 
 ## Project layout
 
-- `server/` — Bun HTTP + WebSocket server, agent lifecycle, SDK integration
-- `ui/` — React frontend
-- `shared/` — TypeScript types shared between server and UI
-- `site/` — Landing page and demo, deployed to isomux.com via Vercel. Demo is built from `ui/demo-entry.tsx` + `ui/demo.html` into `site/demo/` (see `vercel.json`)
-- `docs/` — Design documents, plans, and reference material
-- `skills/` — Claude Code skills bundled with the project, available to any isomux agent
+- `site/` — Landing page and demo, deployed to isomux.com via Vercel. Demo is built from `ui/demo-entry.tsx` + `ui/demo.html` into `site/demo/` (see `vercel.json`).
+- `internal-docs/` — Design documents, plans, and reference material. `documentation.md` is the index of every user-facing copy surface to update when features change.
+- `skills/` — Skills bundled with the project, available to every isomux agent.
+- `shared/` — TypeScript types shared between server and UI.
+- `server/` — Bun HTTP + WebSocket server, agent lifecycle, provider backends.
+- `ui/` — React frontend.
 
 ### Key paths
 
-- `~/.isomux/agents.json` — persisted agent configs
-- `~/.isomux/logs/` — agent conversation logs
-- `~/.isomux/launchers/` — launcher scripts (cwd workaround for SDK - details in docs/sdk-investigation.md)
-- `ui/dist/` — UI build output (gitignored)
+- `~/.isomux/` — all persisted state: agent configs, conversation logs, cronjobs, tasks, office prompt, user profiles.
+- `ui/dist/` — UI build output (gitignored).
