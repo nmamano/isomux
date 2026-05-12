@@ -81,7 +81,7 @@ These documents are written in my voice, so I need to approve any copy changes b
 
 These aren't user-facing docs, but they do describe features and can fall out of date:
 
-- `CLAUDE.md` — developer/agent-facing overview of the codebase. Update when architecture or conventions change.
+- `AGENTS.md` — developer/agent-facing overview of the codebase (read by Claude Code, Codex, and other tools that follow the AGENTS.md convention). `CLAUDE.md` is a one-line pointer to it. Update when architecture or conventions change.
 - `internal-docs/` — design documents for individual features. Historical/reference only; not expected to stay current.
 - `server/commands.ts` — per-command `description` fields surface in the slash-command autocomplete UI.
 - `server/agent-manager.ts` `buildSystemPrompt()` (around lines 194–225) — the system prompt injected into every spawned agent. Update when the agent's role or capabilities change.
