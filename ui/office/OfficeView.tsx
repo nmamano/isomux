@@ -80,9 +80,7 @@ export function OfficeView({ onSpawn, onContextMenu, onOpenUserSettings, onOpenD
   // useViewport re-measures pan-clamp bounds (ResizeObserver alone won't catch
   // transform-only updates).
   const layoutKey = `${embed ? 1 : 0}|${isMobile ? 1 : 0}|${mobileScale}`;
-  const currentRoomId = rooms[currentRoom]?.id ?? "";
-  const roomIds = rooms.map((r) => r.id);
-  const viewport = useViewport(currentRoomId, roomIds, layoutKey, !embed);
+  const viewport = useViewport(layoutKey, !embed);
   // Cede one-finger swipes to pan once the user zooms in (iOS-gallery pattern).
   const swipeRef = useSwipeLeftRight(
     onSwipeLeft ?? (() => {}),

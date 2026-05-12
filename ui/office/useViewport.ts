@@ -87,8 +87,10 @@ type Gesture =
  * and touch listeners to the container, and mutates the scene transform
  * directly to avoid React re-renders during gestures.
  *
- * Per-room view state is keyed by room ID (not index) so mid-list deletions
- * don't mis-associate saved zoom/pan with a neighbouring room.
+ * View state is global (one viewport for all rooms). Rooms share an
+ * identical isometric layout, so a zoom/pan set in one is the right one in
+ * any other — preserving it across room switches matches user intent more
+ * often than resetting would.
  *
  * `layoutKey` should change whenever the centered scene's static transform
  * changes (e.g. embed/isMobile/mobileScale flip) so the pan-clamp boundaries
@@ -102,7 +104,7 @@ type Gesture =
  * Returns callback refs (`setContainer`, `setScene`, `setContent`) instead of
  * RefObjects — attach them via `ref={...}` on the corresponding elements.
  */
-export function useViewport(currentRoomId: string, roomIds: readonly string[], layoutKey: string, enabled: boolean) {
+export function useViewport(layoutKey: string, enabled: boolean) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const sceneRef = useRef<HTMLDivElement | null>(null);
   /** The scene-content element inside the zoom/pan layer — measured for pan-clamp bounds. */
@@ -123,17 +125,12 @@ export function useViewport(currentRoomId: string, roomIds: readonly string[], l
     contentRef.current = node;
   }, []);
 
-  const roomStates = useRef<Map<string, ViewportState>>(new Map());
   const state = useRef<ViewportState>({ ...DEFAULT_STATE });
   const gesture = useRef<Gesture>({ kind: "idle" });
   /** Scene content bounds in viewport-layer-local coords (pre-zoom). Null until measured. */
   const sceneBounds = useRef<{ left: number; right: number; top: number; bottom: number } | null>(null);
   /** True if the most recent pointer gesture became a pan — used to suppress click-to-focus */
   const didPan = useRef(false);
-  const currentRoomIdRef = useRef(currentRoomId);
-  currentRoomIdRef.current = currentRoomId;
-  const roomIdsRef = useRef(roomIds);
-  roomIdsRef.current = roomIds;
   const resetClearTimer = useRef<number | null>(null);
   const restoreUserSelect = useRef<string | null>(null);
 
@@ -150,8 +147,7 @@ export function useViewport(currentRoomId: string, roomIds: readonly string[], l
 
   /** Abandon any in-flight gesture: release pointer capture, restore cursor and
    *  body userSelect, clear didPan, and return the state machine to idle. Called
-   *  when gestures must be abandoned mid-flight — on room change (anchors reference
-   *  the outgoing room) or when listeners detach (enabled toggle / unmount). */
+   *  when listeners detach (enabled toggle / unmount). */
   function abortAllGestures() {
     const g = gesture.current;
     if (g.kind === "panning" && g.source === "pointer") {
@@ -251,17 +247,9 @@ export function useViewport(currentRoomId: string, roomIds: readonly string[], l
     applyTransform();
   }
 
-  function save() {
-    const id = currentRoomIdRef.current;
-    if (!id) {
-      return;
-    }
-    roomStates.current.set(id, { ...state.current });
-  }
-
   // The callbacks below are `useCallback(..., [])` because every value they
   // reach — state, gesture, refs, and the in-body helpers (applyTransform,
-  // zoomAt, save, measureSceneBounds, clampPan) — is stored in a ref or
+  // zoomAt, measureSceneBounds, clampPan) — is stored in a ref or
   // reads through one. No render-scoped variable is closed over. If you add
   // a line here that captures component state or props, switch to refs or
   // add the dep; otherwise the callback will silently use stale values.
@@ -270,7 +258,6 @@ export function useViewport(currentRoomId: string, roomIds: readonly string[], l
   // resetting. At DEFAULT_STATE, clampPan is a no-op by construction.
   const resetView = useCallback((animate = true) => {
     state.current = { ...DEFAULT_STATE };
-    save();
     applyTransform(animate);
   }, []);
 
@@ -281,7 +268,6 @@ export function useViewport(currentRoomId: string, roomIds: readonly string[], l
     }
     const rect = container.getBoundingClientRect();
     zoomAt(rect.width / 2, rect.height / 2, state.current.scale * VIEWPORT.ZOOM_STEP);
-    save();
   }, []);
 
   const zoomOut = useCallback(() => {
@@ -291,7 +277,6 @@ export function useViewport(currentRoomId: string, roomIds: readonly string[], l
     }
     const rect = container.getBoundingClientRect();
     zoomAt(rect.width / 2, rect.height / 2, state.current.scale / VIEWPORT.ZOOM_STEP);
-    save();
   }, []);
 
   /** True when the user has zoomed in past the rest scale — used to route one-finger drags
@@ -306,41 +291,6 @@ export function useViewport(currentRoomId: string, roomIds: readonly string[], l
       }
     };
   }, []);
-
-  // Restore per-room state on room change.
-  useEffect(() => {
-    // Any in-flight gesture references the outgoing room's anchor — abandon it.
-    abortAllGestures();
-
-    const saved = roomStates.current.get(currentRoomId);
-    state.current = saved ? { ...saved } : { ...DEFAULT_STATE };
-    // Write the new room's transform to the DOM BEFORE measuring. measureSceneBounds
-    // inverts the scene's live transform using state.current — if the DOM still
-    // reflects the outgoing room's transform at this point, the computed bounds
-    // are shifted and scaled by (old - new), leaving clampPan using wrong edges
-    // for every subsequent pan/zoom in the new room.
-    applyTransform();
-    measureSceneBounds();
-    clampPan();
-    // Re-apply only if clampPan mutated state; a no-op apply writes the same
-    // transform string so it's cheap either way.
-    applyTransform();
-  }, [currentRoomId]);
-
-  // Prune saved state for rooms that no longer exist. Split from the
-  // restore effect so deleting a non-current room doesn't abort an in-flight
-  // gesture or re-apply the current room's transform.
-  // Keyed on the joined ID list rather than length alone so same-length
-  // replacements (e.g. import / bulk swap) also drop stale entries.
-  const roomIdsKey = roomIds.join("|");
-  useEffect(() => {
-    const valid = new Set(roomIdsRef.current);
-    for (const key of Array.from(roomStates.current.keys())) {
-      if (!valid.has(key)) {
-        roomStates.current.delete(key);
-      }
-    }
-  }, [roomIdsKey]);
 
   // Re-measure scene bounds when the centered scene's static transform
   // changes (embed/isMobile/mobileScale). ResizeObserver only catches
@@ -363,10 +313,7 @@ export function useViewport(currentRoomId: string, roomIds: readonly string[], l
     if (!container || !enabled) {
       return;
     }
-    const resetGesture = (shouldSave = false) => {
-      if (shouldSave && gesture.current.kind !== "idle") {
-        save();
-      }
+    const resetGesture = () => {
       gesture.current = { kind: "idle" };
     };
     const startPan = (source: "pointer" | "touch", clientX: number, clientY: number, pointerId = -1) => {
@@ -428,7 +375,6 @@ export function useViewport(currentRoomId: string, roomIds: readonly string[], l
       const unit = e.deltaMode === 1 ? lineHeight : e.deltaMode === 2 ? rect.height : 1;
       const delta = -e.deltaY * unit * VIEWPORT.WHEEL_ZOOM_SPEED;
       zoomAt(cx, cy, state.current.scale * (1 + delta));
-      save();
     }
 
     function handlePointerDown(e: PointerEvent) {
@@ -486,9 +432,6 @@ export function useViewport(currentRoomId: string, roomIds: readonly string[], l
         return;
       }
       releasePan(e.pointerId);
-      if (g.committed) {
-        save();
-      }
       // Safe to clear here: pointer capture retargets the synthesized click to
       // the container, not to any wrapClick'd descendant, so no stale-didPan
       // window exists for mouse pans. Reset anyway to make the invariant
@@ -598,7 +541,7 @@ export function useViewport(currentRoomId: string, roomIds: readonly string[], l
       const g = gesture.current;
       if (g.kind === "pinching") {
         if (e.touches.length < 2) {
-          resetGesture(true);
+          resetGesture();
         } else {
           // A finger lifted from a 3+ finger pinch, leaving two on-screen.
           // Re-anchor so startDist/initialMid match the remaining pair —
@@ -613,7 +556,7 @@ export function useViewport(currentRoomId: string, roomIds: readonly string[], l
         // iOS-synthesized click window so wrapClick can suppress the tap that
         // follows a drag-pan. The next fresh single-finger tap clears it in
         // handleTouchStart. Do not "unify" this with handlePointerUp's reset.
-        resetGesture(g.committed);
+        resetGesture();
       }
     }
 
@@ -621,11 +564,9 @@ export function useViewport(currentRoomId: string, roomIds: readonly string[], l
       const g = gesture.current;
       // iOS palm rejection / system gesture can cancel mid-pan. Reset any
       // touch-driven gesture state unconditionally so the next fresh touch
-      // starts clean.
-      if (g.kind === "panning" && g.source === "touch") {
-        resetGesture(g.committed);
-      } else if (g.kind === "pinching") {
-        resetGesture(true);
+      // starts clean. Pointer-driven pans live in handlePointerCancel.
+      if (g.kind === "pinching" || (g.kind === "panning" && g.source === "touch")) {
+        resetGesture();
       }
     }
 
