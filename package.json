@@ -8,7 +8,7 @@
     "gen:codex-schemas": "codex app-server generate-ts --out server/backends/codex/_generated --experimental"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.119",
+    "@anthropic-ai/claude-agent-sdk": "^0.2.129",
     "@anthropic-ai/sdk": "^0.91.1",
     "@codemirror/autocomplete": "^6.20.2",
     "@codemirror/commands": "^6.10.3",
