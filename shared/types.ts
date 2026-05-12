@@ -165,6 +165,10 @@ export interface QueuedMessage {
   // pre-expanded slash command (e.g. /isomux-review → full skill prompt).
   // Stays undefined for plain user messages.
   sdkText?: string;
+  // True when the message landed while the agent was busy (thinking /
+  // tool_executing). Used at flush time to warn the agent that the sender
+  // hadn't yet seen its most recent reply when sending this.
+  queuedDuringBusyTurn?: boolean;
   attachments?: Attachment[];
   queuedAt: number;
 }

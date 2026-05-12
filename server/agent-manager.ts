@@ -1603,11 +1603,13 @@ export function enqueueMessage(
   }
 
   const id = generateQueuedId(managed.messageQueue);
+  const queuedDuringBusyTurn = !isQueueIdleState(state);
   managed.messageQueue.push({
     id,
     sender: msg.sender,
     text: msg.text,
     ...(msg.sdkText ? { sdkText: msg.sdkText } : {}),
+    ...(queuedDuringBusyTurn ? { queuedDuringBusyTurn: true } : {}),
     attachments: msg.attachments,
     queuedAt: Date.now(),
   });
@@ -1697,6 +1699,17 @@ async function flushQueue(agentId: string): Promise<void> {
 
     const promptParts: string[] = [];
     const allAttachments: Attachment[] = [];
+    // If any items were queued while the agent was busy, prepend a single
+    // coalesced note so the agent doesn't read them as reactions to its most
+    // recent reply (the sender hadn't seen that reply when sending them).
+    const busyCount = items.reduce((n, m) => (m.queuedDuringBusyTurn ? n + 1 : n), 0);
+    if (busyCount > 0) {
+      promptParts.push(
+        busyCount === 1
+          ? `[Note: this message was queued while you were processing your previous turn — the sender had not seen your most recent reply when they sent it.]`
+          : `[Note: these messages were queued while you were processing your previous turn — the sender had not seen your most recent reply when they sent them.]`,
+      );
+    }
     for (const m of items) {
       // sdkText is set for pre-expanded slash commands (e.g. an /isomux-review
       // queued while the agent was mid-turn): chat shows m.text "/isomux-review",
