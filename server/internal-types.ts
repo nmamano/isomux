@@ -100,3 +100,24 @@ export class SessionSwappedError extends Error {
     this.name = "SessionSwappedError";
   }
 }
+
+// True while the agent is part-way through a two-step pending flow (the
+// previous turn ended asking for a permission decision / resume pick / model
+// pick / effort pick). The next user message gets interpreted as the pick, so
+// callers that would otherwise queue or defer must take the pending-* path
+// instead. Pure derivation from ManagedAgent — lives here so the queueing
+// gate in sendMessage and the deferral gate in executeSkill stay in lockstep.
+export function inMultiStepFlow(managed: ManagedAgent): boolean {
+  return !!(
+    managed.pendingPermission ||
+    managed.pendingResume ||
+    managed.pendingModelPick ||
+    managed.pendingEffortPick
+  );
+}
+
+// Result of enqueueMessage. `status` is the HTTP status the WS/HTTP layer
+// should forward for the failure case.
+export type EnqueueResult =
+  | { ok: true; queued: boolean; deduped?: boolean; messageId?: string }
+  | { ok: false; error: string; status: number };

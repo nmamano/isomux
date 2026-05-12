@@ -69,9 +69,11 @@ import {
 import { createCommandHandling } from "./command-handlers.ts";
 import {
   SessionSwappedError,
+  inMultiStepFlow,
   type ManagedAgent,
   type AgentEvent,
   type EventHandler,
+  type EnqueueResult,
 } from "./internal-types.ts";
 import { getBackend } from "./backends/index.ts";
 import { checkCodexVersion, getCodexVersionStatus } from "./backends/codex/version-check.ts";
@@ -1487,6 +1489,7 @@ const { handleSlashCommand } = createCommandHandling({
   persistAll,
   persistCurrentSessionTopic,
   createTurnDeferred,
+  enqueueMessage,
 });
 
 // === Message queue ===
@@ -1551,18 +1554,6 @@ function isQueueIdleState(s: AgentState): boolean {
   return s === "idle" || s === "waiting_for_response";
 }
 
-function inMultiStepFlow(managed: ManagedAgent): boolean {
-  return !!(
-    managed.pendingPermission ||
-    managed.pendingResume ||
-    managed.pendingModelPick ||
-    managed.pendingEffortPick
-  );
-}
-
-export type EnqueueResult =
-  | { ok: true; queued: boolean; deduped?: boolean; messageId?: string }
-  | { ok: false; error: string; status: number };
 
 function recordDedupe(managed: ManagedAgent, clientMessageId: string) {
   const now = Date.now();
@@ -1591,7 +1582,7 @@ function recordDedupe(managed: ManagedAgent, clientMessageId: string) {
 // an "ok, queued" response would mislead the sender.
 export function enqueueMessage(
   agentId: string,
-  msg: { sender: QueuedMessage["sender"]; text: string; attachments?: Attachment[]; clientMessageId?: string },
+  msg: { sender: QueuedMessage["sender"]; text: string; sdkText?: string; attachments?: Attachment[]; clientMessageId?: string },
 ): EnqueueResult {
   const managed = agents.get(agentId);
   if (!managed) return { ok: false, error: "agent not found", status: 404 };
@@ -1616,6 +1607,7 @@ export function enqueueMessage(
     id,
     sender: msg.sender,
     text: msg.text,
+    ...(msg.sdkText ? { sdkText: msg.sdkText } : {}),
     attachments: msg.attachments,
     queuedAt: Date.now(),
   });
@@ -1706,7 +1698,10 @@ async function flushQueue(agentId: string): Promise<void> {
     const promptParts: string[] = [];
     const allAttachments: Attachment[] = [];
     for (const m of items) {
-      promptParts.push(`${senderPrefixText(m.sender)}${m.text}`);
+      // sdkText is set for pre-expanded slash commands (e.g. an /isomux-review
+      // queued while the agent was mid-turn): chat shows m.text "/isomux-review",
+      // but the SDK needs the full skill prompt.
+      promptParts.push(`${senderPrefixText(m.sender)}${m.sdkText ?? m.text}`);
       if (m.attachments) allAttachments.push(...m.attachments);
     }
     const prompt = promptParts.join("\n\n");
@@ -1725,7 +1720,12 @@ async function flushQueue(agentId: string): Promise<void> {
       // mid-send are still in `items` (they did reach the SDK) — log them so
       // chat history matches what the receiver actually saw.
       for (const m of items) {
-        addLogEntry(agentId, "user_message", m.text, senderMeta(m.sender), m.attachments);
+        // Carry sdkText into the log metadata so editMessage can match this
+        // entry against the SDK session (the SDK saw the expanded prompt,
+        // not m.text). Same shape executeSkill uses on the immediate path.
+        const base = senderMeta(m.sender);
+        const meta = m.sdkText ? { ...(base ?? {}), sdkText: m.sdkText } : base;
+        addLogEntry(agentId, "user_message", m.text, meta, m.attachments);
       }
       const sentIds = new Set(items.map((m) => m.id));
       managed.messageQueue = managed.messageQueue.filter((m) => !sentIds.has(m.id));

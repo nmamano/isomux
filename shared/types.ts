@@ -160,7 +160,11 @@ export interface QueuedMessage {
   sender:
     | { kind: "user"; username?: string; device?: string }
     | { kind: "agent"; agentId: string; agentName: string; roomName: string };
-  text: string;
+  text: string;            // what we show in chat (raw user input)
+  // What we send to the SDK in place of `text`. Set when the queued item is a
+  // pre-expanded slash command (e.g. /isomux-review → full skill prompt).
+  // Stays undefined for plain user messages.
+  sdkText?: string;
   attachments?: Attachment[];
   queuedAt: number;
 }

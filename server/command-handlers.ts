@@ -1,4 +1,4 @@
-import type { Attachment, AgentInfo, AgentState, LogEntry, OfficeSettings, RoomWire, SkillInfo, SkillOrigin } from "../shared/types.ts";
+import type { Attachment, AgentInfo, AgentState, LogEntry, OfficeSettings, QueuedMessage, RoomWire, SkillInfo, SkillOrigin } from "../shared/types.ts";
 import type { OfficeEvent } from "../shared/office-state.ts";
 import { MODEL_FAMILIES, FAMILY_TO_MODEL, EFFORT_LEVELS, familyDisplayLabel, effortDisplayLabel } from "../shared/types.ts";
 import { formatPrefix } from "../shared/identity.ts";
@@ -10,7 +10,7 @@ import { resolveSkillPrompt } from "./skills.ts";
 import { renderUsageReport, formatRelativeTime } from "./usage-report.ts";
 import { computeIsomuxDiff, resolveDiffCwd } from "./isomux-diff.ts";
 import { resolveEditorPath, openFile as openEditorFile } from "./file-editor.ts";
-import { SessionSwappedError, type ManagedAgent, type AgentEvent } from "./internal-types.ts";
+import { SessionSwappedError, inMultiStepFlow, type ManagedAgent, type AgentEvent, type EnqueueResult } from "./internal-types.ts";
 
 type HandlerFn = (agentId: string, managed: ManagedAgent, args: string[], rawText: string, username?: string, device?: string) => Promise<boolean>;
 
@@ -42,6 +42,11 @@ interface HandlerDeps {
   persistAll: () => void;
   persistCurrentSessionTopic: (agentId: string, managed: ManagedAgent) => void;
   createTurnDeferred: (managed: ManagedAgent) => Promise<void>;
+  // Defer-to-queue path for slash commands that arrive while the agent is busy.
+  enqueueMessage: (
+    agentId: string,
+    msg: { sender: QueuedMessage["sender"]; text: string; sdkText?: string; attachments?: Attachment[]; clientMessageId?: string },
+  ) => EnqueueResult;
 }
 
 export function createCommandHandling(deps: HandlerDeps) {
@@ -477,6 +482,29 @@ export function createCommandHandling(deps: HandlerDeps) {
     const fullPrompt = userArgs
       ? `${skillPrompt}\n\nUser context: ${userArgs}`
       : skillPrompt;
+
+    // If the agent is mid-turn, defer the skill via the queue instead of
+    // calling session.send now. Otherwise createTurnDeferred below would
+    // supersede the in-flight turn and reject it with "Superseded by a new
+    // turn". sendMessage's own queueing gate (`!isSlash`) lets all slash
+    // commands skip the queue — which is right for immediate handlers like
+    // /clear or /isomux-diff, but wrong for skills that actually run the
+    // model. Multi-step pending flows still take the immediate path: the
+    // user's reply during /resume etc. is a pick, not a skill.
+    const state = managed.info.state;
+    const busy = state === "thinking" || state === "tool_executing";
+    if (busy && !inMultiStepFlow(managed)) {
+      const result = deps.enqueueMessage(agentId, {
+        sender: { kind: "user", username, device },
+        text: rawText,
+        sdkText: fullPrompt,
+      });
+      if (!result.ok) {
+        deps.addLogEntry(agentId, "system", `Could not queue ${rawText}: ${result.error}`);
+      }
+      return true;
+    }
+
     // sdkText captures the expanded prompt the SDK actually receives so editMessage
     // can match this log entry against the SDK session (content alone is the slash
     // command and won't match).
