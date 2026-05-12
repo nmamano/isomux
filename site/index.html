@@ -669,7 +669,8 @@
     <div style="text-align: center; margin-bottom: 16px;"><div class="free-badge">free &middot; open source &middot; no cloud &middot; no account</div></div>
 
     <ul class="feature-highlights">
-      <li><strong>Works with your Claude subscription</strong>: if <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">claude</code> works in your terminal, isomux works in your browser</li>
+      <li><strong>Works with your Claude or ChatGPT subscriptions</strong>: if <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">claude</code> or <code style="background: var(--bg); padding: 1px 6px; border-radius: 4px; font-size: 0.85em;">codex</code> works in your terminal, isomux works in your browser</li>
+      <li><strong>Multi-provider</strong>: mix Claude Code agents (Anthropic) and <a href="https://github.com/openai/codex" target="_blank" rel="noopener">Codex</a> agents (OpenAI's GPT-5 family) in the same office</li>
       <li>Works locally (run the server on localhost:4000, access it through your browser) or as a <strong>self-hosted persistent server</strong>:
         <ul>
           <li>Run at home, access <strong>from any device and by anyone</strong> in your VPN (we use <a href="https://tailscale.com/" target="_blank" rel="noopener">Tailscale</a>)</li>
@@ -707,15 +708,13 @@
       <summary><h2 style="display: inline;">Get Started <em style="font-weight: 400; font-size: 0.85em; color: var(--text-dim);">(run it locally)</em></h2></summary>
     <div class="setup-card">
       <h3>1. Prerequisites</h3>
-      <p>You need <a href="https://bun.sh/" target="_blank" rel="noopener">Bun</a> (v1.2+) and the <a href="https://claude.ai/code" target="_blank" rel="noopener">Claude Code</a> CLI installed and authenticated with a Claude Pro or Max subscription.</p>
+      <p>You need <a href="https://bun.sh/" target="_blank" rel="noopener">Bun</a> (v1.2+) and at least one of: the <a href="https://claude.ai/code" target="_blank" rel="noopener">Claude Code</a> CLI (Claude subscription) or the <a href="https://github.com/openai/codex" target="_blank" rel="noopener">Codex</a> CLI (ChatGPT subscription).</p>
 <pre><span class="comment"># Install Bun</span>
 curl -fsSL https://bun.sh/install | bash
 
-<span class="comment"># Install Claude Code</span>
-npm install -g @anthropic-ai/claude-code
-
-<span class="comment"># Launch Claude Code, then type /login to authenticate</span>
-claude</pre>
+<span class="comment"># Install at least one agent CLI</span>
+npm install -g @anthropic-ai/claude-code && claude  <span class="comment"># then /login</span>
+npm install -g @openai/codex && codex login</pre>
 
       <h3>2. Install &amp; Run</h3>
 <pre>git clone https://github.com/nmamano/isomux.git

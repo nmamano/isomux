@@ -12,7 +12,8 @@ Free · open source · no cloud · no account
 
 ## Feature Highlights
 
-- **Works with your Claude subscription**: if `claude` works in your terminal, isomux works in your browser
+- **Works with your Claude or ChatGPT subscriptions**: if `claude` or `codex` works in your terminal, isomux works in your browser
+- [**Multi-provider**](https://github.com/openai/codex): mix Claude Code agents (Anthropic) and Codex agents (OpenAI's GPT-5 family) in the same office
 - Works locally or as a **self-hosted persistent server** (Mac Mini style):
   - Run at home, access **from any device** in your [Tailscale](https://tailscale.com/) network
   - No syncing headaches: same conversations, same filesystem, every device updates **in real time**
@@ -41,17 +42,24 @@ Free · open source · no cloud · no account
 
 ### 1. Prerequisites
 
-You need [Bun](https://bun.sh/) (v1.2+) and the [Claude Code](https://claude.ai/code) CLI installed and authenticated with a Claude Pro or Max subscription.
+You need [Bun](https://bun.sh/) (v1.2+) and at least one agent CLI installed and authenticated:
+
+- [Claude Code](https://claude.ai/code) (Anthropic) — requires a Claude subscription
+- [Codex CLI](https://github.com/openai/codex) (OpenAI) — requires a ChatGPT subscription or an `OPENAI_API_KEY`
+
+Install whichever you want; Isomux can spawn agents on either backend, side-by-side.
 
 ```sh
 # Install Bun
 curl -fsSL https://bun.sh/install | bash
 
-# Install Claude Code
+# Install Claude Code (skip if you only want Codex agents)
 npm install -g @anthropic-ai/claude-code
+claude  # then type /login to authenticate
 
-# Launch Claude Code, then type /login to authenticate
-claude
+# Install Codex (skip if you only want Claude agents)
+npm install -g @openai/codex
+codex login
 ```
 
 ### 2. Install & Run
@@ -83,7 +91,7 @@ For persistent server setup (systemd + Tailscale) and voice input configuration,
 - Light / dark theme toggle
 
 ### Agent Creation & Editing
-- **Click empty desk to spawn** — name, working directory, permission mode, custom instructions
+- **Click empty desk to spawn** — name, provider (Claude/Codex), working directory, model, permission mode, custom instructions. Provider is fixed for the agent's lifetime.
 - Working directory input with **recent CWD suggestions**
 - **Outfit customization**: color swatches, hat, accessory, randomize with live preview
 - **Hierarchical system prompts** — office-wide, per-room, and per-agent prompts compose into one assembled system prompt for every agent, all editable from the UI
@@ -154,7 +162,7 @@ For persistent server setup (systemd + Tailscale) and voice input configuration,
 - **Real-time sync via WebSocket** — every connected device stays in lockstep
 - **Multi-user real-time collaboration** — when accessed over Tailscale, multiple humans can chime in to the same conversation simultaneously
 - **Single Bun process** — no bundler, no database, minimal deps
-- Uses **Claude subscription via CLI auth** — no API key needed
+- **Reuses CLI auth from the underlying provider** — your Claude or ChatGPT subscription works out of the box; no separate API key needed
 - **Built-in safety hooks** — blocks `rm -rf`, `git reset --hard`, and other footguns out of the box
 - **Works on a headless server** — run on a Mac Mini or Linux box, access from anywhere via Tailscale
 - **Daily local backup**: your office (agents, conversations, settings) is snapshotted once a day; restore from a recent snapshot if anything goes wrong

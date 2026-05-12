@@ -147,7 +147,7 @@ export function createCommandHandling(deps: HandlerDeps) {
       lines.push("");
 
       // Isomux description
-      lines.push("Isomux is a multi-agent office manager for Claude Code. Learn more at https://isomux.com");
+      lines.push("Isomux gives your agents a cute office. Multi-device, multi-user, multi-agent collaboration. Learn more at https://isomux.com");
       lines.push("");
 
       // Commands
