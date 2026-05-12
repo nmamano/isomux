@@ -1,4 +1,4 @@
-import type { AgentInfo, AgentOutfit, AgentState, Attachment, CodexSandboxMode, EffortLevel, LogEntry, ModelFamily, OfficeSettings, QueuedMessage, RoomWire, SkillInfo } from "../shared/types.ts";
+import type { AgentInfo, AgentOutfit, AgentState, Attachment, CodexSandboxMode, EffortLevel, LogEntry, ModelFamily, OfficeSettings, QueuedMessage, RoomWire, SkillInfo, TaskItem } from "../shared/types.ts";
 import { CODEX_MODELS, MODEL_FAMILIES, FAMILY_TO_MODEL, EFFORT_LEVELS, DEFAULT_EFFORT, familyDisplayLabel, effortDisplayLabel, generateRoomId, isClaudeFamily } from "../shared/types.ts";
 import { formatPrefix, formatAgentSenderPrefix } from "../shared/identity.ts";
 import { getUserEnvFile } from "./users.ts";
@@ -19,6 +19,8 @@ import {
   rollSessionUsageOnResume,
   loadOfficeConfig,
   saveOfficeConfig,
+  loadTasks,
+  saveTasks,
   readEnvFile,
   loadAgentHistory,
   saveAgentHistory,
@@ -135,6 +137,10 @@ officeState.onChange((event) => {
     saveOfficeConfig({ prompt: officeState.office.prompt, envFile: officeState.office.envFile });
     return;
   }
+  if (event.type === "tasks_changed") {
+    saveTasks(officeState.tasks);
+    return;
+  }
   if (!officeStatePersistenceEnabled) return;
   if (event.type === "agent_updated") {
     const keys = Object.keys(event.changes);
@@ -153,6 +159,31 @@ export function getRooms(): RoomWire[] {
 
 export function getOfficeSettings(): OfficeSettings {
   return { prompt: officeState.office.prompt, envFile: officeState.office.envFile };
+}
+
+export function getTasks(): TaskItem[] {
+  return [...officeState.tasks];
+}
+
+export function addTask(title: string, createdBy: string, opts?: { description?: string; priority?: TaskItem["priority"]; assignee?: string; username?: string }): TaskItem {
+  const events = officeState.addTask(title, createdBy, opts);
+  for (const event of events) eventHandler(event);
+  return officeState.tasks[officeState.tasks.length - 1];
+}
+
+export function updateTask(id: string, changes: Partial<Pick<TaskItem, "title" | "description" | "priority" | "status" | "assignee">>): TaskItem | null {
+  const events = officeState.updateTask(id, changes);
+  if (events.length === 0) return null;
+  for (const event of events) eventHandler(event);
+  return officeState.tasks.find((t) => t.id === id) ?? null;
+}
+
+export function deleteTask(id: string): boolean {
+  const before = officeState.tasks.length;
+  const events = officeState.deleteTask(id);
+  if (officeState.tasks.length === before) return false;
+  for (const event of events) eventHandler(event);
+  return true;
 }
 
 // Update office settings. Caller is responsible for validating envFile (see validateEnvPath).
@@ -609,6 +640,7 @@ export async function restoreAgents() {
   // fields (room ids, prompt/envFile defaults) that weren't present before.
   // Must run AFTER agents are populated or persistAll writes empty rooms.
   persistAll();
+  officeState.setTasksDirect(loadTasks());
   officeStatePersistenceEnabled = true;
   return [...agents.values()].map((a) => a.info);
 }

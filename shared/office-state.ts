@@ -393,7 +393,7 @@ export class OfficeState {
     return events;
   }
 
-  addTask(title: string, createdBy: string, opts?: { description?: string; priority?: TaskPriority; assignee?: string }): OfficeEvent[] {
+  addTask(title: string, createdBy: string, opts?: { description?: string; priority?: TaskPriority; assignee?: string; username?: string }): OfficeEvent[] {
     const task: TaskItem = {
       id: generateTaskId(this._tasks.map(t => t.id)),
       title: title.trim(),
@@ -402,6 +402,7 @@ export class OfficeState {
       status: "open",
       assignee: opts?.assignee,
       createdBy,
+      username: opts?.username,
       createdAt: Date.now(),
     };
     this._tasks.push(task);

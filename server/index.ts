@@ -2,19 +2,18 @@ import type { ServerWebSocket } from "bun";
 import type { ServerMessage, ClientCommand } from "../shared/types.ts";
 import * as AgentManager from "./agent-manager.ts";
 import * as CronjobManager from "./cronjob-manager.ts";
-import { loadRecentCwds, saveRecentCwd, loadTasks, saveTasks, getFilePath, saveFile } from "./persistence.ts";
+import { loadRecentCwds, saveRecentCwd, getFilePath, saveFile } from "./persistence.ts";
 import type { Attachment } from "../shared/types.ts";
 import { startUpdateChecker, getUpdateStatus, onUpdateChange } from "./update-checker.ts";
 import { startBackupScheduler, getBackupStatus } from "./backup.ts";
 import { logCodexVersionAtBoot } from "./backends/codex/version-check.ts";
 import type { TaskItem } from "../shared/types.ts";
-import { generateTaskId, isValidStatus, isValidPriority } from "../shared/types.ts";
+import { isValidStatus, isValidPriority } from "../shared/types.ts";
 import { listUsers, getUser, claimUser, updateUser, deleteUser } from "./users.ts";
 import { watchFile, stopWatch, type FileWatcher } from "./file-editor.ts";
 import { join } from "path";
 
 const browsers = new Set<ServerWebSocket<unknown>>();
-let tasks: TaskItem[] = loadTasks();
 
 // Per-WS editor file watchers. Each open file gets one fs.watch handle keyed
 // by `${agentId}\0${absPath}` so the same path can be watched independently
@@ -43,6 +42,12 @@ function broadcast(msg: ServerMessage) {
 
 // Wire AgentManager events to WebSocket broadcasts
 AgentManager.onEvent((event) => {
+  // Task mutations carry the full list as a domain event; the wire still
+  // uses the legacy `{type:"tasks", tasks}` shape so the UI doesn't change.
+  if (event.type === "tasks_changed") {
+    broadcast({ type: "tasks", tasks: event.tasks } as ServerMessage);
+    return;
+  }
   broadcast(event as ServerMessage);
 });
 
@@ -309,40 +314,27 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
       break;
     }
     case "add_task": {
-      const task: TaskItem = {
-        id: generateTaskId(tasks.map(t => t.id)),
-        title: cmd.title.trim(),
+      AgentManager.addTask(cmd.title, cmd.username, {
         description: cmd.description,
         priority: cmd.priority && isValidPriority(cmd.priority) ? cmd.priority : undefined,
-        status: "open",
         assignee: cmd.assignee,
-        createdBy: cmd.username,
         username: cmd.username,
-        createdAt: Date.now(),
-      };
-      tasks.push(task);
-      saveTasks(tasks);
-      broadcast({ type: "tasks", tasks } as ServerMessage);
+      });
       break;
     }
     case "update_task": {
-      const task = tasks.find((t) => t.id === cmd.id);
-      if (task) {
-        const c = cmd.changes;
-        if (c.title !== undefined) task.title = String(c.title);
-        if (c.description !== undefined) task.description = c.description ? String(c.description) : undefined;
-        if (c.assignee !== undefined) task.assignee = c.assignee ? String(c.assignee) : undefined;
-        if (c.status !== undefined && isValidStatus(c.status)) task.status = c.status;
-        if (c.priority !== undefined && isValidPriority(c.priority)) task.priority = c.priority;
-        saveTasks(tasks);
-        broadcast({ type: "tasks", tasks } as ServerMessage);
-      }
+      const c = cmd.changes;
+      const changes: Partial<Pick<TaskItem, "title" | "description" | "priority" | "status" | "assignee">> = {};
+      if (c.title !== undefined) changes.title = String(c.title);
+      if (c.description !== undefined) changes.description = c.description ? String(c.description) : undefined;
+      if (c.assignee !== undefined) changes.assignee = c.assignee ? String(c.assignee) : undefined;
+      if (c.status !== undefined && isValidStatus(c.status)) changes.status = c.status;
+      if (c.priority !== undefined && isValidPriority(c.priority)) changes.priority = c.priority;
+      AgentManager.updateTask(cmd.id, changes);
       break;
     }
     case "delete_task": {
-      tasks = tasks.filter((t) => t.id !== cmd.id);
-      saveTasks(tasks);
-      broadcast({ type: "tasks", tasks } as ServerMessage);
+      AgentManager.deleteTask(cmd.id);
       break;
     }
     case "create_room":
@@ -583,7 +575,7 @@ const server = Bun.serve({
         const status = url.searchParams.get("status");
         const assignee = url.searchParams.get("assignee");
         const titleFilter = url.searchParams.get("title");
-        let filtered = tasks;
+        let filtered = AgentManager.getTasks();
         if (!status) {
           filtered = filtered.filter((t) => t.status !== "done" && t.status !== "backlog");
         } else if (status !== "all") {
@@ -601,7 +593,7 @@ const server = Bun.serve({
 
       // GET /tasks/:id — detail
       if (req.method === "GET" && taskId && !action) {
-        const task = tasks.find((t) => t.id === taskId);
+        const task = AgentManager.getTasks().find((t) => t.id === taskId);
         if (!task) return new Response(JSON.stringify({ error: "not found" }), { status: 404, headers: corsHeaders });
         return new Response(JSON.stringify(task), { headers: corsHeaders });
       }
@@ -618,27 +610,17 @@ const server = Bun.serve({
         if (body.priority !== undefined && !isValidPriority(body.priority)) {
           return new Response(JSON.stringify({ error: "invalid priority, must be P0-P3" }), { status: 400, headers: corsHeaders });
         }
-        const task: TaskItem = {
-          id: generateTaskId(tasks.map(t => t.id)),
-          title: String(body.title).trim(),
+        const task = AgentManager.addTask(String(body.title), String(body.createdBy), {
           description: body.description ? String(body.description) : undefined,
-          priority: body.priority as TaskItem["priority"],
-          status: "open",
+          priority: body.priority as TaskItem["priority"] | undefined,
           assignee: body.assignee ? String(body.assignee) : undefined,
-          createdBy: String(body.createdBy),
           username: body.username ? String(body.username) : undefined,
-          createdAt: Date.now(),
-        };
-        tasks.push(task);
-        saveTasks(tasks);
-        broadcast({ type: "tasks", tasks } as ServerMessage);
+        });
         return new Response(JSON.stringify(task), { status: 201, headers: corsHeaders });
       }
 
       // PATCH /tasks/:id — update
       if (req.method === "PATCH" && taskId && !action) {
-        const task = tasks.find((t) => t.id === taskId);
-        if (!task) return new Response(JSON.stringify({ error: "not found" }), { status: 404, headers: corsHeaders });
         let body: Record<string, unknown>;
         try { body = await req.json() as Record<string, unknown>; } catch {
           return new Response(JSON.stringify({ error: "invalid JSON" }), { status: 400, headers: corsHeaders });
@@ -649,40 +631,36 @@ const server = Bun.serve({
         if (body.priority !== undefined && !isValidPriority(body.priority)) {
           return new Response(JSON.stringify({ error: "invalid priority, must be P0-P3" }), { status: 400, headers: corsHeaders });
         }
-        if (body.title !== undefined) task.title = String(body.title);
-        if (body.description !== undefined) task.description = body.description ? String(body.description) : undefined;
-        if (body.status !== undefined) task.status = body.status as TaskItem["status"];
-        if (body.priority !== undefined) task.priority = body.priority ? body.priority as TaskItem["priority"] : undefined;
-        if (body.assignee !== undefined) task.assignee = body.assignee ? String(body.assignee) : undefined;
-        saveTasks(tasks);
-        broadcast({ type: "tasks", tasks } as ServerMessage);
+        const changes: Partial<Pick<TaskItem, "title" | "description" | "priority" | "status" | "assignee">> = {};
+        if (body.title !== undefined) changes.title = String(body.title);
+        if (body.description !== undefined) changes.description = body.description ? String(body.description) : undefined;
+        if (body.status !== undefined) changes.status = body.status as TaskItem["status"];
+        if (body.priority !== undefined) changes.priority = body.priority ? body.priority as TaskItem["priority"] : undefined;
+        if (body.assignee !== undefined) changes.assignee = body.assignee ? String(body.assignee) : undefined;
+        const task = AgentManager.updateTask(taskId, changes);
+        if (!task) return new Response(JSON.stringify({ error: "not found" }), { status: 404, headers: corsHeaders });
         return new Response(JSON.stringify(task), { headers: corsHeaders });
       }
 
       // POST /tasks/:id/claim
       if (req.method === "POST" && taskId && action === "claim") {
-        const task = tasks.find((t) => t.id === taskId);
-        if (!task) return new Response(JSON.stringify({ error: "not found" }), { status: 404, headers: corsHeaders });
         let body: Record<string, unknown>;
         try { body = await req.json() as Record<string, unknown>; } catch {
           return new Response(JSON.stringify({ error: "invalid JSON" }), { status: 400, headers: corsHeaders });
         }
-        task.assignee = body.assignee ? String(body.assignee) : task.assignee;
-        task.status = "in_progress";
-        saveTasks(tasks);
-        broadcast({ type: "tasks", tasks } as ServerMessage);
+        const changes: Partial<Pick<TaskItem, "status" | "assignee">> = { status: "in_progress" };
+        if (body.assignee) changes.assignee = String(body.assignee);
+        const task = AgentManager.updateTask(taskId, changes);
+        if (!task) return new Response(JSON.stringify({ error: "not found" }), { status: 404, headers: corsHeaders });
         return new Response(JSON.stringify(task), { headers: corsHeaders });
       }
 
       // POST /tasks/:id/done
       if (req.method === "POST" && taskId && action === "done") {
-        const task = tasks.find((t) => t.id === taskId);
-        if (!task) return new Response(JSON.stringify({ error: "not found" }), { status: 404, headers: corsHeaders });
         // Agents send `curl -d '{}'` — consume the body so Bun doesn't warn
         try { await req.json(); } catch {}
-        task.status = "done";
-        saveTasks(tasks);
-        broadcast({ type: "tasks", tasks } as ServerMessage);
+        const task = AgentManager.updateTask(taskId, { status: "done" });
+        if (!task) return new Response(JSON.stringify({ error: "not found" }), { status: 404, headers: corsHeaders });
         return new Response(JSON.stringify(task), { headers: corsHeaders });
       }
 
@@ -898,7 +876,7 @@ const server = Bun.serve({
       const recentCwds = loadRecentCwds();
       ws.send(JSON.stringify({ type: "full_state", agents, recentCwds, office: AgentManager.getOfficeSettings(), rooms: AgentManager.getRooms() } as ServerMessage));
       // Send tasks
-      ws.send(JSON.stringify({ type: "tasks", tasks } as ServerMessage));
+      ws.send(JSON.stringify({ type: "tasks", tasks: AgentManager.getTasks() } as ServerMessage));
       // Send cronjobs + cronjobsPrompt
       ws.send(JSON.stringify({
         type: "cronjobs_state",
