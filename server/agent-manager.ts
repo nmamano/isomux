@@ -267,7 +267,13 @@ function validateModelFamily(
   raw: string | undefined,
 ): string {
   if (agentType === "codex") {
-    if (raw && CODEX_MODELS.some((m) => m.value === raw)) return raw;
+    // Pass-through: the picker is fed by Codex's model/list RPC which
+    // returns auth-appropriate slugs that aren't necessarily in our
+    // hardcoded CODEX_MODELS. We can't statically know the valid set, so
+    // trust any non-empty string and let codex itself reject at thread/
+    // start with a "model not supported" turn error (whose system_text
+    // hint already points the user back at settings).
+    if (raw && typeof raw === "string" && raw.length > 0) return raw;
     return CODEX_MODELS[0].value;
   }
   if (raw && isClaudeFamily(raw)) return raw;
@@ -286,15 +292,18 @@ function validateEffort(
   modelFamily: string,
   raw: EffortLevel | undefined,
 ): EffortLevel {
-  if (!raw || !EFFORT_LEVELS.some((e) => e.level === raw)) return DEFAULT_EFFORT;
-  // Per EFFORT_LEVELS labels: "minimal" is Codex-only; "max" is Claude-Opus-only.
-  // A stale UI sending the wrong combo (e.g. Claude+minimal, Sonnet+max) falls
-  // back to the global default rather than going to the backend and failing.
-  if (agentType === "codex" && raw === "max") return DEFAULT_EFFORT;
-  if (agentType === "claude") {
-    if (raw === "minimal") return DEFAULT_EFFORT;
-    if (raw === "max" && modelFamily !== "opus") return DEFAULT_EFFORT;
+  if (agentType === "codex") {
+    // Pass-through for Codex: the per-model supportedReasoningEfforts from
+    // model/list is the real allow-list, and it can include values outside
+    // our static EFFORT_LEVELS (e.g. "none"). Trust any non-empty string
+    // and let codex reject at thread/start.
+    if (raw && typeof raw === "string" && raw.length > 0) return raw as EffortLevel;
+    return DEFAULT_EFFORT;
   }
+  if (!raw || !EFFORT_LEVELS.some((e) => e.level === raw)) return DEFAULT_EFFORT;
+  // Claude family-level rules: "minimal" is Codex-only; "max" is opus-only.
+  if (raw === "minimal") return DEFAULT_EFFORT;
+  if (raw === "max" && modelFamily !== "opus") return DEFAULT_EFFORT;
   return raw;
 }
 

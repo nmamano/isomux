@@ -145,11 +145,15 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         setModelsLoading(false);
         if (msg.ok && Array.isArray(msg.models)) {
           setBackendModels(msg.models);
-          // Snap to the auth-default when spawning a fresh agent and the
-          // current hardcoded default isn't in the fetched list.
+          // Snap to the auth-reported default on a fresh spawn. We do this
+          // even when the pre-fetch placeholder happens to be in the list,
+          // because the placeholder is just CODEX_MODELS[0] (a hardcoded
+          // guess) and Codex's per-auth isDefault is the source of truth.
+          // The model select is disabled during loading, so the user
+          // can't have made a choice we'd be overriding.
           if (isSpawn) {
             const def = msg.models.find((m: BackendModelWire) => m.isDefault) ?? msg.models[0];
-            if (def && !msg.models.some((m: BackendModelWire) => m.id === modelFamily)) {
+            if (def) {
               setModelFamily(def.id);
               if (def.defaultEffort) setEffort(def.defaultEffort as EffortLevel);
             }
@@ -472,8 +476,10 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 };
               });
             } else {
+              // Codex model with no supportedEfforts reported: fall back to
+              // the EFFORT_LEVELS list minus "max" (Claude-Opus-only).
               effortLevels = EFFORT_LEVELS
-                .filter((opt) => (opt.level === "max" ? false : opt.level === "minimal" ? true : true))
+                .filter((opt) => opt.level !== "max")
                 .map((o) => ({ level: o.level, label: o.label }));
             }
           } else {
