@@ -118,6 +118,13 @@ export class OfficeState {
     desk?: number;
     roomId?: string;
     customInstructions?: string;
+    outfit?: AgentOutfit;
+    modelFamily?: AgentInfo["modelFamily"];
+    effort?: AgentInfo["effort"];
+    agentType?: AgentInfo["agentType"];
+    codexSandbox?: AgentInfo["codexSandbox"];
+    username?: string | null;
+    capabilities?: AgentInfo["capabilities"];
   }): { agent: AgentInfo; events: OfficeEvent[] } | null {
     // Reject duplicate names
     const nameLower = opts.name.trim().toLowerCase();
@@ -151,17 +158,18 @@ export class OfficeState {
       desk,
       room: targetRoom,
       cwd: opts.cwd,
-      outfit: generateOutfit(),
+      outfit: opts.outfit ?? generateOutfit(),
       permissionMode: opts.permissionMode,
-      modelFamily: "opus",
-      effort: DEFAULT_EFFORT,
+      modelFamily: opts.modelFamily ?? "opus",
+      effort: opts.effort ?? DEFAULT_EFFORT,
       state: "idle",
       topic: null,
       topicStale: false,
       customInstructions: opts.customInstructions || null,
-      agentType: "claude",
-      capabilities: DEFAULT_AGENT_CAPABILITIES,
-      username: null,
+      agentType: opts.agentType ?? "claude",
+      capabilities: opts.capabilities ?? DEFAULT_AGENT_CAPABILITIES,
+      ...(opts.codexSandbox ? { codexSandbox: opts.codexSandbox } : {}),
+      username: opts.username ?? null,
       queue: [],
       sessionSwapping: false,
     };
@@ -190,7 +198,16 @@ export class OfficeState {
     return events;
   }
 
-  editAgent(agentId: string, changes: { name?: string; cwd?: string; outfit?: AgentOutfit; customInstructions?: string; permissionMode?: AgentInfo["permissionMode"] }): OfficeEvent[] {
+  editAgent(agentId: string, changes: {
+    name?: string;
+    cwd?: string;
+    outfit?: AgentOutfit;
+    customInstructions?: string;
+    permissionMode?: AgentInfo["permissionMode"];
+    modelFamily?: AgentInfo["modelFamily"];
+    effort?: AgentInfo["effort"];
+    codexSandbox?: AgentInfo["codexSandbox"];
+  }): OfficeEvent[] {
     const agent = this.agents.get(agentId);
     if (!agent) return [];
 
@@ -220,6 +237,18 @@ export class OfficeState {
     if (changes.permissionMode && changes.permissionMode !== agent.permissionMode) {
       agent.permissionMode = changes.permissionMode;
       updated.permissionMode = changes.permissionMode;
+    }
+    if (changes.modelFamily && changes.modelFamily !== agent.modelFamily) {
+      agent.modelFamily = changes.modelFamily;
+      updated.modelFamily = changes.modelFamily;
+    }
+    if (changes.effort && changes.effort !== agent.effort) {
+      agent.effort = changes.effort;
+      updated.effort = changes.effort;
+    }
+    if (changes.codexSandbox && changes.codexSandbox !== agent.codexSandbox) {
+      agent.codexSandbox = changes.codexSandbox;
+      updated.codexSandbox = changes.codexSandbox;
     }
 
     if (Object.keys(updated).length === 0) return [];

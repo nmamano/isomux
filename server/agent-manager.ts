@@ -2,7 +2,6 @@ import type { AgentInfo, AgentOutfit, AgentState, Attachment, CodexSandboxMode, 
 import { CODEX_MODELS, MODEL_FAMILIES, FAMILY_TO_MODEL, EFFORT_LEVELS, DEFAULT_EFFORT, familyDisplayLabel, effortDisplayLabel, generateRoomId, isClaudeFamily } from "../shared/types.ts";
 import { formatPrefix, formatAgentSenderPrefix } from "../shared/identity.ts";
 import { getUserEnvFile } from "./users.ts";
-import { generateOutfit } from "./outfit.ts";
 import {
   appendLog,
   loadLog,
@@ -148,10 +147,6 @@ officeState.onChange((event) => {
   }
   persistAll();
 });
-
-function findRoomIndex(roomId: string): number {
-  return officeState.rooms.findIndex((r) => r.id === roomId);
-}
 
 export function getRooms(): RoomWire[] {
   return officeState.rooms.map((r) => ({ ...r }));
@@ -326,85 +321,94 @@ export async function editAgent(
   const managed = agents.get(agentId);
   if (!managed) return;
 
-  // Build the validated change set. Mutation/persistence/emit happen in one
-  // shot via officeState.updateAgent below.
-  const updated: Partial<AgentInfo> = {};
+  // Backend-specific validation. OfficeState can't reach the backend layer,
+  // so we validate here and pass already-canonicalized values to it.
+  const validated: Parameters<typeof officeState.editAgent>[1] = {};
 
-  if (changes.name && changes.name !== managed.info.name) {
-    // Reject duplicate names
-    const nameLower = changes.name.trim().toLowerCase();
-    const duplicate = [...agents.values()].some((a) => a.info.id !== agentId && a.info.name.toLowerCase() === nameLower);
-    if (!duplicate) updated.name = changes.name;
-  }
-  if (changes.cwd && changes.cwd !== managed.info.cwd) {
-    const oldCwd = managed.info.cwd;
-    const newCwd = resolveCwd(changes.cwd);
-    updated.cwd = newCwd;
-    if (managed.info.agentType === "claude") {
-      // Claude stores sessions in ~/.claude/projects/<cwd-hash>/; moving cwd
-      // means the .jsonl files need to follow, otherwise resume can't find
-      // them. moveClaudeSessionFiles relocates them in place.
-      moveClaudeSessionFiles(agentId, oldCwd, newCwd);
-    } else {
-      // Codex stores per-cwd rollouts in ~/.codex/; the existing thread is
-      // not addressable under the new cwd. Drop the sessionId so the next
-      // conversation starts a fresh thread (matches the "applies to next
-      // conversation" UX users expect from changing cwd). Mutate before
-      // officeState.updateAgent so its persistAll snapshots the null id.
-      managed.sessionId = null;
-    }
-  }
-  if (changes.outfit) updated.outfit = changes.outfit;
-  if (changes.customInstructions !== undefined && changes.customInstructions !== managed.info.customInstructions) {
-    updated.customInstructions = changes.customInstructions || null;
+  if (changes.name) validated.name = changes.name;
+  if (changes.cwd) validated.cwd = resolveCwd(changes.cwd);
+  if (changes.outfit) validated.outfit = changes.outfit;
+  if (changes.customInstructions !== undefined) validated.customInstructions = changes.customInstructions;
+  if (changes.permissionMode) {
+    validated.permissionMode = validatePermissionMode(managed.info.agentType, changes.permissionMode);
   }
   if (changes.modelFamily) {
-    const valid = validateModelFamily(managed.info.agentType, changes.modelFamily);
-    if (valid !== managed.info.modelFamily) updated.modelFamily = valid;
+    validated.modelFamily = validateModelFamily(managed.info.agentType, changes.modelFamily);
   }
   if (changes.codexSandbox && managed.info.agentType === "codex") {
     const valid = validateCodexSandbox(changes.codexSandbox);
-    if (valid && valid !== managed.info.codexSandbox) updated.codexSandbox = valid;
+    if (valid) validated.codexSandbox = valid;
   }
   if (changes.effort) {
     // Validate against the post-update modelFamily so a paired model+effort
     // change is consistent.
-    const targetModelFamily = updated.modelFamily ?? managed.info.modelFamily;
-    const valid = validateEffort(managed.info.agentType, targetModelFamily, changes.effort);
-    if (valid !== managed.info.effort) updated.effort = valid;
+    const targetModelFamily = validated.modelFamily ?? managed.info.modelFamily;
+    validated.effort = validateEffort(managed.info.agentType, targetModelFamily, changes.effort);
   }
-  if (changes.permissionMode) {
-    const valid = validatePermissionMode(managed.info.agentType, changes.permissionMode);
-    if (valid !== managed.info.permissionMode) updated.permissionMode = valid;
-  }
-
   // Cross-update sanitization: if modelFamily changed but effort wasn't part
   // of this edit, the existing effort may now be invalid (e.g. "max" survives
   // on an agent whose model just moved from opus to sonnet). Re-validate
   // against the new model and downgrade if needed.
-  if (updated.modelFamily && updated.effort === undefined) {
-    const valid = validateEffort(managed.info.agentType, updated.modelFamily, managed.info.effort);
-    if (valid !== managed.info.effort) updated.effort = valid;
+  if (validated.modelFamily && validated.effort === undefined) {
+    validated.effort = validateEffort(managed.info.agentType, validated.modelFamily, managed.info.effort);
   }
 
-  if (Object.keys(updated).length === 0) return;
+  // cwd-change side effects must run BEFORE the AgentInfo mutation lands.
+  // Both throw out of editAgent on failure, leaving managed.info untouched —
+  // the officeState.editAgent call below is what commits the mutation.
+  if (validated.cwd && validated.cwd !== managed.info.cwd) {
+    if (managed.info.agentType === "claude") {
+      // Claude stores sessions in ~/.claude/projects/<cwd-hash>/; moving cwd
+      // means the .jsonl files need to follow, otherwise resume can't find
+      // them. moveClaudeSessionFiles relocates them in place.
+      moveClaudeSessionFiles(agentId, managed.info.cwd, validated.cwd);
+    } else {
+      // Codex stores per-cwd rollouts in ~/.codex/; the existing thread is
+      // not addressable under the new cwd. Drop the sessionId so the next
+      // conversation starts a fresh thread (matches the "applies to next
+      // conversation" UX users expect from changing cwd).
+      managed.sessionId = null;
+    }
+  }
 
-  // Track cwd in recents (officeState.editAgent does this internally; we use
-  // updateAgent so we add it explicitly).
-  if (updated.cwd) officeState.addRecentCwd(updated.cwd);
+  // Snapshot of all editable fields, captured BEFORE the mutation lands.
+  // Used to roll the full edit back if session recreate fails — matches the
+  // prior withAgentRollback contract, where the entire `updated` partial was
+  // reverted on throw (not just the recreate-relevant subset).
+  const snapshot: Partial<AgentInfo> = {
+    name: managed.info.name,
+    cwd: managed.info.cwd,
+    outfit: managed.info.outfit,
+    customInstructions: managed.info.customInstructions,
+    permissionMode: managed.info.permissionMode,
+    modelFamily: managed.info.modelFamily,
+    effort: managed.info.effort,
+    codexSandbox: managed.info.codexSandbox,
+  };
 
-  // Recreate session if model/effort/permission/sandbox changed. createSession
-  // reads AgentInfo so the mutation must land before the call; on throw we
-  // revert in-place and skip the officeState commit, matching the pre-refactor
-  // contract (failed recreate ⇒ change reverts on restart).
+  // Funnel through OfficeState.editAgent — single source of truth for
+  // dedup + delta detection + AgentInfo mutation + event creation.
+  // emitEvents inside fires onChange (persistence); the wire broadcast is
+  // held until after the session-recreate side effect succeeds.
+  const events = officeState.editAgent(agentId, validated);
+  if (events.length === 0) return;
+
+  // After editAgent, managed.info has the new values, so createSession reads
+  // them correctly. On failure we revert via officeState.updateAgent — that
+  // hits onChange (persists the rollback) but not eventHandler, so the wire
+  // never sees either direction. Matches the prior withAgentRollback contract.
+  const updated = events[0].type === "agent_updated" ? events[0].changes : {};
   if (updated.modelFamily || updated.effort || updated.permissionMode || updated.codexSandbox) {
-    await withAgentRollback(managed, updated, async () => {
+    try {
       const sessionId = managed.sessionId;
       await replaceSession(agentId, managed, sessionId ? createSession(managed, sessionId) : createSession(managed));
-    });
+    } catch (err) {
+      officeState.updateAgent(agentId, snapshot);
+      throw err;
+    }
   }
 
-  for (const event of officeState.updateAgent(agentId, updated)) eventHandler(event);
+  for (const event of events) eventHandler(event);
 }
 
 export function swapDesks(deskA: number, deskB: number, roomId: string) {
@@ -1348,31 +1352,7 @@ export async function spawn(
       );
     }
   }
-  // Reject duplicate names across all rooms
-  const nameLower = name.trim().toLowerCase();
-  for (const a of agents.values()) {
-    if (a.info.name.toLowerCase() === nameLower) return null;
-  }
-  let targetRoom = 0;
-  if (roomId) {
-    const idx = findRoomIndex(roomId);
-    if (idx >= 0) targetRoom = idx;
-  }
-  const roomAgents = [...agents.values()].filter((a) => a.info.room === targetRoom);
-  const taken = new Set(roomAgents.map((a) => a.info.desk));
-  if (desk !== undefined && !taken.has(desk)) {
-    // Use the requested desk
-  } else {
-    // Find first free desk in the target room
-    desk = -1;
-    for (let i = 0; i < 8; i++) {
-      if (!taken.has(i)) { desk = i; break; }
-    }
-  }
-  if (desk === -1) return null;
-
   const resolvedCwd = resolveCwd(cwd);
-  const id = `agent-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
   // Server-side validation. Anything outside the backend's allowlist falls
   // back to a safe default; the wire shapes are permissive (union types over
@@ -1384,27 +1364,37 @@ export async function spawn(
   const validatedCodexSandbox =
     agentType === "codex" ? validateCodexSandbox(codexSandbox) : undefined;
 
-  const info: AgentInfo = {
-    id,
-    name,
-    desk,
-    room: targetRoom,
-    cwd: resolvedCwd,
-    outfit: outfit ?? generateOutfit(),
-    permissionMode: validatedPermissionMode,
-    modelFamily: validatedModelFamily,
-    effort: validatedEffort,
-    state: "idle",
-    topic: null,
-    topicStale: false,
-    customInstructions: customInstructions || null,
-    agentType,
-    capabilities: getBackend(agentType).capabilities,
-    ...(validatedCodexSandbox ? { codexSandbox: validatedCodexSandbox } : {}),
-    username: username ?? null,
-    queue: [],
-    sessionSwapping: false,
-  };
+  // Funnel AgentInfo construction through OfficeState so the literal lives in
+  // one place. Suppress persistAll during the inner emitEvents — at that point
+  // the ManagedAgent isn't in agent-manager's `agents` map yet, so a save
+  // would write a snapshot missing the new agent. We persistAll() manually
+  // below once both maps are in sync. try/finally guards against an
+  // unexpected throw in officeState.spawn leaving the flag stuck false
+  // (which would silently break ALL future persistAll triggers).
+  officeStatePersistenceEnabled = false;
+  let spawned;
+  try {
+    spawned = officeState.spawn({
+      name,
+      cwd: resolvedCwd,
+      permissionMode: validatedPermissionMode,
+      desk,
+      roomId,
+      customInstructions,
+      outfit,
+      modelFamily: validatedModelFamily,
+      effort: validatedEffort,
+      agentType,
+      codexSandbox: validatedCodexSandbox,
+      username,
+      capabilities: getBackend(agentType).capabilities,
+    });
+  } finally {
+    officeStatePersistenceEnabled = true;
+  }
+  if (!spawned) return null;
+  const { agent: info, events } = spawned;
+  const id = info.id;
 
   const managed: ManagedAgent = {
     info,
@@ -1435,8 +1425,7 @@ export async function spawn(
     queueDedupe: new Map(),
   };
   agents.set(id, managed);
-  officeState.addExistingAgent(info);
-  emit({ type: "agent_added", agent: info });
+  for (const event of events) emit(event);
   // Send commands immediately so autocomplete works before SDK init
   emit({
     type: "slash_commands",
