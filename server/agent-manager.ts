@@ -2466,7 +2466,23 @@ export async function editMessage(agentId: string, logEntryId: string, newText: 
     }
 
     if (targetIdx === -1) {
-      addLogEntry(agentId, "error", "Cannot edit: could not locate message in backend session.");
+      // Walk the agent's on-disk sessions to find which one owns the entry,
+      // so the error tells the user where the message actually lives. The
+      // chat can show entries from a session that isn't the current backend
+      // session — e.g. ContextMenu "New conversation" doesn't clear logCache,
+      // so the timeline continues across session boundaries.
+      let ownerHint = "";
+      try {
+        for (const s of listAgentSessions(agentId)) {
+          if (s.sessionId === oldSessionId) continue;
+          if (loadLog(agentId, s.sessionId).some(e => e.id === logEntryId)) {
+            const label = s.topic ?? s.sessionId.slice(0, 8) + "...";
+            ownerHint = ` This message lives in a different session ("${label}"). Use /resume to switch to it first, then edit.`;
+            break;
+          }
+        }
+      } catch {}
+      addLogEntry(agentId, "error", `Cannot edit: could not locate message in backend session.${ownerHint}`);
       return;
     }
 
