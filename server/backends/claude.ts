@@ -51,9 +51,11 @@ import type {
   AttachmentSpec,
   Backend,
   BackendCapabilities,
+  BackendModel,
   BackendSession,
   ContextUsage,
   CreateSessionOptions,
+  ListModelsOptions,
   ModelOption,
   NormalizedEvent,
   NormalizedMessage,
@@ -600,6 +602,27 @@ export const claudeBackend: Backend = {
 
   getPermissionModes(): PermissionModeOption[] {
     return PERMISSION_MODES;
+  },
+
+  async listModels(_opts: ListModelsOptions): Promise<BackendModel[]> {
+    // Claude has no runtime model-discovery API: the family list is static
+    // and identical across auth tiers. Promote MODEL_FAMILIES to the
+    // BackendModel shape so the UI can render Claude through the same
+    // fetched-list path it uses for Codex. Effort filtering remains a
+    // family-level concern (opus-only "max", etc.) handled UI-side.
+    return MODEL_FAMILIES.map((m, i) => ({
+      id: m.family,
+      label: m.label,
+      isDefault: i === 0,
+      hidden: false,
+      supportedEfforts: EFFORT_LEVELS
+        .filter((e) => {
+          if (e.level === "max") return m.family === "opus";
+          if (e.level === "minimal") return false;
+          return true;
+        })
+        .map((e) => ({ level: e.level })),
+    }));
   },
 
   createSession(opts: CreateSessionOptions): BackendSession {

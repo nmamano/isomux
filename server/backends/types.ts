@@ -245,11 +245,47 @@ export interface OneShotOptions {
   env?: { [key: string]: string | undefined };
 }
 
+export interface ListModelsOptions {
+  cwd: string;
+  env?: { [key: string]: string | undefined };
+  includeHidden?: boolean;
+}
+
+// Per-model effort option as reported by the backend. Codex's
+// ReasoningEffortOption maps directly; backends that don't expose
+// per-model efforts can return an empty array.
+export interface BackendEffortOption {
+  level: string;
+  description?: string;
+}
+
+// Backend-reported model entry. Shape is intentionally lean — UI uses
+// `id` as the wire value (matches CreateSessionOptions.modelFamily) and
+// `label` for display. `supportedEfforts` re-renders the effort picker
+// per model; `defaultEffort` is the model's preferred effort and is used
+// as the snap-to value when the current effort isn't supported.
+export interface BackendModel {
+  id: string;
+  label: string;
+  description?: string;
+  isDefault?: boolean;
+  hidden?: boolean;
+  supportedEfforts: BackendEffortOption[];
+  defaultEffort?: string;
+}
+
 export interface Backend {
   readonly capabilities: BackendCapabilities;
 
   getModelOptions(): ModelOption[];
   getPermissionModes(): PermissionModeOption[];
+
+  // Fetch the auth-appropriate model list from the underlying backend. For
+  // Codex this calls `model/list` over the JSON-RPC App Server; for backends
+  // without a runtime model API this returns the static getModelOptions()
+  // shape promoted to BackendModel. Throws on auth failure or transport
+  // error — caller is responsible for surfacing.
+  listModels(opts: ListModelsOptions): Promise<BackendModel[]>;
 
   createSession(opts: CreateSessionOptions): BackendSession;
   resumeSession(sessionId: string, opts: CreateSessionOptions): BackendSession;

@@ -1246,12 +1246,18 @@ async function replaceSession(agentId: string, managed: ManagedAgent, newSession
 // mode: if a configured env file is missing or fails to parse, throw — the
 // caller is responsible for surfacing the error to the agent log.
 function buildSessionEnv(managed: ManagedAgent): { [key: string]: string | undefined } | undefined {
+  return buildEnvFor(managed.info.username ?? undefined);
+}
+
+// Same merge rules as buildSessionEnv but parameterized by username so the
+// model/list endpoint can resolve env before any agent exists. Returns
+// undefined if no env file is configured (caller can omit `env:` and let
+// the codex subprocess inherit the parent process.env directly).
+export function buildEnvFor(username?: string): { [key: string]: string | undefined } | undefined {
   const officeEnvFile = officeState.office.envFile;
-  const userEnvFile = managed.info.username ? getUserEnvFile(managed.info.username) : null;
+  const userEnvFile = username ? getUserEnvFile(username) : null;
   if (!officeEnvFile && !userEnvFile) return undefined;
 
-  // Intentional: inherit parent process.env so agents see HOME/PATH/etc. Office
-  // and user files override individual keys but cannot unset inherited ones.
   const merged: { [key: string]: string | undefined } = { ...process.env };
   if (officeEnvFile) {
     const officeEnv = readEnvFile(officeEnvFile);

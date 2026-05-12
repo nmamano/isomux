@@ -483,6 +483,36 @@ export interface CwdValidationResponse {
   error?: string;
 }
 
+// Backend-reported effort option for a model. `level` is the backend-specific
+// effort enum value (Codex: ReasoningEffort string; Claude: EffortLevel string).
+export interface BackendEffortOptionWire {
+  level: string;
+  description?: string;
+}
+
+// Backend-reported model entry. `id` is what gets sent back as `modelFamily`
+// on spawn/edit. `supportedEfforts` re-renders the effort picker per model.
+export interface BackendModelWire {
+  id: string;
+  label: string;
+  description?: string;
+  isDefault?: boolean;
+  hidden?: boolean;
+  supportedEfforts: BackendEffortOptionWire[];
+  defaultEffort?: string;
+}
+
+// Response to list_backend_models. ok:false carries an error string (auth
+// failure, transport failure, etc.) so the UI can fall back gracefully.
+export interface ListBackendModelsResponse {
+  type: "list_backend_models_response";
+  requestId: string;
+  ok: boolean;
+  models?: BackendModelWire[];
+  error?: string;
+  authError?: boolean;
+}
+
 // Server → Browser messages
 export type ServerMessage =
   | { type: "full_state"; agents: AgentInfo[]; recentCwds: string[]; office: OfficeSettings; rooms: RoomWire[] }
@@ -512,6 +542,7 @@ export type ServerMessage =
   | SettingsValidationResponse
   | AgentSaveResponse
   | CwdValidationResponse
+  | ListBackendModelsResponse
   | { type: "update_status"; updateAvailable: boolean; current: { sha: string; message: string; date: string }; latest: { sha: string; message: string; date: string } }
   | { type: "cronjobs_state"; cronjobs: Cronjob[]; cronjobsPrompt: string | null }
   | { type: "cronjob_added"; cronjob: Cronjob }
@@ -549,6 +580,7 @@ export type ClientCommand =
   | { type: "update_room_settings"; requestId: string; roomId: string; prompt: string | null }
   | { type: "request_settings_validation"; requestId: string; scope: "office" | "user"; username?: string }
   | { type: "request_cwd_validation"; requestId: string; cwd: string }
+  | { type: "list_backend_models"; requestId: string; agentType: AgentBackendType; cwd: string; username?: string; includeHidden?: boolean }
   | { type: "add_task"; title: string; description?: string; priority?: TaskPriority; assignee?: string; username: string }
   | { type: "update_task"; id: string; changes: Partial<Pick<TaskItem, "title" | "description" | "priority" | "status" | "assignee">> }
   | { type: "delete_task"; id: string }

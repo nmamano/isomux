@@ -37,9 +37,12 @@ import type {
   AttachmentSpec,
   Backend,
   BackendCapabilities,
+  BackendEffortOption,
+  BackendModel,
   BackendSession,
   ContextUsage,
   CreateSessionOptions,
+  ListModelsOptions,
   ModelOption,
   NormalizedEvent,
   NormalizedMessage,
@@ -60,6 +63,9 @@ import { CODEX_CLI_PINNED_VERSION } from "./version-check.ts";
 
 import type { InitializeParams } from "./_generated/InitializeParams.ts";
 import type { InitializeResponse } from "./_generated/InitializeResponse.ts";
+import type { Model as CodexProtocolModel } from "./_generated/v2/Model.ts";
+import type { ModelListParams } from "./_generated/v2/ModelListParams.ts";
+import type { ModelListResponse } from "./_generated/v2/ModelListResponse.ts";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -486,14 +492,15 @@ class CodexSession implements BackendSession {
         const error = turn?.error?.message ?? undefined;
         this.activeTurnId = null;
         this.turnInFlight = false;
-        // "Model not supported" guidance. CODEX_MODELS is hardcoded at v1
-        // and some slugs may not be available on every auth tier. Hint at
-        // the spawn dialog so users don't think the integration is broken.
+        // "Model not supported" safety net. The spawn / edit dialog now
+        // fetches model/list per-auth, so this branch should be rare —
+        // most commonly it'll fire when the user's auth tier changed since
+        // the agent was created. Re-opening settings reloads the list.
         if (error && /model.*not supported|not supported.*model/i.test(error)) {
           this.enqueue({
             kind: "system_text",
             text:
-              "This Codex model isn't available on your current login. Open the agent's settings (click the name in the header) to pick a different one — `gpt-5.5` is the default for ChatGPT-login.",
+              "This Codex model isn't available on your current login. Open the agent's settings to refresh the model list and pick one that is.",
           });
         }
         this.enqueue({
@@ -1007,6 +1014,25 @@ function buildCodexUserInput(
   return inputs;
 }
 
+// Translate a Codex protocol Model into the BackendModel shape the rest of
+// the system consumes. We pick `model` (the wire slug) as `id` since that's
+// what gets passed to thread/start; `displayName` is the human label.
+function toBackendModel(m: CodexProtocolModel): BackendModel {
+  const supportedEfforts: BackendEffortOption[] = (m.supportedReasoningEfforts ?? []).map((opt) => ({
+    level: opt.reasoningEffort,
+    description: opt.description,
+  }));
+  return {
+    id: m.model,
+    label: m.displayName || m.model,
+    description: m.description || undefined,
+    isDefault: m.isDefault,
+    hidden: m.hidden,
+    supportedEfforts,
+    defaultEffort: m.defaultReasoningEffort,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Backend implementation
 // ---------------------------------------------------------------------------
@@ -1020,6 +1046,39 @@ export const codexBackend: Backend = {
 
   getPermissionModes(): PermissionModeOption[] {
     return PERMISSION_MODES;
+  },
+
+  async listModels(opts: ListModelsOptions): Promise<BackendModel[]> {
+    // Spin up a one-shot JsonRpcLiteClient just for model/list. The pattern
+    // mirrors oneShotPrompt but skips thread/start — model/list is a
+    // server-level RPC, not thread-scoped. Pagination loops until
+    // nextCursor === null. ~1-2s end-to-end including subprocess spawn.
+    const client = new JsonRpcLiteClient({ cwd: opts.cwd, env: opts.env });
+    try {
+      client.start();
+      await client.initialize({
+        clientInfo: { name: CLIENT_INFO_NAME, version: CLIENT_INFO_VERSION, title: null },
+        capabilities: { experimentalApi: true, optOutNotificationMethods: null },
+      });
+      const collected: CodexProtocolModel[] = [];
+      let cursor: string | null = null;
+      // Hard cap on iterations: defensive against a malformed nextCursor
+      // loop. Real model lists are well under 100 entries.
+      for (let i = 0; i < 32; i++) {
+        const params: ModelListParams = {
+          cursor: cursor ?? null,
+          limit: null,
+          includeHidden: opts.includeHidden ?? false,
+        };
+        const resp = await client.request<ModelListResponse>("model/list", params);
+        collected.push(...resp.data);
+        if (!resp.nextCursor) break;
+        cursor = resp.nextCursor;
+      }
+      return collected.map(toBackendModel);
+    } finally {
+      await client.close();
+    }
   },
 
   createSession(opts: CreateSessionOptions): BackendSession {

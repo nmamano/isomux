@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { AgentBackendType, AgentInfo, AgentOutfit, ClientCommand, CodexSandboxMode, EffortLevel, ModelFamily } from "../../shared/types.ts";
+import type { AgentBackendType, AgentInfo, AgentOutfit, BackendModelWire, ClientCommand, CodexSandboxMode, EffortLevel, ModelFamily } from "../../shared/types.ts";
 import { MODEL_FAMILIES, EFFORT_LEVELS, DEFAULT_EFFORT, modelVersionLabel, CODEX_MODELS } from "../../shared/types.ts";
 import { SHIRT_COLORS, HAIR_COLORS, SKIN_COLORS, HAIR_STYLES, BEARDS, HATS, ACCESSORIES } from "../../shared/outfit-options.ts";
 import { Character } from "../office/Character.tsx";
@@ -90,6 +90,17 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   const pendingListener = useRef<((data: string) => void) | null>(null);
   const recentCwds = allRecentCwds.filter((c) => c !== cwd);
 
+  // Fetched model list. null = not yet attempted; [] with error set = fetch
+  // failed (UI falls back to the hardcoded CODEX_MODELS list). For Codex we
+  // hit the server's list_backend_models endpoint which spins up a
+  // throwaway codex client and calls model/list against the same env that
+  // a real spawn would see. Claude path doesn't need this — the family
+  // list is static, identical across auth tiers, and rendered from the
+  // shared MODEL_FAMILIES constant.
+  const [backendModels, setBackendModels] = useState<BackendModelWire[] | null>(null);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [modelsError, setModelsError] = useState<{ message: string; authError: boolean } | null>(null);
+
   useEffect(() => {
     return () => {
       if (pendingListener.current) removeRawListener(pendingListener.current);
@@ -115,6 +126,56 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     send({ type: "request_cwd_validation", requestId: reqId, cwd: initialCwd });
     return () => removeRawListener(listener);
   }, [isSpawn, agent?.id]);
+
+  // Fetch the auth-appropriate model list for Codex agents. Fires once when
+  // the dialog opens (spawn or edit). Re-fetches if `agentType` flips to
+  // codex — though in practice the agentType picker is locked at spawn.
+  useEffect(() => {
+    if (!isCodex) return;
+    let cancelled = false;
+    setModelsLoading(true);
+    setModelsError(null);
+    const reqId = `model-list-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const listener = (data: string) => {
+      try {
+        const msg = JSON.parse(data);
+        if (msg.type !== "list_backend_models_response" || msg.requestId !== reqId) return;
+        removeRawListener(listener);
+        if (cancelled) return;
+        setModelsLoading(false);
+        if (msg.ok && Array.isArray(msg.models)) {
+          setBackendModels(msg.models);
+          // Snap to the auth-default when spawning a fresh agent and the
+          // current hardcoded default isn't in the fetched list.
+          if (isSpawn) {
+            const def = msg.models.find((m: BackendModelWire) => m.isDefault) ?? msg.models[0];
+            if (def && !msg.models.some((m: BackendModelWire) => m.id === modelFamily)) {
+              setModelFamily(def.id);
+              if (def.defaultEffort) setEffort(def.defaultEffort as EffortLevel);
+            }
+          }
+        } else {
+          setModelsError({ message: msg.error || "Failed to load models", authError: !!msg.authError });
+        }
+      } catch {}
+    };
+    addRawListener(listener);
+    send({
+      type: "list_backend_models",
+      requestId: reqId,
+      agentType,
+      cwd,
+      username: getUsername() ?? undefined,
+    });
+    return () => {
+      cancelled = true;
+      removeRawListener(listener);
+    };
+    // Intentionally not depending on cwd: re-fetching on every keystroke
+    // would spawn a codex subprocess per character. The cwd inherited by
+    // model/list rarely affects the result anyway (auth is global).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isCodex, agentType]);
 
   function handleSave() {
     const reqId = `agent-save-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -320,40 +381,122 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         )}
 
         <label style={{ ...labelStyle, marginTop: 12 }}>Model</label>
-        <select
-          value={modelFamily}
-          onChange={(e) => {
-            const next = e.target.value;
-            setModelFamily(next);
-            if (!isCodex && next !== "opus" && permissionMode === "auto") setPermissionMode("bypassPermissions");
-            if (!isCodex && next !== "opus" && effort === "max") setEffort("xhigh");
-          }}
-          style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
-        >
-          {isCodex
-            ? CODEX_MODELS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)
-            : MODEL_FAMILIES.map((m) => (
-                <option key={m.family} value={m.family}>{m.label} ({modelVersionLabel(m.family)})</option>
-              ))}
-        </select>
+        {(() => {
+          // Codex model options come from the server (auth-aware via
+          // model/list). On fetch failure we fall back to the hardcoded
+          // CODEX_MODELS list so the dialog is still usable. Claude uses
+          // the static MODEL_FAMILIES list either way.
+          const codexFetched = isCodex && backendModels;
+          const codexVisible = codexFetched
+            ? backendModels!.filter((m) => !m.hidden)
+            : null;
+          const storedNotInList =
+            !isSpawn &&
+            isCodex &&
+            codexFetched &&
+            !codexVisible!.some((m) => m.id === modelFamily);
+          return (
+            <select
+              value={modelFamily}
+              onChange={(e) => {
+                const next = e.target.value;
+                setModelFamily(next);
+                if (!isCodex && next !== "opus" && permissionMode === "auto") setPermissionMode("bypassPermissions");
+                if (!isCodex && next !== "opus" && effort === "max") setEffort("xhigh");
+                // Codex: when the model changes, snap effort to the new
+                // model's default if the current effort isn't supported.
+                if (isCodex && codexVisible) {
+                  const picked = codexVisible.find((m) => m.id === next);
+                  if (picked) {
+                    const supported = new Set(picked.supportedEfforts.map((o) => o.level));
+                    if (!supported.has(effort) && picked.defaultEffort) {
+                      setEffort(picked.defaultEffort as EffortLevel);
+                    }
+                  }
+                }
+              }}
+              style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
+              disabled={isCodex && modelsLoading}
+            >
+              {isCodex ? (
+                <>
+                  {codexVisible
+                    ? codexVisible.map((m) => (
+                        <option key={m.id} value={m.id}>{m.label}</option>
+                      ))
+                    : CODEX_MODELS.map((m) => (
+                        <option key={m.value} value={m.value}>{m.label}</option>
+                      ))}
+                  {storedNotInList && (
+                    <option key={modelFamily} value={modelFamily}>
+                      {modelFamily} (unavailable on current login)
+                    </option>
+                  )}
+                </>
+              ) : (
+                MODEL_FAMILIES.map((m) => (
+                  <option key={m.family} value={m.family}>{m.label} ({modelVersionLabel(m.family)})</option>
+                ))
+              )}
+            </select>
+          );
+        })()}
+        {isCodex && modelsLoading && (
+          <p style={{ fontSize: 10, color: "var(--text-ghost)", margin: "3px 0 0" }}>Loading available models…</p>
+        )}
+        {isCodex && modelsError && !modelsLoading && (
+          <p style={{ fontSize: 10, color: modelsError.authError ? "#ff6b6b" : "var(--text-ghost)", margin: "3px 0 0" }}>
+            {modelsError.authError
+              ? "Codex is not signed in. Run `codex login` in a terminal (or set OPENAI_API_KEY), then re-open this dialog."
+              : `Could not load model list (${modelsError.message}). Showing fallback list — some options may not work on your account.`}
+          </p>
+        )}
 
         <label style={{ ...labelStyle, marginTop: 12 }}>Thinking Effort</label>
-        <select
-          value={effort}
-          onChange={(e) => setEffort(e.target.value as EffortLevel)}
-          style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
-        >
-          {EFFORT_LEVELS
-            .filter((opt) => {
-              // `max` is Claude (opus only). `minimal` is Codex only.
-              if (opt.level === "max") return !isCodex && modelFamily === "opus";
-              if (opt.level === "minimal") return isCodex;
-              return true;
-            })
-            .map((opt) => (
-              <option key={opt.level} value={opt.level}>{opt.label}</option>
-            ))}
-        </select>
+        {(() => {
+          // For Codex we use the selected model's supportedReasoningEfforts
+          // when available; otherwise we fall back to the global EFFORT_LEVELS
+          // with the same backend/family filter we used pre-fetch.
+          let effortLevels: { level: string; label: string }[];
+          if (isCodex && backendModels) {
+            const picked = backendModels.find((m) => m.id === modelFamily);
+            if (picked && picked.supportedEfforts.length > 0) {
+              // Map Codex effort enum strings to friendly labels using the
+              // shared EFFORT_LEVELS table when present, falling back to the
+              // raw enum value capitalized.
+              effortLevels = picked.supportedEfforts.map((o) => {
+                const match = EFFORT_LEVELS.find((e) => e.level === o.level);
+                return {
+                  level: o.level,
+                  label: match ? match.label : o.level.charAt(0).toUpperCase() + o.level.slice(1),
+                };
+              });
+            } else {
+              effortLevels = EFFORT_LEVELS
+                .filter((opt) => (opt.level === "max" ? false : opt.level === "minimal" ? true : true))
+                .map((o) => ({ level: o.level, label: o.label }));
+            }
+          } else {
+            effortLevels = EFFORT_LEVELS
+              .filter((opt) => {
+                if (opt.level === "max") return !isCodex && modelFamily === "opus";
+                if (opt.level === "minimal") return isCodex;
+                return true;
+              })
+              .map((o) => ({ level: o.level, label: o.label }));
+          }
+          return (
+            <select
+              value={effort}
+              onChange={(e) => setEffort(e.target.value as EffortLevel)}
+              style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
+            >
+              {effortLevels.map((opt) => (
+                <option key={opt.level} value={opt.level}>{opt.label}</option>
+              ))}
+            </select>
+          );
+        })()}
 
         <label style={{ ...labelStyle, marginTop: 14 }}>Appearance</label>
         <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 10 }}>

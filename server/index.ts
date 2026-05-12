@@ -1,6 +1,7 @@
 import type { ServerWebSocket } from "bun";
-import type { ServerMessage, ClientCommand } from "../shared/types.ts";
+import type { ServerMessage, ClientCommand, BackendModelWire } from "../shared/types.ts";
 import * as AgentManager from "./agent-manager.ts";
+import { getBackend } from "./backends/index.ts";
 import * as CronjobManager from "./cronjob-manager.ts";
 import { loadRecentCwds, saveRecentCwd, getFilePath, saveFile } from "./persistence.ts";
 import type { Attachment } from "../shared/types.ts";
@@ -291,6 +292,55 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
         ws.send(JSON.stringify({ type: "cwd_validation", requestId: cmd.requestId, ok: true } as ServerMessage));
       } catch (err: any) {
         ws.send(JSON.stringify({ type: "cwd_validation", requestId: cmd.requestId, ok: false, error: err.message || "Invalid directory" } as ServerMessage));
+      }
+      break;
+    }
+    case "list_backend_models": {
+      // Resolves the env file stack the same way a real spawn would, so
+      // OPENAI_API_KEY / CHATGPT_LOGIN overrides from office or user files
+      // are reflected in the model list. cwd validation is best-effort —
+      // codex model/list itself doesn't require the cwd to be a real dir,
+      // but we pass the requested cwd through so the subprocess inherits
+      // it (matches what'll be used at spawn time).
+      try {
+        const backend = getBackend(cmd.agentType);
+        const env = AgentManager.buildEnvFor(cmd.username);
+        const models = await backend.listModels({
+          cwd: cmd.cwd,
+          env,
+          includeHidden: cmd.includeHidden,
+        });
+        const wire: BackendModelWire[] = models.map((m) => ({
+          id: m.id,
+          label: m.label,
+          description: m.description,
+          isDefault: m.isDefault,
+          hidden: m.hidden,
+          supportedEfforts: m.supportedEfforts,
+          defaultEffort: m.defaultEffort,
+        }));
+        ws.send(JSON.stringify({
+          type: "list_backend_models_response",
+          requestId: cmd.requestId,
+          ok: true,
+          models: wire,
+        } as ServerMessage));
+      } catch (err: any) {
+        const message = err?.message || String(err);
+        // Auth-error flag lets the UI render a login-instructions message
+        // instead of a generic "failed to load" — same pattern the
+        // orchestrator uses for in-session auth detection.
+        const authError = (() => {
+          try { return getBackend(cmd.agentType).detectAuthError(message); }
+          catch { return false; }
+        })();
+        ws.send(JSON.stringify({
+          type: "list_backend_models_response",
+          requestId: cmd.requestId,
+          ok: false,
+          error: message,
+          authError,
+        } as ServerMessage));
       }
       break;
     }
