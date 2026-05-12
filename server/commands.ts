@@ -1,7 +1,7 @@
 // Declarative registry of every known Claude Code command and bundled skill.
 // Pure data — no handler logic lives here.
 //
-// See docs/slash-command-design.md for the full design.
+// See internal-docs/slash-command-design.md for the full design.
 // Last updated: 2026-03-31 (Claude Code ~1.0.x)
 
 export type CommandType = "hardcoded" | "bundled-skill";

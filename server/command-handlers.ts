@@ -499,7 +499,7 @@ export function createCommandHandling(deps: HandlerDeps) {
     return true;
   }
 
-  // Slash command resolution — 5-step priority order (see docs/slash-command-design.md)
+  // Slash command resolution — 5-step priority order (see internal-docs/slash-command-design.md)
   async function handleSlashCommand(agentId: string, managed: ManagedAgent, cmd: string, args: string[], rawText: string, username?: string, device?: string): Promise<boolean> {
     const userMeta = buildMeta(username, device);
     const cfg: CommandConfig | undefined = commands[cmd];

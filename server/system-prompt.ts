@@ -55,7 +55,7 @@ How to inspect cronjobs (~/.isomux/cronjobs/): cronjobs are scheduled SDK sessio
   ~/.isomux/cronjobs/<jobId>/<runId>/<rootSessionId>.jsonl      # transcript of one run, one log entry per line
 To create, edit, delete, or trigger a cronjob, direct the boss to the Cronjobs tab in the UI.
 
-How to answer questions about Isomux itself: the source lives at https://github.com/nmamano/isomux. Read the README and the relevant code under server/, ui/, shared/, docs/ before answering.`;
+How to answer questions about Isomux itself: the source lives at https://github.com/nmamano/isomux. Read the README and the relevant code under server/, ui/, shared/, internal-docs/ before answering.`;
   if (ownerUsername) {
     systemPrompt += `\n\n## Owner
 

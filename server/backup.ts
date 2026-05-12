@@ -14,7 +14,7 @@
 //
 // Destination: $ISOMUX_BACKUP_DIR or ~/isomux-backups by default.
 //
-// Restore: documented in docs/backup-restore.md (no automation).
+// Restore: documented in internal-docs/backup-restore.md (no automation).
 
 import { join, basename } from "path";
 import { homedir } from "os";
