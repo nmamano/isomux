@@ -346,6 +346,12 @@ export function handleCommand(cmd: ClientCommand) {
         desk: cmd.desk,
         roomId: cmd.roomId,
         customInstructions: cmd.customInstructions,
+        outfit: cmd.outfit,
+        modelFamily: cmd.modelFamily as AgentInfo["modelFamily"] | undefined,
+        effort: cmd.effort,
+        agentType: cmd.agentType,
+        codexSandbox: cmd.codexSandbox,
+        username: cmd.username,
       });
       if (result) {
         emitEvents(result.events);
@@ -369,6 +375,9 @@ export function handleCommand(cmd: ClientCommand) {
         outfit: cmd.outfit,
         customInstructions: cmd.customInstructions,
         permissionMode: cmd.permissionMode,
+        modelFamily: cmd.modelFamily as AgentInfo["modelFamily"] | undefined,
+        effort: cmd.effort,
+        codexSandbox: cmd.codexSandbox,
       }));
       if (cmd.requestId) {
         shimEmit({ type: "agent_save_response", requestId: cmd.requestId, ok: true });
@@ -429,7 +438,7 @@ export function handleCommand(cmd: ClientCommand) {
       break;
     }
     case "add_task": {
-      emitEvents(state.addTask(cmd.title, cmd.username, { description: cmd.description, priority: cmd.priority, assignee: cmd.assignee }));
+      emitEvents(state.addTask(cmd.title, cmd.username, { description: cmd.description, priority: cmd.priority, assignee: cmd.assignee, username: cmd.username }));
       break;
     }
     case "update_task": {
