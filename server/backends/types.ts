@@ -212,12 +212,21 @@ export interface BackendSession {
   // Resolve a previously-yielded approval_request. Idempotent per approvalId.
   approve(approvalId: string, decision: ApprovalDecision): Promise<void>;
 
-  // Cancel the in-flight turn. Implementations differ:
-  //   - Claude: `session.close()` + caller installs a replacement session
-  //   - Codex:  `turn/interrupt` RPC against the active threadId+turnId
-  // Returns when the turn is confirmed cancelled; the orchestrator's
-  // replaceSession() handles any session swap on top of this.
+  // Cancel the in-flight turn. Two dispatch paths in the orchestrator,
+  // selected by canAbortInPlace() below:
+  //   - In-place (Codex when interruptible): `turn/interrupt` RPC against
+  //     the active threadId+turnId; the session stays alive and the natural
+  //     turn_completed (status="interrupted") flows through the consumer.
+  //   - Replace (Claude or non-interruptible Codex): orchestrator calls
+  //     close() and installs a replacement session.
   abort(): Promise<void>;
+
+  // True when abort() will interrupt the in-flight turn in place without
+  // closing the underlying subprocess. The orchestrator uses this to skip
+  // replaceSession()'s ~1-2s close+respawn drain for healthy Codex sessions.
+  // Claude returns false (the SDK has no fine-grained interrupt); Codex
+  // returns true when both threadId and the active turnId are set.
+  canAbortInPlace(): boolean;
 
   // Close the session and release resources. Idempotent. Must unblock any
   // parked `stream()` generator.

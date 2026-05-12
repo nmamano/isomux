@@ -297,10 +297,18 @@ class ClaudeSession implements BackendSession {
   }
 
   async abort(): Promise<void> {
-    // Claude's abort path is orchestrator-managed (close current session +
-    // install a replacement). close() is sufficient here; the orchestrator
-    // wraps with replaceSession().
-    this.close();
+    // Claude has no in-place interrupt RPC. Callers must check canAbortInPlace()
+    // first; the orchestrator's hot-abort dispatch gates on that predicate so
+    // this method is unreachable from the normal abort path. Throwing here
+    // surfaces accidental direct calls instead of silently closing the session
+    // (which would leave callers without a replacement).
+    throw new Error("ClaudeSession.abort() is unsupported — use close() + a replacement session, or check canAbortInPlace() before calling.");
+  }
+
+  canAbortInPlace(): boolean {
+    // The Claude SDK has no fine-grained interrupt RPC; aborts always close
+    // the subprocess and require a replacement session.
+    return false;
   }
 
   async getContextUsage(): Promise<ContextUsage | null> {

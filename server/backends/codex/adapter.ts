@@ -412,6 +412,25 @@ class CodexSession implements BackendSession {
         text: `Codex interrupt failed: ${err?.message ?? String(err)}`,
       });
     }
+    // Release any in-flight server-initiated approval requests so the parked
+    // JsonRpcLiteClient handler frames don't leak across to the next turn.
+    // close() can use respondWithError because client.close() runs synchronously
+    // right after and short-circuits the deferred-rejection's auto-respond — the
+    // hot-abort path doesn't close the client, so we must resolve cleanly to
+    // avoid double-responding on the wire (one -32000, then a -32603 from the
+    // catch in JsonRpcLiteClient.handleServerRequest). Routing through
+    // mapApprovalDecision keeps the wire shape identical to a user-driven deny.
+    for (const [, pending] of this.pendingApprovals) {
+      try {
+        const decisionWire = mapApprovalDecision(pending.method, { kind: "deny", reason: "Turn interrupted" });
+        pending.resolve({ decision: decisionWire });
+      } catch {}
+    }
+    this.pendingApprovals.clear();
+  }
+
+  canAbortInPlace(): boolean {
+    return !this.closed && this.threadId !== null && this.activeTurnId !== null;
   }
 
   close(): void {

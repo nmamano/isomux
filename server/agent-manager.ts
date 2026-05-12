@@ -1065,12 +1065,31 @@ function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
         }
       }
       if (ev.status !== "completed") {
-        const errorText = ev.error ?? `Agent stopped: ${ev.status}.`;
-        addLogEntry(agentId, "error", errorText);
-        if (detectAgentAuthError(managed, errorText)) {
-          addLogEntry(agentId, "system", agentLoginInstructions(managed));
+        // Hot-abort path (Codex): the natural turn_completed with
+        // status="interrupted" arrives after a user-initiated turn/interrupt.
+        // The orchestrator's abort() already logged "Agent interrupted." and
+        // flipped state to waiting_for_response — don't re-log as an error
+        // or flip state to error. The pendingTurn.resolve() below still fires
+        // so the deferred unblocks the wrap-and-wake in abort() (and any
+        // sendMessage / flushQueue callers).
+        const isHotAbortClean = managed?.aborting === true && ev.status === "interrupted";
+        if (!isHotAbortClean) {
+          // status="failed" while aborting usually means the codex subprocess
+          // exited mid-interrupt (handleSubprocessExit synthesizes a failed
+          // turn_completed). The state="error" flip below signals abort()'s
+          // recovery branch to fall through to replaceSession.
+          const isHotAbortDirty = managed?.aborting === true && ev.status === "failed";
+          const errorText = isHotAbortDirty
+            ? (ev.error
+                ? `Codex exited during interrupt: ${ev.error}`
+                : "Codex exited during interrupt — installing a fresh session.")
+            : (ev.error ?? `Agent stopped: ${ev.status}.`);
+          addLogEntry(agentId, "error", errorText);
+          if (detectAgentAuthError(managed, errorText)) {
+            addLogEntry(agentId, "system", agentLoginInstructions(managed));
+          }
+          updateState(agentId, "error");
         }
-        updateState(agentId, "error");
       }
       // Resolve the per-turn deferred. Pre-refactor this lived in runConsumer
       // and fired when the SDK's stream() returned at the result message.
@@ -1186,6 +1205,29 @@ async function runConsumer(agentId: string, managed: ManagedAgent, boundSession:
       // draining so the inner generator terminates, but we drop the events
       // — otherwise the user sees model output continuing after Ctrl+C.
       if (managed.session !== boundSession) continue;
+      // Hot-abort window (session not swapped, just interrupted in place):
+      // the cancelled turn may keep streaming thinking / assistant_text /
+      // tool_* events for a moment before turn_completed arrives. Drop
+      // those so the user doesn't see the cancelled turn continue past the
+      // "Agent interrupted." log entry. Let turn_completed through (it
+      // settles pendingTurn and exits the abort wait) and error events
+      // through (real subprocess failures need to surface and recover).
+      //
+      // Known acceptable trade-offs in this window:
+      //   - usage_update events are dropped, so cumulative-usage accounting
+      //     permanently undercounts the interrupted turn's tokens. The
+      //     codex adapter's lastCumulativeUsage still advances, so later
+      //     turns don't double-count — we just lose the aborted turn from
+      //     the running total. Acceptable for cost reporting.
+      //   - system_text breadcrumbs from the adapter (e.g. "Codex interrupt
+      //     failed: …") are dropped here, so the user only sees the
+      //     orchestrator-level fallback message if the timeout path fires.
+      //     Acceptable for debug UX.
+      //   - tool_call events dropped here mean the matching tool_result
+      //     (if it arrives before turn_completed) has no entry in
+      //     toolCallTimestamps to clear — pre-existing leak pattern,
+      //     slightly wider here.
+      if (managed.aborting && ev.kind !== "turn_completed" && ev.kind !== "error") continue;
       processNormalizedEvent(agentId, ev);
     }
   } catch (err: any) {
@@ -1806,9 +1848,10 @@ export async function sendNow(agentId: string): Promise<void> {
   if (state === "thinking" || state === "tool_executing") {
     // abort transitions to waiting_for_response (synchronously) and fires the
     // queue-flush trigger in updateState, but that flush awaits abortPromise
-    // — so the actual flush happens AFTER replaceSession installs the new
-    // session. Net effect: the queued items land in the resumed session, not
-    // a half-closed one.
+    // — so the actual flush happens AFTER abort settles pendingTurn. Net
+    // effect: queued items land in the same session (hot-abort) or in the
+    // freshly-installed replacement (slow path / Codex fallback), never in a
+    // half-closed one.
     await abort(agentId);
   } else {
     flushQueue(agentId).catch(() => {});
@@ -2103,6 +2146,13 @@ function persistCurrentSessionTopic(agentId: string, managed: ManagedAgent) {
   }
 }
 
+// Upper bound on the hot-abort wait. If codex doesn't ack turn/interrupt and
+// emit turn_completed within this window, we abandon the in-place path and
+// fall through to replaceSession so Stop is never a permanent no-op. Sized to
+// be larger than typical RPC latency by a wide margin but small enough to be
+// noticed as "something's wrong" if it ever fires.
+const HOT_ABORT_TIMEOUT_MS = 7000;
+
 export async function abort(agentId: string) {
   const managed = agents.get(agentId);
   if (!managed) return;
@@ -2116,30 +2166,113 @@ export async function abort(agentId: string) {
     }
     return;
   }
+  // Re-entry guard: a second Stop while the first is still in flight just
+  // waits for it instead of starting another abort that would reassign
+  // abortPromise and stack abortDone closures.
+  if (managed.aborting && managed.abortPromise) {
+    try { await managed.abortPromise; } catch {}
+    return;
+  }
   managed.aborting = true;
   let abortDone!: () => void;
   managed.abortPromise = new Promise<void>((res) => { abortDone = res; });
   const sessionId = managed.sessionId;
 
   // Flip UI state and log the interrupt up front so the agent appears to
-  // stop immediately. The SDK's close() takes a few seconds to actually
-  // drain, but runConsumer suppresses events from the dying session — so
-  // from the user's perspective the agent stops on Ctrl+C, matching the
-  // Claude Code interactive behavior.
+  // stop immediately. From the user's perspective the agent stops on Ctrl+C,
+  // matching the Claude Code interactive behavior. The hot path keeps the
+  // session alive so no drain is needed; the slow path drains while
+  // runConsumer suppresses events from the dying session.
   updateState(agentId, "waiting_for_response");
   addLogEntry(agentId, "system", "Agent interrupted.");
 
   try {
-    const newSession = sessionId ? createSession(managed, sessionId) : createSession(managed);
-    await replaceSession(agentId, managed, newSession);
+    let needsReplace = !(managed.session && managed.session.canAbortInPlace());
+
+    if (!needsReplace) {
+      // Hot path (Codex with an active turn): send turn/interrupt and let
+      // the natural turn_completed (status="interrupted") flow through the
+      // consumer. The session stays alive — no subprocess kill, no respawn,
+      // no .jsonl drain. Saves the ~1-2s replaceSession latency per abort.
+      const result = await tryHotAbort(managed);
+      if (result === "timeout") {
+        addLogEntry(agentId, "system", "Codex didn't honor the interrupt in time; falling back to a fresh session.");
+        needsReplace = true;
+      } else if (result === "session_died") {
+        // Subprocess exit during the wait — processNormalizedEvent already
+        // logged the failure and flipped state to "error". Replace below.
+        needsReplace = true;
+      }
+    }
+
+    if (needsReplace) {
+      const newSession = sessionId ? createSession(managed, sessionId) : createSession(managed);
+      await replaceSession(agentId, managed, newSession);
+      // If we got here via a hot-abort failure, processNormalizedEvent
+      // flipped state to "error" — restore waiting_for_response so the
+      // agent is usable again.
+      if (managed.info.state === "error") {
+        updateState(agentId, "waiting_for_response");
+      }
+    }
   } catch (err: any) {
-    addLogEntry(agentId, "error", `Failed to resume after interrupt: ${err.message}`);
+    addLogEntry(agentId, "error", `Interrupt handler failed: ${err.message}`);
     updateState(agentId, "error");
   } finally {
     managed.aborting = false;
     managed.abortPromise = null;
     abortDone();
   }
+}
+
+// Returns "ok" if codex acked turn/interrupt and emitted turn_completed
+// (status="interrupted") within the timeout; "timeout" if the wait expired;
+// "session_died" if the subprocess exited mid-interrupt (synthetic
+// turn_completed{failed} routed through the error path and flipped state).
+async function tryHotAbort(
+  managed: ManagedAgent,
+): Promise<"ok" | "timeout" | "session_died"> {
+  // Race the RPC + wrap-and-wake against a timeout. The RPC itself can in
+  // principle hang (a misbehaving codex that acks neither the request nor
+  // the eventual turn_completed); covering both in the race means a single
+  // timer protects the whole hot path.
+  const inFlight = (async () => {
+    await managed.session!.abort();
+    // Mirror createSession's stale-approval cleanup: replaceSession would
+    // have cleared this; the hot path doesn't go through createSession.
+    managed.pendingPermission = null;
+    if (!managed.pendingTurn) return;
+    // Wrap-and-wake mirrors flushQueue's in-flight-turn wait. We wait here
+    // so abortPromise doesn't resolve before pendingTurn settles — otherwise
+    // a follow-up createTurnDeferred would supersede the original turn with
+    // a "Superseded" error.
+    const original = managed.pendingTurn;
+    await new Promise<void>((wakeUp) => {
+      managed.pendingTurn = {
+        resolve: () => { original.resolve(); wakeUp(); },
+        reject: (e: unknown) => { original.reject(e); wakeUp(); },
+      };
+    });
+  })();
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const timeout = new Promise<"timeout">((res) => {
+      timer = setTimeout(() => res("timeout"), HOT_ABORT_TIMEOUT_MS);
+    });
+    const result = await Promise.race([
+      inFlight.then(() => "settled" as const),
+      timeout,
+    ]);
+    if (result === "timeout") return "timeout";
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+
+  // pendingTurn settled. Distinguish clean interrupt (state still
+  // waiting_for_response from the early flip above) from subprocess-death
+  // recovery (processNormalizedEvent's error path set state="error").
+  return managed.info.state === "error" ? "session_died" : "ok";
 }
 
 export async function kill(agentId: string) {
