@@ -389,17 +389,15 @@ const labelStyle: React.CSSProperties = {
   color: "var(--text-muted)",
   marginTop: 18,
   marginBottom: 6,
-  fontFamily: "'JetBrains Mono',monospace",
-  letterSpacing: "0.04em",
 };
 
 const subLabelStyle: React.CSSProperties = {
   display: "block",
-  fontSize: 10,
+  fontSize: 11,
   fontWeight: 600,
   color: "var(--text-muted)",
   marginTop: 10,
-  marginBottom: 4,
+  marginBottom: 5,
 };
 
 const hintStyle: React.CSSProperties = {
