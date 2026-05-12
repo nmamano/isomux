@@ -2322,6 +2322,11 @@ export async function newConversation(agentId: string) {
     managed.topicGenerating = false;
     managed.topicMessageCount = 0;
     managed.topicGenToken++;
+    // Match /clear's behavior: wipe the chat. Without this, the timeline
+    // continues across session boundaries and editing an old entry hits the
+    // cross-session dead-end.
+    logCache.set(agentId, []);
+    emit({ type: "clear_logs", agentId });
     // officeState.resetTopic mutates topic + topicStale, fires persistAll via
     // onChange (capturing the null sessionId set above).
     for (const event of officeState.resetTopic(agentId)) emit(event);
