@@ -286,6 +286,17 @@ export interface BackendModel {
   defaultEffort?: string;
 }
 
+// Result of forkSessionBeforeMessage. Backends choose between producing a
+// real linked branch (kind: "fork", with the parent sessionId as
+// forkedFromSessionId) and a fresh unrelated session (kind: "fresh", no
+// sessionId yet — the orchestrator creates the session and waits for
+// system_init to fill the id, just like newConversation). agent-manager
+// branches on `kind`: fork → createSession(managed, sessionId) +
+// persistSessionFork; fresh → createSession(managed) + skip fork metadata.
+export type ForkSessionBeforeMessageResult =
+  | { kind: "fork"; sessionId: string; forkedFromSessionId: string }
+  | { kind: "fresh" };
+
 export interface Backend {
   readonly capabilities: BackendCapabilities;
 
@@ -302,7 +313,16 @@ export interface Backend {
   createSession(opts: CreateSessionOptions): BackendSession;
   resumeSession(sessionId: string, opts: CreateSessionOptions): BackendSession;
 
-  forkSession(sessionId: string, upToMessageId: string): Promise<{ sessionId: string }>;
+  // Branch a conversation so that `targetMessageId` and everything after it
+  // is replaced. The backend resolves predecessor / first-message semantics
+  // internally — agent-manager just passes the edited message's id.
+  //   - Claude: middle → SDK forkSession at predecessor; first → fresh session
+  //   - Codex: thread/fork parent + thread/rollback child to before target's
+  //     turn (always linked, including first-message — gives /resume parity)
+  forkSessionBeforeMessage(
+    sessionId: string,
+    targetMessageId: string,
+  ): Promise<ForkSessionBeforeMessageResult>;
   getSessionMessages(sessionId: string, cwd: string): Promise<NormalizedMessage[]>;
 
   // Single-prompt operation used by topic generation. Returns the assistant

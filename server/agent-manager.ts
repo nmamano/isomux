@@ -2448,10 +2448,9 @@ export async function editMessage(agentId: string, logEntryId: string, newText: 
       }
     }
 
-    // Find the matching user message in the backend transcript, and track the
-    // message just before it. forkSession's upToMessageId is inclusive, so we
-    // fork at the predecessor to exclude the original message — the edited
-    // text replaces it.
+    // Find the matching user message in the backend transcript. We pass the
+    // target's uuid to forkSessionBeforeMessage; each backend handles
+    // predecessor-resolution and first-message semantics internally.
     let matchCount = 0;
     let targetIdx = -1;
     for (let i = 0; i < backendMessages.length; i++) {
@@ -2471,34 +2470,30 @@ export async function editMessage(agentId: string, logEntryId: string, newText: 
       return;
     }
 
-    // 3. Fork the session. upToMessageId is inclusive, so we fork at the message
-    //    just BEFORE the target to exclude the original text. For the first message,
-    //    there's no predecessor — start a fresh session instead (equivalent to new
-    //    conversation with different text, but preserving the original as branched).
-    let newSessionId: string;
-    let isFirstMessage = false;
-    if (targetIdx === 0) {
-      isFirstMessage = true;
-      // No fork needed — we'll create a fresh session below (step 5)
-      newSessionId = ""; // placeholder, set after createSession
-    } else {
-      const predecessorUuid = backendMessages[targetIdx - 1].uuid;
-      const forkResult = await backend.forkSession(oldSessionId, predecessorUuid);
-      newSessionId = forkResult.sessionId;
-    }
+    // 3. Ask the backend to fork before the edited message. The backend
+    //    decides whether this produces a real linked branch (kind: "fork",
+    //    parent preserved on disk) or a fresh unrelated session (kind:
+    //    "fresh", first-message edits on backends without empty-history fork
+    //    support — Claude). Codex always returns "fork" (fork-then-rollback
+    //    preserves the parent even for first-message edits).
+    const targetUuid = backendMessages[targetIdx].uuid;
+    const forkResult = await backend.forkSessionBeforeMessage(oldSessionId, targetUuid);
+    const isFreshSession = forkResult.kind === "fresh";
+    const newSessionId = forkResult.kind === "fork" ? forkResult.sessionId : "";
 
-    // 4. Persist fork metadata (skip for first-message edits — those are fresh sessions
-    //    and will get their sessionId from the system/init event, like newConversation).
-    if (!isFirstMessage) {
+    // 4. Persist fork metadata for the linked-branch case only. Fresh
+    //    sessions have no historical relationship to the parent — linking
+    //    them would mislead /resume's branched UI.
+    if (forkResult.kind === "fork") {
       // If the edited entry lives in an ancestor's JSONL (not the current session's own),
       // point forkedFrom at that ancestor directly. This collapses the chain so
       // loadLogWithAncestors cuts at the right level.
-      let forkFromSessionId = oldSessionId;
-      const ownEntries = loadLog(agentId, oldSessionId);
+      let forkFromSessionId = forkResult.forkedFromSessionId;
+      const ownEntries = loadLog(agentId, forkFromSessionId);
       if (!ownEntries.some(e => e.id === logEntryId)) {
         const sessMap = loadSessionsMap(agentId);
-        let walk: string | undefined = sessMap[oldSessionId]?.forkedFrom;
-        const visited = new Set<string>([oldSessionId]);
+        let walk: string | undefined = sessMap[forkFromSessionId]?.forkedFrom;
+        const visited = new Set<string>([forkFromSessionId]);
         while (walk && !visited.has(walk)) {
           visited.add(walk);
           const ancestorEntries = loadLog(agentId, walk);
@@ -2514,16 +2509,26 @@ export async function editMessage(agentId: string, logEntryId: string, newText: 
       // continued in the original branch). Walk parent's log to find the fork
       // entry's position, then look up the latest snapshot whose anchor entry
       // sits before that position.
-      const parentBase = findUsageAtFork(agentId, forkFromSessionId, logEntryId);
+      //
+      // First-user-message edits (Codex only — Claude returns kind:"fresh"
+      // here) start the child from empty context: the fork base must be
+      // undefined, not findUsageAtFork's fall-back to the parent's full
+      // cumulative. Otherwise lifetime accounting subtracts the parent's
+      // entire usage from a child that did none of that work.
+      const targetIsFirstUserMessage = !backendMessages.slice(0, targetIdx).some(m => m.role === "user");
+      const parentBase = targetIsFirstUserMessage
+        ? undefined
+        : findUsageAtFork(agentId, forkFromSessionId, logEntryId);
       persistSessionFork(agentId, newSessionId, forkFromSessionId, logEntryId, oldTopic, parentBase);
     }
 
-    // 5. Create new session from fork (or fresh session for first-message edit), then close old
-    const newSession = isFirstMessage ? createSession(managed) : createSession(managed, newSessionId);
+    // 5. Create new session from fork (or fresh session for non-linked
+    //    first-message edits), then close old.
+    const newSession = isFreshSession ? createSession(managed) : createSession(managed, newSessionId);
     await replaceSession(agentId, managed, newSession);
-    // For first-message edits, sessionId will be set by the system/init event (like newConversation).
+    // For fresh sessions, sessionId is set by the system/init event (like newConversation).
     // For forks, set it now.
-    managed.sessionId = isFirstMessage ? null : newSessionId;
+    managed.sessionId = isFreshSession ? null : newSessionId;
     managed.topicGenerating = false;
     managed.topicMessageCount = 0;
     managed.topicGenToken++;

@@ -57,6 +57,7 @@ import type {
   CreateSessionOptions,
   ListModelsOptions,
   ModelOption,
+  ForkSessionBeforeMessageResult,
   NormalizedEvent,
   NormalizedMessage,
   OneShotOptions,
@@ -641,12 +642,42 @@ export const claudeBackend: Backend = {
     return new ClaudeSession(opts.agentId, buildSdkOpts(opts), sessionId);
   },
 
-  async forkSession(
+  async forkSessionBeforeMessage(
     sessionId: string,
-    upToMessageId: string,
-  ): Promise<{ sessionId: string }> {
-    const result = await sdkForkSession(sessionId, { upToMessageId });
-    return { sessionId: result.sessionId };
+    targetMessageId: string,
+  ): Promise<ForkSessionBeforeMessageResult> {
+    // Find target's position in the transcript so we can decide between
+    // fresh-session (target is the first user message) and a real fork at
+    // the predecessor uuid. The SDK call is cheap and side-effect-free.
+    //
+    // firstUserIdx update MUST run before the target-match break, otherwise
+    // when target itself is the first user message (especially target at
+    // index 0) firstUserIdx stays -1 and the fresh-vs-fork decision below
+    // misroutes to fork (with a -1 predecessor index).
+    const messages = await sdkGetSessionMessages(sessionId);
+    let targetIdx = -1;
+    let firstUserIdx = -1;
+    for (let i = 0; i < messages.length; i++) {
+      const m = messages[i];
+      if (firstUserIdx === -1 && m.type === "user") firstUserIdx = i;
+      if (m.uuid === targetMessageId) { targetIdx = i; break; }
+    }
+    if (targetIdx === -1) {
+      throw new Error("forkSessionBeforeMessage: target message not found in session");
+    }
+    if (targetIdx === firstUserIdx) {
+      // First user message: no predecessor to fork at. Return fresh — the
+      // orchestrator will create a brand-new session, semantically unrelated
+      // to the old one.
+      return { kind: "fresh" };
+    }
+    const predecessorUuid = messages[targetIdx - 1].uuid;
+    const result = await sdkForkSession(sessionId, { upToMessageId: predecessorUuid });
+    return {
+      kind: "fork",
+      sessionId: result.sessionId,
+      forkedFromSessionId: sessionId,
+    };
   },
 
   async getSessionMessages(sessionId: string): Promise<NormalizedMessage[]> {

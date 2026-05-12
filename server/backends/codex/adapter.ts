@@ -42,6 +42,7 @@ import type {
   BackendSession,
   ContextUsage,
   CreateSessionOptions,
+  ForkSessionBeforeMessageResult,
   ListModelsOptions,
   ModelOption,
   NormalizedEvent,
@@ -66,6 +67,8 @@ import type { InitializeResponse } from "./_generated/InitializeResponse.ts";
 import type { Model as CodexProtocolModel } from "./_generated/v2/Model.ts";
 import type { ModelListParams } from "./_generated/v2/ModelListParams.ts";
 import type { ModelListResponse } from "./_generated/v2/ModelListResponse.ts";
+import type { ThreadRollbackParams } from "./_generated/v2/ThreadRollbackParams.ts";
+import type { ThreadRollbackResponse } from "./_generated/v2/ThreadRollbackResponse.ts";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -76,14 +79,12 @@ const LOGIN_INSTRUCTIONS = `Codex is not signed in. Run \`codex login\` in a ter
 const AUTH_ERROR_PATTERNS = /unauthori[zs]ed|not authenticated|authentication|auth.*expired|invalid.*token|login.*required|chatgpt.*login|openai_api_key|403|401/i;
 
 // Capability flags for the Codex backend. Match the spec's parity table.
-// hooks: false — Codex emits hook/* notifications but provides no programmatic
-// register-from-client surface at 0.130, so the v1 capability flag is off.
 // hooks: false — Codex emits hook/* notifications but provides no
 // programmatic register-from-client surface at 0.130 (v1).
-// edit: false — Codex 0.130 thread/fork only supports whole-thread fork
-// (by threadId or by rollout path), not the per-message fork that
-// edit-message needs. Workable via thread/rollback but destructive (loses
-// the preserved-old-branch UX). See task f489ad36 (P2) for the follow-up.
+// edit: true — implemented via fork-then-rollback: thread/fork the parent
+// (preserves it), then thread/rollback the child by the number of turns to
+// drop. Matches Claude's preserved-parent UX without per-message fork
+// support upstream. See forkSessionBeforeMessage below.
 const CAPABILITIES: BackendCapabilities = {
   fork: false,
   hooks: false,
@@ -91,7 +92,7 @@ const CAPABILITIES: BackendCapabilities = {
   oneShot: true,
   canUseTool: true,
   topicGen: true,
-  edit: false,
+  edit: true,
   mcp: true,
 };
 
@@ -146,6 +147,45 @@ const INLINE_TEXT_MEDIA_PREFIXES = [
 
 function isInlinableTextMedia(mediaType: string): boolean {
   return INLINE_TEXT_MEDIA_PREFIXES.some((prefix) => mediaType.startsWith(prefix));
+}
+
+// Raw turn shape from thread/read includeTurns:true. We type loosely here
+// because the orchestrator only consumes a couple of fields; the generated
+// Turn type is richer than we need.
+interface RawTurn {
+  id: string;
+  // ThreadItem union is broad (~20 variants); the consumers here narrow by
+  // `type` and read id/text/content directly. Keep loose to avoid coupling
+  // the helper to the generated schema.
+  items: any[];
+}
+
+// Single thread/read call returning the parent thread's turn list. Used by
+// both getSessionMessages (flattens to NormalizedMessage[]) and
+// forkSessionBeforeMessage (needs turn structure for rollback arithmetic).
+async function readThreadTurns(client: JsonRpcLiteClient, threadId: string): Promise<RawTurn[]> {
+  const resp = await client.request<{ thread: { turns?: any[] } }>(
+    "thread/read",
+    { threadId, includeTurns: true },
+  );
+  const rawTurns = resp.thread?.turns ?? [];
+  return rawTurns.map((t: any) => ({
+    id: typeof t?.id === "string" ? t.id : "",
+    items: Array.isArray(t?.items) ? t.items : [],
+  }));
+}
+
+// Locate the turn (by index) whose items array contains an item with the
+// given id. Returns -1 if not found. Used by forkSessionBeforeMessage to
+// translate from item-level message uuid → turn-level rollback count.
+function findTurnIndexContainingItemId(turns: RawTurn[], itemId: string): number {
+  for (let i = 0; i < turns.length; i++) {
+    const items = turns[i].items;
+    for (const item of items) {
+      if (item?.id === itemId) return i;
+    }
+  }
+  return -1;
 }
 
 // ---------------------------------------------------------------------------
@@ -1127,10 +1167,25 @@ export const codexBackend: Backend = {
     });
   },
 
-  async forkSession(sessionId: string, upToMessageId: string): Promise<{ sessionId: string }> {
-    // thread/fork is a standalone request: spawn a temporary client just to
-    // issue the RPC, then close it. Codex's app-server treats fork as a
-    // server-state operation; the new thread id is returned in the response.
+  async forkSessionBeforeMessage(
+    sessionId: string,
+    targetMessageId: string,
+  ): Promise<ForkSessionBeforeMessageResult> {
+    // Strategy: fork-then-rollback. Codex 0.130's thread/fork copies whole
+    // threads (no per-message granularity), so to preserve the parent and
+    // produce a child rolled back to before the edited message we:
+    //   1. thread/read the parent → walk turns to find which one contains
+    //      targetMessageId
+    //   2. thread/fork(parent) → child threadId (parent unaltered)
+    //   3. thread/rollback(child, numTurns) → drops the target's turn and
+    //      everything after it, leaving the child at the predecessor's turn
+    //
+    // Turn arithmetic: a user message always starts a new turn in Codex's
+    // model. So if target is in turn K (0-indexed), the turns to preserve
+    // are [0..K-1] and the turns to drop are [K..totalTurns-1]. That gives
+    // numTurns = totalTurns - K, which equals totalTurns when K=0 (first-
+    // message edit drops everything and starts the child from scratch — but
+    // still as a fork, so /resume shows the parent as the original branch).
     const client = new JsonRpcLiteClient();
     try {
       client.start();
@@ -1138,11 +1193,34 @@ export const codexBackend: Backend = {
         clientInfo: { name: CLIENT_INFO_NAME, version: CLIENT_INFO_VERSION, title: null },
         capabilities: { experimentalApi: true, optOutNotificationMethods: null },
       });
-      const resp = await client.request<{ thread: { id: string } }>("thread/fork", {
+
+      const turns = await readThreadTurns(client, sessionId);
+      const targetTurnIndex = findTurnIndexContainingItemId(turns, targetMessageId);
+      if (targetTurnIndex === -1) {
+        throw new Error("forkSessionBeforeMessage: target message not found in thread turns");
+      }
+      const numTurns = turns.length - targetTurnIndex;
+      if (numTurns < 1) {
+        // Defensive: target was found in turns so this shouldn't happen, but
+        // bail before issuing a rollback rejected by the server (numTurns
+        // must be >= 1 per the protocol).
+        throw new Error("forkSessionBeforeMessage: computed numTurns < 1 (programming error)");
+      }
+
+      const forkResp = await client.request<{ thread: { id: string } }>("thread/fork", {
         threadId: sessionId,
-        path: upToMessageId,
+        excludeTurns: true,
       });
-      return { sessionId: resp.thread.id };
+      const childThreadId = forkResp.thread.id;
+
+      const rollbackParams: ThreadRollbackParams = { threadId: childThreadId, numTurns };
+      await client.request<ThreadRollbackResponse>("thread/rollback", rollbackParams);
+
+      return {
+        kind: "fork",
+        sessionId: childThreadId,
+        forkedFromSessionId: sessionId,
+      };
     } finally {
       await client.close();
     }
@@ -1161,15 +1239,10 @@ export const codexBackend: Backend = {
         clientInfo: { name: CLIENT_INFO_NAME, version: CLIENT_INFO_VERSION, title: null },
         capabilities: { experimentalApi: true, optOutNotificationMethods: null },
       });
-      const resp = await client.request<{ thread: { turns?: any[] } }>(
-        "thread/read",
-        { threadId: sessionId, includeTurns: true },
-      );
-      const turns = resp.thread?.turns ?? [];
+      const turns = await readThreadTurns(client, sessionId);
       const out: NormalizedMessage[] = [];
       for (const turn of turns) {
-        const items = Array.isArray(turn?.items) ? turn.items : [];
-        for (const item of items) {
+        for (const item of turn.items) {
           if (item?.type === "userMessage") {
             const text = Array.isArray(item.content)
               ? item.content.filter((c: any) => c.type === "text").map((c: any) => c.text).join("")
