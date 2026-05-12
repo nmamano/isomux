@@ -1,9 +1,16 @@
-import type { AgentInfo, LogEntry, QueuedMessage, RoomWire, SkillInfo } from "../shared/types.ts";
+import type { AgentInfo, LogEntry, QueuedMessage, SkillInfo } from "../shared/types.ts";
 import type { BackendSession } from "./backends/types.ts";
+import type { OfficeEvent } from "../shared/office-state.ts";
 
 // Internal agent state
 export interface ManagedAgent {
-  info: AgentInfo;
+  // Readonly to enforce that AgentInfo mutation goes through OfficeState
+  // (officeState.updateAgent / setTopic / etc.). The shared-reference
+  // invariant means OfficeState's mutations land here automatically.
+  // The single legitimate escape hatch is `withAgentRollback` in
+  // agent-manager, which casts to mutate before a side effect that may need
+  // to revert the change.
+  readonly info: Readonly<AgentInfo>;
   session: BackendSession | null;
   sessionId: string | null;
   // Persistent consumer loop iterating `session.stream()` for the session's
@@ -74,20 +81,12 @@ export interface ManagedAgent {
 }
 
 export type AgentEvent =
-  | { type: "agent_added"; agent: AgentInfo }
-  | { type: "agent_removed"; agentId: string }
-  | { type: "agent_updated"; agentId: string; changes: Partial<AgentInfo> }
+  | OfficeEvent
   | { type: "log_entry"; entry: LogEntry }
   | { type: "clear_logs"; agentId: string }
   | { type: "slash_commands"; agentId: string; commands: { name: string; description?: string }[]; skills: SkillInfo[] }
   | { type: "terminal_output"; agentId: string; data: string }
-  | { type: "terminal_exit"; agentId: string; exitCode: number }
-  | { type: "room_created"; room: RoomWire }
-  | { type: "room_closed"; roomId: string }
-  | { type: "room_renamed"; roomId: string; name: string }
-  | { type: "room_settings_updated"; roomId: string; prompt: string | null }
-  | { type: "office_settings_updated"; prompt: string | null; envFile: string | null }
-  | { type: "rooms_reordered"; order: string[] };
+  | { type: "terminal_exit"; agentId: string; exitCode: number };
 
 export type EventHandler = (event: AgentEvent) => void;
 
@@ -110,4 +109,3 @@ export class SessionSwappedError extends Error {
     this.name = "SessionSwappedError";
   }
 }
-

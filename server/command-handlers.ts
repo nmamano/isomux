@@ -1,4 +1,5 @@
-import type { Attachment, AgentState, LogEntry, SkillInfo, SkillOrigin } from "../shared/types.ts";
+import type { Attachment, AgentInfo, AgentState, LogEntry, SkillInfo, SkillOrigin } from "../shared/types.ts";
+import type { OfficeEvent } from "../shared/office-state.ts";
 import { MODEL_FAMILIES, FAMILY_TO_MODEL, EFFORT_LEVELS, familyDisplayLabel, effortDisplayLabel } from "../shared/types.ts";
 import { formatPrefix } from "../shared/identity.ts";
 import { listAgentSessions, type OfficeConfig } from "./persistence.ts";
@@ -33,6 +34,7 @@ interface HandlerDeps {
   addLogEntry: (agentId: string, kind: LogEntry["kind"], content: string, metadata?: Record<string, unknown>, attachments?: Attachment[], extra?: Partial<Pick<LogEntry, "diff" | "file">>) => void;
   emitEphemeralLog: (agentId: string, kind: LogEntry["kind"], content: string, metadata?: Record<string, unknown>, extra?: Partial<Pick<LogEntry, "diff" | "file">>) => void;
   updateState: (agentId: string, state: AgentState) => void;
+  updateAgent: (agentId: string, changes: Partial<AgentInfo>) => OfficeEvent[];
 
   // Session ops
   createSession: (managed: ManagedAgent, resumeSessionId?: string) => NonNullable<ManagedAgent["session"]>;
@@ -64,11 +66,9 @@ export function createCommandHandling(deps: HandlerDeps) {
       managed.topicGenerating = false;
       managed.topicMessageCount = 0;
       managed.topicGenToken++;
-      managed.info.topic = null;
-      managed.info.topicStale = false;
       deps.logCache.set(agentId, []);
       deps.emit({ type: "clear_logs", agentId });
-      deps.emit({ type: "agent_updated", agentId, changes: { topic: null, topicStale: false } });
+      for (const event of deps.updateAgent(agentId, { topic: null, topicStale: false })) deps.emit(event);
       deps.emitEphemeralLog(agentId, "system", "Conversation cleared.");
       deps.updateState(agentId, "idle");
       deps.persistAll();

@@ -72,11 +72,11 @@ import {
   type ManagedAgent,
   type AgentEvent,
   type EventHandler,
-  type InternalRoom,
 } from "./internal-types.ts";
 import { getBackend } from "./backends/index.ts";
 import { checkCodexVersion, getCodexVersionStatus } from "./backends/codex/version-check.ts";
 import type { BackendSession, NormalizedEvent } from "./backends/types.ts";
+import { OfficeState } from "../shared/office-state.ts";
 
 const LOGIN_INSTRUCTIONS = `To authenticate:
 1. Open the built-in terminal
@@ -120,44 +120,55 @@ export function buildUserMeta(username?: string, device?: string): Record<string
 const agents = new Map<string, ManagedAgent>();
 const logCache = new Map<string, LogEntry[]>(); // agentId → entries
 let eventHandler: EventHandler = () => {};
-let officeConfig: OfficeConfig = loadOfficeConfig();
-let rooms: InternalRoom[] = [{ id: generateRoomId(), name: "Room 1", prompt: null }];
-
-function roomsWire(): RoomWire[] {
-  return rooms.map((r) => ({ id: r.id, name: r.name, prompt: r.prompt }));
-}
+const initialOfficeConfig: OfficeConfig = loadOfficeConfig();
+const officeState = new OfficeState({
+  rooms: [{ id: generateRoomId(), name: "Room 1", prompt: null }],
+  office: { prompt: initialOfficeConfig.prompt, envFile: initialOfficeConfig.envFile },
+});
+let officeStatePersistenceEnabled = false;
+// Fields on AgentInfo that aren't included in the persisted shape (see
+// persistAll below). agent_updated events that only touch these don't need
+// disk writes — relevant because state transitions fire many times per turn.
+const EPHEMERAL_AGENT_FIELDS = new Set(["state", "sessionSwapping", "topicStale"]);
+officeState.onChange((event) => {
+  if (event.type === "office_settings_updated") {
+    saveOfficeConfig({ prompt: officeState.office.prompt, envFile: officeState.office.envFile });
+    return;
+  }
+  if (!officeStatePersistenceEnabled) return;
+  if (event.type === "agent_updated") {
+    const keys = Object.keys(event.changes);
+    if (keys.length > 0 && keys.every(k => EPHEMERAL_AGENT_FIELDS.has(k))) return;
+  }
+  persistAll();
+});
 
 function findRoomIndex(roomId: string): number {
-  return rooms.findIndex((r) => r.id === roomId);
+  return officeState.rooms.findIndex((r) => r.id === roomId);
 }
 
 export function getRooms(): RoomWire[] {
-  return roomsWire();
+  return officeState.rooms.map((r) => ({ ...r }));
 }
 
 export function getOfficeSettings(): OfficeSettings {
-  return { prompt: officeConfig.prompt, envFile: officeConfig.envFile };
+  return { prompt: officeState.office.prompt, envFile: officeState.office.envFile };
 }
 
 // Update office settings. Caller is responsible for validating envFile (see validateEnvPath).
 export function setOfficeSettings(prompt: string | null, envFile: string | null) {
-  const normalizedPrompt = prompt && prompt.trim() ? prompt.trim() : null;
-  officeConfig = { prompt: normalizedPrompt, envFile: envFile || null };
-  saveOfficeConfig(officeConfig);
+  const events = officeState.setOfficeSettings(prompt, envFile);
   // System prompt is rebuilt at every createSession from current office/room/agent
   // config, so the new office prompt automatically lands on the next conversation.
-  eventHandler({ type: "office_settings_updated", prompt: officeConfig.prompt, envFile: officeConfig.envFile });
+  for (const event of events) eventHandler(event);
 }
 
 export function setRoomSettings(roomId: string, prompt: string | null): boolean {
-  const idx = findRoomIndex(roomId);
-  if (idx < 0) return false;
-  const room = rooms[idx];
-  room.prompt = prompt && prompt.trim() ? prompt.trim() : null;
-  persistAll();
+  const events = officeState.setRoomSettings(roomId, prompt);
+  if (events.length === 0) return false;
   // System prompt is rebuilt at every createSession — next conversation picks up
   // the new room prompt automatically.
-  eventHandler({ type: "room_settings_updated", roomId, prompt: room.prompt });
+  for (const event of events) eventHandler(event);
   return true;
 }
 
@@ -199,7 +210,7 @@ export function getCurrentSessionId(agentId: string): string | null {
 export function getAgentDisplay(agentId: string): { name: string; roomName: string } | null {
   const managed = agents.get(agentId);
   if (!managed) return null;
-  const room = rooms[managed.info.room];
+  const room = officeState.rooms[managed.info.room];
   if (!room) return null;
   return { name: managed.info.name, roomName: room.name };
 }
@@ -262,6 +273,21 @@ function validateEffort(
   return raw;
 }
 
+// Apply `fields` to managed.info in-place, run `fn`, and revert on throw.
+// Used by paths where a side effect (e.g. session recreate) reads AgentInfo
+// and needs the new values, but we want the change reverted if the side
+// effect fails. Persist/emit is the caller's responsibility on success.
+async function withAgentRollback(managed: ManagedAgent, fields: Partial<AgentInfo>, fn: () => Promise<void>) {
+  const snapshot = Object.fromEntries(Object.keys(fields).map(k => [k, (managed.info as any)[k]]));
+  Object.assign(managed.info, fields);
+  try {
+    await fn();
+  } catch (err) {
+    Object.assign(managed.info, snapshot);
+    throw err;
+  }
+}
+
 export async function editAgent(
   agentId: string,
   changes: { name?: string; cwd?: string; outfit?: AgentInfo["outfit"]; customInstructions?: string; modelFamily?: string; effort?: EffortLevel; permissionMode?: AgentInfo["permissionMode"]; codexSandbox?: AgentInfo["codexSandbox"] },
@@ -269,226 +295,128 @@ export async function editAgent(
   const managed = agents.get(agentId);
   if (!managed) return;
 
+  // Build the validated change set. Mutation/persistence/emit happen in one
+  // shot via officeState.updateAgent below.
   const updated: Partial<AgentInfo> = {};
 
   if (changes.name && changes.name !== managed.info.name) {
     // Reject duplicate names
     const nameLower = changes.name.trim().toLowerCase();
     const duplicate = [...agents.values()].some((a) => a.info.id !== agentId && a.info.name.toLowerCase() === nameLower);
-    if (!duplicate) {
-      managed.info.name = changes.name;
-      updated.name = changes.name;
-    }
+    if (!duplicate) updated.name = changes.name;
   }
   if (changes.cwd && changes.cwd !== managed.info.cwd) {
     const oldCwd = managed.info.cwd;
-    managed.info.cwd = resolveCwd(changes.cwd);
-    updated.cwd = managed.info.cwd;
+    const newCwd = resolveCwd(changes.cwd);
+    updated.cwd = newCwd;
     if (managed.info.agentType === "claude") {
       // Claude stores sessions in ~/.claude/projects/<cwd-hash>/; moving cwd
       // means the .jsonl files need to follow, otherwise resume can't find
       // them. moveClaudeSessionFiles relocates them in place.
-      moveClaudeSessionFiles(agentId, oldCwd, managed.info.cwd);
+      moveClaudeSessionFiles(agentId, oldCwd, newCwd);
     } else {
       // Codex stores per-cwd rollouts in ~/.codex/; the existing thread is
       // not addressable under the new cwd. Drop the sessionId so the next
       // conversation starts a fresh thread (matches the "applies to next
-      // conversation" UX users expect from changing cwd).
+      // conversation" UX users expect from changing cwd). Mutate before
+      // officeState.updateAgent so its persistAll snapshots the null id.
       managed.sessionId = null;
     }
   }
-  if (changes.outfit) {
-    managed.info.outfit = changes.outfit;
-    updated.outfit = changes.outfit;
-  }
+  if (changes.outfit) updated.outfit = changes.outfit;
   if (changes.customInstructions !== undefined && changes.customInstructions !== managed.info.customInstructions) {
-    managed.info.customInstructions = changes.customInstructions || null;
-    updated.customInstructions = managed.info.customInstructions;
+    updated.customInstructions = changes.customInstructions || null;
   }
   if (changes.modelFamily) {
     const valid = validateModelFamily(managed.info.agentType, changes.modelFamily);
-    if (valid !== managed.info.modelFamily) {
-      managed.info.modelFamily = valid;
-      updated.modelFamily = valid;
-    }
+    if (valid !== managed.info.modelFamily) updated.modelFamily = valid;
   }
   if (changes.codexSandbox && managed.info.agentType === "codex") {
     const valid = validateCodexSandbox(changes.codexSandbox);
-    if (valid && valid !== managed.info.codexSandbox) {
-      managed.info.codexSandbox = valid;
-      updated.codexSandbox = valid;
-    }
+    if (valid && valid !== managed.info.codexSandbox) updated.codexSandbox = valid;
   }
   if (changes.effort) {
-    // modelFamily may have been updated just above; validate against the
-    // current (post-update) value so a paired model+effort change is
-    // consistent.
-    const valid = validateEffort(managed.info.agentType, managed.info.modelFamily, changes.effort);
-    if (valid !== managed.info.effort) {
-      managed.info.effort = valid;
-      updated.effort = valid;
-    }
+    // Validate against the post-update modelFamily so a paired model+effort
+    // change is consistent.
+    const targetModelFamily = updated.modelFamily ?? managed.info.modelFamily;
+    const valid = validateEffort(managed.info.agentType, targetModelFamily, changes.effort);
+    if (valid !== managed.info.effort) updated.effort = valid;
   }
   if (changes.permissionMode) {
     const valid = validatePermissionMode(managed.info.agentType, changes.permissionMode);
-    if (valid !== managed.info.permissionMode) {
-      managed.info.permissionMode = valid;
-      updated.permissionMode = valid;
-    }
+    if (valid !== managed.info.permissionMode) updated.permissionMode = valid;
   }
 
   // Cross-update sanitization: if modelFamily changed but effort wasn't part
   // of this edit, the existing effort may now be invalid (e.g. "max" survives
-  // on an agent whose model just moved from opus to sonnet). Re-validate the
-  // current state against the new model and downgrade if needed.
-  if (updated.modelFamily) {
-    const valid = validateEffort(managed.info.agentType, managed.info.modelFamily, managed.info.effort);
-    if (valid !== managed.info.effort) {
-      managed.info.effort = valid;
-      updated.effort = valid;
-    }
+  // on an agent whose model just moved from opus to sonnet). Re-validate
+  // against the new model and downgrade if needed.
+  if (updated.modelFamily && updated.effort === undefined) {
+    const valid = validateEffort(managed.info.agentType, updated.modelFamily, managed.info.effort);
+    if (valid !== managed.info.effort) updated.effort = valid;
   }
 
   if (Object.keys(updated).length === 0) return;
 
-  // System prompt + cwd are passed into every createSession, so name/cwd/
-  // customInstructions changes automatically apply to the next conversation.
+  // Track cwd in recents (officeState.editAgent does this internally; we use
+  // updateAgent so we add it explicitly).
+  if (updated.cwd) officeState.addRecentCwd(updated.cwd);
 
-  // Recreate session if model, effort, permission mode, or Codex sandbox
-  // changed so it takes effect immediately. Sandbox is set at thread/start
-  // for Codex, so the change only lands on a new session.
+  // Recreate session if model/effort/permission/sandbox changed. createSession
+  // reads AgentInfo so the mutation must land before the call; on throw we
+  // revert in-place and skip the officeState commit, matching the pre-refactor
+  // contract (failed recreate ⇒ change reverts on restart).
   if (updated.modelFamily || updated.effort || updated.permissionMode || updated.codexSandbox) {
-    const sessionId = managed.sessionId;
-    const newSession = sessionId ? createSession(managed, sessionId) : createSession(managed);
-    await replaceSession(agentId, managed, newSession);
+    await withAgentRollback(managed, updated, async () => {
+      const sessionId = managed.sessionId;
+      await replaceSession(agentId, managed, sessionId ? createSession(managed, sessionId) : createSession(managed));
+    });
   }
 
-  persistAll();
-  eventHandler({ type: "agent_updated", agentId, changes: updated });
+  for (const event of officeState.updateAgent(agentId, updated)) eventHandler(event);
 }
 
 export function swapDesks(deskA: number, deskB: number, roomId: string) {
-  if (deskA === deskB || deskA < 0 || deskA > 7 || deskB < 0 || deskB > 7) return;
-  const roomIdx = findRoomIndex(roomId);
-  if (roomIdx < 0) return;
-  const allManaged = [...agents.values()];
-  const agentA = allManaged.find((m) => m.info.desk === deskA && m.info.room === roomIdx);
-  const agentB = allManaged.find((m) => m.info.desk === deskB && m.info.room === roomIdx);
-  if (!agentA && !agentB) return;
-
-  if (agentA) {
-    agentA.info.desk = deskB;
-    eventHandler({ type: "agent_updated", agentId: agentA.info.id, changes: { desk: deskB } });
-  }
-  if (agentB) {
-    agentB.info.desk = deskA;
-    eventHandler({ type: "agent_updated", agentId: agentB.info.id, changes: { desk: deskA } });
-  }
-  persistAll();
+  const events = officeState.swapDesks(deskA, deskB, roomId);
+  for (const event of events) eventHandler(event);
 }
 
 export function createRoom(name?: string): string {
-  const existingIds = rooms.map((r) => r.id);
-  const id = generateRoomId(existingIds);
-  const displayName = (name || `Room ${rooms.length + 1}`).trim().slice(0, 40);
-  const room: InternalRoom = { id, name: displayName, prompt: null };
-  rooms.push(room);
-  persistAll();
-  eventHandler({ type: "room_created", room: { id: room.id, name: room.name, prompt: room.prompt } });
-  return id;
+  const events = officeState.createRoom(name);
+  const created = events.find((e) => e.type === "room_created");
+  if (!created) throw new Error("failed to create room");
+  for (const event of events) eventHandler(event);
+  return created.room.id;
 }
 
 export function closeRoom(roomId: string): boolean {
-  const roomIdx = findRoomIndex(roomId);
-  if (roomIdx <= 0) return false; // Room 1 is permanent, and unknown ids reject
-  // Check room is empty
-  const roomAgents = [...agents.values()].filter((a) => a.info.room === roomIdx);
-  if (roomAgents.length > 0) return false;
-
-  rooms.splice(roomIdx, 1);
-  // Renumber agents in higher rooms
-  for (const managed of agents.values()) {
-    if (managed.info.room > roomIdx) {
-      managed.info.room--;
-      eventHandler({ type: "agent_updated", agentId: managed.info.id, changes: { room: managed.info.room } });
-    }
-  }
-  persistAll();
-  eventHandler({ type: "room_closed", roomId });
+  const events = officeState.closeRoom(roomId);
+  if (events.length === 0) return false;
+  for (const event of events) eventHandler(event);
   return true;
 }
 
 export function renameRoom(roomId: string, name: string): boolean {
-  const roomIdx = findRoomIndex(roomId);
-  if (roomIdx < 0) return false;
-  const trimmed = name.trim().slice(0, 40);
-  if (!trimmed) return false;
-  rooms[roomIdx].name = trimmed;
+  const events = officeState.renameRoom(roomId, name);
+  if (events.length === 0) return false;
   // Room name appears in the system prompt header; it's rebuilt at every
   // createSession, so agents in this room pick up the new name on their next
   // conversation automatically.
-  persistAll();
-  eventHandler({ type: "room_renamed", roomId, name: trimmed });
+  for (const event of events) eventHandler(event);
   return true;
 }
 
 export function reorderRooms(order: string[]): boolean {
-  // Must be a permutation of the existing room ids
-  if (order.length !== rooms.length) return false;
-  const currentIds = new Set(rooms.map((r) => r.id));
-  const seen = new Set<string>();
-  for (const id of order) {
-    if (typeof id !== "string" || !currentIds.has(id) || seen.has(id)) return false;
-    seen.add(id);
-  }
-  // No-op check
-  if (order.every((id, i) => id === rooms[i].id)) return false;
-
-  // Build reverseMap: oldIdx → newIdx, keyed by current position.
-  const oldIndexById = new Map(rooms.map((r, i) => [r.id, i] as const));
-  const reverseMap = new Array<number>(rooms.length);
-  for (let newIdx = 0; newIdx < order.length; newIdx++) {
-    reverseMap[oldIndexById.get(order[newIdx])!] = newIdx;
-  }
-
-  // Reorder rooms
-  const byId = new Map(rooms.map((r) => [r.id, r] as const));
-  rooms = order.map((id) => byId.get(id)!);
-
-  // Remap every agent's room index (no individual agent_updated — clients
-  // remap atomically from the rooms_reordered message)
-  for (const managed of agents.values()) {
-    managed.info.room = reverseMap[managed.info.room];
-  }
-
-  persistAll();
-  eventHandler({ type: "rooms_reordered", order });
+  const events = officeState.reorderRooms(order);
+  if (events.length === 0) return false;
+  for (const event of events) eventHandler(event);
   return true;
 }
 
 export function moveAgent(agentId: string, targetRoomId: string): boolean {
-  const managed = agents.get(agentId);
-  if (!managed) return false;
-  const targetIdx = findRoomIndex(targetRoomId);
-  if (targetIdx < 0) return false;
-  if (managed.info.room === targetIdx) return false;
-
-  // Find first available desk in target room
-  const targetAgents = [...agents.values()].filter((a) => a.info.room === targetIdx);
-  if (targetAgents.length >= 8) return false;
-  const taken = new Set(targetAgents.map((a) => a.info.desk));
-  let newDesk = -1;
-  for (let i = 0; i < 8; i++) {
-    if (!taken.has(i)) { newDesk = i; break; }
-  }
-  if (newDesk === -1) return false;
-
-  managed.info.room = targetIdx;
-  managed.info.desk = newDesk;
-  // New room's prompt context is picked up on the agent's next conversation
-  // since the system prompt is rebuilt at every createSession.
-  eventHandler({ type: "agent_updated", agentId, changes: { room: targetIdx, desk: newDesk } });
-  persistAll();
+  const events = officeState.moveAgent(agentId, targetRoomId);
+  if (events.length === 0) return false;
+  for (const event of events) eventHandler(event);
   return true;
 }
 
@@ -497,6 +425,7 @@ export function getAllAgents(): AgentInfo[] {
 }
 
 function updateManifest() {
+  const rooms = officeState.rooms;
   writeManifest([...agents.values()].map((a) => ({
     id: a.info.id,
     name: a.info.name,
@@ -514,6 +443,7 @@ function updateManifest() {
 }
 
 function persistAll() {
+  const rooms = officeState.rooms;
   const persistedRooms: Room[] = rooms.map((r) => ({
     id: r.id,
     name: r.name,
@@ -551,6 +481,7 @@ function persistAll() {
 // Entries are never removed; they just stop getting refreshed once the agent
 // is killed, which is exactly the behavior we want.
 function updateAgentHistory() {
+  const rooms = officeState.rooms;
   const history: AgentHistory = loadAgentHistory();
   for (const a of agents.values()) {
     const room = rooms[a.info.room];
@@ -567,7 +498,7 @@ export async function restoreAgents() {
   try { rmSync(join(homedir(), ".isomux", "launchers"), { recursive: true, force: true }); } catch {}
 
   const loaded = loadAgents();
-  rooms = loaded.map((r) => ({ id: r.id, name: r.name, prompt: r.prompt }));
+  officeState.setRooms(loaded.map((r) => ({ id: r.id, name: r.name, prompt: r.prompt })));
 
   for (let roomIdx = 0; roomIdx < loaded.length; roomIdx++) {
     for (const p of loaded[roomIdx].agents) {
@@ -603,6 +534,7 @@ export async function restoreAgents() {
         queue: [],
         sessionSwapping: false,
       };
+      officeState.addExistingAgent(info);
       const managed: ManagedAgent = {
         info,
         session: null,
@@ -658,7 +590,7 @@ export async function restoreAgents() {
         installSession(p.id, managed, session);
       } catch (err: any) {
         console.error(`Failed to restore session for ${p.name}:`, err.message);
-        managed.info.state = "error";
+        officeState.updateAgent(p.id, { state: "error" });
         // Surface to the UI so the user sees why the agent can't respond.
         const entry: LogEntry = {
           id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -677,6 +609,7 @@ export async function restoreAgents() {
   // fields (room ids, prompt/envFile defaults) that weren't present before.
   // Must run AFTER agents are populated or persistAll writes empty rooms.
   persistAll();
+  officeStatePersistenceEnabled = true;
   return [...agents.values()].map((a) => a.info);
 }
 
@@ -786,8 +719,7 @@ function updateState(agentId: string, state: AgentState) {
     managed.thinkingStartedAt = Date.now();
   }
   const prev = managed.info.state;
-  managed.info = { ...managed.info, state };
-  emit({ type: "agent_updated", agentId, changes: { state } });
+  for (const event of officeState.updateAgent(agentId, { state })) emit(event);
 
   // Trigger queue flush on transition into an idle state (and only when the
   // queue actually has items waiting). Swapping into the same state is a
@@ -835,8 +767,7 @@ function addLogEntry(agentId: string, kind: LogEntry["kind"], content: string, m
   if ((kind === "text" || kind === "user_message") && managed && managed.info.topic !== null && managed.info.topic !== "...") {
     const textCount = (logCache.get(agentId) ?? []).filter(e => e.kind === "user_message" || e.kind === "text").length;
     if (textCount > managed.topicMessageCount) {
-      managed.info.topicStale = true;
-      emit({ type: "agent_updated", agentId, changes: { topicStale: true } });
+      for (const event of officeState.updateAgent(agentId, { topicStale: true })) emit(event);
     }
   }
 }
@@ -867,9 +798,7 @@ async function generateTopic(agentId: string) {
   if (!managed || managed.topicGenerating) return;
 
   managed.topicGenerating = true;
-  managed.info.topic = "...";
-  managed.info.topicStale = false;
-  emit({ type: "agent_updated", agentId, changes: { topic: "...", topicStale: false } });
+  for (const event of officeState.updateAgent(agentId, { topic: "...", topicStale: false })) emit(event);
   // Capture before the await; if /clear, /resume, fork, etc. ran during the
   // LLM call, the token will have changed and we drop the stale result.
   const startToken = managed.topicGenToken;
@@ -880,8 +809,7 @@ async function generateTopic(agentId: string) {
   const firstUserMsg = textEntries.find(e => e.kind === "user_message");
   if (!firstUserMsg) {
     managed.topicGenerating = false;
-    managed.info.topic = null;
-    emit({ type: "agent_updated", agentId, changes: { topic: null } });
+    for (const event of officeState.updateAgent(agentId, { topic: null })) emit(event);
     return;
   }
 
@@ -911,11 +839,10 @@ async function generateTopic(agentId: string) {
     });
     if (agents.has(agentId) && managed.topicGenToken === startToken) {
       const topic = text.trim().slice(0, 80);
-      managed.info.topic = topic;
-      managed.info.topicStale = false;
       managed.topicMessageCount = textEntries.length;
-      emit({ type: "agent_updated", agentId, changes: { topic, topicStale: false } });
-      persistAll();
+      // officeState.setTopic mutates topic + topicStale, fires persistAll via onChange,
+      // and returns the agent_updated event.
+      for (const event of officeState.setTopic(agentId, topic)) emit(event);
       // Persist topic to sessions.json for resume list
       if (managed.sessionId) {
         persistSessionTopic(agentId, managed.sessionId, topic);
@@ -925,8 +852,7 @@ async function generateTopic(agentId: string) {
     console.error(`Topic generation failed for ${agentId}:`, err.message);
     // Silently fail — clear the "..." placeholder, but only if it's still ours
     if (agents.has(agentId) && managed.topicGenToken === startToken) {
-      managed.info.topic = null;
-      emit({ type: "agent_updated", agentId, changes: { topic: null } });
+      for (const event of officeState.updateAgent(agentId, { topic: null })) emit(event);
     }
   } finally {
     // Only release the generating flag if the conversation hasn't been reset.
@@ -1261,8 +1187,7 @@ function installSession(agentId: string, managed: ManagedAgent, session: Backend
 // papers over the user-visible delay by echoing the typed message to the
 // log before awaiting abortPromise (see echoEarly there).
 async function replaceSession(agentId: string, managed: ManagedAgent, newSession: BackendSession) {
-  managed.info.sessionSwapping = true;
-  emit({ type: "agent_updated", agentId, changes: { sessionSwapping: true } });
+  for (const event of officeState.updateAgent(agentId, { sessionSwapping: true })) emit(event);
   try {
     const oldConsumer = managed.consumerPromise;
     const turn = managed.pendingTurn;
@@ -1277,8 +1202,7 @@ async function replaceSession(agentId: string, managed: ManagedAgent, newSession
     }
     installSession(agentId, managed, newSession);
   } finally {
-    managed.info.sessionSwapping = false;
-    emit({ type: "agent_updated", agentId, changes: { sessionSwapping: false } });
+    for (const event of officeState.updateAgent(agentId, { sessionSwapping: false })) emit(event);
   }
 }
 
@@ -1287,7 +1211,7 @@ async function replaceSession(agentId: string, managed: ManagedAgent, newSession
 // mode: if a configured env file is missing or fails to parse, throw — the
 // caller is responsible for surfacing the error to the agent log.
 function buildSessionEnv(managed: ManagedAgent): { [key: string]: string | undefined } | undefined {
-  const officeEnvFile = officeConfig.envFile;
+  const officeEnvFile = officeState.office.envFile;
   const userEnvFile = managed.info.username ? getUserEnvFile(managed.info.username) : null;
   if (!officeEnvFile && !userEnvFile) return undefined;
 
@@ -1330,12 +1254,12 @@ function createSession(managed: ManagedAgent, resumeSessionId?: string): Backend
       `Use /resume to pick a different session, or move the session .jsonl into the new project dir.`
     );
   }
-  const room = rooms[managed.info.room]!;
+  const room = officeState.rooms[managed.info.room]!;
   const systemPrompt = buildSystemPrompt(
     managed.info.name,
     managed.info.id,
     room.name,
-    officeConfig.prompt,
+    officeState.office.prompt,
     room.prompt,
     managed.info.customInstructions,
     managed.info.username,
@@ -1479,6 +1403,7 @@ export async function spawn(
     queueDedupe: new Map(),
   };
   agents.set(id, managed);
+  officeState.addExistingAgent(info);
   emit({ type: "agent_added", agent: info });
   // Send commands immediately so autocomplete works before SDK init
   emit({
@@ -1509,13 +1434,14 @@ export async function spawn(
 // in commands.ts has a matching handler.
 const { handleSlashCommand } = createCommandHandling({
   agents,
-  getRooms: () => rooms,
-  getOfficeConfig: () => officeConfig,
+  getRooms: () => officeState.rooms,
+  getOfficeConfig: () => officeState.office,
   logCache,
   emit,
   addLogEntry,
   emitEphemeralLog,
   updateState,
+  updateAgent: (agentId, changes) => officeState.updateAgent(agentId, changes),
   createSession,
   replaceSession,
   persistAll,
@@ -2001,13 +1927,11 @@ export async function sendMessage(agentId: string, text: string, username?: stri
             emit({ type: "log_entry", entry });
           }
         }
-        // Restore topic
-        managed.info.topic = picked.topic;
-        managed.info.topicStale = false;
-        emit({ type: "agent_updated", agentId, changes: { topic: picked.topic, topicStale: false } });
+        // Restore topic — officeState.updateAgent fires persistAll via onChange,
+        // capturing the new sessionId set above.
+        for (const event of officeState.updateAgent(agentId, { topic: picked.topic, topicStale: false })) emit(event);
         emitEphemeralLog(agentId, "system", `Resumed session: ${picked.topic || picked.sessionId.slice(0, 8) + "..."}`);
         updateState(agentId, "waiting_for_response");
-        persistAll();
         if (!picked.topic) {
           generateTopic(agentId);
         }
@@ -2036,12 +1960,11 @@ export async function sendMessage(agentId: string, text: string, username?: stri
       if (picked.family === managed.info.modelFamily) {
         emitEphemeralLog(agentId, "system", `Already using ${label}.`);
       } else {
-        managed.info.modelFamily = picked.family;
-        const sessionId = managed.sessionId;
-        const newSession = sessionId ? createSession(managed, sessionId) : createSession(managed);
-        await replaceSession(agentId, managed, newSession);
-        emit({ type: "agent_updated", agentId, changes: { modelFamily: picked.family } });
-        persistAll();
+        await withAgentRollback(managed, { modelFamily: picked.family }, async () => {
+          const sessionId = managed.sessionId;
+          await replaceSession(agentId, managed, sessionId ? createSession(managed, sessionId) : createSession(managed));
+        });
+        for (const event of officeState.updateAgent(agentId, { modelFamily: picked.family })) emit(event);
         addLogEntry(agentId, "system", `Model switched to ${label}. The agent's context may still say they are a different model — the correct model is shown in the top bar.`);
       }
       return;
@@ -2063,12 +1986,11 @@ export async function sendMessage(agentId: string, text: string, username?: stri
       if (picked.level === managed.info.effort) {
         emitEphemeralLog(agentId, "system", `Already using ${label}.`);
       } else {
-        managed.info.effort = picked.level;
-        const sessionId = managed.sessionId;
-        const newSession = sessionId ? createSession(managed, sessionId) : createSession(managed);
-        await replaceSession(agentId, managed, newSession);
-        emit({ type: "agent_updated", agentId, changes: { effort: picked.level } });
-        persistAll();
+        await withAgentRollback(managed, { effort: picked.level }, async () => {
+          const sessionId = managed.sessionId;
+          await replaceSession(agentId, managed, sessionId ? createSession(managed, sessionId) : createSession(managed));
+        });
+        for (const event of officeState.updateAgent(agentId, { effort: picked.level })) emit(event);
         addLogEntry(agentId, "system", `Thinking effort switched to ${label}.`);
       }
       return;
@@ -2185,11 +2107,11 @@ export async function kill(agentId: string) {
   managed.session = null;
   // Remove from the map so the consumer's outer `agents.has(agentId)` guard exits.
   agents.delete(agentId);
+  officeState.kill(agentId);
   logCache.delete(agentId);
   if (oldConsumer) { try { await oldConsumer; } catch {} }
   killSidecar(managed);
   emit({ type: "agent_removed", agentId });
-  persistAll();
 }
 
 export async function newConversation(agentId: string) {
@@ -2214,12 +2136,11 @@ export async function newConversation(agentId: string) {
     managed.topicGenerating = false;
     managed.topicMessageCount = 0;
     managed.topicGenToken++;
-    managed.info.topic = null;
-    managed.info.topicStale = false;
-    emit({ type: "agent_updated", agentId, changes: { topic: null, topicStale: false } });
+    // officeState.resetTopic mutates topic + topicStale, fires persistAll via
+    // onChange (capturing the null sessionId set above).
+    for (const event of officeState.resetTopic(agentId)) emit(event);
     updateState(agentId, "idle");
     addLogEntry(agentId, "system", "New conversation started.");
-    persistAll();
   } catch (err: any) {
     addLogEntry(agentId, "error", `Failed to start new conversation: ${err.message}`);
     updateState(agentId, "error");
@@ -2260,19 +2181,18 @@ export async function resume(agentId: string, sessionId: string) {
       }
     }
 
-    // Restore topic from sessions.json
+    // Restore topic from sessions.json — officeState.updateAgent fires
+    // persistAll via onChange, capturing the new sessionId set above.
     const sessions = listAgentSessions(agentId);
     const sessionEntry = sessions.find(s => s.sessionId === sessionId);
-    managed.info.topic = sessionEntry?.topic ?? null;
-    managed.info.topicStale = false;
-    emit({ type: "agent_updated", agentId, changes: { topic: managed.info.topic, topicStale: false } });
+    const restoredTopic = sessionEntry?.topic ?? null;
+    for (const event of officeState.updateAgent(agentId, { topic: restoredTopic, topicStale: false })) emit(event);
 
     updateState(agentId, "waiting_for_response");
-    addLogEntry(agentId, "system", `Resumed session: ${managed.info.topic || sessionId.slice(0, 8) + "..."}`);
-    persistAll();
+    addLogEntry(agentId, "system", `Resumed session: ${restoredTopic || sessionId.slice(0, 8) + "..."}`);
 
     // If no topic, regenerate from session logs
-    if (!managed.info.topic) {
+    if (!restoredTopic) {
       generateTopic(agentId);
     }
   } catch (err: any) {
@@ -2446,9 +2366,7 @@ export async function editMessage(agentId: string, logEntryId: string, newText: 
     addLogEntry(agentId, "system", `Branched from: ${oldTopic || oldSessionId.slice(0, 8) + "..."}`);
 
     // 9. Inherit topic (marked stale so it regenerates after first exchange)
-    managed.info.topic = oldTopic;
-    managed.info.topicStale = true;
-    emit({ type: "agent_updated", agentId, changes: { topic: oldTopic, topicStale: true } });
+    for (const event of officeState.updateAgent(agentId, { topic: oldTopic, topicStale: true })) emit(event);
 
     // 10. Send the edited message
     updateState(agentId, "thinking");
@@ -2459,14 +2377,14 @@ export async function editMessage(agentId: string, logEntryId: string, newText: 
     const turn = createTurnDeferred(managed);
     await managed.session!.send(prefixedNew);
     await turn;
-
-    persistAll();
+    // Topic mutation above + system/init persistAll on first-message edits
+    // already covered the persisted state; nothing further changes during
+    // the turn that needs an end-of-edit snapshot.
   } catch (err: any) {
     // User aborted (or another explicit session swap) after the fork was
     // installed — the fork and its partial turn are a legitimate result,
-    // not a failure. Skip the rollback.
+    // not a failure. The triggering swap's own persistAll covered state.
     if (err instanceof SessionSwappedError) {
-      persistAll();
       return;
     }
     console.error(`Agent ${agentId} edit/fork error:`, err.message);
@@ -2489,9 +2407,7 @@ export async function editMessage(agentId: string, logEntryId: string, newText: 
       }
 
       // Restore topic
-      managed.info.topic = oldTopic;
-      managed.info.topicStale = oldTopicStale;
-      emit({ type: "agent_updated", agentId, changes: { topic: oldTopic, topicStale: oldTopicStale } });
+      for (const event of officeState.updateAgent(agentId, { topic: oldTopic, topicStale: oldTopicStale })) emit(event);
     }
 
     addLogEntry(agentId, "error", `Failed to branch conversation: ${err.message}`);
@@ -2505,11 +2421,9 @@ export function setTopic(agentId: string, topic: string) {
   // Invalidate any in-flight generateTopic so its delayed LLM result doesn't
   // overwrite the user's manual choice.
   managed.topicGenToken++;
-  managed.info.topic = topic.slice(0, 80);
-  managed.info.topicStale = false;
+  for (const event of officeState.setTopic(agentId, topic)) emit(event);
   const textCount = (logCache.get(agentId) ?? []).filter(e => e.kind === "user_message" || e.kind === "text").length;
   managed.topicMessageCount = textCount;
-  emit({ type: "agent_updated", agentId, changes: { topic: managed.info.topic, topicStale: false } });
   // Persist to sessions.json so resume list shows the manual topic
   if (managed.sessionId) {
     persistSessionTopic(agentId, managed.sessionId, managed.info.topic);
