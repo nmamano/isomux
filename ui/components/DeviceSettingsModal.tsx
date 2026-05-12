@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useAppState } from "../store.tsx";
 import { getDevice, setDevice } from "../device-settings.ts";
+import { dialogLabel, dialogInput, dialogCancelBtn, dialogSaveBtn, dialogHint } from "./dialog-styles.ts";
 
 // Device-scoped settings (one record per browser, stored in localStorage).
 // Just the device label — user-level prefs (default room, notifications, env)
@@ -77,50 +78,8 @@ export function DeviceSettingsModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-const labelStyle: React.CSSProperties = {
-  display: "block",
-  fontSize: 11,
-  fontWeight: 600,
-  color: "var(--text-muted)",
-  marginTop: 16,
-  marginBottom: 5,
-};
-
-const hintStyle: React.CSSProperties = {
-  fontWeight: 400,
-  color: "var(--text-ghost)",
-};
-
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "9px 12px",
-  background: "var(--bg-input)",
-  border: "1px solid var(--border)",
-  borderRadius: 8,
-  color: "var(--text-primary)",
-  fontFamily: "'JetBrains Mono',monospace",
-  fontSize: 12,
-  outline: "none",
-  boxSizing: "border-box",
-};
-
-const cancelBtnStyle: React.CSSProperties = {
-  padding: "7px 16px",
-  borderRadius: 8,
-  border: "1px solid var(--border)",
-  background: "transparent",
-  color: "var(--text-dim)",
-  fontSize: 12,
-  cursor: "pointer",
-};
-
-const saveBtnStyle: React.CSSProperties = {
-  padding: "7px 16px",
-  borderRadius: 8,
-  border: "none",
-  background: "var(--accent)",
-  color: "var(--bg-base)",
-  fontSize: 12,
-  fontWeight: 600,
-  cursor: "pointer",
-};
+const labelStyle: React.CSSProperties = { ...dialogLabel, marginTop: 16 };
+const hintStyle: React.CSSProperties = dialogHint;
+const inputStyle: React.CSSProperties = dialogInput;
+const cancelBtnStyle: React.CSSProperties = dialogCancelBtn;
+const saveBtnStyle: React.CSSProperties = dialogSaveBtn;

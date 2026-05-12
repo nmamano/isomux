@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useMemo } from "react";
 import { useAppState } from "../store.tsx";
 import { send } from "../ws.ts";
 import type { TaskItem, TaskStatus, TaskPriority } from "../../shared/types.ts";
+import { dialogLabel, dialogInput } from "./dialog-styles.ts";
 
 type SortField = "status" | "priority" | "title" | "assignee" | "createdBy" | "createdAt";
 type SortDir = "asc" | "desc";
@@ -132,25 +133,13 @@ function TaskDetailPanel({ task, onClose, username, mode = "edit", agents = [], 
   }
 
   const inputStyle: React.CSSProperties = {
-    width: "100%",
+    ...dialogInput,
     padding: "8px 10px",
     borderRadius: 6,
-    border: "1px solid var(--border)",
-    background: "var(--bg-input)",
-    color: "var(--text-primary)",
-    fontFamily: "'JetBrains Mono',monospace",
     fontSize: 13,
-    outline: "none",
-    boxSizing: "border-box",
   };
 
-  const labelStyle: React.CSSProperties = {
-    fontSize: 11,
-    fontWeight: 600,
-    color: "var(--text-muted)",
-    marginBottom: 5,
-    display: "block",
-  };
+  const labelStyle: React.CSSProperties = dialogLabel;
 
   return (
     <div

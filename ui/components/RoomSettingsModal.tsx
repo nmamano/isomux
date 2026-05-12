@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useAppState } from "../store.tsx";
 import { send, addRawListener, removeRawListener } from "../ws.ts";
+import { dialogInput, dialogCancelBtn, dialogSaveBtn } from "./dialog-styles.ts";
 
 export function RoomSettingsModal({ roomId, onClose }: { roomId: string; onClose: () => void }) {
   const { rooms, isMobile } = useAppState();
@@ -139,38 +140,6 @@ export function RoomSettingsModal({ roomId, onClose }: { roomId: string; onClose
   );
 }
 
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "9px 12px",
-  background: "var(--bg-input)",
-  border: "1px solid var(--border)",
-  borderRadius: 8,
-  color: "var(--text-primary)",
-  fontFamily: "'JetBrains Mono',monospace",
-  fontSize: 12,
-  outline: "none",
-  boxSizing: "border-box",
-};
-
-const cancelBtnStyle: React.CSSProperties = {
-  padding: "7px 16px",
-  borderRadius: 8,
-  border: "1px solid var(--border)",
-  background: "transparent",
-  color: "var(--text-dim)",
-  fontSize: 12,
-  cursor: "pointer",
-  fontFamily: "'DM Sans',sans-serif",
-};
-
-const saveBtnStyle: React.CSSProperties = {
-  padding: "7px 16px",
-  borderRadius: 8,
-  border: "none",
-  background: "var(--accent)",
-  color: "var(--bg-base)",
-  fontSize: 12,
-  fontWeight: 600,
-  cursor: "pointer",
-  fontFamily: "'DM Sans',sans-serif",
-};
+const inputStyle: React.CSSProperties = dialogInput;
+const cancelBtnStyle: React.CSSProperties = { ...dialogCancelBtn, fontFamily: "'DM Sans',sans-serif" };
+const saveBtnStyle: React.CSSProperties = { ...dialogSaveBtn, fontFamily: "'DM Sans',sans-serif" };

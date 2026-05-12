@@ -12,6 +12,7 @@ import {
   type ModelFamily,
   type Schedule,
 } from "../../shared/types.ts";
+import { dialogLabel, dialogInput, dialogCancelBtn, dialogSaveBtn, dialogChip } from "./dialog-styles.ts";
 
 const WEEKDAYS: { value: 0 | 1 | 2 | 3 | 4 | 5 | 6; label: string }[] = [
   { value: 0, label: "Sunday" },
@@ -396,59 +397,8 @@ export function CronjobDialog({
   );
 }
 
-const labelStyle: React.CSSProperties = {
-  display: "block",
-  fontSize: 11,
-  fontWeight: 600,
-  color: "var(--text-muted)",
-  marginBottom: 5,
-};
-
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "9px 12px",
-  background: "var(--bg-input)",
-  border: "1px solid var(--border)",
-  borderRadius: 8,
-  color: "var(--text-primary)",
-  fontFamily: "'JetBrains Mono',monospace",
-  fontSize: 12,
-  outline: "none",
-  boxSizing: "border-box",
-};
-
-const chipStyle: React.CSSProperties = {
-  padding: "3px 8px",
-  borderRadius: 6,
-  border: "1px solid var(--border)",
-  background: "var(--btn-surface)",
-  color: "var(--text-muted)",
-  fontSize: 10,
-  cursor: "pointer",
-  fontFamily: "'JetBrains Mono',monospace",
-  whiteSpace: "nowrap",
-  overflow: "hidden",
-  textOverflow: "ellipsis",
-  maxWidth: "100%",
-};
-
-const cancelBtnStyle: React.CSSProperties = {
-  padding: "7px 16px",
-  borderRadius: 8,
-  border: "1px solid var(--border)",
-  background: "transparent",
-  color: "var(--text-dim)",
-  fontSize: 12,
-  cursor: "pointer",
-};
-
-const saveBtnStyle: React.CSSProperties = {
-  padding: "7px 16px",
-  borderRadius: 8,
-  border: "none",
-  background: "var(--accent)",
-  color: "var(--bg-base)",
-  fontSize: 12,
-  fontWeight: 600,
-  cursor: "pointer",
-};
+const labelStyle: React.CSSProperties = dialogLabel;
+const inputStyle: React.CSSProperties = dialogInput;
+const chipStyle: React.CSSProperties = dialogChip;
+const cancelBtnStyle: React.CSSProperties = dialogCancelBtn;
+const saveBtnStyle: React.CSSProperties = dialogSaveBtn;

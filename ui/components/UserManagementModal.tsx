@@ -3,6 +3,7 @@ import { useAppState } from "../store.tsx";
 import { send, addRawListener, removeRawListener } from "../ws.ts";
 import { setUsername as saveLocalUsername, getUsername } from "../device-settings.ts";
 import type { NotifRoomsSetting, UserRecord } from "../../shared/types.ts";
+import { dialogLabel, dialogInput, dialogCancelBtn, dialogSaveBtn, dialogHint } from "./dialog-styles.ts";
 
 type ValidationStatus =
   | { kind: "idle" }
@@ -382,61 +383,12 @@ function ValidationLine({ status }: { status: ValidationStatus }) {
   return <p style={{ fontSize: 10, color: "#ff6b6b", margin: "4px 0 0" }}>{status.message}</p>;
 }
 
-const labelStyle: React.CSSProperties = {
-  display: "block",
-  fontSize: 11,
-  fontWeight: 600,
-  color: "var(--text-muted)",
-  marginTop: 18,
-  marginBottom: 6,
-};
-
-const subLabelStyle: React.CSSProperties = {
-  display: "block",
-  fontSize: 11,
-  fontWeight: 600,
-  color: "var(--text-muted)",
-  marginTop: 10,
-  marginBottom: 5,
-};
-
-const hintStyle: React.CSSProperties = {
-  fontWeight: 400,
-  color: "var(--text-ghost)",
-};
-
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "9px 12px",
-  background: "var(--bg-input)",
-  border: "1px solid var(--border)",
-  borderRadius: 8,
-  color: "var(--text-primary)",
-  fontFamily: "'JetBrains Mono',monospace",
-  fontSize: 12,
-  outline: "none",
-  boxSizing: "border-box",
-};
-
-const cancelBtnStyle: React.CSSProperties = {
-  padding: "7px 16px",
-  borderRadius: 8,
-  border: "1px solid var(--border)",
-  background: "transparent",
-  color: "var(--text-dim)",
-  fontSize: 12,
-  cursor: "pointer",
-};
-
-const saveBtnStyle: React.CSSProperties = {
-  padding: "7px 16px",
-  borderRadius: 8,
-  border: "none",
-  background: "var(--accent)",
-  color: "var(--bg-base)",
-  fontSize: 12,
-  fontWeight: 600,
-};
+const labelStyle: React.CSSProperties = { ...dialogLabel, marginTop: 18, marginBottom: 6 };
+const subLabelStyle: React.CSSProperties = { ...dialogLabel, marginTop: 10 };
+const hintStyle: React.CSSProperties = dialogHint;
+const inputStyle: React.CSSProperties = dialogInput;
+const cancelBtnStyle: React.CSSProperties = dialogCancelBtn;
+const saveBtnStyle: React.CSSProperties = dialogSaveBtn;
 
 const smallBtnStyle: React.CSSProperties = {
   padding: "4px 10px",
