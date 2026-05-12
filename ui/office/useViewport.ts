@@ -330,9 +330,9 @@ export function useViewport(currentRoomId: string, roomIds: readonly string[], l
   // Prune saved state for rooms that no longer exist. Split from the
   // restore effect so deleting a non-current room doesn't abort an in-flight
   // gesture or re-apply the current room's transform.
-  // Room IDs are persistent identities — once assigned, they don't mutate in
-  // place. Pruning is only ever needed on deletion, which drops the length,
-  // so length alone is a sufficient change detector.
+  // Keyed on the joined ID list rather than length alone so same-length
+  // replacements (e.g. import / bulk swap) also drop stale entries.
+  const roomIdsKey = roomIds.join("|");
   useEffect(() => {
     const valid = new Set(roomIdsRef.current);
     for (const key of Array.from(roomStates.current.keys())) {
@@ -340,7 +340,7 @@ export function useViewport(currentRoomId: string, roomIds: readonly string[], l
         roomStates.current.delete(key);
       }
     }
-  }, [roomIds.length]);
+  }, [roomIdsKey]);
 
   // Re-measure scene bounds when the centered scene's static transform
   // changes (embed/isMobile/mobileScale). ResizeObserver only catches

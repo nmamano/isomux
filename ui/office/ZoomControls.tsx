@@ -27,6 +27,7 @@ function ZoomButton({
 
   return (
     <button
+      type="button"
       style={{
         display: "flex",
         alignItems: "center",
