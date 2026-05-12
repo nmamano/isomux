@@ -2,7 +2,7 @@ import { join } from "path";
 import { homedir } from "os";
 import { mkdirSync, appendFileSync, readFileSync, writeFileSync, existsSync, readdirSync, renameSync } from "fs";
 import { createHash } from "crypto";
-import type { AgentInfo, Attachment, ClaudeModel, EffortLevel, LogEntry, ModelFamily, TaskItem } from "../shared/types.ts";
+import type { AgentInfo, Attachment, ClaudeModel, EffortLevel, LogEntry, ModelFamily, OfficeSettings, TaskItem } from "../shared/types.ts";
 import { familyFromLegacyModel, generateRoomId } from "../shared/types.ts";
 
 const ISOMUX_DIR = join(homedir(), ".isomux");
@@ -446,15 +446,10 @@ export function saveRecentCwd(cwd: string) {
 // Office-level settings (prompt + env file path) stored in office-config.json.
 // On first load, if the legacy office-prompt.md exists and no config file does,
 // fold the .md content into the JSON and leave the .md in place as a one-time backup.
-export interface OfficeConfig {
-  prompt: string | null;
-  envFile: string | null;
-}
-
-export function loadOfficeConfig(): OfficeConfig {
+export function loadOfficeConfig(): OfficeSettings {
   try {
     if (existsSync(OFFICE_CONFIG_FILE)) {
-      const parsed = JSON.parse(readFileSync(OFFICE_CONFIG_FILE, "utf-8")) as Partial<OfficeConfig>;
+      const parsed = JSON.parse(readFileSync(OFFICE_CONFIG_FILE, "utf-8")) as Partial<OfficeSettings>;
       return {
         prompt: typeof parsed.prompt === "string" && parsed.prompt ? parsed.prompt : null,
         envFile: typeof parsed.envFile === "string" && parsed.envFile ? parsed.envFile : null,
@@ -471,7 +466,7 @@ export function loadOfficeConfig(): OfficeConfig {
       if (raw.trim()) legacyPrompt = raw;
     }
   } catch {}
-  const config: OfficeConfig = { prompt: legacyPrompt, envFile: null };
+  const config: OfficeSettings = { prompt: legacyPrompt, envFile: null };
   // Only persist if the legacy prompt actually had content — otherwise a fresh
   // install touches a new file for no reason, and the next save/set will write
   // it anyway once there's real data.
@@ -485,7 +480,7 @@ export function loadOfficeConfig(): OfficeConfig {
   return config;
 }
 
-export function saveOfficeConfig(config: OfficeConfig) {
+export function saveOfficeConfig(config: OfficeSettings) {
   try {
     atomicWriteFileSync(OFFICE_CONFIG_FILE, JSON.stringify(config, null, 2));
   } catch (err) {

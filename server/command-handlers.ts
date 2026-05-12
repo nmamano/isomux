@@ -1,8 +1,8 @@
-import type { Attachment, AgentInfo, AgentState, LogEntry, SkillInfo, SkillOrigin } from "../shared/types.ts";
+import type { Attachment, AgentInfo, AgentState, LogEntry, OfficeSettings, RoomWire, SkillInfo, SkillOrigin } from "../shared/types.ts";
 import type { OfficeEvent } from "../shared/office-state.ts";
 import { MODEL_FAMILIES, FAMILY_TO_MODEL, EFFORT_LEVELS, familyDisplayLabel, effortDisplayLabel } from "../shared/types.ts";
 import { formatPrefix } from "../shared/identity.ts";
-import { listAgentSessions, type OfficeConfig } from "./persistence.ts";
+import { listAgentSessions } from "./persistence.ts";
 import { commands, unsupportedMessage, type CommandConfig } from "./commands.ts";
 import { buildSystemPrompt } from "./system-prompt.ts";
 import { listCronjobs, buildCronjobSystemPrompt } from "./cronjob-manager.ts";
@@ -10,7 +10,7 @@ import { resolveSkillPrompt } from "./skills.ts";
 import { renderUsageReport, formatRelativeTime } from "./usage-report.ts";
 import { computeIsomuxDiff, resolveDiffCwd } from "./isomux-diff.ts";
 import { resolveEditorPath, openFile as openEditorFile } from "./file-editor.ts";
-import { SessionSwappedError, type ManagedAgent, type InternalRoom, type AgentEvent } from "./internal-types.ts";
+import { SessionSwappedError, type ManagedAgent, type AgentEvent } from "./internal-types.ts";
 
 type HandlerFn = (agentId: string, managed: ManagedAgent, args: string[], rawText: string, username?: string, device?: string) => Promise<boolean>;
 
@@ -25,8 +25,8 @@ function buildMeta(username?: string, device?: string): Record<string, unknown> 
 interface HandlerDeps {
   // State accessors (live references — read at call time)
   agents: Map<string, ManagedAgent>;
-  getRooms: () => InternalRoom[];
-  getOfficeConfig: () => OfficeConfig;
+  getRooms: () => RoomWire[];
+  getOfficeConfig: () => OfficeSettings;
   logCache: Map<string, LogEntry[]>;
 
   // Logging / events

@@ -1,7 +1,8 @@
 import { loadSessionsMap, listAllAgentIdsOnDisk, loadAgentHistory, loadLog, type PersistedUsage } from "./persistence.ts";
 import { listCronjobs, readCronjobLifetimeUsage } from "./cronjob-manager.ts";
 import { listAllCronjobIdsOnDisk, loadCronjobHistory } from "./cronjob-persistence.ts";
-import type { ManagedAgent, InternalRoom } from "./internal-types.ts";
+import type { ManagedAgent } from "./internal-types.ts";
+import type { RoomWire } from "../shared/types.ts";
 
 // `cacheRead` is discounted cache hits; `cacheCreation` is the 1.25x write
 // tier. Raw `input_tokens` (uncached) is usually ~10 — just the new user
@@ -151,7 +152,7 @@ export function findUsageAtFork(agentId: string, parentSessionId: string, forkMe
   };
 }
 
-export function renderUsageReport(agents: Map<string, ManagedAgent>, rooms: InternalRoom[]): string {
+export function renderUsageReport(agents: Map<string, ManagedAgent>, rooms: RoomWire[]): string {
   const lines: string[] = [];
 
   lines.push(

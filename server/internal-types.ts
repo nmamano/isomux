@@ -90,15 +90,6 @@ export type AgentEvent =
 
 export type EventHandler = (event: AgentEvent) => void;
 
-// Internal room state: an ordered list of rooms, each with a stable id and its
-// own settings. Agent membership is tracked on the agents map (agent.info.room
-// is the index into this array — kept in sync for rendering).
-export interface InternalRoom {
-  id: string;
-  name: string;
-  prompt: string | null;
-}
-
 // Thrown at an in-flight turn's deferred when its session is swapped out
 // from under it (abort / resume / model switch / etc.). Callers of
 // sendMessage / executeSkill / editMessage filter this out so a user-

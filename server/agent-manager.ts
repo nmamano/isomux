@@ -25,7 +25,6 @@ import {
   saveAgentHistory,
   type PersistedAgent,
   type Room,
-  type OfficeConfig,
   type AgentHistory,
 } from "./persistence.ts";
 import { autocompleteCommands } from "./commands.ts";
@@ -121,7 +120,7 @@ export function buildUserMeta(username?: string, device?: string): Record<string
 const agents = new Map<string, ManagedAgent>();
 const logCache = new Map<string, LogEntry[]>(); // agentId → entries
 let eventHandler: EventHandler = () => {};
-const initialOfficeConfig: OfficeConfig = loadOfficeConfig();
+const initialOfficeConfig: OfficeSettings = loadOfficeConfig();
 const officeState = new OfficeState({
   rooms: [{ id: generateRoomId(), name: "Room 1", prompt: null }],
   office: { prompt: initialOfficeConfig.prompt, envFile: initialOfficeConfig.envFile },
