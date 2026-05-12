@@ -77,6 +77,14 @@ These documents are written in my voice, so I need to approve any copy changes b
 - **Compiled output:** `~/nil/nilmamano.com/public/resume/resume_nilmamano.pdf` — requires `pdflatex` / `latexmk` recompile after edits.
 - **Update when:** architecture or scope changes meaningfully (e.g., new backend, new tech in the stack list).
 
+## 10. GitHub org profile
+
+- **File:** `profile/README.md` in a separate repo, `github.com/isomux/.github`. Renders on `github.com/isomux` as the org's public landing.
+- **Audience:** Developers landing on the org page.
+- **Structure:** tagline, three links (isomux.com, source repo, Discord), and the office screenshot hot-linked from the main repo's `site/office.gif`.
+- **Update when:** the headline tagline changes (keep aligned with the README's first line) or the showcase screenshot is replaced. Rare.
+- **Deploy note:** lives in a separate repo; push directly, no CI. If the main repo is ever transferred from `nmamano/isomux` to `isomux/isomux`, update the source-code link here too.
+
 ## Secondary / internal references
 
 These aren't user-facing docs, but they do describe features and can fall out of date:
@@ -96,3 +104,4 @@ These aren't user-facing docs, but they do describe features and can fall out of
 6. `nilmamano.com/app/components/featured-projects-carousel.tsx` and `nilmamano.com/app/lib/research-projects.ts` — only if the change rises to the elevator-pitch level.
 7. `nilmamano.com/app/lib/chat-prompts.ts` — only if the one-line summary needs to change.
 8. `nilmamano.com/_source_assets/resume_nilmamano.tex` — only for architecture/stack-level changes; remember to recompile the PDF.
+9. `github.com/isomux/.github` `profile/README.md` — only if the headline tagline or showcase screenshot changes.
