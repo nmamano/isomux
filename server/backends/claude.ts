@@ -483,6 +483,13 @@ function* translateSDKMessage(
         // effecting, but persistence is a backend-level concern (not
         // orchestration) and the SDK's wire shape is the only place we
         // have the base64 bytes.
+        //
+        // DEPRECATED — the canonical path for an agent to show a file is
+        // POST /agents/:id/read-file (see emitAgentReadFile). This branch
+        // remains as a transition fallback for resumed Claude sessions
+        // whose system prompt still teaches the Read-tool convention, and
+        // for cronjob runs (which have no agent-scoped HTTP endpoint).
+        // Codex agents never hit this path; they call /read-file directly.
         let attachments: Attachment[] | undefined;
         if (Array.isArray(block.content)) {
           const atts: Attachment[] = [];

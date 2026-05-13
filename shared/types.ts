@@ -318,7 +318,8 @@ export interface LogEntry {
     | "user_message"
     | "diff"
     | "edit-request"
-    | "terminal-command";
+    | "terminal-command"
+    | "file-view";
   content: string;
   metadata?: Record<string, unknown>;
   attachments?: Attachment[]; // file attachments, served via /api/files/<agentId>/<filename>

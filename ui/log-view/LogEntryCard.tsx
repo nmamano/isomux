@@ -6,6 +6,7 @@ import { CopyButton } from "../components/CopyButton.tsx";
 import { SpeakButton } from "../components/SpeakButton.tsx";
 import { DiffCard } from "./DiffCard.tsx";
 import { EditRequestCard } from "./EditRequestCard.tsx";
+import { FileViewCard } from "./FileViewCard.tsx";
 import { TerminalCommandCard } from "./TerminalCommandCard.tsx";
 
 function EditIcon() {
@@ -389,6 +390,17 @@ export const LogEntryCard = memo(function LogEntryCard({
         <TerminalCommandCard
           payload={entry.terminal}
           onCopy={onCopyToTerminal}
+        />
+      );
+    }
+    case "file-view": {
+      if (!entry.attachments || entry.attachments.length === 0)
+        return <SystemMessage content={entry.content} isMobile={isMobile} />;
+      return (
+        <FileViewCard
+          attachments={entry.attachments}
+          agentId={entry.agentId}
+          isMobile={isMobile}
         />
       );
     }

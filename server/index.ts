@@ -33,6 +33,7 @@ import {
   deleteUser,
 } from "./users.ts";
 import { watchFile, stopWatch, type FileWatcher } from "./file-editor.ts";
+import { mimeTypeForFilename } from "./mime-types.ts";
 import { join } from "path";
 
 const browsers = new Set<ServerWebSocket<unknown>>();
@@ -1214,6 +1215,38 @@ const server = Bun.serve({
           headers: corsHeaders,
         });
       }
+      // POST /agents/:id/read-file — copy a file into the agent's files dir
+      // and emit a `file-view` card so the boss sees the file (images render
+      // inline, others render as a clickable file chip). Replaces the older
+      // "Read tool on an image → SDK extracts bytes" convention; works for
+      // both Claude and Codex agents. Body: { path }.
+      if (parts.length === 3 && parts[2] === "read-file") {
+        const corsHeaders = {
+          "Access-Control-Allow-Origin": "*",
+          "Content-Type": "application/json",
+        };
+        const agentId = parts[1];
+        let path: string | undefined;
+        try {
+          const body = (await req.json()) as Record<string, unknown> | null;
+          if (body && typeof body.path === "string") path = body.path;
+        } catch {}
+        if (!path) {
+          return new Response(JSON.stringify({ error: "missing path" }), {
+            status: 400,
+            headers: corsHeaders,
+          });
+        }
+        const result = AgentManager.emitAgentReadFile(agentId, path);
+        if (!result.ok)
+          return new Response(JSON.stringify({ error: result.error }), {
+            status: result.status,
+            headers: corsHeaders,
+          });
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: corsHeaders,
+        });
+      }
       // POST /agents/:id/terminal-command — emit a `terminal-command` card so
       // the boss can prefill the terminal panel with this command. Mirrors
       // /edit-file. Body: { command }. Single-line; not auto-executed.
@@ -1402,25 +1435,9 @@ const server = Bun.serve({
       if (!filePath) {
         return new Response("Not found", { status: 404 });
       }
-      const ext = filename.split(".").pop();
-      const mimeTypes: Record<string, string> = {
-        jpg: "image/jpeg",
-        jpeg: "image/jpeg",
-        png: "image/png",
-        gif: "image/gif",
-        webp: "image/webp",
-        pdf: "application/pdf",
-        txt: "text/plain",
-        md: "text/markdown",
-        json: "application/json",
-        csv: "text/csv",
-        xml: "text/xml",
-        html: "text/html",
-        css: "text/css",
-      };
       return new Response(Bun.file(filePath), {
         headers: {
-          "Content-Type": mimeTypes[ext!] || "application/octet-stream",
+          "Content-Type": mimeTypeForFilename(filename),
           "Cache-Control": "public, max-age=31536000, immutable",
         },
       });

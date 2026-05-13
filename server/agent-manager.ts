@@ -47,14 +47,16 @@ import {
   readEnvFile,
   loadAgentHistory,
   saveAgentHistory,
+  saveFile as savePersistedFile,
   type PersistedAgent,
   type Room,
   type AgentHistory,
 } from "./persistence.ts";
+import { mimeTypeForFilename } from "./mime-types.ts";
 import { autocompleteCommands } from "./commands.ts";
-import { join } from "path";
+import { join, basename } from "path";
 import { homedir } from "os";
-import { rmSync } from "fs";
+import { rmSync, statSync, readFileSync, existsSync } from "fs";
 import {
   resolveCwd,
   validateCwd,
@@ -954,6 +956,81 @@ export function emitAgentTerminalCommand(
   addLogEntry(agentId, "terminal-command", command, undefined, undefined, {
     terminal: { command },
   });
+  return { ok: true };
+}
+
+// Display cap for POST /agents/:id/read-file. Independent from the editor
+// panel's 1 MB text cap (file-editor.ts) — this one bounds binary/image
+// display payloads served through /api/files.
+const MAX_READ_FILE_BYTES = 20 * 1024 * 1024;
+
+// Resolve a path against the agent's cwd, copy it into the agent's files dir
+// (hash-deduped via saveFile), and emit a `file-view` log entry so the UI
+// renders the attachment inline. Replaces the older convention of asking
+// agents to Read an image so the Claude SDK's tool_result image extraction
+// would surface it. Mirrors emitAgentEditRequest's error-surface pattern:
+// path/size/io failures become system messages, not HTTP errors.
+export function emitAgentReadFile(
+  agentId: string,
+  rawPath: string,
+): { ok: true } | { ok: false; status: number; error: string } {
+  const managed = agents.get(agentId);
+  if (!managed) return { ok: false, status: 404, error: "agent not found" };
+  const resolved = resolveEditorPath(rawPath, managed.info.cwd);
+  if (resolved.kind === "bad_path") {
+    return { ok: false, status: 400, error: "missing or empty path" };
+  }
+  const absPath = resolved.path;
+  if (!existsSync(absPath)) {
+    addLogEntry(agentId, "system", `\`${absPath}\` does not exist.`);
+    return { ok: true };
+  }
+  let st;
+  try {
+    st = statSync(absPath);
+  } catch (err) {
+    addLogEntry(
+      agentId,
+      "system",
+      `Failed to read \`${absPath}\`: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return { ok: true };
+  }
+  if (!st.isFile()) {
+    addLogEntry(agentId, "system", `\`${absPath}\` is not a file.`);
+    return { ok: true };
+  }
+  if (st.size > MAX_READ_FILE_BYTES) {
+    addLogEntry(
+      agentId,
+      "system",
+      `\`${absPath}\` is ${(st.size / (1024 * 1024)).toFixed(1)} MB — too large to display (${MAX_READ_FILE_BYTES / (1024 * 1024)} MB limit).`,
+    );
+    return { ok: true };
+  }
+  let data: Buffer;
+  try {
+    data = readFileSync(absPath);
+  } catch (err) {
+    addLogEntry(
+      agentId,
+      "system",
+      `Failed to read \`${absPath}\`: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return { ok: true };
+  }
+  const originalName = basename(absPath);
+  const mediaType = mimeTypeForFilename(originalName);
+  const att = savePersistedFile(agentId, data, mediaType, originalName);
+  if (!att) {
+    addLogEntry(
+      agentId,
+      "system",
+      `Failed to save \`${absPath}\` for display.`,
+    );
+    return { ok: true };
+  }
+  addLogEntry(agentId, "file-view", originalName, undefined, [att]);
   return { ok: true };
 }
 
