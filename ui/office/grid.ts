@@ -13,8 +13,10 @@ export const DESK_SLOTS = [
 ];
 
 // Scene container dimensions and viewBox — sized wall-to-wall (left wall -355 to right wall 595)
-export const SCENE_W = 950, SCENE_H = 700;
-export const VB_X = -355, VB_Y = -100;
+export const SCENE_W = 950,
+  SCENE_H = 700;
+export const VB_X = -355,
+  VB_Y = -100;
 
 // Returns the SVG-space floor coordinate for a desk slot
 export function isoXY(row: number, col: number) {
@@ -33,7 +35,7 @@ export function isoXY(row: number, col: number) {
 export function deskPixelPos(row: number, col: number) {
   const { x, y } = isoXY(row, col);
   return {
-    left: (x - VB_X) - 90,   // center the 180px-wide desk
-    top: (y - VB_Y) - 116,   // anchor chair legs to floor point
+    left: x - VB_X - 90, // center the 180px-wide desk
+    top: y - VB_Y - 116, // anchor chair legs to floor point
   };
 }

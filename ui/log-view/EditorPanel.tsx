@@ -1,10 +1,23 @@
 import { useEffect, useRef, useCallback, useState, useMemo } from "react";
 import { EditorState, Compartment } from "@codemirror/state";
-import { EditorView, keymap, lineNumbers, highlightActiveLine } from "@codemirror/view";
-import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
+import {
+  EditorView,
+  keymap,
+  lineNumbers,
+  highlightActiveLine,
+} from "@codemirror/view";
+import {
+  defaultKeymap,
+  history,
+  historyKeymap,
+  indentWithTab,
+} from "@codemirror/commands";
 import { searchKeymap, highlightSelectionMatches } from "@codemirror/search";
 import { autocompletion, closeBrackets } from "@codemirror/autocomplete";
-import { syntaxHighlighting, defaultHighlightStyle } from "@codemirror/language";
+import {
+  syntaxHighlighting,
+  defaultHighlightStyle,
+} from "@codemirror/language";
 import { javascript } from "@codemirror/lang-javascript";
 import { json } from "@codemirror/lang-json";
 import { markdown } from "@codemirror/lang-markdown";
@@ -17,7 +30,11 @@ import { oneDark } from "@codemirror/theme-one-dark";
 import { send, addRawListener, removeRawListener } from "../ws.ts";
 import { useTheme } from "../store.tsx";
 import type { ServerMessage } from "../../shared/types.ts";
-import { getEditorState, setEditorState, type PersistedTab } from "./editor-state.ts";
+import {
+  getEditorState,
+  setEditorState,
+  type PersistedTab,
+} from "./editor-state.ts";
 
 interface Tab {
   path: string;
@@ -30,7 +47,11 @@ interface Tab {
   // pick Overwrite or Reload. "external": file changed under us while we
   // hold a clean buffer (auto-reloaded already → null) or a dirty buffer
   // (banner: "Reload? lose edits").
-  banner: null | { kind: "stale"; currentMtime: number } | { kind: "external"; mtime: number } | { kind: "save_error"; message: string };
+  banner:
+    | null
+    | { kind: "stale"; currentMtime: number }
+    | { kind: "external"; mtime: number }
+    | { kind: "save_error"; message: string };
 }
 
 const TABS_KEY = (agentId: string) => `isomux:editor:tabs:${agentId}`;
@@ -43,7 +64,9 @@ function readTabs(agentId: string): string[] {
     const arr = JSON.parse(raw);
     if (!Array.isArray(arr)) return [];
     return arr.filter((p): p is string => typeof p === "string");
-  } catch { return []; }
+  } catch {
+    return [];
+  }
 }
 
 function writeTabs(agentId: string, paths: string[]) {
@@ -55,15 +78,24 @@ function writeTabs(agentId: string, paths: string[]) {
 
 function languageExtension(language: string) {
   switch (language) {
-    case "javascript": return [javascript({ jsx: true, typescript: true })];
-    case "json": return [json()];
-    case "markdown": return [markdown()];
-    case "css": return [css()];
-    case "html": return [html()];
-    case "python": return [python()];
-    case "rust": return [rust()];
-    case "go": return [go()];
-    default: return [];
+    case "javascript":
+      return [javascript({ jsx: true, typescript: true })];
+    case "json":
+      return [json()];
+    case "markdown":
+      return [markdown()];
+    case "css":
+      return [css()];
+    case "html":
+      return [html()];
+    case "python":
+      return [python()];
+    case "rust":
+      return [rust()];
+    case "go":
+      return [go()];
+    default:
+      return [];
   }
 }
 
@@ -106,8 +138,13 @@ export function EditorPanel({
     const persisted = getEditorState(agentId);
     if (!persisted) return [];
     return persisted.tabs.map((t) => ({
-      path: t.path, content: t.content, mtime: t.mtime,
-      language: t.language, size: t.size, dirty: t.dirty, banner: null,
+      path: t.path,
+      content: t.content,
+      mtime: t.mtime,
+      language: t.language,
+      size: t.size,
+      dirty: t.dirty,
+      banner: null,
     }));
   });
   const [activePath, setActivePath] = useState<string | null>(() => {
@@ -126,30 +163,43 @@ export function EditorPanel({
   // sync effect only reconfigures when the buffer's language actually changes.
   const installedLangRef = useRef<string | null>(null);
 
-  const setTabsAndPersist = useCallback((updater: (prev: Tab[]) => Tab[]) => {
-    setTabs((prev) => {
-      const next = updater(prev);
-      writeTabs(agentId, next.map((t) => t.path));
-      return next;
-    });
-  }, [agentId]);
+  const setTabsAndPersist = useCallback(
+    (updater: (prev: Tab[]) => Tab[]) => {
+      setTabs((prev) => {
+        const next = updater(prev);
+        writeTabs(
+          agentId,
+          next.map((t) => t.path),
+        );
+        return next;
+      });
+    },
+    [agentId],
+  );
 
   // Mirror tabs + active path into the module store on every change so an
   // agent switch round-trip can restore them. Banner state is dropped on
   // purpose (see comment on the useState initializer).
   useEffect(() => {
     const snapshot: PersistedTab[] = tabs.map((t) => ({
-      path: t.path, content: t.content, mtime: t.mtime,
-      language: t.language, size: t.size, dirty: t.dirty,
+      path: t.path,
+      content: t.content,
+      mtime: t.mtime,
+      language: t.language,
+      size: t.size,
+      dirty: t.dirty,
     }));
     setEditorState(agentId, { tabs: snapshot, activePath });
   }, [agentId, tabs, activePath]);
 
   // Open a file by sending editor_open and waiting for editor_content.
-  const openPath = useCallback((path: string) => {
-    setPendingError(null);
-    send({ type: "editor_open", agentId, path });
-  }, [agentId]);
+  const openPath = useCallback(
+    (path: string) => {
+      setPendingError(null);
+      send({ type: "editor_open", agentId, path });
+    },
+    [agentId],
+  );
 
   // First mount: figure out where to load from.
   //   1. Module store (set by a previous mount of this agent's editor) wins
@@ -191,7 +241,11 @@ export function EditorPanel({
   useEffect(() => {
     const handler = (data: string) => {
       let msg: ServerMessage | null = null;
-      try { msg = JSON.parse(data) as ServerMessage; } catch { return; }
+      try {
+        msg = JSON.parse(data) as ServerMessage;
+      } catch {
+        return;
+      }
       if (!msg) return;
       if (msg.type === "editor_content" && msg.agentId === agentId) {
         const m = msg;
@@ -212,49 +266,91 @@ export function EditorPanel({
               };
             } else {
               next[idx] = {
-                path: m.path, content: m.content, mtime: m.mtime,
-                language: m.language, size: m.size, dirty: false, banner: null,
+                path: m.path,
+                content: m.content,
+                mtime: m.mtime,
+                language: m.language,
+                size: m.size,
+                dirty: false,
+                banner: null,
               };
             }
             return next;
           }
-          return [...prev, {
-            path: m.path, content: m.content, mtime: m.mtime,
-            language: m.language, size: m.size, dirty: false, banner: null,
-          }];
+          return [
+            ...prev,
+            {
+              path: m.path,
+              content: m.content,
+              mtime: m.mtime,
+              language: m.language,
+              size: m.size,
+              dirty: false,
+              banner: null,
+            },
+          ];
         });
         setActivePath((prev) => prev ?? m.path);
       } else if (msg.type === "editor_open_error" && msg.agentId === agentId) {
         const m = msg;
-        const reason = m.reason === "not_found" ? "not found" :
-          m.reason === "not_file" ? "not a file" :
-          m.reason === "binary" ? "binary file (text only)" :
-          m.reason === "too_large" ? `too large (${m.size ? (m.size / 1024).toFixed(1) + " KB" : ""}, 1 MB limit)` :
-          m.reason === "io_error" ? `error: ${m.message ?? "unknown"}` :
-          "bad path";
+        const reason =
+          m.reason === "not_found"
+            ? "not found"
+            : m.reason === "not_file"
+              ? "not a file"
+              : m.reason === "binary"
+                ? "binary file (text only)"
+                : m.reason === "too_large"
+                  ? `too large (${m.size ? (m.size / 1024).toFixed(1) + " KB" : ""}, 1 MB limit)`
+                  : m.reason === "io_error"
+                    ? `error: ${m.message ?? "unknown"}`
+                    : "bad path";
         setPendingError(`${m.path}: ${reason}`);
-      } else if (msg.type === "editor_save_response" && msg.agentId === agentId) {
+      } else if (
+        msg.type === "editor_save_response" &&
+        msg.agentId === agentId
+      ) {
         const m = msg;
-        setTabsAndPersist((prev) => prev.map((t) => {
-          if (t.path !== m.path) return t;
-          if (m.ok) {
-            return { ...t, mtime: m.mtime ?? t.mtime, dirty: false, banner: null };
-          }
-          if (m.reason === "stale" && m.currentMtime !== undefined) {
-            return { ...t, banner: { kind: "stale", currentMtime: m.currentMtime } };
-          }
-          return { ...t, banner: { kind: "save_error", message: m.error ?? "save failed" } };
-        }));
-      } else if (msg.type === "editor_external_change" && msg.agentId === agentId) {
+        setTabsAndPersist((prev) =>
+          prev.map((t) => {
+            if (t.path !== m.path) return t;
+            if (m.ok) {
+              return {
+                ...t,
+                mtime: m.mtime ?? t.mtime,
+                dirty: false,
+                banner: null,
+              };
+            }
+            if (m.reason === "stale" && m.currentMtime !== undefined) {
+              return {
+                ...t,
+                banner: { kind: "stale", currentMtime: m.currentMtime },
+              };
+            }
+            return {
+              ...t,
+              banner: { kind: "save_error", message: m.error ?? "save failed" },
+            };
+          }),
+        );
+      } else if (
+        msg.type === "editor_external_change" &&
+        msg.agentId === agentId
+      ) {
         const m = msg;
         // Decide outside the state updater so React strict-mode's double
         // invocation doesn't fire two `editor_open` round-trips.
         const existing = tabsRef.current.find((t) => t.path === m.path);
         if (!existing) return;
         if (existing.dirty) {
-          setTabsAndPersist((prev) => prev.map((t) =>
-            t.path === m.path ? { ...t, banner: { kind: "external", mtime: m.mtime } } : t
-          ));
+          setTabsAndPersist((prev) =>
+            prev.map((t) =>
+              t.path === m.path
+                ? { ...t, banner: { kind: "external", mtime: m.mtime } }
+                : t,
+            ),
+          );
         } else {
           // Clean buffer → silently re-fetch by triggering an open.
           send({ type: "editor_open", agentId, path: m.path });
@@ -288,11 +384,13 @@ export function EditorPanel({
       const path = activePathRef.current;
       if (!path) return;
       const text = update.state.doc.toString();
-      setTabsAndPersist((prev) => prev.map((t) => {
-        if (t.path !== path) return t;
-        if (t.content === text) return t;
-        return { ...t, content: text, dirty: true };
-      }));
+      setTabsAndPersist((prev) =>
+        prev.map((t) => {
+          if (t.path !== path) return t;
+          if (t.content === text) return t;
+          return { ...t, content: text, dirty: true };
+        }),
+      );
     });
 
     // Mobile gets a leaner extension set: no gutter (eats ~40px on a 390px
@@ -317,15 +415,21 @@ export function EditorPanel({
             indentWithTab,
           ]),
           EditorView.lineWrapping,
-          ...(mobile ? [
-            EditorView.contentAttributes.of({
-              autocorrect: "off",
-              autocapitalize: "off",
-              spellcheck: "false",
-            }),
-          ] : []),
+          ...(mobile
+            ? [
+                EditorView.contentAttributes.of({
+                  autocorrect: "off",
+                  autocapitalize: "off",
+                  spellcheck: "false",
+                }),
+              ]
+            : []),
           langCompartmentRef.current.of([]),
-          themeCompartmentRef.current.of(theme === "dark" ? oneDark : syntaxHighlighting(defaultHighlightStyle)),
+          themeCompartmentRef.current.of(
+            theme === "dark"
+              ? oneDark
+              : syntaxHighlighting(defaultHighlightStyle),
+          ),
           readonlyCompartmentRef.current.of([]),
           updateListener,
         ],
@@ -345,7 +449,9 @@ export function EditorPanel({
     const view = viewRef.current;
     if (!view) return;
     view.dispatch({
-      effects: themeCompartmentRef.current.reconfigure(theme === "dark" ? oneDark : syntaxHighlighting(defaultHighlightStyle)),
+      effects: themeCompartmentRef.current.reconfigure(
+        theme === "dark" ? oneDark : syntaxHighlighting(defaultHighlightStyle),
+      ),
     });
   }, [theme]);
 
@@ -359,7 +465,9 @@ export function EditorPanel({
     if (!view) return;
     if (!activePath) {
       if (view.state.doc.length > 0) {
-        view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: "" } });
+        view.dispatch({
+          changes: { from: 0, to: view.state.doc.length, insert: "" },
+        });
       }
       if (installedLangRef.current !== null) {
         view.dispatch({ effects: langCompartmentRef.current.reconfigure([]) });
@@ -371,10 +479,16 @@ export function EditorPanel({
     if (!tab) return;
     const current = view.state.doc.toString();
     if (current !== tab.content) {
-      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: tab.content } });
+      view.dispatch({
+        changes: { from: 0, to: view.state.doc.length, insert: tab.content },
+      });
     }
     if (installedLangRef.current !== tab.language) {
-      view.dispatch({ effects: langCompartmentRef.current.reconfigure(languageExtension(tab.language)) });
+      view.dispatch({
+        effects: langCompartmentRef.current.reconfigure(
+          languageExtension(tab.language),
+        ),
+      });
       installedLangRef.current = tab.language;
     }
   }, [tabs, activePath]);
@@ -384,7 +498,13 @@ export function EditorPanel({
     if (!path) return;
     const tab = tabsRef.current.find((t) => t.path === path);
     if (!tab) return;
-    send({ type: "editor_save", agentId, path, content: tab.content, expectedMtime: tab.mtime });
+    send({
+      type: "editor_save",
+      agentId,
+      path,
+      content: tab.content,
+      expectedMtime: tab.mtime,
+    });
   }, [agentId]);
 
   // Save with Ctrl+S / Cmd+S — must capture to suppress browser save dialog.
@@ -414,24 +534,30 @@ export function EditorPanel({
       setTabMenuOpen(false);
     }
     document.addEventListener("pointerdown", onPointerDown, true);
-    return () => document.removeEventListener("pointerdown", onPointerDown, true);
+    return () =>
+      document.removeEventListener("pointerdown", onPointerDown, true);
   }, [tabMenuOpen]);
 
-  const closeTab = useCallback((path: string) => {
-    send({ type: "editor_close", agentId, path });
-    setTabsAndPersist((prev) => prev.filter((t) => t.path !== path));
-    setActivePath((prev) => {
-      if (prev !== path) return prev;
-      const remaining = tabsRef.current.filter((t) => t.path !== path);
-      return remaining.length > 0 ? remaining[remaining.length - 1]!.path : null;
-    });
-    // If we just closed the last tab, force the mobile dropdown shut so a
-    // fresh editor_content arrival (e.g. an EditRequestCard tap) doesn't
-    // surprise the user by re-opening the menu they thought they'd left.
-    if (tabsRef.current.length <= 1) {
-      setTabMenuOpen(false);
-    }
-  }, [agentId, setTabsAndPersist]);
+  const closeTab = useCallback(
+    (path: string) => {
+      send({ type: "editor_close", agentId, path });
+      setTabsAndPersist((prev) => prev.filter((t) => t.path !== path));
+      setActivePath((prev) => {
+        if (prev !== path) return prev;
+        const remaining = tabsRef.current.filter((t) => t.path !== path);
+        return remaining.length > 0
+          ? remaining[remaining.length - 1]!.path
+          : null;
+      });
+      // If we just closed the last tab, force the mobile dropdown shut so a
+      // fresh editor_content arrival (e.g. an EditRequestCard tap) doesn't
+      // surprise the user by re-opening the menu they thought they'd left.
+      if (tabsRef.current.length <= 1) {
+        setTabMenuOpen(false);
+      }
+    },
+    [agentId, setTabsAndPersist],
+  );
 
   const activeTab = useMemo(
     () => tabs.find((t) => t.path === activePath) ?? null,
@@ -442,8 +568,12 @@ export function EditorPanel({
     if (!activeTab) return;
     // Force-save: bypass mtime check.
     send({
-      type: "editor_save", agentId, path: activeTab.path,
-      content: activeTab.content, expectedMtime: activeTab.mtime, force: true,
+      type: "editor_save",
+      agentId,
+      path: activeTab.path,
+      content: activeTab.content,
+      expectedMtime: activeTab.mtime,
+      force: true,
     });
   }, [activeTab, agentId]);
 
@@ -454,9 +584,9 @@ export function EditorPanel({
 
   const dismissBanner = useCallback(() => {
     if (!activeTab) return;
-    setTabsAndPersist((prev) => prev.map((t) =>
-      t.path === activeTab.path ? { ...t, banner: null } : t
-    ));
+    setTabsAndPersist((prev) =>
+      prev.map((t) => (t.path === activeTab.path ? { ...t, banner: null } : t)),
+    );
   }, [activeTab, setTabsAndPersist]);
 
   return (
@@ -492,15 +622,17 @@ export function EditorPanel({
           }}
         >
           {tabs.length === 0 ? (
-            <div style={{
-              flex: 1,
-              fontSize: 12,
-              color: "var(--text-dim)",
-              padding: "0 12px",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}>
+            <div
+              style={{
+                flex: 1,
+                fontSize: 12,
+                color: "var(--text-dim)",
+                padding: "0 12px",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
               No file open
             </div>
           ) : (
@@ -525,19 +657,25 @@ export function EditorPanel({
               }}
               title={activeTab?.path ?? ""}
             >
-              <span style={{
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-                minWidth: 0,
-              }}>
-                {activeTab ? basename(activeTab.path) + (activeTab.dirty ? "*" : "") : "Select file"}
+              <span
+                style={{
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  minWidth: 0,
+                }}
+              >
+                {activeTab
+                  ? basename(activeTab.path) + (activeTab.dirty ? "*" : "")
+                  : "Select file"}
               </span>
-              <span style={{
-                fontSize: 11,
-                color: "var(--text-muted)",
-                flexShrink: 0,
-              }}>
+              <span
+                style={{
+                  fontSize: 11,
+                  color: "var(--text-muted)",
+                  flexShrink: 0,
+                }}
+              >
                 {tabs.length > 1 ? `▼ ${tabs.length}` : "▼"}
               </span>
             </button>
@@ -601,7 +739,10 @@ export function EditorPanel({
                 return (
                   <div
                     key={t.path}
-                    onClick={() => { setActivePath(t.path); setTabMenuOpen(false); }}
+                    onClick={() => {
+                      setActivePath(t.path);
+                      setTabMenuOpen(false);
+                    }}
                     style={{
                       display: "flex",
                       alignItems: "center",
@@ -609,25 +750,35 @@ export function EditorPanel({
                       padding: "10px 12px",
                       fontFamily: "'JetBrains Mono', monospace",
                       fontSize: 13,
-                      color: isActive ? "var(--text-primary)" : "var(--text-secondary)",
+                      color: isActive
+                        ? "var(--text-primary)"
+                        : "var(--text-secondary)",
                       background: isActive ? "var(--bg-base)" : "transparent",
-                      borderLeft: isActive ? "3px solid var(--green)" : "3px solid transparent",
+                      borderLeft: isActive
+                        ? "3px solid var(--green)"
+                        : "3px solid transparent",
                       borderBottom: "1px solid var(--border)",
                       cursor: "pointer",
                     }}
                     title={t.path}
                   >
-                    <span style={{
-                      flex: 1,
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                      minWidth: 0,
-                    }}>
-                      {basename(t.path)}{t.dirty ? "*" : ""}
+                    <span
+                      style={{
+                        flex: 1,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        minWidth: 0,
+                      }}
+                    >
+                      {basename(t.path)}
+                      {t.dirty ? "*" : ""}
                     </span>
                     <button
-                      onClick={(e) => { e.stopPropagation(); closeTab(t.path); }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        closeTab(t.path);
+                      }}
                       style={{
                         background: "none",
                         border: "none",
@@ -670,14 +821,22 @@ export function EditorPanel({
         >
           <div style={{ display: "flex", flex: 1, minWidth: 0 }}>
             {tabs.length === 0 && (
-              <div style={{
-                fontSize: 11,
-                color: "var(--text-dim)",
-                padding: "0 12px",
-                display: "flex",
-                alignItems: "center",
-              }}>
-                No file open. Use <code style={{ margin: "0 4px", color: "var(--text-secondary)" }}>/isomux-edit &lt;path&gt;</code> or have the agent send one.
+              <div
+                style={{
+                  fontSize: 11,
+                  color: "var(--text-dim)",
+                  padding: "0 12px",
+                  display: "flex",
+                  alignItems: "center",
+                }}
+              >
+                No file open. Use{" "}
+                <code
+                  style={{ margin: "0 4px", color: "var(--text-secondary)" }}
+                >
+                  /isomux-edit &lt;path&gt;
+                </code>{" "}
+                or have the agent send one.
               </div>
             )}
             {tabs.map((t) => (
@@ -691,26 +850,38 @@ export function EditorPanel({
                   padding: "0 8px 0 12px",
                   fontFamily: "'JetBrains Mono',monospace",
                   fontSize: 11,
-                  color: t.path === activePath ? "var(--text-secondary)" : "var(--text-muted)",
-                  background: t.path === activePath ? "var(--bg-base)" : "transparent",
+                  color:
+                    t.path === activePath
+                      ? "var(--text-secondary)"
+                      : "var(--text-muted)",
+                  background:
+                    t.path === activePath ? "var(--bg-base)" : "transparent",
                   borderRight: "1px solid var(--border)",
                   cursor: "pointer",
                   flexShrink: 0,
                   maxWidth: 200,
                   position: "relative",
-                  ...(t.path === activePath ? { borderTop: "2px solid var(--green)" } : {}),
+                  ...(t.path === activePath
+                    ? { borderTop: "2px solid var(--green)" }
+                    : {}),
                 }}
                 title={t.path}
               >
-                <span style={{
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                }}>
-                  {basename(t.path)}{t.dirty ? "*" : ""}
+                <span
+                  style={{
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {basename(t.path)}
+                  {t.dirty ? "*" : ""}
                 </span>
                 <button
-                  onClick={(e) => { e.stopPropagation(); closeTab(t.path); }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    closeTab(t.path);
+                  }}
                   style={{
                     background: "none",
                     border: "none",
@@ -748,53 +919,93 @@ export function EditorPanel({
 
       {/* Banner row (per active tab) */}
       {activeTab?.banner && (
-        <div style={{
-          padding: "6px 12px",
-          background: activeTab.banner.kind === "save_error" ? "var(--red-bg)" : "var(--orange-bg)",
-          borderBottom: "1px solid var(--border)",
-          fontSize: 12,
-          color: activeTab.banner.kind === "save_error" ? "var(--red)" : "var(--orange)",
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-          flexWrap: "wrap",
-        }}>
+        <div
+          style={{
+            padding: "6px 12px",
+            background:
+              activeTab.banner.kind === "save_error"
+                ? "var(--red-bg)"
+                : "var(--orange-bg)",
+            borderBottom: "1px solid var(--border)",
+            fontSize: 12,
+            color:
+              activeTab.banner.kind === "save_error"
+                ? "var(--red)"
+                : "var(--orange)",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            flexWrap: "wrap",
+          }}
+        >
           {activeTab.banner.kind === "stale" && (
             <>
-              <span style={{ flex: 1 }}>File changed on disk since you opened it.</span>
-              <button onClick={overwrite} style={bannerBtn("var(--orange)")}>Overwrite</button>
-              <button onClick={reloadFromDisk} style={bannerBtn("var(--text-secondary)")}>Reload</button>
+              <span style={{ flex: 1 }}>
+                File changed on disk since you opened it.
+              </span>
+              <button onClick={overwrite} style={bannerBtn("var(--orange)")}>
+                Overwrite
+              </button>
+              <button
+                onClick={reloadFromDisk}
+                style={bannerBtn("var(--text-secondary)")}
+              >
+                Reload
+              </button>
             </>
           )}
           {activeTab.banner.kind === "external" && (
             <>
-              <span style={{ flex: 1 }}>File changed externally — your edits will be lost if you reload.</span>
-              <button onClick={reloadFromDisk} style={bannerBtn("var(--orange)")}>Reload</button>
-              <button onClick={dismissBanner} style={bannerBtn("var(--text-secondary)")}>Dismiss</button>
+              <span style={{ flex: 1 }}>
+                File changed externally — your edits will be lost if you reload.
+              </span>
+              <button
+                onClick={reloadFromDisk}
+                style={bannerBtn("var(--orange)")}
+              >
+                Reload
+              </button>
+              <button
+                onClick={dismissBanner}
+                style={bannerBtn("var(--text-secondary)")}
+              >
+                Dismiss
+              </button>
             </>
           )}
           {activeTab.banner.kind === "save_error" && (
             <>
-              <span style={{ flex: 1 }}>Save failed: {activeTab.banner.message}</span>
-              <button onClick={dismissBanner} style={bannerBtn("var(--red)")}>Dismiss</button>
+              <span style={{ flex: 1 }}>
+                Save failed: {activeTab.banner.message}
+              </span>
+              <button onClick={dismissBanner} style={bannerBtn("var(--red)")}>
+                Dismiss
+              </button>
             </>
           )}
         </div>
       )}
 
       {pendingError && (
-        <div style={{
-          padding: "6px 12px",
-          background: "var(--red-bg)",
-          borderBottom: "1px solid var(--border)",
-          fontSize: 12,
-          color: "var(--red)",
-          display: "flex",
-          alignItems: "center",
-          gap: 8,
-        }}>
+        <div
+          style={{
+            padding: "6px 12px",
+            background: "var(--red-bg)",
+            borderBottom: "1px solid var(--border)",
+            fontSize: 12,
+            color: "var(--red)",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
           <span style={{ flex: 1 }}>{pendingError}</span>
-          <button onClick={() => setPendingError(null)} style={bannerBtn("var(--red)")}>Dismiss</button>
+          <button
+            onClick={() => setPendingError(null)}
+            style={bannerBtn("var(--red)")}
+          >
+            Dismiss
+          </button>
         </div>
       )}
 
@@ -814,25 +1025,38 @@ export function EditorPanel({
           key on touch). The bottom safe-area inset is handled by the outer
           overlay container in LogView, so the footer keeps a flat 4px pad. */}
       {activeTab && (
-        <div style={{
-          padding: "4px 12px",
-          fontSize: 11,
-          color: "var(--text-dim)",
-          background: "var(--bg-surface)",
-          borderTop: "1px solid var(--border)",
-          display: "flex",
-          gap: 12,
-          fontFamily: "'JetBrains Mono', monospace",
-          flexShrink: 0,
-        }}>
+        <div
+          style={{
+            padding: "4px 12px",
+            fontSize: 11,
+            color: "var(--text-dim)",
+            background: "var(--bg-surface)",
+            borderTop: "1px solid var(--border)",
+            display: "flex",
+            gap: 12,
+            fontFamily: "'JetBrains Mono', monospace",
+            flexShrink: 0,
+          }}
+        >
           {!mobile && (
-            <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{activeTab.path}</span>
+            <span
+              style={{
+                flex: 1,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {activeTab.path}
+            </span>
           )}
           {mobile && <span style={{ flex: 1 }} />}
           <span>{activeTab.language}</span>
           <span>{activeTab.dirty ? "modified" : "saved"}</span>
           {!mobile && (
-            <span title="Ctrl+S to save">{(navigator.platform || "").includes("Mac") ? "⌘S" : "Ctrl+S"}</span>
+            <span title="Ctrl+S to save">
+              {(navigator.platform || "").includes("Mac") ? "⌘S" : "Ctrl+S"}
+            </span>
           )}
         </div>
       )}

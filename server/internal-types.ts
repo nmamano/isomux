@@ -1,4 +1,9 @@
-import type { AgentInfo, LogEntry, QueuedMessage, SkillInfo } from "../shared/types.ts";
+import type {
+  AgentInfo,
+  LogEntry,
+  QueuedMessage,
+  SkillInfo,
+} from "../shared/types.ts";
 import type { BackendSession } from "./backends/types.ts";
 import type { OfficeEvent } from "../shared/office-state.ts";
 
@@ -45,7 +50,11 @@ export interface ManagedAgent {
   topicGenToken: number;
   // /resume two-step state
   pendingResume: boolean;
-  pendingResumeSessions: { sessionId: string; lastModified: number; topic: string | null }[];
+  pendingResumeSessions: {
+    sessionId: string;
+    lastModified: number;
+    topic: string | null;
+  }[];
   // /model two-step state
   pendingModelPick: boolean;
   // /effort two-step state
@@ -84,7 +93,12 @@ export type AgentEvent =
   | OfficeEvent
   | { type: "log_entry"; entry: LogEntry }
   | { type: "clear_logs"; agentId: string }
-  | { type: "slash_commands"; agentId: string; commands: { name: string; description?: string }[]; skills: SkillInfo[] }
+  | {
+      type: "slash_commands";
+      agentId: string;
+      commands: { name: string; description?: string }[];
+      skills: SkillInfo[];
+    }
   | { type: "terminal_output"; agentId: string; data: string }
   | { type: "terminal_exit"; agentId: string; exitCode: number };
 

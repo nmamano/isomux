@@ -11,7 +11,13 @@
 //         <sessionId>.jsonl            append-only log
 import { join } from "path";
 import { homedir } from "os";
-import { mkdirSync, readFileSync, existsSync, appendFileSync, readdirSync } from "fs";
+import {
+  mkdirSync,
+  readFileSync,
+  existsSync,
+  appendFileSync,
+  readdirSync,
+} from "fs";
 import type { Cronjob, CronjobRun, LogEntry } from "../shared/types.ts";
 import { atomicWriteFileSync, type PersistedUsage } from "./persistence.ts";
 
@@ -21,7 +27,9 @@ const CRONJOBS_FILE = join(CRONJOBS_DIR, "cronjobs.json");
 const CRONJOB_HISTORY_FILE = join(CRONJOBS_DIR, "cronjob-history.json");
 const CRONJOBS_PROMPT_FILE = join(CRONJOBS_DIR, "cronjobs-prompt.md");
 
-try { mkdirSync(CRONJOBS_DIR, { recursive: true }); } catch {}
+try {
+  mkdirSync(CRONJOBS_DIR, { recursive: true });
+} catch {}
 
 // Cronjobs system prompt — owned by cronjob-manager and stored in its own
 // file, not folded into office-config.json. Two managers writing the same
@@ -54,7 +62,10 @@ export function migrateCronjobsPromptFromOfficeConfig() {
     const officePath = join(ISOMUX_DIR, "office-config.json");
     if (!existsSync(officePath)) return;
     const parsed = JSON.parse(readFileSync(officePath, "utf-8"));
-    if (typeof parsed.cronjobsPrompt === "string" && parsed.cronjobsPrompt.trim()) {
+    if (
+      typeof parsed.cronjobsPrompt === "string" &&
+      parsed.cronjobsPrompt.trim()
+    ) {
       atomicWriteFileSync(CRONJOBS_PROMPT_FILE, parsed.cronjobsPrompt);
     }
   } catch {}
@@ -67,7 +78,9 @@ export function migrateCronjobsPromptFromOfficeConfig() {
 export function loadCronjobs(): Cronjob[] {
   try {
     if (!existsSync(CRONJOBS_FILE)) return [];
-    const records = JSON.parse(readFileSync(CRONJOBS_FILE, "utf-8")) as Array<Cronjob & { device?: string | null }>;
+    const records = JSON.parse(readFileSync(CRONJOBS_FILE, "utf-8")) as Array<
+      Cronjob & { device?: string | null }
+    >;
     // Migrate legacy `device` field → `username` (the field's actual semantics
     // has always been "the boss's name").
     let migrated = 0;
@@ -79,7 +92,9 @@ export function loadCronjobs(): Cronjob[] {
       delete (r as any).device;
     }
     if (migrated > 0) {
-      console.log(`[migration] migrated ${migrated} cronjob(s) from device → username`);
+      console.log(
+        `[migration] migrated ${migrated} cronjob(s) from device → username`,
+      );
     }
     return records;
   } catch (err) {
@@ -101,7 +116,9 @@ export type CronjobHistory = Record<string, { lastName: string }>;
 export function loadCronjobHistory(): CronjobHistory {
   try {
     if (!existsSync(CRONJOB_HISTORY_FILE)) return {};
-    return JSON.parse(readFileSync(CRONJOB_HISTORY_FILE, "utf-8")) as CronjobHistory;
+    return JSON.parse(
+      readFileSync(CRONJOB_HISTORY_FILE, "utf-8"),
+    ) as CronjobHistory;
   } catch {
     return {};
   }
@@ -135,7 +152,11 @@ function sessionsMapFile(jobId: string, runId: string): string {
   return join(runDir(jobId, runId), "sessions.json");
 }
 
-function sessionLogFile(jobId: string, runId: string, sessionId: string): string {
+function sessionLogFile(
+  jobId: string,
+  runId: string,
+  sessionId: string,
+): string {
   return join(runDir(jobId, runId), `${sessionId}.jsonl`);
 }
 
@@ -166,7 +187,11 @@ export function appendRun(jobId: string, run: CronjobRun) {
   saveRuns(jobId, runs);
 }
 
-export function updateRun(jobId: string, runId: string, patch: Partial<CronjobRun>): CronjobRun | null {
+export function updateRun(
+  jobId: string,
+  runId: string,
+  patch: Partial<CronjobRun>,
+): CronjobRun | null {
   const runs = loadRuns(jobId);
   const idx = runs.findIndex((r) => r.id === runId);
   if (idx < 0) return null;
@@ -200,18 +225,24 @@ export function listAllCronjobIdsOnDisk(): string[] {
 // ---------------------------------------------------------------------------
 
 type UsageSnapshot = { entryId: string; usage: PersistedUsage };
-type RunSessionsMap = Record<string, {
-  topic: string | null;
-  lastModified: number;
-  forkedFrom?: string;
-  forkMessageId?: string;
-  usage?: PersistedUsage;
-  priorRunsUsage?: PersistedUsage;
-  forkBaseUsage?: PersistedUsage;
-  usageSnapshots?: UsageSnapshot[];
-}>;
+type RunSessionsMap = Record<
+  string,
+  {
+    topic: string | null;
+    lastModified: number;
+    forkedFrom?: string;
+    forkMessageId?: string;
+    usage?: PersistedUsage;
+    priorRunsUsage?: PersistedUsage;
+    forkBaseUsage?: PersistedUsage;
+    usageSnapshots?: UsageSnapshot[];
+  }
+>;
 
-export function loadRunSessionsMap(jobId: string, runId: string): RunSessionsMap {
+export function loadRunSessionsMap(
+  jobId: string,
+  runId: string,
+): RunSessionsMap {
   try {
     const file = sessionsMapFile(jobId, runId);
     if (!existsSync(file)) return {};
@@ -224,7 +255,10 @@ export function loadRunSessionsMap(jobId: string, runId: string): RunSessionsMap
 function saveRunSessionsMap(jobId: string, runId: string, map: RunSessionsMap) {
   try {
     mkdirSync(runDir(jobId, runId), { recursive: true });
-    atomicWriteFileSync(sessionsMapFile(jobId, runId), JSON.stringify(map, null, 2));
+    atomicWriteFileSync(
+      sessionsMapFile(jobId, runId),
+      JSON.stringify(map, null, 2),
+    );
   } catch (err) {
     console.error(`Failed to save run sessions map ${jobId}/${runId}:`, err);
   }
@@ -288,8 +322,10 @@ export function findUsageAtForkRun(
   return {
     inputTokens: (u?.inputTokens ?? 0) + (p?.inputTokens ?? 0),
     outputTokens: (u?.outputTokens ?? 0) + (p?.outputTokens ?? 0),
-    cacheReadInputTokens: (u?.cacheReadInputTokens ?? 0) + (p?.cacheReadInputTokens ?? 0),
-    cacheCreationInputTokens: (u?.cacheCreationInputTokens ?? 0) + (p?.cacheCreationInputTokens ?? 0),
+    cacheReadInputTokens:
+      (u?.cacheReadInputTokens ?? 0) + (p?.cacheReadInputTokens ?? 0),
+    cacheCreationInputTokens:
+      (u?.cacheCreationInputTokens ?? 0) + (p?.cacheCreationInputTokens ?? 0),
     costUSD: (u?.costUSD ?? 0) + (p?.costUSD ?? 0),
   };
 }
@@ -298,21 +334,39 @@ export function findUsageAtForkRun(
 // cumulative-per-process, so a resumed session's counter starts from zero.
 // Roll the current-run usage into the prior-runs accumulator before the
 // resume call so lifetime cost survives the reset.
-export function rollRunSessionUsageOnResume(jobId: string, runId: string, sessionId: string) {
+export function rollRunSessionUsageOnResume(
+  jobId: string,
+  runId: string,
+  sessionId: string,
+) {
   const map = loadRunSessionsMap(jobId, runId);
   const existing = map[sessionId];
   if (!existing?.usage) return;
   const u = existing.usage;
-  if (u.costUSD === 0 && u.inputTokens === 0 && u.outputTokens === 0 && u.cacheReadInputTokens === 0 && u.cacheCreationInputTokens === 0) return;
+  if (
+    u.costUSD === 0 &&
+    u.inputTokens === 0 &&
+    u.outputTokens === 0 &&
+    u.cacheReadInputTokens === 0 &&
+    u.cacheCreationInputTokens === 0
+  )
+    return;
   const prior = existing.priorRunsUsage;
   const rolled: PersistedUsage = {
     inputTokens: (prior?.inputTokens ?? 0) + u.inputTokens,
     outputTokens: (prior?.outputTokens ?? 0) + u.outputTokens,
-    cacheReadInputTokens: (prior?.cacheReadInputTokens ?? 0) + u.cacheReadInputTokens,
-    cacheCreationInputTokens: (prior?.cacheCreationInputTokens ?? 0) + u.cacheCreationInputTokens,
+    cacheReadInputTokens:
+      (prior?.cacheReadInputTokens ?? 0) + u.cacheReadInputTokens,
+    cacheCreationInputTokens:
+      (prior?.cacheCreationInputTokens ?? 0) + u.cacheCreationInputTokens,
     costUSD: (prior?.costUSD ?? 0) + u.costUSD,
   };
-  map[sessionId] = { ...existing, priorRunsUsage: rolled, usage: undefined, lastModified: Date.now() };
+  map[sessionId] = {
+    ...existing,
+    priorRunsUsage: rolled,
+    usage: undefined,
+    lastModified: Date.now(),
+  };
   saveRunSessionsMap(jobId, runId, map);
 }
 
@@ -329,8 +383,11 @@ export function accumulateRunSessionUsage(
   const next: PersistedUsage = {
     inputTokens: (prev?.inputTokens ?? 0) + turnTokens.inputTokens,
     outputTokens: (prev?.outputTokens ?? 0) + turnTokens.outputTokens,
-    cacheReadInputTokens: (prev?.cacheReadInputTokens ?? 0) + turnTokens.cacheReadInputTokens,
-    cacheCreationInputTokens: (prev?.cacheCreationInputTokens ?? 0) + turnTokens.cacheCreationInputTokens,
+    cacheReadInputTokens:
+      (prev?.cacheReadInputTokens ?? 0) + turnTokens.cacheReadInputTokens,
+    cacheCreationInputTokens:
+      (prev?.cacheCreationInputTokens ?? 0) +
+      turnTokens.cacheCreationInputTokens,
     costUSD: runCostUSD,
   };
   map[sessionId] = { ...existing, usage: next, lastModified: Date.now() };
@@ -354,7 +411,11 @@ export function appendRunSessionUsageSnapshot(
   } else {
     snapshots.push({ entryId, usage });
   }
-  map[sessionId] = { ...existing, usageSnapshots: snapshots, lastModified: Date.now() };
+  map[sessionId] = {
+    ...existing,
+    usageSnapshots: snapshots,
+    lastModified: Date.now(),
+  };
   saveRunSessionsMap(jobId, runId, map);
 }
 
@@ -362,16 +423,31 @@ export function appendRunSessionUsageSnapshot(
 // Per-run JSONL append + load
 // ---------------------------------------------------------------------------
 
-export function appendRunLog(jobId: string, runId: string, sessionId: string, entry: LogEntry) {
+export function appendRunLog(
+  jobId: string,
+  runId: string,
+  sessionId: string,
+  entry: LogEntry,
+) {
   try {
     mkdirSync(runDir(jobId, runId), { recursive: true });
-    appendFileSync(sessionLogFile(jobId, runId, sessionId), JSON.stringify(entry) + "\n");
+    appendFileSync(
+      sessionLogFile(jobId, runId, sessionId),
+      JSON.stringify(entry) + "\n",
+    );
   } catch (err) {
-    console.error(`Failed to write run log ${jobId}/${runId}/${sessionId}:`, err);
+    console.error(
+      `Failed to write run log ${jobId}/${runId}/${sessionId}:`,
+      err,
+    );
   }
 }
 
-export function loadRunLog(jobId: string, runId: string, sessionId: string): LogEntry[] {
+export function loadRunLog(
+  jobId: string,
+  runId: string,
+  sessionId: string,
+): LogEntry[] {
   try {
     const file = sessionLogFile(jobId, runId, sessionId);
     if (!existsSync(file)) return [];
@@ -379,7 +455,10 @@ export function loadRunLog(jobId: string, runId: string, sessionId: string): Log
     if (!content) return [];
     return content.split("\n").map((line) => JSON.parse(line) as LogEntry);
   } catch (err) {
-    console.error(`Failed to load run log ${jobId}/${runId}/${sessionId}:`, err);
+    console.error(
+      `Failed to load run log ${jobId}/${runId}/${sessionId}:`,
+      err,
+    );
     return [];
   }
 }
@@ -387,7 +466,11 @@ export function loadRunLog(jobId: string, runId: string, sessionId: string): Log
 // Walk the fork chain and concatenate ancestor log entries the same way
 // loadLogWithAncestors does for agents. For v1 cronjobs, runs typically have a
 // single root session, but the structure supports forks via the same mechanism.
-export function loadRunLogWithAncestors(jobId: string, runId: string, sessionId: string): LogEntry[] {
+export function loadRunLogWithAncestors(
+  jobId: string,
+  runId: string,
+  sessionId: string,
+): LogEntry[] {
   const sessionsMap = loadRunSessionsMap(jobId, runId);
   const chain: { sessionId: string; forkMessageId?: string }[] = [];
   let current: string | undefined = sessionId;

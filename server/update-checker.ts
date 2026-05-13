@@ -30,7 +30,10 @@ let onChange: ((s: UpdateStatus) => void) | null = null;
 function getLocalCommit(): CommitInfo | null {
   try {
     // Format: hash\nmessage\nISO date
-    const out = execSync('git log -1 --format="%H%n%s%n%aI"', { cwd: PROJECT_ROOT, timeout: 5000 })
+    const out = execSync('git log -1 --format="%H%n%s%n%aI"', {
+      cwd: PROJECT_ROOT,
+      timeout: 5000,
+    })
       .toString()
       .trim();
     const [sha, message, date] = out.split("\n");
@@ -42,10 +45,13 @@ function getLocalCommit(): CommitInfo | null {
 
 async function fetchLatestCommit(): Promise<CommitInfo | null> {
   try {
-    const res = await fetch(`https://api.github.com/repos/${REPO}/commits/main`, {
-      headers: { Accept: "application/vnd.github.v3+json" },
-      signal: AbortSignal.timeout(10000),
-    });
+    const res = await fetch(
+      `https://api.github.com/repos/${REPO}/commits/main`,
+      {
+        headers: { Accept: "application/vnd.github.v3+json" },
+        signal: AbortSignal.timeout(10000),
+      },
+    );
     if (!res.ok) return null;
     const data = await res.json();
     return {

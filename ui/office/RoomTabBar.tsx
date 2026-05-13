@@ -14,7 +14,11 @@ export function RoomTabBar() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
-  const [ctxMenu, setCtxMenu] = useState<{ roomIdx: number; x: number; y: number } | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<{
+    roomIdx: number;
+    x: number;
+    y: number;
+  } | null>(null);
   const [settingsRoomId, setSettingsRoomId] = useState<string | null>(null);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressFired = useRef(false);
@@ -30,7 +34,9 @@ export function RoomTabBar() {
   // Dismiss context menu on any outside click / scroll / resize
   useEffect(() => {
     if (!ctxMenu) return;
-    function dismiss() { setCtxMenu(null); }
+    function dismiss() {
+      setCtxMenu(null);
+    }
     window.addEventListener("click", dismiss);
     window.addEventListener("scroll", dismiss, true);
     window.addEventListener("resize", dismiss);
@@ -106,7 +112,10 @@ export function RoomTabBar() {
   function handleDrop(e: React.DragEvent, dropIdx: number) {
     e.preventDefault();
     setDragOver(null);
-    if (dragFrom === null || dragFrom === dropIdx) { setDragFrom(null); return; }
+    if (dragFrom === null || dragFrom === dropIdx) {
+      setDragFrom(null);
+      return;
+    }
 
     // Build new order as roomId[] — remove dragFrom, insert at dropIdx
     const order = rooms.map((r) => r.id);
@@ -163,8 +172,14 @@ export function RoomTabBar() {
               gap: 4,
               position: "relative",
               opacity: isDragging ? 0.4 : 1,
-              borderLeft: isDropTarget && dragFrom !== null && dragFrom > i ? "2px solid var(--accent)" : "2px solid transparent",
-              borderRight: isDropTarget && dragFrom !== null && dragFrom < i ? "2px solid var(--accent)" : "2px solid transparent",
+              borderLeft:
+                isDropTarget && dragFrom !== null && dragFrom > i
+                  ? "2px solid var(--accent)"
+                  : "2px solid transparent",
+              borderRight:
+                isDropTarget && dragFrom !== null && dragFrom < i
+                  ? "2px solid var(--accent)"
+                  : "2px solid transparent",
               transition: "opacity 0.15s",
             }}
           >
@@ -196,12 +211,21 @@ export function RoomTabBar() {
             ) : (
               <button
                 onClick={(e) => {
-                  if (longPressFired.current) { longPressFired.current = false; return; }
+                  if (longPressFired.current) {
+                    longPressFired.current = false;
+                    return;
+                  }
                   (e.target as HTMLElement).blur();
                   dispatch({ type: "set_current_room", room: i });
                 }}
-                onDoubleClick={(e) => { e.preventDefault(); startEditing(i); }}
-                onContextMenu={(e) => { e.preventDefault(); openCtxMenu(i, e.clientX, e.clientY); }}
+                onDoubleClick={(e) => {
+                  e.preventDefault();
+                  startEditing(i);
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  openCtxMenu(i, e.clientX, e.clientY);
+                }}
                 onTouchStart={(e) => handleTouchStart(e, i)}
                 onTouchEnd={cancelLongPress}
                 onTouchMove={cancelLongPress}
@@ -209,7 +233,9 @@ export function RoomTabBar() {
                 style={{
                   padding: "4px 12px",
                   borderRadius: 6,
-                  border: isActive ? "1px solid var(--accent)" : "1px solid transparent",
+                  border: isActive
+                    ? "1px solid var(--accent)"
+                    : "1px solid transparent",
                   background: isActive ? "var(--accent-bg)" : "transparent",
                   color: isActive ? "var(--accent)" : "var(--text-dim)",
                   fontSize: 11,
@@ -225,11 +251,13 @@ export function RoomTabBar() {
                 }}
               >
                 {displayName}
-                <span style={{
-                  color: "var(--text-hint)",
-                  fontSize: 9,
-                  marginLeft: 4
-                }}>
+                <span
+                  style={{
+                    color: "var(--text-hint)",
+                    fontSize: 9,
+                    marginLeft: 4,
+                  }}
+                >
                   {roomAgents.length}/8
                 </span>
                 {hasAttention && !isActive && (
@@ -299,46 +327,73 @@ export function RoomTabBar() {
         +
       </button>
 
-      {ctxMenu && (() => {
-        const room = rooms[ctxMenu.roomIdx];
-        if (!room) return null;
-        const roomAgents = agents.filter((a) => a.room === ctxMenu.roomIdx);
-        const canClose = ctxMenu.roomIdx > 0 && roomAgents.length === 0;
-        return (
-          <Portal>
-            <div
-              onClick={(e) => e.stopPropagation()}
-              style={{
-                position: "fixed",
-                left: Math.min(ctxMenu.x, window.innerWidth - 180),
-                top: Math.min(ctxMenu.y, window.innerHeight - 140),
-                background: "var(--bg-overlay)",
-                border: "1px solid var(--border-light)",
-                borderRadius: 8,
-                boxShadow: "0 10px 30px var(--shadow-heavy)",
-                padding: 4,
-                minWidth: 160,
-                zIndex: 2000,
-                fontFamily: "'DM Sans',sans-serif",
-                fontSize: 12,
-              }}
-            >
-              <button style={ctxItemStyle} onClick={() => { setCtxMenu(null); startEditing(ctxMenu.roomIdx); }}>Rename</button>
-              <button style={ctxItemStyle} onClick={() => { setCtxMenu(null); setSettingsRoomId(room.id); }}>Room settings…</button>
-              <button
-                style={{ ...ctxItemStyle, color: canClose ? "var(--text-dim)" : "var(--text-ghost)", cursor: canClose ? "pointer" : "not-allowed" }}
-                disabled={!canClose}
-                onClick={() => { setCtxMenu(null); if (canClose) send({ type: "close_room", roomId: room.id }); }}
+      {ctxMenu &&
+        (() => {
+          const room = rooms[ctxMenu.roomIdx];
+          if (!room) return null;
+          const roomAgents = agents.filter((a) => a.room === ctxMenu.roomIdx);
+          const canClose = ctxMenu.roomIdx > 0 && roomAgents.length === 0;
+          return (
+            <Portal>
+              <div
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  position: "fixed",
+                  left: Math.min(ctxMenu.x, window.innerWidth - 180),
+                  top: Math.min(ctxMenu.y, window.innerHeight - 140),
+                  background: "var(--bg-overlay)",
+                  border: "1px solid var(--border-light)",
+                  borderRadius: 8,
+                  boxShadow: "0 10px 30px var(--shadow-heavy)",
+                  padding: 4,
+                  minWidth: 160,
+                  zIndex: 2000,
+                  fontFamily: "'DM Sans',sans-serif",
+                  fontSize: 12,
+                }}
               >
-                Close room
-              </button>
-            </div>
-          </Portal>
-        );
-      })()}
+                <button
+                  style={ctxItemStyle}
+                  onClick={() => {
+                    setCtxMenu(null);
+                    startEditing(ctxMenu.roomIdx);
+                  }}
+                >
+                  Rename
+                </button>
+                <button
+                  style={ctxItemStyle}
+                  onClick={() => {
+                    setCtxMenu(null);
+                    setSettingsRoomId(room.id);
+                  }}
+                >
+                  Room settings…
+                </button>
+                <button
+                  style={{
+                    ...ctxItemStyle,
+                    color: canClose ? "var(--text-dim)" : "var(--text-ghost)",
+                    cursor: canClose ? "pointer" : "not-allowed",
+                  }}
+                  disabled={!canClose}
+                  onClick={() => {
+                    setCtxMenu(null);
+                    if (canClose) send({ type: "close_room", roomId: room.id });
+                  }}
+                >
+                  Close room
+                </button>
+              </div>
+            </Portal>
+          );
+        })()}
 
       {settingsRoomId && (
-        <RoomSettingsModal roomId={settingsRoomId} onClose={() => setSettingsRoomId(null)} />
+        <RoomSettingsModal
+          roomId={settingsRoomId}
+          onClose={() => setSettingsRoomId(null)}
+        />
       )}
     </div>
   );

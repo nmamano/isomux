@@ -3,7 +3,11 @@ import { StoreProvider, ThemeProvider, FeaturesProvider } from "./store.tsx";
 import { DEMO_FEATURES } from "../shared/features.ts";
 import { App } from "./App.tsx";
 import { setShim } from "./ws.ts";
-import { handleCommand, sendInitialState, setEmbedMode } from "./demo-server.ts";
+import {
+  handleCommand,
+  sendInitialState,
+  setEmbedMode,
+} from "./demo-server.ts";
 
 const isEmbed = new URLSearchParams(window.location.search).has("embed");
 
@@ -17,7 +21,9 @@ setShim(handleCommand, sendInitialState);
 // Safe: demo runs at isomux.com/demo, real app is self-hosted (different origin).
 localStorage.setItem("isomux-username", "demo-boss");
 
-const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || window.innerWidth < 600;
+const isMobile =
+  /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ||
+  window.innerWidth < 600;
 
 function DemoBanner() {
   return (
@@ -39,7 +45,11 @@ function DemoBanner() {
         color: "var(--text-dim)",
       }}
     >
-      <span>{isMobile ? "This is a demo. To connect real agents:" : "This is a demo office. To connect real Claude agents:"}</span>
+      <span>
+        {isMobile
+          ? "This is a demo. To connect real agents:"
+          : "This is a demo office. To connect real Claude agents:"}
+      </span>
       <a
         href="https://isomux.com"
         style={{
@@ -70,7 +80,16 @@ function DemoApp() {
     <>
       <style>{`:root { --banner-h: ${DEMO_BANNER_HEIGHT}px; }`}</style>
       <DemoBanner />
-      <div style={{ position: "fixed", top: DEMO_BANNER_HEIGHT, left: 0, right: 0, bottom: 0, transform: "translateZ(0)" }}>
+      <div
+        style={{
+          position: "fixed",
+          top: DEMO_BANNER_HEIGHT,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          transform: "translateZ(0)",
+        }}
+      >
         <App />
       </div>
     </>
@@ -85,6 +104,5 @@ root.render(
         <DemoApp />
       </StoreProvider>
     </FeaturesProvider>
-  </ThemeProvider>
+  </ThemeProvider>,
 );
-

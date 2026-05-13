@@ -13,7 +13,11 @@ function readPref(): DiffOutputFormat {
 }
 
 function writePref(v: DiffOutputFormat) {
-  try { localStorage.setItem(PREF_KEY, v); } catch {/* quota / private mode */}
+  try {
+    localStorage.setItem(PREF_KEY, v);
+  } catch {
+    /* quota / private mode */
+  }
 }
 
 // Split a multi-file unified patch by `diff --git` boundaries. Path is read
@@ -34,9 +38,12 @@ function splitPatchByFile(patchText: string): Map<string, string> {
     let isDeletion = false;
     for (const l of currentLines) {
       if (l.startsWith("+++ /dev/null")) isDeletion = true;
-      else if (plusBPath === null && l.startsWith("+++ b/")) plusBPath = l.slice(6);
-      else if (dashAPath === null && l.startsWith("--- a/")) dashAPath = l.slice(6);
-      else if (renameToPath === null && l.startsWith("rename to ")) renameToPath = l.slice(10);
+      else if (plusBPath === null && l.startsWith("+++ b/"))
+        plusBPath = l.slice(6);
+      else if (dashAPath === null && l.startsWith("--- a/"))
+        dashAPath = l.slice(6);
+      else if (renameToPath === null && l.startsWith("rename to "))
+        renameToPath = l.slice(10);
     }
     const path = plusBPath ?? renameToPath ?? (isDeletion ? dashAPath : null);
     if (path !== null) map.set(path, currentLines.join("\n"));
@@ -54,33 +61,78 @@ function splitPatchByFile(patchText: string): Map<string, string> {
 }
 
 function StatusBadge({ status }: { status: DiffFileSummary["status"] }) {
-  const palette: Record<DiffFileSummary["status"], { fg: string; bg: string; label: string }> = {
-    added:    { fg: "var(--green)",  bg: "var(--green-bg)",  label: "added" },
-    modified: { fg: "var(--accent)", bg: "var(--accent-bg)", label: "modified" },
-    deleted:  { fg: "var(--red)",    bg: "var(--red-bg)",    label: "deleted" },
-    renamed:  { fg: "var(--purple)", bg: "rgba(155,109,255,0.10)", label: "renamed" },
-    copied:   { fg: "var(--purple)", bg: "rgba(155,109,255,0.10)", label: "copied" },
-    untracked:{ fg: "var(--orange)", bg: "var(--orange-bg)", label: "untracked" },
-    binary:   { fg: "var(--text-muted)", bg: "var(--bg-hover)", label: "binary" },
+  const palette: Record<
+    DiffFileSummary["status"],
+    { fg: string; bg: string; label: string }
+  > = {
+    added: { fg: "var(--green)", bg: "var(--green-bg)", label: "added" },
+    modified: {
+      fg: "var(--accent)",
+      bg: "var(--accent-bg)",
+      label: "modified",
+    },
+    deleted: { fg: "var(--red)", bg: "var(--red-bg)", label: "deleted" },
+    renamed: {
+      fg: "var(--purple)",
+      bg: "rgba(155,109,255,0.10)",
+      label: "renamed",
+    },
+    copied: {
+      fg: "var(--purple)",
+      bg: "rgba(155,109,255,0.10)",
+      label: "copied",
+    },
+    untracked: {
+      fg: "var(--orange)",
+      bg: "var(--orange-bg)",
+      label: "untracked",
+    },
+    binary: { fg: "var(--text-muted)", bg: "var(--bg-hover)", label: "binary" },
   };
   const p = palette[status];
   return (
-    <span style={{
-      display: "inline-block", padding: "1px 6px", borderRadius: 4,
-      background: p.bg, color: p.fg,
-      fontSize: 10, fontFamily: "'JetBrains Mono',monospace",
-      textTransform: "uppercase", letterSpacing: "0.04em", flexShrink: 0,
-    }}>
+    <span
+      style={{
+        display: "inline-block",
+        padding: "1px 6px",
+        borderRadius: 4,
+        background: p.bg,
+        color: p.fg,
+        fontSize: 10,
+        fontFamily: "'JetBrains Mono',monospace",
+        textTransform: "uppercase",
+        letterSpacing: "0.04em",
+        flexShrink: 0,
+      }}
+    >
       {p.label}
     </span>
   );
 }
 
-function PlusMinus({ additions, deletions }: { additions: number; deletions: number }) {
+function PlusMinus({
+  additions,
+  deletions,
+}: {
+  additions: number;
+  deletions: number;
+}) {
   return (
-    <span style={{ display: "inline-flex", gap: 6, fontFamily: "'JetBrains Mono',monospace", fontSize: 11, flexShrink: 0 }}>
-      {additions > 0 && <span style={{ color: "var(--green)" }}>+{additions}</span>}
-      {deletions > 0 && <span style={{ color: "var(--red)" }}>-{deletions}</span>}
+    <span
+      style={{
+        display: "inline-flex",
+        gap: 6,
+        fontFamily: "'JetBrains Mono',monospace",
+        fontSize: 11,
+        flexShrink: 0,
+      }}
+    >
+      {additions > 0 && (
+        <span style={{ color: "var(--green)" }}>+{additions}</span>
+      )}
+      {deletions > 0 && (
+        <span style={{ color: "var(--red)" }}>-{deletions}</span>
+      )}
     </span>
   );
 }
@@ -88,14 +140,30 @@ function PlusMinus({ additions, deletions }: { additions: number; deletions: num
 function FilePath({ summary }: { summary: DiffFileSummary }) {
   if (summary.oldPath && summary.oldPath !== summary.path) {
     return (
-      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+      <span
+        style={{
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+      >
         <span style={{ color: "var(--text-muted)" }}>{summary.oldPath}</span>
         <span style={{ color: "var(--text-faint)", margin: "0 6px" }}>→</span>
         <span>{summary.path}</span>
       </span>
     );
   }
-  return <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{summary.path}</span>;
+  return (
+    <span
+      style={{
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {summary.path}
+    </span>
+  );
 }
 
 function DiffOverlay({
@@ -127,51 +195,82 @@ function DiffOverlay({
   const reason = truncated
     ? "The total patch was over 2 MB so the diff content was not shipped to the browser. Re-run /isomux-diff after narrowing the working tree, or open this file in your editor."
     : summary.status === "binary"
-    ? "Binary file — no textual diff to render."
-    : summary.status === "untracked"
-    ? "Untracked file too large to synthesize a patch (>1 MB). Open in your editor, or `git add` it and re-run."
-    : !patch
-    ? "No patch content for this file."
-    : null;
+      ? "Binary file — no textual diff to render."
+      : summary.status === "untracked"
+        ? "Untracked file too large to synthesize a patch (>1 MB). Open in your editor, or `git add` it and re-run."
+        : !patch
+          ? "No patch content for this file."
+          : null;
 
   return (
     <div
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
       style={{
-        position: "fixed", inset: 0, zIndex: 9999,
+        position: "fixed",
+        inset: 0,
+        zIndex: 9999,
         background: "rgba(0,0,0,0.85)",
-        display: "flex", alignItems: "center", justifyContent: "center",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
         cursor: "default",
       }}
     >
-      <div style={{
-        width: "min(95vw, 1400px)", height: "min(92vh, 1000px)",
-        background: "var(--bg-surface-solid)",
-        border: "1px solid var(--border-medium)", borderRadius: 10,
-        display: "flex", flexDirection: "column", overflow: "hidden",
-      }}>
-        <div style={{
-          padding: "10px 14px", borderBottom: "1px solid var(--border)",
-          display: "flex", alignItems: "center", gap: 10,
-          background: "var(--bg-overlay-solid)",
-        }}>
+      <div
+        style={{
+          width: "min(95vw, 1400px)",
+          height: "min(92vh, 1000px)",
+          background: "var(--bg-surface-solid)",
+          border: "1px solid var(--border-medium)",
+          borderRadius: 10,
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+        }}
+      >
+        <div
+          style={{
+            padding: "10px 14px",
+            borderBottom: "1px solid var(--border)",
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            background: "var(--bg-overlay-solid)",
+          }}
+        >
           <StatusBadge status={summary.status} />
-          <span style={{
-            fontFamily: "'JetBrains Mono',monospace", fontSize: 13,
-            color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-            flex: 1,
-          }}>
+          <span
+            style={{
+              fontFamily: "'JetBrains Mono',monospace",
+              fontSize: 13,
+              color: "var(--text-secondary)",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              flex: 1,
+            }}
+          >
             <FilePath summary={summary} />
           </span>
-          <PlusMinus additions={summary.additions} deletions={summary.deletions} />
+          <PlusMinus
+            additions={summary.additions}
+            deletions={summary.deletions}
+          />
           {patch && <CopyButton getText={() => patch} />}
           <button
             onClick={onClose}
             title="Close (Esc)"
             style={{
-              background: "transparent", border: "1px solid var(--border-medium)",
-              color: "var(--text-dim)", borderRadius: 6, padding: "4px 10px",
-              fontSize: 12, fontFamily: "'DM Sans',sans-serif", cursor: "pointer",
+              background: "transparent",
+              border: "1px solid var(--border-medium)",
+              color: "var(--text-dim)",
+              borderRadius: 6,
+              padding: "4px 10px",
+              fontSize: 12,
+              fontFamily: "'DM Sans',sans-serif",
+              cursor: "pointer",
             }}
           >
             Close
@@ -179,11 +278,17 @@ function DiffOverlay({
         </div>
         <div style={{ flex: 1, overflow: "auto", padding: 12 }}>
           {reason && (
-            <div style={{
-              padding: "12px 16px", color: "var(--text-dim)",
-              fontFamily: "'JetBrains Mono',monospace", fontSize: 13,
-              background: "var(--bg-subtle)", border: "1px dashed var(--border-medium)", borderRadius: 8,
-            }}>
+            <div
+              style={{
+                padding: "12px 16px",
+                color: "var(--text-dim)",
+                fontFamily: "'JetBrains Mono',monospace",
+                fontSize: 13,
+                background: "var(--bg-subtle)",
+                border: "1px dashed var(--border-medium)",
+                borderRadius: 8,
+              }}
+            >
               {reason}
             </div>
           )}
@@ -218,10 +323,10 @@ function FileRow({
     ? truncated
       ? "Open (patch not shipped)"
       : summary.status === "binary"
-      ? "Open (binary)"
-      : summary.status === "untracked"
-      ? "Open (untracked, too large)"
-      : `Open (${summary.lineCount} lines)`
+        ? "Open (binary)"
+        : summary.status === "untracked"
+          ? "Open (untracked, too large)"
+          : `Open (${summary.lineCount} lines)`
     : null;
 
   return (
@@ -229,30 +334,71 @@ function FileRow({
       <button
         onClick={handleClick}
         style={{
-          display: "flex", alignItems: "center", gap: 10, width: "100%",
-          padding: "8px 12px", border: "none", background: "transparent",
-          color: "var(--text-secondary)", textAlign: "left", cursor: "pointer",
-          fontFamily: "'JetBrains Mono',monospace", fontSize: 12,
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          width: "100%",
+          padding: "8px 12px",
+          border: "none",
+          background: "transparent",
+          color: "var(--text-secondary)",
+          textAlign: "left",
+          cursor: "pointer",
+          fontFamily: "'JetBrains Mono',monospace",
+          fontSize: 12,
         }}
-        onMouseEnter={(e) => (e.currentTarget.style.background = "var(--bg-hover)")}
+        onMouseEnter={(e) =>
+          (e.currentTarget.style.background = "var(--bg-hover)")
+        }
         onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
       >
         {summary.inlineEligible ? (
-          <span style={{
-            transform: expanded ? "rotate(90deg)" : "rotate(0deg)",
-            transition: "transform 0.15s", display: "inline-block", fontSize: 8,
-            color: "var(--text-faint)", flexShrink: 0,
-          }}>&#9654;</span>
+          <span
+            style={{
+              transform: expanded ? "rotate(90deg)" : "rotate(0deg)",
+              transition: "transform 0.15s",
+              display: "inline-block",
+              fontSize: 8,
+              color: "var(--text-faint)",
+              flexShrink: 0,
+            }}
+          >
+            &#9654;
+          </span>
         ) : (
-          <span style={{ width: 8, color: "var(--text-faint)", fontSize: 12, flexShrink: 0 }}>&#x29C9;</span>
+          <span
+            style={{
+              width: 8,
+              color: "var(--text-faint)",
+              fontSize: 12,
+              flexShrink: 0,
+            }}
+          >
+            &#x29C9;
+          </span>
         )}
         <StatusBadge status={summary.status} />
-        <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        <span
+          style={{
+            flex: 1,
+            minWidth: 0,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
           <FilePath summary={summary} />
         </span>
-        <PlusMinus additions={summary.additions} deletions={summary.deletions} />
+        <PlusMinus
+          additions={summary.additions}
+          deletions={summary.deletions}
+        />
         {overlayHint && (
-          <span style={{ color: "var(--text-faint)", fontSize: 10, flexShrink: 0 }}>{overlayHint}</span>
+          <span
+            style={{ color: "var(--text-faint)", fontSize: 10, flexShrink: 0 }}
+          >
+            {overlayHint}
+          </span>
         )}
       </button>
       {summary.inlineEligible && expanded && patch && (
@@ -265,7 +411,9 @@ function FileRow({
 }
 
 export function DiffCard({ payload }: { payload: DiffPayload }) {
-  const [outputFormat, setOutputFormat] = useState<DiffOutputFormat>(() => readPref());
+  const [outputFormat, setOutputFormat] = useState<DiffOutputFormat>(() =>
+    readPref(),
+  );
   const setFormat = useCallback((v: DiffOutputFormat) => {
     setOutputFormat(v);
     writePref(v);
@@ -277,19 +425,26 @@ export function DiffCard({ payload }: { payload: DiffPayload }) {
   );
 
   const inlineLineTotal = useMemo(
-    () => payload.files.filter(f => f.inlineEligible).reduce((sum, f) => sum + f.lineCount, 0),
+    () =>
+      payload.files
+        .filter((f) => f.inlineEligible)
+        .reduce((sum, f) => sum + f.lineCount, 0),
     [payload.files],
   );
   const defaultExpanded = inlineLineTotal < INLINE_LINES_THRESHOLD;
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>(() => {
     const seed: Record<string, boolean> = {};
-    for (const f of payload.files) if (f.inlineEligible) seed[f.path] = defaultExpanded;
+    for (const f of payload.files)
+      if (f.inlineEligible) seed[f.path] = defaultExpanded;
     return seed;
   });
 
   const allExpanded = useMemo(
-    () => payload.files.filter(f => f.inlineEligible).every(f => expanded[f.path]),
+    () =>
+      payload.files
+        .filter((f) => f.inlineEligible)
+        .every((f) => expanded[f.path]),
     [payload.files, expanded],
   );
 
@@ -301,44 +456,69 @@ export function DiffCard({ payload }: { payload: DiffPayload }) {
   }, [payload.files, allExpanded]);
 
   const toggleFile = useCallback((path: string) => {
-    setExpanded(prev => ({ ...prev, [path]: !prev[path] }));
+    setExpanded((prev) => ({ ...prev, [path]: !prev[path] }));
   }, []);
 
   const [overlayPath, setOverlayPath] = useState<string | null>(null);
-  const overlaySummary = overlayPath ? payload.files.find(f => f.path === overlayPath) ?? null : null;
+  const overlaySummary = overlayPath
+    ? (payload.files.find((f) => f.path === overlayPath) ?? null)
+    : null;
 
   const headerLine = `+${payload.stats.additions} -${payload.stats.deletions} across ${payload.stats.filesChanged} file${payload.stats.filesChanged === 1 ? "" : "s"}`;
 
   return (
-    <div style={{
-      margin: "8px 0",
-      borderRadius: 10,
-      background: "var(--bg-subtle)",
-      border: "1px solid var(--border)",
-      overflow: "hidden",
-    }}>
-      <div style={{
-        padding: "8px 12px",
-        display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
-        background: "var(--bg-overlay-solid)",
-        borderBottom: "1px solid var(--border)",
-      }}>
-        <span style={{
-          fontFamily: "'JetBrains Mono',monospace", fontSize: 12,
-          color: "var(--text-secondary)", fontWeight: 600,
-        }}>
+    <div
+      style={{
+        margin: "8px 0",
+        borderRadius: 10,
+        background: "var(--bg-subtle)",
+        border: "1px solid var(--border)",
+        overflow: "hidden",
+      }}
+    >
+      <div
+        style={{
+          padding: "8px 12px",
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          flexWrap: "wrap",
+          background: "var(--bg-overlay-solid)",
+          borderBottom: "1px solid var(--border)",
+        }}
+      >
+        <span
+          style={{
+            fontFamily: "'JetBrains Mono',monospace",
+            fontSize: 12,
+            color: "var(--text-secondary)",
+            fontWeight: 600,
+          }}
+        >
           {headerLine}
         </span>
         {(payload.branch || payload.head) && (
-          <span style={{
-            fontFamily: "'JetBrains Mono',monospace", fontSize: 11,
-            color: "var(--text-muted)",
-          }}>
-            {payload.branch ? `${payload.branch} · ${payload.head ?? "—"}` : payload.head}
+          <span
+            style={{
+              fontFamily: "'JetBrains Mono',monospace",
+              fontSize: 11,
+              color: "var(--text-muted)",
+            }}
+          >
+            {payload.branch
+              ? `${payload.branch} · ${payload.head ?? "—"}`
+              : payload.head}
           </span>
         )}
         <span style={{ flex: 1 }} />
-        <span style={{ display: "inline-flex", border: "1px solid var(--border-medium)", borderRadius: 6, overflow: "hidden" }}>
+        <span
+          style={{
+            display: "inline-flex",
+            border: "1px solid var(--border-medium)",
+            borderRadius: 6,
+            overflow: "hidden",
+          }}
+        >
           {(["line-by-line", "side-by-side"] as const).map((fmt) => {
             const active = outputFormat === fmt;
             return (
@@ -346,10 +526,14 @@ export function DiffCard({ payload }: { payload: DiffPayload }) {
                 key={fmt}
                 onClick={() => setFormat(fmt)}
                 style={{
-                  padding: "3px 10px", border: "none", cursor: "pointer",
+                  padding: "3px 10px",
+                  border: "none",
+                  cursor: "pointer",
                   background: active ? "var(--accent-bg)" : "transparent",
                   color: active ? "var(--accent)" : "var(--text-muted)",
-                  fontSize: 11, fontFamily: "'DM Sans',sans-serif", fontWeight: 600,
+                  fontSize: 11,
+                  fontFamily: "'DM Sans',sans-serif",
+                  fontWeight: 600,
                 }}
               >
                 {fmt === "line-by-line" ? "Unified" : "Split"}
@@ -357,21 +541,38 @@ export function DiffCard({ payload }: { payload: DiffPayload }) {
             );
           })}
         </span>
-        {payload.files.some(f => f.inlineEligible) && (
+        {payload.files.some((f) => f.inlineEligible) && (
           <button
             onClick={toggleAll}
             style={{
-              padding: "3px 10px", border: "1px solid var(--border-medium)",
-              background: "transparent", color: "var(--text-dim)",
-              borderRadius: 6, fontSize: 11, fontFamily: "'DM Sans',sans-serif", cursor: "pointer",
+              padding: "3px 10px",
+              border: "1px solid var(--border-medium)",
+              background: "transparent",
+              color: "var(--text-dim)",
+              borderRadius: 6,
+              fontSize: 11,
+              fontFamily: "'DM Sans',sans-serif",
+              cursor: "pointer",
             }}
           >
             {allExpanded ? "Collapse all" : "Expand all"}
           </button>
         )}
-        <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: "var(--text-faint)", flexBasis: "100%", marginTop: -2 }}>
+        <span
+          style={{
+            fontFamily: "'JetBrains Mono',monospace",
+            fontSize: 11,
+            color: "var(--text-faint)",
+            flexBasis: "100%",
+            marginTop: -2,
+          }}
+        >
           {payload.cwd}
-          {payload.truncated && <span style={{ color: "var(--orange)", marginLeft: 8 }}>· patch &gt; 2 MB · summary only</span>}
+          {payload.truncated && (
+            <span style={{ color: "var(--orange)", marginLeft: 8 }}>
+              · patch &gt; 2 MB · summary only
+            </span>
+          )}
         </span>
       </div>
       <div>

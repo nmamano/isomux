@@ -23,25 +23,39 @@ function extractSkillDescription(filePath: string): string | undefined {
 // Backend-agnostic dirs (.isomux) come first so they win on name collisions
 // against Claude-specific dirs (.claude); both are still scanned so existing
 // user setups keep working unchanged.
-function scanSkillsDir(dir: string, origin: SkillInfo["origin"], skills: SkillInfo[]) {
+function scanSkillsDir(
+  dir: string,
+  origin: SkillInfo["origin"],
+  skills: SkillInfo[],
+) {
   if (!existsSync(dir)) return;
   try {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       if (entry.isDirectory()) {
-        const description = extractSkillDescription(join(dir, entry.name, "SKILL.md"));
+        const description = extractSkillDescription(
+          join(dir, entry.name, "SKILL.md"),
+        );
         skills.push({ name: entry.name, origin, description });
       }
     }
   } catch {}
 }
 
-function scanCommandsDir(dir: string, origin: SkillInfo["origin"], skills: SkillInfo[]) {
+function scanCommandsDir(
+  dir: string,
+  origin: SkillInfo["origin"],
+  skills: SkillInfo[],
+) {
   if (!existsSync(dir)) return;
   try {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       if (entry.isFile() && entry.name.endsWith(".md")) {
         const description = extractSkillDescription(join(dir, entry.name));
-        skills.push({ name: entry.name.replace(/\.md$/, ""), origin, description });
+        skills.push({
+          name: entry.name.replace(/\.md$/, ""),
+          origin,
+          description,
+        });
       }
     }
   } catch {}
@@ -61,9 +75,13 @@ export function discoverBundledSkills(): SkillInfo[] {
   const skills: SkillInfo[] = [];
   if (existsSync(BUNDLED_SKILLS_DIR)) {
     try {
-      for (const entry of readdirSync(BUNDLED_SKILLS_DIR, { withFileTypes: true })) {
+      for (const entry of readdirSync(BUNDLED_SKILLS_DIR, {
+        withFileTypes: true,
+      })) {
         if (entry.isDirectory()) {
-          const description = extractSkillDescription(join(BUNDLED_SKILLS_DIR, entry.name, "SKILL.md"));
+          const description = extractSkillDescription(
+            join(BUNDLED_SKILLS_DIR, entry.name, "SKILL.md"),
+          );
           skills.push({ name: entry.name, origin: "isomux", description });
         }
       }
@@ -88,7 +106,12 @@ export function discoverProjectSkills(cwd: string): SkillInfo[] {
 // Scan skills from installed Claude Code plugins (~/.claude/plugins/)
 export function discoverPluginSkills(): SkillInfo[] {
   const skills: SkillInfo[] = [];
-  const manifestPath = join(homedir(), ".claude", "plugins", "installed_plugins.json");
+  const manifestPath = join(
+    homedir(),
+    ".claude",
+    "plugins",
+    "installed_plugins.json",
+  );
   if (!existsSync(manifestPath)) return skills;
 
   let manifest: any;
@@ -117,10 +140,15 @@ export function discoverPluginSkills(): SkillInfo[] {
           try {
             const content = readFileSync(skillMd, "utf-8");
             const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
-            if (fmMatch && /user-invocable:\s*false/i.test(fmMatch[1])) continue;
+            if (fmMatch && /user-invocable:\s*false/i.test(fmMatch[1]))
+              continue;
           } catch {}
           const description = extractSkillDescription(skillMd);
-          skills.push({ name: `${pluginName}:${d.name}`, origin: "plugin", description });
+          skills.push({
+            name: `${pluginName}:${d.name}`,
+            origin: "plugin",
+            description,
+          });
         }
       } catch {}
     }
@@ -132,7 +160,11 @@ export function discoverPluginSkills(): SkillInfo[] {
         for (const f of readdirSync(cmdsDir, { withFileTypes: true })) {
           if (f.isFile() && f.name.endsWith(".md")) {
             const description = extractSkillDescription(join(cmdsDir, f.name));
-            skills.push({ name: `${pluginName}:${f.name.replace(/\.md$/, "")}`, origin: "plugin", description });
+            skills.push({
+              name: `${pluginName}:${f.name.replace(/\.md$/, "")}`,
+              origin: "plugin",
+              description,
+            });
           }
         }
       } catch {}
@@ -167,23 +199,37 @@ function readSkillFile(path: string): string | null {
 }
 
 // Resolve a plugin-namespaced skill (e.g., "codex:rescue") to its prompt text
-function resolvePluginSkillPrompt(pluginName: string, skillName: string): string | null {
-  const manifestPath = join(homedir(), ".claude", "plugins", "installed_plugins.json");
+function resolvePluginSkillPrompt(
+  pluginName: string,
+  skillName: string,
+): string | null {
+  const manifestPath = join(
+    homedir(),
+    ".claude",
+    "plugins",
+    "installed_plugins.json",
+  );
   if (!existsSync(manifestPath)) return null;
   let manifest: any;
   try {
     manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
-  } catch { return null; }
+  } catch {
+    return null;
+  }
 
-  const pluginKey = Object.keys(manifest.plugins ?? {}).find(k => k.split("@")[0] === pluginName);
+  const pluginKey = Object.keys(manifest.plugins ?? {}).find(
+    (k) => k.split("@")[0] === pluginName,
+  );
   if (!pluginKey) return null;
   const entries = manifest.plugins[pluginKey];
   if (!Array.isArray(entries) || entries.length === 0) return null;
   const installPath = entries[0].installPath;
   if (!installPath) return null;
 
-  return readSkillFile(join(installPath, "skills", skillName, "SKILL.md"))
-    ?? readSkillFile(join(installPath, "commands", `${skillName}.md`));
+  return (
+    readSkillFile(join(installPath, "skills", skillName, "SKILL.md")) ??
+    readSkillFile(join(installPath, "commands", `${skillName}.md`))
+  );
 }
 
 // Resolve a skill name to its prompt text, checking skill dirs in priority

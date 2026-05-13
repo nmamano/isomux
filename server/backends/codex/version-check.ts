@@ -38,25 +38,39 @@ export async function checkCodexVersion(): Promise<CodexVersionStatus> {
   const result = await new Promise<CodexVersionStatus>((resolve) => {
     let stdout = "";
     let stderr = "";
-    const child = spawn("codex", ["--version"], { stdio: ["ignore", "pipe", "pipe"] });
-    child.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
-    child.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
+    const child = spawn("codex", ["--version"], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
     child.on("error", (err: NodeJS.ErrnoException) => {
       if (err.code === "ENOENT") {
         resolve({
           kind: "not_installed",
           message:
             "codex CLI not found on PATH. Codex agents will be disabled. " +
-            "Install with `sudo npm install -g @openai/codex@" + CODEX_CLI_PINNED_VERSION + "` if you want to use them.",
+            "Install with `sudo npm install -g @openai/codex@" +
+            CODEX_CLI_PINNED_VERSION +
+            "` if you want to use them.",
         });
       } else {
-        resolve({ kind: "unknown", message: `codex --version errored: ${err.message}` });
+        resolve({
+          kind: "unknown",
+          message: `codex --version errored: ${err.message}`,
+        });
       }
     });
     child.on("close", (code: number | null) => {
       if (code !== 0) {
         const stderrText = stderr.trim().slice(0, 200);
-        resolve({ kind: "unknown", message: `codex --version exited with code ${code}${stderrText ? `: ${stderrText}` : ""}` });
+        resolve({
+          kind: "unknown",
+          message: `codex --version exited with code ${code}${stderrText ? `: ${stderrText}` : ""}`,
+        });
         return;
       }
       const trimmed = stdout.trim();
@@ -67,7 +81,11 @@ export async function checkCodexVersion(): Promise<CodexVersionStatus> {
       if (installed === CODEX_CLI_PINNED_VERSION) {
         resolve({ kind: "ok", version: installed });
       } else {
-        resolve({ kind: "mismatch", installed, expected: CODEX_CLI_PINNED_VERSION });
+        resolve({
+          kind: "mismatch",
+          installed,
+          expected: CODEX_CLI_PINNED_VERSION,
+        });
       }
     });
   });
@@ -81,7 +99,9 @@ export async function logCodexVersionAtBoot(): Promise<void> {
   const status = await checkCodexVersion();
   switch (status.kind) {
     case "ok":
-      console.log(`[codex] CLI ${status.version} matches pinned version — schemas are valid.`);
+      console.log(
+        `[codex] CLI ${status.version} matches pinned version — schemas are valid.`,
+      );
       break;
     case "not_installed":
       console.log(`[codex] ${status.message}`);
@@ -89,12 +109,14 @@ export async function logCodexVersionAtBoot(): Promise<void> {
     case "mismatch":
       console.error(
         `[codex] WARNING: installed CLI version ${status.installed} does not match pinned ${status.expected}. ` +
-        `Generated schemas under server/backends/codex/_generated/ are tied to ${status.expected} and may not match the running CLI. ` +
-        `To resolve: \`sudo npm install -g @openai/codex@${status.expected}\` (downgrade), or regenerate against the installed version with \`bun run gen:codex-schemas\` and update CODEX_CLI_PINNED_VERSION in server/backends/codex/version-check.ts.`
+          `Generated schemas under server/backends/codex/_generated/ are tied to ${status.expected} and may not match the running CLI. ` +
+          `To resolve: \`sudo npm install -g @openai/codex@${status.expected}\` (downgrade), or regenerate against the installed version with \`bun run gen:codex-schemas\` and update CODEX_CLI_PINNED_VERSION in server/backends/codex/version-check.ts.`,
       );
       break;
     case "unknown":
-      console.error(`[codex] WARNING: could not determine CLI version — ${status.message}`);
+      console.error(
+        `[codex] WARNING: could not determine CLI version — ${status.message}`,
+      );
       break;
   }
 }

@@ -5,7 +5,10 @@ export const config = { runtime: "edge" };
 // --- Rate limiting (in-memory, resets on cold start) ---
 const hits = new Map<string, number[]>();
 
-function rateLimit(ip: string): { allowed: boolean; retryAfterSeconds?: number } {
+function rateLimit(ip: string): {
+  allowed: boolean;
+  retryAfterSeconds?: number;
+} {
   const now = Date.now();
   const windowMs = 60 * 60 * 1000;
   const timestamps = (hits.get(ip) || []).filter((t) => now - t < windowMs);
@@ -13,7 +16,10 @@ function rateLimit(ip: string): { allowed: boolean; retryAfterSeconds?: number }
   const lastMinute = timestamps.filter((t) => now - t < 60_000);
   if (lastMinute.length >= 5) return { allowed: false, retryAfterSeconds: 60 };
   if (timestamps.length >= 20) {
-    return { allowed: false, retryAfterSeconds: Math.ceil((timestamps[0] + windowMs - now) / 1000) };
+    return {
+      allowed: false,
+      retryAfterSeconds: Math.ceil((timestamps[0] + windowMs - now) / 1000),
+    };
   }
 
   timestamps.push(now);
@@ -188,12 +194,15 @@ export default async function handler(req: Request) {
     return new Response("Method not allowed", { status: 405 });
   }
 
-  const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  const ip =
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
   const { allowed, retryAfterSeconds } = rateLimit(ip);
   if (!allowed) {
     return new Response(
-      JSON.stringify({ error: `Rate limit exceeded. Try again in ${retryAfterSeconds} seconds.` }),
-      { status: 429, headers: { "Content-Type": "application/json" } }
+      JSON.stringify({
+        error: `Rate limit exceeded. Try again in ${retryAfterSeconds} seconds.`,
+      }),
+      { status: 429, headers: { "Content-Type": "application/json" } },
     );
   }
 
@@ -205,12 +214,20 @@ export default async function handler(req: Request) {
   const meta = `> IP: \`${ip}\` | UA: \`${userAgent.slice(0, 100)}\` | Ref: \`${referer}\``;
 
   // Log user message to Discord (fire-and-forget)
-  const lastUserMsg = [...messages].reverse().find((m: { role: string }) => m.role === "user");
+  const lastUserMsg = [...messages]
+    .reverse()
+    .find((m: { role: string }) => m.role === "user");
   if (lastUserMsg && webhookUrl) {
     fetch(webhookUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: `[isomux.com] **User:**\n${lastUserMsg.content}\n${meta}`.slice(0, 2000) }),
+      body: JSON.stringify({
+        content:
+          `[isomux.com] **User:**\n${lastUserMsg.content}\n${meta}`.slice(
+            0,
+            2000,
+          ),
+      }),
     }).catch(() => {});
   }
 
@@ -232,9 +249,16 @@ export default async function handler(req: Request) {
       let fullText = "";
       try {
         for await (const event of stream) {
-          if (event.type === "content_block_delta" && event.delta.type === "text_delta") {
+          if (
+            event.type === "content_block_delta" &&
+            event.delta.type === "text_delta"
+          ) {
             fullText += event.delta.text;
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify({ text: event.delta.text })}\n\n`));
+            controller.enqueue(
+              encoder.encode(
+                `data: ${JSON.stringify({ text: event.delta.text })}\n\n`,
+              ),
+            );
           }
         }
         // Log bot response to Discord before closing the stream
@@ -243,14 +267,18 @@ export default async function handler(req: Request) {
           await fetch(webhookUrl, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ content: `[isomux.com] **Bot:**\n${fullText}`.slice(0, 2000) }),
+            body: JSON.stringify({
+              content: `[isomux.com] **Bot:**\n${fullText}`.slice(0, 2000),
+            }),
           }).catch(() => {});
         }
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
         controller.close();
       } catch (err) {
         const msg = err instanceof Error ? err.message : "Unknown error";
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: msg })}\n\n`));
+        controller.enqueue(
+          encoder.encode(`data: ${JSON.stringify({ error: msg })}\n\n`),
+        );
         controller.close();
       }
     },

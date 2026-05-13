@@ -40,7 +40,11 @@ import type { ContentBlockParam } from "@anthropic-ai/sdk/resources/messages/mes
 import { readFileSync, statSync } from "fs";
 
 import type { Attachment } from "../../shared/types.ts";
-import { FAMILY_TO_MODEL, MODEL_FAMILIES, EFFORT_LEVELS } from "../../shared/types.ts";
+import {
+  FAMILY_TO_MODEL,
+  MODEL_FAMILIES,
+  EFFORT_LEVELS,
+} from "../../shared/types.ts";
 import type { ModelFamily, EffortLevel } from "../../shared/types.ts";
 import { getFilePath, saveFile } from "../persistence.ts";
 import { createSafetyHooks } from "../safety-hooks.ts";
@@ -77,7 +81,8 @@ const LOGIN_INSTRUCTIONS = `To authenticate:
 
 Once complete, it takes effect immediately for all Isomux agents.`;
 
-const AUTH_ERROR_PATTERNS = /unauthori[zs]ed|not authenticated|authentication|auth.*expired|invalid.*token|login.*required|403|401/i;
+const AUTH_ERROR_PATTERNS =
+  /unauthori[zs]ed|not authenticated|authentication|auth.*expired|invalid.*token|login.*required|403|401/i;
 
 const CAPABILITIES: BackendCapabilities = {
   fork: true,
@@ -98,12 +103,42 @@ const PERMISSION_MODES: PermissionModeOption[] = [
 ];
 
 const TEXT_FILE_EXTENSIONS = new Set([
-  "txt", "md", "json", "csv", "log", "xml", "yaml", "yml", "toml", "ini", "cfg",
-  "sh", "bash", "py", "js", "ts", "go", "rs", "c", "h", "cpp", "java", "rb",
-  "html", "css", "sql", "env", "conf",
+  "txt",
+  "md",
+  "json",
+  "csv",
+  "log",
+  "xml",
+  "yaml",
+  "yml",
+  "toml",
+  "ini",
+  "cfg",
+  "sh",
+  "bash",
+  "py",
+  "js",
+  "ts",
+  "go",
+  "rs",
+  "c",
+  "h",
+  "cpp",
+  "java",
+  "rb",
+  "html",
+  "css",
+  "sql",
+  "env",
+  "conf",
 ]);
 
-const IMAGE_MEDIA_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
+const IMAGE_MEDIA_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+]);
 
 // ---------------------------------------------------------------------------
 // ClaudeSession — BackendSession implementation
@@ -216,7 +251,10 @@ class ClaudeSession implements BackendSession {
       const existing = this.pendingApprovals.get(approvalId);
       if (existing) {
         try {
-          existing.resolve({ behavior: "deny", message: "Superseded by newer request." });
+          existing.resolve({
+            behavior: "deny",
+            message: "Superseded by newer request.",
+          });
         } catch {}
       }
       this.pendingApprovals.set(approvalId, {
@@ -290,7 +328,10 @@ class ClaudeSession implements BackendSession {
         result = { behavior: "allow", updatedInput: pending.input };
         break;
       case "deny":
-        result = { behavior: "deny", message: decision.reason ?? "User denied." };
+        result = {
+          behavior: "deny",
+          message: decision.reason ?? "User denied.",
+        };
         break;
     }
     pending.resolve(result);
@@ -303,7 +344,9 @@ class ClaudeSession implements BackendSession {
     // this method is unreachable from the normal abort path. Throwing here
     // surfaces accidental direct calls instead of silently closing the session
     // (which would leave callers without a replacement).
-    throw new Error("ClaudeSession.abort() is unsupported — use close() + a replacement session, or check canAbortInPlace() before calling.");
+    throw new Error(
+      "ClaudeSession.abort() is unsupported — use close() + a replacement session, or check canAbortInPlace() before calling.",
+    );
   }
 
   canAbortInPlace(): boolean {
@@ -437,7 +480,12 @@ function* translateSDKMessage(
             if (c.type === "image" && c.source?.type === "base64") {
               const decoded = Buffer.from(c.source.data, "base64");
               const ext = c.source.media_type.split("/")[1] ?? "png";
-              const att = saveFile(agentId, decoded, c.source.media_type, `image.${ext}`);
+              const att = saveFile(
+                agentId,
+                decoded,
+                c.source.media_type,
+                `image.${ext}`,
+              );
               if (att) atts.push(att);
             }
           }
@@ -464,7 +512,8 @@ function* translateSDKMessage(
               inputTokens: usageField.input_tokens ?? 0,
               outputTokens: usageField.output_tokens ?? 0,
               cacheReadInputTokens: usageField.cache_read_input_tokens ?? 0,
-              cacheCreationInputTokens: usageField.cache_creation_input_tokens ?? 0,
+              cacheCreationInputTokens:
+                usageField.cache_creation_input_tokens ?? 0,
             }
           : undefined;
       const cost = (msg as any).total_cost_usd as number | undefined;
@@ -521,7 +570,11 @@ function buildClaudeUserMessage(
         type: "image",
         source: {
           type: "base64",
-          media_type: att.mediaType as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
+          media_type: att.mediaType as
+            | "image/jpeg"
+            | "image/png"
+            | "image/gif"
+            | "image/webp",
           data,
         },
       });
@@ -590,7 +643,12 @@ function buildSdkOpts(
     // inject --append-system-prompt and --effort via executableArgs. When
     // pathToClaudeCodeExecutable is a native binary, executableArgs are
     // prepended to the CLI args verbatim (verified against SDK 0.2.116 sdk.mjs).
-    executableArgs: ["--append-system-prompt", opts.systemPrompt, "--effort", opts.effort],
+    executableArgs: [
+      "--append-system-prompt",
+      opts.systemPrompt,
+      "--effort",
+      opts.effort,
+    ],
     cwd: opts.cwd,
     hooks: createSafetyHooks(),
   };
@@ -624,13 +682,11 @@ export const claudeBackend: Backend = {
       label: m.label,
       isDefault: i === 0,
       hidden: false,
-      supportedEfforts: EFFORT_LEVELS
-        .filter((e) => {
-          if (e.level === "max") return m.family === "opus";
-          if (e.level === "minimal") return false;
-          return true;
-        })
-        .map((e) => ({ level: e.level })),
+      supportedEfforts: EFFORT_LEVELS.filter((e) => {
+        if (e.level === "max") return m.family === "opus";
+        if (e.level === "minimal") return false;
+        return true;
+      }).map((e) => ({ level: e.level })),
     }));
   },
 
@@ -660,10 +716,15 @@ export const claudeBackend: Backend = {
     for (let i = 0; i < messages.length; i++) {
       const m = messages[i];
       if (firstUserIdx === -1 && m.type === "user") firstUserIdx = i;
-      if (m.uuid === targetMessageId) { targetIdx = i; break; }
+      if (m.uuid === targetMessageId) {
+        targetIdx = i;
+        break;
+      }
     }
     if (targetIdx === -1) {
-      throw new Error("forkSessionBeforeMessage: target message not found in session");
+      throw new Error(
+        "forkSessionBeforeMessage: target message not found in session",
+      );
     }
     if (targetIdx === firstUserIdx) {
       // First user message: no predecessor to fork at. Return fresh — the
@@ -672,7 +733,9 @@ export const claudeBackend: Backend = {
       return { kind: "fresh" };
     }
     const predecessorUuid = messages[targetIdx - 1].uuid;
-    const result = await sdkForkSession(sessionId, { upToMessageId: predecessorUuid });
+    const result = await sdkForkSession(sessionId, {
+      upToMessageId: predecessorUuid,
+    });
     return {
       kind: "fork",
       sessionId: result.sessionId,
@@ -686,7 +749,8 @@ export const claudeBackend: Backend = {
     for (const m of messages) {
       // SessionMessage.type is user/assistant/system (no "result"); narrow to
       // those for the orchestrator's edit-message matching.
-      if (m.type !== "user" && m.type !== "assistant" && m.type !== "system") continue;
+      if (m.type !== "user" && m.type !== "assistant" && m.type !== "system")
+        continue;
       out.push({
         uuid: m.uuid,
         role: m.type,

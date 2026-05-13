@@ -1,6 +1,15 @@
 import { resolve, join } from "path";
 import { homedir } from "os";
-import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readSync, renameSync, statSync } from "fs";
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readdirSync,
+  readSync,
+  renameSync,
+  statSync,
+} from "fs";
 import { listAgentSessions } from "./persistence.ts";
 
 // Path to the Claude CLI native binary that ships with the Agent SDK.
@@ -9,7 +18,12 @@ import { listAgentSessions } from "./persistence.ts";
 // We resolve explicitly and pass it as pathToClaudeCodeExecutable so every
 // libc gets the right binary.
 function resolveClaudeNativeBinary(): string {
-  const anthropicDir = join(import.meta.dir, "..", "node_modules", "@anthropic-ai");
+  const anthropicDir = join(
+    import.meta.dir,
+    "..",
+    "node_modules",
+    "@anthropic-ai",
+  );
   const binName = process.platform === "win32" ? "claude.exe" : "claude";
   if (process.platform === "linux") {
     const muslArch = process.arch === "arm64" ? "aarch64" : "x86_64";
@@ -22,7 +36,11 @@ function resolveClaudeNativeBinary(): string {
       if (existsSync(p)) return p;
     }
   }
-  return join(anthropicDir, `claude-agent-sdk-${process.platform}-${process.arch}`, binName);
+  return join(
+    anthropicDir,
+    `claude-agent-sdk-${process.platform}-${process.arch}`,
+    binName,
+  );
 }
 
 export const CLAUDE_NATIVE_BIN = resolveClaudeNativeBinary();
@@ -38,10 +56,18 @@ export function resolveCwd(cwd: string): string {
 // Sanitization observed: any non-alphanumeric, non-hyphen char becomes "-".
 // Ex: /home/nil/nilmamano.com -> -home-nil-nilmamano-com
 export function claudeProjectDir(cwd: string): string {
-  return join(homedir(), ".claude", "projects", cwd.replace(/[^a-zA-Z0-9-]/g, "-"));
+  return join(
+    homedir(),
+    ".claude",
+    "projects",
+    cwd.replace(/[^a-zA-Z0-9-]/g, "-"),
+  );
 }
 
-export function claudeSessionFileExists(cwd: string, sessionId: string): boolean {
+export function claudeSessionFileExists(
+  cwd: string,
+  sessionId: string,
+): boolean {
   return existsSync(join(claudeProjectDir(cwd), `${sessionId}.jsonl`));
 }
 
@@ -49,7 +75,9 @@ export function claudeSessionFileExists(cwd: string, sessionId: string): boolean
 // app-server reads from here when servicing thread/resume. The archived
 // counterpart at `${CODEX_HOME}/archived_sessions/` is NOT searched — once
 // a thread is archived, the user has to go through an explicit picker.
-export function codexSessionsDir(env?: { [key: string]: string | undefined }): string {
+export function codexSessionsDir(env?: {
+  [key: string]: string | undefined;
+}): string {
   const codexHome = env?.CODEX_HOME || join(homedir(), ".codex");
   return join(codexHome, "sessions");
 }
@@ -70,7 +98,8 @@ const CODEX_ROLLOUT_HEADER_SCAN_LINES = 16;
 // to canonical shape matches what we actually issue and keeps malformed
 // input from getting our friendly preflight error instead of Codex's own
 // (more accurate) invalid-id surfacing.
-const CODEX_THREAD_ID_PATTERN = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+const CODEX_THREAD_ID_PATTERN =
+  /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
 // Returns true if a Codex rollout file exists for `threadId` under
 // `${CODEX_HOME}/sessions/` (not archived_sessions). Existence-only — a
@@ -140,7 +169,11 @@ function findCodexRolloutPath(
       const full = join(dir, e.name);
       if (e.isDirectory()) {
         stack.push(full);
-      } else if (e.isFile() && e.name.startsWith("rollout-") && e.name.endsWith(filenameSuffix)) {
+      } else if (
+        e.isFile() &&
+        e.name.startsWith("rollout-") &&
+        e.name.endsWith(filenameSuffix)
+      ) {
         return full;
       }
     }
@@ -198,7 +231,12 @@ function rolloutFileHasNonMetaLine(path: string): boolean {
       if (isLast && !trailingNewline) return true;
       continue;
     }
-    if (parsed && typeof parsed === "object" && parsed.type && parsed.type !== "session_meta") {
+    if (
+      parsed &&
+      typeof parsed === "object" &&
+      parsed.type &&
+      parsed.type !== "session_meta"
+    ) {
       return true;
     }
   }
@@ -208,7 +246,11 @@ function rolloutFileHasNonMetaLine(path: string): boolean {
 // Move an agent's Claude CLI session files from one cwd's project dir to another.
 // The Claude CLI derives its session storage path from cwd, so changing an agent's cwd
 // without moving these files orphans every session on the next respawn (e.g. server restart).
-export function moveClaudeSessionFiles(agentId: string, oldCwd: string, newCwd: string) {
+export function moveClaudeSessionFiles(
+  agentId: string,
+  oldCwd: string,
+  newCwd: string,
+) {
   const oldDir = claudeProjectDir(oldCwd);
   const newDir = claudeProjectDir(newCwd);
   if (oldDir === newDir || !existsSync(oldDir)) return;
@@ -219,16 +261,26 @@ export function moveClaudeSessionFiles(agentId: string, oldCwd: string, newCwd: 
     const oldJsonl = join(oldDir, `${sessionId}.jsonl`);
     const newJsonl = join(newDir, `${sessionId}.jsonl`);
     if (existsSync(oldJsonl) && !existsSync(newJsonl)) {
-      try { renameSync(oldJsonl, newJsonl); } catch (err) {
-        console.error(`[cwd-change] Failed to move ${oldJsonl} -> ${newJsonl}:`, err);
+      try {
+        renameSync(oldJsonl, newJsonl);
+      } catch (err) {
+        console.error(
+          `[cwd-change] Failed to move ${oldJsonl} -> ${newJsonl}:`,
+          err,
+        );
       }
     }
     // Claude CLI also writes a sibling <sessionId>/ dir (tool-results cache, etc.)
     const oldSib = join(oldDir, sessionId);
     const newSib = join(newDir, sessionId);
     if (existsSync(oldSib) && !existsSync(newSib)) {
-      try { renameSync(oldSib, newSib); } catch (err) {
-        console.error(`[cwd-change] Failed to move ${oldSib} -> ${newSib}:`, err);
+      try {
+        renameSync(oldSib, newSib);
+      } catch (err) {
+        console.error(
+          `[cwd-change] Failed to move ${oldSib} -> ${newSib}:`,
+          err,
+        );
       }
     }
   }
@@ -241,7 +293,8 @@ export function validateCwd(cwd: string): string {
   try {
     stat = statSync(resolved);
   } catch (err: any) {
-    if (err.code === "ENOENT") throw new Error(`Directory does not exist: ${resolved}`);
+    if (err.code === "ENOENT")
+      throw new Error(`Directory does not exist: ${resolved}`);
     throw new Error(`Cannot access ${resolved}: ${err.message}`);
   }
   if (!stat.isDirectory()) throw new Error(`Not a directory: ${resolved}`);
@@ -251,7 +304,10 @@ export function validateCwd(cwd: string): string {
 // Produce a human-readable hint for why the Claude CLI subprocess may have died,
 // to go alongside the SDK's generic "process exited with code 1". Returns null if
 // no specific cause is identifiable.
-export function diagnoseProcessExit(cwd: string, sessionId: string | null): string | null {
+export function diagnoseProcessExit(
+  cwd: string,
+  sessionId: string | null,
+): string | null {
   try {
     validateCwd(cwd);
   } catch {

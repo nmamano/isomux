@@ -1,6 +1,15 @@
-import { loadSessionsMap, listAllAgentIdsOnDisk, loadAgentHistory, loadLog, type PersistedUsage } from "./persistence.ts";
+import {
+  loadSessionsMap,
+  listAllAgentIdsOnDisk,
+  loadAgentHistory,
+  loadLog,
+  type PersistedUsage,
+} from "./persistence.ts";
 import { listCronjobs, readCronjobLifetimeUsage } from "./cronjob-manager.ts";
-import { listAllCronjobIdsOnDisk, loadCronjobHistory } from "./cronjob-persistence.ts";
+import {
+  listAllCronjobIdsOnDisk,
+  loadCronjobHistory,
+} from "./cronjob-persistence.ts";
 import type { ManagedAgent } from "./internal-types.ts";
 import type { RoomWire } from "../shared/types.ts";
 
@@ -9,10 +18,22 @@ import type { RoomWire } from "../shared/types.ts";
 // message — so "cached as a % of totalIn" is always ~100% and meaningless.
 // The useful signal is hit-rate over *cacheable* input: cacheRead / (cacheRead
 // + cacheCreation), which drops when the cache expires and gets rewritten.
-export interface UsageBucket { totalIn: number; cacheRead: number; cacheCreation: number; totalOut: number; costUSD: number; }
+export interface UsageBucket {
+  totalIn: number;
+  cacheRead: number;
+  cacheCreation: number;
+  totalOut: number;
+  costUSD: number;
+}
 
 export function emptyBucket(): UsageBucket {
-  return { totalIn: 0, cacheRead: 0, cacheCreation: 0, totalOut: 0, costUSD: 0 };
+  return {
+    totalIn: 0,
+    cacheRead: 0,
+    cacheCreation: 0,
+    totalOut: 0,
+    costUSD: 0,
+  };
 }
 
 function addBucket(dst: UsageBucket, src: UsageBucket) {
@@ -73,7 +94,10 @@ function formatUsd(n: number): string {
 // `forkBaseUsage` is captured at fork creation by walking the parent's log to
 // find the cumulative usage at the exact fork point, so each fork contributes
 // only its own new work — no double-counting of the shared parent prefix.
-function readAgentUsage(agentId: string, currentSessionId: string | null): { session: UsageBucket; lifetime: UsageBucket } {
+function readAgentUsage(
+  agentId: string,
+  currentSessionId: string | null,
+): { session: UsageBucket; lifetime: UsageBucket } {
   const map = loadSessionsMap(agentId);
   const lifetime = emptyBucket();
   for (const entry of Object.values(map)) {
@@ -84,13 +108,22 @@ function readAgentUsage(agentId: string, currentSessionId: string | null): { ses
     // Session total = current-run + all prior completed runs (if any).
     const inputTokens = (u?.inputTokens ?? 0) + (p?.inputTokens ?? 0);
     const outputTokens = (u?.outputTokens ?? 0) + (p?.outputTokens ?? 0);
-    const cacheReadInputTokens = (u?.cacheReadInputTokens ?? 0) + (p?.cacheReadInputTokens ?? 0);
-    const cacheCreationInputTokens = (u?.cacheCreationInputTokens ?? 0) + (p?.cacheCreationInputTokens ?? 0);
+    const cacheReadInputTokens =
+      (u?.cacheReadInputTokens ?? 0) + (p?.cacheReadInputTokens ?? 0);
+    const cacheCreationInputTokens =
+      (u?.cacheCreationInputTokens ?? 0) + (p?.cacheCreationInputTokens ?? 0);
     const costUSD = (u?.costUSD ?? 0) + (p?.costUSD ?? 0);
-    lifetime.totalIn += inputTokens + cacheReadInputTokens + cacheCreationInputTokens
-      - ((base?.inputTokens ?? 0) + (base?.cacheReadInputTokens ?? 0) + (base?.cacheCreationInputTokens ?? 0));
-    lifetime.cacheRead += cacheReadInputTokens - (base?.cacheReadInputTokens ?? 0);
-    lifetime.cacheCreation += cacheCreationInputTokens - (base?.cacheCreationInputTokens ?? 0);
+    lifetime.totalIn +=
+      inputTokens +
+      cacheReadInputTokens +
+      cacheCreationInputTokens -
+      ((base?.inputTokens ?? 0) +
+        (base?.cacheReadInputTokens ?? 0) +
+        (base?.cacheCreationInputTokens ?? 0));
+    lifetime.cacheRead +=
+      cacheReadInputTokens - (base?.cacheReadInputTokens ?? 0);
+    lifetime.cacheCreation +=
+      cacheCreationInputTokens - (base?.cacheCreationInputTokens ?? 0);
     lifetime.totalOut += outputTokens - (base?.outputTokens ?? 0);
     lifetime.costUSD += costUSD - (base?.costUSD ?? 0);
   }
@@ -99,11 +132,17 @@ function readAgentUsage(agentId: string, currentSessionId: string | null): { ses
   if (sessEntry && (sessEntry.usage || sessEntry.priorRunsUsage)) {
     const u = sessEntry.usage;
     const p = sessEntry.priorRunsUsage;
-    session.totalIn = (u?.inputTokens ?? 0) + (p?.inputTokens ?? 0)
-      + (u?.cacheReadInputTokens ?? 0) + (p?.cacheReadInputTokens ?? 0)
-      + (u?.cacheCreationInputTokens ?? 0) + (p?.cacheCreationInputTokens ?? 0);
-    session.cacheRead = (u?.cacheReadInputTokens ?? 0) + (p?.cacheReadInputTokens ?? 0);
-    session.cacheCreation = (u?.cacheCreationInputTokens ?? 0) + (p?.cacheCreationInputTokens ?? 0);
+    session.totalIn =
+      (u?.inputTokens ?? 0) +
+      (p?.inputTokens ?? 0) +
+      (u?.cacheReadInputTokens ?? 0) +
+      (p?.cacheReadInputTokens ?? 0) +
+      (u?.cacheCreationInputTokens ?? 0) +
+      (p?.cacheCreationInputTokens ?? 0);
+    session.cacheRead =
+      (u?.cacheReadInputTokens ?? 0) + (p?.cacheReadInputTokens ?? 0);
+    session.cacheCreation =
+      (u?.cacheCreationInputTokens ?? 0) + (p?.cacheCreationInputTokens ?? 0);
     session.totalOut = (u?.outputTokens ?? 0) + (p?.outputTokens ?? 0);
     session.costUSD = (u?.costUSD ?? 0) + (p?.costUSD ?? 0);
   }
@@ -117,7 +156,11 @@ function readAgentUsage(agentId: string, currentSessionId: string | null): { ses
 // cumulative `usage` — best-effort, slightly over-subtracts if the parent
 // continued past the fork, but bounded and avoids a full prefix double-count
 // in lifetime totals.
-export function findUsageAtFork(agentId: string, parentSessionId: string, forkMessageId: string): PersistedUsage | undefined {
+export function findUsageAtFork(
+  agentId: string,
+  parentSessionId: string,
+  forkMessageId: string,
+): PersistedUsage | undefined {
   const entries = loadLog(agentId, parentSessionId);
   const positions = new Map<string, number>();
   entries.forEach((e, i) => positions.set(e.id, i));
@@ -146,13 +189,18 @@ export function findUsageAtFork(agentId: string, parentSessionId: string, forkMe
   return {
     inputTokens: (u?.inputTokens ?? 0) + (p?.inputTokens ?? 0),
     outputTokens: (u?.outputTokens ?? 0) + (p?.outputTokens ?? 0),
-    cacheReadInputTokens: (u?.cacheReadInputTokens ?? 0) + (p?.cacheReadInputTokens ?? 0),
-    cacheCreationInputTokens: (u?.cacheCreationInputTokens ?? 0) + (p?.cacheCreationInputTokens ?? 0),
+    cacheReadInputTokens:
+      (u?.cacheReadInputTokens ?? 0) + (p?.cacheReadInputTokens ?? 0),
+    cacheCreationInputTokens:
+      (u?.cacheCreationInputTokens ?? 0) + (p?.cacheCreationInputTokens ?? 0),
     costUSD: (u?.costUSD ?? 0) + (p?.costUSD ?? 0),
   };
 }
 
-export function renderUsageReport(agents: Map<string, ManagedAgent>, rooms: RoomWire[]): string {
+export function renderUsageReport(
+  agents: Map<string, ManagedAgent>,
+  rooms: RoomWire[],
+): string {
   const lines: string[] = [];
 
   lines.push(
@@ -167,12 +215,20 @@ export function renderUsageReport(agents: Map<string, ManagedAgent>, rooms: Room
   // parenthesised suffixes on each column.
   lines.push(`## Agent usage`);
   lines.push("");
-  lines.push(`| Agent | Room | In (sess) | Out (sess) | $ (sess) | In (life) | Out (life) | $ (life) |`);
+  lines.push(
+    `| Agent | Room | In (sess) | Out (sess) | $ (sess) | In (life) | Out (life) | $ (life) |`,
+  );
   lines.push(`| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |`);
   const rows = [...agents.values()].map((a) => {
     const usage = readAgentUsage(a.info.id, a.sessionId);
     const roomName = rooms[a.info.room]?.name ?? "?";
-    return { id: a.info.id, name: a.info.name, room: roomName, sess: usage.session, life: usage.lifetime };
+    return {
+      id: a.info.id,
+      name: a.info.name,
+      room: roomName,
+      sess: usage.session,
+      life: usage.lifetime,
+    };
   });
   rows.sort((a, b) => b.life.costUSD - a.life.costUSD);
   for (const r of rows) {
@@ -189,9 +245,19 @@ export function renderUsageReport(agents: Map<string, ManagedAgent>, rooms: Room
   // names so renames are reflected immediately.
   const liveAgentIds = new Set([...agents.values()].map((a) => a.info.id));
   const history = loadAgentHistory();
-  type RoomBucket = { id: string; name: string; deleted: boolean; sess: UsageBucket; life: UsageBucket };
+  type RoomBucket = {
+    id: string;
+    name: string;
+    deleted: boolean;
+    sess: UsageBucket;
+    life: UsageBucket;
+  };
   const roomBuckets = new Map<string, RoomBucket>();
-  const getBucket = (id: string, name: string, deleted: boolean): RoomBucket => {
+  const getBucket = (
+    id: string,
+    name: string,
+    deleted: boolean,
+  ): RoomBucket => {
     let b = roomBuckets.get(id);
     if (!b) {
       b = { id, name, deleted, sess: emptyBucket(), life: emptyBucket() };
@@ -230,14 +296,20 @@ export function renderUsageReport(agents: Map<string, ManagedAgent>, rooms: Room
     addBucket(total.life, b.life);
   }
 
-  const sortedBuckets = [...roomBuckets.values()].sort((a, b) => b.life.costUSD - a.life.costUSD);
+  const sortedBuckets = [...roomBuckets.values()].sort(
+    (a, b) => b.life.costUSD - a.life.costUSD,
+  );
 
   lines.push("");
   lines.push(`## Per-room usage`);
   lines.push("");
-  lines.push(`_Agents contribute to the room they were last in (killed agents included)._`);
+  lines.push(
+    `_Agents contribute to the room they were last in (killed agents included)._`,
+  );
   lines.push("");
-  lines.push(`| Room | In (sess) | Out (sess) | $ (sess) | In (life) | Out (life) | $ (life) |`);
+  lines.push(
+    `| Room | In (sess) | Out (sess) | $ (sess) | In (life) | Out (life) | $ (life) |`,
+  );
   lines.push(`| --- | ---: | ---: | ---: | ---: | ---: | ---: |`);
   for (const r of sortedBuckets) {
     const label = r.deleted ? `${r.name} _(deleted)_` : r.name;
@@ -251,7 +323,12 @@ export function renderUsageReport(agents: Map<string, ManagedAgent>, rooms: Room
   const liveCronjobs = listCronjobs();
   const liveCronjobIds = new Set(liveCronjobs.map((c) => c.id));
   const cronjobHistory = loadCronjobHistory();
-  type CronjobBucket = { id: string; name: string; deleted: boolean; life: UsageBucket };
+  type CronjobBucket = {
+    id: string;
+    name: string;
+    deleted: boolean;
+    life: UsageBucket;
+  };
   const cronjobBuckets: CronjobBucket[] = [];
   for (const job of liveCronjobs) {
     const u = readCronjobLifetimeUsage(job.id);
@@ -259,7 +336,13 @@ export function renderUsageReport(agents: Map<string, ManagedAgent>, rooms: Room
       id: job.id,
       name: job.name,
       deleted: false,
-      life: { totalIn: u.totalIn, cacheRead: u.cacheRead, cacheCreation: u.cacheCreation, totalOut: u.totalOut, costUSD: u.costUSD },
+      life: {
+        totalIn: u.totalIn,
+        cacheRead: u.cacheRead,
+        cacheCreation: u.cacheCreation,
+        totalOut: u.totalOut,
+        costUSD: u.costUSD,
+      },
     });
   }
   for (const id of listAllCronjobIdsOnDisk()) {
@@ -270,7 +353,13 @@ export function renderUsageReport(agents: Map<string, ManagedAgent>, rooms: Room
       id,
       name: cronjobHistory[id]?.lastName ?? "(unknown cron job)",
       deleted: true,
-      life: { totalIn: u.totalIn, cacheRead: u.cacheRead, cacheCreation: u.cacheCreation, totalOut: u.totalOut, costUSD: u.costUSD },
+      life: {
+        totalIn: u.totalIn,
+        cacheRead: u.cacheRead,
+        cacheCreation: u.cacheCreation,
+        totalOut: u.totalOut,
+        costUSD: u.costUSD,
+      },
     });
   }
 
@@ -297,7 +386,9 @@ export function renderUsageReport(agents: Map<string, ManagedAgent>, rooms: Room
   lines.push("");
   lines.push(`## Office total`);
   lines.push("");
-  lines.push(`| | In (sess) | Out (sess) | $ (sess) | In (life) | Out (life) | $ (life) |`);
+  lines.push(
+    `| | In (sess) | Out (sess) | $ (sess) | In (life) | Out (life) | $ (life) |`,
+  );
   lines.push(`| --- | ---: | ---: | ---: | ---: | ---: | ---: |`);
   lines.push(
     `| **Total** | ${formatInCell(total.sess)} | ${formatTokenCount(total.sess.totalOut)} | ${formatUsd(total.sess.costUSD)} | ${formatInCell(total.life)} | ${formatTokenCount(total.life.totalOut)} | ${formatUsd(total.life.costUSD)} |`,

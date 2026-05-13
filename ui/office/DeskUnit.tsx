@@ -6,14 +6,20 @@ import { StatusLight } from "./StatusLight.tsx";
 import { deskPixelPos, DESK_SLOTS } from "./grid.ts";
 
 const MODEL_TINT: Record<string, { border: string; bg: string }> = {
-  opus:           { border: "rgba(100,160,255,0.85)", bg: "rgba(100,160,255,0.35)" },
-  sonnet:         { border: "rgba(218,165,32,0.80)",  bg: "rgba(218,165,32,0.32)" },
-  haiku:          { border: "rgba(230,130,180,0.80)", bg: "rgba(230,130,180,0.32)" },
-  "gpt-5.5":       { border: "rgba(120,220,160,0.90)", bg: "rgba(120,220,160,0.36)" },
-  "gpt-5.4":       { border: "rgba(120,220,160,0.78)", bg: "rgba(120,220,160,0.28)" },
-  "gpt-5.4-mini":  { border: "rgba(120,220,160,0.62)", bg: "rgba(120,220,160,0.20)" },
-  "gpt-5.3-codex": { border: "rgba(80,200,140,0.90)",  bg: "rgba(80,200,140,0.36)" },
-  "gpt-5.2":       { border: "rgba(120,220,160,0.50)", bg: "rgba(120,220,160,0.16)" },
+  opus: { border: "rgba(100,160,255,0.85)", bg: "rgba(100,160,255,0.35)" },
+  sonnet: { border: "rgba(218,165,32,0.80)", bg: "rgba(218,165,32,0.32)" },
+  haiku: { border: "rgba(230,130,180,0.80)", bg: "rgba(230,130,180,0.32)" },
+  "gpt-5.5": { border: "rgba(120,220,160,0.90)", bg: "rgba(120,220,160,0.36)" },
+  "gpt-5.4": { border: "rgba(120,220,160,0.78)", bg: "rgba(120,220,160,0.28)" },
+  "gpt-5.4-mini": {
+    border: "rgba(120,220,160,0.62)",
+    bg: "rgba(120,220,160,0.20)",
+  },
+  "gpt-5.3-codex": {
+    border: "rgba(80,200,140,0.90)",
+    bg: "rgba(80,200,140,0.36)",
+  },
+  "gpt-5.2": { border: "rgba(120,220,160,0.50)", bg: "rgba(120,220,160,0.16)" },
 };
 
 export function DeskUnit({
@@ -36,7 +42,8 @@ export function DeskUnit({
   const containerRef = useRef<HTMLDivElement>(null);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressTriggered = useRef(false);
-  const isWorking = agent.state === "thinking" || agent.state === "tool_executing";
+  const isWorking =
+    agent.state === "thinking" || agent.state === "tool_executing";
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     if (!isWorking) return;
@@ -63,11 +70,18 @@ export function DeskUnit({
       const touch = e.touches[0];
       longPressTimer.current = setTimeout(() => {
         longPressTriggered.current = true;
-        onContextMenuRef.current({ clientX: touch.clientX, clientY: touch.clientY, preventDefault() {} } as unknown as React.MouseEvent);
+        onContextMenuRef.current({
+          clientX: touch.clientX,
+          clientY: touch.clientY,
+          preventDefault() {},
+        } as unknown as React.MouseEvent);
       }, 500);
     }
     function handleTouchEnd(e: TouchEvent) {
-      if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
+      if (longPressTimer.current) {
+        clearTimeout(longPressTimer.current);
+        longPressTimer.current = null;
+      }
       if (longPressTriggered.current) {
         e.preventDefault();
       } else {
@@ -75,7 +89,10 @@ export function DeskUnit({
       }
     }
     function handleTouchMove() {
-      if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
+      if (longPressTimer.current) {
+        clearTimeout(longPressTimer.current);
+        longPressTimer.current = null;
+      }
     }
 
     el.addEventListener("touchstart", handleTouchStart, { passive: false });
@@ -88,7 +105,8 @@ export function DeskUnit({
     };
   }, []);
 
-  const elapsedMs = isWorking && stateChangedAt ? now - stateChangedAt : undefined;
+  const elapsedMs =
+    isWorking && stateChangedAt ? now - stateChangedAt : undefined;
   const pos = DESK_SLOTS[agent.desk];
   const { left: pxLeft, top: pxTop } = deskPixelPos(pos.row, pos.col);
   const z = (pos.row * 2 + pos.col + 1) * 10;
@@ -102,7 +120,10 @@ export function DeskUnit({
         e.dataTransfer.setData("text/plain", String(agent.desk));
         e.dataTransfer.effectAllowed = "move";
       }}
-      onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }}
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+      }}
       onDragEnter={() => setDragOver(true)}
       onDragLeave={() => setDragOver(false)}
       onDrop={(e) => {
@@ -112,7 +133,9 @@ export function DeskUnit({
         if (!isNaN(src) && src !== agent.desk) onSwap?.(src, agent.desk);
       }}
       onDragEnd={() => setDragOver(false)}
-      onClick={() => { if (!longPressTriggered.current) onClick(); }}
+      onClick={() => {
+        if (!longPressTriggered.current) onClick();
+      }}
       onContextMenu={(e) => {
         e.preventDefault();
         onContextMenu(e);
@@ -127,7 +150,11 @@ export function DeskUnit({
         cursor: "pointer",
         zIndex: z,
         transition: "filter 0.25s, transform 0.25s",
-        filter: dragOver ? "brightness(1.3) drop-shadow(0 0 40px rgba(126,184,255,0.3))" : hov ? "brightness(1.2) drop-shadow(0 0 30px rgba(126,184,255,0.15))" : "brightness(1)",
+        filter: dragOver
+          ? "brightness(1.3) drop-shadow(0 0 40px rgba(126,184,255,0.3))"
+          : hov
+            ? "brightness(1.2) drop-shadow(0 0 30px rgba(126,184,255,0.15))"
+            : "brightness(1)",
         transform: hov ? "translateY(-5px)" : "translateY(0)",
         outline: dragOver ? "2px solid rgba(126,184,255,0.4)" : "none",
         outlineOffset: 4,
@@ -136,15 +163,26 @@ export function DeskUnit({
         WebkitUserSelect: "none",
       }}
     >
-
       {/* Character behind desk — idle agents sit back a bit */}
-      <div style={{ position: "absolute", left: agent.state === "idle" || agent.state === "stopped" ? 84 : 78, top: agent.state === "idle" || agent.state === "stopped" ? -16 : -20, zIndex: 1 }}>
+      <div
+        style={{
+          position: "absolute",
+          left: agent.state === "idle" || agent.state === "stopped" ? 84 : 78,
+          top: agent.state === "idle" || agent.state === "stopped" ? -16 : -20,
+          zIndex: 1,
+        }}
+      >
         <Character state={agent.state} outfit={agent.outfit} />
       </div>
 
       {/* Desk */}
       <div style={{ position: "relative", zIndex: 2 }}>
-        <DeskSprite state={agent.state} deskIndex={agent.desk} cwd={agent.cwd} modelFamily={agent.modelFamily} />
+        <DeskSprite
+          state={agent.state}
+          deskIndex={agent.desk}
+          cwd={agent.cwd}
+          modelFamily={agent.modelFamily}
+        />
       </div>
 
       {/* Floating nametag — outer div handles positioning, inner handles animation */}
@@ -172,13 +210,23 @@ export function DeskUnit({
             border: `1px solid ${MODEL_TINT[agent.modelFamily]?.border ?? "var(--border-medium)"}`,
             opacity: hov ? 1 : 0.8,
             transition: "opacity 0.2s, background 0.3s, border 0.3s",
-            animation: needsAttention ? "dotPulse 2s ease-in-out infinite" : undefined,
+            animation: needsAttention
+              ? "dotPulse 2s ease-in-out infinite"
+              : undefined,
             whiteSpace: "nowrap",
           }}
         >
           <StatusLight state={agent.state} size={8} elapsedMs={elapsedMs} />
-          <span style={{ fontSize: 11, fontWeight: 600, color: "var(--text-primary)", letterSpacing: "-0.01em" }}>
-            <span style={{ opacity: 0.5 }}>{agent.desk + 1} ·</span> {agent.name}
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 600,
+              color: "var(--text-primary)",
+              letterSpacing: "-0.01em",
+            }}
+          >
+            <span style={{ opacity: 0.5 }}>{agent.desk + 1} ·</span>{" "}
+            {agent.name}
           </span>
           {needsAttention && (
             <span
@@ -217,7 +265,6 @@ export function DeskUnit({
           </div>
         )}
       </div>
-
     </div>
   );
 }

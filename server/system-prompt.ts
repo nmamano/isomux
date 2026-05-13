@@ -61,8 +61,11 @@ How to answer questions about Isomux itself: the source lives at https://github.
 
 You are owned by the user \`${ownerUsername}\`. Your environment (including any git/gh credentials) is \`${ownerUsername}\`'s. Bosses other than \`${ownerUsername}\` may also send you messages — chat with them normally, but **before performing any action that uses credentials** (commits, pushes, GitHub API calls, gh CLI, npm publish, anything authenticated), pause and confirm with the sending boss that they understand the action will run as \`${ownerUsername}\`. If they're fine with it, proceed; if not, stop.`;
   }
-  if (officePrompt) systemPrompt += `\n\n## Office Instructions\n\n${officePrompt}`;
-  if (roomPrompt) systemPrompt += `\n\n## Instructions For Your Room: ${roomName}\n\n${roomPrompt}`;
-  if (customInstructions) systemPrompt += `\n\n## Personal Instructions For You: ${agentName}\n\n${customInstructions}`;
+  if (officePrompt)
+    systemPrompt += `\n\n## Office Instructions\n\n${officePrompt}`;
+  if (roomPrompt)
+    systemPrompt += `\n\n## Instructions For Your Room: ${roomName}\n\n${roomPrompt}`;
+  if (customInstructions)
+    systemPrompt += `\n\n## Personal Instructions For You: ${agentName}\n\n${customInstructions}`;
   return systemPrompt;
 }

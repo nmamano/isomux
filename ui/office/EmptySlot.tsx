@@ -17,7 +17,10 @@ export function EmptySlot({
 
   return (
     <div
-      onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; }}
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+      }}
       onDragEnter={() => setDragOver(true)}
       onDragLeave={() => setDragOver(false)}
       onDrop={(e) => {
@@ -35,7 +38,13 @@ export function EmptySlot({
         zIndex: (pos.row * 2 + pos.col + 1) * 10,
       }}
     >
-      <svg width="180" height="160" viewBox="0 0 180 160" overflow="visible" style={{ pointerEvents: "none" }}>
+      <svg
+        width="180"
+        height="160"
+        viewBox="0 0 180 160"
+        overflow="visible"
+        style={{ pointerEvents: "none" }}
+      >
         {/* Invisible hit area — only the diamond shape triggers hover/click */}
         <path
           data-no-pan
@@ -50,11 +59,27 @@ export function EmptySlot({
         {/* Visible dashed outline */}
         <path
           d="M40 126 L90 101 L140 126 L90 151 Z"
-          fill={dragOver ? "rgba(126,184,255,0.12)" : hov ? "rgba(126,184,255,0.06)" : "none"}
-          stroke={dragOver ? "var(--accent)" : hov ? "var(--accent)" : "var(--text-muted)"}
+          fill={
+            dragOver
+              ? "rgba(126,184,255,0.12)"
+              : hov
+                ? "rgba(126,184,255,0.06)"
+                : "none"
+          }
+          stroke={
+            dragOver
+              ? "var(--accent)"
+              : hov
+                ? "var(--accent)"
+                : "var(--text-muted)"
+          }
           strokeWidth={dragOver ? "2" : "1"}
           strokeDasharray={dragOver ? "none" : "6 4"}
-          style={{ opacity: dragOver ? 1 : hov ? 0.85 : 0.55, transition: "opacity 0.3s", pointerEvents: "none" }}
+          style={{
+            opacity: dragOver ? 1 : hov ? 0.85 : 0.55,
+            transition: "opacity 0.3s",
+            pointerEvents: "none",
+          }}
         />
       </svg>
       {/* Desk number label — always visible */}
@@ -112,7 +137,11 @@ export function EmptySlot({
           >
             +
           </div>
-          <div style={{ fontSize: 10, color: "var(--accent)", fontWeight: 500 }}>New Agent</div>
+          <div
+            style={{ fontSize: 10, color: "var(--accent)", fontWeight: 500 }}
+          >
+            New Agent
+          </div>
         </div>
       )}
     </div>

@@ -1,8 +1,25 @@
 import { join } from "path";
 import { homedir } from "os";
-import { mkdirSync, appendFileSync, readFileSync, writeFileSync, existsSync, readdirSync, renameSync } from "fs";
+import {
+  mkdirSync,
+  appendFileSync,
+  readFileSync,
+  writeFileSync,
+  existsSync,
+  readdirSync,
+  renameSync,
+} from "fs";
 import { createHash } from "crypto";
-import type { AgentInfo, Attachment, ClaudeModel, EffortLevel, LogEntry, ModelFamily, OfficeSettings, TaskItem } from "../shared/types.ts";
+import type {
+  AgentInfo,
+  Attachment,
+  ClaudeModel,
+  EffortLevel,
+  LogEntry,
+  ModelFamily,
+  OfficeSettings,
+  TaskItem,
+} from "../shared/types.ts";
 import { familyFromLegacyModel, generateRoomId } from "../shared/types.ts";
 
 const ISOMUX_DIR = join(homedir(), ".isomux");
@@ -57,7 +74,8 @@ export function loadLog(agentId: string, sessionId: string): LogEntry[] {
       if (entry.images && !entry.attachments) {
         entry.attachments = entry.images.map((filename) => {
           const ext = filename.split(".").pop() ?? "";
-          const mediaType = EXTENSION_TO_MIME[ext] ?? "application/octet-stream";
+          const mediaType =
+            EXTENSION_TO_MIME[ext] ?? "application/octet-stream";
           return { filename, originalName: filename, mediaType, size: 0 };
         });
         delete entry.images;
@@ -76,7 +94,10 @@ export function loadLog(agentId: string, sessionId: string): LogEntry[] {
  * forkMessageId (the edited message). Concatenates oldest-ancestor-first, then the
  * fork's own entries. This avoids duplicating log entries across JSONL files.
  */
-export function loadLogWithAncestors(agentId: string, sessionId: string): LogEntry[] {
+export function loadLogWithAncestors(
+  agentId: string,
+  sessionId: string,
+): LogEntry[] {
   const sessionsMap = loadSessionsMap(agentId);
 
   // Build the ancestor chain: [oldest ancestor, ..., immediate parent, self]
@@ -86,7 +107,8 @@ export function loadLogWithAncestors(agentId: string, sessionId: string): LogEnt
   while (current) {
     if (visited.has(current)) break;
     visited.add(current);
-    const meta: { forkedFrom?: string; forkMessageId?: string } | undefined = sessionsMap[current];
+    const meta: { forkedFrom?: string; forkMessageId?: string } | undefined =
+      sessionsMap[current];
     chain.unshift({ sessionId: current, forkMessageId: meta?.forkMessageId });
     current = meta?.forkedFrom;
   }
@@ -124,7 +146,19 @@ export function loadLogWithAncestors(agentId: string, sessionId: string): LogEnt
 // - `forkBaseUsage` is the parent's cumulative-at-the-fork-point captured at
 //   fork creation (resolved via the snapshots above).
 type UsageSnapshot = { entryId: string; usage: PersistedUsage };
-type SessionsMap = Record<string, { topic: string | null; lastModified: number; forkedFrom?: string; forkMessageId?: string; usage?: PersistedUsage; priorRunsUsage?: PersistedUsage; forkBaseUsage?: PersistedUsage; usageSnapshots?: UsageSnapshot[] }>;
+type SessionsMap = Record<
+  string,
+  {
+    topic: string | null;
+    lastModified: number;
+    forkedFrom?: string;
+    forkMessageId?: string;
+    usage?: PersistedUsage;
+    priorRunsUsage?: PersistedUsage;
+    forkBaseUsage?: PersistedUsage;
+    usageSnapshots?: UsageSnapshot[];
+  }
+>;
 
 export function loadSessionsMap(agentId: string): SessionsMap {
   try {
@@ -140,23 +174,44 @@ function saveSessionsMap(agentId: string, map: SessionsMap) {
   try {
     const agentDir = join(LOGS_DIR, agentId);
     mkdirSync(agentDir, { recursive: true });
-    atomicWriteFileSync(join(agentDir, "sessions.json"), JSON.stringify(map, null, 2));
+    atomicWriteFileSync(
+      join(agentDir, "sessions.json"),
+      JSON.stringify(map, null, 2),
+    );
   } catch (err) {
     console.error("Failed to save sessions map:", err);
   }
 }
 
-export function persistSessionTopic(agentId: string, sessionId: string, topic: string | null) {
+export function persistSessionTopic(
+  agentId: string,
+  sessionId: string,
+  topic: string | null,
+) {
   const map = loadSessionsMap(agentId);
   const existing = map[sessionId];
   map[sessionId] = { ...existing, topic, lastModified: Date.now() };
   saveSessionsMap(agentId, map);
 }
 
-export function persistSessionFork(agentId: string, sessionId: string, forkedFrom: string, forkMessageId: string, topic: string | null, forkBaseUsage?: PersistedUsage) {
+export function persistSessionFork(
+  agentId: string,
+  sessionId: string,
+  forkedFrom: string,
+  forkMessageId: string,
+  topic: string | null,
+  forkBaseUsage?: PersistedUsage,
+) {
   const map = loadSessionsMap(agentId);
   const existing = map[sessionId] ?? { topic: null, lastModified: 0 };
-  map[sessionId] = { ...existing, topic, lastModified: Date.now(), forkedFrom, forkMessageId, ...(forkBaseUsage ? { forkBaseUsage } : {}) };
+  map[sessionId] = {
+    ...existing,
+    topic,
+    lastModified: Date.now(),
+    forkedFrom,
+    forkMessageId,
+    ...(forkBaseUsage ? { forkBaseUsage } : {}),
+  };
   saveSessionsMap(agentId, map);
 }
 
@@ -164,15 +219,23 @@ export function persistSessionFork(agentId: string, sessionId: string, forkedFro
 // fields (per-turn from the SDK) are summed; cost (cumulative-per-process
 // from the SDK) overwrites. Returns the resulting cumulative so callers can
 // use it for downstream bookkeeping (e.g. snapshots).
-export function accumulateSessionUsage(agentId: string, sessionId: string, turnTokens: Omit<PersistedUsage, "costUSD">, runCostUSD: number): PersistedUsage {
+export function accumulateSessionUsage(
+  agentId: string,
+  sessionId: string,
+  turnTokens: Omit<PersistedUsage, "costUSD">,
+  runCostUSD: number,
+): PersistedUsage {
   const map = loadSessionsMap(agentId);
   const existing = map[sessionId] ?? { topic: null, lastModified: 0 };
   const prev = existing.usage;
   const next: PersistedUsage = {
     inputTokens: (prev?.inputTokens ?? 0) + turnTokens.inputTokens,
     outputTokens: (prev?.outputTokens ?? 0) + turnTokens.outputTokens,
-    cacheReadInputTokens: (prev?.cacheReadInputTokens ?? 0) + turnTokens.cacheReadInputTokens,
-    cacheCreationInputTokens: (prev?.cacheCreationInputTokens ?? 0) + turnTokens.cacheCreationInputTokens,
+    cacheReadInputTokens:
+      (prev?.cacheReadInputTokens ?? 0) + turnTokens.cacheReadInputTokens,
+    cacheCreationInputTokens:
+      (prev?.cacheCreationInputTokens ?? 0) +
+      turnTokens.cacheCreationInputTokens,
     costUSD: runCostUSD,
   };
   map[sessionId] = { ...existing, usage: next, lastModified: Date.now() };
@@ -188,20 +251,39 @@ export function rollSessionUsageOnResume(agentId: string, sessionId: string) {
   const existing = map[sessionId];
   if (!existing?.usage) return;
   const u = existing.usage;
-  if (u.costUSD === 0 && u.inputTokens === 0 && u.outputTokens === 0 && u.cacheReadInputTokens === 0 && u.cacheCreationInputTokens === 0) return;
+  if (
+    u.costUSD === 0 &&
+    u.inputTokens === 0 &&
+    u.outputTokens === 0 &&
+    u.cacheReadInputTokens === 0 &&
+    u.cacheCreationInputTokens === 0
+  )
+    return;
   const prior = existing.priorRunsUsage;
   const rolled: PersistedUsage = {
     inputTokens: (prior?.inputTokens ?? 0) + u.inputTokens,
     outputTokens: (prior?.outputTokens ?? 0) + u.outputTokens,
-    cacheReadInputTokens: (prior?.cacheReadInputTokens ?? 0) + u.cacheReadInputTokens,
-    cacheCreationInputTokens: (prior?.cacheCreationInputTokens ?? 0) + u.cacheCreationInputTokens,
+    cacheReadInputTokens:
+      (prior?.cacheReadInputTokens ?? 0) + u.cacheReadInputTokens,
+    cacheCreationInputTokens:
+      (prior?.cacheCreationInputTokens ?? 0) + u.cacheCreationInputTokens,
     costUSD: (prior?.costUSD ?? 0) + u.costUSD,
   };
-  map[sessionId] = { ...existing, priorRunsUsage: rolled, usage: undefined, lastModified: Date.now() };
+  map[sessionId] = {
+    ...existing,
+    priorRunsUsage: rolled,
+    usage: undefined,
+    lastModified: Date.now(),
+  };
   saveSessionsMap(agentId, map);
 }
 
-export function appendSessionUsageSnapshot(agentId: string, sessionId: string, entryId: string, usage: PersistedUsage) {
+export function appendSessionUsageSnapshot(
+  agentId: string,
+  sessionId: string,
+  entryId: string,
+  usage: PersistedUsage,
+) {
   const map = loadSessionsMap(agentId);
   const existing = map[sessionId] ?? { topic: null, lastModified: 0 };
   const snapshots = existing.usageSnapshots ?? [];
@@ -213,12 +295,24 @@ export function appendSessionUsageSnapshot(agentId: string, sessionId: string, e
   } else {
     snapshots.push({ entryId, usage });
   }
-  map[sessionId] = { ...existing, usageSnapshots: snapshots, lastModified: Date.now() };
+  map[sessionId] = {
+    ...existing,
+    usageSnapshots: snapshots,
+    lastModified: Date.now(),
+  };
   saveSessionsMap(agentId, map);
 }
 
 // List all sessions for an agent (sorted by most recent first), with topics from sessions.json
-export function listAgentSessions(agentId: string): { sessionId: string; lastModified: number; topic: string | null; branched?: boolean; forked?: boolean }[] {
+export function listAgentSessions(
+  agentId: string,
+): {
+  sessionId: string;
+  lastModified: number;
+  topic: string | null;
+  branched?: boolean;
+  forked?: boolean;
+}[] {
   try {
     const agentDir = join(LOGS_DIR, agentId);
     if (!existsSync(agentDir)) return [];
@@ -237,7 +331,8 @@ export function listAgentSessions(agentId: string): { sessionId: string; lastMod
         const entry = sessionsMap[sid];
         return {
           sessionId: sid,
-          lastModified: entry?.lastModified ?? Bun.file(join(agentDir, f)).lastModified,
+          lastModified:
+            entry?.lastModified ?? Bun.file(join(agentDir, f)).lastModified,
           topic: entry?.topic ?? null,
           ...(branchedFromIds.has(sid) ? { branched: true as const } : {}),
           ...(entry?.forkedFrom ? { forked: true as const } : {}),
@@ -324,14 +419,19 @@ function migratePersistedAgent(agent: any) {
 }
 
 export interface Room {
-  id: string;                  // stable 8-char hex
-  name: string;                // display name
-  prompt: string | null;       // room-level prompt
+  id: string; // stable 8-char hex
+  name: string; // display name
+  prompt: string | null; // room-level prompt
   agents: PersistedAgent[];
 }
 
 export function loadAgents(): Room[] {
-  const defaultRoom = (): Room => ({ id: generateRoomId(), name: "Room 1", prompt: null, agents: [] });
+  const defaultRoom = (): Room => ({
+    id: generateRoomId(),
+    name: "Room 1",
+    prompt: null,
+    agents: [],
+  });
   let rooms: any[];
   try {
     if (!existsSync(AGENTS_FILE)) return [defaultRoom()];
@@ -341,7 +441,12 @@ export function loadAgents(): Room[] {
 
     const first = parsed[0];
 
-    if (first && typeof first === "object" && "name" in first && "agents" in first) {
+    if (
+      first &&
+      typeof first === "object" &&
+      "name" in first &&
+      "agents" in first
+    ) {
       rooms = parsed;
     } else if (Array.isArray(first)) {
       rooms = (parsed as PersistedAgent[][]).map((agents, i) => ({
@@ -351,7 +456,14 @@ export function loadAgents(): Room[] {
         agents,
       }));
     } else {
-      rooms = [{ id: generateRoomId(), name: "Room 1", prompt: null, agents: parsed as PersistedAgent[] }];
+      rooms = [
+        {
+          id: generateRoomId(),
+          name: "Room 1",
+          prompt: null,
+          agents: parsed as PersistedAgent[],
+        },
+      ];
     }
   } catch {
     return [defaultRoom()];
@@ -370,7 +482,9 @@ export function loadAgents(): Room[] {
     }
     if (typeof room.prompt !== "string") room.prompt = null;
     if (typeof room.envFile === "string" && room.envFile) {
-      console.log(`[migration] room "${room.name}" had envFile=${room.envFile} (now removed; copy to your User Settings if you still want it applied)`);
+      console.log(
+        `[migration] room "${room.name}" had envFile=${room.envFile} (now removed; copy to your User Settings if you still want it applied)`,
+      );
       strippedRoomEnv++;
     }
     delete room.envFile;
@@ -384,10 +498,14 @@ export function loadAgents(): Room[] {
     }
   }
   if (migratedAgents > 0) {
-    console.log(`[migration] migrated ${migratedAgents} agents to unowned (username:null); spawn new agents to apply per-user env`);
+    console.log(
+      `[migration] migrated ${migratedAgents} agents to unowned (username:null); spawn new agents to apply per-user env`,
+    );
   }
   if (strippedRoomEnv > 0) {
-    console.log(`[migration] stripped envFile from ${strippedRoomEnv} room(s); env is now per-user`);
+    console.log(
+      `[migration] stripped envFile from ${strippedRoomEnv} room(s); env is now per-user`,
+    );
   }
   return rooms as Room[];
 }
@@ -403,7 +521,20 @@ export function saveAgents(rooms: Room[]) {
 // Agent manifest for discovery by other agents
 const MANIFEST_FILE = join(ISOMUX_DIR, "agents-summary.json");
 
-export function writeManifest(agents: { id: string; name: string; desk: number; room: number; roomName: string; topic: string | null; cwd: string; modelFamily: string; model: string; username: string | null }[]) {
+export function writeManifest(
+  agents: {
+    id: string;
+    name: string;
+    desk: number;
+    room: number;
+    roomName: string;
+    topic: string | null;
+    cwd: string;
+    modelFamily: string;
+    model: string;
+    username: string | null;
+  }[],
+) {
   try {
     const manifest = agents.map((a) => ({
       id: a.id,
@@ -441,7 +572,10 @@ export function saveRecentCwd(cwd: string) {
   try {
     const recent = loadRecentCwds().filter((c) => c !== cwd);
     recent.unshift(cwd);
-    atomicWriteFileSync(RECENT_CWDS_FILE, JSON.stringify(recent.slice(0, MAX_RECENT_CWDS), null, 2));
+    atomicWriteFileSync(
+      RECENT_CWDS_FILE,
+      JSON.stringify(recent.slice(0, MAX_RECENT_CWDS), null, 2),
+    );
   } catch (err) {
     console.error("Failed to save recent cwd:", err);
   }
@@ -453,10 +587,18 @@ export function saveRecentCwd(cwd: string) {
 export function loadOfficeConfig(): OfficeSettings {
   try {
     if (existsSync(OFFICE_CONFIG_FILE)) {
-      const parsed = JSON.parse(readFileSync(OFFICE_CONFIG_FILE, "utf-8")) as Partial<OfficeSettings>;
+      const parsed = JSON.parse(
+        readFileSync(OFFICE_CONFIG_FILE, "utf-8"),
+      ) as Partial<OfficeSettings>;
       return {
-        prompt: typeof parsed.prompt === "string" && parsed.prompt ? parsed.prompt : null,
-        envFile: typeof parsed.envFile === "string" && parsed.envFile ? parsed.envFile : null,
+        prompt:
+          typeof parsed.prompt === "string" && parsed.prompt
+            ? parsed.prompt
+            : null,
+        envFile:
+          typeof parsed.envFile === "string" && parsed.envFile
+            ? parsed.envFile
+            : null,
       };
     }
   } catch (err) {
@@ -505,26 +647,39 @@ export function parseDotenv(content: string): Record<string, string> {
     if (i === 0 && line.charCodeAt(0) === 0xfeff) line = line.slice(1);
     const stripped = line.trim();
     if (!stripped || stripped.startsWith("#")) continue;
-    let working = stripped.startsWith("export ") ? stripped.slice(7).trimStart() : stripped;
+    let working = stripped.startsWith("export ")
+      ? stripped.slice(7).trimStart()
+      : stripped;
     const eqIdx = working.indexOf("=");
     if (eqIdx <= 0) {
       throw new Error(`parse error at line ${i + 1}: ${JSON.stringify(raw)}`);
     }
     const key = working.slice(0, eqIdx).trim();
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
-      throw new Error(`parse error at line ${i + 1}: invalid key ${JSON.stringify(key)}`);
+      throw new Error(
+        `parse error at line ${i + 1}: invalid key ${JSON.stringify(key)}`,
+      );
     }
     let value = working.slice(eqIdx + 1).trim();
     if (value.length >= 2 && value[0] === '"' && value.endsWith('"')) {
-      value = value.slice(1, -1).replace(/\\n/g, "\n").replace(/\\r/g, "\r").replace(/\\t/g, "\t").replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+      value = value
+        .slice(1, -1)
+        .replace(/\\n/g, "\n")
+        .replace(/\\r/g, "\r")
+        .replace(/\\t/g, "\t")
+        .replace(/\\"/g, '"')
+        .replace(/\\\\/g, "\\");
     } else if (value.length >= 2 && value[0] === "'" && value.endsWith("'")) {
       value = value.slice(1, -1);
     } else if (value[0] === '"' || value[0] === "'") {
-      throw new Error(`parse error at line ${i + 1}: unterminated quoted value`);
+      throw new Error(
+        `parse error at line ${i + 1}: unterminated quoted value`,
+      );
     } else {
       // Strip inline comment (only if preceded by whitespace)
       const hashMatch = value.match(/\s+#/);
-      if (hashMatch && hashMatch.index !== undefined) value = value.slice(0, hashMatch.index);
+      if (hashMatch && hashMatch.index !== undefined)
+        value = value.slice(0, hashMatch.index);
       value = value.trim();
     }
     result[key] = value;
@@ -564,7 +719,9 @@ export type AgentHistory = Record<string, AgentHistoryEntry>;
 export function loadAgentHistory(): AgentHistory {
   try {
     if (!existsSync(AGENT_HISTORY_FILE)) return {};
-    return JSON.parse(readFileSync(AGENT_HISTORY_FILE, "utf-8")) as AgentHistory;
+    return JSON.parse(
+      readFileSync(AGENT_HISTORY_FILE, "utf-8"),
+    ) as AgentHistory;
   } catch {
     return {};
   }
@@ -582,7 +739,9 @@ export function saveAgentHistory(history: AgentHistory) {
 export function loadTasks(): TaskItem[] {
   try {
     if (!existsSync(TASKS_FILE)) return [];
-    const records = JSON.parse(readFileSync(TASKS_FILE, "utf-8")) as Array<TaskItem & { device?: string }>;
+    const records = JSON.parse(readFileSync(TASKS_FILE, "utf-8")) as Array<
+      TaskItem & { device?: string }
+    >;
     // Migrate legacy `device` field → `username` (the field's actual semantics
     // has always been "the boss's name").
     let migrated = 0;
@@ -594,7 +753,9 @@ export function loadTasks(): TaskItem[] {
       delete (r as any).device;
     }
     if (migrated > 0) {
-      console.log(`[migration] migrated ${migrated} task(s) from device → username`);
+      console.log(
+        `[migration] migrated ${migrated} task(s) from device → username`,
+      );
     }
     return records;
   } catch {
@@ -634,13 +795,21 @@ const MIME_TO_EXTENSION: Record<string, string> = {
 };
 
 const EXTENSION_TO_MIME: Record<string, string> = {
-  jpg: "image/jpeg", jpeg: "image/jpeg",
-  png: "image/png", gif: "image/gif", webp: "image/webp",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  gif: "image/gif",
+  webp: "image/webp",
   pdf: "application/pdf",
-  txt: "text/plain", md: "text/markdown", csv: "text/csv",
-  json: "application/json", xml: "text/xml",
-  yaml: "text/yaml", yml: "text/yaml",
-  html: "text/html", css: "text/css",
+  txt: "text/plain",
+  md: "text/markdown",
+  csv: "text/csv",
+  json: "application/json",
+  xml: "text/xml",
+  yaml: "text/yaml",
+  yml: "text/yaml",
+  html: "text/html",
+  css: "text/css",
 };
 
 /** Sanitize a filename: strip path components, replace unsafe chars, fallback to hash. */
@@ -653,7 +822,12 @@ function sanitizeFilename(name: string): string {
 }
 
 /** Save a file buffer to disk. Returns an Attachment object or null on failure. */
-export function saveFile(agentId: string, data: Buffer, mediaType: string, originalName: string): Attachment | null {
+export function saveFile(
+  agentId: string,
+  data: Buffer,
+  mediaType: string,
+  originalName: string,
+): Attachment | null {
   try {
     if (data.length > MAX_FILE_BYTES) return null;
 
@@ -666,7 +840,9 @@ export function saveFile(agentId: string, data: Buffer, mediaType: string, origi
     // If file with same name and content exists, reuse it (same upload repeated).
     // If same name but different content, add a numeric suffix.
     if (existsSync(filepath)) {
-      const existingHash = createHash("sha256").update(readFileSync(filepath)).digest("hex");
+      const existingHash = createHash("sha256")
+        .update(readFileSync(filepath))
+        .digest("hex");
       const newHash = createHash("sha256").update(data).digest("hex");
       if (existingHash === newHash) {
         return { filename, originalName, mediaType, size: data.length };

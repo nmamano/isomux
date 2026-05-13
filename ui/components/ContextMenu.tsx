@@ -11,7 +11,13 @@ interface ContextMenuProps {
   onEdit: (agent: AgentInfo) => void;
 }
 
-export function ContextMenu({ x, y, agent, onClose, onEdit }: ContextMenuProps) {
+export function ContextMenu({
+  x,
+  y,
+  agent,
+  onClose,
+  onEdit,
+}: ContextMenuProps) {
   const ref = useRef<HTMLDivElement>(null);
   const { sessionsList } = useAppState();
   const features = useFeatures();
@@ -84,13 +90,39 @@ export function ContextMenu({ x, y, agent, onClose, onEdit }: ContextMenuProps) 
       >
         {agent.name}
       </div>
-      <MenuItem label="Edit Agent..." onClick={() => { onEdit(agent); onClose(); }} />
-      {features.sessions && <MenuItem label="New Conversation" onClick={() => handleAction("new_conversation")} />}
+      <MenuItem
+        label="Edit Agent..."
+        onClick={() => {
+          onEdit(agent);
+          onClose();
+        }}
+      />
+      {features.sessions && (
+        <MenuItem
+          label="New Conversation"
+          onClick={() => handleAction("new_conversation")}
+        />
+      )}
 
       {features.sessions && sessions.length > 1 && (
         <>
-          <div style={{ height: 1, background: "var(--border-strong)", margin: "3px 8px" }} />
-          <div style={{ padding: "4px 10px", fontSize: 9, color: "var(--text-ghost)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+          <div
+            style={{
+              height: 1,
+              background: "var(--border-strong)",
+              margin: "3px 8px",
+            }}
+          />
+          <div
+            style={{
+              padding: "4px 10px",
+              fontSize: 9,
+              color: "var(--text-ghost)",
+              fontWeight: 600,
+              textTransform: "uppercase",
+              letterSpacing: "0.05em",
+            }}
+          >
             Resume
           </div>
           {sessions.slice(0, 5).map((s) => {
@@ -108,15 +140,27 @@ export function ContextMenu({ x, y, agent, onClose, onEdit }: ContextMenuProps) 
                 small
                 disabled={isCurrent}
                 dimmed={s.branched}
-                onClick={() => !isCurrent && handleAction("resume", s.sessionId)}
+                onClick={() =>
+                  !isCurrent && handleAction("resume", s.sessionId)
+                }
               />
             );
           })}
         </>
       )}
 
-      <div style={{ height: 1, background: "var(--border-strong)", margin: "3px 8px" }} />
-      <MenuItem label="Kill Agent" danger onClick={() => handleAction("kill")} />
+      <div
+        style={{
+          height: 1,
+          background: "var(--border-strong)",
+          margin: "3px 8px",
+        }}
+      />
+      <MenuItem
+        label="Kill Agent"
+        danger
+        onClick={() => handleAction("kill")}
+      />
     </div>
   );
 }
@@ -140,7 +184,10 @@ function MenuItem({
     <button
       onClick={disabled ? undefined : onClick}
       onMouseEnter={(e) => {
-        if (!disabled) e.currentTarget.style.background = danger ? "rgba(232,93,117,0.08)" : "rgba(255,255,255,0.04)";
+        if (!disabled)
+          e.currentTarget.style.background = danger
+            ? "rgba(232,93,117,0.08)"
+            : "rgba(255,255,255,0.04)";
       }}
       onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
       style={{

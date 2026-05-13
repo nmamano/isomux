@@ -30,8 +30,14 @@ export function getEditorState(agentId: string): PersistedEditorState | null {
   return stateByAgent.get(agentId) ?? null;
 }
 
-export function setEditorState(agentId: string, state: PersistedEditorState | null): void {
-  if (state === null || (state.tabs.length === 0 && state.activePath === null)) {
+export function setEditorState(
+  agentId: string,
+  state: PersistedEditorState | null,
+): void {
+  if (
+    state === null ||
+    (state.tabs.length === 0 && state.activePath === null)
+  ) {
     stateByAgent.delete(agentId);
   } else {
     stateByAgent.set(agentId, state);

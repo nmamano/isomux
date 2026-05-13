@@ -37,8 +37,12 @@ export function setDevice(label: string | null): void {
 // Read legacy localStorage prefs used during the one-shot claim_user
 // migration. Once the server acks the claim, the corresponding keys can be
 // cleared via `clearLegacyUserPrefs()` so they don't drift.
-export function readLegacyUserPrefs(): { defaultRoomId: string | null; notifRooms: NotifRoomsSetting } {
-  if (typeof localStorage === "undefined") return { defaultRoomId: null, notifRooms: "all" };
+export function readLegacyUserPrefs(): {
+  defaultRoomId: string | null;
+  notifRooms: NotifRoomsSetting;
+} {
+  if (typeof localStorage === "undefined")
+    return { defaultRoomId: null, notifRooms: "all" };
   const defaultRoomId = localStorage.getItem(LEGACY_KEY_DEFAULT_ROOM);
   const raw = localStorage.getItem(LEGACY_KEY_NOTIF_ROOMS);
   let notifRooms: NotifRoomsSetting = "all";
@@ -46,7 +50,11 @@ export function readLegacyUserPrefs(): { defaultRoomId: string | null; notifRoom
     try {
       const parsed = JSON.parse(raw);
       if (parsed === "all") notifRooms = "all";
-      else if (Array.isArray(parsed) && parsed.every((x) => typeof x === "string")) notifRooms = parsed;
+      else if (
+        Array.isArray(parsed) &&
+        parsed.every((x) => typeof x === "string")
+      )
+        notifRooms = parsed;
     } catch {}
   }
   return { defaultRoomId, notifRooms };
@@ -58,7 +66,10 @@ export function clearLegacyUserPrefs(): void {
   localStorage.removeItem(LEGACY_KEY_NOTIF_ROOMS);
 }
 
-export function shouldNotifyRoom(roomId: string | null, setting: NotifRoomsSetting): boolean {
+export function shouldNotifyRoom(
+  roomId: string | null,
+  setting: NotifRoomsSetting,
+): boolean {
   if (setting === "all") return true;
   if (roomId == null) return false;
   return setting.includes(roomId);

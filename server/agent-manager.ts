@@ -1,5 +1,29 @@
-import type { AgentInfo, AgentOutfit, AgentState, Attachment, CodexSandboxMode, EffortLevel, LogEntry, ModelFamily, OfficeSettings, QueuedMessage, RoomWire, SkillInfo, TaskItem } from "../shared/types.ts";
-import { CODEX_MODELS, MODEL_FAMILIES, FAMILY_TO_MODEL, EFFORT_LEVELS, DEFAULT_EFFORT, familyDisplayLabel, effortDisplayLabel, generateRoomId, isClaudeFamily } from "../shared/types.ts";
+import type {
+  AgentInfo,
+  AgentOutfit,
+  AgentState,
+  Attachment,
+  CodexSandboxMode,
+  EffortLevel,
+  LogEntry,
+  ModelFamily,
+  OfficeSettings,
+  QueuedMessage,
+  RoomWire,
+  SkillInfo,
+  TaskItem,
+} from "../shared/types.ts";
+import {
+  CODEX_MODELS,
+  MODEL_FAMILIES,
+  FAMILY_TO_MODEL,
+  EFFORT_LEVELS,
+  DEFAULT_EFFORT,
+  familyDisplayLabel,
+  effortDisplayLabel,
+  generateRoomId,
+  isClaudeFamily,
+} from "../shared/types.ts";
 import { formatPrefix, formatAgentSenderPrefix } from "../shared/identity.ts";
 import { getUserEnvFile } from "./users.ts";
 import {
@@ -79,7 +103,10 @@ import {
   type EnqueueResult,
 } from "./internal-types.ts";
 import { getBackend } from "./backends/index.ts";
-import { checkCodexVersion, getCodexVersionStatus } from "./backends/codex/version-check.ts";
+import {
+  checkCodexVersion,
+  getCodexVersionStatus,
+} from "./backends/codex/version-check.ts";
 import type { BackendSession, NormalizedEvent } from "./backends/types.ts";
 import { OfficeState } from "../shared/office-state.ts";
 
@@ -91,7 +118,8 @@ const LOGIN_INSTRUCTIONS = `To authenticate:
 
 Once complete, it takes effect immediately for all Isomux agents.`;
 
-const AUTH_ERROR_PATTERNS = /unauthori[zs]ed|not authenticated|authentication|auth.*expired|invalid.*token|login.*required|403|401/i;
+const AUTH_ERROR_PATTERNS =
+  /unauthori[zs]ed|not authenticated|authentication|auth.*expired|invalid.*token|login.*required|403|401/i;
 function isAuthError(text: string): boolean {
   return AUTH_ERROR_PATTERNS.test(text);
 }
@@ -101,7 +129,10 @@ function isAuthError(text: string): boolean {
 // back to the orchestrator-local check + Claude instructions for callers that
 // don't have an agent context (legacy paths or paths where the agent's
 // backend is genuinely uncertain).
-function detectAgentAuthError(managed: ManagedAgent | undefined, text: string): boolean {
+function detectAgentAuthError(
+  managed: ManagedAgent | undefined,
+  text: string,
+): boolean {
   if (!managed) return isAuthError(text);
   return getBackend(managed.info.agentType).detectAuthError(text);
 }
@@ -114,7 +145,10 @@ function agentLoginInstructions(managed: ManagedAgent | undefined): string {
 // username + device so display helpers can reconstruct `[Nil (Phone)]`. Old
 // log entries written before the device split lack the device key — readers
 // fall through to plain `[Nil]`.
-export function buildUserMeta(username?: string, device?: string): Record<string, unknown> | undefined {
+export function buildUserMeta(
+  username?: string,
+  device?: string,
+): Record<string, unknown> | undefined {
   if (!username && !device) return undefined;
   const meta: Record<string, unknown> = {};
   if (username) meta.username = username;
@@ -128,16 +162,27 @@ let eventHandler: EventHandler = () => {};
 const initialOfficeConfig: OfficeSettings = loadOfficeConfig();
 const officeState = new OfficeState({
   rooms: [{ id: generateRoomId(), name: "Room 1", prompt: null }],
-  office: { prompt: initialOfficeConfig.prompt, envFile: initialOfficeConfig.envFile },
+  office: {
+    prompt: initialOfficeConfig.prompt,
+    envFile: initialOfficeConfig.envFile,
+  },
 });
 let officeStatePersistenceEnabled = false;
 // Fields on AgentInfo that aren't included in the persisted shape (see
 // persistAll below). agent_updated events that only touch these don't need
 // disk writes — relevant because state transitions fire many times per turn.
-const EPHEMERAL_AGENT_FIELDS = new Set(["state", "sessionSwapping", "topicStale", "turnHadHumanInput"]);
+const EPHEMERAL_AGENT_FIELDS = new Set([
+  "state",
+  "sessionSwapping",
+  "topicStale",
+  "turnHadHumanInput",
+]);
 officeState.onChange((event) => {
   if (event.type === "office_settings_updated") {
-    saveOfficeConfig({ prompt: officeState.office.prompt, envFile: officeState.office.envFile });
+    saveOfficeConfig({
+      prompt: officeState.office.prompt,
+      envFile: officeState.office.envFile,
+    });
     return;
   }
   if (event.type === "tasks_changed") {
@@ -147,7 +192,8 @@ officeState.onChange((event) => {
   if (!officeStatePersistenceEnabled) return;
   if (event.type === "agent_updated") {
     const keys = Object.keys(event.changes);
-    if (keys.length > 0 && keys.every(k => EPHEMERAL_AGENT_FIELDS.has(k))) return;
+    if (keys.length > 0 && keys.every((k) => EPHEMERAL_AGENT_FIELDS.has(k)))
+      return;
   }
   persistAll();
 });
@@ -157,20 +203,37 @@ export function getRooms(): RoomWire[] {
 }
 
 export function getOfficeSettings(): OfficeSettings {
-  return { prompt: officeState.office.prompt, envFile: officeState.office.envFile };
+  return {
+    prompt: officeState.office.prompt,
+    envFile: officeState.office.envFile,
+  };
 }
 
 export function getTasks(): TaskItem[] {
   return [...officeState.tasks];
 }
 
-export function addTask(title: string, createdBy: string, opts?: { description?: string; priority?: TaskItem["priority"]; assignee?: string; username?: string }): TaskItem {
+export function addTask(
+  title: string,
+  createdBy: string,
+  opts?: {
+    description?: string;
+    priority?: TaskItem["priority"];
+    assignee?: string;
+    username?: string;
+  },
+): TaskItem {
   const events = officeState.addTask(title, createdBy, opts);
   for (const event of events) eventHandler(event);
   return officeState.tasks[officeState.tasks.length - 1];
 }
 
-export function updateTask(id: string, changes: Partial<Pick<TaskItem, "title" | "description" | "priority" | "status" | "assignee">>): TaskItem | null {
+export function updateTask(
+  id: string,
+  changes: Partial<
+    Pick<TaskItem, "title" | "description" | "priority" | "status" | "assignee">
+  >,
+): TaskItem | null {
   const events = officeState.updateTask(id, changes);
   if (events.length === 0) return null;
   for (const event of events) eventHandler(event);
@@ -186,14 +249,20 @@ export function deleteTask(id: string): boolean {
 }
 
 // Update office settings. Caller is responsible for validating envFile (see validateEnvPath).
-export function setOfficeSettings(prompt: string | null, envFile: string | null) {
+export function setOfficeSettings(
+  prompt: string | null,
+  envFile: string | null,
+) {
   const events = officeState.setOfficeSettings(prompt, envFile);
   // System prompt is rebuilt at every createSession from current office/room/agent
   // config, so the new office prompt automatically lands on the next conversation.
   for (const event of events) eventHandler(event);
 }
 
-export function setRoomSettings(roomId: string, prompt: string | null): boolean {
+export function setRoomSettings(
+  roomId: string,
+  prompt: string | null,
+): boolean {
   const events = officeState.setRoomSettings(roomId, prompt);
   if (events.length === 0) return false;
   // System prompt is rebuilt at every createSession — next conversation picks up
@@ -217,7 +286,10 @@ export function getAgentLogs(agentId: string): LogEntry[] {
   return logCache.get(agentId) ?? [];
 }
 
-export function getAgentCommands(agentId: string): { commands: { name: string; description?: string }[]; skills: SkillInfo[] } {
+export function getAgentCommands(agentId: string): {
+  commands: { name: string; description?: string }[];
+  skills: SkillInfo[];
+} {
   const managed = agents.get(agentId);
   return {
     commands: managed?.slashCommands ?? [],
@@ -237,7 +309,9 @@ export function getCurrentSessionId(agentId: string): string | null {
 // endpoint to derive the sender label instead of trusting the request body.
 // Prevents an attacker from spoofing identity or injecting prefix-delimiter
 // characters into the prompt that follows.
-export function getAgentDisplay(agentId: string): { name: string; roomName: string } | null {
+export function getAgentDisplay(
+  agentId: string,
+): { name: string; roomName: string } | null {
   const managed = agents.get(agentId);
   if (!managed) return null;
   const room = officeState.rooms[managed.info.room];
@@ -260,10 +334,17 @@ function validatePermissionMode(
     // "on-failure" is deprecated in codex 0.130 (warns on use); migrate
     // to "on-request" at the boundary so we never persist the legacy value.
     if (raw === "on-failure") return "on-request";
-    if (raw === "untrusted" || raw === "on-request" || raw === "never") return raw;
+    if (raw === "untrusted" || raw === "on-request" || raw === "never")
+      return raw;
     return "on-request";
   }
-  if (raw === "default" || raw === "acceptEdits" || raw === "bypassPermissions" || raw === "auto") return raw;
+  if (
+    raw === "default" ||
+    raw === "acceptEdits" ||
+    raw === "bypassPermissions" ||
+    raw === "auto"
+  )
+    return raw;
   return "auto";
 }
 
@@ -288,7 +369,12 @@ function validateModelFamily(
 function validateCodexSandbox(
   raw: AgentInfo["codexSandbox"] | undefined,
 ): CodexSandboxMode | undefined {
-  if (raw === "read-only" || raw === "workspace-write" || raw === "danger-full-access") return raw;
+  if (
+    raw === "read-only" ||
+    raw === "workspace-write" ||
+    raw === "danger-full-access"
+  )
+    return raw;
   return undefined;
 }
 
@@ -302,10 +388,12 @@ function validateEffort(
     // model/list is the real allow-list, and it can include values outside
     // our static EFFORT_LEVELS (e.g. "none"). Trust any non-empty string
     // and let codex reject at thread/start.
-    if (raw && typeof raw === "string" && raw.length > 0) return raw as EffortLevel;
+    if (raw && typeof raw === "string" && raw.length > 0)
+      return raw as EffortLevel;
     return DEFAULT_EFFORT;
   }
-  if (!raw || !EFFORT_LEVELS.some((e) => e.level === raw)) return DEFAULT_EFFORT;
+  if (!raw || !EFFORT_LEVELS.some((e) => e.level === raw))
+    return DEFAULT_EFFORT;
   // Claude family-level rules: "minimal" is Codex-only; "max" is opus-only.
   if (raw === "minimal") return DEFAULT_EFFORT;
   if (raw === "max" && modelFamily !== "opus") return DEFAULT_EFFORT;
@@ -316,8 +404,14 @@ function validateEffort(
 // Used by paths where a side effect (e.g. session recreate) reads AgentInfo
 // and needs the new values, but we want the change reverted if the side
 // effect fails. Persist/emit is the caller's responsibility on success.
-async function withAgentRollback(managed: ManagedAgent, fields: Partial<AgentInfo>, fn: () => Promise<void>) {
-  const snapshot = Object.fromEntries(Object.keys(fields).map(k => [k, (managed.info as any)[k]]));
+async function withAgentRollback(
+  managed: ManagedAgent,
+  fields: Partial<AgentInfo>,
+  fn: () => Promise<void>,
+) {
+  const snapshot = Object.fromEntries(
+    Object.keys(fields).map((k) => [k, (managed.info as any)[k]]),
+  );
   Object.assign(managed.info, fields);
   try {
     await fn();
@@ -329,7 +423,16 @@ async function withAgentRollback(managed: ManagedAgent, fields: Partial<AgentInf
 
 export async function editAgent(
   agentId: string,
-  changes: { name?: string; cwd?: string; outfit?: AgentInfo["outfit"]; customInstructions?: string; modelFamily?: string; effort?: EffortLevel; permissionMode?: AgentInfo["permissionMode"]; codexSandbox?: AgentInfo["codexSandbox"] },
+  changes: {
+    name?: string;
+    cwd?: string;
+    outfit?: AgentInfo["outfit"];
+    customInstructions?: string;
+    modelFamily?: string;
+    effort?: EffortLevel;
+    permissionMode?: AgentInfo["permissionMode"];
+    codexSandbox?: AgentInfo["codexSandbox"];
+  },
 ) {
   const managed = agents.get(agentId);
   if (!managed) return;
@@ -341,12 +444,19 @@ export async function editAgent(
   if (changes.name) validated.name = changes.name;
   if (changes.cwd) validated.cwd = resolveCwd(changes.cwd);
   if (changes.outfit) validated.outfit = changes.outfit;
-  if (changes.customInstructions !== undefined) validated.customInstructions = changes.customInstructions;
+  if (changes.customInstructions !== undefined)
+    validated.customInstructions = changes.customInstructions;
   if (changes.permissionMode) {
-    validated.permissionMode = validatePermissionMode(managed.info.agentType, changes.permissionMode);
+    validated.permissionMode = validatePermissionMode(
+      managed.info.agentType,
+      changes.permissionMode,
+    );
   }
   if (changes.modelFamily) {
-    validated.modelFamily = validateModelFamily(managed.info.agentType, changes.modelFamily);
+    validated.modelFamily = validateModelFamily(
+      managed.info.agentType,
+      changes.modelFamily,
+    );
   }
   if (changes.codexSandbox && managed.info.agentType === "codex") {
     const valid = validateCodexSandbox(changes.codexSandbox);
@@ -356,14 +466,22 @@ export async function editAgent(
     // Validate against the post-update modelFamily so a paired model+effort
     // change is consistent.
     const targetModelFamily = validated.modelFamily ?? managed.info.modelFamily;
-    validated.effort = validateEffort(managed.info.agentType, targetModelFamily, changes.effort);
+    validated.effort = validateEffort(
+      managed.info.agentType,
+      targetModelFamily,
+      changes.effort,
+    );
   }
   // Cross-update sanitization: if modelFamily changed but effort wasn't part
   // of this edit, the existing effort may now be invalid (e.g. "max" survives
   // on an agent whose model just moved from opus to sonnet). Re-validate
   // against the new model and downgrade if needed.
   if (validated.modelFamily && validated.effort === undefined) {
-    validated.effort = validateEffort(managed.info.agentType, validated.modelFamily, managed.info.effort);
+    validated.effort = validateEffort(
+      managed.info.agentType,
+      validated.modelFamily,
+      managed.info.effort,
+    );
   }
 
   // cwd-change side effects must run BEFORE the AgentInfo mutation lands.
@@ -411,15 +529,25 @@ export async function editAgent(
   // hits onChange (persists the rollback) but not eventHandler, so the wire
   // never sees either direction. Matches the prior withAgentRollback contract.
   const updated = events[0].type === "agent_updated" ? events[0].changes : {};
-  if (updated.modelFamily || updated.effort || updated.permissionMode || updated.codexSandbox) {
+  if (
+    updated.modelFamily ||
+    updated.effort ||
+    updated.permissionMode ||
+    updated.codexSandbox
+  ) {
     // Apply auto-resume policy BEFORE the replace transaction. The clear is
     // intentionally outside the try/catch: if the prior Codex thread had no
     // durable rollout, the cleared state is correct regardless of whether
     // the new session install succeeds.
     const sessionId = pickAutoResumeSessionId(managed);
-    if (managed.sessionId && !sessionId) clearStaleAutoResumeState(agentId, managed);
+    if (managed.sessionId && !sessionId)
+      clearStaleAutoResumeState(agentId, managed);
     try {
-      await replaceSession(agentId, managed, sessionId ? createSession(managed, sessionId) : createSession(managed));
+      await replaceSession(
+        agentId,
+        managed,
+        sessionId ? createSession(managed, sessionId) : createSession(managed),
+      );
     } catch (err) {
       officeState.updateAgent(agentId, snapshot);
       throw err;
@@ -479,20 +607,24 @@ export function getAllAgents(): AgentInfo[] {
 
 function updateManifest() {
   const rooms = officeState.rooms;
-  writeManifest([...agents.values()].map((a) => ({
-    id: a.info.id,
-    name: a.info.name,
-    desk: a.info.desk,
-    room: a.info.room,
-    roomName: rooms[a.info.room]?.name ?? `Room ${a.info.room + 1}`,
-    topic: a.info.topic,
-    cwd: a.info.cwd,
-    modelFamily: a.info.modelFamily,
-    // Concrete model id: for Claude families resolve via FAMILY_TO_MODEL, for
-    // Codex agents the value itself IS the codex model id (e.g. "gpt-5.5").
-    model: isClaudeFamily(a.info.modelFamily) ? FAMILY_TO_MODEL[a.info.modelFamily] : a.info.modelFamily,
-    username: a.info.username,
-  })));
+  writeManifest(
+    [...agents.values()].map((a) => ({
+      id: a.info.id,
+      name: a.info.name,
+      desk: a.info.desk,
+      room: a.info.room,
+      roomName: rooms[a.info.room]?.name ?? `Room ${a.info.room + 1}`,
+      topic: a.info.topic,
+      cwd: a.info.cwd,
+      modelFamily: a.info.modelFamily,
+      // Concrete model id: for Claude families resolve via FAMILY_TO_MODEL, for
+      // Codex agents the value itself IS the codex model id (e.g. "gpt-5.5").
+      model: isClaudeFamily(a.info.modelFamily)
+        ? FAMILY_TO_MODEL[a.info.modelFamily]
+        : a.info.modelFamily,
+      username: a.info.username,
+    })),
+  );
 }
 
 function persistAll() {
@@ -539,7 +671,11 @@ function updateAgentHistory() {
   for (const a of agents.values()) {
     const room = rooms[a.info.room];
     if (!room) continue;
-    history[a.info.id] = { name: a.info.name, lastRoomId: room.id, lastRoomName: room.name };
+    history[a.info.id] = {
+      name: a.info.name,
+      lastRoomId: room.id,
+      lastRoomName: room.name,
+    };
   }
   saveAgentHistory(history);
 }
@@ -548,10 +684,17 @@ function updateAgentHistory() {
 export async function restoreAgents() {
   // Clean up the pre-0.2.116 per-agent launcher scripts. Isomux now passes the
   // native Claude binary directly, so these are orphaned.
-  try { rmSync(join(homedir(), ".isomux", "launchers"), { recursive: true, force: true }); } catch {}
+  try {
+    rmSync(join(homedir(), ".isomux", "launchers"), {
+      recursive: true,
+      force: true,
+    });
+  } catch {}
 
   const loaded = loadAgents();
-  officeState.setRooms(loaded.map((r) => ({ id: r.id, name: r.name, prompt: r.prompt })));
+  officeState.setRooms(
+    loaded.map((r) => ({ id: r.id, name: r.name, prompt: r.prompt })),
+  );
 
   for (let roomIdx = 0; roomIdx < loaded.length; roomIdx++) {
     for (const p of loaded[roomIdx].agents) {
@@ -562,10 +705,15 @@ export async function restoreAgents() {
       // migrates it to "on-request"; the next persistAll save bakes the
       // corrected value back to disk so the deprecation warning stops.
       const modelFamily = validateModelFamily(agentType, p.modelFamily);
-      const permissionMode = validatePermissionMode(agentType, p.permissionMode);
+      const permissionMode = validatePermissionMode(
+        agentType,
+        p.permissionMode,
+      );
       const effort = validateEffort(agentType, modelFamily, p.effort);
       const codexSandbox =
-        agentType === "codex" ? validateCodexSandbox(p.codexSandbox) : undefined;
+        agentType === "codex"
+          ? validateCodexSandbox(p.codexSandbox)
+          : undefined;
       // Apply auto-resume policy up-front: a Codex thread that wasn't durable
       // before the last shutdown is not resumable. Computing this here lets us
       // set the initial AgentInfo.state and managed.sessionId honestly, avoiding
@@ -623,7 +771,12 @@ export async function restoreAgents() {
         aborting: false,
         abortPromise: null,
         slashCommands: autocompleteCommands(),
-        skills: deduplicateSkills([...discoverUserSkills(), ...discoverProjectSkills(p.cwd), ...discoverPluginSkills(), ...discoverBundledSkills()]),
+        skills: deduplicateSkills([
+          ...discoverUserSkills(),
+          ...discoverProjectSkills(p.cwd),
+          ...discoverPluginSkills(),
+          ...discoverBundledSkills(),
+        ]),
         sdkReportedCommands: [],
         thinkingStartedAt: 0,
         toolCallTimestamps: new Map(),
@@ -668,7 +821,9 @@ export async function restoreAgents() {
 
       // Auto-resume session
       try {
-        const session = resumeSessionId ? createSession(managed, resumeSessionId) : createSession(managed);
+        const session = resumeSessionId
+          ? createSession(managed, resumeSessionId)
+          : createSession(managed);
         installSession(p.id, managed, session);
       } catch (err: any) {
         console.error(`Failed to restore session for ${p.name}:`, err.message);
@@ -704,7 +859,10 @@ export function getAgent(agentId: string): AgentInfo | undefined {
 // entry so the boss can open the file in the editor side panel. Mirrors
 // emitAgentDiff. The card shows an [Open in editor] button — the panel never
 // auto-opens (matches the rejected "server auto-opens panel" decision).
-export function emitAgentEditRequest(agentId: string, rawPath: string): { ok: true } | { ok: false; status: number; error: string } {
+export function emitAgentEditRequest(
+  agentId: string,
+  rawPath: string,
+): { ok: true } | { ok: false; status: number; error: string } {
   const managed = agents.get(agentId);
   if (!managed) return { ok: false, status: 404, error: "agent not found" };
   const resolved = resolveEditorPath(rawPath, managed.info.cwd);
@@ -723,15 +881,27 @@ export function emitAgentEditRequest(agentId: string, rawPath: string): { ok: tr
     return { ok: true };
   }
   if (probe.kind === "binary") {
-    addLogEntry(agentId, "system", `\`${resolved.path}\` is a binary file — the editor panel only supports text.`);
+    addLogEntry(
+      agentId,
+      "system",
+      `\`${resolved.path}\` is a binary file — the editor panel only supports text.`,
+    );
     return { ok: true };
   }
   if (probe.kind === "too_large") {
-    addLogEntry(agentId, "system", `\`${resolved.path}\` is ${(probe.size / 1024).toFixed(1)} KB — too large for the editor panel (1 MB limit).`);
+    addLogEntry(
+      agentId,
+      "system",
+      `\`${resolved.path}\` is ${(probe.size / 1024).toFixed(1)} KB — too large for the editor panel (1 MB limit).`,
+    );
     return { ok: true };
   }
   if (probe.kind === "io_error") {
-    addLogEntry(agentId, "system", `Failed to open \`${resolved.path}\`: ${probe.message}`);
+    addLogEntry(
+      agentId,
+      "system",
+      `Failed to open \`${resolved.path}\`: ${probe.message}`,
+    );
     return { ok: true };
   }
   addLogEntry(agentId, "edit-request", resolved.path, undefined, undefined, {
@@ -745,17 +915,29 @@ export function emitAgentEditRequest(agentId: string, rawPath: string): { ok: tr
 // Single-line only at first; agents that need multiple steps can join with
 // `&&` / `;` or set up a one-line wrapper.
 const TERMINAL_COMMAND_MAX_LEN = 4096;
-export function emitAgentTerminalCommand(agentId: string, rawCommand: string): { ok: true } | { ok: false; status: number; error: string } {
+export function emitAgentTerminalCommand(
+  agentId: string,
+  rawCommand: string,
+): { ok: true } | { ok: false; status: number; error: string } {
   const managed = agents.get(agentId);
   if (!managed) return { ok: false, status: 404, error: "agent not found" };
-  if (typeof rawCommand !== "string") return { ok: false, status: 400, error: "command must be a string" };
+  if (typeof rawCommand !== "string")
+    return { ok: false, status: 400, error: "command must be a string" };
   const command = rawCommand.replace(/\s+$/u, "");
   if (!command) return { ok: false, status: 400, error: "empty command" };
   if (command.length > TERMINAL_COMMAND_MAX_LEN) {
-    return { ok: false, status: 400, error: `command too long (max ${TERMINAL_COMMAND_MAX_LEN} chars)` };
+    return {
+      ok: false,
+      status: 400,
+      error: `command too long (max ${TERMINAL_COMMAND_MAX_LEN} chars)`,
+    };
   }
   if (/[\r\n]/u.test(command)) {
-    return { ok: false, status: 400, error: "command must be single-line; join steps with && or ;" };
+    return {
+      ok: false,
+      status: 400,
+      error: "command must be single-line; join steps with && or ;",
+    };
   }
   addLogEntry(agentId, "terminal-command", command, undefined, undefined, {
     terminal: { command },
@@ -766,26 +948,47 @@ export function emitAgentTerminalCommand(agentId: string, rawCommand: string): {
 // Run the same diff machinery as /isomux-diff and emit the result into the
 // agent's chat stream. Used by POST /agents/:id/diff so an agent can show
 // the boss a styled diff card without the boss invoking the slash command.
-export function emitAgentDiff(agentId: string, dir?: string): { ok: true } | { ok: false; status: number; error: string } {
+export function emitAgentDiff(
+  agentId: string,
+  dir?: string,
+): { ok: true } | { ok: false; status: number; error: string } {
   const managed = agents.get(agentId);
   if (!managed) return { ok: false, status: 404, error: "agent not found" };
   const resolved = resolveDiffCwd(dir, managed.info.cwd);
   if (resolved.kind === "bad_dir") {
-    return { ok: false, status: 400, error: `\`${resolved.attempted}\` is not a directory` };
+    return {
+      ok: false,
+      status: 400,
+      error: `\`${resolved.attempted}\` is not a directory`,
+    };
   }
   const result = computeIsomuxDiff(resolved.cwd);
   switch (result.kind) {
     case "not_repo":
-      addLogEntry(agentId, "system", `\`${result.cwd}\` is not a git repository.`);
+      addLogEntry(
+        agentId,
+        "system",
+        `\`${result.cwd}\` is not a git repository.`,
+      );
       break;
     case "git_error":
-      addLogEntry(agentId, "system", `Failed to run git diff in \`${result.cwd}\`:\n\n\`\`\`\n${result.message}\n\`\`\``);
+      addLogEntry(
+        agentId,
+        "system",
+        `Failed to run git diff in \`${result.cwd}\`:\n\n\`\`\`\n${result.message}\n\`\`\``,
+      );
       break;
     case "clean":
-      addLogEntry(agentId, "system", `Working tree clean in \`${result.cwd}\` — no uncommitted changes.`);
+      addLogEntry(
+        agentId,
+        "system",
+        `Working tree clean in \`${result.cwd}\` — no uncommitted changes.`,
+      );
       break;
     case "ok":
-      addLogEntry(agentId, "diff", result.summary, undefined, undefined, { diff: result.payload });
+      addLogEntry(agentId, "diff", result.summary, undefined, undefined, {
+        diff: result.payload,
+      });
       break;
   }
   return { ok: true };
@@ -805,7 +1008,10 @@ function beginTurn(agentId: string, opts: { humanInput: boolean }) {
   const managed = agents.get(agentId);
   if (!managed) return;
   if (managed.info.turnHadHumanInput !== opts.humanInput) {
-    for (const event of officeState.updateAgent(agentId, { turnHadHumanInput: opts.humanInput })) emit(event);
+    for (const event of officeState.updateAgent(agentId, {
+      turnHadHumanInput: opts.humanInput,
+    }))
+      emit(event);
   }
   updateState(agentId, "thinking");
 }
@@ -830,12 +1036,22 @@ function updateState(agentId: string, state: AgentState) {
     !inMultiStepFlow(managed)
   ) {
     flushQueue(agentId).catch((err: any) => {
-      console.error(`flushQueue (state-transition) failed for ${agentId}:`, err.message);
+      console.error(
+        `flushQueue (state-transition) failed for ${agentId}:`,
+        err.message,
+      );
     });
   }
 }
 
-function addLogEntry(agentId: string, kind: LogEntry["kind"], content: string, metadata?: Record<string, unknown>, attachments?: Attachment[], extra?: Partial<Pick<LogEntry, "diff" | "file" | "terminal">>) {
+function addLogEntry(
+  agentId: string,
+  kind: LogEntry["kind"],
+  content: string,
+  metadata?: Record<string, unknown>,
+  attachments?: Attachment[],
+  extra?: Partial<Pick<LogEntry, "diff" | "file" | "terminal">>,
+) {
   const entry: LogEntry = {
     id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     agentId,
@@ -862,10 +1078,20 @@ function addLogEntry(agentId: string, kind: LogEntry["kind"], content: string, m
   }
 
   // Track topicStale: new text entries after topic was generated
-  if ((kind === "text" || kind === "user_message") && managed && managed.info.topic !== null && managed.info.topic !== "...") {
-    const textCount = (logCache.get(agentId) ?? []).filter(e => e.kind === "user_message" || e.kind === "text").length;
+  if (
+    (kind === "text" || kind === "user_message") &&
+    managed &&
+    managed.info.topic !== null &&
+    managed.info.topic !== "..."
+  ) {
+    const textCount = (logCache.get(agentId) ?? []).filter(
+      (e) => e.kind === "user_message" || e.kind === "text",
+    ).length;
     if (textCount > managed.topicMessageCount) {
-      for (const event of officeState.updateAgent(agentId, { topicStale: true })) emit(event);
+      for (const event of officeState.updateAgent(agentId, {
+        topicStale: true,
+      }))
+        emit(event);
     }
   }
 }
@@ -875,7 +1101,13 @@ function addLogEntry(agentId: string, kind: LogEntry["kind"], content: string, m
 // Entries are tagged ephemeral:true so appendLog and the system_init backfill
 // both skip them. They still go into logCache so the UI shows them, but they
 // vanish on server restart.
-function emitEphemeralLog(agentId: string, kind: LogEntry["kind"], content: string, metadata?: Record<string, unknown>, extra?: Partial<Pick<LogEntry, "diff" | "file">>) {
+function emitEphemeralLog(
+  agentId: string,
+  kind: LogEntry["kind"],
+  content: string,
+  metadata?: Record<string, unknown>,
+  extra?: Partial<Pick<LogEntry, "diff" | "file">>,
+) {
   const entry: LogEntry = {
     id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     agentId,
@@ -898,18 +1130,25 @@ async function generateTopic(agentId: string) {
   if (!managed || managed.topicGenerating) return;
 
   managed.topicGenerating = true;
-  for (const event of officeState.updateAgent(agentId, { topic: "...", topicStale: false })) emit(event);
+  for (const event of officeState.updateAgent(agentId, {
+    topic: "...",
+    topicStale: false,
+  }))
+    emit(event);
   // Capture before the await; if /clear, /resume, fork, etc. ran during the
   // LLM call, the token will have changed and we drop the stale result.
   const startToken = managed.topicGenToken;
 
   // Build context: first user message + last 5 text entries
   const logs = logCache.get(agentId) ?? [];
-  const textEntries = logs.filter(e => e.kind === "user_message" || e.kind === "text");
-  const firstUserMsg = textEntries.find(e => e.kind === "user_message");
+  const textEntries = logs.filter(
+    (e) => e.kind === "user_message" || e.kind === "text",
+  );
+  const firstUserMsg = textEntries.find((e) => e.kind === "user_message");
   if (!firstUserMsg) {
     managed.topicGenerating = false;
-    for (const event of officeState.updateAgent(agentId, { topic: null })) emit(event);
+    for (const event of officeState.updateAgent(agentId, { topic: null }))
+      emit(event);
     return;
   }
 
@@ -919,9 +1158,15 @@ async function generateTopic(agentId: string) {
     context = `User message: ${firstUserMsg.content}`;
   } else {
     // Deduplicate if first message is already in lastFive
-    const recent = lastFive.filter(e => e.id !== firstUserMsg.id);
-    context = `First message: ${firstUserMsg.content}\n\nRecent conversation:\n` +
-      recent.map(e => `${e.kind === "user_message" ? "User" : "Assistant"}: ${e.content.slice(0, 200)}`).join("\n");
+    const recent = lastFive.filter((e) => e.id !== firstUserMsg.id);
+    context =
+      `First message: ${firstUserMsg.content}\n\nRecent conversation:\n` +
+      recent
+        .map(
+          (e) =>
+            `${e.kind === "user_message" ? "User" : "Assistant"}: ${e.content.slice(0, 200)}`,
+        )
+        .join("\n");
   }
 
   // System framing matters: without it, Sonnet occasionally roleplayed as the
@@ -936,7 +1181,8 @@ async function generateTopic(agentId: string) {
     // Topic-gen model is backend-specific: Claude uses sonnet (cheap); Codex
     // uses its default GPT-5 family. Per-backend `oneShotPrompt` honors the
     // modelFamily arg, so we let the backend pick something sensible.
-    const topicModel = managed.info.agentType === "claude" ? "sonnet" : managed.info.modelFamily;
+    const topicModel =
+      managed.info.agentType === "claude" ? "sonnet" : managed.info.modelFamily;
     const text = await backend.oneShotPrompt(prompt, {
       cwd: managed.info.cwd,
       modelFamily: topicModel,
@@ -957,7 +1203,8 @@ async function generateTopic(agentId: string) {
     console.error(`Topic generation failed for ${agentId}:`, err.message);
     // Silently fail — clear the "..." placeholder, but only if it's still ours
     if (agents.has(agentId) && managed.topicGenToken === startToken) {
-      for (const event of officeState.updateAgent(agentId, { topic: null })) emit(event);
+      for (const event of officeState.updateAgent(agentId, { topic: null }))
+        emit(event);
     }
   } finally {
     // Only release the generating flag if the conversation hasn't been reset.
@@ -1040,7 +1287,9 @@ function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
       // Capture available slash commands and skills from init.
       const sdkCommands = ev.slashCommands ?? [];
       // Filter out MCP internal command names (mcp__...) — they clutter autocomplete.
-      const filteredSdkCommands = sdkCommands.filter((c) => !c.startsWith("mcp__"));
+      const filteredSdkCommands = sdkCommands.filter(
+        (c) => !c.startsWith("mcp__"),
+      );
       if (managed) {
         managed.sdkReportedCommands = filteredSdkCommands;
       }
@@ -1048,7 +1297,12 @@ function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
       // SDK-reported commands are NOT added to autocomplete (per design).
       // Skills are listed in priority order; deduplicate by name (highest priority wins).
       const discoveredSkills = managed
-        ? [...discoverUserSkills(), ...discoverProjectSkills(managed.info.cwd), ...discoverPluginSkills(), ...discoverBundledSkills()]
+        ? [
+            ...discoverUserSkills(),
+            ...discoverProjectSkills(managed.info.cwd),
+            ...discoverPluginSkills(),
+            ...discoverBundledSkills(),
+          ]
         : [];
       const uniqueSkills = deduplicateSkills(discoveredSkills);
       const configCommands = autocompleteCommands();
@@ -1074,8 +1328,15 @@ function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
       const managed = agents.get(agentId);
       const duration_ms =
         ev.durationMs ??
-        (managed?.thinkingStartedAt ? Date.now() - managed.thinkingStartedAt : undefined);
-      addLogEntry(agentId, "thinking", ev.text, duration_ms != null ? { duration_ms } : undefined);
+        (managed?.thinkingStartedAt
+          ? Date.now() - managed.thinkingStartedAt
+          : undefined);
+      addLogEntry(
+        agentId,
+        "thinking",
+        ev.text,
+        duration_ms != null ? { duration_ms } : undefined,
+      );
       break;
     }
     case "tool_call": {
@@ -1092,14 +1353,21 @@ function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
     case "tool_result": {
       const managed = agents.get(agentId);
       const callStart = managed?.toolCallTimestamps.get(ev.toolUseId);
-      const duration_ms = ev.durationMs ?? (callStart ? Date.now() - callStart : undefined);
+      const duration_ms =
+        ev.durationMs ?? (callStart ? Date.now() - callStart : undefined);
       if (managed && callStart) {
         managed.toolCallTimestamps.delete(ev.toolUseId);
       }
-      addLogEntry(agentId, "tool_result", ev.content.slice(0, 10000), {
-        toolUseId: ev.toolUseId,
-        ...(duration_ms != null ? { duration_ms } : {}),
-      }, ev.attachments);
+      addLogEntry(
+        agentId,
+        "tool_result",
+        ev.content.slice(0, 10000),
+        {
+          toolUseId: ev.toolUseId,
+          ...(duration_ms != null ? { duration_ms } : {}),
+        },
+        ev.attachments,
+      );
       break;
     }
     case "turn_completed": {
@@ -1117,7 +1385,12 @@ function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
           ev.cost ?? 0,
         );
         if (managed.lastWrittenEntryId) {
-          appendSessionUsageSnapshot(agentId, managed.sessionId, managed.lastWrittenEntryId, cumulative);
+          appendSessionUsageSnapshot(
+            agentId,
+            managed.sessionId,
+            managed.lastWrittenEntryId,
+            cumulative,
+          );
         }
       }
       if (ev.status !== "completed") {
@@ -1128,17 +1401,19 @@ function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
         // or flip state to error. The pendingTurn.resolve() below still fires
         // so the deferred unblocks the wrap-and-wake in abort() (and any
         // sendMessage / flushQueue callers).
-        const isHotAbortClean = managed?.aborting === true && ev.status === "interrupted";
+        const isHotAbortClean =
+          managed?.aborting === true && ev.status === "interrupted";
         if (!isHotAbortClean) {
           // status="failed" while aborting usually means the codex subprocess
           // exited mid-interrupt (handleSubprocessExit synthesizes a failed
           // turn_completed). The state="error" flip below signals abort()'s
           // recovery branch to fall through to replaceSession.
-          const isHotAbortDirty = managed?.aborting === true && ev.status === "failed";
+          const isHotAbortDirty =
+            managed?.aborting === true && ev.status === "failed";
           const errorText = isHotAbortDirty
-            ? (ev.error
-                ? `Codex exited during interrupt: ${ev.error}`
-                : "Codex exited during interrupt — installing a fresh session.")
+            ? ev.error
+              ? `Codex exited during interrupt: ${ev.error}`
+              : "Codex exited during interrupt — installing a fresh session."
             : (ev.error ?? `Agent stopped: ${ev.status}.`);
           addLogEntry(agentId, "error", errorText);
           if (detectAgentAuthError(managed, errorText)) {
@@ -1165,17 +1440,29 @@ function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
       // turn-completed log/state side effects.
       const managed = agents.get(agentId);
       if (managed?.sessionId) {
-        const cumulative = accumulateSessionUsage(agentId, managed.sessionId, ev.tokenUsage, 0);
+        const cumulative = accumulateSessionUsage(
+          agentId,
+          managed.sessionId,
+          ev.tokenUsage,
+          0,
+        );
         if (managed.lastWrittenEntryId) {
-          appendSessionUsageSnapshot(agentId, managed.sessionId, managed.lastWrittenEntryId, cumulative);
+          appendSessionUsageSnapshot(
+            agentId,
+            managed.sessionId,
+            managed.lastWrittenEntryId,
+            cumulative,
+          );
         }
       }
       break;
     }
     case "compacted":
-      addLogEntry(agentId, "system", ev.summary
-        ? `Context compacted: ${ev.summary}`
-        : "Context compacted.");
+      addLogEntry(
+        agentId,
+        "system",
+        ev.summary ? `Context compacted: ${ev.summary}` : "Context compacted.",
+      );
       break;
     case "error": {
       const managed = agents.get(agentId);
@@ -1194,7 +1481,9 @@ function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
       const turn = managed?.pendingTurn;
       if (turn) {
         managed!.pendingTurn = null;
-        try { turn.reject(new Error(ev.message)); } catch {}
+        try {
+          turn.reject(new Error(ev.message));
+        } catch {}
       }
       updateState(agentId, "error");
       break;
@@ -1205,17 +1494,24 @@ function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
       // Build the 3-option /resolve prompt. Same UX as the pre-2c
       // requestPermission flow; only difference is the backend now owns the
       // SDK resolver and we route the decision back via session.approve().
-      const lines: string[] = [`**${ev.title ?? `Wants to use ${ev.toolName}`}**`];
+      const lines: string[] = [
+        `**${ev.title ?? `Wants to use ${ev.toolName}`}**`,
+      ];
       if (ev.description) lines.push(ev.description);
       lines.push("");
       lines.push("Reply:");
-      lines.push("  1. Allow — and don't ask again for similar calls this session");
+      lines.push(
+        "  1. Allow — and don't ask again for similar calls this session",
+      );
       lines.push("  2. Allow — just this time");
       lines.push("  3. Deny");
       lines.push("");
       lines.push("Or type any other message to deny with that as the reason.");
       emitEphemeralLog(agentId, "system", lines.join("\n"));
-      managed.pendingPermission = { approvalId: ev.approvalId, toolName: ev.toolName };
+      managed.pendingPermission = {
+        approvalId: ev.approvalId,
+        toolName: ev.toolName,
+      };
       updateState(agentId, "waiting_for_response");
       break;
     }
@@ -1234,11 +1530,16 @@ function createTurnDeferred(managed: ManagedAgent): Promise<void> {
   const stale = managed.pendingTurn;
   if (stale) {
     managed.pendingTurn = null;
-    try { stale.reject(new Error("Superseded by a new turn.")); } catch {}
+    try {
+      stale.reject(new Error("Superseded by a new turn."));
+    } catch {}
   }
   let resolve!: () => void;
   let reject!: (err: unknown) => void;
-  const promise = new Promise<void>((res, rej) => { resolve = res; reject = rej; });
+  const promise = new Promise<void>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
   managed.pendingTurn = { resolve, reject };
   return promise;
 }
@@ -1252,7 +1553,11 @@ function createTurnDeferred(managed: ManagedAgent): Promise<void> {
 // Bound to a specific session instance: returns when `managed.session` is
 // swapped out (abort / resume / fork / etc.) — `session.close()` unblocks the
 // parked `stream()` generator.
-async function runConsumer(agentId: string, managed: ManagedAgent, boundSession: BackendSession) {
+async function runConsumer(
+  agentId: string,
+  managed: ManagedAgent,
+  boundSession: BackendSession,
+) {
   try {
     for await (const ev of boundSession.stream()) {
       // After an abort/resume/fork the dying session may keep yielding
@@ -1283,7 +1588,12 @@ async function runConsumer(agentId: string, managed: ManagedAgent, boundSession:
       //     (if it arrives before turn_completed) has no entry in
       //     toolCallTimestamps to clear — pre-existing leak pattern,
       //     slightly wider here.
-      if (managed.aborting && ev.kind !== "turn_completed" && ev.kind !== "error") continue;
+      if (
+        managed.aborting &&
+        ev.kind !== "turn_completed" &&
+        ev.kind !== "error"
+      )
+        continue;
       processNormalizedEvent(agentId, ev);
     }
   } catch (err: any) {
@@ -1316,7 +1626,11 @@ async function runConsumer(agentId: string, managed: ManagedAgent, boundSession:
 
 // Install a freshly-created session on managed and spawn its consumer. Caller
 // is responsible for having closed/awaited any previous session first.
-function installSession(agentId: string, managed: ManagedAgent, session: BackendSession) {
+function installSession(
+  agentId: string,
+  managed: ManagedAgent,
+  session: BackendSession,
+) {
   managed.session = session;
   managed.consumerPromise = runConsumer(agentId, managed, session);
 }
@@ -1335,23 +1649,39 @@ function installSession(agentId: string, managed: ManagedAgent, session: Backend
 // 154e2c14's STILL OPEN section for context. The current sendMessage
 // papers over the user-visible delay by echoing the typed message to the
 // log before awaiting abortPromise (see echoEarly there).
-async function replaceSession(agentId: string, managed: ManagedAgent, newSession: BackendSession) {
-  for (const event of officeState.updateAgent(agentId, { sessionSwapping: true })) emit(event);
+async function replaceSession(
+  agentId: string,
+  managed: ManagedAgent,
+  newSession: BackendSession,
+) {
+  for (const event of officeState.updateAgent(agentId, {
+    sessionSwapping: true,
+  }))
+    emit(event);
   try {
     const oldConsumer = managed.consumerPromise;
     const turn = managed.pendingTurn;
     managed.pendingTurn = null;
     if (turn) {
-      try { turn.reject(new SessionSwappedError()); } catch {}
+      try {
+        turn.reject(new SessionSwappedError());
+      } catch {}
     }
-    try { managed.session?.close(); } catch {}
+    try {
+      managed.session?.close();
+    } catch {}
     managed.session = null;
     if (oldConsumer) {
-      try { await oldConsumer; } catch {}
+      try {
+        await oldConsumer;
+      } catch {}
     }
     installSession(agentId, managed, newSession);
   } finally {
-    for (const event of officeState.updateAgent(agentId, { sessionSwapping: false })) emit(event);
+    for (const event of officeState.updateAgent(agentId, {
+      sessionSwapping: false,
+    }))
+      emit(event);
   }
 }
 
@@ -1359,7 +1689,9 @@ async function replaceSession(agentId: string, managed: ManagedAgent, newSession
 // User overrides office; office overrides process.env. Spawn-time failure
 // mode: if a configured env file is missing or fails to parse, throw — the
 // caller is responsible for surfacing the error to the agent log.
-function buildSessionEnv(managed: ManagedAgent): { [key: string]: string | undefined } | undefined {
+function buildSessionEnv(
+  managed: ManagedAgent,
+): { [key: string]: string | undefined } | undefined {
   return buildEnvFor(managed.info.username ?? undefined);
 }
 
@@ -1367,7 +1699,9 @@ function buildSessionEnv(managed: ManagedAgent): { [key: string]: string | undef
 // model/list endpoint can resolve env before any agent exists. Returns
 // undefined if no env file is configured (caller can omit `env:` and let
 // the codex subprocess inherit the parent process.env directly).
-export function buildEnvFor(username?: string): { [key: string]: string | undefined } | undefined {
+export function buildEnvFor(
+  username?: string,
+): { [key: string]: string | undefined } | undefined {
   const officeEnvFile = officeState.office.envFile;
   const userEnvFile = username ? getUserEnvFile(username) : null;
   if (!officeEnvFile && !userEnvFile) return undefined;
@@ -1419,7 +1753,10 @@ function pickAutoResumeSessionId(managed: ManagedAgent): string | null {
 // Returns true if a transition was applied — callers that surface a
 // "Resumed prior session..." vs "Started a fresh session..." marker can use
 // this to choose wording.
-function clearStaleAutoResumeState(agentId: string, managed: ManagedAgent): boolean {
+function clearStaleAutoResumeState(
+  agentId: string,
+  managed: ManagedAgent,
+): boolean {
   if (!managed.sessionId) return false;
   managed.sessionId = null;
   logCache.set(agentId, []);
@@ -1427,7 +1764,10 @@ function clearStaleAutoResumeState(agentId: string, managed: ManagedAgent): bool
   return true;
 }
 
-function createSession(managed: ManagedAgent, resumeSessionId?: string): BackendSession {
+function createSession(
+  managed: ManagedAgent,
+  resumeSessionId?: string,
+): BackendSession {
   // Clear pendingPermission so a stale approvalId from the old (about-to-close)
   // session can't accidentally route a future user message into a dead approval.
   // The backend's close() resolves any in-flight SDK resolver with deny.
@@ -1439,7 +1779,9 @@ function createSession(managed: ManagedAgent, resumeSessionId?: string): Backend
   try {
     validateCwd(managed.info.cwd);
   } catch (err: any) {
-    throw new Error(`cwd is invalid: ${err.message}. Click the agent name in the log view header to fix it.`);
+    throw new Error(
+      `cwd is invalid: ${err.message}. Click the agent name in the log view header to fix it.`,
+    );
   }
   // Compute env once — both the resume preflight (Codex sessions dir lookup
   // honors CODEX_HOME) and the session opts use it.
@@ -1451,8 +1793,8 @@ function createSession(managed: ManagedAgent, resumeSessionId?: string): Backend
   ) {
     throw new Error(
       `Cannot resume session ${resumeSessionId.slice(0, 8)}…: its file is missing from ${claudeProjectDir(managed.info.cwd)}. ` +
-      `Most commonly this happens after the agent's cwd was moved or renamed — the Claude CLI stores sessions under a path derived from cwd. ` +
-      `Use /resume to pick a different session, or move the session .jsonl into the new project dir.`
+        `Most commonly this happens after the agent's cwd was moved or renamed — the Claude CLI stores sessions under a path derived from cwd. ` +
+        `Use /resume to pick a different session, or move the session .jsonl into the new project dir.`,
     );
   }
   if (
@@ -1467,8 +1809,8 @@ function createSession(managed: ManagedAgent, resumeSessionId?: string): Backend
     // cases where the on-disk state may legitimately be in transition.
     throw new Error(
       `Cannot resume Codex thread ${resumeSessionId.slice(0, 8)}…: no rollout file found under ${codexSessionsDir(env)}. ` +
-      `This usually means the thread was started but never received a user turn before its process exited. ` +
-      `Use /resume to pick another session, or start a new conversation.`
+        `This usually means the thread was started but never received a user turn before its process exited. ` +
+        `Use /resume to pick another session, or start a new conversation.`,
     );
   }
   const room = officeState.rooms[managed.info.room]!;
@@ -1539,9 +1881,16 @@ export async function spawn(
   // back to a safe default; the wire shapes are permissive (union types over
   // both backends), so a stale UI or hand-crafted client can't pin us to an
   // invalid mode/model/effort.
-  const validatedPermissionMode = validatePermissionMode(agentType, permissionMode);
+  const validatedPermissionMode = validatePermissionMode(
+    agentType,
+    permissionMode,
+  );
   const validatedModelFamily = validateModelFamily(agentType, modelFamily);
-  const validatedEffort = validateEffort(agentType, validatedModelFamily, effort);
+  const validatedEffort = validateEffort(
+    agentType,
+    validatedModelFamily,
+    effort,
+  );
   const validatedCodexSandbox =
     agentType === "codex" ? validateCodexSandbox(codexSandbox) : undefined;
 
@@ -1586,7 +1935,12 @@ export async function spawn(
     aborting: false,
     abortPromise: null,
     slashCommands: autocompleteCommands(),
-    skills: deduplicateSkills([...discoverUserSkills(), ...discoverProjectSkills(resolvedCwd), ...discoverPluginSkills(), ...discoverBundledSkills()]),
+    skills: deduplicateSkills([
+      ...discoverUserSkills(),
+      ...discoverProjectSkills(resolvedCwd),
+      ...discoverPluginSkills(),
+      ...discoverBundledSkills(),
+    ]),
     sdkReportedCommands: [],
     thinkingStartedAt: 0,
     toolCallTimestamps: new Map(),
@@ -1619,7 +1973,11 @@ export async function spawn(
   // Create V2 session
   try {
     installSession(id, managed, createSession(managed));
-    addLogEntry(id, "system", `Agent "${name}" ready. Working in ${resolvedCwd}. Permission mode: ${info.permissionMode}.`);
+    addLogEntry(
+      id,
+      "system",
+      `Agent "${name}" ready. Working in ${resolvedCwd}. Permission mode: ${info.permissionMode}.`,
+    );
     // First stream() will deliver system/init + response to the first send().
   } catch (err: any) {
     console.error(`Failed to create session for ${name}:`, err.message);
@@ -1667,7 +2025,9 @@ const { handleSlashCommand } = createCommandHandling({
 const QUEUE_MAX = 50;
 const QUEUE_DEDUPE_TTL_MS = 5 * 60_000;
 
-function senderMeta(sender: QueuedMessage["sender"]): Record<string, unknown> | undefined {
+function senderMeta(
+  sender: QueuedMessage["sender"],
+): Record<string, unknown> | undefined {
   switch (sender.kind) {
     case "user":
       return buildUserMeta(sender.username, sender.device);
@@ -1698,7 +2058,11 @@ function senderPrefixText(sender: QueuedMessage["sender"]): string {
 }
 
 function emitQueueUpdate(agentId: string, managed: ManagedAgent) {
-  emit({ type: "agent_updated", agentId, changes: { queue: [...managed.messageQueue] } });
+  emit({
+    type: "agent_updated",
+    agentId,
+    changes: { queue: [...managed.messageQueue] },
+  });
 }
 
 function generateQueuedId(existing: QueuedMessage[]): string {
@@ -1706,7 +2070,9 @@ function generateQueuedId(existing: QueuedMessage[]): string {
   for (;;) {
     const bytes = new Uint8Array(4);
     crypto.getRandomValues(bytes);
-    const id = Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+    const id = Array.from(bytes)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
     if (!ids.has(id)) return id;
   }
 }
@@ -1714,7 +2080,6 @@ function generateQueuedId(existing: QueuedMessage[]): string {
 function isQueueIdleState(s: AgentState): boolean {
   return s === "idle" || s === "waiting_for_response";
 }
-
 
 function recordDedupe(managed: ManagedAgent, clientMessageId: string) {
   const now = Date.now();
@@ -1743,7 +2108,13 @@ function recordDedupe(managed: ManagedAgent, clientMessageId: string) {
 // an "ok, queued" response would mislead the sender.
 export function enqueueMessage(
   agentId: string,
-  msg: { sender: QueuedMessage["sender"]; text: string; sdkText?: string; attachments?: Attachment[]; clientMessageId?: string },
+  msg: {
+    sender: QueuedMessage["sender"];
+    text: string;
+    sdkText?: string;
+    attachments?: Attachment[];
+    clientMessageId?: string;
+  },
 ): EnqueueResult {
   const managed = agents.get(agentId);
   if (!managed) return { ok: false, error: "agent not found", status: 404 };
@@ -1807,8 +2178,14 @@ async function flushQueue(agentId: string): Promise<void> {
       const original = managed.pendingTurn;
       await new Promise<void>((wakeUp) => {
         managed.pendingTurn = {
-          resolve: () => { original.resolve(); wakeUp(); },
-          reject: (e: unknown) => { original.reject(e); wakeUp(); },
+          resolve: () => {
+            original.resolve();
+            wakeUp();
+          },
+          reject: (e: unknown) => {
+            original.reject(e);
+            wakeUp();
+          },
         };
       });
     }
@@ -1823,7 +2200,9 @@ async function flushQueue(agentId: string): Promise<void> {
     if (managed.messageQueue.length === 0) return;
 
     if (managed.abortPromise) {
-      try { await managed.abortPromise; } catch {}
+      try {
+        await managed.abortPromise;
+      } catch {}
       // Re-check again after the abort handoff.
       if (!agents.has(agentId)) return;
       if (!isQueueIdleState(managed.info.state)) return;
@@ -1833,19 +2212,34 @@ async function flushQueue(agentId: string): Promise<void> {
     if (!managed.session) {
       try {
         const sessionId = pickAutoResumeSessionId(managed);
-        if (managed.sessionId && !sessionId) clearStaleAutoResumeState(agentId, managed);
-        installSession(agentId, managed, sessionId ? createSession(managed, sessionId) : createSession(managed));
+        if (managed.sessionId && !sessionId)
+          clearStaleAutoResumeState(agentId, managed);
+        installSession(
+          agentId,
+          managed,
+          sessionId
+            ? createSession(managed, sessionId)
+            : createSession(managed),
+        );
         // If the prior session died owing a response, mark the gap. Parity
         // with the SDK's lazy synthetic placeholder injected at this moment.
         const tail = (logCache.get(agentId) ?? []).at(-1);
         if (tail?.kind === "user_message") {
           addLogEntry(agentId, "system", "Previous response was interrupted.");
         }
-        addLogEntry(agentId, "system", sessionId
-          ? "Resumed prior session before flushing queued messages."
-          : "Started a fresh session before flushing queued messages.");
+        addLogEntry(
+          agentId,
+          "system",
+          sessionId
+            ? "Resumed prior session before flushing queued messages."
+            : "Started a fresh session before flushing queued messages.",
+        );
       } catch (err: any) {
-        addLogEntry(agentId, "error", `Cannot start session to flush queue: ${err.message}`);
+        addLogEntry(
+          agentId,
+          "error",
+          `Cannot start session to flush queue: ${err.message}`,
+        );
         updateState(agentId, "error");
         return;
       }
@@ -1864,7 +2258,10 @@ async function flushQueue(agentId: string): Promise<void> {
     // If any items were queued while the agent was busy, prepend a single
     // coalesced note so the agent doesn't read them as reactions to its most
     // recent reply (the sender hadn't seen that reply when sending them).
-    const busyCount = items.reduce((n, m) => (m.queuedDuringBusyTurn ? n + 1 : n), 0);
+    const busyCount = items.reduce(
+      (n, m) => (m.queuedDuringBusyTurn ? n + 1 : n),
+      0,
+    );
     if (busyCount > 0) {
       promptParts.push(
         busyCount === 1
@@ -1881,12 +2278,17 @@ async function flushQueue(agentId: string): Promise<void> {
     }
     const prompt = promptParts.join("\n\n");
 
-    beginTurn(agentId, { humanInput: items.some((m) => m.sender.kind === "user") });
+    beginTurn(agentId, {
+      humanInput: items.some((m) => m.sender.kind === "user"),
+    });
 
     const turn = createTurnDeferred(managed);
     const ownPending = managed.pendingTurn;
     try {
-      await managed.session!.send(prompt, allAttachments.length > 0 ? allAttachments : undefined);
+      await managed.session!.send(
+        prompt,
+        allAttachments.length > 0 ? allAttachments : undefined,
+      );
       // Send accepted by the backend. Now finalize: write per-message log entries
       // (provenance) and remove the items from the live queue. Items cancelled
       // mid-send are still in `items` (they did reach the SDK) — log them so
@@ -1908,7 +2310,9 @@ async function flushQueue(agentId: string): Promise<void> {
         generateTopic(agentId);
       }
       const sentIds = new Set(items.map((m) => m.id));
-      managed.messageQueue = managed.messageQueue.filter((m) => !sentIds.has(m.id));
+      managed.messageQueue = managed.messageQueue.filter(
+        (m) => !sentIds.has(m.id),
+      );
       emitQueueUpdate(agentId, managed);
       await turn;
     } catch (err: any) {
@@ -1917,7 +2321,9 @@ async function flushQueue(agentId: string): Promise<void> {
       // SessionSwapped branches because both also benefit from the cleanup.
       if (ownPending && managed.pendingTurn === ownPending) {
         managed.pendingTurn = null;
-        try { ownPending.reject(err); } catch {}
+        try {
+          ownPending.reject(err);
+        } catch {}
       }
       // Agent killed mid-flush: nothing to log on a deleted agent, and any
       // log entry would leak into logCache for an id that no longer exists.
@@ -1929,7 +2335,11 @@ async function flushQueue(agentId: string): Promise<void> {
         // path explicitly cleared the queue (newConversation/resume/editMessage)
         // there's nothing to retry and the message would be misleading noise.
         if (managed.messageQueue.length > 0) {
-          addLogEntry(agentId, "system", "Queue flush interrupted by session change; will retry.");
+          addLogEntry(
+            agentId,
+            "system",
+            "Queue flush interrupted by session change; will retry.",
+          );
         }
         return;
       }
@@ -1983,7 +2393,13 @@ export async function sendNow(agentId: string): Promise<void> {
   }
 }
 
-export async function sendMessage(agentId: string, text: string, username?: string, device?: string, attachments?: Attachment[]) {
+export async function sendMessage(
+  agentId: string,
+  text: string,
+  username?: string,
+  device?: string,
+  attachments?: Attachment[],
+) {
   const managed = agents.get(agentId);
   if (!managed) return;
 
@@ -2001,7 +2417,11 @@ export async function sendMessage(agentId: string, text: string, username?: stri
       attachments,
     });
     if (!result.ok) {
-      addLogEntry(agentId, "system", `Could not queue message: ${result.error}`);
+      addLogEntry(
+        agentId,
+        "system",
+        `Could not queue message: ${result.error}`,
+      );
     }
     return;
   }
@@ -2030,7 +2450,13 @@ export async function sendMessage(agentId: string, text: string, username?: stri
     !managed.pendingEffortPick &&
     !text.startsWith("/");
   if (echoEarly) {
-    addLogEntry(agentId, "user_message", text, buildUserMeta(username, device), attachments);
+    addLogEntry(
+      agentId,
+      "user_message",
+      text,
+      buildUserMeta(username, device),
+      attachments,
+    );
     beginTurn(agentId, { humanInput: true });
     if (managed.info.topic === null && !managed.topicGenerating) {
       generateTopic(agentId); // fire-and-forget
@@ -2041,7 +2467,9 @@ export async function sendMessage(agentId: string, text: string, username?: stri
   // and installSession sees session=null and falls into the recovery branch below,
   // amputating the agent's context.
   if (managed.abortPromise) {
-    try { await managed.abortPromise; } catch {}
+    try {
+      await managed.abortPromise;
+    } catch {}
   }
   // Defensive: a permission request can briefly appear during the abort drain
   // (the SDK's `canUseTool` can fire from buffered events before the dying
@@ -2066,24 +2494,46 @@ export async function sendMessage(agentId: string, text: string, username?: stri
     // cleanly instead of crashing on thread/resume.
     try {
       const sessionId = pickAutoResumeSessionId(managed);
-      const clearedStale = managed.sessionId && !sessionId
-        ? clearStaleAutoResumeState(agentId, managed)
-        : false;
+      const clearedStale =
+        managed.sessionId && !sessionId
+          ? clearStaleAutoResumeState(agentId, managed)
+          : false;
       // If we wiped logCache while echoEarly already added the user's
       // message to it, the message is now gone from UI/cache. Re-add it
       // here — the bottom of sendMessage won't re-add (echoEarly is still
       // true) and the send below would otherwise vanish from the log.
       if (clearedStale && echoEarly) {
-        addLogEntry(agentId, "user_message", text, buildUserMeta(username, device), attachments);
+        addLogEntry(
+          agentId,
+          "user_message",
+          text,
+          buildUserMeta(username, device),
+          attachments,
+        );
       }
-      installSession(agentId, managed, sessionId ? createSession(managed, sessionId) : createSession(managed));
-      addLogEntry(agentId, "system", sessionId
-        ? "Resumed prior session after the previous one ended unexpectedly."
-        : "Started a fresh session (previous one could not be restored).");
+      installSession(
+        agentId,
+        managed,
+        sessionId ? createSession(managed, sessionId) : createSession(managed),
+      );
+      addLogEntry(
+        agentId,
+        "system",
+        sessionId
+          ? "Resumed prior session after the previous one ended unexpectedly."
+          : "Started a fresh session (previous one could not be restored).",
+      );
       updateState(agentId, "waiting_for_response");
       // Fall through so the message is actually sent on the new session.
     } catch (err: any) {
-      if (!echoEarly) addLogEntry(agentId, "user_message", text, buildUserMeta(username, device), attachments);
+      if (!echoEarly)
+        addLogEntry(
+          agentId,
+          "user_message",
+          text,
+          buildUserMeta(username, device),
+          attachments,
+        );
       addLogEntry(agentId, "error", `Cannot start session: ${err.message}`);
       updateState(agentId, "error");
       return;
@@ -2102,11 +2552,19 @@ export async function sendMessage(agentId: string, text: string, username?: stri
     const trimmed = text.trim();
     const session = managed.session;
     if (!session) {
-      emitEphemeralLog(agentId, "system", "Permission could not be resolved — session is gone.");
+      emitEphemeralLog(
+        agentId,
+        "system",
+        "Permission could not be resolved — session is gone.",
+      );
       return;
     }
     if (trimmed === "1") {
-      emitEphemeralLog(agentId, "system", "Permission granted (rule added for this session).");
+      emitEphemeralLog(
+        agentId,
+        "system",
+        "Permission granted (rule added for this session).",
+      );
       await session.approve(pending.approvalId, { kind: "allow_persistent" });
     } else if (trimmed === "2") {
       emitEphemeralLog(agentId, "system", "Permission granted (once).");
@@ -2115,7 +2573,11 @@ export async function sendMessage(agentId: string, text: string, username?: stri
       emitEphemeralLog(agentId, "system", "Permission denied.");
       await session.approve(pending.approvalId, { kind: "deny" });
     } else {
-      emitEphemeralLog(agentId, "system", "Permission denied with reason forwarded to agent.");
+      emitEphemeralLog(
+        agentId,
+        "system",
+        "Permission denied with reason forwarded to agent.",
+      );
       await session.approve(pending.approvalId, { kind: "deny", reason: text });
     }
     return;
@@ -2126,7 +2588,11 @@ export async function sendMessage(agentId: string, text: string, username?: stri
     managed.pendingResume = false;
     const trimmed = text.trim();
     const num = parseInt(trimmed, 10);
-    if (!isNaN(num) && num >= 1 && num <= managed.pendingResumeSessions.length) {
+    if (
+      !isNaN(num) &&
+      num >= 1 &&
+      num <= managed.pendingResumeSessions.length
+    ) {
       const userMeta = buildUserMeta(username, device);
       emitEphemeralLog(agentId, "user_message", text, userMeta);
       const picked = managed.pendingResumeSessions[num - 1];
@@ -2161,8 +2627,16 @@ export async function sendMessage(agentId: string, text: string, username?: stri
         }
         // Restore topic — officeState.updateAgent fires persistAll via onChange,
         // capturing the new sessionId set above.
-        for (const event of officeState.updateAgent(agentId, { topic: picked.topic, topicStale: false })) emit(event);
-        emitEphemeralLog(agentId, "system", `Resumed session: ${picked.topic || picked.sessionId.slice(0, 8) + "..."}`);
+        for (const event of officeState.updateAgent(agentId, {
+          topic: picked.topic,
+          topicStale: false,
+        }))
+          emit(event);
+        emitEphemeralLog(
+          agentId,
+          "system",
+          `Resumed session: ${picked.topic || picked.sessionId.slice(0, 8) + "..."}`,
+        );
         updateState(agentId, "waiting_for_response");
         if (!picked.topic) {
           generateTopic(agentId);
@@ -2198,12 +2672,30 @@ export async function sendMessage(agentId: string, text: string, username?: stri
         // stale logCache+sessionId pointing at a dead thread would only
         // confuse the user.
         const sessionId = pickAutoResumeSessionId(managed);
-        if (managed.sessionId && !sessionId) clearStaleAutoResumeState(agentId, managed);
-        await withAgentRollback(managed, { modelFamily: picked.family }, async () => {
-          await replaceSession(agentId, managed, sessionId ? createSession(managed, sessionId) : createSession(managed));
-        });
-        for (const event of officeState.updateAgent(agentId, { modelFamily: picked.family })) emit(event);
-        addLogEntry(agentId, "system", `Model switched to ${label}. The agent's context may still say they are a different model — the correct model is shown in the top bar.`);
+        if (managed.sessionId && !sessionId)
+          clearStaleAutoResumeState(agentId, managed);
+        await withAgentRollback(
+          managed,
+          { modelFamily: picked.family },
+          async () => {
+            await replaceSession(
+              agentId,
+              managed,
+              sessionId
+                ? createSession(managed, sessionId)
+                : createSession(managed),
+            );
+          },
+        );
+        for (const event of officeState.updateAgent(agentId, {
+          modelFamily: picked.family,
+        }))
+          emit(event);
+        addLogEntry(
+          agentId,
+          "system",
+          `Model switched to ${label}. The agent's context may still say they are a different model — the correct model is shown in the top bar.`,
+        );
       }
       return;
     } else {
@@ -2227,11 +2719,21 @@ export async function sendMessage(agentId: string, text: string, username?: stri
         // Auto-resume policy outside the rollback — see model-switch above
         // for the rationale.
         const sessionId = pickAutoResumeSessionId(managed);
-        if (managed.sessionId && !sessionId) clearStaleAutoResumeState(agentId, managed);
+        if (managed.sessionId && !sessionId)
+          clearStaleAutoResumeState(agentId, managed);
         await withAgentRollback(managed, { effort: picked.level }, async () => {
-          await replaceSession(agentId, managed, sessionId ? createSession(managed, sessionId) : createSession(managed));
+          await replaceSession(
+            agentId,
+            managed,
+            sessionId
+              ? createSession(managed, sessionId)
+              : createSession(managed),
+          );
         });
-        for (const event of officeState.updateAgent(agentId, { effort: picked.level })) emit(event);
+        for (const event of officeState.updateAgent(agentId, {
+          effort: picked.level,
+        }))
+          emit(event);
         addLogEntry(agentId, "system", `Thinking effort switched to ${label}.`);
       }
       return;
@@ -2243,7 +2745,15 @@ export async function sendMessage(agentId: string, text: string, username?: stri
   // Intercept slash commands that are handled locally, not by the LLM
   if (text.startsWith("/")) {
     const [cmd, ...args] = text.slice(1).trim().split(/\s+/);
-    const handled = await handleSlashCommand(agentId, managed, cmd, args, text, username, device);
+    const handled = await handleSlashCommand(
+      agentId,
+      managed,
+      cmd,
+      args,
+      text,
+      username,
+      device,
+    );
     if (handled) return;
   }
 
@@ -2253,7 +2763,13 @@ export async function sendMessage(agentId: string, text: string, username?: stri
   // reply during /resume) reaches here with the flag now false but still
   // needs the echo.
   if (!echoEarly) {
-    addLogEntry(agentId, "user_message", text, buildUserMeta(username, device), attachments);
+    addLogEntry(
+      agentId,
+      "user_message",
+      text,
+      buildUserMeta(username, device),
+      attachments,
+    );
     beginTurn(agentId, { humanInput: true });
 
     // Auto-generate topic on first user message in a conversation
@@ -2267,7 +2783,10 @@ export async function sendMessage(agentId: string, text: string, username?: stri
   const turn = createTurnDeferred(managed);
   const ownPending = managed.pendingTurn;
   try {
-    await managed.session!.send(prefixedText, attachments && attachments.length > 0 ? attachments : undefined);
+    await managed.session!.send(
+      prefixedText,
+      attachments && attachments.length > 0 ? attachments : undefined,
+    );
     await turn;
   } catch (err: any) {
     // If session.send() (or anything before turn settled) threw, the deferred
@@ -2276,7 +2795,9 @@ export async function sendMessage(agentId: string, text: string, username?: stri
     // only when we still own it so awaiting callers don't hang forever.
     if (ownPending && managed.pendingTurn === ownPending) {
       managed.pendingTurn = null;
-      try { ownPending.reject(err); } catch {}
+      try {
+        ownPending.reject(err);
+      } catch {}
     }
     if (err instanceof SessionSwappedError) return;
     console.error(`Agent ${agentId} send error:`, err.message);
@@ -2305,9 +2826,16 @@ export async function abort(agentId: string) {
   // exited) while the UI still shows "thinking". Reset state so Stop is
   // never a no-op.
   if (!managed.pendingTurn) {
-    if (managed.info.state === "thinking" || managed.info.state === "tool_executing") {
+    if (
+      managed.info.state === "thinking" ||
+      managed.info.state === "tool_executing"
+    ) {
       updateState(agentId, "waiting_for_response");
-      addLogEntry(agentId, "system", "Agent interrupted (stream was already dead — state reset).");
+      addLogEntry(
+        agentId,
+        "system",
+        "Agent interrupted (stream was already dead — state reset).",
+      );
     }
     return;
   }
@@ -2315,12 +2843,16 @@ export async function abort(agentId: string) {
   // waits for it instead of starting another abort that would reassign
   // abortPromise and stack abortDone closures.
   if (managed.aborting && managed.abortPromise) {
-    try { await managed.abortPromise; } catch {}
+    try {
+      await managed.abortPromise;
+    } catch {}
     return;
   }
   managed.aborting = true;
   let abortDone!: () => void;
-  managed.abortPromise = new Promise<void>((res) => { abortDone = res; });
+  managed.abortPromise = new Promise<void>((res) => {
+    abortDone = res;
+  });
 
   // Flip UI state and log the interrupt up front so the agent appears to
   // stop immediately. From the user's perspective the agent stops on Ctrl+C,
@@ -2340,7 +2872,11 @@ export async function abort(agentId: string) {
       // no .jsonl drain. Saves the ~1-2s replaceSession latency per abort.
       const result = await tryHotAbort(managed);
       if (result === "timeout") {
-        addLogEntry(agentId, "system", "Codex didn't honor the interrupt in time; falling back to a fresh session.");
+        addLogEntry(
+          agentId,
+          "system",
+          "Codex didn't honor the interrupt in time; falling back to a fresh session.",
+        );
         needsReplace = true;
       } else if (result === "session_died") {
         // Subprocess exit during the wait — processNormalizedEvent already
@@ -2354,8 +2890,11 @@ export async function abort(agentId: string) {
       // freshest managed.sessionId — the hot-abort path can race with
       // session-died events that leave sessionId stale.
       const autoSessionId = pickAutoResumeSessionId(managed);
-      if (managed.sessionId && !autoSessionId) clearStaleAutoResumeState(agentId, managed);
-      const newSession = autoSessionId ? createSession(managed, autoSessionId) : createSession(managed);
+      if (managed.sessionId && !autoSessionId)
+        clearStaleAutoResumeState(agentId, managed);
+      const newSession = autoSessionId
+        ? createSession(managed, autoSessionId)
+        : createSession(managed);
       await replaceSession(agentId, managed, newSession);
       // If we got here via a hot-abort failure, processNormalizedEvent
       // flipped state to "error" — restore waiting_for_response so the
@@ -2398,8 +2937,14 @@ async function tryHotAbort(
     const original = managed.pendingTurn;
     await new Promise<void>((wakeUp) => {
       managed.pendingTurn = {
-        resolve: () => { original.resolve(); wakeUp(); },
-        reject: (e: unknown) => { original.reject(e); wakeUp(); },
+        resolve: () => {
+          original.resolve();
+          wakeUp();
+        },
+        reject: (e: unknown) => {
+          original.reject(e);
+          wakeUp();
+        },
       };
     });
   })();
@@ -2436,15 +2981,25 @@ export async function kill(agentId: string) {
   }
   const turn = managed.pendingTurn;
   managed.pendingTurn = null;
-  if (turn) { try { turn.reject(new Error("Agent killed.")); } catch {} }
+  if (turn) {
+    try {
+      turn.reject(new Error("Agent killed."));
+    } catch {}
+  }
   const oldConsumer = managed.consumerPromise;
-  try { managed.session?.close(); } catch {}
+  try {
+    managed.session?.close();
+  } catch {}
   managed.session = null;
   // Remove from the map so the consumer's outer `agents.has(agentId)` guard exits.
   agents.delete(agentId);
   officeState.kill(agentId);
   logCache.delete(agentId);
-  if (oldConsumer) { try { await oldConsumer; } catch {} }
+  if (oldConsumer) {
+    try {
+      await oldConsumer;
+    } catch {}
+  }
   killSidecar(managed);
   emit({ type: "agent_removed", agentId });
 }
@@ -2482,7 +3037,11 @@ export async function newConversation(agentId: string) {
     updateState(agentId, "idle");
     addLogEntry(agentId, "system", "New conversation started.");
   } catch (err: any) {
-    addLogEntry(agentId, "error", `Failed to start new conversation: ${err.message}`);
+    addLogEntry(
+      agentId,
+      "error",
+      `Failed to start new conversation: ${err.message}`,
+    );
     updateState(agentId, "error");
   }
 }
@@ -2524,12 +3083,20 @@ export async function resume(agentId: string, sessionId: string) {
     // Restore topic from sessions.json — officeState.updateAgent fires
     // persistAll via onChange, capturing the new sessionId set above.
     const sessions = listAgentSessions(agentId);
-    const sessionEntry = sessions.find(s => s.sessionId === sessionId);
+    const sessionEntry = sessions.find((s) => s.sessionId === sessionId);
     const restoredTopic = sessionEntry?.topic ?? null;
-    for (const event of officeState.updateAgent(agentId, { topic: restoredTopic, topicStale: false })) emit(event);
+    for (const event of officeState.updateAgent(agentId, {
+      topic: restoredTopic,
+      topicStale: false,
+    }))
+      emit(event);
 
     updateState(agentId, "waiting_for_response");
-    addLogEntry(agentId, "system", `Resumed session: ${restoredTopic || sessionId.slice(0, 8) + "..."}`);
+    addLogEntry(
+      agentId,
+      "system",
+      `Resumed session: ${restoredTopic || sessionId.slice(0, 8) + "..."}`,
+    );
 
     // If no topic, regenerate from session logs
     if (!restoredTopic) {
@@ -2541,7 +3108,13 @@ export async function resume(agentId: string, sessionId: string) {
   }
 }
 
-export async function editMessage(agentId: string, logEntryId: string, newText: string, username?: string, device?: string) {
+export async function editMessage(
+  agentId: string,
+  logEntryId: string,
+  newText: string,
+  username?: string,
+  device?: string,
+) {
   const managed = agents.get(agentId);
   if (!managed) return;
   if (!managed.sessionId) {
@@ -2571,7 +3144,7 @@ export async function editMessage(agentId: string, logEntryId: string, newText: 
     // --- Phase 1: Fallible SDK operations (no UI/cache mutations yet) ---
 
     // 1. Find the target LogEntry in the current log cache
-    const targetEntry = oldLogCache.find(e => e.id === logEntryId);
+    const targetEntry = oldLogCache.find((e) => e.id === logEntryId);
     if (!targetEntry || targetEntry.kind !== "user_message") {
       addLogEntry(agentId, "error", "Cannot edit: message not found.");
       return;
@@ -2582,14 +3155,19 @@ export async function editMessage(agentId: string, logEntryId: string, newText: 
     //    raw command (e.g. "/grill") but the SDK received the expanded prompt;
     //    `metadata.sdkText` captures that expanded form for matching.
     const backend = getBackend(managed.info.agentType);
-    const backendMessages = await backend.getSessionMessages(oldSessionId, managed.info.cwd);
+    const backendMessages = await backend.getSessionMessages(
+      oldSessionId,
+      managed.info.cwd,
+    );
     const targetUsername = targetEntry.metadata?.username as string | undefined;
     const targetDevice = targetEntry.metadata?.device as string | undefined;
-    const targetSdkText = (targetEntry.metadata?.sdkText as string | undefined) ?? targetEntry.content;
+    const targetSdkText =
+      (targetEntry.metadata?.sdkText as string | undefined) ??
+      targetEntry.content;
     const prefixedContent = `${formatPrefix({ username: targetUsername, device: targetDevice })}${targetSdkText}`;
 
     // Count which occurrence of this exact content this is among user_message log entries
-    const userLogEntries = oldLogCache.filter(e => e.kind === "user_message");
+    const userLogEntries = oldLogCache.filter((e) => e.kind === "user_message");
     let occurrenceIndex = 0;
     for (const e of userLogEntries) {
       const u = e.metadata?.username as string | undefined;
@@ -2629,14 +3207,18 @@ export async function editMessage(agentId: string, logEntryId: string, newText: 
       try {
         for (const s of listAgentSessions(agentId)) {
           if (s.sessionId === oldSessionId) continue;
-          if (loadLog(agentId, s.sessionId).some(e => e.id === logEntryId)) {
+          if (loadLog(agentId, s.sessionId).some((e) => e.id === logEntryId)) {
             const label = s.topic ?? s.sessionId.slice(0, 8) + "...";
             ownerHint = ` This message lives in a different session ("${label}"). Use /resume to switch to it first, then edit.`;
             break;
           }
         }
       } catch {}
-      addLogEntry(agentId, "error", `Cannot edit: could not locate message in backend session.${ownerHint}`);
+      addLogEntry(
+        agentId,
+        "error",
+        `Cannot edit: could not locate message in backend session.${ownerHint}`,
+      );
       return;
     }
 
@@ -2647,7 +3229,10 @@ export async function editMessage(agentId: string, logEntryId: string, newText: 
     //    support — Claude). Codex always returns "fork" (fork-then-rollback
     //    preserves the parent even for first-message edits).
     const targetUuid = backendMessages[targetIdx].uuid;
-    const forkResult = await backend.forkSessionBeforeMessage(oldSessionId, targetUuid);
+    const forkResult = await backend.forkSessionBeforeMessage(
+      oldSessionId,
+      targetUuid,
+    );
     const isFreshSession = forkResult.kind === "fresh";
     const newSessionId = forkResult.kind === "fork" ? forkResult.sessionId : "";
 
@@ -2660,14 +3245,14 @@ export async function editMessage(agentId: string, logEntryId: string, newText: 
       // loadLogWithAncestors cuts at the right level.
       let forkFromSessionId = forkResult.forkedFromSessionId;
       const ownEntries = loadLog(agentId, forkFromSessionId);
-      if (!ownEntries.some(e => e.id === logEntryId)) {
+      if (!ownEntries.some((e) => e.id === logEntryId)) {
         const sessMap = loadSessionsMap(agentId);
         let walk: string | undefined = sessMap[forkFromSessionId]?.forkedFrom;
         const visited = new Set<string>([forkFromSessionId]);
         while (walk && !visited.has(walk)) {
           visited.add(walk);
           const ancestorEntries = loadLog(agentId, walk);
-          if (ancestorEntries.some(e => e.id === logEntryId)) {
+          if (ancestorEntries.some((e) => e.id === logEntryId)) {
             forkFromSessionId = walk;
             break;
           }
@@ -2685,16 +3270,27 @@ export async function editMessage(agentId: string, logEntryId: string, newText: 
       // undefined, not findUsageAtFork's fall-back to the parent's full
       // cumulative. Otherwise lifetime accounting subtracts the parent's
       // entire usage from a child that did none of that work.
-      const targetIsFirstUserMessage = !backendMessages.slice(0, targetIdx).some(m => m.role === "user");
+      const targetIsFirstUserMessage = !backendMessages
+        .slice(0, targetIdx)
+        .some((m) => m.role === "user");
       const parentBase = targetIsFirstUserMessage
         ? undefined
         : findUsageAtFork(agentId, forkFromSessionId, logEntryId);
-      persistSessionFork(agentId, newSessionId, forkFromSessionId, logEntryId, oldTopic, parentBase);
+      persistSessionFork(
+        agentId,
+        newSessionId,
+        forkFromSessionId,
+        logEntryId,
+        oldTopic,
+        parentBase,
+      );
     }
 
     // 5. Create new session from fork (or fresh session for non-linked
     //    first-message edits), then close old.
-    const newSession = isFreshSession ? createSession(managed) : createSession(managed, newSessionId);
+    const newSession = isFreshSession
+      ? createSession(managed)
+      : createSession(managed, newSessionId);
     await replaceSession(agentId, managed, newSession);
     // For fresh sessions, sessionId is set by the system/init event (like newConversation).
     // For forks, set it now.
@@ -2724,14 +3320,27 @@ export async function editMessage(agentId: string, logEntryId: string, newText: 
     }
 
     // 8. Add system log entry at branch point
-    addLogEntry(agentId, "system", `Branched from: ${oldTopic || oldSessionId.slice(0, 8) + "..."}`);
+    addLogEntry(
+      agentId,
+      "system",
+      `Branched from: ${oldTopic || oldSessionId.slice(0, 8) + "..."}`,
+    );
 
     // 9. Inherit topic (marked stale so it regenerates after first exchange)
-    for (const event of officeState.updateAgent(agentId, { topic: oldTopic, topicStale: true })) emit(event);
+    for (const event of officeState.updateAgent(agentId, {
+      topic: oldTopic,
+      topicStale: true,
+    }))
+      emit(event);
 
     // 10. Send the edited message
     beginTurn(agentId, { humanInput: true });
-    addLogEntry(agentId, "user_message", newText, buildUserMeta(username, device));
+    addLogEntry(
+      agentId,
+      "user_message",
+      newText,
+      buildUserMeta(username, device),
+    );
 
     const editPrefix = formatPrefix({ username, device });
     const prefixedNew = editPrefix ? `${editPrefix}${newText}` : newText;
@@ -2768,10 +3377,18 @@ export async function editMessage(agentId: string, logEntryId: string, newText: 
       }
 
       // Restore topic
-      for (const event of officeState.updateAgent(agentId, { topic: oldTopic, topicStale: oldTopicStale })) emit(event);
+      for (const event of officeState.updateAgent(agentId, {
+        topic: oldTopic,
+        topicStale: oldTopicStale,
+      }))
+        emit(event);
     }
 
-    addLogEntry(agentId, "error", `Failed to branch conversation: ${err.message}`);
+    addLogEntry(
+      agentId,
+      "error",
+      `Failed to branch conversation: ${err.message}`,
+    );
     updateState(agentId, "error");
   }
 }
@@ -2783,7 +3400,9 @@ export function setTopic(agentId: string, topic: string) {
   // overwrite the user's manual choice.
   managed.topicGenToken++;
   for (const event of officeState.setTopic(agentId, topic)) emit(event);
-  const textCount = (logCache.get(agentId) ?? []).filter(e => e.kind === "user_message" || e.kind === "text").length;
+  const textCount = (logCache.get(agentId) ?? []).filter(
+    (e) => e.kind === "user_message" || e.kind === "text",
+  ).length;
   managed.topicMessageCount = textCount;
   // Persist to sessions.json so resume list shows the manual topic
   if (managed.sessionId) {
@@ -2831,7 +3450,12 @@ export function closeTerminal(agentId: string) {
 // just resolve paths against the agent's cwd and run the disk ops. Watch
 // lifecycle lives in server/index.ts where the WS connection is in scope.
 
-export function openEditorFile(agentId: string, rawPath: string): { ok: true; result: OpenFileResult } | { ok: false; error: "not_agent" | "bad_path" } {
+export function openEditorFile(
+  agentId: string,
+  rawPath: string,
+):
+  | { ok: true; result: OpenFileResult }
+  | { ok: false; error: "not_agent" | "bad_path" } {
   const managed = agents.get(agentId);
   if (!managed) return { ok: false, error: "not_agent" };
   const resolved = resolveEditorPath(rawPath, managed.info.cwd);
@@ -2839,11 +3463,19 @@ export function openEditorFile(agentId: string, rawPath: string): { ok: true; re
   return { ok: true, result: openEditorFileImpl(resolved.path) };
 }
 
-export function saveEditorFile(absPath: string, content: string, expectedMtime: number, force: boolean): SaveFileResult {
+export function saveEditorFile(
+  absPath: string,
+  content: string,
+  expectedMtime: number,
+  force: boolean,
+): SaveFileResult {
   return saveEditorFileImpl(absPath, content, expectedMtime, force);
 }
 
-export function resolveEditorPathForAgent(agentId: string, rawPath: string): string | null {
+export function resolveEditorPathForAgent(
+  agentId: string,
+  rawPath: string,
+): string | null {
   const managed = agents.get(agentId);
   if (!managed) return null;
   const resolved = resolveEditorPath(rawPath, managed.info.cwd);

@@ -28,7 +28,8 @@ const DEFAULT_STATE: ViewportState = { x: 0, y: 0, scale: 1 };
 // Pan should start from any non-interactive surface in the scene. Every clickable
 // target in the scene — including native HTML5 drag sources like DeskUnit — opts
 // out via `data-no-pan`, so we don't need a separate [draggable] rule here.
-const PAN_BLOCKER_SELECTOR = "[data-no-pan], button, a, input, textarea, select";
+const PAN_BLOCKER_SELECTOR =
+  "[data-no-pan], button, a, input, textarea, select";
 // Touch-only blocker: excludes [data-no-pan]. The big 180×160 desk/slot
 // hit-rects blanket the visible floor — treating them as pan blockers would make
 // one-finger pan fail almost everywhere when zoomed in. Tap-vs-drag stays safe
@@ -128,7 +129,12 @@ export function useViewport(layoutKey: string, enabled: boolean) {
   const state = useRef<ViewportState>({ ...DEFAULT_STATE });
   const gesture = useRef<Gesture>({ kind: "idle" });
   /** Scene content bounds in viewport-layer-local coords (pre-zoom). Null until measured. */
-  const sceneBounds = useRef<{ left: number; right: number; top: number; bottom: number } | null>(null);
+  const sceneBounds = useRef<{
+    left: number;
+    right: number;
+    top: number;
+    bottom: number;
+  } | null>(null);
   /** True if the most recent pointer gesture became a pan — used to suppress click-to-focus */
   const didPan = useRef(false);
   const resetClearTimer = useRef<number | null>(null);
@@ -203,7 +209,12 @@ export function useViewport(layoutKey: string, enabled: boolean) {
     }
     const crect = container.getBoundingClientRect();
     const rect = content.getBoundingClientRect();
-    if (crect.width === 0 || crect.height === 0 || rect.width === 0 || rect.height === 0) {
+    if (
+      crect.width === 0 ||
+      crect.height === 0 ||
+      rect.width === 0 ||
+      rect.height === 0
+    ) {
       // Hidden containers/content report zero rects; keep bounds unset so clampPan
       // becomes a no-op until a visible re-measure arrives.
       sceneBounds.current = null;
@@ -267,7 +278,11 @@ export function useViewport(layoutKey: string, enabled: boolean) {
       return;
     }
     const rect = container.getBoundingClientRect();
-    zoomAt(rect.width / 2, rect.height / 2, state.current.scale * VIEWPORT.ZOOM_STEP);
+    zoomAt(
+      rect.width / 2,
+      rect.height / 2,
+      state.current.scale * VIEWPORT.ZOOM_STEP,
+    );
   }, []);
 
   const zoomOut = useCallback(() => {
@@ -276,21 +291,31 @@ export function useViewport(layoutKey: string, enabled: boolean) {
       return;
     }
     const rect = container.getBoundingClientRect();
-    zoomAt(rect.width / 2, rect.height / 2, state.current.scale / VIEWPORT.ZOOM_STEP);
+    zoomAt(
+      rect.width / 2,
+      rect.height / 2,
+      state.current.scale / VIEWPORT.ZOOM_STEP,
+    );
   }, []);
 
   /** True when the user has zoomed in past the rest scale — used to route one-finger drags
    *  to pan instead of swipe on touch (iOS-gallery pattern). */
-  const isZoomedIn = useCallback(() => state.current.scale > VIEWPORT.ZOOM_EPSILON, []);
+  const isZoomedIn = useCallback(
+    () => state.current.scale > VIEWPORT.ZOOM_EPSILON,
+    [],
+  );
 
   /** Wrap a click handler so it's suppressed when the click was actually a drag-pan. */
-  const wrapClick = useCallback(<A extends unknown[]>(cb: (...args: A) => void) => {
-    return (...args: A) => {
-      if (!didPan.current) {
-        cb(...args);
-      }
-    };
-  }, []);
+  const wrapClick = useCallback(
+    <A extends unknown[]>(cb: (...args: A) => void) => {
+      return (...args: A) => {
+        if (!didPan.current) {
+          cb(...args);
+        }
+      };
+    },
+    [],
+  );
 
   // Re-measure scene bounds when the centered scene's static transform
   // changes (embed/isMobile/mobileScale). ResizeObserver only catches
@@ -316,7 +341,12 @@ export function useViewport(layoutKey: string, enabled: boolean) {
     const resetGesture = () => {
       gesture.current = { kind: "idle" };
     };
-    const startPan = (source: "pointer" | "touch", clientX: number, clientY: number, pointerId = -1) => {
+    const startPan = (
+      source: "pointer" | "touch",
+      clientX: number,
+      clientY: number,
+      pointerId = -1,
+    ) => {
       gesture.current = {
         kind: "panning",
         source,
@@ -349,7 +379,10 @@ export function useViewport(layoutKey: string, enabled: boolean) {
     }
 
     function enterPinch(t1: Touch, t2: Touch) {
-      if (gesture.current.kind === "panning" && gesture.current.source === "pointer") {
+      if (
+        gesture.current.kind === "panning" &&
+        gesture.current.source === "pointer"
+      ) {
         // Release the primary pointer's capture so lifting back to a single
         // touch after the pinch doesn't reactivate the old pan anchor.
         // Touch-driven pans don't use pointer capture — nothing to release.
@@ -372,7 +405,8 @@ export function useViewport(layoutKey: string, enabled: boolean) {
       const cy = e.clientY - rect.top;
       // Normalize deltaY to pixels so Firefox line-mode and page-mode wheels zoom at the same rate as pixel-mode.
       const lineHeight = 16;
-      const unit = e.deltaMode === 1 ? lineHeight : e.deltaMode === 2 ? rect.height : 1;
+      const unit =
+        e.deltaMode === 1 ? lineHeight : e.deltaMode === 2 ? rect.height : 1;
       const delta = -e.deltaY * unit * VIEWPORT.WHEEL_ZOOM_SPEED;
       zoomAt(cx, cy, state.current.scale * (1 + delta));
     }
@@ -406,14 +440,21 @@ export function useViewport(layoutKey: string, enabled: boolean) {
 
     function handlePointerMove(e: PointerEvent) {
       const g = gesture.current;
-      if (g.kind !== "panning" || g.source !== "pointer" || g.pointerId !== e.pointerId) {
+      if (
+        g.kind !== "panning" ||
+        g.source !== "pointer" ||
+        g.pointerId !== e.pointerId
+      ) {
         return;
       }
       const dx = e.clientX - g.startX;
       const dy = e.clientY - g.startY;
       e.preventDefault();
       if (!g.committed) {
-        if (Math.abs(dx) < VIEWPORT.PAN_THRESHOLD && Math.abs(dy) < VIEWPORT.PAN_THRESHOLD) {
+        if (
+          Math.abs(dx) < VIEWPORT.PAN_THRESHOLD &&
+          Math.abs(dy) < VIEWPORT.PAN_THRESHOLD
+        ) {
           return;
         }
         g.committed = true;
@@ -428,7 +469,11 @@ export function useViewport(layoutKey: string, enabled: boolean) {
 
     function handlePointerUp(e: PointerEvent) {
       const g = gesture.current;
-      if (g.kind !== "panning" || g.source !== "pointer" || g.pointerId !== e.pointerId) {
+      if (
+        g.kind !== "panning" ||
+        g.source !== "pointer" ||
+        g.pointerId !== e.pointerId
+      ) {
         return;
       }
       releasePan(e.pointerId);
@@ -442,20 +487,30 @@ export function useViewport(layoutKey: string, enabled: boolean) {
 
     function handlePointerCancel(e: PointerEvent) {
       const g = gesture.current;
-      if (g.kind !== "panning" || g.source !== "pointer" || g.pointerId !== e.pointerId) {
+      if (
+        g.kind !== "panning" ||
+        g.source !== "pointer" ||
+        g.pointerId !== e.pointerId
+      ) {
         return;
       }
       handlePointerUp(e);
     }
 
     function handleNativeDragStart(e: DragEvent) {
-      if (gesture.current.kind === "panning" && gesture.current.source === "pointer") {
+      if (
+        gesture.current.kind === "panning" &&
+        gesture.current.source === "pointer"
+      ) {
         e.preventDefault();
       }
     }
 
     function handleSelectStart(e: Event) {
-      if (gesture.current.kind === "panning" && gesture.current.source === "pointer") {
+      if (
+        gesture.current.kind === "panning" &&
+        gesture.current.source === "pointer"
+      ) {
         e.preventDefault();
       }
     }
@@ -492,7 +547,10 @@ export function useViewport(layoutKey: string, enabled: boolean) {
         e.preventDefault();
         const t1 = e.touches[0];
         const t2 = e.touches[1];
-        const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+        const dist = Math.hypot(
+          t2.clientX - t1.clientX,
+          t2.clientY - t1.clientY,
+        );
         const rect = container!.getBoundingClientRect();
         const newMidX = (t1.clientX + t2.clientX) / 2 - rect.left;
         const newMidY = (t1.clientY + t2.clientY) / 2 - rect.top;
@@ -511,12 +569,19 @@ export function useViewport(layoutKey: string, enabled: boolean) {
         applyTransform();
         return;
       }
-      if (g.kind === "panning" && g.source === "touch" && e.touches.length === 1) {
+      if (
+        g.kind === "panning" &&
+        g.source === "touch" &&
+        e.touches.length === 1
+      ) {
         const t = e.touches[0];
         const dx = t.clientX - g.startX;
         const dy = t.clientY - g.startY;
         if (!g.committed) {
-          if (Math.abs(dx) < VIEWPORT.PAN_THRESHOLD && Math.abs(dy) < VIEWPORT.PAN_THRESHOLD) {
+          if (
+            Math.abs(dx) < VIEWPORT.PAN_THRESHOLD &&
+            Math.abs(dy) < VIEWPORT.PAN_THRESHOLD
+          ) {
             return;
           }
           g.committed = true;
@@ -551,7 +616,11 @@ export function useViewport(layoutKey: string, enabled: boolean) {
         }
         return;
       }
-      if (g.kind === "panning" && g.source === "touch" && e.touches.length === 0) {
+      if (
+        g.kind === "panning" &&
+        g.source === "touch" &&
+        e.touches.length === 0
+      ) {
         // didPan is intentionally NOT cleared here — it must survive past the
         // iOS-synthesized click window so wrapClick can suppress the tap that
         // follows a drag-pan. The next fresh single-finger tap clears it in
@@ -565,7 +634,10 @@ export function useViewport(layoutKey: string, enabled: boolean) {
       // iOS palm rejection / system gesture can cancel mid-pan. Reset any
       // touch-driven gesture state unconditionally so the next fresh touch
       // starts clean. Pointer-driven pans live in handlePointerCancel.
-      if (g.kind === "pinching" || (g.kind === "panning" && g.source === "touch")) {
+      if (
+        g.kind === "pinching" ||
+        (g.kind === "panning" && g.source === "touch")
+      ) {
         resetGesture();
       }
     }
@@ -585,10 +657,16 @@ export function useViewport(layoutKey: string, enabled: boolean) {
     container.addEventListener("pointercancel", handlePointerCancel);
     container.addEventListener("dragstart", handleNativeDragStart);
     container.addEventListener("selectstart", handleSelectStart);
-    container.addEventListener("touchstart", handleTouchStart, { passive: true });
-    container.addEventListener("touchmove", handleTouchMove, { passive: false });
+    container.addEventListener("touchstart", handleTouchStart, {
+      passive: true,
+    });
+    container.addEventListener("touchmove", handleTouchMove, {
+      passive: false,
+    });
     container.addEventListener("touchend", handleTouchEnd, { passive: true });
-    container.addEventListener("touchcancel", handleTouchCancel, { passive: true });
+    container.addEventListener("touchcancel", handleTouchCancel, {
+      passive: true,
+    });
 
     return () => {
       ro.disconnect();

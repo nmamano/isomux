@@ -11,30 +11,39 @@ export function TerminalCommandCard({
 }) {
   const getText = useCallback(() => payload.command, [payload.command]);
   return (
-    <div style={{
-      margin: "8px 0",
-      borderRadius: 10,
-      background: "var(--bg-subtle)",
-      border: "1px solid var(--border)",
-      overflow: "hidden",
-    }}>
-      <div style={{
-        padding: "10px 12px",
-        display: "flex",
-        alignItems: "center",
-        gap: 12,
-        flexWrap: "wrap",
-      }}>
-        <span style={{
-          fontFamily: "'JetBrains Mono',monospace",
-          fontSize: 13,
-          color: "var(--text-secondary)",
-          whiteSpace: "pre-wrap",
-          wordBreak: "break-all",
-          flex: 1,
-          minWidth: 0,
-        }} title={payload.command}>
-          <span style={{ color: "var(--text-ghost)", userSelect: "none" }}>$ </span>
+    <div
+      style={{
+        margin: "8px 0",
+        borderRadius: 10,
+        background: "var(--bg-subtle)",
+        border: "1px solid var(--border)",
+        overflow: "hidden",
+      }}
+    >
+      <div
+        style={{
+          padding: "10px 12px",
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          flexWrap: "wrap",
+        }}
+      >
+        <span
+          style={{
+            fontFamily: "'JetBrains Mono',monospace",
+            fontSize: 13,
+            color: "var(--text-secondary)",
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-all",
+            flex: 1,
+            minWidth: 0,
+          }}
+          title={payload.command}
+        >
+          <span style={{ color: "var(--text-ghost)", userSelect: "none" }}>
+            ${" "}
+          </span>
           {payload.command}
         </span>
         <CopyButton getText={getText} />

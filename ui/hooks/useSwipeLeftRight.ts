@@ -6,7 +6,8 @@ const MAX_VERTICAL = 80;
 function isActuallyHorizontallyScrollable(node: HTMLElement) {
   const style = window.getComputedStyle(node);
   const overflowX = style.overflowX;
-  const allowsScroll = overflowX === "auto" || overflowX === "scroll" || overflowX === "overlay";
+  const allowsScroll =
+    overflowX === "auto" || overflowX === "scroll" || overflowX === "overlay";
   return allowsScroll && node.scrollWidth > node.clientWidth;
 }
 

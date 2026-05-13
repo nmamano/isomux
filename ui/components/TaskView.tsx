@@ -4,10 +4,21 @@ import { send } from "../ws.ts";
 import type { TaskItem, TaskStatus, TaskPriority } from "../../shared/types.ts";
 import { dialogLabel, dialogInput } from "./dialog-styles.ts";
 
-type SortField = "status" | "priority" | "title" | "assignee" | "createdBy" | "createdAt";
+type SortField =
+  | "status"
+  | "priority"
+  | "title"
+  | "assignee"
+  | "createdBy"
+  | "createdAt";
 type SortDir = "asc" | "desc";
 
-const STATUS_ORDER: Record<TaskStatus, number> = { in_progress: 0, open: 1, backlog: 2, done: 3 };
+const STATUS_ORDER: Record<TaskStatus, number> = {
+  in_progress: 0,
+  open: 1,
+  backlog: 2,
+  done: 3,
+};
 const PRIORITY_ORDER: Record<string, number> = { P0: 0, P1: 1, P2: 2, P3: 3 };
 
 const STATUS_COLORS: Record<TaskStatus, string> = {
@@ -42,10 +53,26 @@ function timeAgo(ts: number): string {
   return `${days}d ago`;
 }
 
-function TaskDetailPanel({ task, onClose, username, mode = "edit", agents = [], closeRef }: { task?: TaskItem; onClose: () => void; username: string; mode?: "edit" | "create"; agents?: { name: string }[]; closeRef?: React.MutableRefObject<(() => void) | null> }) {
+function TaskDetailPanel({
+  task,
+  onClose,
+  username,
+  mode = "edit",
+  agents = [],
+  closeRef,
+}: {
+  task?: TaskItem;
+  onClose: () => void;
+  username: string;
+  mode?: "edit" | "create";
+  agents?: { name: string }[];
+  closeRef?: React.MutableRefObject<(() => void) | null>;
+}) {
   const [title, setTitle] = useState(task?.title || "");
   const [description, setDescription] = useState(task?.description || "");
-  const [priority, setPriority] = useState<TaskPriority | "">(task?.priority || "");
+  const [priority, setPriority] = useState<TaskPriority | "">(
+    task?.priority || "",
+  );
   const [status, setStatus] = useState<TaskStatus>(task?.status || "open");
   const [assignee, setAssignee] = useState(task?.assignee || "");
 
@@ -72,7 +99,12 @@ function TaskDetailPanel({ task, onClose, username, mode = "edit", agents = [], 
 
   function isDirty(): boolean {
     if (mode === "create") {
-      return !!(title.trim() || description.trim() || priority || assignee.trim());
+      return !!(
+        title.trim() ||
+        description.trim() ||
+        priority ||
+        assignee.trim()
+      );
     }
     if (!task) return false;
     return (
@@ -96,7 +128,9 @@ function TaskDetailPanel({ task, onClose, username, mode = "edit", agents = [], 
   // that captures the current form state for the dirty check.
   useEffect(() => {
     if (closeRef) closeRef.current = requestClose;
-    return () => { if (closeRef) closeRef.current = null; };
+    return () => {
+      if (closeRef) closeRef.current = null;
+    };
   });
 
   function handleSave() {
@@ -127,7 +161,10 @@ function TaskDetailPanel({ task, onClose, username, mode = "edit", agents = [], 
   }
 
   function handleDelete() {
-    if (!confirmDelete) { setConfirmDelete(true); return; }
+    if (!confirmDelete) {
+      setConfirmDelete(true);
+      return;
+    }
     if (task) send({ type: "delete_task", id: task.id });
     onClose();
   }
@@ -157,16 +194,49 @@ function TaskDetailPanel({ task, onClose, username, mode = "edit", agents = [], 
         flexShrink: 0,
       }}
     >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}
+      >
+        <span
+          style={{
+            fontSize: 13,
+            fontWeight: 600,
+            color: "var(--text-primary)",
+          }}
+        >
           {mode === "create" ? "New Task" : `#${task!.id}`}
         </span>
-        <button onClick={requestClose} style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: 18, cursor: "pointer", padding: "2px 6px" }}>&times;</button>
+        <button
+          onClick={requestClose}
+          style={{
+            background: "none",
+            border: "none",
+            color: "var(--text-muted)",
+            fontSize: 18,
+            cursor: "pointer",
+            padding: "2px 6px",
+          }}
+        >
+          &times;
+        </button>
       </div>
 
       <div>
         <label style={labelStyle}>Title</label>
-        <input autoFocus={mode === "create"} value={title} onChange={(e) => setTitle(e.target.value)} style={inputStyle} onKeyDown={(e) => { if (e.key === "Enter") handleSave(); e.stopPropagation(); }} />
+        <input
+          autoFocus={mode === "create"}
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          style={inputStyle}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") handleSave();
+            e.stopPropagation();
+          }}
+        />
       </div>
 
       <div>
@@ -183,7 +253,11 @@ function TaskDetailPanel({ task, onClose, username, mode = "edit", agents = [], 
       <div style={{ display: "flex", gap: 10 }}>
         <div style={{ flex: 1 }}>
           <label style={labelStyle}>Priority</label>
-          <select value={priority} onChange={(e) => setPriority(e.target.value as TaskPriority | "")} style={inputStyle}>
+          <select
+            value={priority}
+            onChange={(e) => setPriority(e.target.value as TaskPriority | "")}
+            style={inputStyle}
+          >
             <option value="">None</option>
             <option value="P0">P0</option>
             <option value="P1">P1</option>
@@ -193,7 +267,11 @@ function TaskDetailPanel({ task, onClose, username, mode = "edit", agents = [], 
         </div>
         <div style={{ flex: 1 }}>
           <label style={labelStyle}>Status</label>
-          <select value={status} onChange={(e) => setStatus(e.target.value as TaskStatus)} style={inputStyle}>
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value as TaskStatus)}
+            style={inputStyle}
+          >
             <option value="open">Open</option>
             <option value="in_progress">In Progress</option>
             <option value="backlog">Backlog</option>
@@ -204,9 +282,17 @@ function TaskDetailPanel({ task, onClose, username, mode = "edit", agents = [], 
 
       <div>
         <label style={labelStyle}>Assignee</label>
-        <input value={assignee} onChange={(e) => setAssignee(e.target.value)} style={inputStyle} placeholder="Unassigned" onKeyDown={(e) => e.stopPropagation()} />
+        <input
+          value={assignee}
+          onChange={(e) => setAssignee(e.target.value)}
+          style={inputStyle}
+          placeholder="Unassigned"
+          onKeyDown={(e) => e.stopPropagation()}
+        />
         {agents.length > 0 && (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
+          <div
+            style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}
+          >
             {agents.map((a) => (
               <button
                 key={a.name}
@@ -215,8 +301,12 @@ function TaskDetailPanel({ task, onClose, username, mode = "edit", agents = [], 
                   padding: "3px 8px",
                   borderRadius: 6,
                   border: `1px solid ${assignee === a.name ? "var(--accent)" : "var(--border)"}`,
-                  background: assignee === a.name ? "var(--accent-muted, rgba(88,166,255,0.15))" : "var(--btn-surface)",
-                  color: assignee === a.name ? "var(--accent)" : "var(--text-muted)",
+                  background:
+                    assignee === a.name
+                      ? "var(--accent-muted, rgba(88,166,255,0.15))"
+                      : "var(--btn-surface)",
+                  color:
+                    assignee === a.name ? "var(--accent)" : "var(--text-muted)",
                   fontSize: 10,
                   cursor: "pointer",
                   fontFamily: "'JetBrains Mono',monospace",
@@ -231,17 +321,33 @@ function TaskDetailPanel({ task, onClose, username, mode = "edit", agents = [], 
       </div>
 
       {mode === "edit" && task && (
-        <div style={{ fontSize: 11, color: "var(--text-hint)", fontFamily: "'JetBrains Mono',monospace" }}>
+        <div
+          style={{
+            fontSize: 11,
+            color: "var(--text-hint)",
+            fontFamily: "'JetBrains Mono',monospace",
+          }}
+        >
           {task.username && task.username !== task.createdBy
             ? `${task.createdBy} · for ${task.username}`
             : task.createdBy}
-          {" · "}{timeAgo(task.createdAt)}
+          {" · "}
+          {timeAgo(task.createdAt)}
         </div>
       )}
 
       {confirmDiscard && (
-        <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "8px 0" }}>
-          <span style={{ fontSize: 11, color: "var(--text-muted)", flex: 1 }}>Discard unsaved changes?</span>
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            alignItems: "center",
+            padding: "8px 0",
+          }}
+        >
+          <span style={{ fontSize: 11, color: "var(--text-muted)", flex: 1 }}>
+            Discard unsaved changes?
+          </span>
           <button
             onClick={onClose}
             style={{
@@ -316,10 +422,20 @@ function TaskDetailPanel({ task, onClose, username, mode = "edit", agents = [], 
   );
 }
 
-export function TaskView({ username, onClose, onFocusAgent }: { username: string; onClose: () => void; onFocusAgent?: (agentId: string) => void }) {
+export function TaskView({
+  username,
+  onClose,
+  onFocusAgent,
+}: {
+  username: string;
+  onClose: () => void;
+  onFocusAgent?: (agentId: string) => void;
+}) {
   const { tasks, tasksLoaded, agents, isMobile } = useAppState();
   const [search, setSearch] = useState("");
-  const [filterStatus, setFilterStatus] = useState<TaskStatus | "all" | "active">("active");
+  const [filterStatus, setFilterStatus] = useState<
+    TaskStatus | "all" | "active"
+  >("active");
   const [creating, setCreating] = useState(false);
   const [filterAssignee, setFilterAssignee] = useState("");
   const [sortField, setSortField] = useState<SortField>("createdAt");
@@ -329,7 +445,9 @@ export function TaskView({ username, onClose, onFocusAgent }: { username: string
   const closeRef = useRef<(() => void) | null>(null);
   const pendingSelectRef = useRef<string | null>(null);
 
-  const selectedTask = selectedId ? tasks.find((t) => t.id === selectedId) : null;
+  const selectedTask = selectedId
+    ? tasks.find((t) => t.id === selectedId)
+    : null;
   const panelOpen = !!(selectedTask || creating);
 
   function tryClosePanel() {
@@ -355,7 +473,11 @@ export function TaskView({ username, onClose, onFocusAgent }: { username: string
     function handleKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
         e.stopPropagation();
-        if (panelOpen) { tryClosePanel(); } else { onClose(); }
+        if (panelOpen) {
+          tryClosePanel();
+        } else {
+          onClose();
+        }
       }
     }
     window.addEventListener("keydown", handleKey, true);
@@ -377,10 +499,11 @@ export function TaskView({ username, onClose, onFocusAgent }: { username: string
     }
     if (search) {
       const q = search.toLowerCase();
-      list = list.filter((t) =>
-        t.id.toLowerCase().includes(q) ||
-        t.title.toLowerCase().includes(q) ||
-        (t.description && t.description.toLowerCase().includes(q))
+      list = list.filter(
+        (t) =>
+          t.id.toLowerCase().includes(q) ||
+          t.title.toLowerCase().includes(q) ||
+          (t.description && t.description.toLowerCase().includes(q)),
       );
     }
     if (filterAssignee) {
@@ -423,9 +546,18 @@ export function TaskView({ username, onClose, onFocusAgent }: { username: string
     if (agentId && onFocusAgent) {
       return (
         <span
-          onClick={(e) => { e.stopPropagation(); onFocusAgent(agentId); }}
-          style={{ cursor: "pointer", color: "var(--accent)", textDecoration: "none" }}
-          onMouseEnter={(e) => (e.currentTarget.style.textDecoration = "underline")}
+          onClick={(e) => {
+            e.stopPropagation();
+            onFocusAgent(agentId);
+          }}
+          style={{
+            cursor: "pointer",
+            color: "var(--accent)",
+            textDecoration: "none",
+          }}
+          onMouseEnter={(e) =>
+            (e.currentTarget.style.textDecoration = "underline")
+          }
           onMouseLeave={(e) => (e.currentTarget.style.textDecoration = "none")}
         >
           {name}
@@ -488,7 +620,9 @@ export function TaskView({ username, onClose, onFocusAgent }: { username: string
           alignItems: isMobile ? "stretch" : "center",
           justifyContent: "space-between",
           padding: isMobile ? "4px 12px 6px" : "0 20px",
-          paddingTop: isMobile ? "max(4px, env(safe-area-inset-top, 0px))" : undefined,
+          paddingTop: isMobile
+            ? "max(4px, env(safe-area-inset-top, 0px))"
+            : undefined,
           gap: isMobile ? 6 : 0,
           minHeight: 44,
           background: "var(--bg-hud)",
@@ -498,8 +632,22 @@ export function TaskView({ username, onClose, onFocusAgent }: { username: string
           zIndex: 500,
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: isMobile ? "space-between" : undefined }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            justifyContent: isMobile ? "space-between" : undefined,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              minWidth: 0,
+            }}
+          >
             <button
               onClick={onClose}
               style={{
@@ -513,13 +661,30 @@ export function TaskView({ username, onClose, onFocusAgent }: { username: string
             >
               &larr;
             </button>
-            <span style={{ fontSize: 15, fontWeight: 700, letterSpacing: "-0.02em" }}>Tasks</span>
-            <span style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "'JetBrains Mono',monospace" }}>
+            <span
+              style={{
+                fontSize: 15,
+                fontWeight: 700,
+                letterSpacing: "-0.02em",
+              }}
+            >
+              Tasks
+            </span>
+            <span
+              style={{
+                fontSize: 11,
+                color: "var(--text-muted)",
+                fontFamily: "'JetBrains Mono',monospace",
+              }}
+            >
               {filtered.length} shown
             </span>
           </div>
           <button
-            onClick={() => { setCreating(true); setSelectedId(null); }}
+            onClick={() => {
+              setCreating(true);
+              setSelectedId(null);
+            }}
             style={{
               padding: "4px 10px",
               borderRadius: 6,
@@ -535,7 +700,13 @@ export function TaskView({ username, onClose, onFocusAgent }: { username: string
           </button>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value as TaskStatus | "all" | "active")} style={isMobile ? { ...selectStyle, flex: 1 } : selectStyle}>
+          <select
+            value={filterStatus}
+            onChange={(e) =>
+              setFilterStatus(e.target.value as TaskStatus | "all" | "active")
+            }
+            style={isMobile ? { ...selectStyle, flex: 1 } : selectStyle}
+          >
             <option value="active">Open + In Progress</option>
             <option value="open">Open</option>
             <option value="in_progress">In Progress</option>
@@ -558,9 +729,23 @@ export function TaskView({ username, onClose, onFocusAgent }: { username: string
       {/* Body */}
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
         {/* Table area */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+        <div
+          style={{
+            flex: 1,
+            display: "flex",
+            flexDirection: "column",
+            overflow: "hidden",
+          }}
+        >
           {/* Search bar */}
-          <div style={{ display: "flex", gap: 8, padding: isMobile ? "10px 12px" : "10px 20px", borderBottom: "1px solid var(--border-subtle)" }}>
+          <div
+            style={{
+              display: "flex",
+              gap: 8,
+              padding: isMobile ? "10px 12px" : "10px 20px",
+              borderBottom: "1px solid var(--border-subtle)",
+            }}
+          >
             <input
               ref={inputRef}
               type="text"
@@ -587,36 +772,100 @@ export function TaskView({ username, onClose, onFocusAgent }: { username: string
               // Click on empty table area (not on a row) dismisses the panel
               if (panelOpen && e.target === e.currentTarget) tryClosePanel();
             }}
-            style={{ flex: 1, overflowY: "auto", overflowX: isMobile ? "hidden" : "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", tableLayout: isMobile ? "fixed" : undefined }}>
+            style={{
+              flex: 1,
+              overflowY: "auto",
+              overflowX: isMobile ? "hidden" : "auto",
+            }}
+          >
+            <table
+              style={{
+                width: "100%",
+                borderCollapse: "collapse",
+                tableLayout: isMobile ? "fixed" : undefined,
+              }}
+            >
               <thead>
                 <tr>
-                  <th style={{ ...thStyle, width: isMobile ? 24 : 36 }} onClick={() => handleSort("status")}>
-                    S{sortField === "status" ? (sortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
+                  <th
+                    style={{ ...thStyle, width: isMobile ? 24 : 36 }}
+                    onClick={() => handleSort("status")}
+                  >
+                    S
+                    {sortField === "status"
+                      ? sortDir === "asc"
+                        ? " \u25B2"
+                        : " \u25BC"
+                      : ""}
                   </th>
-                  <th style={{ ...thStyle, width: isMobile ? 24 : 36 }} onClick={() => handleSort("priority")}>
-                    P{sortField === "priority" ? (sortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
+                  <th
+                    style={{ ...thStyle, width: isMobile ? 24 : 36 }}
+                    onClick={() => handleSort("priority")}
+                  >
+                    P
+                    {sortField === "priority"
+                      ? sortDir === "asc"
+                        ? " \u25B2"
+                        : " \u25BC"
+                      : ""}
                   </th>
                   <th style={thStyle} onClick={() => handleSort("title")}>
-                    TITLE{sortField === "title" ? (sortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
+                    TITLE
+                    {sortField === "title"
+                      ? sortDir === "asc"
+                        ? " \u25B2"
+                        : " \u25BC"
+                      : ""}
                   </th>
-                  <th style={{ ...thStyle, width: isMobile ? 60 : 100 }} onClick={() => handleSort("assignee")}>
-                    ASSIGNEE{sortField === "assignee" ? (sortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
+                  <th
+                    style={{ ...thStyle, width: isMobile ? 60 : 100 }}
+                    onClick={() => handleSort("assignee")}
+                  >
+                    ASSIGNEE
+                    {sortField === "assignee"
+                      ? sortDir === "asc"
+                        ? " \u25B2"
+                        : " \u25BC"
+                      : ""}
                   </th>
                   {!isMobile && (
-                    <th style={{ ...thStyle, width: 140 }} onClick={() => handleSort("createdBy")}>
-                      BY{sortField === "createdBy" ? (sortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
+                    <th
+                      style={{ ...thStyle, width: 140 }}
+                      onClick={() => handleSort("createdBy")}
+                    >
+                      BY
+                      {sortField === "createdBy"
+                        ? sortDir === "asc"
+                          ? " \u25B2"
+                          : " \u25BC"
+                        : ""}
                     </th>
                   )}
-                  <th style={{ ...thStyle, width: 70 }} onClick={() => handleSort("createdAt")}>
-                    AGE{sortField === "createdAt" ? (sortDir === "asc" ? " \u25B2" : " \u25BC") : ""}
+                  <th
+                    style={{ ...thStyle, width: 70 }}
+                    onClick={() => handleSort("createdAt")}
+                  >
+                    AGE
+                    {sortField === "createdAt"
+                      ? sortDir === "asc"
+                        ? " \u25B2"
+                        : " \u25BC"
+                      : ""}
                   </th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={isMobile ? 5 : 6} style={{ textAlign: "center", padding: "24px 0", color: "var(--text-muted)", fontSize: 13 }}>
+                    <td
+                      colSpan={isMobile ? 5 : 6}
+                      style={{
+                        textAlign: "center",
+                        padding: "24px 0",
+                        color: "var(--text-muted)",
+                        fontSize: 13,
+                      }}
+                    >
                       {tasksLoaded ? "No tasks" : "Loading..."}
                     </td>
                   </tr>
@@ -625,21 +874,34 @@ export function TaskView({ username, onClose, onFocusAgent }: { username: string
                     <tr
                       key={task.id}
                       onClick={() => {
-                        if (task.id === selectedId) { tryClosePanel(); return; }
-                        if (panelOpen) { tryClosePanel(); pendingSelectRef.current = task.id; return; }
-                        setSelectedId(task.id); setCreating(false);
+                        if (task.id === selectedId) {
+                          tryClosePanel();
+                          return;
+                        }
+                        if (panelOpen) {
+                          tryClosePanel();
+                          pendingSelectRef.current = task.id;
+                          return;
+                        }
+                        setSelectedId(task.id);
+                        setCreating(false);
                       }}
                       style={{
                         cursor: "pointer",
-                        background: task.id === selectedId ? "var(--bg-hover)" : "transparent",
+                        background:
+                          task.id === selectedId
+                            ? "var(--bg-hover)"
+                            : "transparent",
                         borderBottom: "1px solid var(--border-subtle)",
                         opacity: task.status === "done" ? 0.5 : 1,
                       }}
                       onMouseEnter={(e) => {
-                        if (task.id !== selectedId) e.currentTarget.style.background = "var(--bg-hover)";
+                        if (task.id !== selectedId)
+                          e.currentTarget.style.background = "var(--bg-hover)";
                       }}
                       onMouseLeave={(e) => {
-                        if (task.id !== selectedId) e.currentTarget.style.background = "transparent";
+                        if (task.id !== selectedId)
+                          e.currentTarget.style.background = "transparent";
                       }}
                     >
                       <td style={{ padding: cellPad }}>
@@ -650,7 +912,11 @@ export function TaskView({ username, onClose, onFocusAgent }: { username: string
                             height: 8,
                             borderRadius: "50%",
                             background: STATUS_COLORS[task.status],
-                            boxShadow: task.status === "open" || task.status === "in_progress" ? `0 0 6px ${STATUS_COLORS[task.status]}` : "none",
+                            boxShadow:
+                              task.status === "open" ||
+                              task.status === "in_progress"
+                                ? `0 0 6px ${STATUS_COLORS[task.status]}`
+                                : "none",
                           }}
                           title={STATUS_LABELS[task.status]}
                         />
@@ -673,7 +939,8 @@ export function TaskView({ username, onClose, onFocusAgent }: { username: string
                         style={{
                           padding: cellPad,
                           fontSize: 13,
-                          textDecoration: task.status === "done" ? "line-through" : "none",
+                          textDecoration:
+                            task.status === "done" ? "line-through" : "none",
                           maxWidth: isMobile ? 0 : 300,
                           overflow: "hidden",
                           textOverflow: "ellipsis",
@@ -682,24 +949,61 @@ export function TaskView({ username, onClose, onFocusAgent }: { username: string
                       >
                         {task.title}
                         {task.description && (
-                          <span style={{ color: "var(--text-hint)", fontWeight: 400 }}>
-                            {" "}| {task.description}
+                          <span
+                            style={{
+                              color: "var(--text-hint)",
+                              fontWeight: 400,
+                            }}
+                          >
+                            {" "}
+                            | {task.description}
                           </span>
                         )}
                       </td>
-                      <td style={{ padding: cellPad, fontSize: 11, color: "var(--text-dim)", fontFamily: "'JetBrains Mono',monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <td
+                        style={{
+                          padding: cellPad,
+                          fontSize: 11,
+                          color: "var(--text-dim)",
+                          fontFamily: "'JetBrains Mono',monospace",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
                         {renderName(task.assignee)}
                       </td>
                       {!isMobile && (
-                        <td style={{ padding: cellPad, fontSize: 11, color: "var(--text-hint)", fontFamily: "'JetBrains Mono',monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        <td
+                          style={{
+                            padding: cellPad,
+                            fontSize: 11,
+                            color: "var(--text-hint)",
+                            fontFamily: "'JetBrains Mono',monospace",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
                           {task.username && task.username !== task.createdBy ? (
-                            <>{renderName(task.createdBy)} · for {renderName(task.username)}</>
+                            <>
+                              {renderName(task.createdBy)} · for{" "}
+                              {renderName(task.username)}
+                            </>
                           ) : (
                             renderName(task.createdBy)
                           )}
                         </td>
                       )}
-                      <td style={{ padding: cellPad, fontSize: 10, color: "var(--text-hint)", fontFamily: "'JetBrains Mono',monospace", whiteSpace: "nowrap" }}>
+                      <td
+                        style={{
+                          padding: cellPad,
+                          fontSize: 10,
+                          color: "var(--text-hint)",
+                          fontFamily: "'JetBrains Mono',monospace",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
                         {timeAgo(task.createdAt)}
                       </td>
                     </tr>
@@ -711,29 +1015,32 @@ export function TaskView({ username, onClose, onFocusAgent }: { username: string
         </div>
 
         {/* Detail panel */}
-        {!isMobile && (creating ? (
-          <TaskDetailPanel
-            closeRef={closeRef}
-            mode="create"
-            onClose={() => setCreating(false)}
-            username={username}
-            agents={agents}
-          />
-        ) : selectedTask ? (
-          <TaskDetailPanel
-            closeRef={closeRef}
-            task={selectedTask}
-            onClose={() => setSelectedId(null)}
-            username={username}
-            agents={agents}
-          />
-        ) : null)}
+        {!isMobile &&
+          (creating ? (
+            <TaskDetailPanel
+              closeRef={closeRef}
+              mode="create"
+              onClose={() => setCreating(false)}
+              username={username}
+              agents={agents}
+            />
+          ) : selectedTask ? (
+            <TaskDetailPanel
+              closeRef={closeRef}
+              task={selectedTask}
+              onClose={() => setSelectedId(null)}
+              username={username}
+              agents={agents}
+            />
+          ) : null)}
       </div>
 
       {/* Mobile detail panel as overlay */}
       {(selectedTask || creating) && isMobile && (
         <div
-          onMouseDown={(e) => { if (e.target === e.currentTarget) tryClosePanel(); }}
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) tryClosePanel();
+          }}
           style={{
             position: "fixed",
             inset: 0,
@@ -745,7 +1052,17 @@ export function TaskView({ username, onClose, onFocusAgent }: { username: string
             justifyContent: "center",
           }}
         >
-          <div style={{ width: "90%", maxWidth: 380, maxHeight: "80vh", overflowY: "auto", margin: "0 auto", borderRadius: 12, overflow: "hidden" }}>
+          <div
+            style={{
+              width: "90%",
+              maxWidth: 380,
+              maxHeight: "80vh",
+              overflowY: "auto",
+              margin: "0 auto",
+              borderRadius: 12,
+              overflow: "hidden",
+            }}
+          >
             {creating ? (
               <TaskDetailPanel
                 closeRef={closeRef}

@@ -1,7 +1,9 @@
 import type { AgentState } from "../../shared/types.ts";
 
 // Map our states to visual categories
-function visualState(state: AgentState): "working" | "waiting_for_response" | "error" | "idle" {
+function visualState(
+  state: AgentState,
+): "working" | "waiting_for_response" | "error" | "idle" {
   switch (state) {
     case "thinking":
     case "tool_executing":
@@ -18,15 +20,35 @@ function visualState(state: AgentState): "working" | "waiting_for_response" | "e
 // Leaf pattern variants — each is 3 stems with [quadratic control points, stroke color, width]
 const PLANT_VARIANTS: Array<Array<[string, string, number]>> = [
   // Upright bushy
-  [["M0 0 Q-6 -8 -2 -14", "#3a7a3a", 1.5], ["M0 -2 Q4 -10 8 -12", "#4a8a4a", 1.2], ["M0 -1 Q-3 -6 1 -10", "#3a7a3a", 1]],
+  [
+    ["M0 0 Q-6 -8 -2 -14", "#3a7a3a", 1.5],
+    ["M0 -2 Q4 -10 8 -12", "#4a8a4a", 1.2],
+    ["M0 -1 Q-3 -6 1 -10", "#3a7a3a", 1],
+  ],
   // Droopy fern
-  [["M0 0 Q-8 -5 -10 -10", "#2e8a4a", 1.4], ["M0 -1 Q6 -8 10 -8", "#3a9a5a", 1.1], ["M0 0 Q-2 -9 2 -13", "#2e7a3a", 1]],
+  [
+    ["M0 0 Q-8 -5 -10 -10", "#2e8a4a", 1.4],
+    ["M0 -1 Q6 -8 10 -8", "#3a9a5a", 1.1],
+    ["M0 0 Q-2 -9 2 -13", "#2e7a3a", 1],
+  ],
   // Spiky succulent
-  [["M0 0 Q-2 -10 -1 -15", "#4a8a3a", 1.6], ["M0 -1 Q3 -10 5 -14", "#5a9a4a", 1.3], ["M0 0 Q-4 -7 -6 -11", "#4a7a3a", 1.1]],
+  [
+    ["M0 0 Q-2 -10 -1 -15", "#4a8a3a", 1.6],
+    ["M0 -1 Q3 -10 5 -14", "#5a9a4a", 1.3],
+    ["M0 0 Q-4 -7 -6 -11", "#4a7a3a", 1.1],
+  ],
   // Wide spreading
-  [["M0 0 Q-9 -6 -12 -9", "#3a8a4a", 1.3], ["M0 -1 Q8 -6 12 -8", "#4a9a3a", 1.2], ["M0 0 Q0 -8 -1 -13", "#3a7a4a", 1.4]],
+  [
+    ["M0 0 Q-9 -6 -12 -9", "#3a8a4a", 1.3],
+    ["M0 -1 Q8 -6 12 -8", "#4a9a3a", 1.2],
+    ["M0 0 Q0 -8 -1 -13", "#3a7a4a", 1.4],
+  ],
   // Tall single stem with side shoots
-  [["M0 0 Q-1 -10 0 -16", "#3a8a3a", 1.6], ["M0 -6 Q-6 -10 -8 -12", "#4a9a4a", 1], ["M0 -8 Q5 -11 7 -13", "#3a7a3a", 0.9]],
+  [
+    ["M0 0 Q-1 -10 0 -16", "#3a8a3a", 1.6],
+    ["M0 -6 Q-6 -10 -8 -12", "#4a9a4a", 1],
+    ["M0 -8 Q5 -11 7 -13", "#3a7a3a", 0.9],
+  ],
 ];
 
 // Book color variants — [front cover, back/side, spine/dark] — green (index 0) is the BCTCI easter egg
@@ -77,14 +99,30 @@ function wrapCwd(text: string): string[] {
   return lines;
 }
 
-export function DeskSprite({ state, deskIndex = 0, cwd, modelFamily }: { state: AgentState; deskIndex?: number; cwd?: string; modelFamily?: string }) {
+export function DeskSprite({
+  state,
+  deskIndex = 0,
+  cwd,
+  modelFamily,
+}: {
+  state: AgentState;
+  deskIndex?: number;
+  cwd?: string;
+  modelFamily?: string;
+}) {
   const vs = visualState(state);
-  const glow = { working: "#50B86C", waiting_for_response: "#9B59B6", error: "#E85D75", idle: "#223" }[vs];
+  const glow = {
+    working: "#50B86C",
+    waiting_for_response: "#9B59B6",
+    error: "#E85D75",
+    idle: "#223",
+  }[vs];
   const on = vs !== "idle";
   const hasPlant = !DESKS_WITHOUT_PLANT.has(deskIndex);
   const hasMug = !DESKS_WITHOUT_MUG.has(deskIndex);
   const leaves = PLANT_VARIANTS[deskIndex % PLANT_VARIANTS.length];
-  const [mugBody, mugSide, mugRim, mugLiquid] = MUG_VARIANTS[deskIndex % MUG_VARIANTS.length];
+  const [mugBody, mugSide, mugRim, mugLiquid] =
+    MUG_VARIANTS[deskIndex % MUG_VARIANTS.length];
 
   const lampId = `lamp-glow-${deskIndex}`;
   const screenClipId = `screen-clip-${deskIndex}`;
@@ -104,11 +142,19 @@ export function DeskSprite({ state, deskIndex = 0, cwd, modelFamily }: { state: 
       </defs>
 
       {/* Shadow under desk */}
-      <path d="M45 121 L85 102 Q90 100 95 102 L135 121 Q140 124 135 127 L95 146 Q90 148 85 146 L45 127 Q40 124 45 121 Z" fill="rgba(0,0,0,0.12)" />
+      <path
+        d="M45 121 L85 102 Q90 100 95 102 L135 121 Q140 124 135 127 L95 146 Q90 148 85 146 L45 127 Q40 124 45 121 Z"
+        fill="rgba(0,0,0,0.12)"
+      />
 
       {/* Chair */}
       <path d="M56 95 L90 110 L124 95 L90 80 Z" fill="#2a2a3a" />
-      <path d="M56 95 L56 72 L90 57 L90 80 Z" fill="#333345" stroke="#2a2a3a" strokeWidth="0.5" />
+      <path
+        d="M56 95 L56 72 L90 57 L90 80 Z"
+        fill="#333345"
+        stroke="#2a2a3a"
+        strokeWidth="0.5"
+      />
 
       {/* Desk legs — from front panel corners to floor */}
       {/* Left leg */}
@@ -136,20 +182,60 @@ export function DeskSprite({ state, deskIndex = 0, cwd, modelFamily }: { state: 
       <g transform="translate(-12, -6)">
         {/* Keyboard — rendered first (behind monitor) */}
         {/* Top face */}
-        <path d="M60 66 L87 79 L114 66 L87 53 Z" fill="#2a2a2a" stroke="#333" strokeWidth="0.4" />
+        <path
+          d="M60 66 L87 79 L114 66 L87 53 Z"
+          fill="#2a2a2a"
+          stroke="#333"
+          strokeWidth="0.4"
+        />
         {/* Front-left face (depth) */}
         <path d="M60 66 L87 79 L87 82 L60 69 Z" fill="#1e1e1e" />
         {/* Front-right face (depth) */}
         <path d="M87 79 L114 66 L114 69 L87 82 Z" fill="#252525" />
         {/* Key rows */}
-        <path d="M68 64 L87 73 L106 64" stroke="#3a3a3a" strokeWidth="0.4" fill="none" />
-        <path d="M70 66 L87 74 L104 66" stroke="#3a3a3a" strokeWidth="0.4" fill="none" />
-        <path d="M72 68 L87 75.5 L102 68" stroke="#3a3a3a" strokeWidth="0.3" fill="none" />
+        <path
+          d="M68 64 L87 73 L106 64"
+          stroke="#3a3a3a"
+          strokeWidth="0.4"
+          fill="none"
+        />
+        <path
+          d="M70 66 L87 74 L104 66"
+          stroke="#3a3a3a"
+          strokeWidth="0.4"
+          fill="none"
+        />
+        <path
+          d="M72 68 L87 75.5 L102 68"
+          stroke="#3a3a3a"
+          strokeWidth="0.3"
+          fill="none"
+        />
         {/* Individual key hints on top row */}
-        <path d="M73 61 L78 58.5" stroke="#3a3a3a" strokeWidth="0.3" fill="none" />
-        <path d="M80 57.5 L85 55" stroke="#3a3a3a" strokeWidth="0.3" fill="none" />
-        <path d="M89 56 L94 58.5" stroke="#3a3a3a" strokeWidth="0.3" fill="none" />
-        <path d="M97 60 L102 62.5" stroke="#3a3a3a" strokeWidth="0.3" fill="none" />
+        <path
+          d="M73 61 L78 58.5"
+          stroke="#3a3a3a"
+          strokeWidth="0.3"
+          fill="none"
+        />
+        <path
+          d="M80 57.5 L85 55"
+          stroke="#3a3a3a"
+          strokeWidth="0.3"
+          fill="none"
+        />
+        <path
+          d="M89 56 L94 58.5"
+          stroke="#3a3a3a"
+          strokeWidth="0.3"
+          fill="none"
+        />
+        <path
+          d="M97 60 L102 62.5"
+          stroke="#3a3a3a"
+          strokeWidth="0.3"
+          fill="none"
+        />
 
         {/* Monitor stand — rendered second (behind screen) */}
         {/* Stand neck */}
@@ -161,20 +247,38 @@ export function DeskSprite({ state, deskIndex = 0, cwd, modelFamily }: { state: 
         <path d="M90 70 L102 64 L102 66 L90 72 Z" fill="#222233" />
 
         {/* Monitor screen — rendered last (in front) */}
-        <path d="M64 16 L110 36 L110 62 L64 42 Z" fill="#222233" stroke="#1a1a28" strokeWidth="0.8" />
+        <path
+          d="M64 16 L110 36 L110 62 L64 42 Z"
+          fill="#222233"
+          stroke="#1a1a28"
+          strokeWidth="0.8"
+        />
         {/* Top edge thickness */}
         <path d="M64 16 L110 36 L114 34 L68 14 Z" fill="#2a2a3a" />
         {/* Right edge thickness */}
         <path d="M110 36 L114 34 L114 60 L110 62 Z" fill="#1a1a28" />
         {/* Screen area */}
-        <path d="M66 18 L108 37 L108 60 L66 41 Z" fill={on ? "#0d1117" : "#141820"} />
+        <path
+          d="M66 18 L108 37 L108 60 L66 41 Z"
+          fill={on ? "#0d1117" : "#141820"}
+        />
         {on && (
           <path d="M66 18 L108 37 L108 60 L66 41 Z" fill={glow} opacity="0.15">
-            <animate attributeName="opacity" values="0.1;0.2;0.1" dur="3s" repeatCount="indefinite" />
+            <animate
+              attributeName="opacity"
+              values="0.1;0.2;0.1"
+              dur="3s"
+              repeatCount="indefinite"
+            />
           </path>
         )}
         {on && (
-          <path d="M66 30 L108 48" stroke={glow} strokeWidth="0.8" opacity="0.3">
+          <path
+            d="M66 30 L108 48"
+            stroke={glow}
+            strokeWidth="0.8"
+            opacity="0.3"
+          >
             <animate
               attributeName="d"
               values="M66 18 L108 37;M66 41 L108 60;M66 18 L108 37"
@@ -193,7 +297,11 @@ export function DeskSprite({ state, deskIndex = 0, cwd, modelFamily }: { state: 
               fontSize="5"
               fontFamily="monospace"
               transform="skewY(24)"
-              style={{ transformOrigin: "68px 24px", userSelect: "none", pointerEvents: "none" }}
+              style={{
+                transformOrigin: "68px 24px",
+                userSelect: "none",
+                pointerEvents: "none",
+              }}
             >
               {wrapCwd(shortCwd).map((line, i) => (
                 <tspan key={i} x="68" dy={i === 0 ? 0 : 6}>
@@ -219,10 +327,21 @@ export function DeskSprite({ state, deskIndex = 0, cwd, modelFamily }: { state: 
           {/* Liquid inside */}
           <ellipse cx="140" cy="55.5" rx="4.5" ry="2" fill={mugLiquid} />
           {/* Handle */}
-          <path d="M146 57 Q152 57 152 60 Q152 63 146 62" fill="none" stroke={mugSide} strokeWidth="1.5" strokeLinecap="round" />
+          <path
+            d="M146 57 Q152 57 152 60 Q152 63 146 62"
+            fill="none"
+            stroke={mugSide}
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
           {/* Steam when active */}
           {on && (
-            <path d="M138 53 Q136 47 140 43" fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="0.8">
+            <path
+              d="M138 53 Q136 47 140 43"
+              fill="none"
+              stroke="rgba(255,255,255,0.15)"
+              strokeWidth="0.8"
+            >
               <animate
                 attributeName="d"
                 values="M138 53 Q136 47 140 43;M138 53 Q140 45 137 40;M138 53 Q136 47 140 43"
@@ -240,7 +359,13 @@ export function DeskSprite({ state, deskIndex = 0, cwd, modelFamily }: { state: 
           <rect x="-3" y="0" width="6" height="7" rx="1" fill="#C4634F" />
           <ellipse cx="0" cy="0" rx="4" ry="1.5" fill="#D4735F" />
           {leaves.map(([d, stroke, width], i) => (
-            <path key={i} d={d} stroke={stroke} fill="none" strokeWidth={width} />
+            <path
+              key={i}
+              d={d}
+              stroke={stroke}
+              fill="none"
+              strokeWidth={width}
+            />
           ))}
         </g>
       )}
@@ -249,61 +374,196 @@ export function DeskSprite({ state, deskIndex = 0, cwd, modelFamily }: { state: 
       {modelFamily === "haiku" && (
         <g transform="translate(100, 68)">
           {/* Scattered crayons */}
-          <rect x="0" y="0" width="14" height="3" rx="1" fill="#E85D75" transform="rotate(-15 7 1.5)" />
-          <rect x="4" y="5" width="14" height="3" rx="1" fill="#4A9AE8" transform="rotate(10 11 6.5)" />
-          <rect x="-2" y="9" width="12" height="3" rx="1" fill="#F5C040" transform="rotate(-5 4 10.5)" />
+          <rect
+            x="0"
+            y="0"
+            width="14"
+            height="3"
+            rx="1"
+            fill="#E85D75"
+            transform="rotate(-15 7 1.5)"
+          />
+          <rect
+            x="4"
+            y="5"
+            width="14"
+            height="3"
+            rx="1"
+            fill="#4A9AE8"
+            transform="rotate(10 11 6.5)"
+          />
+          <rect
+            x="-2"
+            y="9"
+            width="12"
+            height="3"
+            rx="1"
+            fill="#F5C040"
+            transform="rotate(-5 4 10.5)"
+          />
           {/* Crayon tips */}
-          <path d="M13.5 -0.8 L16 0.8 L13.5 2.3" fill="#C44050" transform="rotate(-15 7 1.5)" />
-          <path d="M17.5 4.5 L20 6 L17.5 7.5" fill="#3A80C8" transform="rotate(10 11 6.5)" />
-          <path d="M9.5 8.5 L12 10 L9.5 11.5" fill="#D8A030" transform="rotate(-5 4 10.5)" />
+          <path
+            d="M13.5 -0.8 L16 0.8 L13.5 2.3"
+            fill="#C44050"
+            transform="rotate(-15 7 1.5)"
+          />
+          <path
+            d="M17.5 4.5 L20 6 L17.5 7.5"
+            fill="#3A80C8"
+            transform="rotate(10 11 6.5)"
+          />
+          <path
+            d="M9.5 8.5 L12 10 L9.5 11.5"
+            fill="#D8A030"
+            transform="rotate(-5 4 10.5)"
+          />
         </g>
       )}
-      {modelFamily === "opus" && (() => {
-        const [bookFront, bookBack, bookSpine] = BOOK_VARIANTS[deskIndex % BOOK_VARIANTS.length];
-        const isGreen = deskIndex % BOOK_VARIANTS.length === 0;
-        return (
-        <g transform="translate(102.5, 69.5) scale(0.8)">
-          {/* Book on desk — color varies by desk */}
-          <path d="M-4 8 L15 -1.5 L29 5.5 L10 15 Z" fill={bookBack} />
-          <path d="M-4 8 L10 15 L10 16 L-4 9 Z" fill={bookSpine} />
-          <path d="M-2 4 L10 10 L10 14 L-2 8 Z" fill="#F0EDE4" />
-          <path d="M10 16 L29 6.5 L29 -0.5 L10 9 Z" fill={bookSpine} />
-          <path d="M-4 2 L15 -7.5 L29 -0.5 L10 9 Z" fill={bookFront} />
-          <path d="M-4 2 L10 9 L10 10 L-4 3 Z" fill={bookBack} />
-          {/* Title lines — parallel to SW edge */}
-          <line x1="0.95" y1="1.63" x2="10.75" y2="6.53" stroke="#1a1a1a" strokeWidth="1.2" strokeLinecap="round" />
-          <line x1="4.82" y1="0.84" x2="11.12" y2="3.99" stroke="#1a1a1a" strokeWidth="0.9" strokeLinecap="round" />
-          {/* Silver clock — only on the green BCTCI book */}
-          {isGreen && (
-            <g transform="matrix(4.02,-2.01,4.02,2.01,15.35,-0.68)">
-              <circle cx="0" cy="0" r="1" fill="#C0C0C0" stroke="#888" strokeWidth="0.1" />
-              <circle cx="0" cy="0" r="0.88" fill="#D8D8D8" stroke="#A0A0A0" strokeWidth="0.04" />
-              <line x1="0" y1="-0.78" x2="0" y2="-0.6" stroke="#444" strokeWidth="0.07" />
-              <line x1="0.78" y1="0" x2="0.6" y2="0" stroke="#444" strokeWidth="0.07" />
-              <line x1="0" y1="0.78" x2="0" y2="0.6" stroke="#444" strokeWidth="0.07" />
-              <line x1="-0.78" y1="0" x2="-0.6" y2="0" stroke="#444" strokeWidth="0.07" />
-              <line x1="0" y1="0" x2="-0.33" y2="-0.48" stroke="#333" strokeWidth="0.1" strokeLinecap="round" />
-              <line x1="0" y1="0" x2="0.28" y2="-0.62" stroke="#333" strokeWidth="0.07" strokeLinecap="round" />
-              <circle cx="0" cy="0" r="0.08" fill="#555" />
+      {modelFamily === "opus" &&
+        (() => {
+          const [bookFront, bookBack, bookSpine] =
+            BOOK_VARIANTS[deskIndex % BOOK_VARIANTS.length];
+          const isGreen = deskIndex % BOOK_VARIANTS.length === 0;
+          return (
+            <g transform="translate(102.5, 69.5) scale(0.8)">
+              {/* Book on desk — color varies by desk */}
+              <path d="M-4 8 L15 -1.5 L29 5.5 L10 15 Z" fill={bookBack} />
+              <path d="M-4 8 L10 15 L10 16 L-4 9 Z" fill={bookSpine} />
+              <path d="M-2 4 L10 10 L10 14 L-2 8 Z" fill="#F0EDE4" />
+              <path d="M10 16 L29 6.5 L29 -0.5 L10 9 Z" fill={bookSpine} />
+              <path d="M-4 2 L15 -7.5 L29 -0.5 L10 9 Z" fill={bookFront} />
+              <path d="M-4 2 L10 9 L10 10 L-4 3 Z" fill={bookBack} />
+              {/* Title lines — parallel to SW edge */}
+              <line
+                x1="0.95"
+                y1="1.63"
+                x2="10.75"
+                y2="6.53"
+                stroke="#1a1a1a"
+                strokeWidth="1.2"
+                strokeLinecap="round"
+              />
+              <line
+                x1="4.82"
+                y1="0.84"
+                x2="11.12"
+                y2="3.99"
+                stroke="#1a1a1a"
+                strokeWidth="0.9"
+                strokeLinecap="round"
+              />
+              {/* Silver clock — only on the green BCTCI book */}
+              {isGreen && (
+                <g transform="matrix(4.02,-2.01,4.02,2.01,15.35,-0.68)">
+                  <circle
+                    cx="0"
+                    cy="0"
+                    r="1"
+                    fill="#C0C0C0"
+                    stroke="#888"
+                    strokeWidth="0.1"
+                  />
+                  <circle
+                    cx="0"
+                    cy="0"
+                    r="0.88"
+                    fill="#D8D8D8"
+                    stroke="#A0A0A0"
+                    strokeWidth="0.04"
+                  />
+                  <line
+                    x1="0"
+                    y1="-0.78"
+                    x2="0"
+                    y2="-0.6"
+                    stroke="#444"
+                    strokeWidth="0.07"
+                  />
+                  <line
+                    x1="0.78"
+                    y1="0"
+                    x2="0.6"
+                    y2="0"
+                    stroke="#444"
+                    strokeWidth="0.07"
+                  />
+                  <line
+                    x1="0"
+                    y1="0.78"
+                    x2="0"
+                    y2="0.6"
+                    stroke="#444"
+                    strokeWidth="0.07"
+                  />
+                  <line
+                    x1="-0.78"
+                    y1="0"
+                    x2="-0.6"
+                    y2="0"
+                    stroke="#444"
+                    strokeWidth="0.07"
+                  />
+                  <line
+                    x1="0"
+                    y1="0"
+                    x2="-0.33"
+                    y2="-0.48"
+                    stroke="#333"
+                    strokeWidth="0.1"
+                    strokeLinecap="round"
+                  />
+                  <line
+                    x1="0"
+                    y1="0"
+                    x2="0.28"
+                    y2="-0.62"
+                    stroke="#333"
+                    strokeWidth="0.07"
+                    strokeLinecap="round"
+                  />
+                  <circle cx="0" cy="0" r="0.08" fill="#555" />
+                </g>
+              )}
             </g>
-          )}
-        </g>
-        );
-      })()}
+          );
+        })()}
 
       {/* Desk lamp — south corner */}
       <g transform="translate(72, 78)">
         {/* Light pool on desk surface (dark mode only) */}
-        <ellipse cx="0" cy="2" rx="22" ry="12" fill={`url(#${lampId})`} className="lamp-glow" />
+        <ellipse
+          cx="0"
+          cy="2"
+          rx="22"
+          ry="12"
+          fill={`url(#${lampId})`}
+          className="lamp-glow"
+        />
         {/* Base — small iso diamond */}
         <path d="M-4 4 L0 2 L4 4 L0 6 Z" fill="#2a2a2a" />
         {/* Arm — straight up */}
-        <line x1="0" y1="3" x2="0" y2="-12" stroke="#333" strokeWidth="1.5" strokeLinecap="round" />
+        <line
+          x1="0"
+          y1="3"
+          x2="0"
+          y2="-12"
+          stroke="#333"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+        />
         {/* Shade — small cone/trapezoid */}
         <path d="M-5 -10 L5 -10 L3 -14 L-3 -14 Z" fill="#C8A050" />
         <path d="M-5 -10 L-3 -14 L-3 -12 L-5 -9 Z" fill="#B08830" />
         {/* Bulb glow under shade (dark mode only) */}
-        <ellipse cx="0" cy="-9" rx="3" ry="1.5" fill="#F5D090" opacity="0.6" className="lamp-glow" />
+        <ellipse
+          cx="0"
+          cy="-9"
+          rx="3"
+          ry="1.5"
+          fill="#F5D090"
+          opacity="0.6"
+          className="lamp-glow"
+        />
       </g>
     </svg>
   );

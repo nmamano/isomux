@@ -11,7 +11,7 @@ root.render(
         <App />
       </StoreProvider>
     </FeaturesProvider>
-  </ThemeProvider>
+  </ThemeProvider>,
 );
 
 if ("serviceWorker" in navigator && window.isSecureContext) {

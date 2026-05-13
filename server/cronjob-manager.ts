@@ -30,10 +30,20 @@ import {
   type LogEntry,
   type Schedule,
 } from "../shared/types.ts";
-import { CLAUDE_NATIVE_BIN, validateCwd, resolveCwd, claudeSessionFileExists, claudeProjectDir } from "./cwd-utils.ts";
+import {
+  CLAUDE_NATIVE_BIN,
+  validateCwd,
+  resolveCwd,
+  claudeSessionFileExists,
+  claudeProjectDir,
+} from "./cwd-utils.ts";
 import { formatPrefix } from "../shared/identity.ts";
 import { createSafetyHooks } from "./safety-hooks.ts";
-import { loadOfficeConfig, saveFile, type PersistedUsage } from "./persistence.ts";
+import {
+  loadOfficeConfig,
+  saveFile,
+  type PersistedUsage,
+} from "./persistence.ts";
 import {
   loadCronjobs,
   saveCronjobs,
@@ -68,12 +78,12 @@ interface ActiveRun {
   runId: string;
   streamId: string;
   session: ReturnType<typeof unstable_v2_createSession>;
-  sessionId: string | null;       // assigned on first system:init
-  rootSessionId: string;          // the run row's rootSessionId (placeholder until init)
+  sessionId: string | null; // assigned on first system:init
+  rootSessionId: string; // the run row's rootSessionId (placeholder until init)
   consumerPromise: Promise<void>;
   hardTimeoutTimer: ReturnType<typeof setTimeout> | null;
   lastWrittenEntryId: string | null;
-  lastAssistantText: string;      // for previewText computation
+  lastAssistantText: string; // for previewText computation
   trigger: CronjobRun["trigger"];
   killed: boolean;
   // Buffer entries created before SDK init assigns a sessionId. Without this,
@@ -125,9 +135,14 @@ export function onCronjobEvent(handler: (e: CronjobEvent) => void) {
 // Schedule math
 // ---------------------------------------------------------------------------
 
-export function computeNextFire(schedule: Schedule, anchor: number, now: number = Date.now()): number {
+export function computeNextFire(
+  schedule: Schedule,
+  anchor: number,
+  now: number = Date.now(),
+): number {
   if (schedule.type === "interval") {
-    const intervalMs = Math.max(MIN_INTERVAL_MINUTES, schedule.minutes) * 60_000;
+    const intervalMs =
+      Math.max(MIN_INTERVAL_MINUTES, schedule.minutes) * 60_000;
     if (now <= anchor) return anchor + intervalMs;
     const elapsed = now - anchor;
     // floor + 1 (not ceil): when elapsed lands exactly on a period boundary,
@@ -156,7 +171,10 @@ export function computeNextFire(schedule: Schedule, anchor: number, now: number 
 
 function clampSchedule(schedule: Schedule): Schedule {
   if (schedule.type === "interval") {
-    return { type: "interval", minutes: Math.max(MIN_INTERVAL_MINUTES, Math.floor(schedule.minutes)) };
+    return {
+      type: "interval",
+      minutes: Math.max(MIN_INTERVAL_MINUTES, Math.floor(schedule.minutes)),
+    };
   }
   if (schedule.type === "daily") {
     return {
@@ -167,7 +185,14 @@ function clampSchedule(schedule: Schedule): Schedule {
   }
   return {
     type: "weekly",
-    weekday: (Math.min(6, Math.max(0, Math.floor(schedule.weekday))) as 0 | 1 | 2 | 3 | 4 | 5 | 6),
+    weekday: Math.min(6, Math.max(0, Math.floor(schedule.weekday))) as
+      | 0
+      | 1
+      | 2
+      | 3
+      | 4
+      | 5
+      | 6,
     hour: Math.min(23, Math.max(0, Math.floor(schedule.hour))),
     minute: Math.min(59, Math.max(0, Math.floor(schedule.minute))),
   };
@@ -234,7 +259,19 @@ export function addCronjob(input: AddCronjobInput): Cronjob {
 
 export function updateCronjob(
   id: string,
-  changes: Partial<Pick<Cronjob, "name" | "schedule" | "prompt" | "cwd" | "modelFamily" | "effort" | "permissionMode" | "enabled">>,
+  changes: Partial<
+    Pick<
+      Cronjob,
+      | "name"
+      | "schedule"
+      | "prompt"
+      | "cwd"
+      | "modelFamily"
+      | "effort"
+      | "permissionMode"
+      | "enabled"
+    >
+  >,
 ): Cronjob | null {
   const idx = cronjobs.findIndex((c) => c.id === id);
   if (idx < 0) return null;
@@ -245,7 +282,8 @@ export function updateCronjob(
   if (changes.cwd !== undefined) next.cwd = resolveCwd(changes.cwd);
   if (changes.modelFamily !== undefined) next.modelFamily = changes.modelFamily;
   if (changes.effort !== undefined) next.effort = changes.effort;
-  if (changes.permissionMode !== undefined) next.permissionMode = changes.permissionMode;
+  if (changes.permissionMode !== undefined)
+    next.permissionMode = changes.permissionMode;
   if (changes.enabled !== undefined) next.enabled = changes.enabled;
   if (changes.schedule !== undefined) {
     next.schedule = clampSchedule(changes.schedule);
@@ -287,10 +325,16 @@ export function getRunsForCronjob(jobId: string): CronjobRun[] {
 // jobs whose configs have since been deleted. The Runs tab uses this so
 // historical runs from deleted cronjobs remain visible.
 export function getAllRunsByJob(): { jobId: string; runs: CronjobRun[] }[] {
-  return listAllCronjobIdsOnDisk().map((jobId) => ({ jobId, runs: loadRuns(jobId) }));
+  return listAllCronjobIdsOnDisk().map((jobId) => ({
+    jobId,
+    runs: loadRuns(jobId),
+  }));
 }
 
-export function getRunTranscript(jobId: string, runId: string): { run: CronjobRun | null; entries: LogEntry[] } {
+export function getRunTranscript(
+  jobId: string,
+  runId: string,
+): { run: CronjobRun | null; entries: LogEntry[] } {
   const run = findRun(jobId, runId);
   if (!run) return { run: null, entries: [] };
   // Walk back from the leaf of the fork chain so edit-to-fork transcripts
@@ -336,8 +380,10 @@ To create, edit, delete, or trigger a cronjob, direct the boss to the Cronjobs t
 
 How to answer questions about Isomux itself: the source lives at https://github.com/nmamano/isomux.`;
 
-  if (officeConfig.prompt) prompt += `\n\n## Office Instructions\n\n${officeConfig.prompt}`;
-  if (cronjobsPrompt) prompt += `\n\n## Cron Jobs Instructions\n\n${cronjobsPrompt}`;
+  if (officeConfig.prompt)
+    prompt += `\n\n## Office Instructions\n\n${officeConfig.prompt}`;
+  if (cronjobsPrompt)
+    prompt += `\n\n## Cron Jobs Instructions\n\n${cronjobsPrompt}`;
   return prompt;
 }
 
@@ -388,7 +434,10 @@ function processCronjobMessage(active: ActiveRun, msg: SDKMessage) {
           active.lastAssistantText = block.text;
           writeLog(active, "text", block.text);
         } else if (block.type === "tool_use") {
-          writeLog(active, "tool_call", block.name, { toolId: block.id, input: block.input });
+          writeLog(active, "tool_call", block.name, {
+            toolId: block.id,
+            input: block.input,
+          });
         } else if (block.type === "thinking" && block.thinking) {
           writeLog(active, "thinking", block.thinking);
         }
@@ -430,7 +479,13 @@ function processCronjobMessage(active: ActiveRun, msg: SDKMessage) {
             }
             if (atts.length > 0) resultAttachments = atts;
           }
-          writeLog(active, "tool_result", resultText.slice(0, 10000), { toolUseId: block.tool_use_id }, resultAttachments);
+          writeLog(
+            active,
+            "tool_result",
+            resultText.slice(0, 10000),
+            { toolUseId: block.tool_use_id },
+            resultAttachments,
+          );
         }
       }
       break;
@@ -448,12 +503,19 @@ function processCronjobMessage(active: ActiveRun, msg: SDKMessage) {
             inputTokens: usageField.input_tokens ?? 0,
             outputTokens: usageField.output_tokens ?? 0,
             cacheReadInputTokens: usageField.cache_read_input_tokens ?? 0,
-            cacheCreationInputTokens: usageField.cache_creation_input_tokens ?? 0,
+            cacheCreationInputTokens:
+              usageField.cache_creation_input_tokens ?? 0,
           },
           cost,
         );
         if (active.lastWrittenEntryId) {
-          appendRunSessionUsageSnapshot(active.jobId, active.runId, active.sessionId, active.lastWrittenEntryId, cumulative);
+          appendRunSessionUsageSnapshot(
+            active.jobId,
+            active.runId,
+            active.sessionId,
+            active.lastWrittenEntryId,
+            cumulative,
+          );
         }
       }
       if (subtype !== "success") {
@@ -466,7 +528,13 @@ function processCronjobMessage(active: ActiveRun, msg: SDKMessage) {
   }
 }
 
-function writeLog(active: ActiveRun, kind: LogEntry["kind"], content: string, metadata?: Record<string, unknown>, attachments?: Attachment[]) {
+function writeLog(
+  active: ActiveRun,
+  kind: LogEntry["kind"],
+  content: string,
+  metadata?: Record<string, unknown>,
+  attachments?: Attachment[],
+) {
   const entry: LogEntry = {
     id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     agentId: active.streamId,
@@ -501,7 +569,11 @@ async function runConsumer(active: ActiveRun) {
   }
 }
 
-function finalizeRun(active: ActiveRun, status: CronjobRun["status"], errorReason: string | null = null) {
+function finalizeRun(
+  active: ActiveRun,
+  status: CronjobRun["status"],
+  errorReason: string | null = null,
+) {
   // Idempotent: multiple paths can race to finalize (runConsumer's success
   // branch when stream ends, the IIFE's catch when session.send() fails, the
   // timeout handler). The first one wins; later calls no-op. Without this,
@@ -527,8 +599,13 @@ function finalizeRun(active: ActiveRun, status: CronjobRun["status"], errorReaso
   // Release the underlying Claude subprocess. The V2 SDK's stream() ends per
   // turn (not per session), so a successful run reaches finalizeRun with the
   // session still alive — without close() it would leak until process exit.
-  try { active.session.close(); } catch {}
-  const previewText = (active.lastAssistantText || "").trim().replace(/\s+/g, " ").slice(0, 120);
+  try {
+    active.session.close();
+  } catch {}
+  const previewText = (active.lastAssistantText || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .slice(0, 120);
   const updated = updateRun(active.jobId, active.runId, {
     status,
     endedAt: Date.now(),
@@ -540,7 +617,11 @@ function finalizeRun(active: ActiveRun, status: CronjobRun["status"], errorReaso
   // nextFireAt at fire time — no further schedule update needed here.
 }
 
-function fire(job: Cronjob, trigger: CronjobRun["trigger"], triggeredBy?: string): CronjobRun | null {
+function fire(
+  job: Cronjob,
+  trigger: CronjobRun["trigger"],
+  triggeredBy?: string,
+): CronjobRun | null {
   const jobId = job.id;
 
   // Validate cwd before spawning so a moved directory surfaces as a failed
@@ -595,7 +676,12 @@ function fire(job: Cronjob, trigger: CronjobRun["trigger"], triggeredBy?: string
     model: FAMILY_TO_MODEL[job.modelFamily],
     permissionMode: job.permissionMode,
     pathToClaudeCodeExecutable: CLAUDE_NATIVE_BIN,
-    executableArgs: ["--append-system-prompt", systemPrompt, "--effort", job.effort],
+    executableArgs: [
+      "--append-system-prompt",
+      systemPrompt,
+      "--effort",
+      job.effort,
+    ],
     cwd: job.cwd,
     hooks: createSafetyHooks(),
   };
@@ -634,7 +720,9 @@ function fire(job: Cronjob, trigger: CronjobRun["trigger"], triggeredBy?: string
   active.hardTimeoutTimer = setTimeout(() => {
     if (!activeRuns.has(runId)) return;
     active.killed = true;
-    try { session.close(); } catch {}
+    try {
+      session.close();
+    } catch {}
     writeLog(active, "error", "Cron job run exceeded 30-minute hard timeout.");
     finalizeRun(active, "timed_out", "exceeded global run timeout");
   }, HARD_TIMEOUT_MS);
@@ -647,8 +735,14 @@ function fire(job: Cronjob, trigger: CronjobRun["trigger"], triggeredBy?: string
     } catch (err: any) {
       if (active.killed) return;
       console.error(`Cronjob run ${runId} input error:`, err.message);
-      writeLog(active, "error", `Failed to send prompt: ${err.message || String(err)}`);
-      try { session.close(); } catch {}
+      writeLog(
+        active,
+        "error",
+        `Failed to send prompt: ${err.message || String(err)}`,
+      );
+      try {
+        session.close();
+      } catch {}
       finalizeRun(active, "failed", err.message || String(err));
     }
   })();
@@ -704,7 +798,11 @@ function tick() {
     if (now < job.nextFireAt) continue;
     if (hasInFlightScheduledRun(job.id)) {
       recordSkippedRun(job);
-      job.nextFireAt = computeNextFire(job.schedule, job.lastFireAt ?? job.createdAt, now);
+      job.nextFireAt = computeNextFire(
+        job.schedule,
+        job.lastFireAt ?? job.createdAt,
+        now,
+      );
       saveCronjobs(cronjobs);
       eventHandler({ type: "cronjob_updated", cronjob: job });
       continue;
@@ -777,7 +875,11 @@ function buildRunResumeOpts(run: CronjobRun, resumeSessionId: string): any {
 // Wire up an ActiveRun around an SDK session (resumed or freshly forked).
 // Marks the run row "running", starts the consumer + hard timeout, and
 // returns the active so callers can persist log entries / call session.send.
-function installResumedActive(run: CronjobRun, session: ReturnType<typeof unstable_v2_resumeSession>, sessionId: string): ActiveRun {
+function installResumedActive(
+  run: CronjobRun,
+  session: ReturnType<typeof unstable_v2_resumeSession>,
+  sessionId: string,
+): ActiveRun {
   const streamId = cronjobRunStreamId(run.id);
   const active: ActiveRun = {
     jobId: run.cronjobId,
@@ -803,13 +905,19 @@ function installResumedActive(run: CronjobRun, session: ReturnType<typeof unstab
   };
   activeRuns.set(run.id, active);
   // Reset terminal state — the run row goes back to "running" until finalize.
-  const updated = updateRun(run.cronjobId, run.id, { status: "running", endedAt: null, errorReason: null });
+  const updated = updateRun(run.cronjobId, run.id, {
+    status: "running",
+    endedAt: null,
+    errorReason: null,
+  });
   if (updated) eventHandler({ type: "cronjob_run_updated", run: updated });
   active.consumerPromise = runConsumer(active);
   active.hardTimeoutTimer = setTimeout(() => {
     if (!activeRuns.has(run.id)) return;
     active.killed = true;
-    try { active.session.close(); } catch {}
+    try {
+      active.session.close();
+    } catch {}
     writeLog(active, "error", "Cron job run exceeded 30-minute hard timeout.");
     finalizeRun(active, "timed_out", "exceeded global run timeout");
   }, HARD_TIMEOUT_MS);
@@ -819,7 +927,13 @@ function installResumedActive(run: CronjobRun, session: ReturnType<typeof unstab
 // Send a follow-up message into a finalized run by resuming the leaf session.
 // No-op if the run is missing, currently in flight, or has no real SDK
 // session to resume (skipped or pre-init failed).
-export async function sendRunMessage(jobId: string, runId: string, text: string, username?: string, device?: string): Promise<void> {
+export async function sendRunMessage(
+  jobId: string,
+  runId: string,
+  text: string,
+  username?: string,
+  device?: string,
+): Promise<void> {
   const run = findRun(jobId, runId);
   if (!run) return;
   // Synchronous claim — must happen before any await so a concurrent
@@ -827,26 +941,41 @@ export async function sendRunMessage(jobId: string, runId: string, text: string,
   // activeRuns.set keeps the slot held; the `finally` below releases it.
   if (activeRuns.has(runId) || startingRuns.has(runId)) return;
   if (run.status === "skipped") {
-    emitRunErrorEntry(jobId, runId, "Cannot resume a skipped run — it never opened a session.");
+    emitRunErrorEntry(
+      jobId,
+      runId,
+      "Cannot resume a skipped run — it never opened a session.",
+    );
     return;
   }
   const leaf = run.currentSessionId ?? run.rootSessionId;
   if (leaf.startsWith("pending-") || leaf.startsWith("skipped-")) {
-    emitRunErrorEntry(jobId, runId, "Cannot resume: the original run never reached SDK init.");
+    emitRunErrorEntry(
+      jobId,
+      runId,
+      "Cannot resume: the original run never reached SDK init.",
+    );
     return;
   }
   try {
     validateCwd(run.cwdSnapshot);
   } catch (err: any) {
-    emitRunErrorEntry(jobId, runId, `Cannot resume: cwd is invalid: ${err.message || String(err)}`);
+    emitRunErrorEntry(
+      jobId,
+      runId,
+      `Cannot resume: cwd is invalid: ${err.message || String(err)}`,
+    );
     return;
   }
   // Mirror agent-manager's claudeSessionFileExists preflight so a moved or
   // renamed cwd surfaces a readable error instead of "process exited with 1".
   if (!claudeSessionFileExists(run.cwdSnapshot, leaf)) {
-    emitRunErrorEntry(jobId, runId,
+    emitRunErrorEntry(
+      jobId,
+      runId,
       `Cannot resume session ${leaf.slice(0, 8)}…: its file is missing from ${claudeProjectDir(run.cwdSnapshot)}. ` +
-      `Most commonly this happens after the cwd was moved or renamed — the Claude CLI stores sessions under a path derived from cwd.`);
+        `Most commonly this happens after the cwd was moved or renamed — the Claude CLI stores sessions under a path derived from cwd.`,
+    );
     return;
   }
 
@@ -856,15 +985,20 @@ export async function sendRunMessage(jobId: string, runId: string, text: string,
     try {
       session = unstable_v2_resumeSession(leaf, buildRunResumeOpts(run, leaf));
     } catch (err: any) {
-      emitRunErrorEntry(jobId, runId, `Failed to resume: ${err.message || String(err)}`);
+      emitRunErrorEntry(
+        jobId,
+        runId,
+        `Failed to resume: ${err.message || String(err)}`,
+      );
       return;
     }
 
     const active = installResumedActive(run, session, leaf);
     // Persist the user message so it shows up in the transcript.
-    const meta: Record<string, unknown> | undefined = (username || device)
-      ? { ...(username ? { username } : {}), ...(device ? { device } : {}) }
-      : undefined;
+    const meta: Record<string, unknown> | undefined =
+      username || device
+        ? { ...(username ? { username } : {}), ...(device ? { device } : {}) }
+        : undefined;
     writeLog(active, "user_message", text, meta);
 
     const prefix = formatPrefix({ username, device });
@@ -875,8 +1009,14 @@ export async function sendRunMessage(jobId: string, runId: string, text: string,
       } catch (err: any) {
         if (active.killed) return;
         console.error(`Cronjob run ${runId} send error:`, err.message);
-        writeLog(active, "error", `Failed to send: ${err.message || String(err)}`);
-        try { session.close(); } catch {}
+        writeLog(
+          active,
+          "error",
+          `Failed to send: ${err.message || String(err)}`,
+        );
+        try {
+          session.close();
+        } catch {}
         finalizeRun(active, "failed", err.message || String(err));
       }
     })();
@@ -889,31 +1029,53 @@ export async function sendRunMessage(jobId: string, runId: string, text: string,
 // editMessage: forks the SDK session at the predecessor of the target
 // message, persists fork lineage in the run's sessions.json, then resumes
 // the new leaf and sends the edited text.
-export async function editRunMessage(jobId: string, runId: string, logEntryId: string, newText: string, username?: string, device?: string): Promise<void> {
+export async function editRunMessage(
+  jobId: string,
+  runId: string,
+  logEntryId: string,
+  newText: string,
+  username?: string,
+  device?: string,
+): Promise<void> {
   const run = findRun(jobId, runId);
   if (!run) return;
   // Synchronous claim — see sendRunMessage. Without this, getSessionMessages
   // and forkSession below would race against a second concurrent submission.
   if (activeRuns.has(runId) || startingRuns.has(runId)) return;
   if (run.status === "skipped") {
-    emitRunErrorEntry(jobId, runId, "Cannot edit a skipped run — it never opened a session.");
+    emitRunErrorEntry(
+      jobId,
+      runId,
+      "Cannot edit a skipped run — it never opened a session.",
+    );
     return;
   }
   const leaf = run.currentSessionId ?? run.rootSessionId;
   if (leaf.startsWith("pending-") || leaf.startsWith("skipped-")) {
-    emitRunErrorEntry(jobId, runId, "Cannot edit: the original run never reached SDK init.");
+    emitRunErrorEntry(
+      jobId,
+      runId,
+      "Cannot edit: the original run never reached SDK init.",
+    );
     return;
   }
   try {
     validateCwd(run.cwdSnapshot);
   } catch (err: any) {
-    emitRunErrorEntry(jobId, runId, `Cannot edit: cwd is invalid: ${err.message || String(err)}`);
+    emitRunErrorEntry(
+      jobId,
+      runId,
+      `Cannot edit: cwd is invalid: ${err.message || String(err)}`,
+    );
     return;
   }
   if (!claudeSessionFileExists(run.cwdSnapshot, leaf)) {
-    emitRunErrorEntry(jobId, runId,
+    emitRunErrorEntry(
+      jobId,
+      runId,
       `Cannot edit: session ${leaf.slice(0, 8)}… is missing from ${claudeProjectDir(run.cwdSnapshot)}. ` +
-      `Most commonly this happens after the cwd was moved or renamed — the Claude CLI stores sessions under a path derived from cwd.`);
+        `Most commonly this happens after the cwd was moved or renamed — the Claude CLI stores sessions under a path derived from cwd.`,
+    );
     return;
   }
 
@@ -925,7 +1087,14 @@ export async function editRunMessage(jobId: string, runId: string, logEntryId: s
   }
 }
 
-async function editRunMessageImpl(run: CronjobRun, logEntryId: string, newText: string, leaf: string, username?: string, device?: string): Promise<void> {
+async function editRunMessageImpl(
+  run: CronjobRun,
+  logEntryId: string,
+  newText: string,
+  leaf: string,
+  username?: string,
+  device?: string,
+): Promise<void> {
   const jobId = run.cronjobId;
   const runId = run.id;
 
@@ -943,12 +1112,18 @@ async function editRunMessageImpl(run: CronjobRun, logEntryId: string, newText: 
   try {
     sdkMessages = await getSessionMessages(leaf);
   } catch (err: any) {
-    emitRunErrorEntry(jobId, runId, `Failed to load session messages: ${err.message || String(err)}`);
+    emitRunErrorEntry(
+      jobId,
+      runId,
+      `Failed to load session messages: ${err.message || String(err)}`,
+    );
     return;
   }
   const targetUsername = targetEntry.metadata?.username as string | undefined;
   const targetDevice = targetEntry.metadata?.device as string | undefined;
-  const targetSdkText = (targetEntry.metadata?.sdkText as string | undefined) ?? targetEntry.content;
+  const targetSdkText =
+    (targetEntry.metadata?.sdkText as string | undefined) ??
+    targetEntry.content;
   const prefixedContent = `${formatPrefix({ username: targetUsername, device: targetDevice })}${targetSdkText}`;
   const userLogEntries = oldEntries.filter((e) => e.kind === "user_message");
   let occurrenceIndex = 0;
@@ -969,14 +1144,21 @@ async function editRunMessageImpl(run: CronjobRun, logEntryId: string, newText: 
   const cronjobPromptIsFirstSdkUser = sdkMessages[0]?.type === "user";
   let matchCount = 0;
   let targetIdx = -1;
-  for (let i = cronjobPromptIsFirstSdkUser ? 1 : 0; i < sdkMessages.length; i++) {
+  for (
+    let i = cronjobPromptIsFirstSdkUser ? 1 : 0;
+    i < sdkMessages.length;
+    i++
+  ) {
     const m = sdkMessages[i];
     if (m.type !== "user") continue;
     const msg = m.message as any;
-    const contentBlocks = Array.isArray(msg?.content) ? msg.content
-      : Array.isArray(msg) ? msg
-      : typeof msg === "string" ? [{ type: "text", text: msg }]
-      : [];
+    const contentBlocks = Array.isArray(msg?.content)
+      ? msg.content
+      : Array.isArray(msg)
+        ? msg
+        : typeof msg === "string"
+          ? [{ type: "text", text: msg }]
+          : [];
     const msgContent = contentBlocks
       .filter((b: any) => b.type === "text")
       .map((b: any) => b.text)
@@ -990,7 +1172,11 @@ async function editRunMessageImpl(run: CronjobRun, logEntryId: string, newText: 
     }
   }
   if (targetIdx <= 0) {
-    emitRunErrorEntry(jobId, runId, "Cannot edit: could not locate message in SDK session.");
+    emitRunErrorEntry(
+      jobId,
+      runId,
+      "Cannot edit: could not locate message in SDK session.",
+    );
     return;
   }
 
@@ -999,10 +1185,16 @@ async function editRunMessageImpl(run: CronjobRun, logEntryId: string, newText: 
   const predecessorUuid = sdkMessages[targetIdx - 1].uuid;
   let newSessionId: string;
   try {
-    const forkResult = await forkSession(leaf, { upToMessageId: predecessorUuid });
+    const forkResult = await forkSession(leaf, {
+      upToMessageId: predecessorUuid,
+    });
     newSessionId = forkResult.sessionId;
   } catch (err: any) {
-    emitRunErrorEntry(jobId, runId, `Fork failed: ${err.message || String(err)}`);
+    emitRunErrorEntry(
+      jobId,
+      runId,
+      `Fork failed: ${err.message || String(err)}`,
+    );
     return;
   }
 
@@ -1010,9 +1202,16 @@ async function editRunMessageImpl(run: CronjobRun, logEntryId: string, newText: 
   //    — leave the run pointing at the old leaf so a retry can start over.
   let session: ReturnType<typeof unstable_v2_resumeSession>;
   try {
-    session = unstable_v2_resumeSession(newSessionId, buildRunResumeOpts(run, newSessionId));
+    session = unstable_v2_resumeSession(
+      newSessionId,
+      buildRunResumeOpts(run, newSessionId),
+    );
   } catch (err: any) {
-    emitRunErrorEntry(jobId, runId, `Failed to start fork: ${err.message || String(err)}`);
+    emitRunErrorEntry(
+      jobId,
+      runId,
+      `Failed to start fork: ${err.message || String(err)}`,
+    );
     return;
   }
 
@@ -1039,10 +1238,25 @@ async function editRunMessageImpl(run: CronjobRun, logEntryId: string, newText: 
 
   // 6. Persist fork metadata + parent-base usage, then update the run's
   //    currentSessionId so getRunTranscript walks back from the fork.
-  const parentBase = findUsageAtForkRun(jobId, runId, forkFromSessionId, logEntryId);
-  persistRunSessionFork(jobId, runId, newSessionId, forkFromSessionId, logEntryId, parentBase);
-  const updatedRun = updateRun(jobId, runId, { currentSessionId: newSessionId });
-  if (updatedRun) eventHandler({ type: "cronjob_run_updated", run: updatedRun });
+  const parentBase = findUsageAtForkRun(
+    jobId,
+    runId,
+    forkFromSessionId,
+    logEntryId,
+  );
+  persistRunSessionFork(
+    jobId,
+    runId,
+    newSessionId,
+    forkFromSessionId,
+    logEntryId,
+    parentBase,
+  );
+  const updatedRun = updateRun(jobId, runId, {
+    currentSessionId: newSessionId,
+  });
+  if (updatedRun)
+    eventHandler({ type: "cronjob_run_updated", run: updatedRun });
 
   // 7. Re-emit the transcript up to (but not including) the edited entry so
   //    every connected client switches to the new branch immediately.
@@ -1059,9 +1273,10 @@ async function editRunMessageImpl(run: CronjobRun, logEntryId: string, newText: 
 
   // 8. Wire up the active run, persist the new edited message, send it.
   const active = installResumedActive(updatedRun ?? run, session, newSessionId);
-  const editMeta: Record<string, unknown> | undefined = (username || device)
-    ? { ...(username ? { username } : {}), ...(device ? { device } : {}) }
-    : undefined;
+  const editMeta: Record<string, unknown> | undefined =
+    username || device
+      ? { ...(username ? { username } : {}), ...(device ? { device } : {}) }
+      : undefined;
   writeLog(active, "user_message", newText, editMeta);
   const editPrefix = formatPrefix({ username, device });
   const prefixedText = editPrefix ? `${editPrefix}${newText}` : newText;
@@ -1071,8 +1286,14 @@ async function editRunMessageImpl(run: CronjobRun, logEntryId: string, newText: 
     } catch (err: any) {
       if (active.killed) return;
       console.error(`Cronjob run ${runId} edit-send error:`, err.message);
-      writeLog(active, "error", `Failed to send edited message: ${err.message || String(err)}`);
-      try { session.close(); } catch {}
+      writeLog(
+        active,
+        "error",
+        `Failed to send edited message: ${err.message || String(err)}`,
+      );
+      try {
+        session.close();
+      } catch {}
       finalizeRun(active, "failed", err.message || String(err));
     }
   })();
@@ -1133,7 +1354,13 @@ export function readCronjobLifetimeUsage(jobId: string): {
   totalOut: number;
   costUSD: number;
 } {
-  const totals = { totalIn: 0, cacheRead: 0, cacheCreation: 0, totalOut: 0, costUSD: 0 };
+  const totals = {
+    totalIn: 0,
+    cacheRead: 0,
+    cacheCreation: 0,
+    totalOut: 0,
+    costUSD: 0,
+  };
   const runs = loadRuns(jobId);
   for (const run of runs) {
     const map = loadRunSessionsMap(jobId, run.id);
@@ -1143,13 +1370,22 @@ export function readCronjobLifetimeUsage(jobId: string): {
       const base: PersistedUsage | undefined = entry.forkBaseUsage;
       const inputTokens = (u?.inputTokens ?? 0) + (p?.inputTokens ?? 0);
       const outputTokens = (u?.outputTokens ?? 0) + (p?.outputTokens ?? 0);
-      const cacheReadInputTokens = (u?.cacheReadInputTokens ?? 0) + (p?.cacheReadInputTokens ?? 0);
-      const cacheCreationInputTokens = (u?.cacheCreationInputTokens ?? 0) + (p?.cacheCreationInputTokens ?? 0);
+      const cacheReadInputTokens =
+        (u?.cacheReadInputTokens ?? 0) + (p?.cacheReadInputTokens ?? 0);
+      const cacheCreationInputTokens =
+        (u?.cacheCreationInputTokens ?? 0) + (p?.cacheCreationInputTokens ?? 0);
       const costUSD = (u?.costUSD ?? 0) + (p?.costUSD ?? 0);
-      totals.totalIn += inputTokens + cacheReadInputTokens + cacheCreationInputTokens
-        - ((base?.inputTokens ?? 0) + (base?.cacheReadInputTokens ?? 0) + (base?.cacheCreationInputTokens ?? 0));
-      totals.cacheRead += cacheReadInputTokens - (base?.cacheReadInputTokens ?? 0);
-      totals.cacheCreation += cacheCreationInputTokens - (base?.cacheCreationInputTokens ?? 0);
+      totals.totalIn +=
+        inputTokens +
+        cacheReadInputTokens +
+        cacheCreationInputTokens -
+        ((base?.inputTokens ?? 0) +
+          (base?.cacheReadInputTokens ?? 0) +
+          (base?.cacheCreationInputTokens ?? 0));
+      totals.cacheRead +=
+        cacheReadInputTokens - (base?.cacheReadInputTokens ?? 0);
+      totals.cacheCreation +=
+        cacheCreationInputTokens - (base?.cacheCreationInputTokens ?? 0);
       totals.totalOut += outputTokens - (base?.outputTokens ?? 0);
       totals.costUSD += costUSD - (base?.costUSD ?? 0);
     }

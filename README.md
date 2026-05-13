@@ -80,6 +80,7 @@ For persistent server setup (systemd + Tailscale) and voice input configuration,
 ## Full Feature List
 
 ### Office View
+
 - **Isometric office with 8 desks** — see all your agents at a glance
 - **Name your agents** — each gets a nametag on their desk
 - **Unique character per agent** — customize hat, shirt, hair, accessory, or randomize
@@ -91,6 +92,7 @@ For persistent server setup (systemd + Tailscale) and voice input configuration,
 - Light / dark theme toggle
 
 ### Agent Creation & Editing
+
 - **Click empty desk to spawn** — name, provider (Claude/Codex), working directory, model, permission mode, custom instructions. Provider is fixed for the agent's lifetime.
 - Working directory input with **recent CWD suggestions**
 - **Outfit customization**: color swatches, hat, accessory, randomize with live preview
@@ -98,6 +100,7 @@ For persistent server setup (systemd + Tailscale) and voice input configuration,
 - **Custom instructions** per agent, editable at spawn and later
 
 ### Conversation View
+
 - **Input drafts preserved** when switching between agents
 - **Markdown rendering** for agent output
 - **Collapsible thinking and tool-call cards** with timing for each step
@@ -111,12 +114,14 @@ For persistent server setup (systemd + Tailscale) and voice input configuration,
 - **Right-click context menu** — resume past sessions, edit agent, kill
 
 ### Keyboard Shortcuts
+
 - **Number keys 1–8** jump to agents from office view
 - **Tab / Shift+Tab** cycle between agents in chat view
 - Escape returns to office
 - **Ctrl+C to interrupt** — cleanly aborts and lets you resume
 
 ### Slash Commands & Autocomplete
+
 - Built-in commands: `/clear`, `/help`, `/context`, `/resume`, `/model`, `/effort` (thinking effort), `/usage` (per-agent / per-room / per-cron-job token spend)
 - Isomux additions: `/isomux-all-hands`, `/isomux-system-prompt`, `/isomux-cronjob-system-prompt`, `/isomux-diff` (rich-rendered uncommitted changes; agents can also choose to show a diff card on their own), `/isomux-edit` (open a file in the side-panel editor; agents can offer this on their own too)
 - **Bundled skills** like `/isomux-grill-me` (based on the original `/grill-me` by Matt Pocock), `/isomux-peer-review`, `/isomux-review-and-commit`, `/isomux-report-bug` — available to every agent out of the box
@@ -124,6 +129,7 @@ For persistent server setup (systemd + Tailscale) and voice input configuration,
 - **Autocomplete dropdown** with keyboard navigation
 
 ### Cron jobs
+
 - **Schedule recurring agent runs**: daily at HH:MM, weekly on a weekday, or every N minutes
 - Each run is a **fresh agent session** with the same configurability as a desk agent (model, effort, cwd, permission mode)
 - **Browsable run history**: every run is preserved as a transcript
@@ -132,6 +138,7 @@ For persistent server setup (systemd + Tailscale) and voice input configuration,
 - Per cron job token usage rolled into `/usage`
 
 ### Inter-agent Communication
+
 - **Discovery**: every agent reads the shared `agents-summary.json` for who else is in the office (name, room, desk, cwd, model, topic)
 - **Cross-conversation reads**: each agent has access to the live conversation logs of every other agent. Ask "what does Isomuxer3 think of this?" and it just works
 - **Agent-to-agent messages**: one agent can drop a message into another's chat
@@ -139,6 +146,7 @@ For persistent server setup (systemd + Tailscale) and voice input configuration,
 - **Shared task board**: humans and agents can create, assign, claim, close, or shelve tasks to a backlog. Full interop via UI and HTTP API
 
 ### Persistence & Lifecycle
+
 - **Agents persist across server restarts**
 - **Auto-resume last conversation** on restart
 - Agent manifest for **inter-agent discovery**
@@ -146,6 +154,7 @@ For persistent server setup (systemd + Tailscale) and voice input configuration,
 - Kill removes agent and frees desk
 
 ### Mobile Support
+
 - **Open from your phone** — same Tailscale URL, touch-optimized UI
 - **Instant sync** — laptop and phone see the same state in real time over WebSocket
 - **Agent list view** as an alternative to the isometric office on small screens
@@ -155,10 +164,12 @@ For persistent server setup (systemd + Tailscale) and voice input configuration,
 - **Installable as a PWA**: add to home screen for a native app feel (HTTPS or localhost)
 
 ### Notifications
+
 - **Sound notification** when agent finishes and tab is unfocused
 - **Activity badge** on desk when attention needed
 
 ### System & Backend
+
 - **Real-time sync via WebSocket** — every connected device stays in lockstep
 - **Multi-user real-time collaboration** — when accessed over Tailscale, multiple humans can chime in to the same conversation simultaneously
 - **Single Bun process** — no bundler, no database, minimal deps

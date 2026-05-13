@@ -26,13 +26,19 @@ export function PanelResizer({
   const startXRef = useRef(0);
   const startWidthRef = useRef(0);
 
-  const onMouseMove = useCallback((e: MouseEvent) => {
-    if (!draggingRef.current || !panelRef.current) return;
-    // The panel is on the right; dragging the divider left grows the panel.
-    const dx = startXRef.current - e.clientX;
-    const next = Math.max(min, Math.min(getMax(), startWidthRef.current + dx));
-    panelRef.current.style.width = `${next}px`;
-  }, [panelRef, min, getMax]);
+  const onMouseMove = useCallback(
+    (e: MouseEvent) => {
+      if (!draggingRef.current || !panelRef.current) return;
+      // The panel is on the right; dragging the divider left grows the panel.
+      const dx = startXRef.current - e.clientX;
+      const next = Math.max(
+        min,
+        Math.min(getMax(), startWidthRef.current + dx),
+      );
+      panelRef.current.style.width = `${next}px`;
+    },
+    [panelRef, min, getMax],
+  );
 
   const onMouseUp = useCallback(() => {
     if (!draggingRef.current) return;
@@ -46,17 +52,20 @@ export function PanelResizer({
     }
   }, [panelRef, onCommit, onMouseMove]);
 
-  const onMouseDown = useCallback((e: React.MouseEvent) => {
-    if (e.button !== 0 || !panelRef.current) return;
-    e.preventDefault();
-    draggingRef.current = true;
-    startXRef.current = e.clientX;
-    startWidthRef.current = panelRef.current.offsetWidth;
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
-  }, [panelRef, onMouseMove, onMouseUp]);
+  const onMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      if (e.button !== 0 || !panelRef.current) return;
+      e.preventDefault();
+      draggingRef.current = true;
+      startXRef.current = e.clientX;
+      startWidthRef.current = panelRef.current.offsetWidth;
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+      window.addEventListener("mousemove", onMouseMove);
+      window.addEventListener("mouseup", onMouseUp);
+    },
+    [panelRef, onMouseMove, onMouseUp],
+  );
 
   // Safety: detach if the component unmounts mid-drag.
   useEffect(() => {

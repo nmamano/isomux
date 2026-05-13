@@ -12,7 +12,14 @@ export interface AgentOutfit {
   hat: "none" | "cap" | "beanie" | "bow" | "headband";
   color: string; // shirt color hex
   hair: string; // hair color hex
-  hairStyle: "short" | "long" | "ponytail" | "bun" | "pigtails" | "curly" | "bald";
+  hairStyle:
+    | "short"
+    | "long"
+    | "ponytail"
+    | "bun"
+    | "pigtails"
+    | "curly"
+    | "bald";
   skin: string; // skin color hex
   beard: "none" | "stubble" | "full" | "goatee" | "mustache";
   accessory: "glasses" | "headphones" | "bow_tie" | "tie" | "earrings" | null;
@@ -24,14 +31,25 @@ export interface AgentOutfit {
 export type AgentBackendType = "claude" | "codex";
 
 // Claude's 4-mode permission enum.
-export type ClaudePermissionMode = "default" | "acceptEdits" | "bypassPermissions" | "auto";
+export type ClaudePermissionMode =
+  | "default"
+  | "acceptEdits"
+  | "bypassPermissions"
+  | "auto";
 
 // Codex's AskForApproval enum (the four string variants — the experimental
 // `granular` object variant is deferred per the spec).
-export type CodexApprovalPolicy = "untrusted" | "on-request" | "on-failure" | "never";
+export type CodexApprovalPolicy =
+  | "untrusted"
+  | "on-request"
+  | "on-failure"
+  | "never";
 
 // Codex's SandboxMode enum.
-export type CodexSandboxMode = "read-only" | "workspace-write" | "danger-full-access";
+export type CodexSandboxMode =
+  | "read-only"
+  | "workspace-write"
+  | "danger-full-access";
 
 // Union of both backends' permission/approval modes. UI uses agentType to
 // pick which set is valid.
@@ -89,7 +107,13 @@ export const MODEL_FAMILIES: { family: ModelFamily; label: string }[] = [
 // Reasoning effort levels. Most are shared across Claude (--effort flag) and
 // Codex (ReasoningEffort enum); `minimal` is Codex-only and `max` is
 // Claude-only. UI filters per-backend.
-export type EffortLevel = "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+export type EffortLevel =
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "max";
 
 export const EFFORT_LEVELS: { level: EffortLevel; label: string }[] = [
   { level: "minimal", label: "Minimal (Codex only)" },
@@ -135,7 +159,8 @@ export function isClaudeFamily(s: string): s is ModelFamily {
 // the raw value for unknown strings.
 export function familyDisplayLabel(family: string): string {
   if (isClaudeFamily(family)) {
-    const base = MODEL_FAMILIES.find((m) => m.family === family)?.label ?? family;
+    const base =
+      MODEL_FAMILIES.find((m) => m.family === family)?.label ?? family;
     return `${base} ${modelVersionLabel(family)}`;
   }
   const codex = CODEX_MODELS.find((m) => m.value === family);
@@ -156,11 +181,11 @@ export function familyFromLegacyModel(model: string | undefined): ModelFamily {
 // bosses or other agents; both go through the same queue and flush together
 // when the agent next transitions to an idle state.
 export interface QueuedMessage {
-  id: string;             // 8-char hex; UI uses this to cancel
+  id: string; // 8-char hex; UI uses this to cancel
   sender:
     | { kind: "user"; username?: string; device?: string }
     | { kind: "agent"; agentId: string; agentName: string; roomName: string };
-  text: string;            // what we show in chat (raw user input)
+  text: string; // what we show in chat (raw user input)
   // What we send to the SDK in place of `text`. Set when the queued item is a
   // pre-expanded slash command (e.g. /isomux-review → full skill prompt).
   // Stays undefined for plain user messages.
@@ -226,41 +251,48 @@ export interface AgentInfo {
 
 // File attachment metadata
 export interface Attachment {
-  filename: string;      // on-disk hash name: "a1b2c3.png"
-  originalName: string;  // user-facing: "photo.png"
-  mediaType: string;     // "image/png", "application/pdf", etc.
-  size: number;          // bytes
+  filename: string; // on-disk hash name: "a1b2c3.png"
+  originalName: string; // user-facing: "photo.png"
+  mediaType: string; // "image/png", "application/pdf", etc.
+  size: number; // bytes
 }
 
 // Per-file summary inside a kind:"diff" LogEntry. The server pre-computes
 // inlineEligible so the client doesn't re-parse the patch to decide rendering.
 export interface DiffFileSummary {
   path: string;
-  oldPath?: string;                 // set on rename / copy
-  status: "added" | "modified" | "deleted" | "renamed" | "copied" | "untracked" | "binary";
+  oldPath?: string; // set on rename / copy
+  status:
+    | "added"
+    | "modified"
+    | "deleted"
+    | "renamed"
+    | "copied"
+    | "untracked"
+    | "binary";
   additions: number;
   deletions: number;
-  lineCount: number;                // approx size of the per-file patch (additions + deletions)
-  inlineEligible: boolean;          // server-computed: lineCount <= 500 && !binary && patch present
+  lineCount: number; // approx size of the per-file patch (additions + deletions)
+  inlineEligible: boolean; // server-computed: lineCount <= 500 && !binary && patch present
 }
 
 // Structured payload attached to LogEntry when kind === "diff".
 export interface DiffPayload {
   cwd: string;
-  branch: string | null;            // null on detached HEAD or fresh repo
-  head: string | null;              // short SHA, null on fresh repo with no commits
+  branch: string | null; // null on detached HEAD or fresh repo
+  head: string | null; // short SHA, null on fresh repo with no commits
   stats: { additions: number; deletions: number; filesChanged: number };
   files: DiffFileSummary[];
-  patchText: string | null;         // null when over 2MB safety rail
-  truncated: boolean;               // true when patchText was dropped
+  patchText: string | null; // null when over 2MB safety rail
+  truncated: boolean; // true when patchText was dropped
 }
 
 // Structured payload attached to LogEntry when kind === "edit-request".
 // Emitted by /isomux-edit or POST /agents/:id/edit-file. The card surfaces
 // an [Open in editor] button that opens the side panel for this path.
 export interface FilePayload {
-  cwd: string;                  // agent cwd at emission time (for trimming display)
-  path: string;                 // resolved absolute path
+  cwd: string; // agent cwd at emission time (for trimming display)
+  path: string; // resolved absolute path
 }
 
 // Structured payload attached to LogEntry when kind === "terminal-command".
@@ -268,7 +300,7 @@ export interface FilePayload {
 // [Copy to terminal] button that opens the terminal side panel and types
 // the command at the prompt without executing it (boss presses Enter).
 export interface TerminalCommandPayload {
-  command: string;              // single-line shell command
+  command: string; // single-line shell command
 }
 
 // Log entry in the conversation view
@@ -276,12 +308,22 @@ export interface LogEntry {
   id: string;
   agentId: string;
   timestamp: number;
-  kind: "text" | "thinking" | "tool_call" | "tool_result" | "error" | "system" | "user_message" | "diff" | "edit-request" | "terminal-command";
+  kind:
+    | "text"
+    | "thinking"
+    | "tool_call"
+    | "tool_result"
+    | "error"
+    | "system"
+    | "user_message"
+    | "diff"
+    | "edit-request"
+    | "terminal-command";
   content: string;
   metadata?: Record<string, unknown>;
   attachments?: Attachment[]; // file attachments, served via /api/files/<agentId>/<filename>
-  diff?: DiffPayload;         // present only when kind === "diff"
-  file?: FilePayload;         // present only when kind === "edit-request"
+  diff?: DiffPayload; // present only when kind === "diff"
+  file?: FilePayload; // present only when kind === "edit-request"
   terminal?: TerminalCommandPayload; // present only when kind === "terminal-command"
   // UI-only markers (e.g. "Conversation cleared.") that must never reach disk.
   // appendLog and the system_init backfill both skip entries with this set.
@@ -293,14 +335,14 @@ export type TaskStatus = "open" | "in_progress" | "done" | "backlog";
 export type TaskPriority = "P0" | "P1" | "P2" | "P3";
 
 export interface TaskItem {
-  id: string;           // 8-char hex hash
+  id: string; // 8-char hex hash
   title: string;
   description?: string;
   priority?: TaskPriority;
   status: TaskStatus;
   assignee?: string;
-  createdBy: string;    // Actor that created the record (agent name or user name)
-  username?: string;    // Human boss this record is on behalf of
+  createdBy: string; // Actor that created the record (agent name or user name)
+  username?: string; // Human boss this record is on behalf of
   createdAt: number;
 }
 
@@ -310,7 +352,9 @@ function generateHexId(existing?: string[]): string {
   for (;;) {
     const bytes = new Uint8Array(4);
     crypto.getRandomValues(bytes);
-    const id = Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+    const id = Array.from(bytes)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
     if (!ids || !ids.has(id)) return id;
   }
 }
@@ -336,7 +380,12 @@ export function generateCronjobRunId(existing?: string[]): string {
 
 export type Schedule =
   | { type: "daily"; hour: number; minute: number }
-  | { type: "weekly"; weekday: 0 | 1 | 2 | 3 | 4 | 5 | 6; hour: number; minute: number }
+  | {
+      type: "weekly";
+      weekday: 0 | 1 | 2 | 3 | 4 | 5 | 6;
+      hour: number;
+      minute: number;
+    }
   | { type: "interval"; minutes: number };
 
 // Permission modes available for cronjobs. Subset of agent options:
@@ -344,29 +393,34 @@ export type Schedule =
 export type CronjobPermissionMode = "bypassPermissions" | "auto";
 
 export interface Cronjob {
-  id: string;                  // 8-char hex
-  name: string;                // free text, not unique
+  id: string; // 8-char hex
+  name: string; // free text, not unique
   schedule: Schedule;
-  prompt: string;              // first user message at each fire
+  prompt: string; // first user message at each fire
   cwd: string;
   modelFamily: ModelFamily;
   effort: EffortLevel;
   permissionMode: CronjobPermissionMode;
   enabled: boolean;
-  createdBy: string;        // Actor that created the record (agent name or user name)
-  username: string | null;  // Human boss this record is on behalf of
+  createdBy: string; // Actor that created the record (agent name or user name)
+  username: string | null; // Human boss this record is on behalf of
   createdAt: number;
   lastFireAt: number | null;
   nextFireAt: number;
 }
 
-export type CronjobRunStatus = "running" | "completed" | "failed" | "timed_out" | "skipped";
+export type CronjobRunStatus =
+  | "running"
+  | "completed"
+  | "failed"
+  | "timed_out"
+  | "skipped";
 export type CronjobRunTrigger = "scheduled" | "manual";
 
 export interface CronjobRun {
-  id: string;                  // 8-char hex
+  id: string; // 8-char hex
   cronjobId: string;
-  cronjobName: string;         // denormalized so deleted-cronjob runs still display
+  cronjobName: string; // denormalized so deleted-cronjob runs still display
   trigger: CronjobRunTrigger;
   status: CronjobRunStatus;
   startedAt: number;
@@ -377,13 +431,13 @@ export interface CronjobRun {
   effortSnapshot: EffortLevel;
   cwdSnapshot: string;
   permissionModeSnapshot: CronjobPermissionMode;
-  rootSessionId: string;       // first session id created at fire time
+  rootSessionId: string; // first session id created at fire time
   // Leaf of the fork chain — equals rootSessionId for un-forked runs. Tracked
   // separately from rootSessionId so loadRunLogWithAncestors can walk back from
   // the leaf when the user has edited a message and forked. Optional for
   // backwards compatibility with runs persisted before resume support landed.
   currentSessionId?: string;
-  previewText: string;         // last assistant text block, truncated ~120 chars
+  previewText: string; // last assistant text block, truncated ~120 chars
   // Set on manual fires only (run_cronjob_now) — captures the user that
   // triggered the run so the UI can show "Manually triggered by Nil".
   // Scheduled fires leave this undefined.
@@ -410,7 +464,12 @@ export function humanizeSchedule(s: Schedule): string {
   return `Every ${Math.floor(s.minutes / 60)}h${s.minutes % 60}m`;
 }
 
-const VALID_STATUSES = new Set<TaskStatus>(["open", "in_progress", "done", "backlog"]);
+const VALID_STATUSES = new Set<TaskStatus>([
+  "open",
+  "in_progress",
+  "done",
+  "backlog",
+]);
 const VALID_PRIORITIES = new Set<TaskPriority>(["P0", "P1", "P2", "P3"]);
 
 export function isValidStatus(s: unknown): s is TaskStatus {
@@ -426,8 +485,8 @@ export interface SessionInfo {
   sessionId: string;
   lastModified: number;
   topic: string | null;
-  branched?: boolean;      // true if another session was forked from this one
-  forked?: boolean;        // true if this session is a fork (was created by editing a message)
+  branched?: boolean; // true if another session was forked from this one
+  forked?: boolean; // true if this session is a fork (was created by editing a message)
 }
 
 // Skill metadata for autocomplete and /help
@@ -446,8 +505,8 @@ export interface OfficeSettings {
 
 // A room with stable ID, display name, and per-room config
 export interface RoomWire {
-  id: string;               // 8-char hex, stable
-  name: string;             // display name
+  id: string; // 8-char hex, stable
+  name: string; // display name
   prompt: string | null;
 }
 
@@ -456,10 +515,10 @@ export interface RoomWire {
 export type NotifRoomsSetting = "all" | string[];
 
 export interface UserRecord {
-  name: string;                   // display case, e.g. "Nil"
+  name: string; // display case, e.g. "Nil"
   defaultRoomId: string | null;
   notifRooms: NotifRoomsSetting;
-  envFile: string | null;         // absolute path to dotenv file
+  envFile: string | null; // absolute path to dotenv file
   createdAt: number;
 }
 
@@ -476,7 +535,7 @@ export interface SettingsValidationResponse {
   type: "settings_validation";
   requestId: string;
   scope: "office" | "user";
-  username?: string;        // lowercase key when scope === "user"
+  username?: string; // lowercase key when scope === "user"
   envFile: string | null;
   ok: boolean;
   keyCount?: number;
@@ -531,21 +590,76 @@ export interface ListBackendModelsResponse {
 
 // Server → Browser messages
 export type ServerMessage =
-  | { type: "full_state"; agents: AgentInfo[]; recentCwds: string[]; office: OfficeSettings; rooms: RoomWire[] }
+  | {
+      type: "full_state";
+      agents: AgentInfo[];
+      recentCwds: string[];
+      office: OfficeSettings;
+      rooms: RoomWire[];
+    }
   | { type: "agent_added"; agent: AgentInfo }
   | { type: "agent_removed"; agentId: string }
   | { type: "agent_updated"; agentId: string; changes: Partial<AgentInfo> }
   | { type: "log_entry"; entry: LogEntry }
-  | { type: "sessions_list"; agentId: string; sessions: SessionInfo[]; currentSessionId: string | null }
-  | { type: "slash_commands"; agentId: string; commands: { name: string; description?: string }[]; skills: SkillInfo[] }
+  | {
+      type: "sessions_list";
+      agentId: string;
+      sessions: SessionInfo[];
+      currentSessionId: string | null;
+    }
+  | {
+      type: "slash_commands";
+      agentId: string;
+      commands: { name: string; description?: string }[];
+      skills: SkillInfo[];
+    }
   | { type: "clear_logs"; agentId: string }
   | { type: "terminal_output"; agentId: string; data: string }
   | { type: "terminal_exit"; agentId: string; exitCode: number }
-  | { type: "editor_content"; agentId: string; path: string; content: string; mtime: number; language: string; size: number }
-  | { type: "editor_save_response"; agentId: string; path: string; ok: boolean; mtime?: number; error?: string; reason?: "stale"; currentMtime?: number }
-  | { type: "editor_external_change"; agentId: string; path: string; mtime: number }
-  | { type: "editor_open_error"; agentId: string; path: string; reason: "not_found" | "not_file" | "binary" | "too_large" | "io_error" | "bad_path"; message?: string; size?: number }
-  | { type: "office_settings_updated"; prompt: string | null; envFile: string | null }
+  | {
+      type: "editor_content";
+      agentId: string;
+      path: string;
+      content: string;
+      mtime: number;
+      language: string;
+      size: number;
+    }
+  | {
+      type: "editor_save_response";
+      agentId: string;
+      path: string;
+      ok: boolean;
+      mtime?: number;
+      error?: string;
+      reason?: "stale";
+      currentMtime?: number;
+    }
+  | {
+      type: "editor_external_change";
+      agentId: string;
+      path: string;
+      mtime: number;
+    }
+  | {
+      type: "editor_open_error";
+      agentId: string;
+      path: string;
+      reason:
+        | "not_found"
+        | "not_file"
+        | "binary"
+        | "too_large"
+        | "io_error"
+        | "bad_path";
+      message?: string;
+      size?: number;
+    }
+  | {
+      type: "office_settings_updated";
+      prompt: string | null;
+      envFile: string | null;
+    }
   | { type: "tasks"; tasks: TaskItem[] }
   | { type: "room_created"; room: RoomWire }
   | { type: "room_closed"; roomId: string }
@@ -559,8 +673,17 @@ export type ServerMessage =
   | AgentSaveResponse
   | CwdValidationResponse
   | ListBackendModelsResponse
-  | { type: "update_status"; updateAvailable: boolean; current: { sha: string; message: string; date: string }; latest: { sha: string; message: string; date: string } }
-  | { type: "cronjobs_state"; cronjobs: Cronjob[]; cronjobsPrompt: string | null }
+  | {
+      type: "update_status";
+      updateAvailable: boolean;
+      current: { sha: string; message: string; date: string };
+      latest: { sha: string; message: string; date: string };
+    }
+  | {
+      type: "cronjobs_state";
+      cronjobs: Cronjob[];
+      cronjobsPrompt: string | null;
+    }
   | { type: "cronjob_added"; cronjob: Cronjob }
   | { type: "cronjob_updated"; cronjob: Cronjob }
   | { type: "cronjob_deleted"; id: string }
@@ -572,16 +695,50 @@ export type ServerMessage =
 
 // Browser → Server commands
 export type ClientCommand =
-  | { type: "spawn"; requestId?: string; name: string; cwd: string; permissionMode: AgentInfo["permissionMode"]; desk: number; roomId?: string; customInstructions?: string; outfit?: AgentOutfit; modelFamily?: string; effort?: EffortLevel; username?: string; agentType?: AgentBackendType; codexSandbox?: CodexSandboxMode }
+  | {
+      type: "spawn";
+      requestId?: string;
+      name: string;
+      cwd: string;
+      permissionMode: AgentInfo["permissionMode"];
+      desk: number;
+      roomId?: string;
+      customInstructions?: string;
+      outfit?: AgentOutfit;
+      modelFamily?: string;
+      effort?: EffortLevel;
+      username?: string;
+      agentType?: AgentBackendType;
+      codexSandbox?: CodexSandboxMode;
+    }
   | { type: "kill"; agentId: string }
   | { type: "abort"; agentId: string }
-  | { type: "send_message"; agentId: string; text: string; username?: string; device?: string; attachments?: Attachment[] }
+  | {
+      type: "send_message";
+      agentId: string;
+      text: string;
+      username?: string;
+      device?: string;
+      attachments?: Attachment[];
+    }
   | { type: "cancel_queued"; agentId: string; messageId: string }
   | { type: "send_now"; agentId: string }
   | { type: "new_conversation"; agentId: string }
   | { type: "resume"; agentId: string; sessionId: string }
   | { type: "list_sessions"; agentId: string }
-  | { type: "edit_agent"; requestId?: string; agentId: string; name?: string; cwd?: string; outfit?: AgentOutfit; customInstructions?: string; modelFamily?: string; effort?: EffortLevel; permissionMode?: AgentInfo["permissionMode"]; codexSandbox?: CodexSandboxMode }
+  | {
+      type: "edit_agent";
+      requestId?: string;
+      agentId: string;
+      name?: string;
+      cwd?: string;
+      outfit?: AgentOutfit;
+      customInstructions?: string;
+      modelFamily?: string;
+      effort?: EffortLevel;
+      permissionMode?: AgentInfo["permissionMode"];
+      codexSandbox?: CodexSandboxMode;
+    }
   | { type: "swap_desks"; deskA: number; deskB: number; roomId: string }
   | { type: "set_topic"; agentId: string; topic: string }
   | { type: "reset_topic"; agentId: string }
@@ -590,34 +747,141 @@ export type ClientCommand =
   | { type: "terminal_resize"; agentId: string; cols: number; rows: number }
   | { type: "terminal_close"; agentId: string }
   | { type: "editor_open"; agentId: string; path: string }
-  | { type: "editor_save"; agentId: string; path: string; content: string; expectedMtime: number; force?: boolean }
+  | {
+      type: "editor_save";
+      agentId: string;
+      path: string;
+      content: string;
+      expectedMtime: number;
+      force?: boolean;
+    }
   | { type: "editor_close"; agentId: string; path: string }
-  | { type: "update_office_settings"; requestId: string; prompt: string | null; envFile: string | null }
-  | { type: "update_room_settings"; requestId: string; roomId: string; prompt: string | null }
-  | { type: "request_settings_validation"; requestId: string; scope: "office" | "user"; username?: string }
+  | {
+      type: "update_office_settings";
+      requestId: string;
+      prompt: string | null;
+      envFile: string | null;
+    }
+  | {
+      type: "update_room_settings";
+      requestId: string;
+      roomId: string;
+      prompt: string | null;
+    }
+  | {
+      type: "request_settings_validation";
+      requestId: string;
+      scope: "office" | "user";
+      username?: string;
+    }
   | { type: "request_cwd_validation"; requestId: string; cwd: string }
-  | { type: "list_backend_models"; requestId: string; agentType: AgentBackendType; cwd: string; username?: string; includeHidden?: boolean }
-  | { type: "add_task"; title: string; description?: string; priority?: TaskPriority; assignee?: string; username: string }
-  | { type: "update_task"; id: string; changes: Partial<Pick<TaskItem, "title" | "description" | "priority" | "status" | "assignee">> }
+  | {
+      type: "list_backend_models";
+      requestId: string;
+      agentType: AgentBackendType;
+      cwd: string;
+      username?: string;
+      includeHidden?: boolean;
+    }
+  | {
+      type: "add_task";
+      title: string;
+      description?: string;
+      priority?: TaskPriority;
+      assignee?: string;
+      username: string;
+    }
+  | {
+      type: "update_task";
+      id: string;
+      changes: Partial<
+        Pick<
+          TaskItem,
+          "title" | "description" | "priority" | "status" | "assignee"
+        >
+      >;
+    }
   | { type: "delete_task"; id: string }
   | { type: "create_room"; name?: string }
   | { type: "close_room"; roomId: string }
   | { type: "rename_room"; roomId: string; name: string }
   | { type: "move_agent"; agentId: string; targetRoomId: string }
   | { type: "reorder_rooms"; order: string[] }
-  | { type: "edit_message"; agentId: string; logEntryId: string; newText: string; username?: string; device?: string }
-  | { type: "add_cronjob"; requestId?: string; name: string; schedule: Schedule; prompt: string; cwd: string; modelFamily: ModelFamily; effort: EffortLevel; permissionMode: CronjobPermissionMode; username: string }
-  | { type: "update_cronjob"; requestId?: string; id: string; changes: Partial<Pick<Cronjob, "name" | "schedule" | "prompt" | "cwd" | "modelFamily" | "effort" | "permissionMode" | "enabled">> }
+  | {
+      type: "edit_message";
+      agentId: string;
+      logEntryId: string;
+      newText: string;
+      username?: string;
+      device?: string;
+    }
+  | {
+      type: "add_cronjob";
+      requestId?: string;
+      name: string;
+      schedule: Schedule;
+      prompt: string;
+      cwd: string;
+      modelFamily: ModelFamily;
+      effort: EffortLevel;
+      permissionMode: CronjobPermissionMode;
+      username: string;
+    }
+  | {
+      type: "update_cronjob";
+      requestId?: string;
+      id: string;
+      changes: Partial<
+        Pick<
+          Cronjob,
+          | "name"
+          | "schedule"
+          | "prompt"
+          | "cwd"
+          | "modelFamily"
+          | "effort"
+          | "permissionMode"
+          | "enabled"
+        >
+      >;
+    }
   | { type: "delete_cronjob"; id: string }
   | { type: "run_cronjob_now"; id: string; username: string }
   | { type: "update_cronjobs_prompt"; requestId: string; value: string | null }
   | { type: "list_cronjob_runs"; cronjobId: string }
   | { type: "list_all_cronjob_runs" }
   | { type: "load_cronjob_run"; cronjobId: string; runId: string }
-  | { type: "send_cronjob_run_message"; cronjobId: string; runId: string; text: string; username?: string; device?: string }
-  | { type: "edit_cronjob_run_message"; cronjobId: string; runId: string; logEntryId: string; newText: string; username?: string; device?: string }
-  | { type: "claim_user"; username: string; defaultRoomId?: string | null; notifRooms?: NotifRoomsSetting }
-  | { type: "update_user"; requestId?: string; username: string; changes: Partial<Pick<UserRecord, "name" | "defaultRoomId" | "notifRooms" | "envFile">> }
+  | {
+      type: "send_cronjob_run_message";
+      cronjobId: string;
+      runId: string;
+      text: string;
+      username?: string;
+      device?: string;
+    }
+  | {
+      type: "edit_cronjob_run_message";
+      cronjobId: string;
+      runId: string;
+      logEntryId: string;
+      newText: string;
+      username?: string;
+      device?: string;
+    }
+  | {
+      type: "claim_user";
+      username: string;
+      defaultRoomId?: string | null;
+      notifRooms?: NotifRoomsSetting;
+    }
+  | {
+      type: "update_user";
+      requestId?: string;
+      username: string;
+      changes: Partial<
+        Pick<UserRecord, "name" | "defaultRoomId" | "notifRooms" | "envFile">
+      >;
+    }
   | { type: "delete_user"; username: string }
   | { type: "ping" };
 

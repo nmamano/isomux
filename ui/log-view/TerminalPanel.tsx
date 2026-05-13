@@ -130,102 +130,105 @@ type SoftKey = {
 // in-place IME composition decoration users see while composing CJK / voice
 // dictation isn't rendered. Acceptable for English/swipe; revisit if mobile
 // CJK support is requested.
-const MobileInputProxy = forwardRef<HTMLTextAreaElement, { onInput: (data: string) => void }>(
-  function MobileInputProxy({ onInput }, ref) {
-    const composingRef = useRef(false);
-    // Tracks the most recent beforeinput firing so the keydown fallback can
-    // tell whether the same gesture already produced a beforeinput. Without
-    // this, a Bluetooth keyboard's Backspace fires keydown AND beforeinput
-    // and we'd send DEL twice. (iOS soft keyboards rarely fire keydown, so
-    // the issue only shows up on iPad with a hardware keyboard.)
-    const lastBeforeInputAtRef = useRef(0);
-    function deliver(value: string, target: HTMLTextAreaElement) {
-      if (!value) return;
-      onInput(value);
-      target.value = "";
-    }
-    return (
-      <textarea
-        ref={ref}
-        autoCapitalize="off"
-        autoCorrect="off"
-        autoComplete="off"
-        spellCheck={false}
-        onCompositionStart={() => { composingRef.current = true; }}
-        onCompositionEnd={(e) => {
-          composingRef.current = false;
-          deliver(e.currentTarget.value, e.currentTarget);
-        }}
-        onInput={(e) => {
-          if (composingRef.current) return;
-          deliver(e.currentTarget.value, e.currentTarget);
-        }}
-        onBeforeInput={(e) => {
-          const native = e.nativeEvent as InputEvent;
-          // deleteContentBackward fires on Backspace even when value is empty
-          // and even when no input event would follow. We translate to DEL
-          // (\x7f) which is what readline expects for backspace.
-          if (native.inputType === "deleteContentBackward") {
-            e.preventDefault();
-            lastBeforeInputAtRef.current = Date.now();
-            onInput("\x7f");
-          } else if (native.inputType === "deleteWordBackward") {
-            e.preventDefault();
-            lastBeforeInputAtRef.current = Date.now();
-            onInput("\x17"); // Ctrl-W
-          } else if (
-            native.inputType === "insertLineBreak" ||
-            native.inputType === "insertParagraph"
-          ) {
-            e.preventDefault();
-            lastBeforeInputAtRef.current = Date.now();
-            onInput("\r");
-          }
-        }}
-        onKeyDown={(e) => {
-          // Backup for keyboards that don't fire beforeinput cleanly.
-          if (composingRef.current) return;
-          if (e.key === "Enter") {
-            e.preventDefault();
-            onInput("\r");
-          } else if (e.key === "Tab") {
-            e.preventDefault();
-            onInput("\t");
-          } else if (e.key === "Backspace" && !e.currentTarget.value) {
-            // Only intercept the empty case — if there's pending text,
-            // beforeinput already handled it. Also skip if beforeinput just
-            // fired for this gesture (Bluetooth keyboard fires both).
-            if (Date.now() - lastBeforeInputAtRef.current < 100) return;
-            e.preventDefault();
-            onInput("\x7f");
-          }
-        }}
-        style={{
-          position: "absolute",
-          left: 0,
-          bottom: 0,
-          width: "100%",
-          height: 24,
-          padding: 0,
-          border: "none",
-          background: "transparent",
-          color: "transparent",
-          // 16px keeps iOS Safari from auto-zooming when focused.
-          fontSize: 16,
-          opacity: 0,
-          // Pointer events skipped so taps fall through to the body div,
-          // which programmatically focuses us — we never want this textarea
-          // to actually receive a tap (the cursor would land in it).
-          pointerEvents: "none",
-          caretColor: "transparent",
-          resize: "none",
-          outline: "none",
-          zIndex: 1,
-        }}
-      />
-    );
+const MobileInputProxy = forwardRef<
+  HTMLTextAreaElement,
+  { onInput: (data: string) => void }
+>(function MobileInputProxy({ onInput }, ref) {
+  const composingRef = useRef(false);
+  // Tracks the most recent beforeinput firing so the keydown fallback can
+  // tell whether the same gesture already produced a beforeinput. Without
+  // this, a Bluetooth keyboard's Backspace fires keydown AND beforeinput
+  // and we'd send DEL twice. (iOS soft keyboards rarely fire keydown, so
+  // the issue only shows up on iPad with a hardware keyboard.)
+  const lastBeforeInputAtRef = useRef(0);
+  function deliver(value: string, target: HTMLTextAreaElement) {
+    if (!value) return;
+    onInput(value);
+    target.value = "";
   }
-);
+  return (
+    <textarea
+      ref={ref}
+      autoCapitalize="off"
+      autoCorrect="off"
+      autoComplete="off"
+      spellCheck={false}
+      onCompositionStart={() => {
+        composingRef.current = true;
+      }}
+      onCompositionEnd={(e) => {
+        composingRef.current = false;
+        deliver(e.currentTarget.value, e.currentTarget);
+      }}
+      onInput={(e) => {
+        if (composingRef.current) return;
+        deliver(e.currentTarget.value, e.currentTarget);
+      }}
+      onBeforeInput={(e) => {
+        const native = e.nativeEvent as InputEvent;
+        // deleteContentBackward fires on Backspace even when value is empty
+        // and even when no input event would follow. We translate to DEL
+        // (\x7f) which is what readline expects for backspace.
+        if (native.inputType === "deleteContentBackward") {
+          e.preventDefault();
+          lastBeforeInputAtRef.current = Date.now();
+          onInput("\x7f");
+        } else if (native.inputType === "deleteWordBackward") {
+          e.preventDefault();
+          lastBeforeInputAtRef.current = Date.now();
+          onInput("\x17"); // Ctrl-W
+        } else if (
+          native.inputType === "insertLineBreak" ||
+          native.inputType === "insertParagraph"
+        ) {
+          e.preventDefault();
+          lastBeforeInputAtRef.current = Date.now();
+          onInput("\r");
+        }
+      }}
+      onKeyDown={(e) => {
+        // Backup for keyboards that don't fire beforeinput cleanly.
+        if (composingRef.current) return;
+        if (e.key === "Enter") {
+          e.preventDefault();
+          onInput("\r");
+        } else if (e.key === "Tab") {
+          e.preventDefault();
+          onInput("\t");
+        } else if (e.key === "Backspace" && !e.currentTarget.value) {
+          // Only intercept the empty case — if there's pending text,
+          // beforeinput already handled it. Also skip if beforeinput just
+          // fired for this gesture (Bluetooth keyboard fires both).
+          if (Date.now() - lastBeforeInputAtRef.current < 100) return;
+          e.preventDefault();
+          onInput("\x7f");
+        }
+      }}
+      style={{
+        position: "absolute",
+        left: 0,
+        bottom: 0,
+        width: "100%",
+        height: 24,
+        padding: 0,
+        border: "none",
+        background: "transparent",
+        color: "transparent",
+        // 16px keeps iOS Safari from auto-zooming when focused.
+        fontSize: 16,
+        opacity: 0,
+        // Pointer events skipped so taps fall through to the body div,
+        // which programmatically focuses us — we never want this textarea
+        // to actually receive a tap (the cursor would land in it).
+        pointerEvents: "none",
+        caretColor: "transparent",
+        resize: "none",
+        outline: "none",
+        zIndex: 1,
+      }}
+    />
+  );
+});
 
 // Filled triangles render at consistent widths in iOS's fallback font; the
 // thin Unicode arrows (↑↓←→) come out narrower on left/right than up/down.
@@ -302,18 +305,21 @@ export function TerminalPanel({
         }
       } catch {}
     },
-    [agentId]
+    [agentId],
   );
 
   // Send keystrokes to the PTY, applying the sticky Ctrl modifier if armed.
-  const sendInput = useCallback((data: string) => {
-    let toSend = data;
-    if (ctrlActiveRef.current) {
-      toSend = applyCtrl(data);
-      setCtrl(false);
-    }
-    send({ type: "terminal_input", agentId, data: toSend });
-  }, [agentId, setCtrl]);
+  const sendInput = useCallback(
+    (data: string) => {
+      let toSend = data;
+      if (ctrlActiveRef.current) {
+        toSend = applyCtrl(data);
+        setCtrl(false);
+      }
+      send({ type: "terminal_input", agentId, data: toSend });
+    },
+    [agentId, setCtrl],
+  );
 
   // Initialize terminal
   useEffect(() => {
@@ -355,7 +361,9 @@ export function TerminalPanel({
         // release polls document.activeElement instead, the cursor will
         // stop blinking on mobile and this needs revisiting. Tightening
         // the version pin in package.json would harden against that.
-        const helper = containerRef.current?.querySelector(".xterm-helper-textarea") as HTMLTextAreaElement | null;
+        const helper = containerRef.current?.querySelector(
+          ".xterm-helper-textarea",
+        ) as HTMLTextAreaElement | null;
         helper?.dispatchEvent(new Event("focus"));
       }
     });
@@ -398,7 +406,8 @@ export function TerminalPanel({
   // Update theme without re-creating terminal
   useEffect(() => {
     if (termRef.current) {
-      termRef.current.options.theme = theme === "dark" ? DARK_THEME : LIGHT_THEME;
+      termRef.current.options.theme =
+        theme === "dark" ? DARK_THEME : LIGHT_THEME;
     }
   }, [theme]);
 
@@ -468,7 +477,10 @@ export function TerminalPanel({
       if (pinching && e.touches.length === 2) {
         e.preventDefault();
         const ratio = distance(e) / initialDistance;
-        const next = Math.max(10, Math.min(22, Math.round(initialFontSize * ratio)));
+        const next = Math.max(
+          10,
+          Math.min(22, Math.round(initialFontSize * ratio)),
+        );
         if (next !== term.options.fontSize) {
           term.options.fontSize = next;
           if (!rafScheduled) {
@@ -507,7 +519,12 @@ export function TerminalPanel({
         // the gesture; readline prompts redraw at the new cols/rows after.
         fitRef.current?.fit();
         if (termRef.current) {
-          send({ type: "terminal_resize", agentId, cols: termRef.current.cols, rows: termRef.current.rows });
+          send({
+            type: "terminal_resize",
+            agentId,
+            cols: termRef.current.cols,
+            rows: termRef.current.rows,
+          });
         }
       }
       scrollLastY = null;
@@ -515,7 +532,9 @@ export function TerminalPanel({
       // that would otherwise pop the keyboard right after a scroll gesture.
       // It's reset on the next touchstart.
     }
-    function getScrollMoved() { return scrollMoved; }
+    function getScrollMoved() {
+      return scrollMoved;
+    }
     scrollMovedRef.current = getScrollMoved;
     el.addEventListener("touchstart", onStart, { passive: true });
     el.addEventListener("touchmove", onMove, { passive: false });
@@ -629,7 +648,9 @@ export function TerminalPanel({
               emoji renderer which overrides our green CSS color and looks
               like an out-of-place colored emoji. Desktop renders it as a
               proper CSS-colored glyph, which is the intended brand mark. */}
-          {!mobile && <span style={{ color: "var(--green)", fontSize: 13 }}>&#9654;</span>}
+          {!mobile && (
+            <span style={{ color: "var(--green)", fontSize: 13 }}>&#9654;</span>
+          )}
           Terminal
         </span>
         <button
@@ -688,7 +709,10 @@ export function TerminalPanel({
           >
             <span>Shell exited ({exited})</span>
             <button
-              onClick={(e) => { e.stopPropagation(); handleRespawn(); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleRespawn();
+              }}
               style={{
                 padding: "3px 12px",
                 borderRadius: 6,
@@ -737,7 +761,10 @@ export function TerminalPanel({
                 // we belt-and-braces with touchstart.
                 onTouchStart={(e) => e.preventDefault()}
                 onMouseDown={(e) => e.preventDefault()}
-                onClick={(e) => { e.preventDefault(); handleSoftKey(key); }}
+                onClick={(e) => {
+                  e.preventDefault();
+                  handleSoftKey(key);
+                }}
                 style={{
                   flexShrink: 0,
                   minWidth: 40,
@@ -762,7 +789,6 @@ export function TerminalPanel({
           })}
         </div>
       )}
-
     </div>
   );
 }

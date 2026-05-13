@@ -238,13 +238,13 @@ export interface BackendSession {
 // ---------------------------------------------------------------------------
 
 export interface ModelOption {
-  value: string;        // backend-specific (Claude: "opus"; Codex: "gpt-5")
-  label: string;        // UI label
+  value: string; // backend-specific (Claude: "opus"; Codex: "gpt-5")
+  label: string; // UI label
 }
 
 export interface PermissionModeOption {
-  value: string;        // backend-specific value
-  label: string;        // UI label
+  value: string; // backend-specific value
+  label: string; // UI label
 }
 
 export interface OneShotOptions {
@@ -323,7 +323,10 @@ export interface Backend {
     sessionId: string,
     targetMessageId: string,
   ): Promise<ForkSessionBeforeMessageResult>;
-  getSessionMessages(sessionId: string, cwd: string): Promise<NormalizedMessage[]>;
+  getSessionMessages(
+    sessionId: string,
+    cwd: string,
+  ): Promise<NormalizedMessage[]>;
 
   // Single-prompt operation used by topic generation. Returns the assistant
   // text. Throws on failure.

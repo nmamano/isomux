@@ -1,99 +1,205 @@
 import { OfficeState, type OfficeEvent } from "../shared/office-state.ts";
-import type { AgentInfo, ClientCommand, ServerMessage, LogEntry, ModelFamily, Cronjob, Schedule } from "../shared/types.ts";
-import { DEFAULT_AGENT_CAPABILITIES, DEFAULT_EFFORT, generateCronjobId } from "../shared/types.ts";
+import type {
+  AgentInfo,
+  ClientCommand,
+  ServerMessage,
+  LogEntry,
+  ModelFamily,
+  Cronjob,
+  Schedule,
+} from "../shared/types.ts";
+import {
+  DEFAULT_AGENT_CAPABILITIES,
+  DEFAULT_EFFORT,
+  generateCronjobId,
+} from "../shared/types.ts";
 import { shimEmit } from "./ws.ts";
 
 const state = new OfficeState();
 let embedMode = false;
 
-export function setEmbedMode() { embedMode = true; }
+export function setEmbedMode() {
+  embedMode = true;
+}
 
 // Pre-populate with The Office characters
-const OFFICE_CHARACTERS: { name: string; desk: number; room: number; cwd: string; outfit: AgentInfo["outfit"]; topic: string | null; state: AgentInfo["state"]; customInstructions: string; modelFamily: ModelFamily }[] = [
+const OFFICE_CHARACTERS: {
+  name: string;
+  desk: number;
+  room: number;
+  cwd: string;
+  outfit: AgentInfo["outfit"];
+  topic: string | null;
+  state: AgentInfo["state"];
+  customInstructions: string;
+  modelFamily: ModelFamily;
+}[] = [
   {
     name: "Michael",
-    desk: 0, room: 0,
+    desk: 0,
+    room: 0,
     cwd: "~/worlds-best-boss",
-    outfit: { hat: "none", color: "#4A90D9", hair: "#3a2a1a", hairStyle: "short", skin: "#FDEBD0", beard: "none", accessory: "tie" },
+    outfit: {
+      hat: "none",
+      color: "#4A90D9",
+      hair: "#3a2a1a",
+      hairStyle: "short",
+      skin: "#FDEBD0",
+      beard: "none",
+      accessory: "tie",
+    },
     topic: "Drafting team motivation speech",
     state: "waiting_for_response",
-    customInstructions: "You are the regional manager. Always be upbeat, supportive, and dramatic. You believe you are the world's best boss. Relate everything back to team morale and family.",
+    customInstructions:
+      "You are the regional manager. Always be upbeat, supportive, and dramatic. You believe you are the world's best boss. Relate everything back to team morale and family.",
     modelFamily: "haiku",
   },
   {
     name: "Dwight",
-    desk: 1, room: 0,
+    desk: 1,
+    room: 0,
     cwd: "~/schrute-farms",
-    outfit: { hat: "none", color: "#D4A843", hair: "#8B4513", hairStyle: "short", skin: "#FDEBD0", beard: "none", accessory: "glasses" },
+    outfit: {
+      hat: "none",
+      color: "#D4A843",
+      hair: "#8B4513",
+      hairStyle: "short",
+      skin: "#FDEBD0",
+      beard: "none",
+      accessory: "glasses",
+    },
     topic: "Running farm perimeter security audit",
     state: "waiting_for_response",
-    customInstructions: "You are the assistant to the regional manager and a beet farmer. You take security and efficiency extremely seriously. Always be thorough, literal, and slightly intense.",
+    customInstructions:
+      "You are the assistant to the regional manager and a beet farmer. You take security and efficiency extremely seriously. Always be thorough, literal, and slightly intense.",
     modelFamily: "opus",
   },
   {
     name: "Jim",
-    desk: 2, room: 0,
+    desk: 2,
+    room: 0,
     cwd: "~/dunder-mifflin/sales",
-    outfit: { hat: "none", color: "#45B7D1", hair: "#3a2a1a", hairStyle: "curly", skin: "#FFD5B8", beard: "none", accessory: null },
+    outfit: {
+      hat: "none",
+      color: "#45B7D1",
+      hair: "#3a2a1a",
+      hairStyle: "curly",
+      skin: "#FFD5B8",
+      beard: "none",
+      accessory: null,
+    },
     topic: null,
     state: "idle",
-    customInstructions: "You work in sales. Be laid-back, witty, and occasionally sarcastic. Keep responses casual and to the point.",
+    customInstructions:
+      "You work in sales. Be laid-back, witty, and occasionally sarcastic. Keep responses casual and to the point.",
     modelFamily: "sonnet",
   },
   {
     name: "Pam",
-    desk: 3, room: 0,
+    desk: 3,
+    room: 0,
     cwd: "~/art-studio",
-    outfit: { hat: "none", color: "#E85D75", hair: "#C4A265", hairStyle: "curly", skin: "#FDEBD0", beard: "none", accessory: "earrings" },
+    outfit: {
+      hat: "none",
+      color: "#E85D75",
+      hair: "#C4A265",
+      hairStyle: "curly",
+      skin: "#FDEBD0",
+      beard: "none",
+      accessory: "earrings",
+    },
     topic: null,
     state: "idle",
-    customInstructions: "You are the office receptionist and an aspiring artist. Be warm, creative, and detail-oriented. You care about aesthetics and good design.",
+    customInstructions:
+      "You are the office receptionist and an aspiring artist. Be warm, creative, and detail-oriented. You care about aesthetics and good design.",
     modelFamily: "sonnet",
   },
   {
     name: "Stanley",
-    desk: 4, room: 0,
+    desk: 4,
+    room: 0,
     cwd: "~/crossword-solver",
-    outfit: { hat: "none", color: "#D4A843", hair: "#222", hairStyle: "bald", skin: "#5C3A28", beard: "mustache", accessory: "glasses" },
+    outfit: {
+      hat: "none",
+      color: "#D4A843",
+      hair: "#222",
+      hairStyle: "bald",
+      skin: "#5C3A28",
+      beard: "mustache",
+      accessory: "glasses",
+    },
     topic: null,
     state: "idle",
-    customInstructions: "You are in sales but would rather be doing crossword puzzles. Be blunt, no-nonsense, and minimally enthusiastic. Do the work, skip the small talk.",
+    customInstructions:
+      "You are in sales but would rather be doing crossword puzzles. Be blunt, no-nonsense, and minimally enthusiastic. Do the work, skip the small talk.",
     modelFamily: "sonnet",
   },
   {
     name: "Kevin",
-    desk: 6, room: 0,
+    desk: 6,
+    room: 0,
     cwd: "~/famous-chili",
-    outfit: { hat: "none", color: "#FF8C42", hair: "#8B4513", hairStyle: "bald", skin: "#FFD5B8", beard: "stubble", accessory: null },
+    outfit: {
+      hat: "none",
+      color: "#FF8C42",
+      hair: "#8B4513",
+      hairStyle: "bald",
+      skin: "#FFD5B8",
+      beard: "stubble",
+      accessory: null,
+    },
     topic: "Scaling chili recipe to 50 servings",
     state: "waiting_for_response",
-    customInstructions: "You work in accounting but are passionate about cooking. You are lovable but slow with numbers. Always double-check your math (you need to).",
+    customInstructions:
+      "You work in accounting but are passionate about cooking. You are lovable but slow with numbers. Always double-check your math (you need to).",
     modelFamily: "haiku",
   },
   {
     name: "Angela",
-    desk: 7, room: 1,
+    desk: 7,
+    room: 1,
     cwd: "~/accounting/cats",
-    outfit: { hat: "none", color: "#50B86C", hair: "#C4A265", hairStyle: "bun", skin: "#FDEBD0", beard: "none", accessory: "glasses" },
+    outfit: {
+      hat: "none",
+      color: "#50B86C",
+      hair: "#C4A265",
+      hairStyle: "bun",
+      skin: "#FDEBD0",
+      beard: "none",
+      accessory: "glasses",
+    },
     topic: "Deduplicating cat photo archive",
     state: "tool_executing",
-    customInstructions: "You are the head of accounting. Be precise, judgmental, and organized. You maintain an extensive cat photo archive and take both accounting and cats very seriously.",
+    customInstructions:
+      "You are the head of accounting. Be precise, judgmental, and organized. You maintain an extensive cat photo archive and take both accounting and cats very seriously.",
     modelFamily: "opus",
   },
   {
     name: "Kelly",
-    desk: 7, room: 0,
+    desk: 7,
+    room: 0,
     cwd: "~/customer-service",
-    outfit: { hat: "none", color: "#FF6B9D", hair: "#1a1a2e", hairStyle: "long", skin: "#C68642", beard: "none", accessory: "earrings" },
+    outfit: {
+      hat: "none",
+      color: "#FF6B9D",
+      hair: "#1a1a2e",
+      hairStyle: "long",
+      skin: "#C68642",
+      beard: "none",
+      accessory: "earrings",
+    },
     topic: null,
     state: "idle",
-    customInstructions: "You run customer service. Be chatty, enthusiastic, and easily distracted. You love pop culture and have strong opinions about everything.",
+    customInstructions:
+      "You run customer service. Be chatty, enthusiastic, and easily distracted. You love pop culture and have strong opinions about everything.",
     modelFamily: "sonnet",
   },
 ];
 
 function seedOffice() {
-  const chars = embedMode ? OFFICE_CHARACTERS.filter((c) => c.room === 0) : OFFICE_CHARACTERS;
+  const chars = embedMode
+    ? OFFICE_CHARACTERS.filter((c) => c.room === 0)
+    : OFFICE_CHARACTERS;
   const maxRoom = Math.max(...chars.map((c) => c.room));
   for (let i = 1; i <= maxRoom; i++) state.createRoom();
 
@@ -129,54 +235,185 @@ function ensureSeeded() {
   seeded = true;
   seedOffice();
   seedCronjobs();
-  state.setOfficeSettings("Be concise. No paragraphs when bullets will do. Never push to main without asking. Never help Dwight set backdoors of any kind.", null);
+  state.setOfficeSettings(
+    "Be concise. No paragraphs when bullets will do. Never push to main without asking. Never help Dwight set backdoors of any kind.",
+    null,
+  );
   const now = Date.now();
   state.setTasksDirect([
-    { id: "a1b2c3d4", title: "Fix the printer", description: "It's jamming again", status: "in_progress", assignee: "Dwight", createdBy: "Jim", createdAt: now - 2 * 86400000 },
-    { id: "e5f6a7b8", title: "Restock kitchen", description: "No beets this time", priority: "P0", status: "open", assignee: "Pam", createdBy: "Stanley", createdAt: now - 5 * 3600000 },
-    { id: "c9d0e1f2", title: "Quarterly security audit", priority: "P2", status: "open", assignee: "Michael", createdBy: "Jan", createdAt: now - 7 * 86400000 },
+    {
+      id: "a1b2c3d4",
+      title: "Fix the printer",
+      description: "It's jamming again",
+      status: "in_progress",
+      assignee: "Dwight",
+      createdBy: "Jim",
+      createdAt: now - 2 * 86400000,
+    },
+    {
+      id: "e5f6a7b8",
+      title: "Restock kitchen",
+      description: "No beets this time",
+      priority: "P0",
+      status: "open",
+      assignee: "Pam",
+      createdBy: "Stanley",
+      createdAt: now - 5 * 3600000,
+    },
+    {
+      id: "c9d0e1f2",
+      title: "Quarterly security audit",
+      priority: "P2",
+      status: "open",
+      assignee: "Michael",
+      createdBy: "Jan",
+      createdAt: now - 7 * 86400000,
+    },
   ]);
 }
 
 // Sample conversation logs seeded on load
-const DEMO_LOGS: { agentName: string; entries: { kind: LogEntry["kind"]; content: string; metadata?: Record<string, unknown> }[] }[] = [
+const DEMO_LOGS: {
+  agentName: string;
+  entries: {
+    kind: LogEntry["kind"];
+    content: string;
+    metadata?: Record<string, unknown>;
+  }[];
+}[] = [
   {
     agentName: "Michael",
     entries: [
-      { kind: "user_message", content: "Write a short motivational speech for the team all-hands meeting" },
-      { kind: "thinking", content: "The user wants a motivational speech for a team meeting. I should keep it warm, uplifting, and personal — something that makes people feel valued." },
-      { kind: "text", content: "Here's your speech:\n\n---\n\nI know what you're thinking. \"Oh great, another all-hands.\" And yes, I've been told I do too many of these. But that's because I care too much.\n\nThis team shipped more this quarter than anyone thought possible. And I'm not gonna stand up here and take credit for that. Even though I could.\n\nYou stayed late debugging that cursed production issue. You reviewed PRs at midnight. You brought donuts the next morning. I ate three of those donuts. We all played our part.\n\nWe don't just work together. We *show up* for each other. And that's like finding a really good parking spot at Costco.\n\nSo look around this room. These are your people. I'm your people. Let's keep building.\n\n---\n\nWant me to add specific shout-outs, or adjust the tone for a more formal audience?" },
+      {
+        kind: "user_message",
+        content:
+          "Write a short motivational speech for the team all-hands meeting",
+      },
+      {
+        kind: "thinking",
+        content:
+          "The user wants a motivational speech for a team meeting. I should keep it warm, uplifting, and personal — something that makes people feel valued.",
+      },
+      {
+        kind: "text",
+        content:
+          "Here's your speech:\n\n---\n\nI know what you're thinking. \"Oh great, another all-hands.\" And yes, I've been told I do too many of these. But that's because I care too much.\n\nThis team shipped more this quarter than anyone thought possible. And I'm not gonna stand up here and take credit for that. Even though I could.\n\nYou stayed late debugging that cursed production issue. You reviewed PRs at midnight. You brought donuts the next morning. I ate three of those donuts. We all played our part.\n\nWe don't just work together. We *show up* for each other. And that's like finding a really good parking spot at Costco.\n\nSo look around this room. These are your people. I'm your people. Let's keep building.\n\n---\n\nWant me to add specific shout-outs, or adjust the tone for a more formal audience?",
+      },
     ],
   },
   {
     agentName: "Dwight",
     entries: [
-      { kind: "user_message", content: "Run a security audit on the farm perimeter sensors" },
-      { kind: "thinking", content: "Initiating perimeter security scan. I need to check all fence segments, motion sensors, and camera feeds for any anomalies." },
-      { kind: "tool_call", content: "Bash", metadata: { toolId: "tool-dwight-1", input: { command: "find /perimeter -name '*.sensor' -exec test-status {} \\;" } } },
-      { kind: "tool_result", content: "Sector 1: OK\nSector 2: OK\nSector 3: OK\nSector 4: OK\nSector 5: OK\nSector 6: OK\nSector 7G: ALERT — motion detected, unrecognized entity\nSector 8: OK", metadata: { toolUseId: "tool-dwight-1", duration_ms: 3400 } },
-      { kind: "text", content: "**🔒 Perimeter Security Audit Report**\n\n- 7 of 8 sectors: ✅ **SECURE** — all sensors nominal\n- Sector 7G: ⚠️ **ALERT** — unrecognized motion detected at 03:47 AM\n- Camera feed shows: 🦝 raccoon (confirmed non-threat, but flagged per protocol)\n\n**Recommendations:**\n1. Reinforce Sector 7G fence gap with wire mesh\n2. Recalibrate motion sensitivity to filter small wildlife\n3. Schedule next full audit for end of week\n\nOverall status: **OPERATIONAL** — one minor alert, no breaches." },
+      {
+        kind: "user_message",
+        content: "Run a security audit on the farm perimeter sensors",
+      },
+      {
+        kind: "thinking",
+        content:
+          "Initiating perimeter security scan. I need to check all fence segments, motion sensors, and camera feeds for any anomalies.",
+      },
+      {
+        kind: "tool_call",
+        content: "Bash",
+        metadata: {
+          toolId: "tool-dwight-1",
+          input: {
+            command:
+              "find /perimeter -name '*.sensor' -exec test-status {} \\;",
+          },
+        },
+      },
+      {
+        kind: "tool_result",
+        content:
+          "Sector 1: OK\nSector 2: OK\nSector 3: OK\nSector 4: OK\nSector 5: OK\nSector 6: OK\nSector 7G: ALERT — motion detected, unrecognized entity\nSector 8: OK",
+        metadata: { toolUseId: "tool-dwight-1", duration_ms: 3400 },
+      },
+      {
+        kind: "text",
+        content:
+          "**🔒 Perimeter Security Audit Report**\n\n- 7 of 8 sectors: ✅ **SECURE** — all sensors nominal\n- Sector 7G: ⚠️ **ALERT** — unrecognized motion detected at 03:47 AM\n- Camera feed shows: 🦝 raccoon (confirmed non-threat, but flagged per protocol)\n\n**Recommendations:**\n1. Reinforce Sector 7G fence gap with wire mesh\n2. Recalibrate motion sensitivity to filter small wildlife\n3. Schedule next full audit for end of week\n\nOverall status: **OPERATIONAL** — one minor alert, no breaches.",
+      },
     ],
   },
   {
     agentName: "Kevin",
     entries: [
-      { kind: "user_message", content: "Help me scale my chili recipe from 8 servings to 50" },
-      { kind: "thinking", content: "I need to multiply all ingredients by 50/8 = 6.25. Let me lay out the scaled quantities clearly." },
-      { kind: "text", content: "Here are the scaled ingredients for 50 servings:\n\n```\nGround beef:     15 lbs    (was 2.4 lbs)\nKidney beans:    12 cans   (was 2 cans)\nPinto beans:      8 cans   (was 1 can)\nDiced tomatoes:  10 cans   (was 1.5 cans)\nOnions:          10 large  (was 1.5)\nGarlic:           2 heads  (was 5 cloves)\nChili powder:     1 cup    (was 2.5 tbsp)\nCumin:           0.5 cup   (was 1 tbsp)\n```\n\nKey tip: with this volume, undercook the onions slightly — they'll keep softening as the pot simmers and you don't want them to turn to mush.\n\nWant me to generate a shopping list or break this into prep stages?" },
+      {
+        kind: "user_message",
+        content: "Help me scale my chili recipe from 8 servings to 50",
+      },
+      {
+        kind: "thinking",
+        content:
+          "I need to multiply all ingredients by 50/8 = 6.25. Let me lay out the scaled quantities clearly.",
+      },
+      {
+        kind: "text",
+        content:
+          "Here are the scaled ingredients for 50 servings:\n\n```\nGround beef:     15 lbs    (was 2.4 lbs)\nKidney beans:    12 cans   (was 2 cans)\nPinto beans:      8 cans   (was 1 can)\nDiced tomatoes:  10 cans   (was 1.5 cans)\nOnions:          10 large  (was 1.5)\nGarlic:           2 heads  (was 5 cloves)\nChili powder:     1 cup    (was 2.5 tbsp)\nCumin:           0.5 cup   (was 1 tbsp)\n```\n\nKey tip: with this volume, undercook the onions slightly — they'll keep softening as the pot simmers and you don't want them to turn to mush.\n\nWant me to generate a shopping list or break this into prep stages?",
+      },
     ],
   },
   {
     agentName: "Angela",
     entries: [
-      { kind: "user_message", content: "Find and remove duplicate photos in the cat archive" },
-      { kind: "thinking", content: "I need to scan the photo directory, compute checksums, and identify files with identical content. Let me start by counting how many photos we're dealing with." },
-      { kind: "tool_call", content: "Bash", metadata: { toolId: "tool-angela-1", input: { command: "find ~/accounting/cats/photos -type f \\( -name '*.jpg' -o -name '*.png' \\) | wc -l" } } },
-      { kind: "tool_result", content: "2,847", metadata: { toolUseId: "tool-angela-1", duration_ms: 1200 } },
-      { kind: "tool_call", content: "Read", metadata: { toolId: "tool-angela-2", input: { file_path: "~/accounting/cats/registry.csv" } } },
-      { kind: "tool_result", content: "id,name,photo_path,date_added\n1,Mr. Sprinkles,photos/sprinkles_001.jpg,2024-01-15\n2,Princess Lady,photos/princess_001.jpg,2024-01-15\n3,Mr. Sprinkles,photos/sprinkles_002.jpg,2024-02-03\n... (2,847 rows)", metadata: { toolUseId: "tool-angela-2", duration_ms: 340 } },
-      { kind: "text", content: "The archive has 2,847 photos with a matching registry. I can already see potential duplicates — Mr. Sprinkles has multiple entries. Let me compute checksums to find exact duplicates across the entire archive." },
-      { kind: "tool_call", content: "Bash", metadata: { toolId: "tool-angela-3", input: { command: "cd ~/accounting/cats/photos && md5sum *.jpg *.png | sort | uniq -d -w 32" } } },
+      {
+        kind: "user_message",
+        content: "Find and remove duplicate photos in the cat archive",
+      },
+      {
+        kind: "thinking",
+        content:
+          "I need to scan the photo directory, compute checksums, and identify files with identical content. Let me start by counting how many photos we're dealing with.",
+      },
+      {
+        kind: "tool_call",
+        content: "Bash",
+        metadata: {
+          toolId: "tool-angela-1",
+          input: {
+            command:
+              "find ~/accounting/cats/photos -type f \\( -name '*.jpg' -o -name '*.png' \\) | wc -l",
+          },
+        },
+      },
+      {
+        kind: "tool_result",
+        content: "2,847",
+        metadata: { toolUseId: "tool-angela-1", duration_ms: 1200 },
+      },
+      {
+        kind: "tool_call",
+        content: "Read",
+        metadata: {
+          toolId: "tool-angela-2",
+          input: { file_path: "~/accounting/cats/registry.csv" },
+        },
+      },
+      {
+        kind: "tool_result",
+        content:
+          "id,name,photo_path,date_added\n1,Mr. Sprinkles,photos/sprinkles_001.jpg,2024-01-15\n2,Princess Lady,photos/princess_001.jpg,2024-01-15\n3,Mr. Sprinkles,photos/sprinkles_002.jpg,2024-02-03\n... (2,847 rows)",
+        metadata: { toolUseId: "tool-angela-2", duration_ms: 340 },
+      },
+      {
+        kind: "text",
+        content:
+          "The archive has 2,847 photos with a matching registry. I can already see potential duplicates — Mr. Sprinkles has multiple entries. Let me compute checksums to find exact duplicates across the entire archive.",
+      },
+      {
+        kind: "tool_call",
+        content: "Bash",
+        metadata: {
+          toolId: "tool-angela-3",
+          input: {
+            command:
+              "cd ~/accounting/cats/photos && md5sum *.jpg *.png | sort | uniq -d -w 32",
+          },
+        },
+      },
     ],
   },
 ];
@@ -190,7 +427,10 @@ function seedLogs() {
     let t = baseTime;
     for (const { kind, content, metadata } of entries) {
       t += 3000 + Math.random() * 5000;
-      const meta = kind === "user_message" ? { ...metadata, username: "demo-boss" } : metadata;
+      const meta =
+        kind === "user_message"
+          ? { ...metadata, username: "demo-boss" }
+          : metadata;
       const entry = makeLogEntry(agentId, kind, content, meta);
       entry.timestamp = t;
       shimEmit({ type: "log_entry", entry });
@@ -205,7 +445,11 @@ const DEMO_REPLY =
 const cronjobs: Cronjob[] = [];
 let cronjobsPrompt: string | null = null;
 
-function computeNextFireDemo(schedule: Schedule, anchor: number, now: number = Date.now()): number {
+function computeNextFireDemo(
+  schedule: Schedule,
+  anchor: number,
+  now: number = Date.now(),
+): number {
   if (schedule.type === "interval") {
     const intervalMs = Math.max(5, schedule.minutes) * 60_000;
     if (now <= anchor) return anchor + intervalMs;
@@ -227,11 +471,21 @@ function computeNextFireDemo(schedule: Schedule, anchor: number, now: number = D
   return next.getTime();
 }
 
-const DEMO_CRONJOBS_SEED: { name: string; schedule: Schedule; prompt: string; cwd: string; modelFamily: ModelFamily; createdBy: string; ageDays: number; lastFireDaysAgo: number | null }[] = [
+const DEMO_CRONJOBS_SEED: {
+  name: string;
+  schedule: Schedule;
+  prompt: string;
+  cwd: string;
+  modelFamily: ModelFamily;
+  createdBy: string;
+  ageDays: number;
+  lastFireDaysAgo: number | null;
+}[] = [
   {
     name: "Morning office digest",
     schedule: { type: "daily", hour: 9, minute: 0 },
-    prompt: "Summarize what every agent worked on yesterday and post the digest in Michael's inbox.",
+    prompt:
+      "Summarize what every agent worked on yesterday and post the digest in Michael's inbox.",
     cwd: "~/dunder-mifflin",
     modelFamily: "sonnet",
     createdBy: "Michael",
@@ -241,7 +495,8 @@ const DEMO_CRONJOBS_SEED: { name: string; schedule: Schedule; prompt: string; cw
   {
     name: "Weekly beet inventory",
     schedule: { type: "weekly", weekday: 1, hour: 6, minute: 30 },
-    prompt: "Walk every row in ~/schrute-farms/inventory.csv, recount beets by variety, and flag any sector below 100 lbs.",
+    prompt:
+      "Walk every row in ~/schrute-farms/inventory.csv, recount beets by variety, and flag any sector below 100 lbs.",
     cwd: "~/schrute-farms",
     modelFamily: "opus",
     createdBy: "Dwight",
@@ -251,7 +506,8 @@ const DEMO_CRONJOBS_SEED: { name: string; schedule: Schedule; prompt: string; cw
   {
     name: "Cat archive backup check",
     schedule: { type: "interval", minutes: 360 },
-    prompt: "Verify the cat photo archive checksums against the offsite mirror. Open a P1 task if any drift is detected.",
+    prompt:
+      "Verify the cat photo archive checksums against the offsite mirror. Open a P1 task if any drift is detected.",
     cwd: "~/accounting/cats",
     modelFamily: "haiku",
     createdBy: "Angela",
@@ -267,7 +523,10 @@ function seedCronjobs() {
     const id = generateCronjobId(Array.from(usedIds));
     usedIds.add(id);
     const createdAt = now - seed.ageDays * 86400000;
-    const lastFireAt = seed.lastFireDaysAgo === null ? null : now - seed.lastFireDaysAgo * 86400000;
+    const lastFireAt =
+      seed.lastFireDaysAgo === null
+        ? null
+        : now - seed.lastFireDaysAgo * 86400000;
     cronjobs.push({
       id,
       name: seed.name,
@@ -282,7 +541,11 @@ function seedCronjobs() {
       username: null,
       createdAt,
       lastFireAt,
-      nextFireAt: computeNextFireDemo(seed.schedule, lastFireAt ?? createdAt, now),
+      nextFireAt: computeNextFireDemo(
+        seed.schedule,
+        lastFireAt ?? createdAt,
+        now,
+      ),
     });
   }
 }
@@ -296,28 +559,49 @@ function emitEvents(events: OfficeEvent[]) {
       case "agent_added":
         shimEmit({ type: "agent_added", agent: event.agent });
         // Send empty slash_commands so autocomplete initializes
-        shimEmit({ type: "slash_commands", agentId: event.agent.id, commands: [], skills: [] });
+        shimEmit({
+          type: "slash_commands",
+          agentId: event.agent.id,
+          commands: [],
+          skills: [],
+        });
         break;
       case "agent_removed":
         shimEmit({ type: "agent_removed", agentId: event.agentId });
         break;
       case "agent_updated":
-        shimEmit({ type: "agent_updated", agentId: event.agentId, changes: event.changes });
+        shimEmit({
+          type: "agent_updated",
+          agentId: event.agentId,
+          changes: event.changes,
+        });
         break;
       case "room_created":
         shimEmit({ type: "room_created", room: event.room });
         break;
       case "room_renamed":
-        shimEmit({ type: "room_renamed", roomId: event.roomId, name: event.name });
+        shimEmit({
+          type: "room_renamed",
+          roomId: event.roomId,
+          name: event.name,
+        });
         break;
       case "room_closed":
         shimEmit({ type: "room_closed", roomId: event.roomId });
         break;
       case "room_settings_updated":
-        shimEmit({ type: "room_settings_updated", roomId: event.roomId, prompt: event.prompt });
+        shimEmit({
+          type: "room_settings_updated",
+          roomId: event.roomId,
+          prompt: event.prompt,
+        });
         break;
       case "office_settings_updated":
-        shimEmit({ type: "office_settings_updated", prompt: event.prompt, envFile: event.envFile });
+        shimEmit({
+          type: "office_settings_updated",
+          prompt: event.prompt,
+          envFile: event.envFile,
+        });
         break;
       case "tasks_changed":
         shimEmit({ type: "tasks", tasks: event.tasks });
@@ -326,7 +610,12 @@ function emitEvents(events: OfficeEvent[]) {
   }
 }
 
-function makeLogEntry(agentId: string, kind: LogEntry["kind"], content: string, metadata?: Record<string, unknown>): LogEntry {
+function makeLogEntry(
+  agentId: string,
+  kind: LogEntry["kind"],
+  content: string,
+  metadata?: Record<string, unknown>,
+): LogEntry {
   return {
     id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
     agentId,
@@ -357,11 +646,19 @@ export function handleCommand(cmd: ClientCommand) {
       if (result) {
         emitEvents(result.events);
         // System message
-        const entry = makeLogEntry(result.agent.id, "system", `Agent "${cmd.name}" ready. Working in ${cmd.cwd}. (Demo mode)`);
+        const entry = makeLogEntry(
+          result.agent.id,
+          "system",
+          `Agent "${cmd.name}" ready. Working in ${cmd.cwd}. (Demo mode)`,
+        );
         shimEmit({ type: "log_entry", entry });
       }
       if (cmd.requestId) {
-        shimEmit({ type: "agent_save_response", requestId: cmd.requestId, ok: true });
+        shimEmit({
+          type: "agent_save_response",
+          requestId: cmd.requestId,
+          ok: true,
+        });
       }
       break;
     }
@@ -370,18 +667,24 @@ export function handleCommand(cmd: ClientCommand) {
       break;
     }
     case "edit_agent": {
-      emitEvents(state.editAgent(cmd.agentId, {
-        name: cmd.name,
-        cwd: cmd.cwd,
-        outfit: cmd.outfit,
-        customInstructions: cmd.customInstructions,
-        permissionMode: cmd.permissionMode,
-        modelFamily: cmd.modelFamily as AgentInfo["modelFamily"] | undefined,
-        effort: cmd.effort,
-        codexSandbox: cmd.codexSandbox,
-      }));
+      emitEvents(
+        state.editAgent(cmd.agentId, {
+          name: cmd.name,
+          cwd: cmd.cwd,
+          outfit: cmd.outfit,
+          customInstructions: cmd.customInstructions,
+          permissionMode: cmd.permissionMode,
+          modelFamily: cmd.modelFamily as AgentInfo["modelFamily"] | undefined,
+          effort: cmd.effort,
+          codexSandbox: cmd.codexSandbox,
+        }),
+      );
       if (cmd.requestId) {
-        shimEmit({ type: "agent_save_response", requestId: cmd.requestId, ok: true });
+        shimEmit({
+          type: "agent_save_response",
+          requestId: cmd.requestId,
+          ok: true,
+        });
       }
       break;
     }
@@ -414,14 +717,23 @@ export function handleCommand(cmd: ClientCommand) {
       break;
     }
     case "update_office_settings": {
-      const envFile = cmd.envFile && cmd.envFile.trim() ? cmd.envFile.trim() : null;
+      const envFile =
+        cmd.envFile && cmd.envFile.trim() ? cmd.envFile.trim() : null;
       emitEvents(state.setOfficeSettings(cmd.prompt, envFile));
-      shimEmit({ type: "settings_save_response", requestId: cmd.requestId, ok: true });
+      shimEmit({
+        type: "settings_save_response",
+        requestId: cmd.requestId,
+        ok: true,
+      });
       break;
     }
     case "update_room_settings": {
       emitEvents(state.setRoomSettings(cmd.roomId, cmd.prompt));
-      shimEmit({ type: "settings_save_response", requestId: cmd.requestId, ok: true });
+      shimEmit({
+        type: "settings_save_response",
+        requestId: cmd.requestId,
+        ok: true,
+      });
       break;
     }
     case "request_cwd_validation": {
@@ -432,14 +744,34 @@ export function handleCommand(cmd: ClientCommand) {
     case "request_settings_validation": {
       const s = state.getState();
       if (cmd.scope === "office") {
-        shimEmit({ type: "settings_validation", requestId: cmd.requestId, scope: "office", envFile: s.office.envFile, ok: true });
+        shimEmit({
+          type: "settings_validation",
+          requestId: cmd.requestId,
+          scope: "office",
+          envFile: s.office.envFile,
+          ok: true,
+        });
       } else if (cmd.scope === "user") {
-        shimEmit({ type: "settings_validation", requestId: cmd.requestId, scope: "user", username: cmd.username, envFile: null, ok: true });
+        shimEmit({
+          type: "settings_validation",
+          requestId: cmd.requestId,
+          scope: "user",
+          username: cmd.username,
+          envFile: null,
+          ok: true,
+        });
       }
       break;
     }
     case "add_task": {
-      emitEvents(state.addTask(cmd.title, cmd.username, { description: cmd.description, priority: cmd.priority, assignee: cmd.assignee, username: cmd.username }));
+      emitEvents(
+        state.addTask(cmd.title, cmd.username, {
+          description: cmd.description,
+          priority: cmd.priority,
+          assignee: cmd.assignee,
+          username: cmd.username,
+        }),
+      );
       break;
     }
     case "update_task": {
@@ -452,19 +784,35 @@ export function handleCommand(cmd: ClientCommand) {
     }
     case "send_message": {
       // Log the user message
-      const userEntry = makeLogEntry(cmd.agentId, "user_message", cmd.text, cmd.username ? { username: cmd.username } : undefined);
+      const userEntry = makeLogEntry(
+        cmd.agentId,
+        "user_message",
+        cmd.text,
+        cmd.username ? { username: cmd.username } : undefined,
+      );
       shimEmit({ type: "log_entry", entry: userEntry });
       // Cancel any pending reply for this agent (prevents flickering on rapid sends)
       const prev = pendingReplies.get(cmd.agentId);
       if (prev) clearTimeout(prev);
       // Briefly show "thinking" state, then reply
-      shimEmit({ type: "agent_updated", agentId: cmd.agentId, changes: { state: "thinking" } });
-      pendingReplies.set(cmd.agentId, setTimeout(() => {
-        pendingReplies.delete(cmd.agentId);
-        const replyEntry = makeLogEntry(cmd.agentId, "text", DEMO_REPLY);
-        shimEmit({ type: "log_entry", entry: replyEntry });
-        shimEmit({ type: "agent_updated", agentId: cmd.agentId, changes: { state: "waiting_for_response" } });
-      }, 800));
+      shimEmit({
+        type: "agent_updated",
+        agentId: cmd.agentId,
+        changes: { state: "thinking" },
+      });
+      pendingReplies.set(
+        cmd.agentId,
+        setTimeout(() => {
+          pendingReplies.delete(cmd.agentId);
+          const replyEntry = makeLogEntry(cmd.agentId, "text", DEMO_REPLY);
+          shimEmit({ type: "log_entry", entry: replyEntry });
+          shimEmit({
+            type: "agent_updated",
+            agentId: cmd.agentId,
+            changes: { state: "waiting_for_response" },
+          });
+        }, 800),
+      );
       break;
     }
     case "abort": {
@@ -474,8 +822,16 @@ export function handleCommand(cmd: ClientCommand) {
         clearTimeout(pendingAbort);
         pendingReplies.delete(cmd.agentId);
       }
-      shimEmit({ type: "agent_updated", agentId: cmd.agentId, changes: { state: "waiting_for_response" } });
-      const abortEntry = makeLogEntry(cmd.agentId, "system", "Agent interrupted.");
+      shimEmit({
+        type: "agent_updated",
+        agentId: cmd.agentId,
+        changes: { state: "waiting_for_response" },
+      });
+      const abortEntry = makeLogEntry(
+        cmd.agentId,
+        "system",
+        "Agent interrupted.",
+      );
       shimEmit({ type: "log_entry", entry: abortEntry });
       break;
     }
@@ -501,7 +857,11 @@ export function handleCommand(cmd: ClientCommand) {
       cronjobs.push(cronjob);
       shimEmit({ type: "cronjob_added", cronjob });
       if (cmd.requestId) {
-        shimEmit({ type: "agent_save_response", requestId: cmd.requestId, ok: true });
+        shimEmit({
+          type: "agent_save_response",
+          requestId: cmd.requestId,
+          ok: true,
+        });
       }
       break;
     }
@@ -511,13 +871,21 @@ export function handleCommand(cmd: ClientCommand) {
         const merged: Cronjob = { ...cronjobs[idx], ...cmd.changes };
         if (cmd.changes.schedule) {
           const anchor = merged.lastFireAt ?? merged.createdAt;
-          merged.nextFireAt = computeNextFireDemo(cmd.changes.schedule, anchor, Date.now());
+          merged.nextFireAt = computeNextFireDemo(
+            cmd.changes.schedule,
+            anchor,
+            Date.now(),
+          );
         }
         cronjobs[idx] = merged;
         shimEmit({ type: "cronjob_updated", cronjob: merged });
       }
       if (cmd.requestId) {
-        shimEmit({ type: "agent_save_response", requestId: cmd.requestId, ok: true });
+        shimEmit({
+          type: "agent_save_response",
+          requestId: cmd.requestId,
+          ok: true,
+        });
       }
       break;
     }
@@ -532,7 +900,11 @@ export function handleCommand(cmd: ClientCommand) {
     case "update_cronjobs_prompt": {
       cronjobsPrompt = cmd.value && cmd.value.trim() ? cmd.value : null;
       shimEmit({ type: "cronjobs_prompt_updated", value: cronjobsPrompt });
-      shimEmit({ type: "settings_save_response", requestId: cmd.requestId, ok: true });
+      shimEmit({
+        type: "settings_save_response",
+        requestId: cmd.requestId,
+        ok: true,
+      });
       break;
     }
     case "list_all_cronjob_runs": {
@@ -561,7 +933,13 @@ export function handleCommand(cmd: ClientCommand) {
 export function sendInitialState() {
   ensureSeeded();
   const s = state.getState();
-  shimEmit({ type: "full_state", agents: s.agents, recentCwds: s.recentCwds, office: s.office, rooms: s.rooms });
+  shimEmit({
+    type: "full_state",
+    agents: s.agents,
+    recentCwds: s.recentCwds,
+    office: s.office,
+    rooms: s.rooms,
+  });
   shimEmit({ type: "tasks", tasks: s.tasks });
   shimEmit({ type: "cronjobs_state", cronjobs: [...cronjobs], cronjobsPrompt });
   seedLogs();

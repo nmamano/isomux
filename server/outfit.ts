@@ -1,5 +1,13 @@
 import type { AgentOutfit } from "../shared/types.ts";
-import { SHIRT_COLORS, HAIR_COLORS, SKIN_COLORS, HAIR_STYLES, BEARDS, HATS, ACCESSORIES } from "../shared/outfit-options.ts";
+import {
+  SHIRT_COLORS,
+  HAIR_COLORS,
+  SKIN_COLORS,
+  HAIR_STYLES,
+  BEARDS,
+  HATS,
+  ACCESSORIES,
+} from "../shared/outfit-options.ts";
 
 function pick<T>(arr: readonly T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];

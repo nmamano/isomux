@@ -44,10 +44,10 @@ function allow(): HookJSONOutput {
 function denyMessage(reason: string, command: string): HookJSONOutput {
   return deny(
     `BLOCKED by isomux safety hooks\n\n` +
-    `Reason: ${reason}\n\n` +
-    `Command: ${command}\n\n` +
-    `If this operation is truly needed, ask the user for explicit ` +
-    `permission and have them run the command manually.`
+      `Reason: ${reason}\n\n` +
+      `Command: ${command}\n\n` +
+      `If this operation is truly needed, ask the user for explicit ` +
+      `permission and have them run the command manually.`,
   );
 }
 
@@ -79,10 +79,7 @@ const DESTRUCTIVE_PATTERNS: [RegExp, string][] = [
     /git\s+reset\s+--hard/,
     "git reset --hard destroys uncommitted changes. Use 'git stash' first.",
   ],
-  [
-    /git\s+reset\s+--merge/,
-    "git reset --merge can lose uncommitted changes.",
-  ],
+  [/git\s+reset\s+--merge/, "git reset --merge can lose uncommitted changes."],
   // Git clean
   [
     /git\s+clean\s+-[a-z]*f/,
@@ -136,12 +133,12 @@ const DESTRUCTIVE_PATTERNS: [RegExp, string][] = [
 
 // Patterns that are safe even if they match above (allowlist)
 const SAFE_PATTERNS: RegExp[] = [
-  /git\s+checkout\s+-b\s+/,                                          // Creating new branch
-  /git\s+checkout\s+--orphan\s+/,                                    // Creating orphan branch
-  /git\s+restore\s+--staged\s+(?!.*--worktree)(?!.*-W\b)/,          // Unstaging only (safe)
-  /git\s+restore\s+-S\s+(?!.*--worktree)(?!.*-W\b)/,                // Unstaging short form (safe)
-  /git\s+clean\s+-[a-z]*n[a-z]*/,                                   // Dry run (-n, -fn, -nf, etc.)
-  /git\s+clean\s+--dry-run/,                                        // Dry run (long form)
+  /git\s+checkout\s+-b\s+/, // Creating new branch
+  /git\s+checkout\s+--orphan\s+/, // Creating orphan branch
+  /git\s+restore\s+--staged\s+(?!.*--worktree)(?!.*-W\b)/, // Unstaging only (safe)
+  /git\s+restore\s+-S\s+(?!.*--worktree)(?!.*-W\b)/, // Unstaging short form (safe)
+  /git\s+clean\s+-[a-z]*n[a-z]*/, // Dry run (-n, -fn, -nf, etc.)
+  /git\s+clean\s+--dry-run/, // Dry run (long form)
   // Allow rm -rf on temp directories (-rf/-Rf and -fr/-fR flag orderings)
   /rm\s+-[a-zA-Z]*[rR][a-zA-Z]*f[a-zA-Z]*\s+\/tmp\//,
   /rm\s+-[a-zA-Z]*f[a-zA-Z]*[rR][a-zA-Z]*\s+\/tmp\//,
@@ -207,8 +204,21 @@ function stripQuotedStrings(cmd: string): string {
 
 // Commands that only read — safe to run against ~/.isomux/
 const READ_ONLY_COMMANDS = [
-  "cat", "ls", "head", "tail", "less", "grep", "rg", "find",
-  "stat", "wc", "file", "diff", "bat", "jq", "tree",
+  "cat",
+  "ls",
+  "head",
+  "tail",
+  "less",
+  "grep",
+  "rg",
+  "find",
+  "stat",
+  "wc",
+  "file",
+  "diff",
+  "bat",
+  "jq",
+  "tree",
 ];
 
 // Copy-like commands where only the last argument (destination) is a write target.
@@ -217,22 +227,41 @@ const COPY_COMMANDS = ["cp", "rsync", "scp", "install"];
 
 // Commands that can modify files — if these target ~/.isomux/, block them
 const WRITE_COMMANDS = [
-  "cp", "mv", "rm", "mkdir", "rmdir", "touch", "chmod", "chown",
-  "tee", "dd", "install", "rsync", "scp", "ln",
-  "sed", "awk", "perl", "python", "python3", "ruby", "node", "bun",
+  "cp",
+  "mv",
+  "rm",
+  "mkdir",
+  "rmdir",
+  "touch",
+  "chmod",
+  "chown",
+  "tee",
+  "dd",
+  "install",
+  "rsync",
+  "scp",
+  "ln",
+  "sed",
+  "awk",
+  "perl",
+  "python",
+  "python3",
+  "ruby",
+  "node",
+  "bun",
 ];
 
 function commandWritesToIsomux(command: string): boolean {
   // Check 1: Redirection (> or >>) targeting ~/.isomux/
   // Match: > ~/.isomux/ or >> ~/.isomux/ or > /home/user/.isomux/
   const redirectPattern = new RegExp(
-    `>>?\\s*(?:~\\/\\.isomux|${ISOMUX_DIR.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`
+    `>>?\\s*(?:~\\/\\.isomux|${ISOMUX_DIR.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`,
   );
   if (redirectPattern.test(command)) return true;
 
   // Check 2: Write commands with ~/.isomux/ as an argument
   // Split on pipe/semicolon/&&/|| to get individual sub-commands
-  const subCommands = command.split(/[|;&]+/).map(s => s.trim());
+  const subCommands = command.split(/[|;&]+/).map((s) => s.trim());
   for (const sub of subCommands) {
     if (!sub.includes(ISOMUX_DIR) && !sub.includes("~/.isomux")) continue;
     const firstToken = sub.split(/\s+/)[0]?.replace(/^.*\//, "") ?? "";
@@ -241,7 +270,7 @@ function commandWritesToIsomux(command: string): boolean {
     // For copy-like commands, only the destination (last arg) is a write target.
     // Reading *from* ~/.isomux/ is fine — only block if writing *to* it.
     if (COPY_COMMANDS.includes(firstToken)) {
-      const args = sub.split(/\s+/).filter(a => !a.startsWith("-"));
+      const args = sub.split(/\s+/).filter((a) => !a.startsWith("-"));
       const dest = args[args.length - 1] ?? "";
       if (dest.includes(ISOMUX_DIR) || dest.includes("~/.isomux")) return true;
       continue;
@@ -270,22 +299,32 @@ const SENSITIVE_EXACT: Set<string> = new Set([
 
 /** Patterns matched against the basename */
 const SENSITIVE_PATTERNS: RegExp[] = [
-  /^\.env\./,                    // .env.local, .env.production, .env.development, etc.
-  /\.pem$/,                      // TLS/SSH private keys
-  /\.key$/,                      // private key files
-  /\.p12$/,                      // PKCS#12 keystores
-  /\.pfx$/,                      // PKCS#12 (Windows naming)
-  /\.jks$/,                      // Java keystores
-  /^id_rsa/,                     // SSH private keys (id_rsa, id_rsa.pub is harmless but block anyway)
-  /^id_ed25519/,                 // SSH ed25519 keys
-  /^id_ecdsa/,                   // SSH ECDSA keys
-  /^id_dsa/,                     // SSH DSA keys
+  /^\.env\./, // .env.local, .env.production, .env.development, etc.
+  /\.pem$/, // TLS/SSH private keys
+  /\.key$/, // private key files
+  /\.p12$/, // PKCS#12 keystores
+  /\.pfx$/, // PKCS#12 (Windows naming)
+  /\.jks$/, // Java keystores
+  /^id_rsa/, // SSH private keys (id_rsa, id_rsa.pub is harmless but block anyway)
+  /^id_ed25519/, // SSH ed25519 keys
+  /^id_ecdsa/, // SSH ECDSA keys
+  /^id_dsa/, // SSH DSA keys
 ];
 
 /** Bash commands that read file contents */
 const FILE_READ_COMMANDS = [
-  "cat", "head", "tail", "less", "more", "bat", "batcat",
-  "strings", "xxd", "hexdump", "od", "base64",
+  "cat",
+  "head",
+  "tail",
+  "less",
+  "more",
+  "bat",
+  "batcat",
+  "strings",
+  "xxd",
+  "hexdump",
+  "od",
+  "base64",
 ];
 
 /** Suffixes that indicate a template/example file, not real secrets */
@@ -294,18 +333,18 @@ const SAFE_SUFFIXES = [".example", ".template", ".sample", ".dist"];
 function isSensitiveFile(filePath: string): boolean {
   const name = basename(filePath);
   // Allow .env.example, .env.template, etc.
-  if (SAFE_SUFFIXES.some(s => name.endsWith(s))) return false;
+  if (SAFE_SUFFIXES.some((s) => name.endsWith(s))) return false;
   if (SENSITIVE_EXACT.has(name)) return true;
-  return SENSITIVE_PATTERNS.some(p => p.test(name));
+  return SENSITIVE_PATTERNS.some((p) => p.test(name));
 }
 
 function denySecretRead(target: string, tool: string): HookJSONOutput {
   return deny(
     `BLOCKED by isomux safety hooks\n\n` +
-    `Reason: "${basename(target)}" may contain secrets. Agents are not allowed ` +
-    `to read sensitive files (.env, private keys, credentials, etc.).\n\n` +
-    `${tool} target: ${target}\n\n` +
-    `If you need a value from this file, ask the user to provide it.`
+      `Reason: "${basename(target)}" may contain secrets. Agents are not allowed ` +
+      `to read sensitive files (.env, private keys, credentials, etc.).\n\n` +
+      `${tool} target: ${target}\n\n` +
+      `If you need a value from this file, ask the user to provide it.`,
   );
 }
 
@@ -326,13 +365,13 @@ const checkBashSafety: HookCallback = async (input) => {
   if (commandWritesToIsomux(stripped)) {
     return denyMessage(
       "Writing to ~/.isomux/ is not allowed. This directory is managed by the isomux server. " +
-      "Read operations (cat, ls, grep, etc.) are permitted.",
+        "Read operations (cat, ls, grep, etc.) are permitted.",
       command,
     );
   }
 
   // Check sensitive file reads via shell commands (cat .env, head key.pem, etc.)
-  const subCommands = normalized.split(/[|;&]+/).map(s => s.trim());
+  const subCommands = normalized.split(/[|;&]+/).map((s) => s.trim());
   for (const sub of subCommands) {
     const tokens = sub.split(/\s+/);
     const cmd = tokens[0]?.replace(/^.*\//, "") ?? "";
@@ -343,8 +382,8 @@ const checkBashSafety: HookCallback = async (input) => {
       if (isSensitiveFile(arg)) {
         return denyMessage(
           `"${basename(arg)}" may contain secrets. Agents are not allowed ` +
-          `to read sensitive files (.env, private keys, credentials, etc.). ` +
-          `If you need a value from this file, ask the user to provide it.`,
+            `to read sensitive files (.env, private keys, credentials, etc.). ` +
+            `If you need a value from this file, ask the user to provide it.`,
           command,
         );
       }
@@ -381,10 +420,10 @@ const checkWriteEditSafety: HookCallback = async (input) => {
   if (resolved === ISOMUX_DIR || resolved.startsWith(ISOMUX_DIR + "/")) {
     return deny(
       `BLOCKED by isomux safety hooks\n\n` +
-      `Reason: Writing to ~/.isomux/ is not allowed. This directory is managed by the isomux server.\n\n` +
-      `${tool_name} target: ${filePath}\n\n` +
-      `If this operation is truly needed, ask the user for explicit ` +
-      `permission and have them run the command manually.`
+        `Reason: Writing to ~/.isomux/ is not allowed. This directory is managed by the isomux server.\n\n` +
+        `${tool_name} target: ${filePath}\n\n` +
+        `If this operation is truly needed, ask the user for explicit ` +
+        `permission and have them run the command manually.`,
     );
   }
 
@@ -407,7 +446,9 @@ const checkSensitiveFileRead: HookCallback = async (input) => {
 // Export — wire into SDKSessionOptions.hooks
 // ---------------------------------------------------------------------------
 
-export function createSafetyHooks(): Partial<Record<HookEvent, HookCallbackMatcher[]>> {
+export function createSafetyHooks(): Partial<
+  Record<HookEvent, HookCallbackMatcher[]>
+> {
   return {
     PreToolUse: [
       { matcher: "Bash", hooks: [checkBashSafety] },

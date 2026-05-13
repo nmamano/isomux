@@ -10,7 +10,13 @@ export type NavAction = {
   title?: string;
 };
 
-export function NavActions({ actions, viewport }: { actions: NavAction[]; viewport: "mobile" | "desktop" }) {
+export function NavActions({
+  actions,
+  viewport,
+}: {
+  actions: NavAction[];
+  viewport: "mobile" | "desktop";
+}) {
   if (viewport === "desktop") return <DesktopActions actions={actions} />;
   return <MobileActions actions={actions} />;
 }
@@ -38,7 +44,9 @@ function DesktopActions({ actions }: { actions: NavAction[] }) {
             lineHeight: 1,
           }}
         >
-          <span style={{ display: "flex", alignItems: "center" }}>{a.icon}</span>
+          <span style={{ display: "flex", alignItems: "center" }}>
+            {a.icon}
+          </span>
           <span className="nav-action-label">{a.label}</span>
         </button>
       ))}
@@ -55,14 +63,16 @@ function MobileActions({ actions }: { actions: NavAction[] }) {
   useEffect(() => {
     if (!open) return;
     const rect = triggerRef.current?.getBoundingClientRect();
-    if (rect) setPos({ top: rect.bottom + 6, right: window.innerWidth - rect.right });
+    if (rect)
+      setPos({ top: rect.bottom + 6, right: window.innerWidth - rect.right });
   }, [open]);
 
   useEffect(() => {
     if (!open) return;
     const close = (e: Event) => {
       const t = e.target as Node;
-      if (menuRef.current?.contains(t) || triggerRef.current?.contains(t)) return;
+      if (menuRef.current?.contains(t) || triggerRef.current?.contains(t))
+        return;
       setOpen(false);
     };
     const onScroll = () => setOpen(false);
@@ -116,7 +126,10 @@ function MobileActions({ actions }: { actions: NavAction[] }) {
             {actions.map((a) => (
               <button
                 key={a.id}
-                onClick={() => { setOpen(false); a.onClick(); }}
+                onClick={() => {
+                  setOpen(false);
+                  a.onClick();
+                }}
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -131,7 +144,16 @@ function MobileActions({ actions }: { actions: NavAction[] }) {
                   textAlign: "left",
                 }}
               >
-                <span style={{ width: 20, display: "flex", alignItems: "center", justifyContent: "center" }}>{a.icon}</span>
+                <span
+                  style={{
+                    width: 20,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  {a.icon}
+                </span>
                 <span>{a.label}</span>
               </button>
             ))}

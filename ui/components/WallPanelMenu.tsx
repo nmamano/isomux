@@ -76,9 +76,16 @@ export function WallPanelMenu({ x, y, items, onClose }: Props) {
         {items.map((item) => (
           <button
             key={item.id}
-            onClick={() => { item.onClick(); onClose(); }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+            onClick={() => {
+              item.onClick();
+              onClose();
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = "rgba(255,255,255,0.04)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = "transparent";
+            }}
             style={{
               display: "flex",
               alignItems: "center",
@@ -94,7 +101,16 @@ export function WallPanelMenu({ x, y, items, onClose }: Props) {
               textAlign: "left",
             }}
           >
-            <span style={{ width: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>{item.icon}</span>
+            <span
+              style={{
+                width: 16,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              {item.icon}
+            </span>
             <span>{item.label}</span>
           </button>
         ))}

@@ -1,12 +1,41 @@
 import { useEffect, useRef, useState } from "react";
-import type { AgentBackendType, AgentInfo, AgentOutfit, BackendModelWire, ClientCommand, CodexSandboxMode, EffortLevel, ModelFamily } from "../../shared/types.ts";
-import { MODEL_FAMILIES, EFFORT_LEVELS, DEFAULT_EFFORT, modelVersionLabel, CODEX_MODELS } from "../../shared/types.ts";
-import { SHIRT_COLORS, HAIR_COLORS, SKIN_COLORS, HAIR_STYLES, BEARDS, HATS, ACCESSORIES } from "../../shared/outfit-options.ts";
+import type {
+  AgentBackendType,
+  AgentInfo,
+  AgentOutfit,
+  BackendModelWire,
+  ClientCommand,
+  CodexSandboxMode,
+  EffortLevel,
+  ModelFamily,
+} from "../../shared/types.ts";
+import {
+  MODEL_FAMILIES,
+  EFFORT_LEVELS,
+  DEFAULT_EFFORT,
+  modelVersionLabel,
+  CODEX_MODELS,
+} from "../../shared/types.ts";
+import {
+  SHIRT_COLORS,
+  HAIR_COLORS,
+  SKIN_COLORS,
+  HAIR_STYLES,
+  BEARDS,
+  HATS,
+  ACCESSORIES,
+} from "../../shared/outfit-options.ts";
 import { Character } from "../office/Character.tsx";
 import { send, addRawListener, removeRawListener } from "../ws.ts";
 import { useAppState } from "../store.tsx";
 import { getUsername } from "../device-settings.ts";
-import { dialogLabel, dialogInput, dialogCancelBtn, dialogSaveBtn, dialogChip } from "./dialog-styles.ts";
+import {
+  dialogLabel,
+  dialogInput,
+  dialogCancelBtn,
+  dialogSaveBtn,
+  dialogChip,
+} from "./dialog-styles.ts";
 
 const HAIR_STYLE_LABELS: Record<AgentOutfit["hairStyle"], string> = {
   short: "Short",
@@ -58,34 +87,65 @@ function makeRandomOutfit(): AgentOutfit {
 type EditAgentDialogProps = {
   onClose: () => void;
 } & (
-  | { agent: AgentInfo; deskIndex?: undefined; room?: undefined; defaultCwd?: undefined; spawnAgentType?: undefined }
-  | { agent?: undefined; deskIndex: number; room: number; defaultCwd: string; spawnAgentType: AgentBackendType }
+  | {
+      agent: AgentInfo;
+      deskIndex?: undefined;
+      room?: undefined;
+      defaultCwd?: undefined;
+      spawnAgentType?: undefined;
+    }
+  | {
+      agent?: undefined;
+      deskIndex: number;
+      room: number;
+      defaultCwd: string;
+      spawnAgentType: AgentBackendType;
+    }
 );
 
 export function EditAgentDialog(props: EditAgentDialogProps) {
   const { onClose } = props;
   const isSpawn = !props.agent;
   const agent = props.agent;
-  const agentType: AgentBackendType = agent?.agentType ?? props.spawnAgentType ?? "claude";
+  const agentType: AgentBackendType =
+    agent?.agentType ?? props.spawnAgentType ?? "claude";
   const isCodex = agentType === "codex";
 
   const { recentCwds: allRecentCwds, isMobile, agents, rooms } = useAppState();
   const roomCount = rooms.length;
   const [name, setName] = useState(agent?.name ?? "");
   const [cwd, setCwd] = useState(agent?.cwd ?? props.defaultCwd ?? "~");
-  const [outfit, setOutfit] = useState<AgentOutfit>(agent ? { ...agent.outfit } : makeRandomOutfit);
-  const [customInstructions, setCustomInstructions] = useState(agent?.customInstructions ?? "");
-  const defaultModel = isCodex ? CODEX_MODELS[0].value : MODEL_FAMILIES[0].family;
-  const [modelFamily, setModelFamily] = useState<string>(agent?.modelFamily ?? defaultModel);
-  const [effort, setEffort] = useState<EffortLevel>(agent?.effort ?? (isCodex ? "medium" : DEFAULT_EFFORT));
-  const [codexSandbox, setCodexSandbox] = useState<CodexSandboxMode>(agent?.codexSandbox ?? "workspace-write");
+  const [outfit, setOutfit] = useState<AgentOutfit>(
+    agent ? { ...agent.outfit } : makeRandomOutfit,
+  );
+  const [customInstructions, setCustomInstructions] = useState(
+    agent?.customInstructions ?? "",
+  );
+  const defaultModel = isCodex
+    ? CODEX_MODELS[0].value
+    : MODEL_FAMILIES[0].family;
+  const [modelFamily, setModelFamily] = useState<string>(
+    agent?.modelFamily ?? defaultModel,
+  );
+  const [effort, setEffort] = useState<EffortLevel>(
+    agent?.effort ?? (isCodex ? "medium" : DEFAULT_EFFORT),
+  );
+  const [codexSandbox, setCodexSandbox] = useState<CodexSandboxMode>(
+    agent?.codexSandbox ?? "workspace-write",
+  );
   const claudeDefaultMode: AgentInfo["permissionMode"] =
-    agent?.permissionMode === "auto" && (agent?.modelFamily ?? MODEL_FAMILIES[0].family) !== "opus"
+    agent?.permissionMode === "auto" &&
+    (agent?.modelFamily ?? MODEL_FAMILIES[0].family) !== "opus"
       ? "bypassPermissions"
       : (agent?.permissionMode ?? "auto");
-  const codexDefaultMode: AgentInfo["permissionMode"] = (agent?.permissionMode as AgentInfo["permissionMode"]) ?? "on-request";
-  const initialPermissionMode: AgentInfo["permissionMode"] = isCodex ? codexDefaultMode : claudeDefaultMode;
-  const [permissionMode, setPermissionMode] = useState<AgentInfo["permissionMode"]>(initialPermissionMode);
+  const codexDefaultMode: AgentInfo["permissionMode"] =
+    (agent?.permissionMode as AgentInfo["permissionMode"]) ?? "on-request";
+  const initialPermissionMode: AgentInfo["permissionMode"] = isCodex
+    ? codexDefaultMode
+    : claudeDefaultMode;
+  const [permissionMode, setPermissionMode] = useState<
+    AgentInfo["permissionMode"]
+  >(initialPermissionMode);
   const [saving, setSaving] = useState(false);
   const [cwdError, setCwdError] = useState<string | null>(null);
   const pendingListener = useRef<((data: string) => void) | null>(null);
@@ -98,9 +158,14 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   // a real spawn would see. Claude path doesn't need this — the family
   // list is static, identical across auth tiers, and rendered from the
   // shared MODEL_FAMILIES constant.
-  const [backendModels, setBackendModels] = useState<BackendModelWire[] | null>(null);
+  const [backendModels, setBackendModels] = useState<BackendModelWire[] | null>(
+    null,
+  );
   const [modelsLoading, setModelsLoading] = useState(false);
-  const [modelsError, setModelsError] = useState<{ message: string; authError: boolean } | null>(null);
+  const [modelsError, setModelsError] = useState<{
+    message: string;
+    authError: boolean;
+  } | null>(null);
 
   useEffect(() => {
     return () => {
@@ -140,7 +205,11 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     const listener = (data: string) => {
       try {
         const msg = JSON.parse(data);
-        if (msg.type !== "list_backend_models_response" || msg.requestId !== reqId) return;
+        if (
+          msg.type !== "list_backend_models_response" ||
+          msg.requestId !== reqId
+        )
+          return;
         removeRawListener(listener);
         if (cancelled) return;
         setModelsLoading(false);
@@ -153,14 +222,20 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
           // The model select is disabled during loading, so the user
           // can't have made a choice we'd be overriding.
           if (isSpawn) {
-            const def = msg.models.find((m: BackendModelWire) => m.isDefault) ?? msg.models[0];
+            const def =
+              msg.models.find((m: BackendModelWire) => m.isDefault) ??
+              msg.models[0];
             if (def) {
               setModelFamily(def.id);
-              if (def.defaultEffort) setEffort(def.defaultEffort as EffortLevel);
+              if (def.defaultEffort)
+                setEffort(def.defaultEffort as EffortLevel);
             }
           }
         } else {
-          setModelsError({ message: msg.error || "Failed to load models", authError: !!msg.authError });
+          setModelsError({
+            message: msg.error || "Failed to load models",
+            authError: !!msg.authError,
+          });
         }
       } catch {}
     };
@@ -223,17 +298,38 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         ...(isCodex ? { codexSandbox } : {}),
       });
     } else {
-      const cmd: Extract<ClientCommand, { type: "edit_agent" }> = { type: "edit_agent", agentId: agent!.id };
+      const cmd: Extract<ClientCommand, { type: "edit_agent" }> = {
+        type: "edit_agent",
+        agentId: agent!.id,
+      };
       if (name.trim() && name.trim() !== agent!.name) cmd.name = name.trim();
       if (cwd.trim() && cwd.trim() !== agent!.cwd) cmd.cwd = cwd.trim();
-      if (JSON.stringify(outfit) !== JSON.stringify(agent!.outfit)) cmd.outfit = outfit;
+      if (JSON.stringify(outfit) !== JSON.stringify(agent!.outfit))
+        cmd.outfit = outfit;
       const trimmedInstructions = customInstructions.trim();
-      if (trimmedInstructions !== (agent!.customInstructions ?? "")) cmd.customInstructions = trimmedInstructions;
+      if (trimmedInstructions !== (agent!.customInstructions ?? ""))
+        cmd.customInstructions = trimmedInstructions;
       if (modelFamily !== agent!.modelFamily) cmd.modelFamily = modelFamily;
       if (effort !== agent!.effort) cmd.effort = effort;
-      if (permissionMode !== agent!.permissionMode) cmd.permissionMode = permissionMode;
-      if (isCodex && codexSandbox !== (agent!.codexSandbox ?? "workspace-write")) cmd.codexSandbox = codexSandbox;
-      if (!(cmd.name || cmd.cwd || cmd.outfit || cmd.customInstructions !== undefined || cmd.modelFamily || cmd.effort || cmd.permissionMode || cmd.codexSandbox)) {
+      if (permissionMode !== agent!.permissionMode)
+        cmd.permissionMode = permissionMode;
+      if (
+        isCodex &&
+        codexSandbox !== (agent!.codexSandbox ?? "workspace-write")
+      )
+        cmd.codexSandbox = codexSandbox;
+      if (
+        !(
+          cmd.name ||
+          cmd.cwd ||
+          cmd.outfit ||
+          cmd.customInstructions !== undefined ||
+          cmd.modelFamily ||
+          cmd.effort ||
+          cmd.permissionMode ||
+          cmd.codexSandbox
+        )
+      ) {
         onClose();
         return;
       }
@@ -255,7 +351,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
 
   return (
     <div
-      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
       style={{
         position: "fixed",
         inset: 0,
@@ -285,412 +383,683 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
           animation: "hudIn 0.2s ease-out",
         }}
       >
-        <div style={{ overflowY: "auto", flex: 1, padding: isMobile ? "max(24px, env(safe-area-inset-top)) 20px 0" : "24px 28px 0" }}>
-        <h3 style={{ fontSize: 17, fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>{isSpawn ? "Spawn New Agent" : "Edit Agent"}</h3>
-        <p style={{ fontSize: 12, color: "var(--text-faint)", margin: "2px 0 18px" }}>
-          {isSpawn
-            ? `Desk #${props.deskIndex! + 1}`
-            : `${roomCount > 1 ? `${rooms[agent!.room]?.name ?? `Room ${agent!.room + 1}`}, ` : ""}Desk #${agent!.desk + 1}`}
-        </p>
-
-        <label style={labelStyle}>Name</label>
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder={isSpawn ? `Agent ${props.deskIndex! + 1}` : undefined}
-          autoFocus={isSpawn}
-          style={inputStyle}
-        />
-
-        <label style={{ ...labelStyle, marginTop: 12 }}>Working Directory</label>
-        <input
-          value={cwd}
-          onChange={(e) => { setCwd(e.target.value); if (cwdError) setCwdError(null); }}
-          style={cwdError ? { ...inputStyle, borderColor: "#ff6b6b" } : inputStyle}
-        />
-        {cwdError && <p style={{ fontSize: 10, color: "#ff6b6b", margin: "4px 0 0" }}>{cwdError}</p>}
-        {recentCwds.length > 0 && (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
-            {recentCwds.map((c) => (
-              <button
-                key={c}
-                onClick={() => { setCwd(c); if (cwdError) setCwdError(null); }}
-                style={chipStyle}
-              >
-                {c.replace(/^\/home\/[^/]+/, "~")}
-              </button>
-            ))}
-          </div>
-        )}
-        {!isSpawn && <p style={{ fontSize: 10, color: "var(--text-ghost)", margin: "3px 0 0" }}>Changes take effect on next conversation.</p>}
-
-        {/* Engine badge — agentType is fixed at spawn (Round 3) and shown here
-            for clarity in edit mode. Spawn flow already locked it via the
-            EngineChooserDialog. */}
-        <label style={{ ...labelStyle, marginTop: 12 }}>Engine</label>
         <div
-          title={isSpawn ? "Pick a different engine by cancelling and using the other button." : "agentType is fixed at spawn — to switch engines, create a new agent."}
           style={{
-            ...inputStyle,
-            display: "flex",
-            alignItems: "center",
-            color: "var(--text-muted)",
-            fontFamily: "'JetBrains Mono',monospace",
-            textTransform: "uppercase",
-            letterSpacing: 0.5,
-            fontWeight: 600,
-            cursor: "not-allowed",
-            background: "var(--bg-elevated)",
+            overflowY: "auto",
+            flex: 1,
+            padding: isMobile
+              ? "max(24px, env(safe-area-inset-top)) 20px 0"
+              : "24px 28px 0",
           }}
         >
-          {agentType}
-        </div>
+          <h3
+            style={{
+              fontSize: 17,
+              fontWeight: 700,
+              margin: 0,
+              color: "var(--text-primary)",
+            }}
+          >
+            {isSpawn ? "Spawn New Agent" : "Edit Agent"}
+          </h3>
+          <p
+            style={{
+              fontSize: 12,
+              color: "var(--text-faint)",
+              margin: "2px 0 18px",
+            }}
+          >
+            {isSpawn
+              ? `Desk #${props.deskIndex! + 1}`
+              : `${roomCount > 1 ? `${rooms[agent!.room]?.name ?? `Room ${agent!.room + 1}`}, ` : ""}Desk #${agent!.desk + 1}`}
+          </p>
 
-        <label style={{ ...labelStyle, marginTop: 12 }}>
-          {isCodex ? "Approval Policy" : "Permission Mode"}
-        </label>
-        <select
-          value={permissionMode}
-          onChange={(e) => setPermissionMode(e.target.value as AgentInfo["permissionMode"])}
-          style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
-        >
-          {isCodex ? (
+          <label style={labelStyle}>Name</label>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder={isSpawn ? `Agent ${props.deskIndex! + 1}` : undefined}
+            autoFocus={isSpawn}
+            style={inputStyle}
+          />
+
+          <label style={{ ...labelStyle, marginTop: 12 }}>
+            Working Directory
+          </label>
+          <input
+            value={cwd}
+            onChange={(e) => {
+              setCwd(e.target.value);
+              if (cwdError) setCwdError(null);
+            }}
+            style={
+              cwdError ? { ...inputStyle, borderColor: "#ff6b6b" } : inputStyle
+            }
+          />
+          {cwdError && (
+            <p style={{ fontSize: 10, color: "#ff6b6b", margin: "4px 0 0" }}>
+              {cwdError}
+            </p>
+          )}
+          {recentCwds.length > 0 && (
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 4,
+                marginTop: 6,
+              }}
+            >
+              {recentCwds.map((c) => (
+                <button
+                  key={c}
+                  onClick={() => {
+                    setCwd(c);
+                    if (cwdError) setCwdError(null);
+                  }}
+                  style={chipStyle}
+                >
+                  {c.replace(/^\/home\/[^/]+/, "~")}
+                </button>
+              ))}
+            </div>
+          )}
+          {!isSpawn && (
+            <p
+              style={{
+                fontSize: 10,
+                color: "var(--text-ghost)",
+                margin: "3px 0 0",
+              }}
+            >
+              Changes take effect on next conversation.
+            </p>
+          )}
+
+          {/* Engine badge — agentType is fixed at spawn (Round 3) and shown here
+            for clarity in edit mode. Spawn flow already locked it via the
+            EngineChooserDialog. */}
+          <label style={{ ...labelStyle, marginTop: 12 }}>Engine</label>
+          <div
+            title={
+              isSpawn
+                ? "Pick a different engine by cancelling and using the other button."
+                : "agentType is fixed at spawn — to switch engines, create a new agent."
+            }
+            style={{
+              ...inputStyle,
+              display: "flex",
+              alignItems: "center",
+              color: "var(--text-muted)",
+              fontFamily: "'JetBrains Mono',monospace",
+              textTransform: "uppercase",
+              letterSpacing: 0.5,
+              fontWeight: 600,
+              cursor: "not-allowed",
+              background: "var(--bg-elevated)",
+            }}
+          >
+            {agentType}
+          </div>
+
+          <label style={{ ...labelStyle, marginTop: 12 }}>
+            {isCodex ? "Approval Policy" : "Permission Mode"}
+          </label>
+          <select
+            value={permissionMode}
+            onChange={(e) =>
+              setPermissionMode(e.target.value as AgentInfo["permissionMode"])
+            }
+            style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
+          >
+            {isCodex ? (
+              <>
+                <option value="untrusted">Untrusted (ask on every tool)</option>
+                <option value="on-request">
+                  On request (model asks when needed)
+                </option>
+                <option value="never">Never ask (use sandbox-only)</option>
+              </>
+            ) : (
+              <>
+                {modelFamily === "opus" && (
+                  <option value="auto">
+                    Auto (classifier auto-approves safe actions)
+                  </option>
+                )}
+                <option value="default">Default (ask for everything)</option>
+                <option value="acceptEdits">
+                  Accept Edits (auto-approve file changes)
+                </option>
+                <option value="bypassPermissions">
+                  Bypass (auto-approve all)
+                </option>
+              </>
+            )}
+          </select>
+
+          {isCodex && (
             <>
-              <option value="untrusted">Untrusted (ask on every tool)</option>
-              <option value="on-request">On request (model asks when needed)</option>
-              <option value="never">Never ask (use sandbox-only)</option>
-            </>
-          ) : (
-            <>
-              {modelFamily === "opus" && <option value="auto">Auto (classifier auto-approves safe actions)</option>}
-              <option value="default">Default (ask for everything)</option>
-              <option value="acceptEdits">Accept Edits (auto-approve file changes)</option>
-              <option value="bypassPermissions">Bypass (auto-approve all)</option>
+              <label style={{ ...labelStyle, marginTop: 12 }}>Sandbox</label>
+              <select
+                value={codexSandbox}
+                onChange={(e) =>
+                  setCodexSandbox(e.target.value as CodexSandboxMode)
+                }
+                style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
+              >
+                <option value="read-only">
+                  Read-only (model can read, never write)
+                </option>
+                <option value="workspace-write">
+                  Workspace write (write inside cwd only)
+                </option>
+                <option value="danger-full-access">
+                  Danger: full access (no sandbox)
+                </option>
+              </select>
             </>
           )}
-        </select>
 
-        {isCodex && (
-          <>
-            <label style={{ ...labelStyle, marginTop: 12 }}>Sandbox</label>
-            <select
-              value={codexSandbox}
-              onChange={(e) => setCodexSandbox(e.target.value as CodexSandboxMode)}
-              style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
-            >
-              <option value="read-only">Read-only (model can read, never write)</option>
-              <option value="workspace-write">Workspace write (write inside cwd only)</option>
-              <option value="danger-full-access">Danger: full access (no sandbox)</option>
-            </select>
-          </>
-        )}
-
-        <label style={{ ...labelStyle, marginTop: 12 }}>Model</label>
-        {(() => {
-          // Codex model options come from the server (auth-aware via
-          // model/list). On fetch failure we fall back to the hardcoded
-          // CODEX_MODELS list so the dialog is still usable. Claude uses
-          // the static MODEL_FAMILIES list either way.
-          const codexFetched = isCodex && backendModels;
-          const codexVisible = codexFetched
-            ? backendModels!.filter((m) => !m.hidden)
-            : null;
-          const storedNotInList =
-            !isSpawn &&
-            isCodex &&
-            codexFetched &&
-            !codexVisible!.some((m) => m.id === modelFamily);
-          return (
-            <select
-              value={modelFamily}
-              onChange={(e) => {
-                const next = e.target.value;
-                setModelFamily(next);
-                if (!isCodex && next !== "opus" && permissionMode === "auto") setPermissionMode("bypassPermissions");
-                if (!isCodex && next !== "opus" && effort === "max") setEffort("xhigh");
-                // Codex: when the model changes, snap effort to the new
-                // model's default if the current effort isn't supported.
-                if (isCodex && codexVisible) {
-                  const picked = codexVisible.find((m) => m.id === next);
-                  if (picked) {
-                    const supported = new Set(picked.supportedEfforts.map((o) => o.level));
-                    if (!supported.has(effort) && picked.defaultEffort) {
-                      setEffort(picked.defaultEffort as EffortLevel);
+          <label style={{ ...labelStyle, marginTop: 12 }}>Model</label>
+          {(() => {
+            // Codex model options come from the server (auth-aware via
+            // model/list). On fetch failure we fall back to the hardcoded
+            // CODEX_MODELS list so the dialog is still usable. Claude uses
+            // the static MODEL_FAMILIES list either way.
+            const codexFetched = isCodex && backendModels;
+            const codexVisible = codexFetched
+              ? backendModels!.filter((m) => !m.hidden)
+              : null;
+            const storedNotInList =
+              !isSpawn &&
+              isCodex &&
+              codexFetched &&
+              !codexVisible!.some((m) => m.id === modelFamily);
+            return (
+              <select
+                value={modelFamily}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setModelFamily(next);
+                  if (!isCodex && next !== "opus" && permissionMode === "auto")
+                    setPermissionMode("bypassPermissions");
+                  if (!isCodex && next !== "opus" && effort === "max")
+                    setEffort("xhigh");
+                  // Codex: when the model changes, snap effort to the new
+                  // model's default if the current effort isn't supported.
+                  if (isCodex && codexVisible) {
+                    const picked = codexVisible.find((m) => m.id === next);
+                    if (picked) {
+                      const supported = new Set(
+                        picked.supportedEfforts.map((o) => o.level),
+                      );
+                      if (!supported.has(effort) && picked.defaultEffort) {
+                        setEffort(picked.defaultEffort as EffortLevel);
+                      }
                     }
                   }
-                }
-              }}
-              style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
-              disabled={isCodex && modelsLoading}
-            >
-              {isCodex ? (
-                <>
-                  {codexVisible
-                    ? codexVisible.map((m) => (
-                        <option key={m.id} value={m.id}>{m.label}</option>
-                      ))
-                    : CODEX_MODELS.map((m) => (
-                        <option key={m.value} value={m.value}>{m.label}</option>
-                      ))}
-                  {storedNotInList && (
-                    <option key={modelFamily} value={modelFamily}>
-                      {modelFamily} (unavailable on current login)
+                }}
+                style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
+                disabled={isCodex && modelsLoading}
+              >
+                {isCodex ? (
+                  <>
+                    {codexVisible
+                      ? codexVisible.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.label}
+                          </option>
+                        ))
+                      : CODEX_MODELS.map((m) => (
+                          <option key={m.value} value={m.value}>
+                            {m.label}
+                          </option>
+                        ))}
+                    {storedNotInList && (
+                      <option key={modelFamily} value={modelFamily}>
+                        {modelFamily} (unavailable on current login)
+                      </option>
+                    )}
+                  </>
+                ) : (
+                  MODEL_FAMILIES.map((m) => (
+                    <option key={m.family} value={m.family}>
+                      {m.label} ({modelVersionLabel(m.family)})
                     </option>
-                  )}
-                </>
-              ) : (
-                MODEL_FAMILIES.map((m) => (
-                  <option key={m.family} value={m.family}>{m.label} ({modelVersionLabel(m.family)})</option>
-                ))
-              )}
-            </select>
-          );
-        })()}
-        {isCodex && modelsLoading && (
-          <p style={{ fontSize: 10, color: "var(--text-ghost)", margin: "3px 0 0" }}>Loading available models…</p>
-        )}
-        {isCodex && modelsError && !modelsLoading && (
-          <p style={{ fontSize: 10, color: modelsError.authError ? "#ff6b6b" : "var(--text-ghost)", margin: "3px 0 0" }}>
-            {modelsError.authError
-              ? "Codex is not signed in. Run `codex login` in a terminal (or set OPENAI_API_KEY), then re-open this dialog."
-              : `Could not load model list (${modelsError.message}). Showing fallback list — some options may not work on your account.`}
-          </p>
-        )}
+                  ))
+                )}
+              </select>
+            );
+          })()}
+          {isCodex && modelsLoading && (
+            <p
+              style={{
+                fontSize: 10,
+                color: "var(--text-ghost)",
+                margin: "3px 0 0",
+              }}
+            >
+              Loading available models…
+            </p>
+          )}
+          {isCodex && modelsError && !modelsLoading && (
+            <p
+              style={{
+                fontSize: 10,
+                color: modelsError.authError ? "#ff6b6b" : "var(--text-ghost)",
+                margin: "3px 0 0",
+              }}
+            >
+              {modelsError.authError
+                ? "Codex is not signed in. Run `codex login` in a terminal (or set OPENAI_API_KEY), then re-open this dialog."
+                : `Could not load model list (${modelsError.message}). Showing fallback list — some options may not work on your account.`}
+            </p>
+          )}
 
-        <label style={{ ...labelStyle, marginTop: 12 }}>Thinking Effort</label>
-        {(() => {
-          // For Codex we use the selected model's supportedReasoningEfforts
-          // when available; otherwise we fall back to the global EFFORT_LEVELS
-          // with the same backend/family filter we used pre-fetch.
-          let effortLevels: { level: string; label: string }[];
-          if (isCodex && backendModels) {
-            const picked = backendModels.find((m) => m.id === modelFamily);
-            if (picked && picked.supportedEfforts.length > 0) {
-              // Map Codex effort enum strings to friendly labels using the
-              // shared EFFORT_LEVELS table when present, falling back to the
-              // raw enum value capitalized.
-              effortLevels = picked.supportedEfforts.map((o) => {
-                const match = EFFORT_LEVELS.find((e) => e.level === o.level);
-                return {
-                  level: o.level,
-                  label: match ? match.label : o.level.charAt(0).toUpperCase() + o.level.slice(1),
-                };
-              });
+          <label style={{ ...labelStyle, marginTop: 12 }}>
+            Thinking Effort
+          </label>
+          {(() => {
+            // For Codex we use the selected model's supportedReasoningEfforts
+            // when available; otherwise we fall back to the global EFFORT_LEVELS
+            // with the same backend/family filter we used pre-fetch.
+            let effortLevels: { level: string; label: string }[];
+            if (isCodex && backendModels) {
+              const picked = backendModels.find((m) => m.id === modelFamily);
+              if (picked && picked.supportedEfforts.length > 0) {
+                // Map Codex effort enum strings to friendly labels using the
+                // shared EFFORT_LEVELS table when present, falling back to the
+                // raw enum value capitalized.
+                effortLevels = picked.supportedEfforts.map((o) => {
+                  const match = EFFORT_LEVELS.find((e) => e.level === o.level);
+                  return {
+                    level: o.level,
+                    label: match
+                      ? match.label
+                      : o.level.charAt(0).toUpperCase() + o.level.slice(1),
+                  };
+                });
+              } else {
+                // Codex model with no supportedEfforts reported: fall back to
+                // the EFFORT_LEVELS list minus "max" (Claude-Opus-only).
+                effortLevels = EFFORT_LEVELS.filter(
+                  (opt) => opt.level !== "max",
+                ).map((o) => ({ level: o.level, label: o.label }));
+              }
             } else {
-              // Codex model with no supportedEfforts reported: fall back to
-              // the EFFORT_LEVELS list minus "max" (Claude-Opus-only).
-              effortLevels = EFFORT_LEVELS
-                .filter((opt) => opt.level !== "max")
-                .map((o) => ({ level: o.level, label: o.label }));
-            }
-          } else {
-            effortLevels = EFFORT_LEVELS
-              .filter((opt) => {
-                if (opt.level === "max") return !isCodex && modelFamily === "opus";
+              effortLevels = EFFORT_LEVELS.filter((opt) => {
+                if (opt.level === "max")
+                  return !isCodex && modelFamily === "opus";
                 if (opt.level === "minimal") return isCodex;
                 return true;
-              })
-              .map((o) => ({ level: o.level, label: o.label }));
-          }
-          return (
-            <select
-              value={effort}
-              onChange={(e) => setEffort(e.target.value as EffortLevel)}
-              style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
-            >
-              {effortLevels.map((opt) => (
-                <option key={opt.level} value={opt.level}>{opt.label}</option>
-              ))}
-            </select>
-          );
-        })()}
+              }).map((o) => ({ level: o.level, label: o.label }));
+            }
+            return (
+              <select
+                value={effort}
+                onChange={(e) => setEffort(e.target.value as EffortLevel)}
+                style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
+              >
+                {effortLevels.map((opt) => (
+                  <option key={opt.level} value={opt.level}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            );
+          })()}
 
-        <label style={{ ...labelStyle, marginTop: 14 }}>Appearance</label>
-        <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 10 }}>
-          <div style={{ width: 52, height: 70, display: "flex", alignItems: "center", justifyContent: "center" }}>
-            <Character state="idle" outfit={outfit} />
-          </div>
-          <button onClick={() => setOutfit(makeRandomOutfit())} style={randomBtnStyle}>
-            Randomize
-          </button>
-        </div>
-
-        {/* Skin Color */}
-        <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4 }}>Skin</div>
-        <div style={{ display: "flex", gap: 4, marginBottom: 8, flexWrap: "wrap" }}>
-          {SKIN_COLORS.map((c) => (
+          <label style={{ ...labelStyle, marginTop: 14 }}>Appearance</label>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 16,
+              marginBottom: 10,
+            }}
+          >
             <div
-              key={c}
-              onClick={() => setOutfit({ ...outfit, skin: c })}
               style={{
-                width: 24,
-                height: 24,
-                borderRadius: 6,
-                background: c,
-                cursor: "pointer",
-                border: outfit.skin === c ? "2px solid var(--text-primary)" : "2px solid transparent",
+                width: 52,
+                height: 70,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
               }}
-            />
-          ))}
-        </div>
-
-        {/* Shirt Color */}
-        <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4 }}>Shirt</div>
-        <div style={{ display: "flex", gap: 4, marginBottom: 8, flexWrap: "wrap" }}>
-          {SHIRT_COLORS.map((c) => (
-            <div
-              key={c}
-              onClick={() => setOutfit({ ...outfit, color: c })}
-              style={{
-                width: 24,
-                height: 24,
-                borderRadius: 6,
-                background: c,
-                cursor: "pointer",
-                border: outfit.color === c ? "2px solid var(--text-primary)" : "2px solid transparent",
-              }}
-            />
-          ))}
-        </div>
-
-        {/* Hair Color */}
-        <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4 }}>Hair Color</div>
-        <div style={{ display: "flex", gap: 4, marginBottom: 8, flexWrap: "wrap" }}>
-          {HAIR_COLORS.map((c) => (
-            <div
-              key={c}
-              onClick={() => setOutfit({ ...outfit, hair: c })}
-              style={{
-                width: 24,
-                height: 24,
-                borderRadius: 6,
-                background: c,
-                cursor: "pointer",
-                border: outfit.hair === c ? "2px solid var(--text-primary)" : "2px solid transparent",
-              }}
-            />
-          ))}
-        </div>
-
-        {/* Hair Style & Hat */}
-        <div style={{ display: "flex", gap: 12, marginBottom: 8 }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4 }}>Hair Style</div>
-            <select
-              value={outfit.hairStyle ?? "short"}
-              onChange={(e) => setOutfit({ ...outfit, hairStyle: e.target.value as AgentOutfit["hairStyle"] })}
-              style={selectStyle}
             >
-              {HAIR_STYLES.map((s) => (
-                <option key={s} value={s}>{HAIR_STYLE_LABELS[s]}</option>
-              ))}
-            </select>
-          </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4 }}>Hat</div>
-            <select
-              value={outfit.hat}
-              onChange={(e) => setOutfit({ ...outfit, hat: e.target.value as AgentOutfit["hat"] })}
-              style={selectStyle}
-            >
-              {HATS.map((h) => (
-                <option key={h} value={h}>{HAT_LABELS[h]}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {/* Beard & Accessory */}
-        <div style={{ display: "flex", gap: 12, marginBottom: 4 }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4 }}>Beard</div>
-            <select
-              value={outfit.beard ?? "none"}
-              onChange={(e) => setOutfit({ ...outfit, beard: e.target.value as AgentOutfit["beard"] })}
-              style={selectStyle}
-            >
-              {BEARDS.map((b) => (
-                <option key={b} value={b}>{BEARD_LABELS[b]}</option>
-              ))}
-            </select>
-          </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4 }}>Accessory</div>
-            <select
-              value={outfit.accessory ?? "none"}
-              onChange={(e) => setOutfit({ ...outfit, accessory: e.target.value === "none" ? null : e.target.value as AgentOutfit["accessory"] })}
-              style={selectStyle}
-            >
-              {ACCESSORIES.map((a) => (
-                <option key={a ?? "none"} value={a ?? "none"}>{ACCESSORY_LABELS[a ?? "none"]}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <label style={{ ...labelStyle, marginTop: 14 }}>Custom Instructions <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>(optional)</span></label>
-        <textarea
-          value={customInstructions}
-          onChange={(e) => setCustomInstructions(e.target.value)}
-          placeholder='e.g. "You are a backend specialist. Always write tests."'
-          rows={3}
-          style={{ ...inputStyle, resize: "vertical" }}
-        />
-        <p style={{ fontSize: 10, color: "var(--text-ghost)", margin: "3px 0 0" }}>
-          Run <code>/isomux-system-prompt</code> in a chat to see the agent's full system prompt.
-          {!isSpawn && " Changes take effect on next conversation."}
-        </p>
-
-        {/* Move to Room — only show when multiple rooms exist and editing */}
-        {!isSpawn && roomCount > 1 && (
-          <>
-            <label style={{ ...labelStyle, marginTop: 14 }}>Move to Room</label>
-            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-              {Array.from({ length: roomCount }, (_, i) => {
-                if (i === agent!.room) return null;
-                const roomAgentCount = agents.filter((a) => a.room === i).length;
-                const isFull = roomAgentCount >= 8;
-                return (
-                  <button
-                    key={i}
-                    disabled={isFull}
-                    onClick={() => {
-                      const targetRoomId = rooms[i]?.id;
-                      if (!targetRoomId) return;
-                      send({ type: "move_agent", agentId: agent!.id, targetRoomId });
-                      onClose();
-                    }}
-                    style={{
-                      padding: "5px 12px",
-                      borderRadius: 6,
-                      border: "1px solid var(--border)",
-                      background: isFull ? "var(--bg-input)" : "var(--btn-surface)",
-                      color: isFull ? "var(--text-ghost)" : "var(--text-dim)",
-                      fontSize: 11,
-                      cursor: isFull ? "not-allowed" : "pointer",
-                      fontFamily: "'JetBrains Mono',monospace",
-                      opacity: isFull ? 0.5 : 1,
-                    }}
-                  >
-                    {rooms[i]?.name ?? `Room ${i + 1}`} ({roomAgentCount}/8)
-                  </button>
-                );
-              })}
+              <Character state="idle" outfit={outfit} />
             </div>
-          </>
-        )}
+            <button
+              onClick={() => setOutfit(makeRandomOutfit())}
+              style={randomBtnStyle}
+            >
+              Randomize
+            </button>
+          </div>
 
+          {/* Skin Color */}
+          <div
+            style={{
+              fontSize: 10,
+              color: "var(--text-muted)",
+              marginBottom: 4,
+            }}
+          >
+            Skin
+          </div>
+          <div
+            style={{
+              display: "flex",
+              gap: 4,
+              marginBottom: 8,
+              flexWrap: "wrap",
+            }}
+          >
+            {SKIN_COLORS.map((c) => (
+              <div
+                key={c}
+                onClick={() => setOutfit({ ...outfit, skin: c })}
+                style={{
+                  width: 24,
+                  height: 24,
+                  borderRadius: 6,
+                  background: c,
+                  cursor: "pointer",
+                  border:
+                    outfit.skin === c
+                      ? "2px solid var(--text-primary)"
+                      : "2px solid transparent",
+                }}
+              />
+            ))}
+          </div>
+
+          {/* Shirt Color */}
+          <div
+            style={{
+              fontSize: 10,
+              color: "var(--text-muted)",
+              marginBottom: 4,
+            }}
+          >
+            Shirt
+          </div>
+          <div
+            style={{
+              display: "flex",
+              gap: 4,
+              marginBottom: 8,
+              flexWrap: "wrap",
+            }}
+          >
+            {SHIRT_COLORS.map((c) => (
+              <div
+                key={c}
+                onClick={() => setOutfit({ ...outfit, color: c })}
+                style={{
+                  width: 24,
+                  height: 24,
+                  borderRadius: 6,
+                  background: c,
+                  cursor: "pointer",
+                  border:
+                    outfit.color === c
+                      ? "2px solid var(--text-primary)"
+                      : "2px solid transparent",
+                }}
+              />
+            ))}
+          </div>
+
+          {/* Hair Color */}
+          <div
+            style={{
+              fontSize: 10,
+              color: "var(--text-muted)",
+              marginBottom: 4,
+            }}
+          >
+            Hair Color
+          </div>
+          <div
+            style={{
+              display: "flex",
+              gap: 4,
+              marginBottom: 8,
+              flexWrap: "wrap",
+            }}
+          >
+            {HAIR_COLORS.map((c) => (
+              <div
+                key={c}
+                onClick={() => setOutfit({ ...outfit, hair: c })}
+                style={{
+                  width: 24,
+                  height: 24,
+                  borderRadius: 6,
+                  background: c,
+                  cursor: "pointer",
+                  border:
+                    outfit.hair === c
+                      ? "2px solid var(--text-primary)"
+                      : "2px solid transparent",
+                }}
+              />
+            ))}
+          </div>
+
+          {/* Hair Style & Hat */}
+          <div style={{ display: "flex", gap: 12, marginBottom: 8 }}>
+            <div style={{ flex: 1 }}>
+              <div
+                style={{
+                  fontSize: 10,
+                  color: "var(--text-muted)",
+                  marginBottom: 4,
+                }}
+              >
+                Hair Style
+              </div>
+              <select
+                value={outfit.hairStyle ?? "short"}
+                onChange={(e) =>
+                  setOutfit({
+                    ...outfit,
+                    hairStyle: e.target.value as AgentOutfit["hairStyle"],
+                  })
+                }
+                style={selectStyle}
+              >
+                {HAIR_STYLES.map((s) => (
+                  <option key={s} value={s}>
+                    {HAIR_STYLE_LABELS[s]}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div style={{ flex: 1 }}>
+              <div
+                style={{
+                  fontSize: 10,
+                  color: "var(--text-muted)",
+                  marginBottom: 4,
+                }}
+              >
+                Hat
+              </div>
+              <select
+                value={outfit.hat}
+                onChange={(e) =>
+                  setOutfit({
+                    ...outfit,
+                    hat: e.target.value as AgentOutfit["hat"],
+                  })
+                }
+                style={selectStyle}
+              >
+                {HATS.map((h) => (
+                  <option key={h} value={h}>
+                    {HAT_LABELS[h]}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Beard & Accessory */}
+          <div style={{ display: "flex", gap: 12, marginBottom: 4 }}>
+            <div style={{ flex: 1 }}>
+              <div
+                style={{
+                  fontSize: 10,
+                  color: "var(--text-muted)",
+                  marginBottom: 4,
+                }}
+              >
+                Beard
+              </div>
+              <select
+                value={outfit.beard ?? "none"}
+                onChange={(e) =>
+                  setOutfit({
+                    ...outfit,
+                    beard: e.target.value as AgentOutfit["beard"],
+                  })
+                }
+                style={selectStyle}
+              >
+                {BEARDS.map((b) => (
+                  <option key={b} value={b}>
+                    {BEARD_LABELS[b]}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div style={{ flex: 1 }}>
+              <div
+                style={{
+                  fontSize: 10,
+                  color: "var(--text-muted)",
+                  marginBottom: 4,
+                }}
+              >
+                Accessory
+              </div>
+              <select
+                value={outfit.accessory ?? "none"}
+                onChange={(e) =>
+                  setOutfit({
+                    ...outfit,
+                    accessory:
+                      e.target.value === "none"
+                        ? null
+                        : (e.target.value as AgentOutfit["accessory"]),
+                  })
+                }
+                style={selectStyle}
+              >
+                {ACCESSORIES.map((a) => (
+                  <option key={a ?? "none"} value={a ?? "none"}>
+                    {ACCESSORY_LABELS[a ?? "none"]}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <label style={{ ...labelStyle, marginTop: 14 }}>
+            Custom Instructions{" "}
+            <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
+              (optional)
+            </span>
+          </label>
+          <textarea
+            value={customInstructions}
+            onChange={(e) => setCustomInstructions(e.target.value)}
+            placeholder='e.g. "You are a backend specialist. Always write tests."'
+            rows={3}
+            style={{ ...inputStyle, resize: "vertical" }}
+          />
+          <p
+            style={{
+              fontSize: 10,
+              color: "var(--text-ghost)",
+              margin: "3px 0 0",
+            }}
+          >
+            Run <code>/isomux-system-prompt</code> in a chat to see the agent's
+            full system prompt.
+            {!isSpawn && " Changes take effect on next conversation."}
+          </p>
+
+          {/* Move to Room — only show when multiple rooms exist and editing */}
+          {!isSpawn && roomCount > 1 && (
+            <>
+              <label style={{ ...labelStyle, marginTop: 14 }}>
+                Move to Room
+              </label>
+              <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                {Array.from({ length: roomCount }, (_, i) => {
+                  if (i === agent!.room) return null;
+                  const roomAgentCount = agents.filter(
+                    (a) => a.room === i,
+                  ).length;
+                  const isFull = roomAgentCount >= 8;
+                  return (
+                    <button
+                      key={i}
+                      disabled={isFull}
+                      onClick={() => {
+                        const targetRoomId = rooms[i]?.id;
+                        if (!targetRoomId) return;
+                        send({
+                          type: "move_agent",
+                          agentId: agent!.id,
+                          targetRoomId,
+                        });
+                        onClose();
+                      }}
+                      style={{
+                        padding: "5px 12px",
+                        borderRadius: 6,
+                        border: "1px solid var(--border)",
+                        background: isFull
+                          ? "var(--bg-input)"
+                          : "var(--btn-surface)",
+                        color: isFull ? "var(--text-ghost)" : "var(--text-dim)",
+                        fontSize: 11,
+                        cursor: isFull ? "not-allowed" : "pointer",
+                        fontFamily: "'JetBrains Mono',monospace",
+                        opacity: isFull ? 0.5 : 1,
+                      }}
+                    >
+                      {rooms[i]?.name ?? `Room ${i + 1}`} ({roomAgentCount}/8)
+                    </button>
+                  );
+                })}
+              </div>
+            </>
+          )}
         </div>
-        <div style={{
-          display: "flex",
-          justifyContent: "flex-end",
-          gap: 8,
-          padding: isMobile ? "16px 20px max(16px, env(safe-area-inset-bottom))" : "16px 28px",
-          borderTop: "1px solid var(--border)",
-          flexShrink: 0,
-        }}>
-          <button onClick={onClose} style={cancelBtnStyle} disabled={saving}>Cancel</button>
-          <button onClick={handleSave} style={saveBtnStyle} disabled={saving}>{saving ? "Saving…" : (isSpawn ? "Spawn" : "Save")}</button>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            gap: 8,
+            padding: isMobile
+              ? "16px 20px max(16px, env(safe-area-inset-bottom))"
+              : "16px 28px",
+            borderTop: "1px solid var(--border)",
+            flexShrink: 0,
+          }}
+        >
+          <button onClick={onClose} style={cancelBtnStyle} disabled={saving}>
+            Cancel
+          </button>
+          <button onClick={handleSave} style={saveBtnStyle} disabled={saving}>
+            {saving ? "Saving…" : isSpawn ? "Spawn" : "Save"}
+          </button>
         </div>
       </div>
     </div>

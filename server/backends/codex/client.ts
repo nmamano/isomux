@@ -107,13 +107,18 @@ export class JsonRpcLiteClient {
   private pending = new Map<JsonRpcId, Pending>();
   private stdoutBuffer = "";
   private closed = false;
-  private exitInfo: { code: number | null; signal: NodeJS.Signals | null } | null = null;
+  private exitInfo: {
+    code: number | null;
+    signal: NodeJS.Signals | null;
+  } | null = null;
   private initialized = false;
 
   private notificationHandlers = new Set<NotificationHandler>();
   private serverRequestHandlers: ServerRequestHandler[] = [];
   private stderrHandlers = new Set<(chunk: string) => void>();
-  private exitHandlers = new Set<(code: number | null, signal: NodeJS.Signals | null) => void>();
+  private exitHandlers = new Set<
+    (code: number | null, signal: NodeJS.Signals | null) => void
+  >();
   private closeHandlers = new Set<() => void>();
 
   constructor(private readonly opts: JsonRpcLiteClientOptions = {}) {}
@@ -144,7 +149,9 @@ export class JsonRpcLiteClient {
     this.child.stdout.on("data", (chunk: string) => this.onStdoutChunk(chunk));
     this.child.stderr.on("data", (chunk: string) => {
       for (const h of this.stderrHandlers) {
-        try { h(chunk); } catch {}
+        try {
+          h(chunk);
+        } catch {}
       }
     });
     this.child.on("error", (err: Error) => {
@@ -158,10 +165,14 @@ export class JsonRpcLiteClient {
         `codex subprocess exited${code != null ? ` with code ${code}` : ""}${signal ? ` (signal ${signal})` : ""}`,
       );
       for (const h of this.exitHandlers) {
-        try { h(code, signal); } catch {}
+        try {
+          h(code, signal);
+        } catch {}
       }
       for (const h of this.closeHandlers) {
-        try { h(); } catch {}
+        try {
+          h();
+        } catch {}
       }
     });
   }
@@ -174,7 +185,10 @@ export class JsonRpcLiteClient {
     if (this.initialized) {
       throw new Error("initialize() called twice on the same client");
     }
-    const response = await this.request<InitializeResponse>("initialize", params);
+    const response = await this.request<InitializeResponse>(
+      "initialize",
+      params,
+    );
     this.initialized = true;
     // Per the protocol: client sends `initialized` notification after the
     // handshake response.
@@ -187,11 +201,15 @@ export class JsonRpcLiteClient {
     if (this.closed) return;
     this.closed = true;
     if (this.child && !this.child.killed) {
-      try { this.child.stdin.end(); } catch {}
+      try {
+        this.child.stdin.end();
+      } catch {}
       // Give the subprocess a moment to exit cleanly; SIGKILL if it doesn't.
       // We don't actually wait long here — callers depending on the exit
       // handler get notified independently.
-      try { this.child.kill("SIGTERM"); } catch {}
+      try {
+        this.child.kill("SIGTERM");
+      } catch {}
     }
     this.failAllPending("client closed");
   }
@@ -207,9 +225,16 @@ export class JsonRpcLiteClient {
       throw new Error(`cannot send ${method}: client is closed`);
     }
     const id = this.nextRequestId++;
-    const frame: JsonRpcRequest = { id, method, ...(params !== undefined ? { params } : {}) };
+    const frame: JsonRpcRequest = {
+      id,
+      method,
+      ...(params !== undefined ? { params } : {}),
+    };
     const promise = new Promise<T>((resolve, reject) => {
-      this.pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
+      this.pending.set(id, {
+        resolve: resolve as (v: unknown) => void,
+        reject,
+      });
     });
     this.write(frame);
     return promise;
@@ -219,8 +244,13 @@ export class JsonRpcLiteClient {
   // write error is silently dropped, matching JSON-RPC notification semantics).
   notify(method: string, params?: unknown): void {
     if (this.closed || !this.child) return;
-    const frame: JsonRpcNotification = { method, ...(params !== undefined ? { params } : {}) };
-    try { this.write(frame); } catch {}
+    const frame: JsonRpcNotification = {
+      method,
+      ...(params !== undefined ? { params } : {}),
+    };
+    try {
+      this.write(frame);
+    } catch {}
   }
 
   // Send a response to a server-initiated request. Most callers won't use
@@ -230,16 +260,25 @@ export class JsonRpcLiteClient {
   respond(id: JsonRpcId, result: unknown): void {
     if (this.closed || !this.child) return;
     const frame: JsonRpcSuccessResponse = { id, result };
-    try { this.write(frame); } catch {}
+    try {
+      this.write(frame);
+    } catch {}
   }
 
-  respondWithError(id: JsonRpcId, code: number, message: string, data?: unknown): void {
+  respondWithError(
+    id: JsonRpcId,
+    code: number,
+    message: string,
+    data?: unknown,
+  ): void {
     if (this.closed || !this.child) return;
     const frame: JsonRpcErrorResponse = {
       id,
       error: { code, message, ...(data !== undefined ? { data } : {}) },
     };
-    try { this.write(frame); } catch {}
+    try {
+      this.write(frame);
+    } catch {}
   }
 
   // -------------------------------------------------------------------------
@@ -251,7 +290,9 @@ export class JsonRpcLiteClient {
   // other discriminators) downstream.
   onNotification(handler: NotificationHandler): () => void {
     this.notificationHandlers.add(handler);
-    return () => { this.notificationHandlers.delete(handler); };
+    return () => {
+      this.notificationHandlers.delete(handler);
+    };
   }
 
   // Register a handler for server-initiated requests. Handlers are tried in
@@ -268,17 +309,25 @@ export class JsonRpcLiteClient {
 
   onStderr(handler: (chunk: string) => void): () => void {
     this.stderrHandlers.add(handler);
-    return () => { this.stderrHandlers.delete(handler); };
+    return () => {
+      this.stderrHandlers.delete(handler);
+    };
   }
 
-  onExit(handler: (code: number | null, signal: NodeJS.Signals | null) => void): () => void {
+  onExit(
+    handler: (code: number | null, signal: NodeJS.Signals | null) => void,
+  ): () => void {
     this.exitHandlers.add(handler);
-    return () => { this.exitHandlers.delete(handler); };
+    return () => {
+      this.exitHandlers.delete(handler);
+    };
   }
 
   onClose(handler: () => void): () => void {
     this.closeHandlers.add(handler);
-    return () => { this.closeHandlers.delete(handler); };
+    return () => {
+      this.closeHandlers.delete(handler);
+    };
   }
 
   // -------------------------------------------------------------------------
@@ -313,7 +362,11 @@ export class JsonRpcLiteClient {
     } catch (err: any) {
       // Malformed frame — surface via stderr handlers for visibility.
       for (const h of this.stderrHandlers) {
-        try { h(`[codex client] JSON parse error: ${err.message}\nframe: ${line.slice(0, 200)}\n`); } catch {}
+        try {
+          h(
+            `[codex client] JSON parse error: ${err.message}\nframe: ${line.slice(0, 200)}\n`,
+          );
+        } catch {}
       }
       return;
     }
@@ -331,9 +384,13 @@ export class JsonRpcLiteClient {
       // Notification.
       const notification = frame as JsonRpcNotification;
       for (const h of this.notificationHandlers) {
-        try { h(notification); } catch (err: any) {
+        try {
+          h(notification);
+        } catch (err: any) {
           for (const sh of this.stderrHandlers) {
-            try { sh(`[codex client] notification handler error: ${err.message}\n`); } catch {}
+            try {
+              sh(`[codex client] notification handler error: ${err.message}\n`);
+            } catch {}
           }
         }
       }
@@ -345,7 +402,9 @@ export class JsonRpcLiteClient {
       const pending = this.pending.get(id);
       if (!pending) {
         for (const h of this.stderrHandlers) {
-          try { h(`[codex client] response for unknown request id ${String(id)}\n`); } catch {}
+          try {
+            h(`[codex client] response for unknown request id ${String(id)}\n`);
+          } catch {}
         }
         return;
       }
@@ -354,7 +413,9 @@ export class JsonRpcLiteClient {
         const err = frame.error;
         pending.reject(
           Object.assign(
-            new Error(`${err.message ?? "JSON-RPC error"} (code ${err.code ?? "?"})`),
+            new Error(
+              `${err.message ?? "JSON-RPC error"} (code ${err.code ?? "?"})`,
+            ),
             { code: err.code, data: err.data },
           ),
         );
@@ -365,7 +426,9 @@ export class JsonRpcLiteClient {
     }
     // Frame with neither method nor id — surface for visibility.
     for (const h of this.stderrHandlers) {
-      try { h(`[codex client] unrecognized frame: ${line.slice(0, 200)}\n`); } catch {}
+      try {
+        h(`[codex client] unrecognized frame: ${line.slice(0, 200)}\n`);
+      } catch {}
     }
   }
 
@@ -395,7 +458,9 @@ export class JsonRpcLiteClient {
 
   private failAllPending(reason: string): void {
     for (const [, pending] of this.pending) {
-      try { pending.reject(new Error(reason)); } catch {}
+      try {
+        pending.reject(new Error(reason));
+      } catch {}
     }
     this.pending.clear();
   }
@@ -404,8 +469,16 @@ export class JsonRpcLiteClient {
   // Inspection (mostly for tests / debugging)
   // -------------------------------------------------------------------------
 
-  isClosed(): boolean { return this.closed; }
-  isInitialized(): boolean { return this.initialized; }
-  pid(): number | undefined { return this.child?.pid; }
-  exitStatus(): { code: number | null; signal: NodeJS.Signals | null } | null { return this.exitInfo; }
+  isClosed(): boolean {
+    return this.closed;
+  }
+  isInitialized(): boolean {
+    return this.initialized;
+  }
+  pid(): number | undefined {
+    return this.child?.pid;
+  }
+  exitStatus(): { code: number | null; signal: NodeJS.Signals | null } | null {
+    return this.exitInfo;
+  }
 }

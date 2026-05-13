@@ -1,8 +1,37 @@
-import { createContext, useContext, useReducer, useEffect, useRef, useState, useCallback, type ReactNode, type Dispatch } from "react";
-import type { AgentInfo, LogEntry, SessionInfo, ServerMessage, SkillInfo, TaskItem, OfficeSettings, RoomWire, SettingsSaveResponse, SettingsValidationResponse, Cronjob, CronjobRun, UserRecord } from "../shared/types.ts";
+import {
+  createContext,
+  useContext,
+  useReducer,
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+  type ReactNode,
+  type Dispatch,
+} from "react";
+import type {
+  AgentInfo,
+  LogEntry,
+  SessionInfo,
+  ServerMessage,
+  SkillInfo,
+  TaskItem,
+  OfficeSettings,
+  RoomWire,
+  SettingsSaveResponse,
+  SettingsValidationResponse,
+  Cronjob,
+  CronjobRun,
+  UserRecord,
+} from "../shared/types.ts";
 import { connect, send } from "./ws.ts";
 import { type Features, PRODUCTION_FEATURES } from "../shared/features.ts";
-import { getUsername, readLegacyUserPrefs, clearLegacyUserPrefs, shouldNotifyRoom } from "./device-settings.ts";
+import {
+  getUsername,
+  readLegacyUserPrefs,
+  clearLegacyUserPrefs,
+  shouldNotifyRoom,
+} from "./device-settings.ts";
 
 export interface AppState {
   agents: AgentInfo[];
@@ -13,7 +42,10 @@ export interface AppState {
   isMobile: boolean;
   mobileViewMode: "list" | "office"; // which view to show on mobile
   needsAttention: Set<string>; // agentIds with unread state changes
-  sessionsList: Map<string, { sessions: SessionInfo[]; currentSessionId: string | null }>; // agentId → available sessions
+  sessionsList: Map<
+    string,
+    { sessions: SessionInfo[]; currentSessionId: string | null }
+  >; // agentId → available sessions
   // seq increments when any agent finishes work (for sound regardless of focus);
   // roomId is the id of the room the triggering agent was in, used to filter
   // per-room notification preferences. null if the room couldn't be resolved.
@@ -25,7 +57,10 @@ export interface AppState {
   // never opened a panel; missing entries default to closed.
   sidePanels: Map<string, "terminal" | "editor">;
   recentCwds: string[]; // persisted recent working directories
-  slashCommands: Map<string, { commands: { name: string; description?: string }[]; skills: SkillInfo[] }>; // agentId → available commands
+  slashCommands: Map<
+    string,
+    { commands: { name: string; description?: string }[]; skills: SkillInfo[] }
+  >; // agentId → available commands
   stateChangedAt: Map<string, number>; // agentId → timestamp when agent state last changed
   office: OfficeSettings;
   rooms: RoomWire[];
@@ -48,21 +83,45 @@ export interface AppState {
 }
 
 type Action =
-  | { type: "full_state"; agents: AgentInfo[]; recentCwds: string[]; office: OfficeSettings; rooms: RoomWire[] }
+  | {
+      type: "full_state";
+      agents: AgentInfo[];
+      recentCwds: string[];
+      office: OfficeSettings;
+      rooms: RoomWire[];
+    }
   | { type: "agent_added"; agent: AgentInfo }
   | { type: "agent_removed"; agentId: string }
   | { type: "agent_updated"; agentId: string; changes: Partial<AgentInfo> }
   | { type: "log_entry"; entry: LogEntry }
   | { type: "focus"; agentId: string | null }
   | { type: "connected" }
-  | { type: "sessions_list"; agentId: string; sessions: SessionInfo[]; currentSessionId: string | null }
+  | {
+      type: "sessions_list";
+      agentId: string;
+      sessions: SessionInfo[];
+      currentSessionId: string | null;
+    }
   | { type: "set_draft"; agentId: string; text: string }
-  | { type: "set_side_panel"; agentId: string; panel: "terminal" | "editor" | null }
-  | { type: "slash_commands"; agentId: string; commands: { name: string; description?: string }[]; skills: SkillInfo[] }
+  | {
+      type: "set_side_panel";
+      agentId: string;
+      panel: "terminal" | "editor" | null;
+    }
+  | {
+      type: "slash_commands";
+      agentId: string;
+      commands: { name: string; description?: string }[];
+      skills: SkillInfo[];
+    }
   | { type: "clear_logs"; agentId: string }
   | { type: "set_mobile"; isMobile: boolean }
   | { type: "toggle_mobile_view" }
-  | { type: "office_settings_updated"; prompt: string | null; envFile: string | null }
+  | {
+      type: "office_settings_updated";
+      prompt: string | null;
+      envFile: string | null;
+    }
   | { type: "tasks"; tasks: TaskItem[] }
   | { type: "set_current_room"; room: number }
   | { type: "room_created"; room: RoomWire }
@@ -74,8 +133,17 @@ type Action =
   | { type: "user_updated"; user: UserRecord; prevName?: string }
   | SettingsSaveResponse
   | SettingsValidationResponse
-  | { type: "update_status"; updateAvailable: boolean; current: { sha: string; message: string; date: string }; latest: { sha: string; message: string; date: string } }
-  | { type: "cronjobs_state"; cronjobs: Cronjob[]; cronjobsPrompt: string | null }
+  | {
+      type: "update_status";
+      updateAvailable: boolean;
+      current: { sha: string; message: string; date: string };
+      latest: { sha: string; message: string; date: string };
+    }
+  | {
+      type: "cronjobs_state";
+      cronjobs: Cronjob[];
+      cronjobsPrompt: string | null;
+    }
   | { type: "cronjob_added"; cronjob: Cronjob }
   | { type: "cronjob_updated"; cronjob: Cronjob }
   | { type: "cronjob_deleted"; id: string }
@@ -96,7 +164,9 @@ function reducer(state: AppState, action: Action): AppState {
       let currentRoom = state.currentRoom;
       if (state.rooms.length === 0) {
         const username = getUsername();
-        const me = username ? state.users.get(username.toLowerCase()) : undefined;
+        const me = username
+          ? state.users.get(username.toLowerCase())
+          : undefined;
         const defaultId = me?.defaultRoomId ?? null;
         if (defaultId) {
           const idx = action.rooms.findIndex((r) => r.id === defaultId);
@@ -115,7 +185,11 @@ function reducer(state: AppState, action: Action): AppState {
         logEntryIds: new Map(),
         needsAttention: new Set(),
         slashCommands: new Map(),
-        stateChangedAt: new Map(action.agents.filter((a) => a.state !== "idle" && a.state !== "stopped").map((a) => [a.id, Date.now()])),
+        stateChangedAt: new Map(
+          action.agents
+            .filter((a) => a.state !== "idle" && a.state !== "stopped")
+            .map((a) => [a.id, Date.now()]),
+        ),
       };
     }
     case "agent_added":
@@ -136,12 +210,13 @@ function reducer(state: AppState, action: Action): AppState {
         logEntryIds,
         needsAttention,
         sidePanels,
-        focusedAgentId: state.focusedAgentId === action.agentId ? null : state.focusedAgentId,
+        focusedAgentId:
+          state.focusedAgentId === action.agentId ? null : state.focusedAgentId,
       };
     }
     case "agent_updated": {
       const newAgents = state.agents.map((a) =>
-        a.id === action.agentId ? { ...a, ...action.changes } : a
+        a.id === action.agentId ? { ...a, ...action.changes } : a,
       );
       const needsAttention = new Set(state.needsAttention);
       // Track when state changes for elapsed time display
@@ -170,7 +245,13 @@ function reducer(state: AppState, action: Action): AppState {
             needsAttention.add(action.agentId);
           }
         }
-        return { ...state, agents: newAgents, needsAttention, soundTrigger, stateChangedAt };
+        return {
+          ...state,
+          agents: newAgents,
+          needsAttention,
+          soundTrigger,
+          stateChangedAt,
+        };
       }
       return { ...state, agents: newAgents, needsAttention, stateChangedAt };
     }
@@ -200,7 +281,10 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, connected: true };
     case "sessions_list": {
       const sessionsList = new Map(state.sessionsList);
-      sessionsList.set(action.agentId, { sessions: action.sessions, currentSessionId: action.currentSessionId });
+      sessionsList.set(action.agentId, {
+        sessions: action.sessions,
+        currentSessionId: action.currentSessionId,
+      });
       return { ...state, sessionsList };
     }
     case "set_draft": {
@@ -223,7 +307,10 @@ function reducer(state: AppState, action: Action): AppState {
     }
     case "slash_commands": {
       const slashCommands = new Map(state.slashCommands);
-      slashCommands.set(action.agentId, { commands: action.commands, skills: action.skills });
+      slashCommands.set(action.agentId, {
+        commands: action.commands,
+        skills: action.skills,
+      });
       return { ...state, slashCommands };
     }
     case "clear_logs": {
@@ -237,11 +324,15 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, isMobile: action.isMobile };
     case "toggle_mobile_view": {
       const next = state.mobileViewMode === "list" ? "office" : "list";
-      if (typeof localStorage !== "undefined") localStorage.setItem("isomux-mobile-view", next);
+      if (typeof localStorage !== "undefined")
+        localStorage.setItem("isomux-mobile-view", next);
       return { ...state, mobileViewMode: next };
     }
     case "office_settings_updated":
-      return { ...state, office: { prompt: action.prompt, envFile: action.envFile } };
+      return {
+        ...state,
+        office: { prompt: action.prompt, envFile: action.envFile },
+      };
     case "tasks":
       return { ...state, tasks: action.tasks, tasksLoaded: true };
     case "set_current_room":
@@ -249,7 +340,12 @@ function reducer(state: AppState, action: Action): AppState {
     case "room_created":
       return { ...state, rooms: [...state.rooms, action.room] };
     case "update_status":
-      return { ...state, updateAvailable: action.updateAvailable, updateCurrent: action.current, updateLatest: action.latest };
+      return {
+        ...state,
+        updateAvailable: action.updateAvailable,
+        updateCurrent: action.current,
+        updateLatest: action.latest,
+      };
     case "room_closed": {
       const idx = state.rooms.findIndex((r) => r.id === action.roomId);
       if (idx < 0) return state;
@@ -261,11 +357,15 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, rooms: newRooms, currentRoom };
     }
     case "room_renamed": {
-      const newRooms = state.rooms.map((r) => r.id === action.roomId ? { ...r, name: action.name } : r);
+      const newRooms = state.rooms.map((r) =>
+        r.id === action.roomId ? { ...r, name: action.name } : r,
+      );
       return { ...state, rooms: newRooms };
     }
     case "room_settings_updated": {
-      const newRooms = state.rooms.map((r) => r.id === action.roomId ? { ...r, prompt: action.prompt } : r);
+      const newRooms = state.rooms.map((r) =>
+        r.id === action.roomId ? { ...r, prompt: action.prompt } : r,
+      );
       return { ...state, rooms: newRooms };
     }
     case "users_list": {
@@ -275,20 +375,30 @@ function reducer(state: AppState, action: Action): AppState {
     case "user_updated": {
       const users = new Map(state.users);
       // On rename, drop the old key so the map doesn't accumulate ghosts.
-      if (action.prevName && action.prevName.toLowerCase() !== action.user.name.toLowerCase()) {
+      if (
+        action.prevName &&
+        action.prevName.toLowerCase() !== action.user.name.toLowerCase()
+      ) {
         users.delete(action.prevName.toLowerCase());
       }
       users.set(action.user.name.toLowerCase(), action.user);
       return { ...state, users };
     }
     case "cronjobs_state":
-      return { ...state, cronjobs: action.cronjobs, cronjobsPrompt: action.cronjobsPrompt, cronjobsLoaded: true };
+      return {
+        ...state,
+        cronjobs: action.cronjobs,
+        cronjobsPrompt: action.cronjobsPrompt,
+        cronjobsLoaded: true,
+      };
     case "cronjob_added":
       return { ...state, cronjobs: [...state.cronjobs, action.cronjob] };
     case "cronjob_updated":
       return {
         ...state,
-        cronjobs: state.cronjobs.map((c) => c.id === action.cronjob.id ? action.cronjob : c),
+        cronjobs: state.cronjobs.map((c) =>
+          c.id === action.cronjob.id ? action.cronjob : c,
+        ),
       };
     case "cronjob_deleted":
       return {
@@ -308,19 +418,24 @@ function reducer(state: AppState, action: Action): AppState {
       const cronjobRunsByJob = new Map(state.cronjobRunsByJob);
       const existing = cronjobRunsByJob.get(action.run.cronjobId) ?? [];
       const idx = existing.findIndex((r) => r.id === action.run.id);
-      const next = idx >= 0
-        ? existing.map((r) => r.id === action.run.id ? action.run : r)
-        : [...existing, action.run];
+      const next =
+        idx >= 0
+          ? existing.map((r) => (r.id === action.run.id ? action.run : r))
+          : [...existing, action.run];
       cronjobRunsByJob.set(action.run.cronjobId, next);
       return { ...state, cronjobRunsByJob };
     }
     case "rooms_reordered": {
       // action.order is the new ordering of roomIds
       const idToOldIdx = new Map(state.rooms.map((r, i) => [r.id, i]));
-      const newRooms = action.order.map((id) => state.rooms[idToOldIdx.get(id)!]).filter(Boolean);
+      const newRooms = action.order
+        .map((id) => state.rooms[idToOldIdx.get(id)!])
+        .filter(Boolean);
       // Recompute currentRoom: find where the previously-current room landed
       const prevId = state.rooms[state.currentRoom]?.id;
-      const newCurrentRoom = prevId ? Math.max(0, action.order.indexOf(prevId)) : 0;
+      const newCurrentRoom = prevId
+        ? Math.max(0, action.order.indexOf(prevId))
+        : 0;
       // Remap agents' numeric room index to the new positions
       const idToNewIdx = new Map(newRooms.map((r, i) => [r.id, i]));
       const newAgents = state.agents.map((a) => {
@@ -329,7 +444,12 @@ function reducer(state: AppState, action: Action): AppState {
         const newIdx = idToNewIdx.get(oldId) ?? a.room;
         return newIdx !== a.room ? { ...a, room: newIdx } : a;
       });
-      return { ...state, rooms: newRooms, agents: newAgents, currentRoom: newCurrentRoom };
+      return {
+        ...state,
+        rooms: newRooms,
+        agents: newAgents,
+        currentRoom: newCurrentRoom,
+      };
     }
     default:
       return state;
@@ -343,7 +463,11 @@ const initialState: AppState = {
   focusedAgentId: null,
   connected: false,
   isMobile: typeof window !== "undefined" ? window.innerWidth < 768 : false,
-  mobileViewMode: (typeof localStorage !== "undefined" && localStorage.getItem("isomux-mobile-view") === "list") ? "list" : "office",
+  mobileViewMode:
+    typeof localStorage !== "undefined" &&
+    localStorage.getItem("isomux-mobile-view") === "list"
+      ? "list"
+      : "office",
   needsAttention: new Set(),
   sessionsList: new Map(),
   soundTrigger: { seq: 0, roomId: null },
@@ -384,7 +508,9 @@ function ensureAudioContext() {
 
 // Initialize audio on first click anywhere
 if (typeof document !== "undefined") {
-  document.addEventListener("click", () => ensureAudioContext(), { once: true });
+  document.addEventListener("click", () => ensureAudioContext(), {
+    once: true,
+  });
 }
 
 function playNotificationSound() {
@@ -423,7 +549,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
           const exists = msg.users.some((u) => u.name.toLowerCase() === key);
           if (!exists) {
             const legacy = readLegacyUserPrefs();
-            send({ type: "claim_user", username, defaultRoomId: legacy.defaultRoomId, notifRooms: legacy.notifRooms });
+            send({
+              type: "claim_user",
+              username,
+              defaultRoomId: legacy.defaultRoomId,
+              notifRooms: legacy.notifRooms,
+            });
           }
           // Whether the record was just created or already existed, the
           // legacy localStorage keys are now redundant. Drop them so they
@@ -455,7 +586,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // by the user's per-room notification preference (server-stored).
   const prevSoundTriggerSeq = useRef(0);
   useEffect(() => {
-    if (state.soundTrigger.seq > prevSoundTriggerSeq.current && document.hidden) {
+    if (
+      state.soundTrigger.seq > prevSoundTriggerSeq.current &&
+      document.hidden
+    ) {
       const username = getUsername();
       const me = username ? state.users.get(username.toLowerCase()) : undefined;
       const notifRooms = me?.notifRooms ?? "all";
@@ -483,7 +617,10 @@ export function useDispatch() {
 
 // Theme management — persisted to localStorage, applied via data-theme attribute on <html>
 type Theme = "dark" | "light";
-const ThemeCtx = createContext<{ theme: Theme; toggleTheme: () => void }>({ theme: "dark", toggleTheme: () => {} });
+const ThemeCtx = createContext<{ theme: Theme; toggleTheme: () => void }>({
+  theme: "dark",
+  toggleTheme: () => {},
+});
 
 function getInitialTheme(): Theme {
   if (typeof localStorage !== "undefined") {
@@ -500,7 +637,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     document.documentElement.setAttribute("data-theme", theme);
     localStorage.setItem("isomux-theme", theme);
     const color = theme === "dark" ? "#0a0e16" : "#f0f2f6";
-    let meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+    let meta = document.querySelector<HTMLMetaElement>(
+      'meta[name="theme-color"]',
+    );
     if (!meta) {
       meta = document.createElement("meta");
       meta.name = "theme-color";
@@ -513,7 +652,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     setTheme((t) => (t === "dark" ? "light" : "dark"));
   }, []);
 
-  return <ThemeCtx.Provider value={{ theme, toggleTheme }}>{children}</ThemeCtx.Provider>;
+  return (
+    <ThemeCtx.Provider value={{ theme, toggleTheme }}>
+      {children}
+    </ThemeCtx.Provider>
+  );
 }
 
 export function useTheme() {
@@ -523,8 +666,16 @@ export function useTheme() {
 // Feature flags context — production defaults, demo overrides
 const FeaturesCtx = createContext<Features>(PRODUCTION_FEATURES);
 
-export function FeaturesProvider({ features, children }: { features: Features; children: ReactNode }) {
-  return <FeaturesCtx.Provider value={features}>{children}</FeaturesCtx.Provider>;
+export function FeaturesProvider({
+  features,
+  children,
+}: {
+  features: Features;
+  children: ReactNode;
+}) {
+  return (
+    <FeaturesCtx.Provider value={features}>{children}</FeaturesCtx.Provider>
+  );
 }
 
 export function useFeatures() {

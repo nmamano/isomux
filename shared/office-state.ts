@@ -1,7 +1,28 @@
-import type { AgentInfo, AgentOutfit, TaskItem, TaskPriority, TaskStatus, RoomWire, OfficeSettings } from "./types.ts";
+import type {
+  AgentInfo,
+  AgentOutfit,
+  TaskItem,
+  TaskPriority,
+  TaskStatus,
+  RoomWire,
+  OfficeSettings,
+} from "./types.ts";
 import { DEFAULT_AGENT_CAPABILITIES, DEFAULT_EFFORT } from "./types.ts";
-import { generateTaskId, generateRoomId, isValidStatus, isValidPriority } from "./types.ts";
-import { SHIRT_COLORS, HAIR_COLORS, SKIN_COLORS, HAIR_STYLES, BEARDS, HATS, ACCESSORIES } from "./outfit-options.ts";
+import {
+  generateTaskId,
+  generateRoomId,
+  isValidStatus,
+  isValidPriority,
+} from "./types.ts";
+import {
+  SHIRT_COLORS,
+  HAIR_COLORS,
+  SKIN_COLORS,
+  HAIR_STYLES,
+  BEARDS,
+  HATS,
+  ACCESSORIES,
+} from "./outfit-options.ts";
 
 // Domain events — callers translate these to ServerMessage
 export type OfficeEvent =
@@ -13,7 +34,11 @@ export type OfficeEvent =
   | { type: "room_renamed"; roomId: string; name: string }
   | { type: "rooms_reordered"; order: string[] }
   | { type: "room_settings_updated"; roomId: string; prompt: string | null }
-  | { type: "office_settings_updated"; prompt: string | null; envFile: string | null }
+  | {
+      type: "office_settings_updated";
+      prompt: string | null;
+      envFile: string | null;
+    }
   | { type: "tasks_changed"; tasks: TaskItem[] };
 
 function pick<T>(arr: readonly T[]): T {
@@ -42,21 +67,32 @@ export interface OfficeStateData {
 
 export class OfficeState {
   private agents = new Map<string, AgentInfo>();
-  private _rooms: RoomWire[] = [{ id: generateRoomId(), name: "Room 1", prompt: null }];
+  private _rooms: RoomWire[] = [
+    { id: generateRoomId(), name: "Room 1", prompt: null },
+  ];
   private _office: OfficeSettings = { prompt: null, envFile: null };
   private _tasks: TaskItem[] = [];
   private _recentCwds: string[] = [];
   private onChangeHandlers = new Set<(event: OfficeEvent) => void>();
 
   constructor(initial?: { rooms?: RoomWire[]; office?: OfficeSettings }) {
-    if (initial?.rooms && initial.rooms.length > 0) this._rooms = [...initial.rooms];
+    if (initial?.rooms && initial.rooms.length > 0)
+      this._rooms = [...initial.rooms];
     if (initial?.office) this._office = { ...initial.office };
   }
 
-  get rooms() { return this._rooms; }
-  get office() { return this._office; }
-  get tasks() { return this._tasks; }
-  get recentCwds() { return this._recentCwds; }
+  get rooms() {
+    return this._rooms;
+  }
+  get office() {
+    return this._office;
+  }
+  get tasks() {
+    return this._tasks;
+  }
+  get recentCwds() {
+    return this._recentCwds;
+  }
 
   onChange(handler: (event: OfficeEvent) => void): () => void {
     this.onChangeHandlers.add(handler);
@@ -94,7 +130,10 @@ export class OfficeState {
   }
 
   setRooms(rooms: RoomWire[]) {
-    this._rooms = rooms.length > 0 ? [...rooms] : [{ id: generateRoomId(), name: "Room 1", prompt: null }];
+    this._rooms =
+      rooms.length > 0
+        ? [...rooms]
+        : [{ id: generateRoomId(), name: "Room 1", prompt: null }];
   }
 
   setOfficeDirect(office: OfficeSettings) {
@@ -137,7 +176,9 @@ export class OfficeState {
       const idx = this._rooms.findIndex((r) => r.id === opts.roomId);
       if (idx >= 0) targetRoom = idx;
     }
-    const roomAgents = [...this.agents.values()].filter((a) => a.room === targetRoom);
+    const roomAgents = [...this.agents.values()].filter(
+      (a) => a.room === targetRoom,
+    );
     const taken = new Set(roomAgents.map((a) => a.desk));
 
     let desk: number;
@@ -146,7 +187,10 @@ export class OfficeState {
     } else {
       desk = -1;
       for (let i = 0; i < 8; i++) {
-        if (!taken.has(i)) { desk = i; break; }
+        if (!taken.has(i)) {
+          desk = i;
+          break;
+        }
       }
     }
     if (desk === -1) return null; // room full
@@ -180,10 +224,12 @@ export class OfficeState {
     // Track cwd
     this.addRecentCwd(opts.cwd);
 
-    const events: OfficeEvent[] = [{
-      type: "agent_added",
-      agent,
-    }];
+    const events: OfficeEvent[] = [
+      {
+        type: "agent_added",
+        agent,
+      },
+    ];
     this.emitEvents(events);
     return {
       agent,
@@ -199,16 +245,19 @@ export class OfficeState {
     return events;
   }
 
-  editAgent(agentId: string, changes: {
-    name?: string;
-    cwd?: string;
-    outfit?: AgentOutfit;
-    customInstructions?: string;
-    permissionMode?: AgentInfo["permissionMode"];
-    modelFamily?: AgentInfo["modelFamily"];
-    effort?: AgentInfo["effort"];
-    codexSandbox?: AgentInfo["codexSandbox"];
-  }): OfficeEvent[] {
+  editAgent(
+    agentId: string,
+    changes: {
+      name?: string;
+      cwd?: string;
+      outfit?: AgentOutfit;
+      customInstructions?: string;
+      permissionMode?: AgentInfo["permissionMode"];
+      modelFamily?: AgentInfo["modelFamily"];
+      effort?: AgentInfo["effort"];
+      codexSandbox?: AgentInfo["codexSandbox"];
+    },
+  ): OfficeEvent[] {
     const agent = this.agents.get(agentId);
     if (!agent) return [];
 
@@ -216,7 +265,9 @@ export class OfficeState {
 
     if (changes.name && changes.name !== agent.name) {
       const nameLower = changes.name.trim().toLowerCase();
-      const duplicate = [...this.agents.values()].some((a) => a.id !== agentId && a.name.toLowerCase() === nameLower);
+      const duplicate = [...this.agents.values()].some(
+        (a) => a.id !== agentId && a.name.toLowerCase() === nameLower,
+      );
       if (!duplicate) {
         agent.name = changes.name;
         updated.name = changes.name;
@@ -231,11 +282,17 @@ export class OfficeState {
       agent.outfit = changes.outfit;
       updated.outfit = changes.outfit;
     }
-    if (changes.customInstructions !== undefined && changes.customInstructions !== agent.customInstructions) {
+    if (
+      changes.customInstructions !== undefined &&
+      changes.customInstructions !== agent.customInstructions
+    ) {
       agent.customInstructions = changes.customInstructions || null;
       updated.customInstructions = agent.customInstructions;
     }
-    if (changes.permissionMode && changes.permissionMode !== agent.permissionMode) {
+    if (
+      changes.permissionMode &&
+      changes.permissionMode !== agent.permissionMode
+    ) {
       agent.permissionMode = changes.permissionMode;
       updated.permissionMode = changes.permissionMode;
     }
@@ -253,7 +310,9 @@ export class OfficeState {
     }
 
     if (Object.keys(updated).length === 0) return [];
-    const events: OfficeEvent[] = [{ type: "agent_updated", agentId, changes: updated }];
+    const events: OfficeEvent[] = [
+      { type: "agent_updated", agentId, changes: updated },
+    ];
     this.emitEvents(events);
     return events;
   }
@@ -268,7 +327,8 @@ export class OfficeState {
   }
 
   swapDesks(deskA: number, deskB: number, roomId: string): OfficeEvent[] {
-    if (deskA === deskB || deskA < 0 || deskA > 7 || deskB < 0 || deskB > 7) return [];
+    if (deskA === deskB || deskA < 0 || deskA > 7 || deskB < 0 || deskB > 7)
+      return [];
     const room = this._rooms.findIndex((r) => r.id === roomId);
     if (room < 0) return [];
 
@@ -280,11 +340,19 @@ export class OfficeState {
     const events: OfficeEvent[] = [];
     if (agentA) {
       agentA.desk = deskB;
-      events.push({ type: "agent_updated", agentId: agentA.id, changes: { desk: deskB } });
+      events.push({
+        type: "agent_updated",
+        agentId: agentA.id,
+        changes: { desk: deskB },
+      });
     }
     if (agentB) {
       agentB.desk = deskA;
-      events.push({ type: "agent_updated", agentId: agentB.id, changes: { desk: deskA } });
+      events.push({
+        type: "agent_updated",
+        agentId: agentB.id,
+        changes: { desk: deskA },
+      });
     }
     this.emitEvents(events);
     return events;
@@ -292,7 +360,9 @@ export class OfficeState {
 
   createRoom(name?: string): OfficeEvent[] {
     const existingIds = this._rooms.map((r) => r.id);
-    const displayName = (name || `Room ${this._rooms.length + 1}`).trim().slice(0, 40);
+    const displayName = (name || `Room ${this._rooms.length + 1}`)
+      .trim()
+      .slice(0, 40);
     const room: RoomWire = {
       id: generateRoomId(existingIds),
       name: displayName,
@@ -315,7 +385,11 @@ export class OfficeState {
     for (const agent of this.agents.values()) {
       if (agent.room > room) {
         agent.room--;
-        events.push({ type: "agent_updated", agentId: agent.id, changes: { room: agent.room } });
+        events.push({
+          type: "agent_updated",
+          agentId: agent.id,
+          changes: { room: agent.room },
+        });
       }
     }
     events.push({ type: "room_closed", roomId });
@@ -329,7 +403,9 @@ export class OfficeState {
     const trimmed = name.trim().slice(0, 40);
     if (!trimmed) return [];
     this._rooms[room] = { ...this._rooms[room], name: trimmed };
-    const events: OfficeEvent[] = [{ type: "room_renamed", roomId, name: trimmed }];
+    const events: OfficeEvent[] = [
+      { type: "room_renamed", roomId, name: trimmed },
+    ];
     this.emitEvents(events);
     return events;
   }
@@ -339,7 +415,8 @@ export class OfficeState {
     const currentIds = new Set(this._rooms.map((r) => r.id));
     const seen = new Set<string>();
     for (const id of order) {
-      if (typeof id !== "string" || !currentIds.has(id) || seen.has(id)) return [];
+      if (typeof id !== "string" || !currentIds.has(id) || seen.has(id))
+        return [];
       seen.add(id);
     }
     if (order.every((id, i) => id === this._rooms[i].id)) return [];
@@ -369,26 +446,46 @@ export class OfficeState {
     if (targetRoom < 0) return [];
     if (agent.room === targetRoom) return [];
 
-    const targetAgents = [...this.agents.values()].filter((a) => a.room === targetRoom);
+    const targetAgents = [...this.agents.values()].filter(
+      (a) => a.room === targetRoom,
+    );
     if (targetAgents.length >= 8) return [];
     const taken = new Set(targetAgents.map((a) => a.desk));
     let newDesk = -1;
     for (let i = 0; i < 8; i++) {
-      if (!taken.has(i)) { newDesk = i; break; }
+      if (!taken.has(i)) {
+        newDesk = i;
+        break;
+      }
     }
     if (newDesk === -1) return [];
 
     agent.room = targetRoom;
     agent.desk = newDesk;
-    const events: OfficeEvent[] = [{ type: "agent_updated", agentId, changes: { room: targetRoom, desk: newDesk } }];
+    const events: OfficeEvent[] = [
+      {
+        type: "agent_updated",
+        agentId,
+        changes: { room: targetRoom, desk: newDesk },
+      },
+    ];
     this.emitEvents(events);
     return events;
   }
 
-  setOfficeSettings(prompt: string | null, envFile: string | null): OfficeEvent[] {
+  setOfficeSettings(
+    prompt: string | null,
+    envFile: string | null,
+  ): OfficeEvent[] {
     const normalizedPrompt = prompt && prompt.trim() ? prompt.trim() : null;
     this._office = { prompt: normalizedPrompt, envFile: envFile || null };
-    const events: OfficeEvent[] = [{ type: "office_settings_updated", prompt: this._office.prompt, envFile: this._office.envFile }];
+    const events: OfficeEvent[] = [
+      {
+        type: "office_settings_updated",
+        prompt: this._office.prompt,
+        envFile: this._office.envFile,
+      },
+    ];
     this.emitEvents(events);
     return events;
   }
@@ -398,7 +495,9 @@ export class OfficeState {
     if (idx < 0) return [];
     const normalizedPrompt = prompt && prompt.trim() ? prompt.trim() : null;
     this._rooms[idx] = { ...this._rooms[idx], prompt: normalizedPrompt };
-    const events: OfficeEvent[] = [{ type: "room_settings_updated", roomId, prompt: normalizedPrompt }];
+    const events: OfficeEvent[] = [
+      { type: "room_settings_updated", roomId, prompt: normalizedPrompt },
+    ];
     this.emitEvents(events);
     return events;
   }
@@ -408,7 +507,13 @@ export class OfficeState {
     if (!agent) return [];
     agent.topic = topic.slice(0, 80);
     agent.topicStale = false;
-    const events: OfficeEvent[] = [{ type: "agent_updated", agentId, changes: { topic: agent.topic, topicStale: false } }];
+    const events: OfficeEvent[] = [
+      {
+        type: "agent_updated",
+        agentId,
+        changes: { topic: agent.topic, topicStale: false },
+      },
+    ];
     this.emitEvents(events);
     return events;
   }
@@ -418,14 +523,29 @@ export class OfficeState {
     if (!agent) return [];
     agent.topic = null;
     agent.topicStale = false;
-    const events: OfficeEvent[] = [{ type: "agent_updated", agentId, changes: { topic: null, topicStale: false } }];
+    const events: OfficeEvent[] = [
+      {
+        type: "agent_updated",
+        agentId,
+        changes: { topic: null, topicStale: false },
+      },
+    ];
     this.emitEvents(events);
     return events;
   }
 
-  addTask(title: string, createdBy: string, opts?: { description?: string; priority?: TaskPriority; assignee?: string; username?: string }): OfficeEvent[] {
+  addTask(
+    title: string,
+    createdBy: string,
+    opts?: {
+      description?: string;
+      priority?: TaskPriority;
+      assignee?: string;
+      username?: string;
+    },
+  ): OfficeEvent[] {
     const task: TaskItem = {
-      id: generateTaskId(this._tasks.map(t => t.id)),
+      id: generateTaskId(this._tasks.map((t) => t.id)),
       title: title.trim(),
       description: opts?.description,
       priority: opts?.priority,
@@ -436,29 +556,46 @@ export class OfficeState {
       createdAt: Date.now(),
     };
     this._tasks.push(task);
-    const events: OfficeEvent[] = [{ type: "tasks_changed", tasks: [...this._tasks] }];
+    const events: OfficeEvent[] = [
+      { type: "tasks_changed", tasks: [...this._tasks] },
+    ];
     this.emitEvents(events);
     return events;
   }
 
-  updateTask(id: string, changes: Partial<Pick<TaskItem, "title" | "description" | "priority" | "status" | "assignee">>): OfficeEvent[] {
+  updateTask(
+    id: string,
+    changes: Partial<
+      Pick<
+        TaskItem,
+        "title" | "description" | "priority" | "status" | "assignee"
+      >
+    >,
+  ): OfficeEvent[] {
     const task = this._tasks.find((t) => t.id === id);
     if (!task) return [];
     Object.assign(task, changes);
-    const events: OfficeEvent[] = [{ type: "tasks_changed", tasks: [...this._tasks] }];
+    const events: OfficeEvent[] = [
+      { type: "tasks_changed", tasks: [...this._tasks] },
+    ];
     this.emitEvents(events);
     return events;
   }
 
   deleteTask(id: string): OfficeEvent[] {
     this._tasks = this._tasks.filter((t) => t.id !== id);
-    const events: OfficeEvent[] = [{ type: "tasks_changed", tasks: [...this._tasks] }];
+    const events: OfficeEvent[] = [
+      { type: "tasks_changed", tasks: [...this._tasks] },
+    ];
     this.emitEvents(events);
     return events;
   }
 
   addRecentCwd(cwd: string) {
     if (!cwd) return;
-    this._recentCwds = [cwd, ...this._recentCwds.filter((c) => c !== cwd)].slice(0, 20);
+    this._recentCwds = [
+      cwd,
+      ...this._recentCwds.filter((c) => c !== cwd),
+    ].slice(0, 20);
   }
 }

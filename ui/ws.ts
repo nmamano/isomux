@@ -15,7 +15,10 @@ let visibilityBound = false;
 let shimHandler: ((cmd: ClientCommand) => void) | null = null;
 let shimOnConnect: (() => void) | null = null;
 
-export function setShim(onCommand: (cmd: ClientCommand) => void, onConnect?: () => void) {
+export function setShim(
+  onCommand: (cmd: ClientCommand) => void,
+  onConnect?: () => void,
+) {
   shimHandler = onCommand;
   shimOnConnect = onConnect ?? null;
 }
@@ -81,7 +84,9 @@ export function connect(onMessage: MessageHandler) {
   clearReconnectTimer();
   const myGen = ++socketGen;
   if (socket) {
-    try { socket.close(); } catch {}
+    try {
+      socket.close();
+    } catch {}
   }
 
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
@@ -90,7 +95,9 @@ export function connect(onMessage: MessageHandler) {
   ws.onmessage = (e) => {
     const data = e.data as string;
     let msg: ServerMessage | null = null;
-    try { msg = JSON.parse(data) as ServerMessage; } catch {}
+    try {
+      msg = JSON.parse(data) as ServerMessage;
+    } catch {}
     if (msg?.type === "pong") {
       clearPongTimer();
       return;

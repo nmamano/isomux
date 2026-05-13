@@ -16,7 +16,8 @@ export interface TerminalDeps {
 
 function sidecarSend(managed: ManagedAgent, msg: Record<string, unknown>) {
   const stdin = managed.ptySidecar?.stdin;
-  if (stdin && typeof stdin !== "number") stdin.write(JSON.stringify(msg) + "\n");
+  if (stdin && typeof stdin !== "number")
+    stdin.write(JSON.stringify(msg) + "\n");
 }
 
 export function openTerminal(agentId: string, deps: TerminalDeps): boolean {
@@ -29,7 +30,7 @@ export function openTerminal(agentId: string, deps: TerminalDeps): boolean {
   const shell = process.env.SHELL || "/bin/bash";
   const home = homedir();
   const ptyEnv: Record<string, string> = {
-    ...process.env as Record<string, string>,
+    ...(process.env as Record<string, string>),
     TERM: "xterm-256color",
     SHELL: shell,
     HOME: home,
@@ -62,7 +63,11 @@ export function openTerminal(agentId: string, deps: TerminalDeps): boolean {
         for (const line of lines) {
           if (!line) continue;
           let msg: any;
-          try { msg = JSON.parse(line); } catch { continue; }
+          try {
+            msg = JSON.parse(line);
+          } catch {
+            continue;
+          }
           if (msg.type === "output") {
             managed.ptyBuffer += msg.data;
             if (managed.ptyBuffer.length > MAX_PTY_BUFFER) {
@@ -70,9 +75,15 @@ export function openTerminal(agentId: string, deps: TerminalDeps): boolean {
             }
             deps.emit({ type: "terminal_output", agentId, data: msg.data });
           } else if (msg.type === "exit") {
-            console.log(`[terminal] PTY exited for ${agentId}: code=${msg.exitCode}, signal=${msg.signal}`);
+            console.log(
+              `[terminal] PTY exited for ${agentId}: code=${msg.exitCode}, signal=${msg.signal}`,
+            );
             managed.ptySidecar = null;
-            deps.emit({ type: "terminal_exit", agentId, exitCode: msg.exitCode });
+            deps.emit({
+              type: "terminal_exit",
+              agentId,
+              exitCode: msg.exitCode,
+            });
           }
         }
       }
@@ -95,22 +106,36 @@ export function openTerminal(agentId: string, deps: TerminalDeps): boolean {
     env: ptyEnv,
   });
 
-  console.log(`[terminal] Spawned sidecar for ${agentId}: shell=${shell}, cwd=${managed.info.cwd}, pid=${sidecar.pid}`);
+  console.log(
+    `[terminal] Spawned sidecar for ${agentId}: shell=${shell}, cwd=${managed.info.cwd}, pid=${sidecar.pid}`,
+  );
   return true;
 }
 
-export function getTerminalBuffer(agentId: string, deps: TerminalDeps): string | null {
+export function getTerminalBuffer(
+  agentId: string,
+  deps: TerminalDeps,
+): string | null {
   const managed = deps.getAgent(agentId);
   if (!managed?.ptySidecar) return null;
   return managed.ptyBuffer;
 }
 
-export function terminalInput(agentId: string, data: string, deps: TerminalDeps) {
+export function terminalInput(
+  agentId: string,
+  data: string,
+  deps: TerminalDeps,
+) {
   const managed = deps.getAgent(agentId);
   if (managed?.ptySidecar) sidecarSend(managed, { type: "input", data });
 }
 
-export function terminalResize(agentId: string, cols: number, rows: number, deps: TerminalDeps) {
+export function terminalResize(
+  agentId: string,
+  cols: number,
+  rows: number,
+  deps: TerminalDeps,
+) {
   const managed = deps.getAgent(agentId);
   if (managed?.ptySidecar) sidecarSend(managed, { type: "resize", cols, rows });
 }
@@ -125,5 +150,8 @@ export function closeTerminal(agentId: string, deps: TerminalDeps) {
 
 // Used during kill flow: shut down a sidecar held in `managed` directly.
 export function killSidecar(managed: ManagedAgent) {
-  try { sidecarSend(managed, { type: "kill" }); managed.ptySidecar?.kill(); } catch {}
+  try {
+    sidecarSend(managed, { type: "kill" });
+    managed.ptySidecar?.kill();
+  } catch {}
 }

@@ -17,7 +17,10 @@ export type ResolveDirResult =
 // Resolve an optional user-supplied directory against the agent's cwd.
 // `~` expands to the user's home; relative paths resolve against `agentCwd`;
 // absolute paths win. Validates that the result exists and is a directory.
-export function resolveDiffCwd(rawDir: string | undefined, agentCwd: string): ResolveDirResult {
+export function resolveDiffCwd(
+  rawDir: string | undefined,
+  agentCwd: string,
+): ResolveDirResult {
   const trimmed = rawDir?.trim();
   if (!trimmed) return { kind: "ok", cwd: agentCwd };
   const expanded = trimmed.startsWith("~")
@@ -25,7 +28,8 @@ export function resolveDiffCwd(rawDir: string | undefined, agentCwd: string): Re
     : trimmed;
   const abs = isAbsolute(expanded) ? expanded : resolve(agentCwd, expanded);
   try {
-    if (!statSync(abs).isDirectory()) return { kind: "bad_dir", attempted: abs };
+    if (!statSync(abs).isDirectory())
+      return { kind: "bad_dir", attempted: abs };
   } catch {
     return { kind: "bad_dir", attempted: abs };
   }
@@ -38,9 +42,18 @@ export function resolveDiffCwd(rawDir: string | undefined, agentCwd: string): Re
 // and the HTTP endpoint share this so the on-screen rendering stays identical.
 export function computeIsomuxDiff(cwd: string): ComputeDiffResult {
   const runGit = (args: string, maxBuffer = 10 * 1024 * 1024) =>
-    execSync(`git -c core.quotePath=false ${args}`, { cwd, timeout: 10000, maxBuffer, stdio: ["ignore", "pipe", "pipe"] }).toString();
+    execSync(`git -c core.quotePath=false ${args}`, {
+      cwd,
+      timeout: 10000,
+      maxBuffer,
+      stdio: ["ignore", "pipe", "pipe"],
+    }).toString();
   const runGitOrNull = (args: string, maxBuffer?: number): string | null => {
-    try { return runGit(args, maxBuffer); } catch { return null; }
+    try {
+      return runGit(args, maxBuffer);
+    } catch {
+      return null;
+    }
   };
 
   try {
@@ -49,7 +62,8 @@ export function computeIsomuxDiff(cwd: string): ComputeDiffResult {
     return { kind: "not_repo", cwd };
   }
 
-  const branchRaw = runGitOrNull("rev-parse --abbrev-ref HEAD", 1024)?.trim() ?? null;
+  const branchRaw =
+    runGitOrNull("rev-parse --abbrev-ref HEAD", 1024)?.trim() ?? null;
   const branch = branchRaw && branchRaw !== "HEAD" ? branchRaw : null;
   const head = runGitOrNull("rev-parse --short HEAD", 1024)?.trim() || null;
 
@@ -70,12 +84,18 @@ export function computeIsomuxDiff(cwd: string): ComputeDiffResult {
       const wd = gather("");
       diff = [cached.diff, wd.diff].filter((s) => s.trim()).join("\n");
       numstat = [cached.numstat, wd.numstat].filter(Boolean).join("\n");
-      nameStatus = [cached.nameStatus, wd.nameStatus].filter(Boolean).join("\n");
+      nameStatus = [cached.nameStatus, wd.nameStatus]
+        .filter(Boolean)
+        .join("\n");
     }
     const untrackedOut = runGit("ls-files --others --exclude-standard").trim();
     if (untrackedOut) untracked = untrackedOut.split("\n");
   } catch (err) {
-    return { kind: "git_error", cwd, message: err instanceof Error ? err.message : String(err) };
+    return {
+      kind: "git_error",
+      cwd,
+      message: err instanceof Error ? err.message : String(err),
+    };
   }
 
   const fileMap = new Map<string, DiffFileSummary>();
@@ -122,7 +142,8 @@ export function computeIsomuxDiff(cwd: string): ComputeDiffResult {
   // pull the post-image path so we merge counts into the name-status row.
   const extractPostImagePath = (raw: string): string => {
     const brace = raw.match(/^(.*)\{([^{}]*?) => ([^{}]*?)\}(.*)$/);
-    if (brace) return `${brace[1]}${brace[3]}${brace[4]}`.replace(/\/{2,}/g, "/");
+    if (brace)
+      return `${brace[1]}${brace[3]}${brace[4]}`.replace(/\/{2,}/g, "/");
     const arrow = raw.indexOf(" => ");
     if (arrow !== -1) return raw.slice(arrow + 4);
     return raw;
@@ -159,16 +180,23 @@ export function computeIsomuxDiff(cwd: string): ComputeDiffResult {
   // Probe an untracked file: read first 8 KB to check for null bytes, stat for
   // size, then read the rest only if it fits in a synthesized patch.
   const UNTRACKED_MAX_BYTES = 1_000_000;
-  const probeUntracked = (abs: string): { kind: "binary" | "tooLarge" | "ok" | "error"; content?: string } => {
+  const probeUntracked = (
+    abs: string,
+  ): { kind: "binary" | "tooLarge" | "ok" | "error"; content?: string } => {
     let fd: number | null = null;
     try {
       fd = openSync(abs, "r");
       const probe = Buffer.alloc(8192);
       const read = readSync(fd, probe, 0, 8192, 0);
-      for (let i = 0; i < read; i++) if (probe[i] === 0) return { kind: "binary" };
+      for (let i = 0; i < read; i++)
+        if (probe[i] === 0) return { kind: "binary" };
       const st = statSync(abs);
       if (st.size > UNTRACKED_MAX_BYTES) return { kind: "tooLarge" };
-      if (st.size <= read) return { kind: "ok", content: probe.subarray(0, st.size).toString("utf8") };
+      if (st.size <= read)
+        return {
+          kind: "ok",
+          content: probe.subarray(0, st.size).toString("utf8"),
+        };
       const buf = Buffer.alloc(st.size);
       probe.copy(buf, 0, 0, read);
       let off = read;
@@ -181,7 +209,10 @@ export function computeIsomuxDiff(cwd: string): ComputeDiffResult {
     } catch {
       return { kind: "error" };
     } finally {
-      if (fd !== null) try { closeSync(fd); } catch {}
+      if (fd !== null)
+        try {
+          closeSync(fd);
+        } catch {}
     }
   };
 
@@ -190,13 +221,27 @@ export function computeIsomuxDiff(cwd: string): ComputeDiffResult {
     const probe = probeUntracked(join(cwd, path));
     if (probe.kind === "error") continue;
     if (probe.kind === "binary") {
-      fileMap.set(path, { path, status: "binary", additions: 0, deletions: 0, lineCount: 0, inlineEligible: false });
+      fileMap.set(path, {
+        path,
+        status: "binary",
+        additions: 0,
+        deletions: 0,
+        lineCount: 0,
+        inlineEligible: false,
+      });
       continue;
     }
     if (probe.kind === "tooLarge") {
       // Re-use "untracked" to flag "we saw it but didn't synthesize" — the
       // overlay surfaces a friendly explanation.
-      fileMap.set(path, { path, status: "untracked", additions: 0, deletions: 0, lineCount: 0, inlineEligible: false });
+      fileMap.set(path, {
+        path,
+        status: "untracked",
+        additions: 0,
+        deletions: 0,
+        lineCount: 0,
+        inlineEligible: false,
+      });
       continue;
     }
     const content = probe.content!;
@@ -212,9 +257,17 @@ export function computeIsomuxDiff(cwd: string): ComputeDiffResult {
       `@@ -0,0 +1,${additions} @@`,
     ];
     const body = realLines.map((l) => `+${l}`);
-    if (!trailingNewline && realLines.length > 0) body.push("\\ No newline at end of file");
+    if (!trailingNewline && realLines.length > 0)
+      body.push("\\ No newline at end of file");
     untrackedPatches.push([...header, ...body].join("\n"));
-    fileMap.set(path, { path, status: "added", additions, deletions: 0, lineCount: additions, inlineEligible: false });
+    fileMap.set(path, {
+      path,
+      status: "added",
+      additions,
+      deletions: 0,
+      lineCount: additions,
+      inlineEligible: false,
+    });
   }
 
   let patchText: string | null = diff;
@@ -225,20 +278,28 @@ export function computeIsomuxDiff(cwd: string): ComputeDiffResult {
   if (patchText !== null && patchText.trim() === "") patchText = null;
 
   for (const summary of fileMap.values()) {
-    const hasTextualPatch = patchText !== null && summary.status !== "binary" && summary.status !== "untracked";
+    const hasTextualPatch =
+      patchText !== null &&
+      summary.status !== "binary" &&
+      summary.status !== "untracked";
     summary.inlineEligible = hasTextualPatch && summary.lineCount <= 500;
   }
 
   // 2 MB safety rail: drop patchText, keep summaries.
   const MAX_PATCH_BYTES = 2 * 1024 * 1024;
   let truncated = false;
-  if (patchText !== null && Buffer.byteLength(patchText, "utf8") > MAX_PATCH_BYTES) {
+  if (
+    patchText !== null &&
+    Buffer.byteLength(patchText, "utf8") > MAX_PATCH_BYTES
+  ) {
     patchText = null;
     truncated = true;
     for (const summary of fileMap.values()) summary.inlineEligible = false;
   }
 
-  const files = Array.from(fileMap.values()).sort((a, b) => a.path.localeCompare(b.path));
+  const files = Array.from(fileMap.values()).sort((a, b) =>
+    a.path.localeCompare(b.path),
+  );
   const stats = files.reduce(
     (acc, f) => ({
       additions: acc.additions + f.additions,
@@ -251,6 +312,14 @@ export function computeIsomuxDiff(cwd: string): ComputeDiffResult {
   if (files.length === 0) return { kind: "clean", cwd };
 
   const summary = `+${stats.additions} -${stats.deletions} across ${stats.filesChanged} file${stats.filesChanged === 1 ? "" : "s"}`;
-  const payload: DiffPayload = { cwd, branch, head, stats, files, patchText, truncated };
+  const payload: DiffPayload = {
+    cwd,
+    branch,
+    head,
+    stats,
+    files,
+    patchText,
+    truncated,
+  };
   return { kind: "ok", cwd, summary, payload };
 }

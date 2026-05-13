@@ -2,7 +2,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppState } from "../store.tsx";
 import { LogEntryCard } from "../log-view/LogEntryCard.tsx";
 import { send } from "../ws.ts";
-import { cronjobRunStreamId, type CronjobRun, type LogEntry } from "../../shared/types.ts";
+import {
+  cronjobRunStreamId,
+  type CronjobRun,
+  type LogEntry,
+} from "../../shared/types.ts";
 import { getDevice } from "../device-settings.ts";
 
 const STATUS_LABEL: Record<CronjobRun["status"], string> = {
@@ -43,7 +47,9 @@ export function CronjobRunView({
   const device = getDevice();
 
   const [input, setInput] = useState("");
-  const [editingLogEntryId, setEditingLogEntryId] = useState<string | null>(null);
+  const [editingLogEntryId, setEditingLogEntryId] = useState<string | null>(
+    null,
+  );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -88,7 +94,9 @@ export function CronjobRunView({
     let buf: LogEntry[] = [];
     function flush() {
       if (buf.length === 0) return;
-      buf.forEach((e, i) => map.set(e.id, { isLastInTurn: i === buf.length - 1, turnEntries: buf }));
+      buf.forEach((e, i) =>
+        map.set(e.id, { isLastInTurn: i === buf.length - 1, turnEntries: buf }),
+      );
       buf = [];
     }
     for (const e of entries) {
@@ -110,7 +118,8 @@ export function CronjobRunView({
   const hasResumableSession =
     !leafSessionId.startsWith("pending-") &&
     !leafSessionId.startsWith("skipped-");
-  const canResume = !!run && !isRunning && run.status !== "skipped" && hasResumableSession;
+  const canResume =
+    !!run && !isRunning && run.status !== "skipped" && hasResumableSession;
 
   // Auto-scroll to bottom on new entries when the user hasn't scrolled up.
   useEffect(() => {
@@ -145,7 +154,14 @@ export function CronjobRunView({
   function handleSend() {
     const text = input.trim();
     if (!text || !canResume) return;
-    send({ type: "send_cronjob_run_message", cronjobId: jobId, runId, text, username, device: device || undefined });
+    send({
+      type: "send_cronjob_run_message",
+      cronjobId: jobId,
+      runId,
+      text,
+      username,
+      device: device || undefined,
+    });
     setInput("");
     if (textareaRef.current) textareaRef.current.style.height = "auto";
     setAutoScroll(true);
@@ -153,13 +169,23 @@ export function CronjobRunView({
 
   function handleSubmitEdit(id: string, newText: string) {
     setEditingLogEntryId(null);
-    send({ type: "edit_cronjob_run_message", cronjobId: jobId, runId, logEntryId: id, newText, username, device: device || undefined });
+    send({
+      type: "edit_cronjob_run_message",
+      cronjobId: jobId,
+      runId,
+      logEntryId: id,
+      newText,
+      username,
+      device: device || undefined,
+    });
     setAutoScroll(true);
   }
 
   return (
     <div
-      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
       style={{
         position: "fixed",
         inset: 0,
@@ -198,18 +224,65 @@ export function CronjobRunView({
         </button>
         {run ? (
           isMobile ? (
-            <div style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0, padding: "6px 0", gap: 2 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                <span style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                flex: 1,
+                minWidth: 0,
+                padding: "6px 0",
+                gap: 2,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  minWidth: 0,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 14,
+                    fontWeight: 700,
+                    color: "var(--text-primary)",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
                   {run.cronjobName}
                 </span>
-                <span style={{ fontSize: 11, color: STATUS_COLOR[run.status], fontFamily: "'JetBrains Mono',monospace", fontWeight: 600, flexShrink: 0 }}>
+                <span
+                  style={{
+                    fontSize: 11,
+                    color: STATUS_COLOR[run.status],
+                    fontFamily: "'JetBrains Mono',monospace",
+                    fontWeight: 600,
+                    flexShrink: 0,
+                  }}
+                >
                   {STATUS_LABEL[run.status]}
                 </span>
               </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "var(--text-muted)", fontFamily: "'JetBrains Mono',monospace" }}>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  fontSize: 11,
+                  color: "var(--text-muted)",
+                  fontFamily: "'JetBrains Mono',monospace",
+                }}
+              >
                 <span>
-                  {new Date(run.startedAt).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                  {new Date(run.startedAt).toLocaleString([], {
+                    month: "short",
+                    day: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
                 </span>
                 <span style={{ color: "var(--text-ghost)" }}>
                   {run.trigger === "manual" ? "manual" : "scheduled"}
@@ -217,17 +290,57 @@ export function CronjobRunView({
               </div>
             </div>
           ) : (
-            <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-              <span style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                minWidth: 0,
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 14,
+                  fontWeight: 700,
+                  color: "var(--text-primary)",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
                 {run.cronjobName}
               </span>
-              <span style={{ fontSize: 11, color: STATUS_COLOR[run.status], fontFamily: "'JetBrains Mono',monospace", fontWeight: 600 }}>
+              <span
+                style={{
+                  fontSize: 11,
+                  color: STATUS_COLOR[run.status],
+                  fontFamily: "'JetBrains Mono',monospace",
+                  fontWeight: 600,
+                }}
+              >
                 {STATUS_LABEL[run.status]}
               </span>
-              <span style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "'JetBrains Mono',monospace" }}>
-                {new Date(run.startedAt).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+              <span
+                style={{
+                  fontSize: 11,
+                  color: "var(--text-muted)",
+                  fontFamily: "'JetBrains Mono',monospace",
+                }}
+              >
+                {new Date(run.startedAt).toLocaleString([], {
+                  month: "short",
+                  day: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
               </span>
-              <span style={{ fontSize: 11, color: "var(--text-ghost)", fontFamily: "'JetBrains Mono',monospace" }}>
+              <span
+                style={{
+                  fontSize: 11,
+                  color: "var(--text-ghost)",
+                  fontFamily: "'JetBrains Mono',monospace",
+                }}
+              >
                 {run.trigger === "manual"
                   ? `manual${run.triggeredBy ? ` · ${run.triggeredBy}` : ""}`
                   : "scheduled"}
@@ -235,7 +348,15 @@ export function CronjobRunView({
             </div>
           )
         ) : (
-          <span style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)" }}>Run #{runId}</span>
+          <span
+            style={{
+              fontSize: 14,
+              fontWeight: 700,
+              color: "var(--text-primary)",
+            }}
+          >
+            Run #{runId}
+          </span>
         )}
       </div>
 
@@ -243,23 +364,41 @@ export function CronjobRunView({
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        style={{ flex: 1, overflowY: "auto", padding: isMobile ? "12px" : "16px 24px" }}
+        style={{
+          flex: 1,
+          overflowY: "auto",
+          padding: isMobile ? "12px" : "16px 24px",
+        }}
       >
         {run && (
-          <div style={{
-            padding: "10px 14px",
-            marginBottom: 12,
-            borderRadius: 8,
-            background: "var(--bg-surface)",
-            border: "1px solid var(--border-subtle)",
-            fontSize: 12,
-            color: "var(--text-secondary)",
-            fontFamily: "'JetBrains Mono',monospace",
-          }}>
-            <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4 }}>PROMPT</div>
+          <div
+            style={{
+              padding: "10px 14px",
+              marginBottom: 12,
+              borderRadius: 8,
+              background: "var(--bg-surface)",
+              border: "1px solid var(--border-subtle)",
+              fontSize: 12,
+              color: "var(--text-secondary)",
+              fontFamily: "'JetBrains Mono',monospace",
+            }}
+          >
+            <div
+              style={{
+                fontSize: 10,
+                color: "var(--text-muted)",
+                marginBottom: 4,
+              }}
+            >
+              PROMPT
+            </div>
             <div style={{ whiteSpace: "pre-wrap" }}>{run.promptSnapshot}</div>
-            <div style={{ marginTop: 8, fontSize: 10, color: "var(--text-ghost)" }}>
-              cwd: {run.cwdSnapshot} · model: {run.modelFamilySnapshot} · effort: {run.effortSnapshot} · permission: {run.permissionModeSnapshot}
+            <div
+              style={{ marginTop: 8, fontSize: 10, color: "var(--text-ghost)" }}
+            >
+              cwd: {run.cwdSnapshot} · model: {run.modelFamilySnapshot} ·
+              effort: {run.effortSnapshot} · permission:{" "}
+              {run.permissionModeSnapshot}
             </div>
             {run.errorReason && (
               <div style={{ marginTop: 8, fontSize: 11, color: "var(--red)" }}>
@@ -269,13 +408,22 @@ export function CronjobRunView({
           </div>
         )}
         {entries.length === 0 ? (
-          <div style={{ textAlign: "center", color: "var(--text-ghost)", padding: 40 }}>
-            {run?.status === "skipped" ? "This run was skipped." : "No log entries."}
+          <div
+            style={{
+              textAlign: "center",
+              color: "var(--text-ghost)",
+              padding: 40,
+            }}
+          >
+            {run?.status === "skipped"
+              ? "This run was skipped."
+              : "No log entries."}
           </div>
         ) : (
           entries.map((entry) => {
             const td = turnData.get(entry.id);
-            const canEditMsg = canResume && entry.kind === "user_message" && !editingLogEntryId;
+            const canEditMsg =
+              canResume && entry.kind === "user_message" && !editingLogEntryId;
             return (
               <LogEntryCard
                 key={entry.id}
@@ -305,9 +453,36 @@ export function CronjobRunView({
             }}
           >
             <span style={{ display: "inline-flex", gap: 3 }}>
-              <span style={{ width: 4, height: 4, borderRadius: "50%", background: "var(--green)", animation: "dotBounce 1.4s ease-in-out infinite", animationDelay: "0s" }} />
-              <span style={{ width: 4, height: 4, borderRadius: "50%", background: "var(--green)", animation: "dotBounce 1.4s ease-in-out infinite", animationDelay: "0.2s" }} />
-              <span style={{ width: 4, height: 4, borderRadius: "50%", background: "var(--green)", animation: "dotBounce 1.4s ease-in-out infinite", animationDelay: "0.4s" }} />
+              <span
+                style={{
+                  width: 4,
+                  height: 4,
+                  borderRadius: "50%",
+                  background: "var(--green)",
+                  animation: "dotBounce 1.4s ease-in-out infinite",
+                  animationDelay: "0s",
+                }}
+              />
+              <span
+                style={{
+                  width: 4,
+                  height: 4,
+                  borderRadius: "50%",
+                  background: "var(--green)",
+                  animation: "dotBounce 1.4s ease-in-out infinite",
+                  animationDelay: "0.2s",
+                }}
+              />
+              <span
+                style={{
+                  width: 4,
+                  height: 4,
+                  borderRadius: "50%",
+                  background: "var(--green)",
+                  animation: "dotBounce 1.4s ease-in-out infinite",
+                  animationDelay: "0.4s",
+                }}
+              />
             </span>
             <span>Running...</span>
           </div>
@@ -320,13 +495,25 @@ export function CronjobRunView({
           style={{
             flexShrink: 0,
             padding: isMobile ? "10px 12px 10px 11px" : "10px 24px 10px 11px",
-            paddingBottom: isMobile ? "calc(10px + env(safe-area-inset-bottom, 0px))" : undefined,
+            paddingBottom: isMobile
+              ? "calc(10px + env(safe-area-inset-bottom, 0px))"
+              : undefined,
             borderTop: "2px solid var(--border-strong)",
             background: "var(--bg-surface)",
           }}
         >
           <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-            <span style={{ color: "var(--green)", fontWeight: 600, lineHeight: "20px", position: "relative", top: -2 }}>&#10095;</span>
+            <span
+              style={{
+                color: "var(--green)",
+                fontWeight: 600,
+                lineHeight: "20px",
+                position: "relative",
+                top: -2,
+              }}
+            >
+              &#10095;
+            </span>
             <div style={{ flex: 1, position: "relative", top: -2 }}>
               <textarea
                 ref={textareaRef}
@@ -341,7 +528,11 @@ export function CronjobRunView({
                     handleSend();
                   }
                 }}
-                placeholder={editingLogEntryId ? "Editing message above..." : "Send a follow-up"}
+                placeholder={
+                  editingLogEntryId
+                    ? "Editing message above..."
+                    : "Send a follow-up"
+                }
                 autoFocus={!isMobile}
                 rows={1}
                 disabled={!!editingLogEntryId}
@@ -350,7 +541,9 @@ export function CronjobRunView({
                   background: "transparent",
                   border: "none",
                   outline: "none",
-                  color: editingLogEntryId ? "var(--text-muted)" : "var(--text-secondary)",
+                  color: editingLogEntryId
+                    ? "var(--text-muted)"
+                    : "var(--text-secondary)",
                   fontFamily: "'JetBrains Mono',monospace",
                   fontSize: isMobile ? 16 : 13,
                   caretColor: "var(--green)",
@@ -373,10 +566,17 @@ export function CronjobRunView({
                   height: 36,
                   borderRadius: 8,
                   border: "none",
-                  background: input.trim() && !editingLogEntryId ? "var(--green)" : "var(--bg-hover)",
-                  color: input.trim() && !editingLogEntryId ? "var(--bg-base)" : "var(--text-ghost)",
+                  background:
+                    input.trim() && !editingLogEntryId
+                      ? "var(--green)"
+                      : "var(--bg-hover)",
+                  color:
+                    input.trim() && !editingLogEntryId
+                      ? "var(--bg-base)"
+                      : "var(--text-ghost)",
                   fontSize: 16,
-                  cursor: input.trim() && !editingLogEntryId ? "pointer" : "default",
+                  cursor:
+                    input.trim() && !editingLogEntryId ? "pointer" : "default",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -390,14 +590,16 @@ export function CronjobRunView({
           </div>
         </div>
       ) : (
-        <div style={{
-          padding: "10px 16px",
-          borderTop: "1px solid var(--border-subtle)",
-          background: "var(--bg-surface)",
-          fontSize: 11,
-          color: "var(--text-muted)",
-          textAlign: "center",
-        }}>
+        <div
+          style={{
+            padding: "10px 16px",
+            borderTop: "1px solid var(--border-subtle)",
+            background: "var(--bg-surface)",
+            fontSize: 11,
+            color: "var(--text-muted)",
+            textAlign: "center",
+          }}
+        >
           {isRunning
             ? "Run in progress — wait for it to finish before sending a follow-up."
             : run?.status === "skipped"

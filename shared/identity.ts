@@ -3,13 +3,25 @@
 // Old log entries (pre-migration) carry combined values like "Nil Phone" in
 // `username` with no `device` — the helpers below render them verbatim.
 
-export function formatPrefix({ username, device }: { username?: string | null; device?: string | null }): string {
+export function formatPrefix({
+  username,
+  device,
+}: {
+  username?: string | null;
+  device?: string | null;
+}): string {
   if (!username) return "";
   if (!device) return `[${username}] `;
   return `[${username} (${device})] `;
 }
 
-export function formatIdentity({ username, device }: { username?: string | null; device?: string | null }): string {
+export function formatIdentity({
+  username,
+  device,
+}: {
+  username?: string | null;
+  device?: string | null;
+}): string {
   if (!username) return "";
   if (!device) return username;
   return `${username} (${device})`;
@@ -21,7 +33,11 @@ export function formatIdentity({ username, device }: { username?: string | null;
 // the receiver can POST a reply directly without looking it up in
 // agents-summary.json.
 // Format: `"Isomuxer3" (agent id: agent-1774747441394-bm2g) from Room "Isomux Dev"`.
-export function formatAgentSenderPrefix(agentId: string, agentName: string, roomName: string): string {
+export function formatAgentSenderPrefix(
+  agentId: string,
+  agentName: string,
+  roomName: string,
+): string {
   return `"${agentName}" (agent id: ${agentId}) from Room "${roomName}"`;
 }
 

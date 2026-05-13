@@ -21,17 +21,25 @@ function load(): Record<string, UserRecord> {
       users = {};
       return users;
     }
-    const parsed = JSON.parse(readFileSync(USERS_FILE, "utf-8")) as Record<string, UserRecord>;
+    const parsed = JSON.parse(readFileSync(USERS_FILE, "utf-8")) as Record<
+      string,
+      UserRecord
+    >;
     // Normalize: ensure every record has all fields (older records may lack envFile etc.)
     const result: Record<string, UserRecord> = {};
     for (const [key, value] of Object.entries(parsed)) {
       if (!value || typeof value.name !== "string") continue;
       result[lowercaseKey(key)] = {
         name: value.name,
-        defaultRoomId: typeof value.defaultRoomId === "string" ? value.defaultRoomId : null,
+        defaultRoomId:
+          typeof value.defaultRoomId === "string" ? value.defaultRoomId : null,
         notifRooms: normalizeNotifRooms(value.notifRooms),
-        envFile: typeof value.envFile === "string" && value.envFile ? value.envFile : null,
-        createdAt: typeof value.createdAt === "number" ? value.createdAt : Date.now(),
+        envFile:
+          typeof value.envFile === "string" && value.envFile
+            ? value.envFile
+            : null,
+        createdAt:
+          typeof value.createdAt === "number" ? value.createdAt : Date.now(),
       };
     }
     users = result;
@@ -44,7 +52,8 @@ function load(): Record<string, UserRecord> {
 
 function normalizeNotifRooms(value: unknown): NotifRoomsSetting {
   if (value === "all") return "all";
-  if (Array.isArray(value) && value.every((x) => typeof x === "string")) return value as string[];
+  if (Array.isArray(value) && value.every((x) => typeof x === "string"))
+    return value as string[];
   return "all";
 }
 
@@ -73,7 +82,10 @@ export function getUserEnvFile(name: string): string | null {
 // Idempotent: if the record already exists, returns it untouched. Otherwise
 // creates a fresh record with the supplied initial values (used for the
 // localStorage-to-server claim path).
-export function claimUser(name: string, initial?: { defaultRoomId?: string | null; notifRooms?: NotifRoomsSetting }): UserRecord {
+export function claimUser(
+  name: string,
+  initial?: { defaultRoomId?: string | null; notifRooms?: NotifRoomsSetting },
+): UserRecord {
   load();
   const key = lowercaseKey(name);
   if (users[key]) return users[key];
@@ -106,7 +118,12 @@ export function deleteUser(name: string): boolean {
 // Update an existing user record. If `changes.name` re-keys the record (the
 // new lowercased name differs from the old), the existing record is moved
 // under the new key. Display case can change without re-keying.
-export function updateUser(name: string, changes: Partial<Pick<UserRecord, "name" | "defaultRoomId" | "notifRooms" | "envFile">>): { ok: true; user: UserRecord } | { ok: false; error: string } {
+export function updateUser(
+  name: string,
+  changes: Partial<
+    Pick<UserRecord, "name" | "defaultRoomId" | "notifRooms" | "envFile">
+  >,
+): { ok: true; user: UserRecord } | { ok: false; error: string } {
   load();
   const key = lowercaseKey(name);
   const existing = users[key];
@@ -130,9 +147,20 @@ export function updateUser(name: string, changes: Partial<Pick<UserRecord, "name
 
   const next: UserRecord = {
     name: nextName,
-    defaultRoomId: changes.defaultRoomId !== undefined ? (changes.defaultRoomId ?? null) : existing.defaultRoomId,
-    notifRooms: changes.notifRooms !== undefined ? normalizeNotifRooms(changes.notifRooms) : existing.notifRooms,
-    envFile: changes.envFile !== undefined ? (changes.envFile && String(changes.envFile).trim() ? String(changes.envFile).trim() : null) : existing.envFile,
+    defaultRoomId:
+      changes.defaultRoomId !== undefined
+        ? (changes.defaultRoomId ?? null)
+        : existing.defaultRoomId,
+    notifRooms:
+      changes.notifRooms !== undefined
+        ? normalizeNotifRooms(changes.notifRooms)
+        : existing.notifRooms,
+    envFile:
+      changes.envFile !== undefined
+        ? changes.envFile && String(changes.envFile).trim()
+          ? String(changes.envFile).trim()
+          : null
+        : existing.envFile,
     createdAt: existing.createdAt,
   };
 
@@ -143,4 +171,3 @@ export function updateUser(name: string, changes: Partial<Pick<UserRecord, "name
   persist();
   return { ok: true, user: next };
 }
-

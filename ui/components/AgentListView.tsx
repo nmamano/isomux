@@ -4,7 +4,15 @@ import { RoomTabBar } from "../office/RoomTabBar.tsx";
 import { MobileHeader, getRoomCounts } from "./MobileHeader.tsx";
 import { useSwipeLeftRight } from "../hooks/useSwipeLeftRight.ts";
 import { type NavAction } from "./NavActions.tsx";
-import { TasksIcon, BuildingIcon, DoorIcon, IsoIcon, DeviceIcon, ClockIcon, UserIcon } from "./NavIcons.tsx";
+import {
+  TasksIcon,
+  BuildingIcon,
+  DoorIcon,
+  IsoIcon,
+  DeviceIcon,
+  ClockIcon,
+  UserIcon,
+} from "./NavIcons.tsx";
 import { SunIcon, MoonIcon } from "./ThemeIcons.tsx";
 import type { AgentInfo } from "../../shared/types.ts";
 
@@ -37,21 +45,66 @@ export function AgentListView({
   onSwipeLeft?: () => void;
   onSwipeRight?: () => void;
 }) {
-  const { agents, currentRoom, rooms, updateAvailable, needsAttention } = useAppState();
+  const { agents, currentRoom, rooms, updateAvailable, needsAttention } =
+    useAppState();
   const { theme, toggleTheme } = useTheme();
   const roomCount = rooms.length;
   const roomAgents = agents.filter((a) => a.room === currentRoom);
-  const swipeRef = useSwipeLeftRight(onSwipeLeft ?? (() => {}), onSwipeRight ?? (() => {}), true);
+  const swipeRef = useSwipeLeftRight(
+    onSwipeLeft ?? (() => {}),
+    onSwipeRight ?? (() => {}),
+    true,
+  );
 
   const actions: NavAction[] = [
     { id: "tasks", icon: TasksIcon, label: "Tasks", onClick: onOpenTasks },
-    { id: "cronjobs", icon: ClockIcon, label: "Cron jobs", onClick: onOpenCronjobs },
-    { id: "user", icon: UserIcon, label: "User settings", onClick: onOpenUserSettings },
-    { id: "device", icon: DeviceIcon, label: "Device settings", onClick: onOpenDeviceSettings },
-    { id: "office", icon: BuildingIcon, label: "Office settings", onClick: onEditOfficePrompt },
-    ...(onEditRoomSettings ? [{ id: "room", icon: DoorIcon, label: "Room settings", onClick: onEditRoomSettings }] : []),
-    { id: "theme", icon: theme === "dark" ? <MoonIcon size={15} /> : <SunIcon size={15} />, label: theme === "dark" ? "Dark" : "Light", onClick: toggleTheme, title: theme === "dark" ? "Switch to light mode" : "Switch to dark mode" },
-    { id: "list", icon: IsoIcon, label: "Show floor view", onClick: onToggleView },
+    {
+      id: "cronjobs",
+      icon: ClockIcon,
+      label: "Cron jobs",
+      onClick: onOpenCronjobs,
+    },
+    {
+      id: "user",
+      icon: UserIcon,
+      label: "User settings",
+      onClick: onOpenUserSettings,
+    },
+    {
+      id: "device",
+      icon: DeviceIcon,
+      label: "Device settings",
+      onClick: onOpenDeviceSettings,
+    },
+    {
+      id: "office",
+      icon: BuildingIcon,
+      label: "Office settings",
+      onClick: onEditOfficePrompt,
+    },
+    ...(onEditRoomSettings
+      ? [
+          {
+            id: "room",
+            icon: DoorIcon,
+            label: "Room settings",
+            onClick: onEditRoomSettings,
+          },
+        ]
+      : []),
+    {
+      id: "theme",
+      icon: theme === "dark" ? <MoonIcon size={15} /> : <SunIcon size={15} />,
+      label: theme === "dark" ? "Dark" : "Light",
+      onClick: toggleTheme,
+      title: theme === "dark" ? "Switch to light mode" : "Switch to dark mode",
+    },
+    {
+      id: "list",
+      icon: IsoIcon,
+      label: "Show floor view",
+      onClick: onToggleView,
+    },
   ];
 
   return (
@@ -96,7 +149,9 @@ export function AgentListView({
             }}
           >
             <span style={{ fontSize: 15, color: "var(--text-muted)" }}>
-              {roomCount > 1 ? `${rooms[currentRoom]?.name ?? `Room ${currentRoom + 1}`} is empty` : "No agents yet"}
+              {roomCount > 1
+                ? `${rooms[currentRoom]?.name ?? `Room ${currentRoom + 1}`} is empty`
+                : "No agents yet"}
             </span>
             <span style={{ fontSize: 13, color: "var(--text-faint)" }}>
               Tap + to spawn one
@@ -126,7 +181,14 @@ export function AgentListView({
                 <StatusLight state={agent.state} size={10} />
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    minWidth: 0,
+                  }}
+                >
                   <span
                     style={{
                       fontSize: 14,
@@ -176,8 +238,14 @@ export function AgentListView({
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  const rect = (e.target as HTMLElement).getBoundingClientRect();
-                  onContextMenu(Math.max(8, rect.right - 208), rect.bottom + 4, agent);
+                  const rect = (
+                    e.target as HTMLElement
+                  ).getBoundingClientRect();
+                  onContextMenu(
+                    Math.max(8, rect.right - 208),
+                    rect.bottom + 4,
+                    agent,
+                  );
                 }}
                 style={{
                   flexShrink: 0,
@@ -209,7 +277,8 @@ export function AgentListView({
           width: 56,
           height: 56,
           borderRadius: "50%",
-          background: roomAgents.length >= 8 ? "var(--text-muted)" : "var(--accent)",
+          background:
+            roomAgents.length >= 8 ? "var(--text-muted)" : "var(--accent)",
           color: "var(--bg-base)",
           border: "none",
           fontSize: 28,

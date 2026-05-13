@@ -1,4 +1,14 @@
-import { closeSync, existsSync, openSync, readFileSync, readSync, statSync, watch as fsWatch, writeFileSync, type FSWatcher } from "fs";
+import {
+  closeSync,
+  existsSync,
+  openSync,
+  readFileSync,
+  readSync,
+  statSync,
+  watch as fsWatch,
+  writeFileSync,
+  type FSWatcher,
+} from "fs";
 import { extname, isAbsolute, join, resolve } from "path";
 import { homedir } from "os";
 
@@ -7,7 +17,14 @@ export type ResolvePathResult =
   | { kind: "bad_path"; attempted: string };
 
 export type OpenFileResult =
-  | { kind: "ok"; path: string; content: string; mtime: number; language: string; size: number }
+  | {
+      kind: "ok";
+      path: string;
+      content: string;
+      mtime: number;
+      language: string;
+      size: number;
+    }
   | { kind: "not_found"; path: string }
   | { kind: "not_file"; path: string }
   | { kind: "binary"; path: string }
@@ -24,7 +41,10 @@ const MAX_FILE_BYTES = 1_000_000;
 // Resolve a user-supplied editor path against the agent's cwd. Mirrors
 // resolveDiffCwd in isomux-diff.ts but yields a file path (not a directory).
 // Existence/type checks happen later in openFile.
-export function resolveEditorPath(rawPath: string | undefined, agentCwd: string): ResolvePathResult {
+export function resolveEditorPath(
+  rawPath: string | undefined,
+  agentCwd: string,
+): ResolvePathResult {
   const trimmed = rawPath?.trim();
   if (!trimmed) return { kind: "bad_path", attempted: trimmed ?? "" };
   const expanded = trimmed.startsWith("~")
@@ -37,16 +57,24 @@ export function resolveEditorPath(rawPath: string | undefined, agentCwd: string)
 function detectLanguage(absPath: string): string {
   const ext = extname(absPath).toLowerCase();
   switch (ext) {
-    case ".js": case ".jsx": case ".mjs": case ".cjs":
-    case ".ts": case ".tsx":
+    case ".js":
+    case ".jsx":
+    case ".mjs":
+    case ".cjs":
+    case ".ts":
+    case ".tsx":
       return "javascript";
     case ".json":
       return "json";
-    case ".md": case ".markdown":
+    case ".md":
+    case ".markdown":
       return "markdown";
-    case ".css": case ".scss": case ".less":
+    case ".css":
+    case ".scss":
+    case ".less":
       return "css";
-    case ".html": case ".htm":
+    case ".html":
+    case ".htm":
       return "html";
     case ".py":
       return "python";
@@ -73,7 +101,10 @@ function isBinary(absPath: string, size: number): boolean {
   } catch {
     return false;
   } finally {
-    if (fd !== null) try { closeSync(fd); } catch {}
+    if (fd !== null)
+      try {
+        closeSync(fd);
+      } catch {}
   }
 }
 
@@ -83,16 +114,25 @@ export function openFile(absPath: string): OpenFileResult {
   try {
     st = statSync(absPath);
   } catch (err: any) {
-    return { kind: "io_error", path: absPath, message: err?.message ?? String(err) };
+    return {
+      kind: "io_error",
+      path: absPath,
+      message: err?.message ?? String(err),
+    };
   }
   if (!st.isFile()) return { kind: "not_file", path: absPath };
-  if (st.size > MAX_FILE_BYTES) return { kind: "too_large", path: absPath, size: st.size };
+  if (st.size > MAX_FILE_BYTES)
+    return { kind: "too_large", path: absPath, size: st.size };
   if (isBinary(absPath, st.size)) return { kind: "binary", path: absPath };
   let content: string;
   try {
     content = readFileSync(absPath, "utf8");
   } catch (err: any) {
-    return { kind: "io_error", path: absPath, message: err?.message ?? String(err) };
+    return {
+      kind: "io_error",
+      path: absPath,
+      message: err?.message ?? String(err),
+    };
   }
   return {
     kind: "ok",
@@ -104,7 +144,12 @@ export function openFile(absPath: string): OpenFileResult {
   };
 }
 
-export function saveFile(absPath: string, content: string, expectedMtime: number, force: boolean): SaveFileResult {
+export function saveFile(
+  absPath: string,
+  content: string,
+  expectedMtime: number,
+  force: boolean,
+): SaveFileResult {
   // Concurrency guard: if the on-disk mtime is newer than what the client
   // opened, refuse (unless `force`). Client surfaces a banner that lets the
   // boss choose Overwrite (force=true) or Reload.
@@ -124,7 +169,11 @@ export function saveFile(absPath: string, content: string, expectedMtime: number
     const st = statSync(absPath);
     return { kind: "ok", path: absPath, mtime: Math.floor(st.mtimeMs) };
   } catch (err: any) {
-    return { kind: "io_error", path: absPath, message: err?.message ?? String(err) };
+    return {
+      kind: "io_error",
+      path: absPath,
+      message: err?.message ?? String(err),
+    };
   }
 }
 
@@ -164,5 +213,7 @@ export function watchFile(
 }
 
 export function stopWatch(w: FileWatcher) {
-  try { w.watcher.close(); } catch {}
+  try {
+    w.watcher.close();
+  } catch {}
 }

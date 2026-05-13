@@ -10,10 +10,14 @@ export type RoomCounts = {
 
 export function getRoomCounts(roomAgents: AgentInfo[]): RoomCounts {
   return {
-    working: roomAgents.filter((a) => ["thinking", "tool_executing"].includes(a.state)).length,
-    waiting: roomAgents.filter((a) => a.state === "waiting_for_response").length,
+    working: roomAgents.filter((a) =>
+      ["thinking", "tool_executing"].includes(a.state),
+    ).length,
+    waiting: roomAgents.filter((a) => a.state === "waiting_for_response")
+      .length,
     error: roomAgents.filter((a) => a.state === "error").length,
-    idle: roomAgents.filter((a) => a.state === "idle" || a.state === "stopped").length,
+    idle: roomAgents.filter((a) => a.state === "idle" || a.state === "stopped")
+      .length,
   };
 }
 
@@ -45,13 +49,39 @@ export function MobileHeader({
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-        <span style={{ fontSize: 14, fontWeight: 700, letterSpacing: "-0.02em", color: "var(--text-primary)" }}>Isomux</span>
+        <span
+          style={{
+            fontSize: 14,
+            fontWeight: 700,
+            letterSpacing: "-0.02em",
+            color: "var(--text-primary)",
+          }}
+        >
+          Isomux
+        </span>
         {updateAvailable && (
           <span
             onClick={onOpenUpdate}
-            style={{ width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", margin: "-12px -12px -12px -4px", flexShrink: 0, cursor: "pointer" }}
+            style={{
+              width: 32,
+              height: 32,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              margin: "-12px -12px -12px -4px",
+              flexShrink: 0,
+              cursor: "pointer",
+            }}
           >
-            <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--blue, #58a6ff)", boxShadow: "0 0 6px var(--blue, #58a6ff)" }} />
+            <span
+              style={{
+                width: 7,
+                height: 7,
+                borderRadius: "50%",
+                background: "var(--blue, #58a6ff)",
+                boxShadow: "0 0 6px var(--blue, #58a6ff)",
+              }}
+            />
           </span>
         )}
       </div>

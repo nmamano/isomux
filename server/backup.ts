@@ -22,7 +22,8 @@ import { mkdirSync, existsSync, readdirSync, statSync, unlinkSync } from "fs";
 
 const ISOMUX_DIR_NAME = ".isomux";
 const HOME = homedir();
-const BACKUP_DIR = process.env.ISOMUX_BACKUP_DIR || join(HOME, "isomux-backups");
+const BACKUP_DIR =
+  process.env.ISOMUX_BACKUP_DIR || join(HOME, "isomux-backups");
 const RETENTION = 7;
 const CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1h
 const BACKUP_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24h
@@ -103,12 +104,16 @@ async function runBackup() {
       throw new Error(`tar exit ${exitCode}: ${stderr.trim().slice(0, 500)}`);
     }
     if (exitCode === 1) {
-      console.warn("[backup] tar exit 1 (file(s) changed during archive — archive still valid)");
+      console.warn(
+        "[backup] tar exit 1 (file(s) changed during archive — archive still valid)",
+      );
     }
     const files = listExistingBackups();
     while (files.length > RETENTION) {
       const oldest = files.shift()!;
-      try { unlinkSync(join(BACKUP_DIR, oldest)); } catch {}
+      try {
+        unlinkSync(join(BACKUP_DIR, oldest));
+      } catch {}
     }
     lastBackupAt = Date.now();
     lastBackupOk = true;

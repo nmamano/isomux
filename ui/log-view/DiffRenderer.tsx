@@ -26,5 +26,10 @@ export function DiffRenderer({
       }),
     [patchText, outputFormat, drawFileList],
   );
-  return <div className="d2h-isomux-host" dangerouslySetInnerHTML={{ __html: rendered }} />;
+  return (
+    <div
+      className="d2h-isomux-host"
+      dangerouslySetInnerHTML={{ __html: rendered }}
+    />
+  );
 }

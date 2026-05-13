@@ -52,7 +52,7 @@ const marked = new Marked(
       // Auto-detect for unlabeled code blocks
       return hljs.highlightAuto(code).value;
     },
-  })
+  }),
 );
 
 marked.setOptions({
@@ -77,9 +77,16 @@ export function Markdown({ content }: { content: string }) {
     try {
       const raw = marked.parse(content) as string;
       // Wrap <pre> blocks in a container so the copy button stays fixed outside the scroll area
-      const withCode = raw.replace(/<pre>/g, `<div class="code-block-wrapper">${COPY_BTN_HTML}<pre>`).replace(/<\/pre>/g, `</pre></div>`);
+      const withCode = raw
+        .replace(
+          /<pre>/g,
+          `<div class="code-block-wrapper">${COPY_BTN_HTML}<pre>`,
+        )
+        .replace(/<\/pre>/g, `</pre></div>`);
       // Wrap <table> blocks so they scroll horizontally on narrow viewports instead of overflowing
-      return withCode.replace(/<table>/g, `<div class="table-wrapper"><table>`).replace(/<\/table>/g, `</table></div>`);
+      return withCode
+        .replace(/<table>/g, `<div class="table-wrapper"><table>`)
+        .replace(/<\/table>/g, `</table></div>`);
     } catch {
       return content;
     }
@@ -94,7 +101,7 @@ export function Markdown({ content }: { content: string }) {
     const pre = wrapper?.querySelector("pre");
     if (!pre) return;
     const code = pre.querySelector("code");
-    const text = code ? code.textContent ?? "" : pre.textContent ?? "";
+    const text = code ? (code.textContent ?? "") : (pre.textContent ?? "");
     try {
       await navigator.clipboard.writeText(text);
     } catch {

@@ -1,5 +1,19 @@
-import { useState, useRef, useEffect, useMemo, useCallback, type RefCallback } from "react";
-import type { AgentInfo, AgentState, LogEntry, QueuedMessage, SkillInfo, Attachment } from "../../shared/types.ts";
+import {
+  useState,
+  useRef,
+  useEffect,
+  useMemo,
+  useCallback,
+  type RefCallback,
+} from "react";
+import type {
+  AgentInfo,
+  AgentState,
+  LogEntry,
+  QueuedMessage,
+  SkillInfo,
+  Attachment,
+} from "../../shared/types.ts";
 import { formatIdentity } from "../../shared/identity.ts";
 import { familyDisplayLabel, type ModelFamily } from "../../shared/types.ts";
 import { StatusLight } from "../office/StatusLight.tsx";
@@ -9,7 +23,15 @@ import { useAppState, useDispatch, useFeatures, useTheme } from "../store.tsx";
 import { LogEntryCard, serializeEntries } from "./LogEntryCard.tsx";
 import { SunIcon, MoonIcon } from "../components/ThemeIcons.tsx";
 import { NavActions, type NavAction } from "../components/NavActions.tsx";
-import { TasksIcon, AgentIcon, EyeIcon, TerminalIcon, EditorIcon, CopyIcon, CheckIcon } from "../components/NavIcons.tsx";
+import {
+  TasksIcon,
+  AgentIcon,
+  EyeIcon,
+  TerminalIcon,
+  EditorIcon,
+  CopyIcon,
+  CheckIcon,
+} from "../components/NavIcons.tsx";
 import { TerminalPanel } from "./TerminalPanel.tsx";
 import { EditorPanel } from "./EditorPanel.tsx";
 import { PanelResizer } from "./PanelResizer.tsx";
@@ -39,13 +61,18 @@ function readPanelWidth(kind: "terminal" | "editor", fallback: number): number {
     const n = parseInt(raw, 10);
     if (!Number.isFinite(n) || n <= 0) return fallback;
     return Math.max(PANEL_MIN[kind], Math.min(PANEL_MAX[kind], n));
-  } catch { return fallback; }
+  } catch {
+    return fallback;
+  }
 }
 
 function writePanelWidth(kind: "terminal" | "editor", width: number): void {
   if (typeof localStorage === "undefined") return;
   try {
-    localStorage.setItem(`isomux:panel-width:${kind}`, String(Math.round(width)));
+    localStorage.setItem(
+      `isomux:panel-width:${kind}`,
+      String(Math.round(width)),
+    );
   } catch {}
 }
 
@@ -55,14 +82,20 @@ const ESCALATION_RED_MS = 5 * 60 * 1000; // 5 minutes
 // Tints for Claude families + GPT-5 family. Lookup falls back gracefully for
 // unknown model strings (the callsites already use ?? defaults).
 const MODEL_TINT: Record<string, { border: string; bg: string }> = {
-  opus:           { border: "rgba(100,160,255,0.85)", bg: "rgba(100,160,255,0.35)" },
-  sonnet:         { border: "rgba(218,165,32,0.80)",  bg: "rgba(218,165,32,0.32)" },
-  haiku:          { border: "rgba(230,130,180,0.80)", bg: "rgba(230,130,180,0.32)" },
-  "gpt-5.5":       { border: "rgba(120,220,160,0.90)", bg: "rgba(120,220,160,0.36)" },
-  "gpt-5.4":       { border: "rgba(120,220,160,0.78)", bg: "rgba(120,220,160,0.28)" },
-  "gpt-5.4-mini":  { border: "rgba(120,220,160,0.62)", bg: "rgba(120,220,160,0.20)" },
-  "gpt-5.3-codex": { border: "rgba(80,200,140,0.90)",  bg: "rgba(80,200,140,0.36)" },
-  "gpt-5.2":       { border: "rgba(120,220,160,0.50)", bg: "rgba(120,220,160,0.16)" },
+  opus: { border: "rgba(100,160,255,0.85)", bg: "rgba(100,160,255,0.35)" },
+  sonnet: { border: "rgba(218,165,32,0.80)", bg: "rgba(218,165,32,0.32)" },
+  haiku: { border: "rgba(230,130,180,0.80)", bg: "rgba(230,130,180,0.32)" },
+  "gpt-5.5": { border: "rgba(120,220,160,0.90)", bg: "rgba(120,220,160,0.36)" },
+  "gpt-5.4": { border: "rgba(120,220,160,0.78)", bg: "rgba(120,220,160,0.28)" },
+  "gpt-5.4-mini": {
+    border: "rgba(120,220,160,0.62)",
+    bg: "rgba(120,220,160,0.20)",
+  },
+  "gpt-5.3-codex": {
+    border: "rgba(80,200,140,0.90)",
+    bg: "rgba(80,200,140,0.36)",
+  },
+  "gpt-5.2": { border: "rgba(120,220,160,0.50)", bg: "rgba(120,220,160,0.16)" },
 };
 
 function formatElapsed(ms: number): string {
@@ -92,7 +125,15 @@ function sendAbortDebounced(agentId: string) {
   send({ type: "abort", agentId });
 }
 
-function ActivityIndicator({ state, stateChangedAt, agentId }: { state: AgentState; stateChangedAt?: number; agentId: string }) {
+function ActivityIndicator({
+  state,
+  stateChangedAt,
+  agentId,
+}: {
+  state: AgentState;
+  stateChangedAt?: number;
+  agentId: string;
+}) {
   const label = STATE_LABELS[state];
   const [now, setNow] = useState(Date.now());
 
@@ -105,7 +146,8 @@ function ActivityIndicator({ state, stateChangedAt, agentId }: { state: AgentSta
   if (!label) return null;
 
   const elapsedMs = stateChangedAt ? now - stateChangedAt : 0;
-  const baseColor = state === "waiting_for_response" ? "var(--purple)" : "var(--green)";
+  const baseColor =
+    state === "waiting_for_response" ? "var(--purple)" : "var(--green)";
   const color = escalationColor(elapsedMs, baseColor);
   const showAbort = elapsedMs >= ESCALATION_AMBER_MS;
 
@@ -123,12 +165,45 @@ function ActivityIndicator({ state, stateChangedAt, agentId }: { state: AgentSta
       }}
     >
       <span style={{ display: "inline-flex", gap: 3 }}>
-        <span style={{ width: 4, height: 4, borderRadius: "50%", background: color, animation: "dotBounce 1.4s ease-in-out infinite", animationDelay: "0s" }} />
-        <span style={{ width: 4, height: 4, borderRadius: "50%", background: color, animation: "dotBounce 1.4s ease-in-out infinite", animationDelay: "0.2s" }} />
-        <span style={{ width: 4, height: 4, borderRadius: "50%", background: color, animation: "dotBounce 1.4s ease-in-out infinite", animationDelay: "0.4s" }} />
+        <span
+          style={{
+            width: 4,
+            height: 4,
+            borderRadius: "50%",
+            background: color,
+            animation: "dotBounce 1.4s ease-in-out infinite",
+            animationDelay: "0s",
+          }}
+        />
+        <span
+          style={{
+            width: 4,
+            height: 4,
+            borderRadius: "50%",
+            background: color,
+            animation: "dotBounce 1.4s ease-in-out infinite",
+            animationDelay: "0.2s",
+          }}
+        />
+        <span
+          style={{
+            width: 4,
+            height: 4,
+            borderRadius: "50%",
+            background: color,
+            animation: "dotBounce 1.4s ease-in-out infinite",
+            animationDelay: "0.4s",
+          }}
+        />
       </span>
       <span>{label}...</span>
-      <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, opacity: 0.7 }}>
+      <span
+        style={{
+          fontFamily: "'JetBrains Mono',monospace",
+          fontSize: 11,
+          opacity: 0.7,
+        }}
+      >
         {formatElapsed(elapsedMs)}
       </span>
       {showAbort && (
@@ -168,37 +243,78 @@ function SessionSwapIndicator({ swapping }: { swapping: boolean }) {
       }}
     >
       <span style={{ display: "inline-flex", gap: 3 }}>
-        <span style={{ width: 4, height: 4, borderRadius: "50%", background: "var(--text-muted)", animation: "dotBounce 1.4s ease-in-out infinite", animationDelay: "0s" }} />
-        <span style={{ width: 4, height: 4, borderRadius: "50%", background: "var(--text-muted)", animation: "dotBounce 1.4s ease-in-out infinite", animationDelay: "0.2s" }} />
-        <span style={{ width: 4, height: 4, borderRadius: "50%", background: "var(--text-muted)", animation: "dotBounce 1.4s ease-in-out infinite", animationDelay: "0.4s" }} />
+        <span
+          style={{
+            width: 4,
+            height: 4,
+            borderRadius: "50%",
+            background: "var(--text-muted)",
+            animation: "dotBounce 1.4s ease-in-out infinite",
+            animationDelay: "0s",
+          }}
+        />
+        <span
+          style={{
+            width: 4,
+            height: 4,
+            borderRadius: "50%",
+            background: "var(--text-muted)",
+            animation: "dotBounce 1.4s ease-in-out infinite",
+            animationDelay: "0.2s",
+          }}
+        />
+        <span
+          style={{
+            width: 4,
+            height: 4,
+            borderRadius: "50%",
+            background: "var(--text-muted)",
+            animation: "dotBounce 1.4s ease-in-out infinite",
+            animationDelay: "0.4s",
+          }}
+        />
       </span>
       <span>Restarting session...</span>
     </div>
   );
 }
 
-function QueueChips({ queue, agentId, isMobile }: { queue: QueuedMessage[]; agentId: string; isMobile?: boolean }) {
+function QueueChips({
+  queue,
+  agentId,
+  isMobile,
+}: {
+  queue: QueuedMessage[];
+  agentId: string;
+  isMobile?: boolean;
+}) {
   if (queue.length === 0) return null;
   return (
-    <div style={{
-      display: "flex",
-      flexDirection: "column",
-      gap: 6,
-      marginBottom: 8,
-    }}>
-      <div style={{
+    <div
+      style={{
         display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        gap: 8,
-      }}>
-        <span style={{
-          fontSize: isMobile ? 11 : 10,
-          fontWeight: 600,
-          color: "var(--text-muted)",
-          textTransform: "uppercase",
-          letterSpacing: "0.05em",
-        }}>
+        flexDirection: "column",
+        gap: 6,
+        marginBottom: 8,
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8,
+        }}
+      >
+        <span
+          style={{
+            fontSize: isMobile ? 11 : 10,
+            fontWeight: 600,
+            color: "var(--text-muted)",
+            textTransform: "uppercase",
+            letterSpacing: "0.05em",
+          }}
+        >
           {queue.length} queued
         </span>
         <button
@@ -218,107 +334,129 @@ function QueueChips({ queue, agentId, isMobile }: { queue: QueuedMessage[]; agen
           Send now
         </button>
       </div>
-      <div style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: 6,
-        // Keep the textarea reachable when many messages are queued. The cap
-        // is 50 server-side so this can grow tall; constrain and scroll.
-        maxHeight: isMobile ? 200 : 240,
-        overflowY: "auto",
-      }}>
-      {queue.map((msg) => {
-        const isAgent = msg.sender.kind === "agent";
-        const label = msg.sender.kind === "agent"
-          ? `${msg.sender.agentName} · agent · Room "${msg.sender.roomName}"`
-          : (formatIdentity({ username: msg.sender.username, device: msg.sender.device }) || "You");
-        const attachmentCount = msg.attachments?.length ?? 0;
-        return (
-          <div
-            key={msg.id}
-            style={{
-              display: "flex",
-              alignItems: "flex-start",
-              gap: 8,
-              padding: "6px 10px",
-              borderRadius: 8,
-              background: isAgent ? "var(--bg-base)" : "var(--bg-hover)",
-              border: `1px ${isAgent ? "dashed" : "solid"} var(--border-medium)`,
-              fontSize: isMobile ? 13 : 12,
-              fontFamily: "'JetBrains Mono',monospace",
-              color: "var(--text-secondary)",
-            }}
-          >
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{
-                fontSize: isMobile ? 11 : 10,
-                fontWeight: 600,
-                color: isAgent ? "var(--text-muted)" : "var(--accent)",
-                marginBottom: 2,
-                textTransform: "uppercase",
-                letterSpacing: "0.05em",
-                fontStyle: isAgent ? "italic" : "normal",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}>
-                queued · {label}
-              </div>
-              {msg.text && (
-                <div style={{
-                  whiteSpace: "pre-wrap",
-                  wordBreak: "break-word",
-                  lineHeight: 1.4,
-                  maxHeight: isMobile ? "4.2em" : "3.5em",
-                  overflow: "hidden",
-                  opacity: 0.9,
-                }}>
-                  {msg.text}
-                </div>
-              )}
-              {attachmentCount > 0 && (
-                <div style={{
-                  fontSize: isMobile ? 11 : 10,
-                  color: "var(--text-muted)",
-                  marginTop: msg.text ? 4 : 0,
-                  fontStyle: "italic",
-                }}>
-                  📎 {attachmentCount} attachment{attachmentCount !== 1 ? "s" : ""}
-                </div>
-              )}
-            </div>
-            <button
-              onClick={() => send({ type: "cancel_queued", agentId, messageId: msg.id })}
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 6,
+          // Keep the textarea reachable when many messages are queued. The cap
+          // is 50 server-side so this can grow tall; constrain and scroll.
+          maxHeight: isMobile ? 200 : 240,
+          overflowY: "auto",
+        }}
+      >
+        {queue.map((msg) => {
+          const isAgent = msg.sender.kind === "agent";
+          const label =
+            msg.sender.kind === "agent"
+              ? `${msg.sender.agentName} · agent · Room "${msg.sender.roomName}"`
+              : formatIdentity({
+                  username: msg.sender.username,
+                  device: msg.sender.device,
+                }) || "You";
+          const attachmentCount = msg.attachments?.length ?? 0;
+          return (
+            <div
+              key={msg.id}
               style={{
-                background: "none",
-                border: "none",
-                color: "var(--text-ghost)",
-                cursor: "pointer",
-                padding: "0 2px",
-                fontSize: 16,
-                lineHeight: 1,
-                flexShrink: 0,
+                display: "flex",
+                alignItems: "flex-start",
+                gap: 8,
+                padding: "6px 10px",
+                borderRadius: 8,
+                background: isAgent ? "var(--bg-base)" : "var(--bg-hover)",
+                border: `1px ${isAgent ? "dashed" : "solid"} var(--border-medium)`,
+                fontSize: isMobile ? 13 : 12,
+                fontFamily: "'JetBrains Mono',monospace",
+                color: "var(--text-secondary)",
               }}
-              title="Cancel this queued message"
             >
-              ×
-            </button>
-          </div>
-        );
-      })}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div
+                  style={{
+                    fontSize: isMobile ? 11 : 10,
+                    fontWeight: 600,
+                    color: isAgent ? "var(--text-muted)" : "var(--accent)",
+                    marginBottom: 2,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.05em",
+                    fontStyle: isAgent ? "italic" : "normal",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  queued · {label}
+                </div>
+                {msg.text && (
+                  <div
+                    style={{
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-word",
+                      lineHeight: 1.4,
+                      maxHeight: isMobile ? "4.2em" : "3.5em",
+                      overflow: "hidden",
+                      opacity: 0.9,
+                    }}
+                  >
+                    {msg.text}
+                  </div>
+                )}
+                {attachmentCount > 0 && (
+                  <div
+                    style={{
+                      fontSize: isMobile ? 11 : 10,
+                      color: "var(--text-muted)",
+                      marginTop: msg.text ? 4 : 0,
+                      fontStyle: "italic",
+                    }}
+                  >
+                    📎 {attachmentCount} attachment
+                    {attachmentCount !== 1 ? "s" : ""}
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={() =>
+                  send({ type: "cancel_queued", agentId, messageId: msg.id })
+                }
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "var(--text-ghost)",
+                  cursor: "pointer",
+                  padding: "0 2px",
+                  fontSize: 16,
+                  lineHeight: 1,
+                  flexShrink: 0,
+                }}
+                title="Cancel this queued message"
+              >
+                ×
+              </button>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
 }
 
-function HeaderTimer({ state, stateChangedAt }: { state: AgentState; stateChangedAt?: number }) {
+function HeaderTimer({
+  state,
+  stateChangedAt,
+}: {
+  state: AgentState;
+  stateChangedAt?: number;
+}) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 100);
     return () => clearInterval(id);
   }, []);
   const elapsedMs = stateChangedAt ? now - stateChangedAt : 0;
-  const baseColor = state === "waiting_for_response" ? "var(--purple)" : "var(--green)";
+  const baseColor =
+    state === "waiting_for_response" ? "var(--purple)" : "var(--green)";
   const color = escalationColor(elapsedMs, baseColor);
   return (
     <>
@@ -351,7 +489,14 @@ export function LogView({
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const { drafts, slashCommands, stateChangedAt, isMobile, connected, sidePanels } = useAppState();
+  const {
+    drafts,
+    slashCommands,
+    stateChangedAt,
+    isMobile,
+    connected,
+    sidePanels,
+  } = useAppState();
   const dispatch = useDispatch();
   const features = useFeatures();
   const device = getDevice();
@@ -359,7 +504,8 @@ export function LogView({
   const input = drafts.get(agent.id) ?? "";
   const inputRef = useRef(input);
   inputRef.current = input;
-  const setInput = (text: string) => dispatch({ type: "set_draft", agentId: agent.id, text });
+  const setInput = (text: string) =>
+    dispatch({ type: "set_draft", agentId: agent.id, text });
   const [autoScroll, setAutoScroll] = useState(true);
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [editingTopic, setEditingTopic] = useState(false);
@@ -372,8 +518,12 @@ export function LogView({
   const sidePanel = sidePanels.get(agent.id) ?? null;
   const terminalOpen = sidePanel === "terminal";
   const editorOpen = sidePanel === "editor";
-  const [terminalWidth, setTerminalWidth] = useState<number>(() => readPanelWidth("terminal", 500));
-  const [editorWidth, setEditorWidth] = useState<number>(() => readPanelWidth("editor", 600));
+  const [terminalWidth, setTerminalWidth] = useState<number>(() =>
+    readPanelWidth("terminal", 500),
+  );
+  const [editorWidth, setEditorWidth] = useState<number>(() =>
+    readPanelWidth("editor", 600),
+  );
   const terminalContainerRef = useRef<HTMLDivElement>(null);
   const editorContainerRef = useRef<HTMLDivElement>(null);
   const commitTerminalWidth = useCallback((w: number) => {
@@ -387,18 +537,30 @@ export function LogView({
   // Live max: reading window.innerWidth at call time so a window-resize
   // mid-drag is reflected immediately (vs a value captured at mousedown).
   const getTerminalMax = useCallback(() => {
-    return Math.max(PANEL_MIN.terminal, Math.min(PANEL_MAX.terminal, window.innerWidth - CHAT_COLUMN_FLOOR));
+    return Math.max(
+      PANEL_MIN.terminal,
+      Math.min(PANEL_MAX.terminal, window.innerWidth - CHAT_COLUMN_FLOOR),
+    );
   }, []);
   const getEditorMax = useCallback(() => {
-    return Math.max(PANEL_MIN.editor, Math.min(PANEL_MAX.editor, window.innerWidth - CHAT_COLUMN_FLOOR));
+    return Math.max(
+      PANEL_MIN.editor,
+      Math.min(PANEL_MAX.editor, window.innerWidth - CHAT_COLUMN_FLOOR),
+    );
   }, []);
   // Window-resize clamp: when the boss shrinks the browser window so far
   // that the panel + min chat column would overflow, shrink the panel.
   useEffect(() => {
     function clamp() {
-      const maxAllowed = Math.max(PANEL_MIN.terminal, window.innerWidth - CHAT_COLUMN_FLOOR);
+      const maxAllowed = Math.max(
+        PANEL_MIN.terminal,
+        window.innerWidth - CHAT_COLUMN_FLOOR,
+      );
       setTerminalWidth((w) => (w > maxAllowed ? maxAllowed : w));
-      const maxAllowedEditor = Math.max(PANEL_MIN.editor, window.innerWidth - CHAT_COLUMN_FLOOR);
+      const maxAllowedEditor = Math.max(
+        PANEL_MIN.editor,
+        window.innerWidth - CHAT_COLUMN_FLOOR,
+      );
       setEditorWidth((w) => (w > maxAllowedEditor ? maxAllowedEditor : w));
     }
     window.addEventListener("resize", clamp);
@@ -409,26 +571,47 @@ export function LogView({
   // from "agent-switch restored a previously-open terminal" — only the
   // former should grab keyboard focus from the chat textarea.
   const isFirstRenderRef = useRef(true);
-  useEffect(() => { isFirstRenderRef.current = false; }, []);
+  useEffect(() => {
+    isFirstRenderRef.current = false;
+  }, []);
   const terminalAutoFocus = !isFirstRenderRef.current;
-  const setTerminalOpen = useCallback((value: boolean | ((prev: boolean) => boolean)) => {
-    const prev = sidePanels.get(agent.id) === "terminal";
-    const next = typeof value === "function" ? value(prev) : value;
-    dispatch({ type: "set_side_panel", agentId: agent.id, panel: next ? "terminal" : null });
-  }, [dispatch, agent.id, sidePanels]);
-  const setEditorOpen = useCallback((value: boolean | ((prev: boolean) => boolean)) => {
-    const prev = sidePanels.get(agent.id) === "editor";
-    const next = typeof value === "function" ? value(prev) : value;
-    dispatch({ type: "set_side_panel", agentId: agent.id, panel: next ? "editor" : null });
-  }, [dispatch, agent.id, sidePanels]);
+  const setTerminalOpen = useCallback(
+    (value: boolean | ((prev: boolean) => boolean)) => {
+      const prev = sidePanels.get(agent.id) === "terminal";
+      const next = typeof value === "function" ? value(prev) : value;
+      dispatch({
+        type: "set_side_panel",
+        agentId: agent.id,
+        panel: next ? "terminal" : null,
+      });
+    },
+    [dispatch, agent.id, sidePanels],
+  );
+  const setEditorOpen = useCallback(
+    (value: boolean | ((prev: boolean) => boolean)) => {
+      const prev = sidePanels.get(agent.id) === "editor";
+      const next = typeof value === "function" ? value(prev) : value;
+      dispatch({
+        type: "set_side_panel",
+        agentId: agent.id,
+        panel: next ? "editor" : null,
+      });
+    },
+    [dispatch, agent.id, sidePanels],
+  );
   // Path to focus when the editor is opened or re-targeted. Cleared after the
   // panel reads it so the user can later switch to other tabs without
   // jumping back here.
-  const [editorInitialPath, setEditorInitialPath] = useState<string | null>(null);
-  const openInEditor = useCallback((path: string) => {
-    setEditorInitialPath(path);
-    dispatch({ type: "set_side_panel", agentId: agent.id, panel: "editor" });
-  }, [dispatch, agent.id]);
+  const [editorInitialPath, setEditorInitialPath] = useState<string | null>(
+    null,
+  );
+  const openInEditor = useCallback(
+    (path: string) => {
+      setEditorInitialPath(path);
+      dispatch({ type: "set_side_panel", agentId: agent.id, panel: "editor" });
+    },
+    [dispatch, agent.id],
+  );
   // Open the terminal panel and prefill the command at the prompt without
   // executing it. The 250ms delay covers the panel-mount → terminal_open →
   // PTY-spawn → first-prompt sequence; if the panel is already open it just
@@ -438,20 +621,34 @@ export function LogView({
   // would race ahead of mount and the bytes would hit a non-existent PTY.
   // After sending, focus xterm's helper textarea so Enter goes to the shell
   // instead of re-firing the still-focused button (which would re-copy).
-  const copyToTerminal = useCallback((command: string) => {
-    const wasOpen = sidePanels.get(agent.id) === "terminal";
-    dispatch({ type: "set_side_panel", agentId: agent.id, panel: "terminal" });
-    const delay = wasOpen ? 0 : 250;
-    setTimeout(() => {
-      send({ type: "terminal_input", agentId: agent.id, data: command });
-      const helper = terminalContainerRef.current?.querySelector(
-        ".xterm-helper-textarea",
-      ) as HTMLTextAreaElement | null;
-      helper?.focus();
-    }, delay);
-  }, [dispatch, agent.id, sidePanels]);
-  const [showAvatar, setShowAvatar] = useState(() => localStorage.getItem("isomux-show-avatar") !== "false");
-  const toggleAvatar = () => setShowAvatar((prev) => { const next = !prev; localStorage.setItem("isomux-show-avatar", String(next)); return next; });
+  const copyToTerminal = useCallback(
+    (command: string) => {
+      const wasOpen = sidePanels.get(agent.id) === "terminal";
+      dispatch({
+        type: "set_side_panel",
+        agentId: agent.id,
+        panel: "terminal",
+      });
+      const delay = wasOpen ? 0 : 250;
+      setTimeout(() => {
+        send({ type: "terminal_input", agentId: agent.id, data: command });
+        const helper = terminalContainerRef.current?.querySelector(
+          ".xterm-helper-textarea",
+        ) as HTMLTextAreaElement | null;
+        helper?.focus();
+      }, delay);
+    },
+    [dispatch, agent.id, sidePanels],
+  );
+  const [showAvatar, setShowAvatar] = useState(
+    () => localStorage.getItem("isomux-show-avatar") !== "false",
+  );
+  const toggleAvatar = () =>
+    setShowAvatar((prev) => {
+      const next = !prev;
+      localStorage.setItem("isomux-show-avatar", String(next));
+      return next;
+    });
   const [copied, setCopied] = useState(false);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isListening, setIsListening] = useState(false);
@@ -459,18 +656,34 @@ export function LogView({
   const [showMicHint, setShowMicHint] = useState(false);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  type StagedAttachment = Attachment & { id: string; uploading: boolean; error?: string };
-  const [stagedAttachments, setStagedAttachments] = useState<StagedAttachment[]>([]);
+  type StagedAttachment = Attachment & {
+    id: string;
+    uploading: boolean;
+    error?: string;
+  };
+  const [stagedAttachments, setStagedAttachments] = useState<
+    StagedAttachment[]
+  >([]);
   const hasUploading = stagedAttachments.some((a) => a.uploading);
   const validAttachments = stagedAttachments.filter((a) => !a.error);
   const [draggingOver, setDraggingOver] = useState(false);
-  const [editingLogEntryId, setEditingLogEntryId] = useState<string | null>(null);
+  const [editingLogEntryId, setEditingLogEntryId] = useState<string | null>(
+    null,
+  );
   const dragCounterRef = useRef(0);
-  const swipeRef = useSwipeLeftRight(onSwipeLeft ?? (() => {}), onSwipeRight ?? (() => {}), isMobile);
-  const messagesRef: RefCallback<HTMLDivElement> = useCallback((node: HTMLDivElement | null) => {
-    (scrollRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
-    swipeRef(node);
-  }, []);
+  const swipeRef = useSwipeLeftRight(
+    onSwipeLeft ?? (() => {}),
+    onSwipeRight ?? (() => {}),
+    isMobile,
+  );
+  const messagesRef: RefCallback<HTMLDivElement> = useCallback(
+    (node: HTMLDivElement | null) => {
+      (scrollRef as React.MutableRefObject<HTMLDivElement | null>).current =
+        node;
+      swipeRef(node);
+    },
+    [],
+  );
 
   // Dismiss edit textarea when agent is no longer idle (e.g. another tab sent a message)
   useEffect(() => {
@@ -490,7 +703,12 @@ export function LogView({
     const vv = window.visualViewport;
     if (!vv) return;
     const update = () => {
-      const bannerH = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--banner-h")) || 0;
+      const bannerH =
+        parseFloat(
+          getComputedStyle(document.documentElement).getPropertyValue(
+            "--banner-h",
+          ),
+        ) || 0;
       setVpHeight(vv.height - bannerH);
       window.scrollTo(0, 0);
       // When keyboard opens (viewport shrinks), scroll chat to bottom
@@ -530,11 +748,16 @@ export function LogView({
         if (s.description) descs.set(s.name, s.description);
       }
     }
-    return { allCommands: cmds.sort(), skillOrigins: origins, commandDescriptions: descs };
+    return {
+      allCommands: cmds.sort(),
+      skillOrigins: origins,
+      commandDescriptions: descs,
+    };
   }, [agentCmds]);
 
   // Filter commands based on input
-  const showAutocomplete = input.startsWith("/") && !input.includes(" ") && input.length > 0;
+  const showAutocomplete =
+    input.startsWith("/") && !input.includes(" ") && input.length > 0;
   const partial = input.slice(1).toLowerCase();
   const filteredCommands = useMemo(() => {
     if (!showAutocomplete) return [];
@@ -567,7 +790,13 @@ export function LogView({
         // scrollTop assignment here combined with sibling DOM churn (e.g.
         // the sticky avatar remounting on agent.state change) clears it.
         const sel = window.getSelection();
-        if (sel && !sel.isCollapsed && sel.anchorNode && el.contains(sel.anchorNode)) return;
+        if (
+          sel &&
+          !sel.isCollapsed &&
+          sel.anchorNode &&
+          el.contains(sel.anchorNode)
+        )
+          return;
         el.scrollTop = el.scrollHeight;
       });
     });
@@ -601,7 +830,12 @@ export function LogView({
   useEffect(() => {
     function handleEditorShortcut(e: KeyboardEvent) {
       if (isMobile || !features.editor) return;
-      if (e.key === "e" && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+      if (
+        e.key === "e" &&
+        (e.ctrlKey || e.metaKey) &&
+        !e.shiftKey &&
+        !e.altKey
+      ) {
         // Only intercept when no editor input is focused — Ctrl+E is also
         // "go to end of line" in the textarea on some platforms.
         const tag = (document.activeElement?.tagName ?? "").toLowerCase();
@@ -633,13 +867,18 @@ export function LogView({
   const userMsgNodesRef = useRef<Map<string, HTMLElement>>(new Map());
   // Stable per-id ref callbacks: returning the same function for the same id
   // across renders keeps React from triggering cleanup+setup on every render.
-  const userMsgRefCbsRef = useRef<Map<string, (node: HTMLDivElement | null) => void>>(new Map());
+  const userMsgRefCbsRef = useRef<
+    Map<string, (node: HTMLDivElement | null) => void>
+  >(new Map());
   const getUserMsgRefCb = useCallback((id: string) => {
     let cb = userMsgRefCbsRef.current.get(id);
     if (!cb) {
       cb = (node: HTMLDivElement | null) => {
         if (node) userMsgNodesRef.current.set(id, node);
-        else { userMsgNodesRef.current.delete(id); userMsgRefCbsRef.current.delete(id); }
+        else {
+          userMsgNodesRef.current.delete(id);
+          userMsgRefCbsRef.current.delete(id);
+        }
       };
       userMsgRefCbsRef.current.set(id, cb);
     }
@@ -673,12 +912,17 @@ export function LogView({
   // Recompute after every render that could affect positions, on the next
   // frame so layout has settled (including auto-scroll's double-rAF).
   useEffect(() => {
-    const id = requestAnimationFrame(() => requestAnimationFrame(recomputePinned));
+    const id = requestAnimationFrame(() =>
+      requestAnimationFrame(recomputePinned),
+    );
     return () => cancelAnimationFrame(id);
   }, [recomputePinned, agent.state]);
   const pinnedMessage = useMemo(
-    () => (pinnedMessageId ? logs.find((e) => e.id === pinnedMessageId) ?? null : null),
-    [logs, pinnedMessageId]
+    () =>
+      pinnedMessageId
+        ? (logs.find((e) => e.id === pinnedMessageId) ?? null)
+        : null,
+    [logs, pinnedMessageId],
   );
   function scrollToPinnedMessage() {
     if (!pinnedMessage) return;
@@ -692,7 +936,10 @@ export function LogView({
     const result: { isLastInTurn: boolean; turnEntries: LogEntry[] }[] = [];
     // Identify turn boundaries (user_message entries start a new turn)
     // Agent turn = all non-user entries after a user message, until the next user message
-    let currentTurn: { startIdx: number; entries: LogEntry[] } = { startIdx: 0, entries: [] };
+    let currentTurn: { startIdx: number; entries: LogEntry[] } = {
+      startIdx: 0,
+      entries: [],
+    };
     const turns: { startIdx: number; entries: LogEntry[] }[] = [];
 
     for (let i = 0; i < logs.length; i++) {
@@ -714,15 +961,27 @@ export function LogView({
     }
 
     // Build per-entry lookup
-    const entryMap = new Map<string, { isLastInTurn: boolean; turnEntries: LogEntry[] }>();
+    const entryMap = new Map<
+      string,
+      { isLastInTurn: boolean; turnEntries: LogEntry[] }
+    >();
     for (const turn of turns) {
-      if (turn.entries.length === 1 && turn.entries[0].kind === "user_message") {
-        entryMap.set(turn.entries[0].id, { isLastInTurn: false, turnEntries: [] });
+      if (
+        turn.entries.length === 1 &&
+        turn.entries[0].kind === "user_message"
+      ) {
+        entryMap.set(turn.entries[0].id, {
+          isLastInTurn: false,
+          turnEntries: [],
+        });
         continue;
       }
       for (let i = 0; i < turn.entries.length; i++) {
         const isLast = i === turn.entries.length - 1;
-        entryMap.set(turn.entries[i].id, { isLastInTurn: isLast, turnEntries: turn.entries });
+        entryMap.set(turn.entries[i].id, {
+          isLastInTurn: isLast,
+          turnEntries: turn.entries,
+        });
       }
     }
 
@@ -735,7 +994,14 @@ export function LogView({
   const handleSubmitEdit = useCallback(
     (id: string, newText: string) => {
       setEditingLogEntryId(null);
-      send({ type: "edit_message", agentId: agent.id, logEntryId: id, newText, username, device: device || undefined });
+      send({
+        type: "edit_message",
+        agentId: agent.id,
+        logEntryId: id,
+        newText,
+        username,
+        device: device || undefined,
+      });
     },
     [agent.id, username, device],
   );
@@ -760,34 +1026,71 @@ export function LogView({
   }, [getConversationText]);
 
   const baseAgentActions: NavAction[] = [
-    ...(onOpenTasks ? [{ id: "tasks", icon: TasksIcon, label: "Tasks", onClick: onOpenTasks }] : []),
-    ...(logs.length > 0 ? [{ id: "copy", icon: copied ? CheckIcon : CopyIcon, label: copied ? "Copied" : "Copy", onClick: handleCopy, active: copied }] : []),
-    { id: "settings", icon: AgentIcon, label: "Agent", onClick: onEditAgent, title: "Agent settings" },
-    { id: "viewAvatar", icon: EyeIcon, label: "Avatar", onClick: toggleAvatar, active: showAvatar, title: "View avatar" },
-    { id: "theme", icon: theme === "dark" ? <MoonIcon size={15} /> : <SunIcon size={15} />, label: theme === "dark" ? "Dark" : "Light", onClick: toggleTheme, title: theme === "dark" ? "Switch to light mode" : "Switch to dark mode" },
+    ...(onOpenTasks
+      ? [{ id: "tasks", icon: TasksIcon, label: "Tasks", onClick: onOpenTasks }]
+      : []),
+    ...(logs.length > 0
+      ? [
+          {
+            id: "copy",
+            icon: copied ? CheckIcon : CopyIcon,
+            label: copied ? "Copied" : "Copy",
+            onClick: handleCopy,
+            active: copied,
+          },
+        ]
+      : []),
+    {
+      id: "settings",
+      icon: AgentIcon,
+      label: "Agent",
+      onClick: onEditAgent,
+      title: "Agent settings",
+    },
+    {
+      id: "viewAvatar",
+      icon: EyeIcon,
+      label: "Avatar",
+      onClick: toggleAvatar,
+      active: showAvatar,
+      title: "View avatar",
+    },
+    {
+      id: "theme",
+      icon: theme === "dark" ? <MoonIcon size={15} /> : <SunIcon size={15} />,
+      label: theme === "dark" ? "Dark" : "Light",
+      onClick: toggleTheme,
+      title: theme === "dark" ? "Switch to light mode" : "Switch to dark mode",
+    },
   ];
 
   const desktopAgentActions: NavAction[] = (() => {
     let acts = baseAgentActions;
     if (features.editor) {
-      acts = [...acts, {
-        id: "editor",
-        icon: EditorIcon,
-        label: "Editor",
-        onClick: () => setEditorOpen((v) => !v),
-        active: editorOpen,
-        title: "Open file editor (Ctrl+E)",
-      }];
+      acts = [
+        ...acts,
+        {
+          id: "editor",
+          icon: EditorIcon,
+          label: "Editor",
+          onClick: () => setEditorOpen((v) => !v),
+          active: editorOpen,
+          title: "Open file editor (Ctrl+E)",
+        },
+      ];
     }
     if (features.terminal) {
-      acts = [...acts, {
-        id: "terminal",
-        icon: TerminalIcon,
-        label: "Terminal",
-        onClick: () => setTerminalOpen((v) => !v),
-        active: terminalOpen,
-        title: "Open terminal (Ctrl+`)",
-      }];
+      acts = [
+        ...acts,
+        {
+          id: "terminal",
+          icon: TerminalIcon,
+          label: "Terminal",
+          onClick: () => setTerminalOpen((v) => !v),
+          active: terminalOpen,
+          title: "Open terminal (Ctrl+`)",
+        },
+      ];
     }
     return acts;
   })();
@@ -798,22 +1101,28 @@ export function LogView({
   const mobileAgentActions: NavAction[] = (() => {
     let acts = baseAgentActions;
     if (features.editor) {
-      acts = [...acts, {
-        id: "editor",
-        icon: EditorIcon,
-        label: editorOpen ? "Close editor" : "Editor",
-        onClick: () => setEditorOpen((v) => !v),
-        active: editorOpen,
-      }];
+      acts = [
+        ...acts,
+        {
+          id: "editor",
+          icon: EditorIcon,
+          label: editorOpen ? "Close editor" : "Editor",
+          onClick: () => setEditorOpen((v) => !v),
+          active: editorOpen,
+        },
+      ];
     }
     if (features.terminal) {
-      acts = [...acts, {
-        id: "terminal",
-        icon: TerminalIcon,
-        label: terminalOpen ? "Close terminal" : "Terminal",
-        onClick: () => setTerminalOpen((v) => !v),
-        active: terminalOpen,
-      }];
+      acts = [
+        ...acts,
+        {
+          id: "terminal",
+          icon: TerminalIcon,
+          label: terminalOpen ? "Close terminal" : "Terminal",
+          onClick: () => setTerminalOpen((v) => !v),
+          active: terminalOpen,
+        },
+      ];
     }
     return acts;
   })();
@@ -823,7 +1132,9 @@ export function LogView({
     el.style.height = Math.min(el.scrollHeight, 200) + "px";
   }
 
-  const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+  const SpeechRecognition =
+    (window as any).SpeechRecognition ||
+    (window as any).webkitSpeechRecognition;
 
   // Tracks the draft text before voice started + all finalized speech segments
   const committedTextRef = useRef("");
@@ -851,11 +1162,23 @@ export function LogView({
       if (finalText) {
         committedTextRef.current += finalText;
       }
-      dispatch({ type: "set_draft", agentId: agent.id, text: committedTextRef.current + interimText });
-      requestAnimationFrame(() => { if (textareaRef.current) autoResize(textareaRef.current); });
+      dispatch({
+        type: "set_draft",
+        agentId: agent.id,
+        text: committedTextRef.current + interimText,
+      });
+      requestAnimationFrame(() => {
+        if (textareaRef.current) autoResize(textareaRef.current);
+      });
     };
-    recognition.onend = () => { isListeningRef.current = false; setIsListening(false); };
-    recognition.onerror = () => { isListeningRef.current = false; setIsListening(false); };
+    recognition.onend = () => {
+      isListeningRef.current = false;
+      setIsListening(false);
+    };
+    recognition.onerror = () => {
+      isListeningRef.current = false;
+      setIsListening(false);
+    };
     recognitionRef.current = recognition;
     recognition.start();
   }
@@ -870,7 +1193,14 @@ export function LogView({
   useEffect(() => {
     if (!SpeechRecognition || !window.isSecureContext) return;
     function onKeyDown(e: KeyboardEvent) {
-      if (e.code === "Space" && e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey && !e.repeat) {
+      if (
+        e.code === "Space" &&
+        e.ctrlKey &&
+        !e.shiftKey &&
+        !e.altKey &&
+        !e.metaKey &&
+        !e.repeat
+      ) {
         e.preventDefault();
         startListening();
       }
@@ -894,17 +1224,32 @@ export function LogView({
     for (const file of Array.from(files)) {
       if (file.size > 20 * 1024 * 1024) {
         const id = Math.random().toString(36).slice(2, 10);
-        setStagedAttachments((prev) => [...prev, {
-          id, filename: "", originalName: file.name, mediaType: file.type || "application/octet-stream", size: file.size,
-          uploading: false, error: "File too large (max 20MB)",
-        }]);
+        setStagedAttachments((prev) => [
+          ...prev,
+          {
+            id,
+            filename: "",
+            originalName: file.name,
+            mediaType: file.type || "application/octet-stream",
+            size: file.size,
+            uploading: false,
+            error: "File too large (max 20MB)",
+          },
+        ]);
         continue;
       }
       const id = Math.random().toString(36).slice(2, 10);
-      setStagedAttachments((prev) => [...prev, {
-        id, filename: "", originalName: file.name, mediaType: file.type || "application/octet-stream", size: file.size,
-        uploading: true,
-      }]);
+      setStagedAttachments((prev) => [
+        ...prev,
+        {
+          id,
+          filename: "",
+          originalName: file.name,
+          mediaType: file.type || "application/octet-stream",
+          size: file.size,
+          uploading: true,
+        },
+      ]);
       const formData = new FormData();
       formData.append("file", file);
       fetch(`/api/upload/${agent.id}`, { method: "POST", body: formData })
@@ -914,14 +1259,18 @@ export function LogView({
         })
         .then((data: { attachments: Attachment[] }) => {
           const att = data.attachments[0];
-          setStagedAttachments((prev) => prev.map((s) =>
-            s.id === id ? { ...s, ...att, uploading: false } : s
-          ));
+          setStagedAttachments((prev) =>
+            prev.map((s) =>
+              s.id === id ? { ...s, ...att, uploading: false } : s,
+            ),
+          );
         })
         .catch((err) => {
-          setStagedAttachments((prev) => prev.map((s) =>
-            s.id === id ? { ...s, uploading: false, error: err.message } : s
-          ));
+          setStagedAttachments((prev) =>
+            prev.map((s) =>
+              s.id === id ? { ...s, uploading: false, error: err.message } : s,
+            ),
+          );
         });
     }
     // Reset file input so the same file can be re-selected
@@ -980,10 +1329,21 @@ export function LogView({
     const text = input.trim();
     if (!text && validAttachments.length === 0) return;
     if (hasUploading || editingLogEntryId) return;
-    const attachments = validAttachments.length > 0
-      ? validAttachments.map(({ id: _id, uploading: _u, error: _e, ...att }) => att as Attachment)
-      : undefined;
-    send({ type: "send_message", agentId: agent.id, text, username, device: device || undefined, attachments });
+    const attachments =
+      validAttachments.length > 0
+        ? validAttachments.map(
+            ({ id: _id, uploading: _u, error: _e, ...att }) =>
+              att as Attachment,
+          )
+        : undefined;
+    send({
+      type: "send_message",
+      agentId: agent.id,
+      text,
+      username,
+      device: device || undefined,
+      attachments,
+    });
     setInput("");
     setStagedAttachments([]);
     stopListening();
@@ -996,916 +1356,1259 @@ export function LogView({
   return (
     <div
       style={{
-        ...(isMobile ? {
-          position: "fixed" as const,
-          top: 0,
-          left: 0,
-          right: 0,
-          height: vpHeight != null ? vpHeight : "calc(100dvh - var(--banner-h, 0px))",
-          overflow: "hidden",
-        } : {
-          height: "calc(100vh - var(--banner-h, 0px))",
-        }),
+        ...(isMobile
+          ? {
+              position: "fixed" as const,
+              top: 0,
+              left: 0,
+              right: 0,
+              height:
+                vpHeight != null
+                  ? vpHeight
+                  : "calc(100dvh - var(--banner-h, 0px))",
+              overflow: "hidden",
+            }
+          : {
+              height: "calc(100vh - var(--banner-h, 0px))",
+            }),
         display: "flex",
         flexDirection: "row",
         background: "var(--bg-base)",
         animation: "termEnter 0.3s ease-out",
       }}
     >
-    <div
-      className="log-view-column"
-      onDragOver={handleDragOver}
-      onDragEnter={handleDragEnter}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
-      style={{
-        flex: 1,
-        display: "flex",
-        flexDirection: "column",
-        minWidth: 0,
-        position: "relative",
-        containerType: "inline-size",
-      }}
-    >
-      {/* Header */}
-      {isMobile ? (
-        <div style={{
+      <div
+        className="log-view-column"
+        onDragOver={handleDragOver}
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        style={{
+          flex: 1,
           display: "flex",
-          flexDirection: "row",
-          alignItems: "stretch",
-          padding: "0 12px 0 0",
-          paddingTop: "env(safe-area-inset-top, 0px)",
-          background: "var(--bg-surface)",
-          borderBottom: "1px solid var(--border-strong)",
-          flexShrink: 0,
-        }}>
-          <button onClick={onBack} style={{
-            padding: "12px 14px",
-            border: "none",
-            borderRight: "1px solid var(--border-medium)",
-            background: "var(--btn-surface)",
-            color: "var(--text-dim)",
-            fontSize: 20, cursor: "pointer", lineHeight: 1,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            flexShrink: 0,
-          }}>←</button>
-          <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden", padding: "8px 10px", gap: 2 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <StatusLight state={agent.state} size={8} />
-              <span onClick={onEditAgent} style={{
-                fontWeight: 600, color: "var(--text-primary)", fontSize: 15,
-                cursor: "pointer", flex: 1, overflow: "hidden",
-                textOverflow: "ellipsis", whiteSpace: "nowrap",
-              }}>{agent.name}{agent.room > 0 ? <span style={{ opacity: 0.4, fontWeight: 400, fontSize: 12, marginLeft: 6 }}>R{agent.room + 1}:{agent.desk + 1}</span> : ""}</span>
-              {STATE_LABELS[agent.state] && (
-                <HeaderTimer state={agent.state} stateChangedAt={stateChangedAt.get(agent.id)} />
-              )}
-              <NavActions actions={mobileAgentActions} viewport="mobile" />
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, paddingLeft: 16 }}>
-              <span style={{
-                fontFamily: "'JetBrains Mono',monospace",
-                color: "var(--text-muted)", fontSize: 12,
-                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+          flexDirection: "column",
+          minWidth: 0,
+          position: "relative",
+          containerType: "inline-size",
+        }}
+      >
+        {/* Header */}
+        {isMobile ? (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "row",
+              alignItems: "stretch",
+              padding: "0 12px 0 0",
+              paddingTop: "env(safe-area-inset-top, 0px)",
+              background: "var(--bg-surface)",
+              borderBottom: "1px solid var(--border-strong)",
+              flexShrink: 0,
+            }}
+          >
+            <button
+              onClick={onBack}
+              style={{
+                padding: "12px 14px",
+                border: "none",
+                borderRight: "1px solid var(--border-medium)",
+                background: "var(--btn-surface)",
+                color: "var(--text-dim)",
+                fontSize: 20,
+                cursor: "pointer",
+                lineHeight: 1,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+              }}
+            >
+              ←
+            </button>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
                 flex: 1,
-              }}>{agent.cwd}</span>
+                overflow: "hidden",
+                padding: "8px 10px",
+                gap: 2,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <StatusLight state={agent.state} size={8} />
+                <span
+                  onClick={onEditAgent}
+                  style={{
+                    fontWeight: 600,
+                    color: "var(--text-primary)",
+                    fontSize: 15,
+                    cursor: "pointer",
+                    flex: 1,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {agent.name}
+                  {agent.room > 0 ? (
+                    <span
+                      style={{
+                        opacity: 0.4,
+                        fontWeight: 400,
+                        fontSize: 12,
+                        marginLeft: 6,
+                      }}
+                    >
+                      R{agent.room + 1}:{agent.desk + 1}
+                    </span>
+                  ) : (
+                    ""
+                  )}
+                </span>
+                {STATE_LABELS[agent.state] && (
+                  <HeaderTimer
+                    state={agent.state}
+                    stateChangedAt={stateChangedAt.get(agent.id)}
+                  />
+                )}
+                <NavActions actions={mobileAgentActions} viewport="mobile" />
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  paddingLeft: 16,
+                }}
+              >
+                <span
+                  style={{
+                    fontFamily: "'JetBrains Mono',monospace",
+                    color: "var(--text-muted)",
+                    fontSize: 12,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    flex: 1,
+                  }}
+                >
+                  {agent.cwd}
+                </span>
+              </div>
             </div>
           </div>
-        </div>
-      ) : (
-        <div
-          style={{
-            display: "flex",
-            alignItems: "stretch",
-            justifyContent: "space-between",
-            padding: "0 16px 0 0",
-            height: 48,
-            background: "var(--bg-surface)",
-            borderBottom: "1px solid var(--border-strong)",
-            flexShrink: 0,
-          }}
-        >
-          <button
-            onClick={onBack}
+        ) : (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "stretch",
+              justifyContent: "space-between",
+              padding: "0 16px 0 0",
+              height: 48,
+              background: "var(--bg-surface)",
+              borderBottom: "1px solid var(--border-strong)",
+              flexShrink: 0,
+            }}
+          >
+            <button
+              onClick={onBack}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: "0 16px",
+                border: "none",
+                borderRight: "1px solid var(--border-medium)",
+                background: "var(--btn-surface)",
+                color: "var(--text-dim)",
+                fontSize: 13,
+                cursor: "pointer",
+                flexShrink: 0,
+              }}
+            >
+              ← Back to Office
+            </button>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                fontSize: 13,
+                flex: 1,
+                minWidth: 0,
+                marginLeft: 12,
+              }}
+            >
+              <span style={{ flexShrink: 0 }}>
+                <StatusLight state={agent.state} size={8} />
+              </span>
+              <span
+                onClick={onEditAgent}
+                style={{
+                  fontWeight: 600,
+                  color: "var(--text-primary)",
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                  flexShrink: 0,
+                }}
+                title="Edit agent"
+              >
+                <span style={{ opacity: 0.5 }}>
+                  {agent.room > 0 ? `R${agent.room + 1}:` : ""}
+                  {agent.desk + 1} ·
+                </span>{" "}
+                {agent.name}
+              </span>
+              {STATE_LABELS[agent.state] && (
+                <HeaderTimer
+                  state={agent.state}
+                  stateChangedAt={stateChangedAt.get(agent.id)}
+                />
+              )}
+              {agent.topic && agent.topic !== "..." && !editingTopic && (
+                <>
+                  <span style={{ color: "var(--text-ghost)" }}>&middot;</span>
+                  <span
+                    onClick={() => {
+                      setEditingTopic(true);
+                      setTopicDraft(agent.topic ?? "");
+                      setTimeout(() => topicInputRef.current?.focus(), 0);
+                    }}
+                    style={{
+                      color: "var(--text-secondary)",
+                      fontSize: 13,
+                      cursor: "text",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      minWidth: 0,
+                    }}
+                    title={agent.topic ?? "Click to edit topic"}
+                  >
+                    {agent.topic}
+                  </span>
+                  <button
+                    onClick={() =>
+                      send({ type: "reset_topic", agentId: agent.id })
+                    }
+                    disabled={!agent.topicStale}
+                    title={
+                      agent.topicStale
+                        ? "Regenerate topic from conversation"
+                        : "No new messages since last generation"
+                    }
+                    style={{
+                      background: "none",
+                      border: "none",
+                      cursor: agent.topicStale ? "pointer" : "default",
+                      color: "var(--text-secondary)",
+                      fontSize: 15,
+                      padding: "0 4px",
+                      opacity: agent.topicStale ? 0.8 : 0.3,
+                      transition: "opacity 0.2s",
+                      lineHeight: 1,
+                    }}
+                  >
+                    ↻
+                  </button>
+                </>
+              )}
+              {agent.topic === "..." && (
+                <>
+                  <span style={{ color: "var(--text-ghost)" }}>&middot;</span>
+                  <span style={{ color: "var(--text-ghost)", fontSize: 13 }}>
+                    ...
+                  </span>
+                </>
+              )}
+              {editingTopic && (
+                <input
+                  ref={topicInputRef}
+                  value={topicDraft}
+                  onChange={(e) => setTopicDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      const trimmed = topicDraft.trim();
+                      if (trimmed && trimmed !== agent.topic) {
+                        send({
+                          type: "set_topic",
+                          agentId: agent.id,
+                          topic: trimmed,
+                        });
+                      }
+                      topicSavedRef.current = true;
+                      setEditingTopic(false);
+                    }
+                    if (e.key === "Escape") {
+                      topicSavedRef.current = true;
+                      setEditingTopic(false);
+                    }
+                  }}
+                  onBlur={() => {
+                    if (topicSavedRef.current) {
+                      topicSavedRef.current = false;
+                      setEditingTopic(false);
+                      return;
+                    }
+                    const trimmed = topicDraft.trim();
+                    if (trimmed && trimmed !== agent.topic) {
+                      send({
+                        type: "set_topic",
+                        agentId: agent.id,
+                        topic: trimmed,
+                      });
+                    }
+                    setEditingTopic(false);
+                  }}
+                  style={{
+                    background: "transparent",
+                    border: "1px solid var(--border-medium)",
+                    borderRadius: 4,
+                    color: "var(--text-muted)",
+                    fontSize: 12,
+                    padding: "1px 6px",
+                    outline: "none",
+                    width: 200,
+                  }}
+                />
+              )}
+              <span style={{ color: "var(--text-ghost)", flexShrink: 0 }}>
+                &middot;
+              </span>
+              <span
+                title={agent.cwd}
+                style={{
+                  fontFamily: "'JetBrains Mono',monospace",
+                  color: "var(--text-muted)",
+                  fontSize: 12,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  minWidth: 0,
+                  flexShrink: 1,
+                }}
+              >
+                {agent.cwd.replace(/^\/home\/[^/]+/, "~")}
+              </span>
+              <span style={{ color: "var(--text-ghost)", flexShrink: 0 }}>
+                &middot;
+              </span>
+              <span
+                style={{
+                  fontFamily: "'JetBrains Mono',monospace",
+                  color: "var(--text-ghost)",
+                  fontSize: 11,
+                  whiteSpace: "nowrap",
+                  flexShrink: 0,
+                }}
+              >
+                {familyDisplayLabel(agent.modelFamily)}
+              </span>
+              {agent.agentType !== "claude" && (
+                <>
+                  <span style={{ color: "var(--text-ghost)", flexShrink: 0 }}>
+                    &middot;
+                  </span>
+                  <span
+                    style={{
+                      fontFamily: "'JetBrains Mono',monospace",
+                      fontSize: 10,
+                      fontWeight: 600,
+                      letterSpacing: 0.5,
+                      textTransform: "uppercase",
+                      color: "var(--accent-blue, #5eafff)",
+                      whiteSpace: "nowrap",
+                      flexShrink: 0,
+                    }}
+                    title={`Backend: ${agent.agentType}`}
+                  >
+                    {agent.agentType}
+                  </span>
+                </>
+              )}
+            </div>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                flexShrink: 0,
+                marginLeft: 12,
+              }}
+            >
+              <NavActions actions={desktopAgentActions} viewport="desktop" />
+            </div>
+          </div>
+        )}
+
+        {/* Pinned user message — sits between the header and the messages
+          when no user_message is currently visible in the scroll viewport.
+          Click scrolls the conversation back to that message. */}
+        {pinnedMessage && (
+          <div
+            onClick={scrollToPinnedMessage}
+            title={pinnedMessage.content}
             style={{
               display: "flex",
               alignItems: "center",
               gap: 8,
-              padding: "0 16px",
-              border: "none",
-              borderRight: "1px solid var(--border-medium)",
-              background: "var(--btn-surface)",
-              color: "var(--text-dim)",
-              fontSize: 13,
+              padding: isMobile ? "6px 12px" : "6px 24px",
+              background: "var(--bg-subtle)",
+              borderBottom: "1px solid var(--border)",
               cursor: "pointer",
+              color: "var(--text-muted)",
+              fontSize: 12,
               flexShrink: 0,
             }}
           >
-            ← Back to Office
-          </button>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, flex: 1, minWidth: 0, marginLeft: 12 }}>
-            <span style={{ flexShrink: 0 }}><StatusLight state={agent.state} size={8} /></span>
             <span
-              onClick={onEditAgent}
-              style={{ fontWeight: 600, color: "var(--text-primary)", cursor: "pointer", whiteSpace: "nowrap", flexShrink: 0 }}
-              title="Edit agent"
-            ><span style={{ opacity: 0.5 }}>{agent.room > 0 ? `R${agent.room + 1}:` : ""}{agent.desk + 1} ·</span> {agent.name}</span>
-            {STATE_LABELS[agent.state] && (
-              <HeaderTimer state={agent.state} stateChangedAt={stateChangedAt.get(agent.id)} />
-            )}
-            {agent.topic && agent.topic !== "..." && !editingTopic && (
-              <>
-                <span style={{ color: "var(--text-ghost)" }}>&middot;</span>
-                <span
-                  onClick={() => {
-                    setEditingTopic(true);
-                    setTopicDraft(agent.topic ?? "");
-                    setTimeout(() => topicInputRef.current?.focus(), 0);
-                  }}
-                  style={{
-                    color: "var(--text-secondary)",
-                    fontSize: 13,
-                    cursor: "text",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                    minWidth: 0,
-                  }}
-                  title={agent.topic ?? "Click to edit topic"}
-                >
-                  {agent.topic}
-                </span>
-                <button
-                  onClick={() => send({ type: "reset_topic", agentId: agent.id })}
-                  disabled={!agent.topicStale}
-                  title={agent.topicStale ? "Regenerate topic from conversation" : "No new messages since last generation"}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    cursor: agent.topicStale ? "pointer" : "default",
-                    color: "var(--text-secondary)",
-                    fontSize: 15,
-                    padding: "0 4px",
-                    opacity: agent.topicStale ? 0.8 : 0.3,
-                    transition: "opacity 0.2s",
-                    lineHeight: 1,
-                  }}
-                >
-                  ↻
-                </button>
-              </>
-            )}
-            {agent.topic === "..." && (
-              <>
-                <span style={{ color: "var(--text-ghost)" }}>&middot;</span>
-                <span style={{ color: "var(--text-ghost)", fontSize: 13 }}>...</span>
-              </>
-            )}
-            {editingTopic && (
-              <input
-                ref={topicInputRef}
-                value={topicDraft}
-                onChange={(e) => setTopicDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    const trimmed = topicDraft.trim();
-                    if (trimmed && trimmed !== agent.topic) {
-                      send({ type: "set_topic", agentId: agent.id, topic: trimmed });
-                    }
-                    topicSavedRef.current = true;
-                    setEditingTopic(false);
-                  }
-                  if (e.key === "Escape") {
-                    topicSavedRef.current = true;
-                    setEditingTopic(false);
-                  }
-                }}
-                onBlur={() => {
-                  if (topicSavedRef.current) {
-                    topicSavedRef.current = false;
-                    setEditingTopic(false);
-                    return;
-                  }
-                  const trimmed = topicDraft.trim();
-                  if (trimmed && trimmed !== agent.topic) {
-                    send({ type: "set_topic", agentId: agent.id, topic: trimmed });
-                  }
-                  setEditingTopic(false);
-                }}
-                style={{
-                  background: "transparent",
-                  border: "1px solid var(--border-medium)",
-                  borderRadius: 4,
-                  color: "var(--text-muted)",
-                  fontSize: 12,
-                  padding: "1px 6px",
-                  outline: "none",
-                  width: 200,
-                }}
-              />
-            )}
-            <span style={{ color: "var(--text-ghost)", flexShrink: 0 }}>&middot;</span>
-            <span
-              title={agent.cwd}
               style={{
-                fontFamily: "'JetBrains Mono',monospace",
-                color: "var(--text-muted)",
-                fontSize: 12,
+                color: "var(--text-ghost)",
+                flexShrink: 0,
+                fontWeight: 600,
+              }}
+            >
+              ↑ you:
+            </span>
+            <span
+              style={{
+                flex: 1,
+                whiteSpace: "nowrap",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
                 minWidth: 0,
-                flexShrink: 1,
               }}
             >
-              {agent.cwd.replace(/^\/home\/[^/]+/, "~")}
+              {pinnedMessage.content}
             </span>
-            <span style={{ color: "var(--text-ghost)", flexShrink: 0 }}>&middot;</span>
             <span
               style={{
-                fontFamily: "'JetBrains Mono',monospace",
                 color: "var(--text-ghost)",
-                fontSize: 11,
-                whiteSpace: "nowrap",
                 flexShrink: 0,
+                fontSize: 11,
+                lineHeight: 1,
               }}
             >
-              {familyDisplayLabel(agent.modelFamily)}
+              ↑
             </span>
-            {agent.agentType !== "claude" && (
-              <>
-                <span style={{ color: "var(--text-ghost)", flexShrink: 0 }}>&middot;</span>
-                <span
-                  style={{
-                    fontFamily: "'JetBrains Mono',monospace",
-                    fontSize: 10,
-                    fontWeight: 600,
-                    letterSpacing: 0.5,
-                    textTransform: "uppercase",
-                    color: "var(--accent-blue, #5eafff)",
-                    whiteSpace: "nowrap",
-                    flexShrink: 0,
-                  }}
-                  title={`Backend: ${agent.agentType}`}
-                >
-                  {agent.agentType}
-                </span>
-              </>
-            )}
           </div>
-          <div style={{ display: "flex", alignItems: "center", flexShrink: 0, marginLeft: 12 }}>
-            <NavActions actions={desktopAgentActions} viewport="desktop" />
-          </div>
-        </div>
-      )}
+        )}
 
-      {/* Pinned user message — sits between the header and the messages
-          when no user_message is currently visible in the scroll viewport.
-          Click scrolls the conversation back to that message. */}
-      {pinnedMessage && (
+        {/* Messages */}
         <div
-          onClick={scrollToPinnedMessage}
-          title={pinnedMessage.content}
+          ref={messagesRef}
+          onScroll={handleScroll}
           style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            padding: isMobile ? "6px 12px" : "6px 24px",
-            background: "var(--bg-subtle)",
-            borderBottom: "1px solid var(--border)",
-            cursor: "pointer",
-            color: "var(--text-muted)",
-            fontSize: 12,
-            flexShrink: 0,
+            flex: 1,
+            overflowY: "auto",
+            overflowX: "hidden",
+            padding: isMobile ? "12px 12px" : "16px 24px",
+            color: "var(--text-secondary)",
+            position: "relative",
           }}
         >
-          <span style={{ color: "var(--text-ghost)", flexShrink: 0, fontWeight: 600 }}>↑ you:</span>
-          <span
-            style={{
-              flex: 1,
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              minWidth: 0,
-            }}
-          >
-            {pinnedMessage.content}
-          </span>
-          <span style={{ color: "var(--text-ghost)", flexShrink: 0, fontSize: 11, lineHeight: 1 }}>
-            ↑
-          </span>
-        </div>
-      )}
-
-      {/* Messages */}
-      <div
-        ref={messagesRef}
-        onScroll={handleScroll}
-        style={{
-          flex: 1,
-          overflowY: "auto",
-          overflowX: "hidden",
-          padding: isMobile ? "12px 12px" : "16px 24px",
-          color: "var(--text-secondary)",
-          position: "relative",
-        }}
-      >
-        {/* Floating agent portrait — only mount when visible, so the
+          {/* Floating agent portrait — only mount when visible, so the
             sticky+backdrop-filter element doesn't sit in the scroll
             container's layer tree when hidden (suspected to deactivate
             selections on layout commit). */}
-        {showAvatar && (
-          <div
-            onClick={onEditAgent}
-            style={{
-              position: "sticky",
-              top: isMobile ? 12 : 16,
-              float: "right",
-              marginRight: 0,
-              zIndex: 10,
-              width: 62,
-              height: 78,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              borderRadius: 8,
-              border: `2px solid ${MODEL_TINT[agent.modelFamily]?.border ?? "var(--border-medium)"}`,
-              background: MODEL_TINT[agent.modelFamily]?.bg ?? "rgba(128,128,128,0.2)",
-              backdropFilter: "blur(8px)",
-              WebkitBackdropFilter: "blur(8px)",
-              cursor: "pointer",
-              transition: "opacity 0.2s",
-            }}
-            title="Edit agent"
-          >
-            <Character key={agent.state} state={agent.state} outfit={agent.outfit} />
-          </div>
-        )}
-        {logs.length === 0 && (
-          <div
-            style={{
-              color: "var(--text-ghost)",
-              textAlign: "center",
-              marginTop: 40,
-            }}
-          >
-            {connected ? "Send a message to start a conversation." : "Loading..."}
-          </div>
-        )}
-        {logs.map((entry) => {
-          const td = turnData.get(entry.id);
-          const canEditMsg = entry.kind === "user_message" && agent.state === "waiting_for_response" && !editingLogEntryId && agent.capabilities.edit;
-          const isUserMsg = entry.kind === "user_message";
-          return (
+          {showAvatar && (
             <div
-              key={entry.id}
-              ref={isUserMsg ? getUserMsgRefCb(entry.id) : undefined}
-            >
-              <LogEntryCard
-                entry={entry}
-                isLastInTurn={td?.isLastInTurn}
-                turnEntries={td?.turnEntries}
-                isMobile={isMobile}
-                canEdit={canEditMsg}
-                isEditing={editingLogEntryId === entry.id}
-                onStartEdit={setEditingLogEntryId}
-                onCancelEdit={handleCancelEdit}
-                onSubmitEdit={handleSubmitEdit}
-                onOpenInEditor={features.editor ? openInEditor : undefined}
-                onCopyToTerminal={features.terminal ? copyToTerminal : undefined}
-              />
-            </div>
-          );
-        })}
-        <ActivityIndicator state={agent.state} stateChangedAt={stateChangedAt.get(agent.id)} agentId={agent.id} />
-      </div>
-
-      {/* Scroll to bottom */}
-      {!autoScroll && (
-        <button
-          onClick={() => {
-            if (scrollRef.current) {
-              scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-            }
-            setAutoScroll(true);
-          }}
-          style={{
-            position: "absolute",
-            bottom: 80,
-            right: 32,
-            width: 36,
-            height: 36,
-            borderRadius: "50%",
-            border: "1px solid var(--border-medium)",
-            background: "var(--bg-surface)",
-            color: "var(--text-muted)",
-            fontSize: 16,
-            cursor: "pointer",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
-            zIndex: 5,
-            transition: "opacity 0.15s",
-          }}
-          title="Scroll to bottom"
-        >
-          ↓
-        </button>
-      )}
-
-      {/* Input */}
-      <div
-        style={{
-          flexShrink: 0,
-          padding: isMobile ? "10px 12px 10px 11px" : "10px 24px 10px 11px",
-          paddingBottom: isMobile ? "calc(10px + env(safe-area-inset-bottom, 0px))" : undefined,
-          borderTop: draggingOver ? "2px solid var(--green)" : "2px solid var(--border-strong)",
-          background: draggingOver ? "var(--bg-hover)" : "var(--bg-surface)",
-          transition: "background 0.15s, border-color 0.15s",
-        }}
-      >
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          style={{ display: "none" }}
-          onChange={(e) => handleFileSelect(e.target.files)}
-        />
-        <SessionSwapIndicator swapping={agent.sessionSwapping ?? false} />
-        <QueueChips queue={agent.queue ?? []} agentId={agent.id} isMobile={isMobile} />
-        {stagedAttachments.length > 0 && (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
-            {stagedAttachments.map((att) => (
-              <div
-                key={att.id}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 6,
-                  padding: "4px 8px",
-                  borderRadius: 6,
-                  background: att.error ? "var(--red-bg)" : "var(--bg-hover)",
-                  border: `1px solid ${att.error ? "var(--red)" : "var(--border)"}`,
-                  fontSize: isMobile ? 13 : 11,
-                  fontFamily: "'JetBrains Mono',monospace",
-                  color: att.error ? "var(--red)" : "var(--text-secondary)",
-                  maxWidth: "100%",
-                }}
-              >
-                {att.mediaType.startsWith("image/") ? "🖼️" : att.mediaType === "application/pdf" ? "📄" : "📎"}
-                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 150 }}>{att.originalName}</span>
-                {att.uploading && <span style={{ color: "var(--text-ghost)" }}>uploading…</span>}
-                {att.error && <span style={{ fontSize: isMobile ? 11 : 9 }}>{att.error}</span>}
-                <button
-                  onClick={() => removeStaged(att.id)}
-                  style={{
-                    background: "none", border: "none", color: att.error ? "var(--red)" : "var(--text-ghost)",
-                    cursor: "pointer", padding: "0 2px", fontSize: 14, lineHeight: 1, flexShrink: 0,
-                  }}
-                >×</button>
-              </div>
-            ))}
-          </div>
-        )}
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            style={{
-              background: "none", border: "none", padding: 0,
-              color: "var(--text-muted)",
-              cursor: "pointer",
-              lineHeight: "20px",
-              fontSize: 16, flexShrink: 0,
-              opacity: 0.7,
-              transition: "opacity 0.15s",
-            }}
-            title="Attach files"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-            </svg>
-          </button>
-          <span style={{ color: isBusy ? "var(--text-ghost)" : "var(--green)", fontWeight: 600, lineHeight: "20px", position: "relative", top: -2 }}>&#10095;</span>
-          <div style={{ flex: 1, position: "relative", top: -2 }}>
-            {showAutocomplete && filteredCommands.length > 0 && (
-              <div
-                style={{
-                  position: "absolute",
-                  bottom: "100%",
-                  left: 0,
-                  right: 0,
-                  marginBottom: 4,
-                  background: "var(--bg-surface)",
-                  border: "1px solid var(--border-medium)",
-                  borderRadius: 8,
-                  maxHeight: 200,
-                  overflowY: "auto",
-                  boxShadow: "0 -4px 16px rgba(0,0,0,0.3)",
-                  zIndex: 10,
-                }}
-              >
-                {filteredCommands.map((cmd, i) => {
-                  const originLabel = skillOrigins.get(cmd);
-                  const desc = commandDescriptions.get(cmd);
-                  return (
-                    <div
-                      key={cmd}
-                      ref={i === selectedIdx ? (el) => el?.scrollIntoView({ block: "nearest" }) : undefined}
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        setInput(`/${cmd} `);
-                        textareaRef.current?.focus();
-                      }}
-                      onMouseEnter={() => setSelectedIdx(i)}
-                      style={{
-                        padding: "6px 12px",
-                        cursor: "pointer",
-                        background: i === selectedIdx ? "var(--bg-subtle)" : "transparent",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 8,
-                      }}
-                    >
-                      <span style={{
-                        color: "var(--green)",
-                        fontFamily: "'JetBrains Mono',monospace",
-                        fontSize: 13,
-                        fontWeight: 600,
-                        flexShrink: 0,
-                      }}>
-                        /{cmd}
-                      </span>
-                      {originLabel && (
-                        <span style={{
-                          fontSize: 10,
-                          color: "var(--text-ghost)",
-                          background: "var(--bg-base)",
-                          padding: "1px 6px",
-                          borderRadius: 4,
-                          flexShrink: 0,
-                        }}>
-                          {originLabel}
-                        </span>
-                      )}
-                      {desc && (
-                        <span style={{
-                          fontSize: 11,
-                          color: "var(--text-ghost)",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}>
-                          {desc}
-                        </span>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-            <textarea
-              ref={textareaRef}
-              value={input}
-              onPaste={handlePaste}
-              onChange={(e) => {
-                setInput(e.target.value);
-                autoResize(e.target);
-              }}
-              onKeyDown={(e) => {
-                // Autocomplete navigation
-                if (showAutocomplete && filteredCommands.length > 0) {
-                  if (e.key === "ArrowUp") {
-                    e.preventDefault();
-                    setSelectedIdx((prev) => (prev > 0 ? prev - 1 : filteredCommands.length - 1));
-                    return;
-                  }
-                  if (e.key === "ArrowDown") {
-                    e.preventDefault();
-                    setSelectedIdx((prev) => (prev < filteredCommands.length - 1 ? prev + 1 : 0));
-                    return;
-                  }
-                  if (e.key === "Tab") {
-                    e.preventDefault();
-                    const selected = filteredCommands[selectedIdx];
-                    if (selected) {
-                      setInput(`/${selected} `);
-                    }
-                    return;
-                  }
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    const selected = filteredCommands[selectedIdx];
-                    // If exact match, send it; otherwise autocomplete
-                    if (selected && partial === selected.toLowerCase()) {
-                      // Exact match — fall through to send
-                    } else if (selected) {
-                      e.preventDefault();
-                      setInput(`/${selected} `);
-                      return;
-                    }
-                  }
-                  if (e.key === "Escape") {
-                    e.preventDefault();
-                    setInput("");
-                    return;
-                  }
-                }
-                if (e.key === "Enter" && !e.shiftKey && !isMobile) {
-                  e.preventDefault();
-                  handleSend();
-                }
-                if (e.key === "c" && (e.ctrlKey || e.metaKey) && isBusy) {
-                  // Don't intercept Ctrl/Cmd+C while the user has a real
-                  // selection — they're trying to copy. The textarea is no
-                  // longer disabled while busy (typing now queues), so this
-                  // path is more reachable than before.
-                  const sel = window.getSelection()?.toString() ?? "";
-                  if (!sel) {
-                    e.preventDefault();
-                    sendAbortDebounced(agent.id);
-                  }
-                }
-              }}
-              placeholder={editingLogEntryId ? "Editing message above..." : isBusy ? (isMobile ? "Type to queue..." : "Type to queue — sends when current turn ends") : isMobile ? "Type a message..." : "Type a message or / for commands..."}
-              autoFocus={!isMobile}
-              rows={1}
+              onClick={onEditAgent}
               style={{
-                width: "100%",
-                background: "transparent",
-                border: "none",
-                outline: "none",
-                color: (isBusy || editingLogEntryId) ? "var(--text-muted)" : "var(--text-secondary)",
-                fontFamily: "'JetBrains Mono',monospace",
-                fontSize: isMobile ? 16 : 13,
-                caretColor: "var(--green)",
-                resize: "none",
-                padding: "0 0 4px",
-                lineHeight: "20px",
-                maxHeight: 200,
-                overflowY: "auto",
-              }}
-            />
-          </div>
-          {SpeechRecognition && window.isSecureContext ? (
-            <button
-              onMouseDown={startListening}
-              onMouseUp={stopListening}
-              onMouseLeave={stopListening}
-              onTouchStart={startListening}
-              onTouchEnd={stopListening}
-              style={{
-                flexShrink: 0,
-                width: 36,
-                height: 36,
-                marginTop: -9,
-                borderRadius: 6,
-                border: isListening ? "1px solid var(--red)" : "1px solid var(--border)",
-                background: isListening ? "rgba(255,50,50,0.15)" : "transparent",
-                color: isListening ? "var(--red)" : "var(--text-muted)",
-                cursor: "pointer",
+                position: "sticky",
+                top: isMobile ? 12 : 16,
+                float: "right",
+                marginRight: 0,
+                zIndex: 10,
+                width: 62,
+                height: 78,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                padding: 0,
-                transition: "all 0.15s",
-                animation: isListening ? "mic-pulse 1.5s ease-in-out infinite" : "none",
-                userSelect: "none",
-                WebkitUserSelect: "none",
+                borderRadius: 8,
+                border: `2px solid ${MODEL_TINT[agent.modelFamily]?.border ?? "var(--border-medium)"}`,
+                background:
+                  MODEL_TINT[agent.modelFamily]?.bg ?? "rgba(128,128,128,0.2)",
+                backdropFilter: "blur(8px)",
+                WebkitBackdropFilter: "blur(8px)",
+                cursor: "pointer",
+                transition: "opacity 0.2s",
               }}
-              title="Hold to talk (Ctrl+Space)"
+              title="Edit agent"
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="9" y="1" width="6" height="12" rx="3" />
-                <path d="M5 10a7 7 0 0 0 14 0" />
-                <line x1="12" y1="17" x2="12" y2="23" />
-                <line x1="8" y1="23" x2="16" y2="23" />
+              <Character
+                key={agent.state}
+                state={agent.state}
+                outfit={agent.outfit}
+              />
+            </div>
+          )}
+          {logs.length === 0 && (
+            <div
+              style={{
+                color: "var(--text-ghost)",
+                textAlign: "center",
+                marginTop: 40,
+              }}
+            >
+              {connected
+                ? "Send a message to start a conversation."
+                : "Loading..."}
+            </div>
+          )}
+          {logs.map((entry) => {
+            const td = turnData.get(entry.id);
+            const canEditMsg =
+              entry.kind === "user_message" &&
+              agent.state === "waiting_for_response" &&
+              !editingLogEntryId &&
+              agent.capabilities.edit;
+            const isUserMsg = entry.kind === "user_message";
+            return (
+              <div
+                key={entry.id}
+                ref={isUserMsg ? getUserMsgRefCb(entry.id) : undefined}
+              >
+                <LogEntryCard
+                  entry={entry}
+                  isLastInTurn={td?.isLastInTurn}
+                  turnEntries={td?.turnEntries}
+                  isMobile={isMobile}
+                  canEdit={canEditMsg}
+                  isEditing={editingLogEntryId === entry.id}
+                  onStartEdit={setEditingLogEntryId}
+                  onCancelEdit={handleCancelEdit}
+                  onSubmitEdit={handleSubmitEdit}
+                  onOpenInEditor={features.editor ? openInEditor : undefined}
+                  onCopyToTerminal={
+                    features.terminal ? copyToTerminal : undefined
+                  }
+                />
+              </div>
+            );
+          })}
+          <ActivityIndicator
+            state={agent.state}
+            stateChangedAt={stateChangedAt.get(agent.id)}
+            agentId={agent.id}
+          />
+        </div>
+
+        {/* Scroll to bottom */}
+        {!autoScroll && (
+          <button
+            onClick={() => {
+              if (scrollRef.current) {
+                scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+              }
+              setAutoScroll(true);
+            }}
+            style={{
+              position: "absolute",
+              bottom: 80,
+              right: 32,
+              width: 36,
+              height: 36,
+              borderRadius: "50%",
+              border: "1px solid var(--border-medium)",
+              background: "var(--bg-surface)",
+              color: "var(--text-muted)",
+              fontSize: 16,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+              zIndex: 5,
+              transition: "opacity 0.15s",
+            }}
+            title="Scroll to bottom"
+          >
+            ↓
+          </button>
+        )}
+
+        {/* Input */}
+        <div
+          style={{
+            flexShrink: 0,
+            padding: isMobile ? "10px 12px 10px 11px" : "10px 24px 10px 11px",
+            paddingBottom: isMobile
+              ? "calc(10px + env(safe-area-inset-bottom, 0px))"
+              : undefined,
+            borderTop: draggingOver
+              ? "2px solid var(--green)"
+              : "2px solid var(--border-strong)",
+            background: draggingOver ? "var(--bg-hover)" : "var(--bg-surface)",
+            transition: "background 0.15s, border-color 0.15s",
+          }}
+        >
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            style={{ display: "none" }}
+            onChange={(e) => handleFileSelect(e.target.files)}
+          />
+          <SessionSwapIndicator swapping={agent.sessionSwapping ?? false} />
+          <QueueChips
+            queue={agent.queue ?? []}
+            agentId={agent.id}
+            isMobile={isMobile}
+          />
+          {stagedAttachments.length > 0 && (
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 6,
+                marginBottom: 8,
+              }}
+            >
+              {stagedAttachments.map((att) => (
+                <div
+                  key={att.id}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    padding: "4px 8px",
+                    borderRadius: 6,
+                    background: att.error ? "var(--red-bg)" : "var(--bg-hover)",
+                    border: `1px solid ${att.error ? "var(--red)" : "var(--border)"}`,
+                    fontSize: isMobile ? 13 : 11,
+                    fontFamily: "'JetBrains Mono',monospace",
+                    color: att.error ? "var(--red)" : "var(--text-secondary)",
+                    maxWidth: "100%",
+                  }}
+                >
+                  {att.mediaType.startsWith("image/")
+                    ? "🖼️"
+                    : att.mediaType === "application/pdf"
+                      ? "📄"
+                      : "📎"}
+                  <span
+                    style={{
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      maxWidth: 150,
+                    }}
+                  >
+                    {att.originalName}
+                  </span>
+                  {att.uploading && (
+                    <span style={{ color: "var(--text-ghost)" }}>
+                      uploading…
+                    </span>
+                  )}
+                  {att.error && (
+                    <span style={{ fontSize: isMobile ? 11 : 9 }}>
+                      {att.error}
+                    </span>
+                  )}
+                  <button
+                    onClick={() => removeStaged(att.id)}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: att.error ? "var(--red)" : "var(--text-ghost)",
+                      cursor: "pointer",
+                      padding: "0 2px",
+                      fontSize: 14,
+                      lineHeight: 1,
+                      flexShrink: 0,
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              style={{
+                background: "none",
+                border: "none",
+                padding: 0,
+                color: "var(--text-muted)",
+                cursor: "pointer",
+                lineHeight: "20px",
+                fontSize: 16,
+                flexShrink: 0,
+                opacity: 0.7,
+                transition: "opacity 0.15s",
+              }}
+              title="Attach files"
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
               </svg>
             </button>
-          ) : SpeechRecognition && !window.isSecureContext ? (
-            <div style={{ position: "relative", flexShrink: 0 }}>
-              <button
-                onClick={() => setShowMicHint((v) => !v)}
+            <span
+              style={{
+                color: isBusy ? "var(--text-ghost)" : "var(--green)",
+                fontWeight: 600,
+                lineHeight: "20px",
+                position: "relative",
+                top: -2,
+              }}
+            >
+              &#10095;
+            </span>
+            <div style={{ flex: 1, position: "relative", top: -2 }}>
+              {showAutocomplete && filteredCommands.length > 0 && (
+                <div
+                  style={{
+                    position: "absolute",
+                    bottom: "100%",
+                    left: 0,
+                    right: 0,
+                    marginBottom: 4,
+                    background: "var(--bg-surface)",
+                    border: "1px solid var(--border-medium)",
+                    borderRadius: 8,
+                    maxHeight: 200,
+                    overflowY: "auto",
+                    boxShadow: "0 -4px 16px rgba(0,0,0,0.3)",
+                    zIndex: 10,
+                  }}
+                >
+                  {filteredCommands.map((cmd, i) => {
+                    const originLabel = skillOrigins.get(cmd);
+                    const desc = commandDescriptions.get(cmd);
+                    return (
+                      <div
+                        key={cmd}
+                        ref={
+                          i === selectedIdx
+                            ? (el) => el?.scrollIntoView({ block: "nearest" })
+                            : undefined
+                        }
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          setInput(`/${cmd} `);
+                          textareaRef.current?.focus();
+                        }}
+                        onMouseEnter={() => setSelectedIdx(i)}
+                        style={{
+                          padding: "6px 12px",
+                          cursor: "pointer",
+                          background:
+                            i === selectedIdx
+                              ? "var(--bg-subtle)"
+                              : "transparent",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                        }}
+                      >
+                        <span
+                          style={{
+                            color: "var(--green)",
+                            fontFamily: "'JetBrains Mono',monospace",
+                            fontSize: 13,
+                            fontWeight: 600,
+                            flexShrink: 0,
+                          }}
+                        >
+                          /{cmd}
+                        </span>
+                        {originLabel && (
+                          <span
+                            style={{
+                              fontSize: 10,
+                              color: "var(--text-ghost)",
+                              background: "var(--bg-base)",
+                              padding: "1px 6px",
+                              borderRadius: 4,
+                              flexShrink: 0,
+                            }}
+                          >
+                            {originLabel}
+                          </span>
+                        )}
+                        {desc && (
+                          <span
+                            style={{
+                              fontSize: 11,
+                              color: "var(--text-ghost)",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {desc}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              <textarea
+                ref={textareaRef}
+                value={input}
+                onPaste={handlePaste}
+                onChange={(e) => {
+                  setInput(e.target.value);
+                  autoResize(e.target);
+                }}
+                onKeyDown={(e) => {
+                  // Autocomplete navigation
+                  if (showAutocomplete && filteredCommands.length > 0) {
+                    if (e.key === "ArrowUp") {
+                      e.preventDefault();
+                      setSelectedIdx((prev) =>
+                        prev > 0 ? prev - 1 : filteredCommands.length - 1,
+                      );
+                      return;
+                    }
+                    if (e.key === "ArrowDown") {
+                      e.preventDefault();
+                      setSelectedIdx((prev) =>
+                        prev < filteredCommands.length - 1 ? prev + 1 : 0,
+                      );
+                      return;
+                    }
+                    if (e.key === "Tab") {
+                      e.preventDefault();
+                      const selected = filteredCommands[selectedIdx];
+                      if (selected) {
+                        setInput(`/${selected} `);
+                      }
+                      return;
+                    }
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      const selected = filteredCommands[selectedIdx];
+                      // If exact match, send it; otherwise autocomplete
+                      if (selected && partial === selected.toLowerCase()) {
+                        // Exact match — fall through to send
+                      } else if (selected) {
+                        e.preventDefault();
+                        setInput(`/${selected} `);
+                        return;
+                      }
+                    }
+                    if (e.key === "Escape") {
+                      e.preventDefault();
+                      setInput("");
+                      return;
+                    }
+                  }
+                  if (e.key === "Enter" && !e.shiftKey && !isMobile) {
+                    e.preventDefault();
+                    handleSend();
+                  }
+                  if (e.key === "c" && (e.ctrlKey || e.metaKey) && isBusy) {
+                    // Don't intercept Ctrl/Cmd+C while the user has a real
+                    // selection — they're trying to copy. The textarea is no
+                    // longer disabled while busy (typing now queues), so this
+                    // path is more reachable than before.
+                    const sel = window.getSelection()?.toString() ?? "";
+                    if (!sel) {
+                      e.preventDefault();
+                      sendAbortDebounced(agent.id);
+                    }
+                  }
+                }}
+                placeholder={
+                  editingLogEntryId
+                    ? "Editing message above..."
+                    : isBusy
+                      ? isMobile
+                        ? "Type to queue..."
+                        : "Type to queue — sends when current turn ends"
+                      : isMobile
+                        ? "Type a message..."
+                        : "Type a message or / for commands..."
+                }
+                autoFocus={!isMobile}
+                rows={1}
                 style={{
+                  width: "100%",
+                  background: "transparent",
+                  border: "none",
+                  outline: "none",
+                  color:
+                    isBusy || editingLogEntryId
+                      ? "var(--text-muted)"
+                      : "var(--text-secondary)",
+                  fontFamily: "'JetBrains Mono',monospace",
+                  fontSize: isMobile ? 16 : 13,
+                  caretColor: "var(--green)",
+                  resize: "none",
+                  padding: "0 0 4px",
+                  lineHeight: "20px",
+                  maxHeight: 200,
+                  overflowY: "auto",
+                }}
+              />
+            </div>
+            {SpeechRecognition && window.isSecureContext ? (
+              <button
+                onMouseDown={startListening}
+                onMouseUp={stopListening}
+                onMouseLeave={stopListening}
+                onTouchStart={startListening}
+                onTouchEnd={stopListening}
+                style={{
+                  flexShrink: 0,
                   width: 36,
                   height: 36,
                   marginTop: -9,
                   borderRadius: 6,
-                  border: "1px solid var(--border)",
-                  background: "transparent",
-                  color: "var(--text-muted)",
+                  border: isListening
+                    ? "1px solid var(--red)"
+                    : "1px solid var(--border)",
+                  background: isListening
+                    ? "rgba(255,50,50,0.15)"
+                    : "transparent",
+                  color: isListening ? "var(--red)" : "var(--text-muted)",
                   cursor: "pointer",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
                   padding: 0,
-                  opacity: 0.4,
+                  transition: "all 0.15s",
+                  animation: isListening
+                    ? "mic-pulse 1.5s ease-in-out infinite"
+                    : "none",
+                  userSelect: "none",
+                  WebkitUserSelect: "none",
                 }}
-                title="Voice input requires HTTPS"
+                title="Hold to talk (Ctrl+Space)"
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
                   <rect x="9" y="1" width="6" height="12" rx="3" />
                   <path d="M5 10a7 7 0 0 0 14 0" />
                   <line x1="12" y1="17" x2="12" y2="23" />
                   <line x1="8" y1="23" x2="16" y2="23" />
                 </svg>
               </button>
-              {showMicHint && (
-                <div style={{
-                  position: "absolute",
-                  bottom: "calc(100% + 8px)",
-                  right: 0,
-                  width: 320,
-                  background: "var(--bg-surface)",
-                  border: "1px solid var(--border-medium)",
-                  borderRadius: 8,
-                  padding: "12px 14px",
-                  fontSize: 12,
-                  color: "var(--text-secondary)",
-                  boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
-                  zIndex: 20,
-                  animation: "fadeIn 0.1s ease-out",
-                }}>
-                  <div style={{ fontWeight: 600, marginBottom: 8, color: "var(--text-primary)" }}>
-                    Voice input requires HTTPS
-                  </div>
-                  <div style={{ marginBottom: 8, lineHeight: 1.5 }}>
-                    Enable HTTPS in your <span style={{ color: "var(--text-primary)" }}>Tailscale admin console</span> (DNS page), then run these on the host (use the built-in terminal):
-                  </div>
-                  <code style={{
-                    display: "block",
-                    background: "var(--bg-base)",
+            ) : SpeechRecognition && !window.isSecureContext ? (
+              <div style={{ position: "relative", flexShrink: 0 }}>
+                <button
+                  onClick={() => setShowMicHint((v) => !v)}
+                  style={{
+                    width: 36,
+                    height: 36,
+                    marginTop: -9,
+                    borderRadius: 6,
                     border: "1px solid var(--border)",
-                    borderRadius: 4,
-                    padding: "8px 10px",
-                    fontSize: 11,
-                    fontFamily: "'JetBrains Mono',monospace",
-                    color: "var(--text-secondary)",
-                    whiteSpace: "pre-wrap",
-                    wordBreak: "break-all",
-                    lineHeight: 1.6,
-                  }}>
-                    {`sudo tailscale set --operator=$USER\ntailscale serve --bg http://localhost:4000`}
-                  </code>
-                  <div style={{ marginTop: 8, lineHeight: 1.5, color: "var(--text-muted)" }}>
-                    Visit the HTTPS URL Tailscale prints (e.g. <code style={{ background: "var(--bg-base)", padding: "1px 5px", borderRadius: 3, fontFamily: "'JetBrains Mono',monospace", fontSize: 11 }}>https://my-mac-mini.&lt;tailnet&gt;.ts.net</code>).
-                  </div>
-                  <button
-                    onClick={() => setShowMicHint(false)}
+                    background: "transparent",
+                    color: "var(--text-muted)",
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    padding: 0,
+                    opacity: 0.4,
+                  }}
+                  title="Voice input requires HTTPS"
+                >
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <rect x="9" y="1" width="6" height="12" rx="3" />
+                    <path d="M5 10a7 7 0 0 0 14 0" />
+                    <line x1="12" y1="17" x2="12" y2="23" />
+                    <line x1="8" y1="23" x2="16" y2="23" />
+                  </svg>
+                </button>
+                {showMicHint && (
+                  <div
                     style={{
                       position: "absolute",
-                      top: 8,
-                      right: 10,
-                      background: "none",
-                      border: "none",
-                      color: "var(--text-ghost)",
-                      cursor: "pointer",
-                      fontSize: 14,
-                      padding: 0,
+                      bottom: "calc(100% + 8px)",
+                      right: 0,
+                      width: 320,
+                      background: "var(--bg-surface)",
+                      border: "1px solid var(--border-medium)",
+                      borderRadius: 8,
+                      padding: "12px 14px",
+                      fontSize: 12,
+                      color: "var(--text-secondary)",
+                      boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
+                      zIndex: 20,
+                      animation: "fadeIn 0.1s ease-out",
                     }}
                   >
-                    &times;
-                  </button>
-                </div>
-              )}
-            </div>
-          ) : null}
-          {isMobile && (
-            isBusy && (agent.queue ?? []).length === 0 && !input.trim() && validAttachments.length === 0 ? (
-              <button
-                onClick={() => sendAbortDebounced(agent.id)}
-                style={{
-                  flexShrink: 0,
-                  alignSelf: "flex-end",
-                  width: 36,
-                  height: 36,
-                  borderRadius: 8,
-                  border: "1px solid var(--red)",
-                  background: "transparent",
-                  color: "var(--red)",
-                  fontSize: 16,
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  lineHeight: 1,
-                }}
-                title="Abort"
-              >
-                ■
-              </button>
-            ) : (
-              <button
-                onClick={handleSend}
-                disabled={(!input.trim() && validAttachments.length === 0) || hasUploading || !!editingLogEntryId}
-                style={{
-                  flexShrink: 0,
-                  alignSelf: "flex-end",
-                  width: 36,
-                  height: 36,
-                  borderRadius: 8,
-                  border: "none",
-                  background: (input.trim() || validAttachments.length > 0) && !hasUploading && !editingLogEntryId ? "var(--green)" : "var(--bg-hover)",
-                  color: (input.trim() || validAttachments.length > 0) && !hasUploading && !editingLogEntryId ? "var(--bg-base)" : "var(--text-ghost)",
-                  fontSize: 16,
-                  cursor: (input.trim() || validAttachments.length > 0) && !hasUploading && !editingLogEntryId ? "pointer" : "default",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  lineHeight: 1,
-                  transition: "background 0.15s, color 0.15s",
-                }}
-                title={isBusy ? "Queue message" : "Send"}
-              >
-                ▲
-              </button>
-            )
-          )}
+                    <div
+                      style={{
+                        fontWeight: 600,
+                        marginBottom: 8,
+                        color: "var(--text-primary)",
+                      }}
+                    >
+                      Voice input requires HTTPS
+                    </div>
+                    <div style={{ marginBottom: 8, lineHeight: 1.5 }}>
+                      Enable HTTPS in your{" "}
+                      <span style={{ color: "var(--text-primary)" }}>
+                        Tailscale admin console
+                      </span>{" "}
+                      (DNS page), then run these on the host (use the built-in
+                      terminal):
+                    </div>
+                    <code
+                      style={{
+                        display: "block",
+                        background: "var(--bg-base)",
+                        border: "1px solid var(--border)",
+                        borderRadius: 4,
+                        padding: "8px 10px",
+                        fontSize: 11,
+                        fontFamily: "'JetBrains Mono',monospace",
+                        color: "var(--text-secondary)",
+                        whiteSpace: "pre-wrap",
+                        wordBreak: "break-all",
+                        lineHeight: 1.6,
+                      }}
+                    >
+                      {`sudo tailscale set --operator=$USER\ntailscale serve --bg http://localhost:4000`}
+                    </code>
+                    <div
+                      style={{
+                        marginTop: 8,
+                        lineHeight: 1.5,
+                        color: "var(--text-muted)",
+                      }}
+                    >
+                      Visit the HTTPS URL Tailscale prints (e.g.{" "}
+                      <code
+                        style={{
+                          background: "var(--bg-base)",
+                          padding: "1px 5px",
+                          borderRadius: 3,
+                          fontFamily: "'JetBrains Mono',monospace",
+                          fontSize: 11,
+                        }}
+                      >
+                        https://my-mac-mini.&lt;tailnet&gt;.ts.net
+                      </code>
+                      ).
+                    </div>
+                    <button
+                      onClick={() => setShowMicHint(false)}
+                      style={{
+                        position: "absolute",
+                        top: 8,
+                        right: 10,
+                        background: "none",
+                        border: "none",
+                        color: "var(--text-ghost)",
+                        cursor: "pointer",
+                        fontSize: 14,
+                        padding: 0,
+                      }}
+                    >
+                      &times;
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : null}
+            {isMobile &&
+              (isBusy &&
+              (agent.queue ?? []).length === 0 &&
+              !input.trim() &&
+              validAttachments.length === 0 ? (
+                <button
+                  onClick={() => sendAbortDebounced(agent.id)}
+                  style={{
+                    flexShrink: 0,
+                    alignSelf: "flex-end",
+                    width: 36,
+                    height: 36,
+                    borderRadius: 8,
+                    border: "1px solid var(--red)",
+                    background: "transparent",
+                    color: "var(--red)",
+                    fontSize: 16,
+                    cursor: "pointer",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    lineHeight: 1,
+                  }}
+                  title="Abort"
+                >
+                  ■
+                </button>
+              ) : (
+                <button
+                  onClick={handleSend}
+                  disabled={
+                    (!input.trim() && validAttachments.length === 0) ||
+                    hasUploading ||
+                    !!editingLogEntryId
+                  }
+                  style={{
+                    flexShrink: 0,
+                    alignSelf: "flex-end",
+                    width: 36,
+                    height: 36,
+                    borderRadius: 8,
+                    border: "none",
+                    background:
+                      (input.trim() || validAttachments.length > 0) &&
+                      !hasUploading &&
+                      !editingLogEntryId
+                        ? "var(--green)"
+                        : "var(--bg-hover)",
+                    color:
+                      (input.trim() || validAttachments.length > 0) &&
+                      !hasUploading &&
+                      !editingLogEntryId
+                        ? "var(--bg-base)"
+                        : "var(--text-ghost)",
+                    fontSize: 16,
+                    cursor:
+                      (input.trim() || validAttachments.length > 0) &&
+                      !hasUploading &&
+                      !editingLogEntryId
+                        ? "pointer"
+                        : "default",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    lineHeight: 1,
+                    transition: "background 0.15s, color 0.15s",
+                  }}
+                  title={isBusy ? "Queue message" : "Send"}
+                >
+                  ▲
+                </button>
+              ))}
+          </div>
         </div>
       </div>
-    </div>
-    {features.terminal && !isMobile && terminalOpen && (
-      <div ref={terminalContainerRef} style={{ width: terminalWidth, flexShrink: 0, position: "relative" }}>
-        <PanelResizer
-          panelRef={terminalContainerRef}
-          min={PANEL_MIN.terminal}
-          getMax={getTerminalMax}
-          onCommit={commitTerminalWidth}
-        />
-        <TerminalPanel agentId={agent.id} onClose={() => setTerminalOpen(false)} autoFocus={terminalAutoFocus} />
-      </div>
-    )}
-    {features.editor && !isMobile && editorOpen && (
-      <div ref={editorContainerRef} style={{ width: editorWidth, flexShrink: 0, position: "relative" }}>
-        <PanelResizer
-          panelRef={editorContainerRef}
-          min={PANEL_MIN.editor}
-          getMax={getEditorMax}
-          onCommit={commitEditorWidth}
-        />
-        <EditorPanel
-          agentId={agent.id}
-          initialPath={editorInitialPath}
-          onClose={() => setEditorOpen(false)}
-          onPathOpened={() => setEditorInitialPath(null)}
-        />
-      </div>
-    )}
-    {/* Mobile side panel: full-screen overlay above the chat column. The
+      {features.terminal && !isMobile && terminalOpen && (
+        <div
+          ref={terminalContainerRef}
+          style={{ width: terminalWidth, flexShrink: 0, position: "relative" }}
+        >
+          <PanelResizer
+            panelRef={terminalContainerRef}
+            min={PANEL_MIN.terminal}
+            getMax={getTerminalMax}
+            onCommit={commitTerminalWidth}
+          />
+          <TerminalPanel
+            agentId={agent.id}
+            onClose={() => setTerminalOpen(false)}
+            autoFocus={terminalAutoFocus}
+          />
+        </div>
+      )}
+      {features.editor && !isMobile && editorOpen && (
+        <div
+          ref={editorContainerRef}
+          style={{ width: editorWidth, flexShrink: 0, position: "relative" }}
+        >
+          <PanelResizer
+            panelRef={editorContainerRef}
+            min={PANEL_MIN.editor}
+            getMax={getEditorMax}
+            onCommit={commitEditorWidth}
+          />
+          <EditorPanel
+            agentId={agent.id}
+            initialPath={editorInitialPath}
+            onClose={() => setEditorOpen(false)}
+            onPathOpened={() => setEditorInitialPath(null)}
+          />
+        </div>
+      )}
+      {/* Mobile side panel: full-screen overlay above the chat column. The
         outer LogView is position:fixed and sized to vpHeight on mobile, so
         this absolute child inherits the visible viewport via height: 100%
         — when the soft keyboard opens vpHeight shrinks and we shrink
         with it. paddingTop honors the safe-area inset so the panel header
         clears the camera notch / Dynamic Island on iOS. */}
-    {isMobile && features.terminal && terminalOpen && (
-      <div
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-          height: "100%",
-          paddingTop: "env(safe-area-inset-top, 0px)",
-          boxSizing: "border-box",
-          background: "var(--bg-base)",
-          zIndex: 30,
-          display: "flex",
-          flexDirection: "column",
-        }}
-      >
-        <TerminalPanel agentId={agent.id} onClose={() => setTerminalOpen(false)} autoFocus={terminalAutoFocus} mobile />
-      </div>
-    )}
-    {isMobile && features.editor && editorOpen && (
-      <div
-        style={{
-          position: "absolute",
-          top: 0,
-          left: 0,
-          right: 0,
-          height: "100%",
-          // Symmetric notch + home-indicator insets so the editor chrome
-          // never sits under the camera island or the home bar. The editor
-          // has no soft-key bar (CodeMirror 6 handles touch input natively),
-          // so we don't need the keyboard-aware bottom-pad gymnastics that
-          // TerminalPanel does.
-          paddingTop: "env(safe-area-inset-top, 0px)",
-          paddingBottom: "env(safe-area-inset-bottom, 0px)",
-          boxSizing: "border-box",
-          background: "var(--bg-base)",
-          zIndex: 30,
-          display: "flex",
-          flexDirection: "column",
-        }}
-      >
-        <EditorPanel
-          agentId={agent.id}
-          initialPath={editorInitialPath}
-          onClose={() => setEditorOpen(false)}
-          onPathOpened={() => setEditorInitialPath(null)}
-          mobile
-        />
-      </div>
-    )}
+      {isMobile && features.terminal && terminalOpen && (
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            height: "100%",
+            paddingTop: "env(safe-area-inset-top, 0px)",
+            boxSizing: "border-box",
+            background: "var(--bg-base)",
+            zIndex: 30,
+            display: "flex",
+            flexDirection: "column",
+          }}
+        >
+          <TerminalPanel
+            agentId={agent.id}
+            onClose={() => setTerminalOpen(false)}
+            autoFocus={terminalAutoFocus}
+            mobile
+          />
+        </div>
+      )}
+      {isMobile && features.editor && editorOpen && (
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            height: "100%",
+            // Symmetric notch + home-indicator insets so the editor chrome
+            // never sits under the camera island or the home bar. The editor
+            // has no soft-key bar (CodeMirror 6 handles touch input natively),
+            // so we don't need the keyboard-aware bottom-pad gymnastics that
+            // TerminalPanel does.
+            paddingTop: "env(safe-area-inset-top, 0px)",
+            paddingBottom: "env(safe-area-inset-bottom, 0px)",
+            boxSizing: "border-box",
+            background: "var(--bg-base)",
+            zIndex: 30,
+            display: "flex",
+            flexDirection: "column",
+          }}
+        >
+          <EditorPanel
+            agentId={agent.id}
+            initialPath={editorInitialPath}
+            onClose={() => setEditorOpen(false)}
+            onPathOpened={() => setEditorInitialPath(null)}
+            mobile
+          />
+        </div>
+      )}
     </div>
   );
 }

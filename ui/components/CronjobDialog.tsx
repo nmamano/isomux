@@ -12,7 +12,13 @@ import {
   type ModelFamily,
   type Schedule,
 } from "../../shared/types.ts";
-import { dialogLabel, dialogInput, dialogCancelBtn, dialogSaveBtn, dialogChip } from "./dialog-styles.ts";
+import {
+  dialogLabel,
+  dialogInput,
+  dialogCancelBtn,
+  dialogSaveBtn,
+  dialogChip,
+} from "./dialog-styles.ts";
 
 const WEEKDAYS: { value: 0 | 1 | 2 | 3 | 4 | 5 | 6; label: string }[] = [
   { value: 0, label: "Sunday" },
@@ -39,16 +45,27 @@ export function CronjobDialog({
   const { recentCwds, isMobile } = useAppState();
 
   const [name, setName] = useState(cronjob?.name ?? "");
-  const [scheduleType, setScheduleType] = useState<ScheduleType>(cronjob?.schedule.type ?? "daily");
+  const [scheduleType, setScheduleType] = useState<ScheduleType>(
+    cronjob?.schedule.type ?? "daily",
+  );
   // Time/interval inputs are kept as strings so the user can type "300" without
   // the onChange clamping mid-keystroke (e.g. "3" → clamped to 5). Final values
   // are parsed and clamped at save time.
-  const initialHour = cronjob?.schedule.type === "interval" ? 9 : ((cronjob?.schedule as any)?.hour ?? 9);
-  const initialMinute = cronjob?.schedule.type === "interval" ? 0 : ((cronjob?.schedule as any)?.minute ?? 0);
-  const initialInterval = cronjob?.schedule.type === "interval" ? cronjob.schedule.minutes : 60;
+  const initialHour =
+    cronjob?.schedule.type === "interval"
+      ? 9
+      : ((cronjob?.schedule as any)?.hour ?? 9);
+  const initialMinute =
+    cronjob?.schedule.type === "interval"
+      ? 0
+      : ((cronjob?.schedule as any)?.minute ?? 0);
+  const initialInterval =
+    cronjob?.schedule.type === "interval" ? cronjob.schedule.minutes : 60;
   const [hourStr, setHourStr] = useState(String(initialHour));
   const [minuteStr, setMinuteStr] = useState(String(initialMinute));
-  const [weekday, setWeekday] = useState<0 | 1 | 2 | 3 | 4 | 5 | 6>(cronjob?.schedule.type === "weekly" ? cronjob.schedule.weekday : 1);
+  const [weekday, setWeekday] = useState<0 | 1 | 2 | 3 | 4 | 5 | 6>(
+    cronjob?.schedule.type === "weekly" ? cronjob.schedule.weekday : 1,
+  );
   const [intervalStr, setIntervalStr] = useState(String(initialInterval));
 
   function clamp(n: number, lo: number, hi: number): number {
@@ -60,13 +77,19 @@ export function CronjobDialog({
   }
   const [prompt, setPrompt] = useState(cronjob?.prompt ?? "");
   const [cwd, setCwd] = useState(cronjob?.cwd ?? "~");
-  const [modelFamily, setModelFamily] = useState<ModelFamily>(cronjob?.modelFamily ?? "opus");
-  const [effort, setEffort] = useState<EffortLevel>(cronjob?.effort ?? DEFAULT_EFFORT);
+  const [modelFamily, setModelFamily] = useState<ModelFamily>(
+    cronjob?.modelFamily ?? "opus",
+  );
+  const [effort, setEffort] = useState<EffortLevel>(
+    cronjob?.effort ?? DEFAULT_EFFORT,
+  );
   const initialPermission: CronjobPermissionMode =
-    cronjob?.permissionMode === "auto" && (cronjob?.modelFamily ?? "opus") !== "opus"
+    cronjob?.permissionMode === "auto" &&
+    (cronjob?.modelFamily ?? "opus") !== "opus"
       ? "bypassPermissions"
       : (cronjob?.permissionMode ?? "bypassPermissions");
-  const [permissionMode, setPermissionMode] = useState<CronjobPermissionMode>(initialPermission);
+  const [permissionMode, setPermissionMode] =
+    useState<CronjobPermissionMode>(initialPermission);
   const [enabled, setEnabled] = useState(cronjob?.enabled ?? true);
 
   const [saving, setSaving] = useState(false);
@@ -85,7 +108,10 @@ export function CronjobDialog({
   // ESC to close
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
-      if (e.key === "Escape") { e.stopPropagation(); onClose(); }
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        onClose();
+      }
     }
     window.addEventListener("keydown", handleKey, true);
     return () => window.removeEventListener("keydown", handleKey, true);
@@ -96,7 +122,8 @@ export function CronjobDialog({
     const minute = clamp(parseIntOr(minuteStr, 0), 0, 59);
     const intervalMinutes = Math.max(5, parseIntOr(intervalStr, 5));
     if (scheduleType === "daily") return { type: "daily", hour, minute };
-    if (scheduleType === "weekly") return { type: "weekly", weekday, hour, minute };
+    if (scheduleType === "weekly")
+      return { type: "weekly", weekday, hour, minute };
     return { type: "interval", minutes: intervalMinutes };
   }
 
@@ -157,14 +184,19 @@ export function CronjobDialog({
 
   function handleDelete() {
     if (!cronjob) return;
-    if (!confirmDelete) { setConfirmDelete(true); return; }
+    if (!confirmDelete) {
+      setConfirmDelete(true);
+      return;
+    }
     send({ type: "delete_cronjob", id: cronjob.id });
     onClose();
   }
 
   return (
     <div
-      onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
       style={{
         position: "fixed",
         inset: 0,
@@ -192,12 +224,34 @@ export function CronjobDialog({
           animation: "hudIn 0.2s ease-out",
         }}
       >
-        <div style={{ overflowY: "auto", flex: 1, padding: isMobile ? "max(24px, env(safe-area-inset-top)) 20px 0" : "24px 28px 0" }}>
-          <h3 style={{ fontSize: 17, fontWeight: 700, margin: 0, color: "var(--text-primary)" }}>
+        <div
+          style={{
+            overflowY: "auto",
+            flex: 1,
+            padding: isMobile
+              ? "max(24px, env(safe-area-inset-top)) 20px 0"
+              : "24px 28px 0",
+          }}
+        >
+          <h3
+            style={{
+              fontSize: 17,
+              fontWeight: 700,
+              margin: 0,
+              color: "var(--text-primary)",
+            }}
+          >
             {isEdit ? "Edit Cron Job" : "New Cron Job"}
           </h3>
           {isEdit && (
-            <p style={{ fontSize: 11, color: "var(--text-faint)", margin: "2px 0 18px", fontFamily: "'JetBrains Mono',monospace" }}>
+            <p
+              style={{
+                fontSize: 11,
+                color: "var(--text-faint)",
+                margin: "2px 0 18px",
+                fontFamily: "'JetBrains Mono',monospace",
+              }}
+            >
               #{cronjob!.id}
             </p>
           )}
@@ -215,7 +269,12 @@ export function CronjobDialog({
           <select
             value={scheduleType}
             onChange={(e) => setScheduleType(e.target.value as ScheduleType)}
-            style={{ ...inputStyle, appearance: "none", cursor: "pointer", marginBottom: 6 }}
+            style={{
+              ...inputStyle,
+              appearance: "none",
+              cursor: "pointer",
+              marginBottom: 6,
+            }}
           >
             <option value="daily">Daily</option>
             <option value="weekly">Weekly</option>
@@ -224,37 +283,68 @@ export function CronjobDialog({
           {scheduleType === "weekly" && (
             <select
               value={weekday}
-              onChange={(e) => setWeekday(parseInt(e.target.value, 10) as 0 | 1 | 2 | 3 | 4 | 5 | 6)}
-              style={{ ...inputStyle, appearance: "none", cursor: "pointer", marginBottom: 6 }}
+              onChange={(e) =>
+                setWeekday(
+                  parseInt(e.target.value, 10) as 0 | 1 | 2 | 3 | 4 | 5 | 6,
+                )
+              }
+              style={{
+                ...inputStyle,
+                appearance: "none",
+                cursor: "pointer",
+                marginBottom: 6,
+              }}
             >
               {WEEKDAYS.map((d) => (
-                <option key={d.value} value={d.value}>{d.label}</option>
+                <option key={d.value} value={d.value}>
+                  {d.label}
+                </option>
               ))}
             </select>
           )}
           {(scheduleType === "daily" || scheduleType === "weekly") && (
             <div style={{ display: "flex", gap: 8 }}>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4 }}>Hour (0-23)</div>
+                <div
+                  style={{
+                    fontSize: 10,
+                    color: "var(--text-muted)",
+                    marginBottom: 4,
+                  }}
+                >
+                  Hour (0-23)
+                </div>
                 <input
                   type="number"
                   min={0}
                   max={23}
                   value={hourStr}
                   onChange={(e) => setHourStr(e.target.value)}
-                  onBlur={() => setHourStr(String(clamp(parseIntOr(hourStr, 0), 0, 23)))}
+                  onBlur={() =>
+                    setHourStr(String(clamp(parseIntOr(hourStr, 0), 0, 23)))
+                  }
                   style={inputStyle}
                 />
               </div>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4 }}>Minute (0-59)</div>
+                <div
+                  style={{
+                    fontSize: 10,
+                    color: "var(--text-muted)",
+                    marginBottom: 4,
+                  }}
+                >
+                  Minute (0-59)
+                </div>
                 <input
                   type="number"
                   min={0}
                   max={59}
                   value={minuteStr}
                   onChange={(e) => setMinuteStr(e.target.value)}
-                  onBlur={() => setMinuteStr(String(clamp(parseIntOr(minuteStr, 0), 0, 59)))}
+                  onBlur={() =>
+                    setMinuteStr(String(clamp(parseIntOr(minuteStr, 0), 0, 59)))
+                  }
                   style={inputStyle}
                 />
               </div>
@@ -262,18 +352,38 @@ export function CronjobDialog({
           )}
           {scheduleType === "interval" && (
             <div>
-              <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 4 }}>Interval (minutes, min 5)</div>
+              <div
+                style={{
+                  fontSize: 10,
+                  color: "var(--text-muted)",
+                  marginBottom: 4,
+                }}
+              >
+                Interval (minutes, min 5)
+              </div>
               <input
                 type="number"
                 min={5}
                 value={intervalStr}
                 onChange={(e) => setIntervalStr(e.target.value)}
-                onBlur={() => setIntervalStr(String(Math.max(5, parseIntOr(intervalStr, 5))))}
+                onBlur={() =>
+                  setIntervalStr(
+                    String(Math.max(5, parseIntOr(intervalStr, 5))),
+                  )
+                }
                 style={inputStyle}
               />
             </div>
           )}
-          <p style={{ fontSize: 10, color: "var(--text-ghost)", margin: "6px 0 0" }}>Times are server-local.</p>
+          <p
+            style={{
+              fontSize: 10,
+              color: "var(--text-ghost)",
+              margin: "6px 0 0",
+            }}
+          >
+            Times are server-local.
+          </p>
 
           <label style={{ ...labelStyle, marginTop: 14 }}>Prompt</label>
           <textarea
@@ -284,14 +394,23 @@ export function CronjobDialog({
             style={{ ...inputStyle, resize: "vertical" }}
           />
 
-          <label style={{ ...labelStyle, marginTop: 14 }}>Working Directory</label>
+          <label style={{ ...labelStyle, marginTop: 14 }}>
+            Working Directory
+          </label>
           <input
             value={cwd}
             onChange={(e) => setCwd(e.target.value)}
             style={inputStyle}
           />
           {recentCwdsFiltered.length > 0 && (
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 4,
+                marginTop: 6,
+              }}
+            >
               {recentCwdsFiltered.map((c) => (
                 <button key={c} onClick={() => setCwd(c)} style={chipStyle}>
                   {c.replace(/^\/home\/[^/]+/, "~")}
@@ -306,42 +425,73 @@ export function CronjobDialog({
             onChange={(e) => {
               const next = e.target.value as ModelFamily;
               setModelFamily(next);
-              if (next !== "opus" && permissionMode === "auto") setPermissionMode("bypassPermissions");
+              if (next !== "opus" && permissionMode === "auto")
+                setPermissionMode("bypassPermissions");
               if (next !== "opus" && effort === "max") setEffort("xhigh");
             }}
             style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
           >
             {MODEL_FAMILIES.map((m) => (
-              <option key={m.family} value={m.family}>{m.label} ({modelVersionLabel(m.family)})</option>
+              <option key={m.family} value={m.family}>
+                {m.label} ({modelVersionLabel(m.family)})
+              </option>
             ))}
           </select>
 
-          <label style={{ ...labelStyle, marginTop: 14 }}>Thinking Effort</label>
+          <label style={{ ...labelStyle, marginTop: 14 }}>
+            Thinking Effort
+          </label>
           <select
             value={effort}
             onChange={(e) => setEffort(e.target.value as EffortLevel)}
             style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
           >
-            {EFFORT_LEVELS.filter((opt) => opt.level !== "max" || modelFamily === "opus").map((opt) => (
-              <option key={opt.level} value={opt.level}>{opt.label}</option>
+            {EFFORT_LEVELS.filter(
+              (opt) => opt.level !== "max" || modelFamily === "opus",
+            ).map((opt) => (
+              <option key={opt.level} value={opt.level}>
+                {opt.label}
+              </option>
             ))}
           </select>
 
-          <label style={{ ...labelStyle, marginTop: 14 }}>Permission Mode</label>
+          <label style={{ ...labelStyle, marginTop: 14 }}>
+            Permission Mode
+          </label>
           <select
             value={permissionMode}
-            onChange={(e) => setPermissionMode(e.target.value as CronjobPermissionMode)}
+            onChange={(e) =>
+              setPermissionMode(e.target.value as CronjobPermissionMode)
+            }
             style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
           >
-            {modelFamily === "opus" && <option value="auto">Auto (classifier auto-approves safe actions)</option>}
+            {modelFamily === "opus" && (
+              <option value="auto">
+                Auto (classifier auto-approves safe actions)
+              </option>
+            )}
             <option value="bypassPermissions">Bypass (auto-approve all)</option>
           </select>
-          <p style={{ fontSize: 10, color: "var(--text-ghost)", margin: "3px 0 0" }}>
-            Cron jobs run unattended — modes that require human approval are not available.
+          <p
+            style={{
+              fontSize: 10,
+              color: "var(--text-ghost)",
+              margin: "3px 0 0",
+            }}
+          >
+            Cron jobs run unattended — modes that require human approval are not
+            available.
           </p>
 
           {isEdit && (
-            <div style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 8 }}>
+            <div
+              style={{
+                marginTop: 14,
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+              }}
+            >
               <input
                 type="checkbox"
                 id="cronjob-enabled"
@@ -349,25 +499,38 @@ export function CronjobDialog({
                 onChange={(e) => setEnabled(e.target.checked)}
                 style={{ width: 16, height: 16, cursor: "pointer" }}
               />
-              <label htmlFor="cronjob-enabled" style={{ fontSize: 12, color: "var(--text-secondary)", cursor: "pointer" }}>
+              <label
+                htmlFor="cronjob-enabled"
+                style={{
+                  fontSize: 12,
+                  color: "var(--text-secondary)",
+                  cursor: "pointer",
+                }}
+              >
                 Enabled (uncheck to pause without deleting)
               </label>
             </div>
           )}
 
           {error && (
-            <p style={{ fontSize: 11, color: "#ff6b6b", margin: "10px 0 0" }}>{error}</p>
+            <p style={{ fontSize: 11, color: "#ff6b6b", margin: "10px 0 0" }}>
+              {error}
+            </p>
           )}
         </div>
 
-        <div style={{
-          display: "flex",
-          justifyContent: isEdit ? "space-between" : "flex-end",
-          gap: 8,
-          padding: isMobile ? "16px 20px max(16px, env(safe-area-inset-bottom))" : "16px 28px",
-          borderTop: "1px solid var(--border)",
-          flexShrink: 0,
-        }}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: isEdit ? "space-between" : "flex-end",
+            gap: 8,
+            padding: isMobile
+              ? "16px 20px max(16px, env(safe-area-inset-bottom))"
+              : "16px 28px",
+            borderTop: "1px solid var(--border)",
+            flexShrink: 0,
+          }}
+        >
           {isEdit && (
             <button
               onClick={handleDelete}
@@ -388,8 +551,12 @@ export function CronjobDialog({
             </button>
           )}
           <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={onClose} style={cancelBtnStyle} disabled={saving}>Cancel</button>
-            <button onClick={handleSave} style={saveBtnStyle} disabled={saving}>{saving ? "Saving…" : (isEdit ? "Save" : "Create")}</button>
+            <button onClick={onClose} style={cancelBtnStyle} disabled={saving}>
+              Cancel
+            </button>
+            <button onClick={handleSave} style={saveBtnStyle} disabled={saving}>
+              {saving ? "Saving…" : isEdit ? "Save" : "Create"}
+            </button>
           </div>
         </div>
       </div>

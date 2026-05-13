@@ -19,30 +19,37 @@ export function EditRequestCard({
 }) {
   const display = relativeOrAbs(payload);
   return (
-    <div style={{
-      margin: "8px 0",
-      borderRadius: 10,
-      background: "var(--bg-subtle)",
-      border: "1px solid var(--border)",
-      overflow: "hidden",
-    }}>
-      <div style={{
-        padding: "10px 12px",
-        display: "flex",
-        alignItems: "center",
-        gap: 12,
-        flexWrap: "wrap",
-      }}>
-        <span style={{
-          fontFamily: "'JetBrains Mono',monospace",
-          fontSize: 13,
-          color: "var(--text-secondary)",
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-          flex: 1,
-          minWidth: 0,
-        }} title={payload.path}>
+    <div
+      style={{
+        margin: "8px 0",
+        borderRadius: 10,
+        background: "var(--bg-subtle)",
+        border: "1px solid var(--border)",
+        overflow: "hidden",
+      }}
+    >
+      <div
+        style={{
+          padding: "10px 12px",
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          flexWrap: "wrap",
+        }}
+      >
+        <span
+          style={{
+            fontFamily: "'JetBrains Mono',monospace",
+            fontSize: 13,
+            color: "var(--text-secondary)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            flex: 1,
+            minWidth: 0,
+          }}
+          title={payload.path}
+        >
           {display}
         </span>
         <button
