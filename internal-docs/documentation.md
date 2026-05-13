@@ -9,7 +9,7 @@ These documents are written in my voice, so I need to approve any copy changes b
 - **File:** `README.md`
 - **Audience:** Developers landing on the GitHub repo.
 - **Structure:**
-  - `## Feature Highlights` — short bulleted list of the headline features.
+  - `## Feature Highlights` — short bulleted list of the headline features. **Must stay in lockstep with the landing page's `<ul class="feature-highlights">` (see section 2)** — same bullets, same order, same wording. Any edit here needs a matching edit there, and vice versa.
   - `## Get Started` — install & first-run instructions.
   - `## Full Feature List` — the canonical, comprehensive inventory. Sub-sections mirror the site's chatbot prompt (Office View, Skeuomorphic Details, Agent Creation & Editing, Conversation View, Keyboard Shortcuts, Slash Commands, Inter-agent Communication, Persistence & Lifecycle, Mobile Support, Safety, Notifications, Other).
 - **Update when:** any user-visible feature is added, removed, or meaningfully changed.
@@ -19,10 +19,10 @@ These documents are written in my voice, so I need to approve any copy changes b
 - **File:** `site/index.html`
 - **Audience:** Visitors to isomux.com.
 - **Structure:**
-  - `<section id="features">` with `<ul class="feature-highlights">` (~line 648) — mirrors the README's Feature Highlights.
+  - `<section id="features">` with `<ul class="feature-highlights">` — **must stay in lockstep with the README's `## Feature Highlights` (section 1)**: same bullets, same order, same wording (modulo HTML markup, inline links, and code-style spans). Any edit here needs a matching edit there, and vice versa.
   - Links out to the README's Full Feature List rather than duplicating it.
   - Setup instructions and self-hosted/Tailscale guide further down.
-- **Update when:** headline features change. Keep the list short — depth lives in the README.
+- **Update when:** headline features change. Always update both this file and the README in the same commit so they don't drift.
 - **Deploy note:** static site, served from this repo via Vercel (see `vercel.json`).
 
 ## 3. Site chatbot system prompt
