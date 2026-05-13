@@ -172,6 +172,7 @@ export class OfficeState {
       username: opts.username ?? null,
       queue: [],
       sessionSwapping: false,
+      turnHadHumanInput: false,
     };
 
     this.agents.set(id, agent);

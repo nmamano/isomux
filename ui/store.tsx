@@ -155,11 +155,17 @@ function reducer(state: AppState, action: Action): AppState {
         const wasWorking = prevAgent && !ATTENTION_STATES.has(prevAgent.state);
         let soundTrigger = state.soundTrigger;
         if (wasWorking) {
-          // Sound: bump seq and capture roomId so the effect can filter on
-          // the device's per-room notification preference.
-          const roomId = state.rooms[prevAgent.room]?.id ?? null;
-          soundTrigger = { seq: state.soundTrigger.seq + 1, roomId };
-          // Badge: only when not viewing this agent
+          // Sound: only fire when the turn that's ending originated from a
+          // human message. Pure agent-to-agent traffic (one agent pings
+          // another, the receiver answers and idles) stays silent — see
+          // turnHadHumanInput on the server side.
+          if (prevAgent.turnHadHumanInput) {
+            const roomId = state.rooms[prevAgent.room]?.id ?? null;
+            soundTrigger = { seq: state.soundTrigger.seq + 1, roomId };
+          }
+          // Badge: only when not viewing this agent. Set regardless of input
+          // source — the dot is a "this agent stopped, you might want to
+          // look" cue, distinct from the audible nudge.
           if (state.focusedAgentId !== action.agentId) {
             needsAttention.add(action.agentId);
           }

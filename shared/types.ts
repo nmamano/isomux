@@ -217,6 +217,11 @@ export interface AgentInfo {
   // True while server is closing the old SDK session and installing a new one
   // (~3s drain). UI shows a "restarting session" hint while this is true.
   sessionSwapping: boolean;
+  // True iff the current (or most-recent) turn started by processing a human
+  // message. The UI gates the turn-end notification sound on this so an
+  // agent-only turn (one agent messages another, the receiver answers and
+  // idles) stays silent.
+  turnHadHumanInput: boolean;
 }
 
 // File attachment metadata

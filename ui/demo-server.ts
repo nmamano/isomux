@@ -118,6 +118,7 @@ function seedOffice() {
       username: null,
       queue: [],
       sessionSwapping: false,
+      turnHadHumanInput: false,
     });
   }
 }

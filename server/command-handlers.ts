@@ -35,6 +35,7 @@ interface HandlerDeps {
   emitEphemeralLog: (agentId: string, kind: LogEntry["kind"], content: string, metadata?: Record<string, unknown>, extra?: Partial<Pick<LogEntry, "diff" | "file">>) => void;
   updateState: (agentId: string, state: AgentState) => void;
   updateAgent: (agentId: string, changes: Partial<AgentInfo>) => OfficeEvent[];
+  beginTurn: (agentId: string, opts: { humanInput: boolean }) => void;
 
   // Session ops
   createSession: (managed: ManagedAgent, resumeSessionId?: string) => NonNullable<ManagedAgent["session"]>;
@@ -512,7 +513,7 @@ export function createCommandHandling(deps: HandlerDeps) {
     if (username) userMeta.username = username;
     if (device) userMeta.device = device;
     deps.addLogEntry(agentId, "user_message", rawText, userMeta);
-    deps.updateState(agentId, "thinking");
+    deps.beginTurn(agentId, { humanInput: true });
     const prefix = formatPrefix({ username, device });
     const prefixedSkillPrompt = prefix ? `${prefix}${fullPrompt}` : fullPrompt;
     try {

@@ -134,7 +134,7 @@ let officeStatePersistenceEnabled = false;
 // Fields on AgentInfo that aren't included in the persisted shape (see
 // persistAll below). agent_updated events that only touch these don't need
 // disk writes — relevant because state transitions fire many times per turn.
-const EPHEMERAL_AGENT_FIELDS = new Set(["state", "sessionSwapping", "topicStale"]);
+const EPHEMERAL_AGENT_FIELDS = new Set(["state", "sessionSwapping", "topicStale", "turnHadHumanInput"]);
 officeState.onChange((event) => {
   if (event.type === "office_settings_updated") {
     saveOfficeConfig({ prompt: officeState.office.prompt, envFile: officeState.office.envFile });
@@ -611,6 +611,7 @@ export async function restoreAgents() {
         username: p.username ?? null,
         queue: [],
         sessionSwapping: false,
+        turnHadHumanInput: false,
       };
       officeState.addExistingAgent(info);
       const managed: ManagedAgent = {
@@ -792,6 +793,21 @@ export function emitAgentDiff(agentId: string, dir?: string): { ok: true } | { o
 
 function emit(event: AgentEvent) {
   eventHandler(event);
+}
+
+// Turn-start primitive. Stamps the per-turn "did a human originate this turn"
+// flag and then transitions the agent into "thinking", in that order. The UI
+// reads turnHadHumanInput at the moment of the working→attention transition
+// to decide whether to fire the turn-end notification sound, so the flag must
+// land before the state event. Every place that begins a new turn (flushQueue,
+// sendMessage echo paths, editMessage, executeSkill) goes through here.
+function beginTurn(agentId: string, opts: { humanInput: boolean }) {
+  const managed = agents.get(agentId);
+  if (!managed) return;
+  if (managed.info.turnHadHumanInput !== opts.humanInput) {
+    for (const event of officeState.updateAgent(agentId, { turnHadHumanInput: opts.humanInput })) emit(event);
+  }
+  updateState(agentId, "thinking");
 }
 
 function updateState(agentId: string, state: AgentState) {
@@ -1628,6 +1644,7 @@ const { handleSlashCommand } = createCommandHandling({
   emitEphemeralLog,
   updateState,
   updateAgent: (agentId, changes) => officeState.updateAgent(agentId, changes),
+  beginTurn,
   createSession,
   replaceSession,
   persistAll,
@@ -1864,7 +1881,7 @@ async function flushQueue(agentId: string): Promise<void> {
     }
     const prompt = promptParts.join("\n\n");
 
-    updateState(agentId, "thinking");
+    beginTurn(agentId, { humanInput: items.some((m) => m.sender.kind === "user") });
 
     const turn = createTurnDeferred(managed);
     const ownPending = managed.pendingTurn;
@@ -2014,7 +2031,7 @@ export async function sendMessage(agentId: string, text: string, username?: stri
     !text.startsWith("/");
   if (echoEarly) {
     addLogEntry(agentId, "user_message", text, buildUserMeta(username, device), attachments);
-    updateState(agentId, "thinking");
+    beginTurn(agentId, { humanInput: true });
     if (managed.info.topic === null && !managed.topicGenerating) {
       generateTopic(agentId); // fire-and-forget
     }
@@ -2237,7 +2254,7 @@ export async function sendMessage(agentId: string, text: string, username?: stri
   // needs the echo.
   if (!echoEarly) {
     addLogEntry(agentId, "user_message", text, buildUserMeta(username, device), attachments);
-    updateState(agentId, "thinking");
+    beginTurn(agentId, { humanInput: true });
 
     // Auto-generate topic on first user message in a conversation
     if (managed.info.topic === null && !managed.topicGenerating) {
@@ -2713,7 +2730,7 @@ export async function editMessage(agentId: string, logEntryId: string, newText: 
     for (const event of officeState.updateAgent(agentId, { topic: oldTopic, topicStale: true })) emit(event);
 
     // 10. Send the edited message
-    updateState(agentId, "thinking");
+    beginTurn(agentId, { humanInput: true });
     addLogEntry(agentId, "user_message", newText, buildUserMeta(username, device));
 
     const editPrefix = formatPrefix({ username, device });
