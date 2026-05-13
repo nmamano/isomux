@@ -165,7 +165,7 @@ const MobileInputProxy = forwardRef<
         deliver(e.currentTarget.value, e.currentTarget);
       }}
       onBeforeInput={(e) => {
-        const native = e.nativeEvent as InputEvent;
+        const native = e.nativeEvent;
         // deleteContentBackward fires on Backspace even when value is empty
         // and even when no input event would follow. We translate to DEL
         // (\x7f) which is what readline expects for backspace.

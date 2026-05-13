@@ -33,13 +33,17 @@ import {
   type SDKUserMessage,
   type SessionMessage,
   type CanUseTool,
+  type PermissionMode,
   type PermissionResult,
   type PermissionUpdate,
 } from "@anthropic-ai/claude-agent-sdk";
+
+type SdkSessionOptions = Parameters<typeof unstable_v2_createSession>[0];
 import type { ContentBlockParam } from "@anthropic-ai/sdk/resources/messages/messages.mjs";
 import { readFileSync, statSync } from "fs";
 
 import type { Attachment } from "../../shared/types.ts";
+import { errMessage } from "../../shared/errors.ts";
 import {
   FAMILY_TO_MODEL,
   MODEL_FAMILIES,
@@ -201,7 +205,7 @@ class ClaudeSession implements BackendSession {
               this.enqueue(ev);
             }
           }
-        } catch (err: any) {
+        } catch (err) {
           // SDK threw — typically subprocess exit, mid-stream abort, or
           // transport failure. If we initiated the close (this.closed=true),
           // it's expected and we exit quietly. Otherwise surface as a
@@ -213,7 +217,7 @@ class ClaudeSession implements BackendSession {
           if (!this.closed) {
             this.enqueue({
               kind: "error",
-              message: err?.message ?? String(err),
+              message: errMessage(err),
             });
           }
           break;
@@ -361,13 +365,14 @@ class ClaudeSession implements BackendSession {
     // how /context worked pre-refactor. We delegate to its getContextUsage
     // method when present. Returns null if the SDK shape changes or the
     // session hasn't reached a state where it can answer.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- runtime escape hatch
     const query = (this.sdkSession as any).query;
     if (!query || typeof query.getContextUsage !== "function") return null;
     try {
       const ctx = await query.getContextUsage();
       // SDKControlGetContextUsageResponse is a superset of our ContextUsage
       // shape; pass through with a structural cast.
-      return ctx as unknown as ContextUsage;
+      return ctx;
     } catch {
       return null;
     }
@@ -400,28 +405,28 @@ function* translateSDKMessage(
 ): Generator<NormalizedEvent, void> {
   switch (msg.type) {
     case "system": {
-      const subtype = (msg as any).subtype;
+      const subtype = msg.subtype;
       if (subtype === "init") {
         // session_id is always present in practice; we still emit system_init
         // (with sessionId undefined) if it's missing so the orchestrator can
         // pick up slash_commands/skills on the same event. The orchestrator
         // guards session-side effects on the sessionId presence.
-        const sessionId = (msg as any).session_id as string | undefined;
+        const sessionId = msg.session_id as string | undefined;
         yield {
           kind: "system_init",
           sessionId: sessionId || undefined,
-          slashCommands: (msg as any).slash_commands ?? [],
-          model: (msg as any).model,
+          slashCommands: msg.slash_commands ?? [],
+          model: msg.model,
         };
       } else if (subtype === "local_command_output") {
-        const content = (msg as any).content;
+        const { content } = msg;
         if (content) yield { kind: "system_text", text: content };
       }
       break;
     }
 
     case "assistant": {
-      const message = (msg as any).message;
+      const message = msg.message;
       const content = message?.content;
       if (!Array.isArray(content)) break;
       // SDK injects synthetic assistant turns (model === "<synthetic>") for
@@ -456,7 +461,7 @@ function* translateSDKMessage(
     }
 
     case "user": {
-      const content = (msg as any).message?.content;
+      const content = msg.message?.content;
       if (!Array.isArray(content)) break;
       for (const block of content) {
         if (block.type !== "tool_result") continue;
@@ -465,8 +470,13 @@ function* translateSDKMessage(
             ? block.content
             : Array.isArray(block.content)
               ? block.content
-                  .filter((c: any) => c.type === "text")
-                  .map((c: any) => c.text)
+                  .filter(
+                    (c: {
+                      type?: string;
+                    }): c is { type: "text"; text: string } =>
+                      c.type === "text",
+                  )
+                  .map((c) => c.text)
                   .join("\n")
               : JSON.stringify(block.content);
         // Extract image blocks → save to disk → emit as attachments. Side-
@@ -476,8 +486,17 @@ function* translateSDKMessage(
         let attachments: Attachment[] | undefined;
         if (Array.isArray(block.content)) {
           const atts: Attachment[] = [];
-          for (const c of block.content as any[]) {
-            if (c.type === "image" && c.source?.type === "base64") {
+          type ImageBlock = {
+            type: "image";
+            source: { type: "base64"; data: string; media_type: string };
+          };
+          const isImageBlock = (c: unknown): c is ImageBlock => {
+            if (!c || typeof c !== "object") return false;
+            const o = c as { type?: unknown; source?: { type?: unknown } };
+            return o.type === "image" && o.source?.type === "base64";
+          };
+          for (const c of block.content) {
+            if (isImageBlock(c)) {
               const decoded = Buffer.from(c.source.data, "base64");
               const ext = c.source.media_type.split("/")[1] ?? "png";
               const att = saveFile(
@@ -502,8 +521,8 @@ function* translateSDKMessage(
     }
 
     case "result": {
-      const subtype = (msg as any).subtype;
-      const usageField = (msg as any).usage;
+      const subtype = msg.subtype;
+      const usageField = msg.usage;
       // Only trust usage from success results. Error-subtype results may omit
       // `usage`; coercing to zeros would overwrite the accurate cumulative.
       const usage: TokenUsage | undefined =
@@ -516,11 +535,11 @@ function* translateSDKMessage(
                 usageField.cache_creation_input_tokens ?? 0,
             }
           : undefined;
-      const cost = (msg as any).total_cost_usd as number | undefined;
+      const cost = msg.total_cost_usd as number | undefined;
       if (subtype === "success") {
         yield { kind: "turn_completed", status: "completed", usage, cost };
       } else {
-        const errors = (msg as any).errors as string[] | undefined;
+        const { errors } = msg;
         const errorText = `Agent stopped: ${subtype}. ${errors?.join(", ") || ""}`;
         yield {
           kind: "turn_completed",
@@ -630,17 +649,15 @@ function buildClaudeUserMessage(
 // Shared by createSession / resumeSession. Pulls in safety-hooks, builds the
 // --append-system-prompt / --effort args, normalizes the model family.
 
-function buildSdkOpts(
-  opts: CreateSessionOptions,
-): Parameters<typeof unstable_v2_createSession>[0] {
+function buildSdkOpts(opts: CreateSessionOptions): SdkSessionOptions {
   const familyKey = opts.modelFamily as ModelFamily;
   const model = FAMILY_TO_MODEL[familyKey] ?? opts.modelFamily;
-  const sdkOpts: any = {
+  const sdkOpts: SdkSessionOptions = {
     model,
-    permissionMode: opts.permissionMode,
+    // permissionMode is `string` at the Backend boundary; narrow at the call site.
+    permissionMode: opts.permissionMode as PermissionMode,
     pathToClaudeCodeExecutable: CLAUDE_NATIVE_BIN,
-    // V2 SDKSessionOptions still doesn't expose systemPrompt / extraArgs, so we
-    // inject --append-system-prompt and --effort via executableArgs. When
+    // executableArgs injects --append-system-prompt and --effort. When
     // pathToClaudeCodeExecutable is a native binary, executableArgs are
     // prepended to the CLI args verbatim (verified against SDK 0.2.116 sdk.mjs).
     executableArgs: [
@@ -790,6 +807,7 @@ export const claudeBackend: Backend = {
       cwd: "/tmp",
       ...(opts.systemPrompt ? { systemPrompt: opts.systemPrompt } : {}),
       ...(opts.env ? { env: opts.env } : {}),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any);
     if (result.subtype !== "success") {
       throw new Error(`oneShotPrompt failed: ${result.subtype}`);
@@ -810,13 +828,19 @@ export const claudeBackend: Backend = {
 // getSessionMessages so the orchestrator's editMessage matching can be a
 // straight content-equality check.
 function flattenSessionMessageText(m: SessionMessage): string {
-  const msg = m.message as any;
+  const msg = m.message as { content?: unknown } | null | undefined;
   const content = msg?.content;
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
   return content
-    .filter((b: any) => b?.type === "text" && typeof b.text === "string")
-    .map((b: any) => b.text)
+    .filter(
+      (b: {
+        type?: string;
+        text?: unknown;
+      }): b is { type: "text"; text: string } =>
+        b?.type === "text" && typeof b.text === "string",
+    )
+    .map((b) => b.text)
     .join("");
 }
 

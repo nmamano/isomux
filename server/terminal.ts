@@ -1,5 +1,5 @@
 import { join } from "path";
-import { homedir } from "os";
+import { homedir, userInfo } from "os";
 import type { ManagedAgent } from "./internal-types.ts";
 
 const PTY_SIDECAR_PATH = join(import.meta.dir, "pty-sidecar.cjs");
@@ -9,6 +9,11 @@ type TerminalEvent =
   | { type: "terminal_output"; agentId: string; data: string }
   | { type: "terminal_exit"; agentId: string; exitCode: number };
 
+// Wire shape of messages sent by the PTY sidecar over JSONL stdout.
+type SidecarMessage =
+  | { type: "output"; data: string }
+  | { type: "exit"; exitCode?: number; signal?: string | null };
+
 export interface TerminalDeps {
   getAgent: (agentId: string) => ManagedAgent | undefined;
   emit: (event: TerminalEvent) => void;
@@ -17,7 +22,7 @@ export interface TerminalDeps {
 function sidecarSend(managed: ManagedAgent, msg: Record<string, unknown>) {
   const stdin = managed.ptySidecar?.stdin;
   if (stdin && typeof stdin !== "number")
-    stdin.write(JSON.stringify(msg) + "\n");
+    void stdin.write(JSON.stringify(msg) + "\n");
 }
 
 export function openTerminal(agentId: string, deps: TerminalDeps): boolean {
@@ -34,7 +39,7 @@ export function openTerminal(agentId: string, deps: TerminalDeps): boolean {
     TERM: "xterm-256color",
     SHELL: shell,
     HOME: home,
-    USER: process.env.USER || require("os").userInfo().username,
+    USER: process.env.USER || userInfo().username,
     LANG: process.env.LANG || "en_US.UTF-8",
     PATH: process.env.PATH || "/usr/local/bin:/usr/bin:/bin",
   };
@@ -49,7 +54,7 @@ export function openTerminal(agentId: string, deps: TerminalDeps): boolean {
   managed.ptyBuffer = "";
 
   // Read stdout as text lines using Bun's native ReadableStream
-  (async () => {
+  void (async () => {
     const reader = sidecar.stdout.getReader();
     const decoder = new TextDecoder();
     let partial = "";
@@ -62,13 +67,14 @@ export function openTerminal(agentId: string, deps: TerminalDeps): boolean {
         partial = lines.pop()!; // keep incomplete last line
         for (const line of lines) {
           if (!line) continue;
-          let msg: any;
+          let parsed: unknown;
           try {
-            msg = JSON.parse(line);
+            parsed = JSON.parse(line);
           } catch {
             continue;
           }
-          if (msg.type === "output") {
+          const msg = parsed as SidecarMessage;
+          if (msg.type === "output" && typeof msg.data === "string") {
             managed.ptyBuffer += msg.data;
             if (managed.ptyBuffer.length > MAX_PTY_BUFFER) {
               managed.ptyBuffer = managed.ptyBuffer.slice(-MAX_PTY_BUFFER);
@@ -76,13 +82,13 @@ export function openTerminal(agentId: string, deps: TerminalDeps): boolean {
             deps.emit({ type: "terminal_output", agentId, data: msg.data });
           } else if (msg.type === "exit") {
             console.log(
-              `[terminal] PTY exited for ${agentId}: code=${msg.exitCode}, signal=${msg.signal}`,
+              `[terminal] PTY exited for ${agentId}: code=${msg.exitCode ?? null}, signal=${msg.signal ?? null}`,
             );
             managed.ptySidecar = null;
             deps.emit({
               type: "terminal_exit",
               agentId,
-              exitCode: msg.exitCode,
+              exitCode: typeof msg.exitCode === "number" ? msg.exitCode : 0,
             });
           }
         }
@@ -90,7 +96,7 @@ export function openTerminal(agentId: string, deps: TerminalDeps): boolean {
     } catch {}
   })();
 
-  sidecar.exited.then(() => {
+  void sidecar.exited.then(() => {
     if (managed.ptySidecar === sidecar) {
       managed.ptySidecar = null;
     }

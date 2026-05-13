@@ -127,7 +127,7 @@ export function Markdown({ content }: { content: string }) {
   return (
     <div
       className="md-content"
-      onClick={onClick}
+      onClick={(e) => void onClick(e)}
       dangerouslySetInnerHTML={{ __html: html }}
     />
   );

@@ -30,6 +30,7 @@
 // designed to support sharing later without breaking the contract.
 
 import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
+import { errMessage } from "../../../shared/errors.ts";
 
 import type { InitializeParams } from "./_generated/InitializeParams.ts";
 import type { InitializeResponse } from "./_generated/InitializeResponse.ts";
@@ -88,9 +89,11 @@ export type NotificationHandler = (notification: JsonRpcNotification) => void;
 // providing the response. If no handler claims a server request, the client
 // auto-responds with method-not-found.
 export const PASS: unique symbol = Symbol("PASS");
+// Returning the PASS symbol (which is `unknown`-typed) declines the request
+// and lets the next handler in registration order respond.
 export type ServerRequestHandler = (
   request: JsonRpcRequest,
-) => Promise<unknown | typeof PASS>;
+) => Promise<unknown>;
 
 type Pending = {
   resolve: (value: unknown) => void;
@@ -139,7 +142,7 @@ export class JsonRpcLiteClient {
     const args = this.opts.args ?? ["app-server", "--listen", "stdio://"];
     this.child = spawn(bin, args, {
       cwd: this.opts.cwd,
-      env: this.opts.env as NodeJS.ProcessEnv | undefined,
+      env: this.opts.env,
       stdio: ["pipe", "pipe", "pipe"],
     });
 
@@ -356,40 +359,48 @@ export class JsonRpcLiteClient {
   }
 
   private dispatch(line: string): void {
-    let frame: any;
+    let frame: unknown;
     try {
       frame = JSON.parse(line);
-    } catch (err: any) {
+    } catch (err) {
       // Malformed frame — surface via stderr handlers for visibility.
       for (const h of this.stderrHandlers) {
         try {
           h(
-            `[codex client] JSON parse error: ${err.message}\nframe: ${line.slice(0, 200)}\n`,
+            `[codex client] JSON parse error: ${errMessage(err)}\nframe: ${line.slice(0, 200)}\n`,
           );
         } catch {}
       }
       return;
     }
     if (frame == null || typeof frame !== "object") return;
+    const f = frame as {
+      id?: JsonRpcId;
+      method?: string;
+      result?: unknown;
+      error?: { code?: number; message?: string; data?: unknown };
+    };
 
-    const hasId = "id" in frame && frame.id != null;
-    const hasMethod = "method" in frame && typeof frame.method === "string";
+    const hasId = "id" in f && f.id != null;
+    const hasMethod = "method" in f && typeof f.method === "string";
 
     if (hasMethod && hasId) {
       // Server-initiated request — must respond with same id.
-      void this.handleServerRequest(frame as JsonRpcRequest);
+      void this.handleServerRequest(f as JsonRpcRequest);
       return;
     }
     if (hasMethod) {
       // Notification.
-      const notification = frame as JsonRpcNotification;
+      const notification = f as JsonRpcNotification;
       for (const h of this.notificationHandlers) {
         try {
           h(notification);
-        } catch (err: any) {
+        } catch (err) {
           for (const sh of this.stderrHandlers) {
             try {
-              sh(`[codex client] notification handler error: ${err.message}\n`);
+              sh(
+                `[codex client] notification handler error: ${errMessage(err)}\n`,
+              );
             } catch {}
           }
         }
@@ -398,7 +409,7 @@ export class JsonRpcLiteClient {
     }
     if (hasId) {
       // Response to one of our requests.
-      const id = frame.id as JsonRpcId;
+      const id = f.id as JsonRpcId;
       const pending = this.pending.get(id);
       if (!pending) {
         for (const h of this.stderrHandlers) {
@@ -409,8 +420,8 @@ export class JsonRpcLiteClient {
         return;
       }
       this.pending.delete(id);
-      if ("error" in frame && frame.error) {
-        const err = frame.error;
+      if (f.error) {
+        const err = f.error;
         pending.reject(
           Object.assign(
             new Error(
@@ -420,7 +431,7 @@ export class JsonRpcLiteClient {
           ),
         );
       } else {
-        pending.resolve("result" in frame ? frame.result : undefined);
+        pending.resolve("result" in f ? f.result : undefined);
       }
       return;
     }
@@ -439,11 +450,11 @@ export class JsonRpcLiteClient {
         if (result === PASS) continue;
         this.respond(request.id, result);
         return;
-      } catch (err: any) {
+      } catch (err) {
         this.respondWithError(
           request.id,
           JSONRPC_INTERNAL_ERROR,
-          err?.message ?? "handler threw",
+          errMessage(err, "handler threw"),
         );
         return;
       }

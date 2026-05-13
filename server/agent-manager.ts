@@ -6,7 +6,6 @@ import type {
   CodexSandboxMode,
   EffortLevel,
   LogEntry,
-  ModelFamily,
   OfficeSettings,
   QueuedMessage,
   RoomWire,
@@ -25,6 +24,7 @@ import {
   isClaudeFamily,
 } from "../shared/types.ts";
 import { formatPrefix, formatAgentSenderPrefix } from "../shared/identity.ts";
+import { errMessage } from "../shared/errors.ts";
 import { getUserEnvFile } from "./users.ts";
 import {
   appendLog,
@@ -56,7 +56,6 @@ import { join } from "path";
 import { homedir } from "os";
 import { rmSync } from "fs";
 import {
-  CLAUDE_NATIVE_BIN,
   resolveCwd,
   validateCwd,
   claudeSessionFileExists,
@@ -388,8 +387,7 @@ function validateEffort(
     // model/list is the real allow-list, and it can include values outside
     // our static EFFORT_LEVELS (e.g. "none"). Trust any non-empty string
     // and let codex reject at thread/start.
-    if (raw && typeof raw === "string" && raw.length > 0)
-      return raw as EffortLevel;
+    if (raw && typeof raw === "string" && raw.length > 0) return raw;
     return DEFAULT_EFFORT;
   }
   if (!raw || !EFFORT_LEVELS.some((e) => e.level === raw))
@@ -410,7 +408,10 @@ async function withAgentRollback(
   fn: () => Promise<void>,
 ) {
   const snapshot = Object.fromEntries(
-    Object.keys(fields).map((k) => [k, (managed.info as any)[k]]),
+    Object.keys(fields).map((k) => [
+      k,
+      (managed.info as Record<string, unknown>)[k],
+    ]),
   );
   Object.assign(managed.info, fields);
   try {
@@ -825,8 +826,11 @@ export async function restoreAgents() {
           ? createSession(managed, resumeSessionId)
           : createSession(managed);
         installSession(p.id, managed, session);
-      } catch (err: any) {
-        console.error(`Failed to restore session for ${p.name}:`, err.message);
+      } catch (err) {
+        console.error(
+          `Failed to restore session for ${p.name}:`,
+          errMessage(err),
+        );
         officeState.updateAgent(p.id, { state: "error" });
         // Surface to the UI so the user sees why the agent can't respond.
         const entry: LogEntry = {
@@ -834,7 +838,7 @@ export async function restoreAgents() {
           agentId: p.id,
           timestamp: Date.now(),
           kind: "error",
-          content: `Failed to restore on startup: ${err.message}`,
+          content: `Failed to restore on startup: ${errMessage(err)}`,
         };
         const cached = logCache.get(p.id) ?? [];
         cached.push(entry);
@@ -1035,10 +1039,10 @@ function updateState(agentId: string, state: AgentState) {
     !managed.flushInProgress &&
     !inMultiStepFlow(managed)
   ) {
-    flushQueue(agentId).catch((err: any) => {
+    flushQueue(agentId).catch((err: unknown) => {
       console.error(
         `flushQueue (state-transition) failed for ${agentId}:`,
-        err.message,
+        errMessage(err),
       );
     });
   }
@@ -1199,8 +1203,8 @@ async function generateTopic(agentId: string) {
         persistSessionTopic(agentId, managed.sessionId, topic);
       }
     }
-  } catch (err: any) {
-    console.error(`Topic generation failed for ${agentId}:`, err.message);
+  } catch (err) {
+    console.error(`Topic generation failed for ${agentId}:`, errMessage(err));
     // Silently fail — clear the "..." placeholder, but only if it's still ours
     if (agents.has(agentId) && managed.topicGenToken === startToken) {
       for (const event of officeState.updateAgent(agentId, { topic: null }))
@@ -1429,7 +1433,7 @@ function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
       // the orchestrator layer.
       const turn = managed?.pendingTurn;
       if (turn) {
-        managed!.pendingTurn = null;
+        managed.pendingTurn = null;
         turn.resolve();
       }
       break;
@@ -1480,7 +1484,7 @@ function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
       // Reject any in-flight turn so sendMessage / executeSkill don't hang.
       const turn = managed?.pendingTurn;
       if (turn) {
-        managed!.pendingTurn = null;
+        managed.pendingTurn = null;
         try {
           turn.reject(new Error(ev.message));
         } catch {}
@@ -1596,7 +1600,7 @@ async function runConsumer(
         continue;
       processNormalizedEvent(agentId, ev);
     }
-  } catch (err: any) {
+  } catch (err) {
     if (managed.aborting || managed.session !== boundSession) {
       // Expected: abort() or a session swap closed us. The swap path
       // already nulled + rejected pendingTurn with SessionSwappedError.
@@ -1607,8 +1611,8 @@ async function runConsumer(
     managed.pendingTurn = null;
     if (turn) turn.reject(err);
 
-    console.error(`Agent ${agentId} stream error:`, err.message);
-    const errorText = `Stream error: ${err.message}`;
+    console.error(`Agent ${agentId} stream error:`, errMessage(err));
+    const errorText = `Stream error: ${errMessage(err)}`;
     addLogEntry(agentId, "error", errorText);
     // The SDK's "process exited with code 1" is opaque; diagnose common causes.
     // diagnoseProcessExit is Claude-specific (reads ~/.claude/projects); only
@@ -1778,9 +1782,10 @@ function createSession(
   // backend's opaque process-exit messages.
   try {
     validateCwd(managed.info.cwd);
-  } catch (err: any) {
+  } catch (err) {
     throw new Error(
-      `cwd is invalid: ${err.message}. Click the agent name in the log view header to fix it.`,
+      `cwd is invalid: ${errMessage(err)}. Click the agent name in the log view header to fix it.`,
+      { cause: err },
     );
   }
   // Compute env once — both the resume preflight (Codex sessions dir lookup
@@ -1813,7 +1818,7 @@ function createSession(
         `Use /resume to pick another session, or start a new conversation.`,
     );
   }
-  const room = officeState.rooms[managed.info.room]!;
+  const room = officeState.rooms[managed.info.room];
   const systemPrompt = buildSystemPrompt(
     managed.info.name,
     managed.info.id,
@@ -1979,9 +1984,9 @@ export async function spawn(
       `Agent "${name}" ready. Working in ${resolvedCwd}. Permission mode: ${info.permissionMode}.`,
     );
     // First stream() will deliver system/init + response to the first send().
-  } catch (err: any) {
-    console.error(`Failed to create session for ${name}:`, err.message);
-    addLogEntry(id, "error", `Failed to start: ${err.message}`);
+  } catch (err) {
+    console.error(`Failed to create session for ${name}:`, errMessage(err));
+    addLogEntry(id, "error", `Failed to start: ${errMessage(err)}`);
     updateState(id, "error");
   }
 
@@ -2152,8 +2157,11 @@ export function enqueueMessage(
   // immediately. flushQueue is gated by flushInProgress and re-checks state
   // post-defer, so this is safe to call unconditionally.
   if (isQueueIdleState(state) && !inMultiStepFlow(managed)) {
-    flushQueue(agentId).catch((err: any) => {
-      console.error(`flushQueue (idle) failed for ${agentId}:`, err.message);
+    flushQueue(agentId).catch((err: unknown) => {
+      console.error(
+        `flushQueue (idle) failed for ${agentId}:`,
+        errMessage(err),
+      );
     });
     return { ok: true, queued: false, messageId: id };
   }
@@ -2234,11 +2242,11 @@ async function flushQueue(agentId: string): Promise<void> {
             ? "Resumed prior session before flushing queued messages."
             : "Started a fresh session before flushing queued messages.",
         );
-      } catch (err: any) {
+      } catch (err) {
         addLogEntry(
           agentId,
           "error",
-          `Cannot start session to flush queue: ${err.message}`,
+          `Cannot start session to flush queue: ${errMessage(err)}`,
         );
         updateState(agentId, "error");
         return;
@@ -2307,7 +2315,7 @@ async function flushQueue(agentId: string): Promise<void> {
       // a fresh conversation finds an empty cache and bails out, leaving topic
       // null. Matches the sendMessage path which also logs before triggering.
       if (managed.info.topic === null && !managed.topicGenerating) {
-        generateTopic(agentId);
+        void generateTopic(agentId);
       }
       const sentIds = new Set(items.map((m) => m.id));
       managed.messageQueue = managed.messageQueue.filter(
@@ -2315,7 +2323,7 @@ async function flushQueue(agentId: string): Promise<void> {
       );
       emitQueueUpdate(agentId, managed);
       await turn;
-    } catch (err: any) {
+    } catch (err) {
       // If we still own the deferred (no session swap, no fresh turn), reject
       // and clear it so awaiting callers don't hang. Done before the kill /
       // SessionSwapped branches because both also benefit from the cleanup.
@@ -2343,8 +2351,8 @@ async function flushQueue(agentId: string): Promise<void> {
         }
         return;
       }
-      console.error(`Agent ${agentId} flush error:`, err.message);
-      addLogEntry(agentId, "error", `Error flushing queue: ${err.message}`);
+      console.error(`Agent ${agentId} flush error:`, errMessage(err));
+      addLogEntry(agentId, "error", `Error flushing queue: ${errMessage(err)}`);
       updateState(agentId, "error");
     }
   } finally {
@@ -2459,7 +2467,7 @@ export async function sendMessage(
     );
     beginTurn(agentId, { humanInput: true });
     if (managed.info.topic === null && !managed.topicGenerating) {
-      generateTopic(agentId); // fire-and-forget
+      void generateTopic(agentId); // fire-and-forget
     }
   }
   // If an abort is mid-handoff, wait for it to install the replacement session.
@@ -2525,7 +2533,7 @@ export async function sendMessage(
       );
       updateState(agentId, "waiting_for_response");
       // Fall through so the message is actually sent on the new session.
-    } catch (err: any) {
+    } catch (err) {
       if (!echoEarly)
         addLogEntry(
           agentId,
@@ -2534,7 +2542,7 @@ export async function sendMessage(
           buildUserMeta(username, device),
           attachments,
         );
-      addLogEntry(agentId, "error", `Cannot start session: ${err.message}`);
+      addLogEntry(agentId, "error", `Cannot start session: ${errMessage(err)}`);
       updateState(agentId, "error");
       return;
     }
@@ -2639,10 +2647,14 @@ export async function sendMessage(
         );
         updateState(agentId, "waiting_for_response");
         if (!picked.topic) {
-          generateTopic(agentId);
+          void generateTopic(agentId);
         }
-      } catch (err: any) {
-        emitEphemeralLog(agentId, "error", `Failed to resume: ${err.message}`);
+      } catch (err) {
+        emitEphemeralLog(
+          agentId,
+          "error",
+          `Failed to resume: ${errMessage(err)}`,
+        );
         updateState(agentId, "error");
       }
       return;
@@ -2774,7 +2786,7 @@ export async function sendMessage(
 
     // Auto-generate topic on first user message in a conversation
     if (managed.info.topic === null && !managed.topicGenerating) {
-      generateTopic(agentId); // fire-and-forget
+      void generateTopic(agentId); // fire-and-forget
     }
   }
 
@@ -2788,7 +2800,7 @@ export async function sendMessage(
       attachments && attachments.length > 0 ? attachments : undefined,
     );
     await turn;
-  } catch (err: any) {
+  } catch (err) {
     // If session.send() (or anything before turn settled) threw, the deferred
     // we just created is still parked in managed.pendingTurn — unless a
     // session swap or a fresh turn took ownership of the slot. Reject + clear
@@ -2800,8 +2812,8 @@ export async function sendMessage(
       } catch {}
     }
     if (err instanceof SessionSwappedError) return;
-    console.error(`Agent ${agentId} send error:`, err.message);
-    addLogEntry(agentId, "error", `Error: ${err.message}`);
+    console.error(`Agent ${agentId} send error:`, errMessage(err));
+    addLogEntry(agentId, "error", `Error: ${errMessage(err)}`);
     updateState(agentId, "error");
   }
 }
@@ -2903,8 +2915,12 @@ export async function abort(agentId: string) {
         updateState(agentId, "waiting_for_response");
       }
     }
-  } catch (err: any) {
-    addLogEntry(agentId, "error", `Interrupt handler failed: ${err.message}`);
+  } catch (err) {
+    addLogEntry(
+      agentId,
+      "error",
+      `Interrupt handler failed: ${errMessage(err)}`,
+    );
     updateState(agentId, "error");
   } finally {
     managed.aborting = false;
@@ -3036,11 +3052,11 @@ export async function newConversation(agentId: string) {
     for (const event of officeState.resetTopic(agentId)) emit(event);
     updateState(agentId, "idle");
     addLogEntry(agentId, "system", "New conversation started.");
-  } catch (err: any) {
+  } catch (err) {
     addLogEntry(
       agentId,
       "error",
-      `Failed to start new conversation: ${err.message}`,
+      `Failed to start new conversation: ${errMessage(err)}`,
     );
     updateState(agentId, "error");
   }
@@ -3100,10 +3116,10 @@ export async function resume(agentId: string, sessionId: string) {
 
     // If no topic, regenerate from session logs
     if (!restoredTopic) {
-      generateTopic(agentId);
+      void generateTopic(agentId);
     }
-  } catch (err: any) {
-    addLogEntry(agentId, "error", `Failed to resume: ${err.message}`);
+  } catch (err) {
+    addLogEntry(agentId, "error", `Failed to resume: ${errMessage(err)}`);
     updateState(agentId, "error");
   }
 }
@@ -3350,14 +3366,14 @@ export async function editMessage(
     // Topic mutation above + system/init persistAll on first-message edits
     // already covered the persisted state; nothing further changes during
     // the turn that needs an end-of-edit snapshot.
-  } catch (err: any) {
+  } catch (err) {
     // User aborted (or another explicit session swap) after the fork was
     // installed — the fork and its partial turn are a legitimate result,
     // not a failure. The triggering swap's own persistAll covered state.
     if (err instanceof SessionSwappedError) {
       return;
     }
-    console.error(`Agent ${agentId} edit/fork error:`, err.message);
+    console.error(`Agent ${agentId} edit/fork error:`, errMessage(err));
 
     if (managed.sessionId !== oldSessionId) {
       // We switched to the fork — roll back to old session and restore UI
@@ -3387,7 +3403,7 @@ export async function editMessage(
     addLogEntry(
       agentId,
       "error",
-      `Failed to branch conversation: ${err.message}`,
+      `Failed to branch conversation: ${errMessage(err)}`,
     );
     updateState(agentId, "error");
   }
@@ -3414,7 +3430,7 @@ export function setTopic(agentId: string, topic: string) {
 export function resetTopic(agentId: string) {
   const managed = agents.get(agentId);
   if (!managed) return;
-  generateTopic(agentId); // fire-and-forget
+  void generateTopic(agentId); // fire-and-forget
 }
 
 // --- Terminal PTY management — implementation in terminal.ts ---

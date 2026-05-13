@@ -94,6 +94,6 @@ export function onUpdateChange(cb: (s: UpdateStatus) => void) {
 
 export function startUpdateChecker() {
   // Initial check after a short delay to not slow down startup
-  setTimeout(() => check(), 5000);
-  setInterval(() => check(), CHECK_INTERVAL);
+  setTimeout(() => void check(), 5000);
+  setInterval(() => void check(), CHECK_INTERVAL);
 }

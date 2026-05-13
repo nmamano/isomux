@@ -29,8 +29,8 @@
 
 import { readFileSync, statSync } from "fs";
 
-import type { Attachment } from "../../../shared/types.ts";
 import { getFilePath } from "../../persistence.ts";
+import { errMessage } from "../../../shared/errors.ts";
 
 import type {
   ApprovalDecision,
@@ -63,7 +63,6 @@ import {
 import { CODEX_CLI_PINNED_VERSION } from "./version-check.ts";
 
 import type { InitializeParams } from "./_generated/InitializeParams.ts";
-import type { InitializeResponse } from "./_generated/InitializeResponse.ts";
 import type { Model as CodexProtocolModel } from "./_generated/v2/Model.ts";
 import type { ModelListParams } from "./_generated/v2/ModelListParams.ts";
 import type { ModelListResponse } from "./_generated/v2/ModelListResponse.ts";
@@ -160,7 +159,7 @@ interface RawTurn {
   // ThreadItem union is broad (~20 variants); the consumers here narrow by
   // `type` and read id/text/content directly. Keep loose to avoid coupling
   // the helper to the generated schema.
-  items: any[];
+  items: unknown[];
 }
 
 // Single thread/read call returning the parent thread's turn list. Used by
@@ -170,15 +169,18 @@ async function readThreadTurns(
   client: JsonRpcLiteClient,
   threadId: string,
 ): Promise<RawTurn[]> {
-  const resp = await client.request<{ thread: { turns?: any[] } }>(
+  const resp = await client.request<{ thread: { turns?: unknown[] } }>(
     "thread/read",
     { threadId, includeTurns: true },
   );
   const rawTurns = resp.thread?.turns ?? [];
-  return rawTurns.map((t: any) => ({
-    id: typeof t?.id === "string" ? t.id : "",
-    items: Array.isArray(t?.items) ? t.items : [],
-  }));
+  return rawTurns.map((raw): RawTurn => {
+    const t = raw as { id?: unknown; items?: unknown };
+    return {
+      id: typeof t?.id === "string" ? t.id : "",
+      items: Array.isArray(t?.items) ? t.items : [],
+    };
+  });
 }
 
 // Locate the turn (by index) whose items array contains an item with the
@@ -191,7 +193,7 @@ function findTurnIndexContainingItemId(
   for (let i = 0; i < turns.length; i++) {
     const items = turns[i].items;
     for (const item of items) {
-      if (item?.id === itemId) return i;
+      if ((item as { id?: unknown })?.id === itemId) return i;
     }
   }
   return -1;
@@ -335,10 +337,10 @@ class CodexSession implements BackendSession {
         slashCommands: [],
         model: this.opts.modelFamily,
       });
-    } catch (err: any) {
+    } catch (err) {
       this.enqueue({
         kind: "error",
-        message: `Codex bootstrap failed: ${err?.message ?? String(err)}`,
+        message: `Codex bootstrap failed: ${errMessage(err)}`,
       });
       this.markEnded();
     }
@@ -455,10 +457,10 @@ class CodexSession implements BackendSession {
         threadId: this.threadId,
         turnId: this.activeTurnId,
       });
-    } catch (err: any) {
+    } catch (err) {
       this.enqueue({
         kind: "system_text",
-        text: `Codex interrupt failed: ${err?.message ?? String(err)}`,
+        text: `Codex interrupt failed: ${errMessage(err)}`,
       });
     }
     // Release any in-flight server-initiated approval requests so the parked
@@ -545,7 +547,7 @@ class CodexSession implements BackendSession {
   // -------------------------------------------------------------------------
 
   private handleNotification(n: JsonRpcNotification): void {
-    const params = n.params as any;
+    const params = n.params as Record<string, unknown> | null | undefined;
     // Per-thread filter: every notification carrying a threadId must match
     // ours. Sub-agent / review-mode child threads have their own ids.
     const eventThreadId = params?.threadId;
@@ -595,7 +597,7 @@ class CodexSession implements BackendSession {
 
       // ---- Token usage (cumulative; convert to delta) ----
       case "thread/tokenUsage/updated": {
-        const usage = params?.usage as any;
+        const usage = params?.usage as Partial<TokenUsage> | undefined;
         if (!usage) break;
         const cumulative: TokenUsage = {
           inputTokens: usage.inputTokens ?? 0,
@@ -692,7 +694,11 @@ class CodexSession implements BackendSession {
     }
   }
 
-  private translateCompletedItem(item: any): void {
+  private translateCompletedItem(rawItem: unknown): void {
+    // ThreadItem union is too broad (~20 variants) to model exactly here.
+    // Cast to a loose Record so per-branch field reads stay typed without
+    // committing to the generated schema.
+    const item = rawItem as Record<string, unknown>;
     switch (item?.type) {
       case "agentMessage": {
         const text = item.text as string | undefined;
@@ -738,8 +744,8 @@ class CodexSession implements BackendSession {
       case "fileChange": {
         const toolUseId = item.id as string;
         const changes = Array.isArray(item.changes) ? item.changes : [];
-        const summary = changes
-          .map((c: any) => `${c.path ?? "?"} (${c.kind ?? "modified"})`)
+        const summary = (changes as { path?: string; kind?: string }[])
+          .map((c) => `${c.path ?? "?"} (${c.kind ?? "modified"})`)
           .join("\n");
         const status = item.status as string | undefined;
         this.enqueue({
@@ -817,10 +823,8 @@ class CodexSession implements BackendSession {
   // Server-initiated request routing
   // -------------------------------------------------------------------------
 
-  private async handleServerRequest(
-    req: JsonRpcRequest,
-  ): Promise<unknown | typeof PASS> {
-    const params = req.params as any;
+  private async handleServerRequest(req: JsonRpcRequest): Promise<unknown> {
+    const params = req.params as Record<string, unknown> | null | undefined;
     // Per-thread filter on server requests that target a thread.
     if (
       params?.threadId !== undefined &&
@@ -1036,7 +1040,7 @@ function mapApprovalDecision(
   }
 }
 
-function inferToolNameFromApproval(method: string, _params: any): string {
+function inferToolNameFromApproval(method: string, _params: unknown): string {
   switch (method) {
     case "applyPatchApproval":
     case "item/fileChange/requestApproval":
@@ -1051,16 +1055,21 @@ function inferToolNameFromApproval(method: string, _params: any): string {
   }
 }
 
-function inferApprovalTitle(method: string, params: any): string {
+function inferApprovalTitle(method: string, rawParams: unknown): string {
+  const params = rawParams as
+    | {
+        command?: string;
+        commandActions?: { command?: string }[];
+      }
+    | null
+    | undefined;
   switch (method) {
     case "applyPatchApproval":
     case "item/fileChange/requestApproval":
       return `Codex wants to apply a patch`;
     case "execCommandApproval":
     case "item/commandExecution/requestApproval": {
-      const cmd = (params?.command ??
-        params?.commandActions?.[0]?.command ??
-        "") as string;
+      const cmd = params?.command ?? params?.commandActions?.[0]?.command ?? "";
       return cmd
         ? `Codex wants to run: \`${cmd.slice(0, 80)}\``
         : `Codex wants to run a command`;
@@ -1074,21 +1083,21 @@ function inferApprovalTitle(method: string, params: any): string {
 
 function inferApprovalDescription(
   _method: string,
-  params: any,
+  params: unknown,
 ): string | undefined {
-  const reason = params?.reason;
+  const reason = (params as { reason?: unknown } | null | undefined)?.reason;
   if (typeof reason === "string" && reason.trim()) return reason;
   return undefined;
 }
 
 function extractApprovalInput(
   _method: string,
-  params: any,
+  params: unknown,
 ): Record<string, unknown> {
   // The orchestrator displays this for context; just hand back the params
   // verbatim, copied as a plain object.
   if (params && typeof params === "object") {
-    return { ...params };
+    return { ...(params as Record<string, unknown>) };
   }
   return {};
 }
@@ -1369,17 +1378,30 @@ export const codexBackend: Backend = {
       });
       const turns = await readThreadTurns(client, sessionId);
       const out: NormalizedMessage[] = [];
+      type ThreadItem = {
+        type?: string;
+        id?: string;
+        content?: unknown;
+        text?: string;
+      };
       for (const turn of turns) {
-        for (const item of turn.items) {
-          if (item?.type === "userMessage") {
+        for (const raw of turn.items) {
+          const item = raw as ThreadItem;
+          if (item?.type === "userMessage" && typeof item.id === "string") {
             const text = Array.isArray(item.content)
-              ? item.content
-                  .filter((c: any) => c.type === "text")
-                  .map((c: any) => c.text)
+              ? (item.content as { type?: string; text?: string }[])
+                  .filter(
+                    (c): c is { type: "text"; text: string } =>
+                      c.type === "text" && typeof c.text === "string",
+                  )
+                  .map((c) => c.text)
                   .join("")
               : "";
             out.push({ uuid: item.id, role: "user", text });
-          } else if (item?.type === "agentMessage") {
+          } else if (
+            item?.type === "agentMessage" &&
+            typeof item.id === "string"
+          ) {
             out.push({
               uuid: item.id,
               role: "assistant",
@@ -1434,9 +1456,12 @@ export const codexBackend: Backend = {
       let failure: Error | null = null;
       const done = new Promise<void>((resolve) => {
         client.onNotification((n) => {
-          if ((n.params as any)?.threadId !== threadId) return;
+          const params = n.params as Record<string, unknown> | null | undefined;
+          if (params?.threadId !== threadId) return;
           if (n.method === "item/completed") {
-            const item = (n.params as any)?.item;
+            const item = params?.item as
+              | { type?: string; text?: string }
+              | undefined;
             if (
               item?.type === "agentMessage" &&
               typeof item.text === "string"
@@ -1444,7 +1469,7 @@ export const codexBackend: Backend = {
               result = item.text;
             }
           } else if (n.method === "turn/completed") {
-            const turn = (n.params as any)?.turn as
+            const turn = params?.turn as
               | { status?: string; error?: { message?: string } | null }
               | undefined;
             if (turn?.status && turn.status !== "completed") {
@@ -1457,7 +1482,7 @@ export const codexBackend: Backend = {
               resolve();
             }
           } else if (n.method === "error") {
-            const msg = (n.params as any)?.message;
+            const msg = params?.message;
             failure = new Error(
               `Codex one-shot error: ${typeof msg === "string" ? msg : "unknown"}`,
             );
@@ -1477,7 +1502,7 @@ export const codexBackend: Backend = {
       try {
         await client.request("thread/archive", { threadId });
       } catch {}
-      if (failure) throw failure;
+      if (failure) throw failure as Error;
       return result;
     } finally {
       await client.close();

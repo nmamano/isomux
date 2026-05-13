@@ -7,7 +7,6 @@ import type {
   ClientCommand,
   CodexSandboxMode,
   EffortLevel,
-  ModelFamily,
 } from "../../shared/types.ts";
 import {
   MODEL_FAMILIES,
@@ -174,7 +173,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   }, []);
 
   // Validate the existing cwd when the edit dialog opens, so the user sees
-  // immediately if the stored directory is gone.
+  // immediately if the stored directory is gone. Depend only on agent.id.
   useEffect(() => {
     if (isSpawn || !agent) return;
     const initialCwd = agent.cwd;
@@ -191,6 +190,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     addRawListener(listener);
     send({ type: "request_cwd_validation", requestId: reqId, cwd: initialCwd });
     return () => removeRawListener(listener);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSpawn, agent?.id]);
 
   // Fetch the auth-appropriate model list for Codex agents. Fires once when
@@ -199,8 +199,11 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   useEffect(() => {
     if (!isCodex) return;
     let cancelled = false;
+    // Seed loading flags synchronously so the dropdown shows the spinner.
+    /* eslint-disable react-hooks/set-state-in-effect */
     setModelsLoading(true);
     setModelsError(null);
+    /* eslint-enable react-hooks/set-state-in-effect */
     const reqId = `model-list-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     const listener = (data: string) => {
       try {
@@ -276,7 +279,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     };
 
     if (isSpawn) {
-      const targetRoomId = rooms[props.room!]?.id;
+      const targetRoomId = rooms[props.room]?.id;
       setCwdError(null);
       setSaving(true);
       addRawListener(listener);
@@ -284,10 +287,10 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       send({
         type: "spawn",
         requestId: reqId,
-        name: name || `Agent ${props.deskIndex! + 1}`,
+        name: name || `Agent ${props.deskIndex + 1}`,
         cwd,
         permissionMode,
-        desk: props.deskIndex!,
+        desk: props.deskIndex,
         roomId: targetRoomId,
         outfit,
         customInstructions: customInstructions.trim() || undefined,
@@ -410,7 +413,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
             }}
           >
             {isSpawn
-              ? `Desk #${props.deskIndex! + 1}`
+              ? `Desk #${props.deskIndex + 1}`
               : `${roomCount > 1 ? `${rooms[agent!.room]?.name ?? `Room ${agent!.room + 1}`}, ` : ""}Desk #${agent!.desk + 1}`}
           </p>
 
@@ -418,7 +421,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder={isSpawn ? `Agent ${props.deskIndex! + 1}` : undefined}
+            placeholder={isSpawn ? `Agent ${props.deskIndex + 1}` : undefined}
             autoFocus={isSpawn}
             style={inputStyle}
           />
@@ -569,7 +572,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
             // the static MODEL_FAMILIES list either way.
             const codexFetched = isCodex && backendModels;
             const codexVisible = codexFetched
-              ? backendModels!.filter((m) => !m.hidden)
+              ? backendModels.filter((m) => !m.hidden)
               : null;
             const storedNotInList =
               !isSpawn &&

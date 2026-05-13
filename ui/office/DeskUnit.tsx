@@ -44,7 +44,7 @@ export function DeskUnit({
   const longPressTriggered = useRef(false);
   const isWorking =
     agent.state === "thinking" || agent.state === "tool_executing";
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!isWorking) return;
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -54,8 +54,10 @@ export function DeskUnit({
   // Stable refs for callbacks so the touch listener effect doesn't re-register on every render
   const onClickRef = useRef(onClick);
   const onContextMenuRef = useRef(onContextMenu);
+  /* eslint-disable react-hooks/refs */
   onClickRef.current = onClick;
   onContextMenuRef.current = onContextMenu;
+  /* eslint-enable react-hooks/refs */
 
   // Non-passive touch listeners — React registers touch listeners as passive,
   // which silently ignores preventDefault(). We need preventDefault() to suppress

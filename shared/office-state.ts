@@ -3,17 +3,11 @@ import type {
   AgentOutfit,
   TaskItem,
   TaskPriority,
-  TaskStatus,
   RoomWire,
   OfficeSettings,
 } from "./types.ts";
 import { DEFAULT_AGENT_CAPABILITIES, DEFAULT_EFFORT } from "./types.ts";
-import {
-  generateTaskId,
-  generateRoomId,
-  isValidStatus,
-  isValidPriority,
-} from "./types.ts";
+import { generateTaskId, generateRoomId } from "./types.ts";
 import {
   SHIRT_COLORS,
   HAIR_COLORS,

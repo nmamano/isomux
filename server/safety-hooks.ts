@@ -202,25 +202,6 @@ function stripQuotedStrings(cmd: string): string {
 // 3. Isomux config protection — block writes to ~/.isomux/
 // ---------------------------------------------------------------------------
 
-// Commands that only read — safe to run against ~/.isomux/
-const READ_ONLY_COMMANDS = [
-  "cat",
-  "ls",
-  "head",
-  "tail",
-  "less",
-  "grep",
-  "rg",
-  "find",
-  "stat",
-  "wc",
-  "file",
-  "diff",
-  "bat",
-  "jq",
-  "tree",
-];
-
 // Copy-like commands where only the last argument (destination) is a write target.
 // Reading from ~/.isomux/ via these is fine; only writing to it should be blocked.
 const COPY_COMMANDS = ["cp", "rsync", "scp", "install"];

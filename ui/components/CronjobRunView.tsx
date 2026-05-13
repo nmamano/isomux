@@ -63,6 +63,7 @@ export function CronjobRunView({
   useEffect(() => {
     if (loaded) return;
     send({ type: "load_cronjob_run", cronjobId: jobId, runId });
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoaded(true);
   }, [jobId, runId, loaded]);
 
@@ -136,6 +137,7 @@ export function CronjobRunView({
   // is hidden during run) doesn't leave the inline editor stranded.
   useEffect(() => {
     if (isRunning && editingLogEntryId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setEditingLogEntryId(null);
     }
   }, [isRunning, editingLogEntryId]);

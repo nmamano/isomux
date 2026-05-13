@@ -25,9 +25,15 @@ export function useSwipeLeftRight(
   const onSwipeLeftRef = useRef(onSwipeLeft);
   const onSwipeRightRef = useRef(onSwipeRight);
   const shouldStartRef = useRef(shouldStart);
+  // Latest-ref pattern so the touch-listener effect doesn't re-register on
+  // every prop change. Writing to .current during render is the canonical
+  // implementation; the React Compiler rule flags it but the alternative is
+  // per-render listener churn.
+  /* eslint-disable react-hooks/refs */
   onSwipeLeftRef.current = onSwipeLeft;
   onSwipeRightRef.current = onSwipeRight;
   shouldStartRef.current = shouldStart;
+  /* eslint-enable react-hooks/refs */
 
   const ref = useCallback<RefCallback<HTMLDivElement>>((nextNode) => {
     setNode((prev) => (prev === nextNode ? prev : nextNode));

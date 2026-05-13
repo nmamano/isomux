@@ -1,5 +1,5 @@
 import { useRef, useEffect } from "react";
-import type { AgentInfo, SessionInfo } from "../../shared/types.ts";
+import type { AgentInfo } from "../../shared/types.ts";
 import { useAppState, useFeatures } from "../store.tsx";
 import { send } from "../ws.ts";
 

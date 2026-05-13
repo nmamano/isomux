@@ -19,6 +19,7 @@
 import { join, basename } from "path";
 import { homedir } from "os";
 import { mkdirSync, existsSync, readdirSync, statSync, unlinkSync } from "fs";
+import { errMessage } from "../shared/errors.ts";
 
 const ISOMUX_DIR_NAME = ".isomux";
 const HOME = homedir();
@@ -120,10 +121,10 @@ async function runBackup() {
     lastBackupError = null;
     lastBackupFile = basename(dest);
     console.log(`[backup] wrote ${lastBackupFile}`);
-  } catch (err: any) {
+  } catch (err) {
     lastBackupAt = Date.now();
     lastBackupOk = false;
-    lastBackupError = err?.message || String(err);
+    lastBackupError = errMessage(err);
     lastBackupFile = null;
     console.error("[backup] failed:", err);
   } finally {
@@ -140,6 +141,6 @@ async function tick() {
 
 export function startBackupScheduler() {
   // Fire on startup, then check every hour.
-  tick();
-  setInterval(tick, CHECK_INTERVAL_MS);
+  void tick();
+  setInterval(() => void tick(), CHECK_INTERVAL_MS);
 }

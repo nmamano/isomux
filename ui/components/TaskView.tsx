@@ -79,6 +79,9 @@ function TaskDetailPanel({
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
+  // Sync form fields from the selected task prop. setState-in-effect is the
+  // canonical pattern for prop→state sync.
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (task) {
       setTitle(task.title);
@@ -96,6 +99,7 @@ function TaskDetailPanel({
     setConfirmDelete(false);
     setConfirmDiscard(false);
   }, [task]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   function isDirty(): boolean {
     if (mode === "create") {

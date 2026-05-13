@@ -23,6 +23,7 @@ import { startBackupScheduler, getBackupStatus } from "./backup.ts";
 import { logCodexVersionAtBoot } from "./backends/codex/version-check.ts";
 import type { TaskItem } from "../shared/types.ts";
 import { isValidStatus, isValidPriority } from "../shared/types.ts";
+import { errMessage } from "../shared/errors.ts";
 import {
   listUsers,
   getUser,
@@ -68,34 +69,34 @@ AgentManager.onEvent((event) => {
   // Task mutations carry the full list as a domain event; the wire still
   // uses the legacy `{type:"tasks", tasks}` shape so the UI doesn't change.
   if (event.type === "tasks_changed") {
-    broadcast({ type: "tasks", tasks: event.tasks } as ServerMessage);
+    broadcast({ type: "tasks", tasks: event.tasks });
     return;
   }
-  broadcast(event as ServerMessage);
+  broadcast(event);
 });
 
 // Wire CronjobManager events to WebSocket broadcasts
 CronjobManager.onCronjobEvent((event) => {
-  broadcast(event as ServerMessage);
+  broadcast(event);
 });
 
 async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
   switch (cmd.type) {
     case "ping":
-      ws.send(JSON.stringify({ type: "pong" } as ServerMessage));
+      ws.send(JSON.stringify({ type: "pong" }));
       break;
     case "spawn": {
       try {
         AgentManager.validateCwd(cmd.cwd);
-      } catch (err: any) {
+      } catch (err) {
         if (cmd.requestId) {
           ws.send(
             JSON.stringify({
               type: "agent_save_response",
               requestId: cmd.requestId,
               ok: false,
-              error: err.message || "Invalid directory",
-            } as ServerMessage),
+              error: errMessage(err, "Invalid directory"),
+            }),
           );
         }
         break;
@@ -123,7 +124,7 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
                 type: "agent_save_response",
                 requestId: cmd.requestId,
                 ok: true,
-              } as ServerMessage),
+              }),
             );
           } else {
             // spawn() returns null on duplicate name or full room — neither
@@ -136,19 +137,19 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
                 ok: false,
                 error:
                   "Cannot create agent: name may be taken or the target room has no free desks.",
-              } as ServerMessage),
+              }),
             );
           }
         }
-      } catch (err: any) {
+      } catch (err) {
         if (cmd.requestId) {
           ws.send(
             JSON.stringify({
               type: "agent_save_response",
               requestId: cmd.requestId,
               ok: false,
-              error: err?.message ?? "Spawn failed",
-            } as ServerMessage),
+              error: errMessage(err, "Spawn failed"),
+            }),
           );
         }
       }
@@ -162,7 +163,7 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
       break;
     case "send_message":
       // Don't await — let it stream in the background
-      AgentManager.sendMessage(
+      void AgentManager.sendMessage(
         cmd.agentId,
         cmd.text,
         cmd.username,
@@ -174,7 +175,7 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
       AgentManager.cancelQueued(cmd.agentId, cmd.messageId);
       break;
     case "send_now":
-      AgentManager.sendNow(cmd.agentId);
+      void AgentManager.sendNow(cmd.agentId);
       break;
     case "new_conversation":
       await AgentManager.newConversation(cmd.agentId);
@@ -186,15 +187,15 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
       if (cmd.cwd) {
         try {
           AgentManager.validateCwd(cmd.cwd);
-        } catch (err: any) {
+        } catch (err) {
           if (cmd.requestId) {
             ws.send(
               JSON.stringify({
                 type: "agent_save_response",
                 requestId: cmd.requestId,
                 ok: false,
-                error: err.message || "Invalid directory",
-              } as ServerMessage),
+                error: errMessage(err, "Invalid directory"),
+              }),
             );
           }
           break;
@@ -218,18 +219,18 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
               type: "agent_save_response",
               requestId: cmd.requestId,
               ok: true,
-            } as ServerMessage),
+            }),
           );
         }
-      } catch (err: any) {
+      } catch (err) {
         if (cmd.requestId) {
           ws.send(
             JSON.stringify({
               type: "agent_save_response",
               requestId: cmd.requestId,
               ok: false,
-              error: err?.message ?? "Edit failed",
-            } as ServerMessage),
+              error: errMessage(err, "Edit failed"),
+            }),
           );
         }
       }
@@ -252,7 +253,7 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
         agentId: cmd.agentId,
         sessions,
         currentSessionId,
-      } as ServerMessage);
+      });
       break;
     }
     case "terminal_open": {
@@ -265,7 +266,7 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
             type: "terminal_output",
             agentId: cmd.agentId,
             data: buffer,
-          } as ServerMessage);
+          });
         }
       }
       break;
@@ -290,7 +291,7 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
             reason: probe.error === "not_agent" ? "io_error" : "bad_path",
             message:
               probe.error === "not_agent" ? "agent not found" : undefined,
-          } as ServerMessage),
+          }),
         );
         break;
       }
@@ -304,7 +305,7 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
             reason: r.kind,
             message: r.kind === "io_error" ? r.message : undefined,
             size: r.kind === "too_large" ? r.size : undefined,
-          } as ServerMessage),
+          }),
         );
         break;
       }
@@ -317,7 +318,7 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
           mtime: r.mtime,
           language: r.language,
           size: r.size,
-        } as ServerMessage),
+        }),
       );
       // Install (or replace) the per-WS watcher so external edits surface as
       // `editor_external_change`. Replacing collapses duplicate opens.
@@ -332,7 +333,7 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
             agentId: cmd.agentId,
             path: r.path,
             mtime,
-          } as ServerMessage),
+          }),
         );
       });
       if (watcher) map.set(key, watcher);
@@ -350,7 +351,7 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
             path: cmd.path,
             ok: false,
             error: "agent not found",
-          } as ServerMessage),
+          }),
         );
         break;
       }
@@ -368,7 +369,7 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
             path: result.path,
             ok: true,
             mtime: result.mtime,
-          } as ServerMessage),
+          }),
         );
       } else if (result.kind === "stale") {
         ws.send(
@@ -380,7 +381,7 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
             reason: "stale",
             currentMtime: result.currentMtime,
             error: "File changed on disk since you opened it.",
-          } as ServerMessage),
+          }),
         );
       } else {
         ws.send(
@@ -390,7 +391,7 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
             path: result.path,
             ok: false,
             error: result.message,
-          } as ServerMessage),
+          }),
         );
       }
       break;
@@ -413,14 +414,14 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
       if (envFile) {
         try {
           AgentManager.validateEnvPath(envFile);
-        } catch (err: any) {
+        } catch (err) {
           ws.send(
             JSON.stringify({
               type: "settings_save_response",
               requestId: cmd.requestId,
               ok: false,
-              error: err.message || "Invalid env file",
-            } as ServerMessage),
+              error: errMessage(err, "Invalid env file"),
+            }),
           );
           break;
         }
@@ -431,7 +432,7 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
           type: "settings_save_response",
           requestId: cmd.requestId,
           ok: true,
-        } as ServerMessage),
+        }),
       );
       break;
     }
@@ -444,7 +445,7 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
             requestId: cmd.requestId,
             ok: false,
             error: "Room not found",
-          } as ServerMessage),
+          }),
         );
       } else {
         ws.send(
@@ -452,7 +453,7 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
             type: "settings_save_response",
             requestId: cmd.requestId,
             ok: true,
-          } as ServerMessage),
+          }),
         );
       }
       break;
@@ -465,16 +466,16 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
             type: "cwd_validation",
             requestId: cmd.requestId,
             ok: true,
-          } as ServerMessage),
+          }),
         );
-      } catch (err: any) {
+      } catch (err) {
         ws.send(
           JSON.stringify({
             type: "cwd_validation",
             requestId: cmd.requestId,
             ok: false,
-            error: err.message || "Invalid directory",
-          } as ServerMessage),
+            error: errMessage(err, "Invalid directory"),
+          }),
         );
       }
       break;
@@ -509,10 +510,10 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
             requestId: cmd.requestId,
             ok: true,
             models: wire,
-          } as ServerMessage),
+          }),
         );
-      } catch (err: any) {
-        const message = err?.message || String(err);
+      } catch (err) {
+        const message = errMessage(err);
         // Auth-error flag lets the UI render a login-instructions message
         // instead of a generic "failed to load" — same pattern the
         // orchestrator uses for in-session auth detection.
@@ -530,7 +531,7 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
             ok: false,
             error: message,
             authError,
-          } as ServerMessage),
+          }),
         );
       }
       break;
@@ -551,7 +552,7 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
             username: cmd.username,
             envFile: null,
             ok: true,
-          } as ServerMessage),
+          }),
         );
         break;
       }
@@ -566,9 +567,9 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
             envFile,
             ok: true,
             keyCount,
-          } as ServerMessage),
+          }),
         );
-      } catch (err: any) {
+      } catch (err) {
         ws.send(
           JSON.stringify({
             type: "settings_validation",
@@ -577,8 +578,8 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
             username: cmd.username,
             envFile,
             ok: false,
-            error: err.message || "Invalid env file",
-          } as ServerMessage),
+            error: errMessage(err, "Invalid env file"),
+          }),
         );
       }
       break;
@@ -636,7 +637,7 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
       break;
     case "edit_message":
       // Don't await — let it stream in the background (like send_message)
-      AgentManager.editMessage(
+      void AgentManager.editMessage(
         cmd.agentId,
         cmd.logEntryId,
         cmd.newText,
@@ -647,15 +648,15 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
     case "add_cronjob": {
       try {
         AgentManager.validateCwd(cmd.cwd);
-      } catch (err: any) {
+      } catch (err) {
         if (cmd.requestId) {
           ws.send(
             JSON.stringify({
               type: "agent_save_response",
               requestId: cmd.requestId,
               ok: false,
-              error: err.message || "Invalid directory",
-            } as ServerMessage),
+              error: errMessage(err, "Invalid directory"),
+            }),
           );
         }
         break;
@@ -677,7 +678,7 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
             type: "agent_save_response",
             requestId: cmd.requestId,
             ok: true,
-          } as ServerMessage),
+          }),
         );
       }
       break;
@@ -686,15 +687,15 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
       if (cmd.changes.cwd) {
         try {
           AgentManager.validateCwd(cmd.changes.cwd);
-        } catch (err: any) {
+        } catch (err) {
           if (cmd.requestId) {
             ws.send(
               JSON.stringify({
                 type: "agent_save_response",
                 requestId: cmd.requestId,
                 ok: false,
-                error: err.message || "Invalid directory",
-              } as ServerMessage),
+                error: errMessage(err, "Invalid directory"),
+              }),
             );
           }
           break;
@@ -708,7 +709,7 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
             type: "agent_save_response",
             requestId: cmd.requestId,
             ok: true,
-          } as ServerMessage),
+          }),
         );
       }
       break;
@@ -726,7 +727,7 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
           type: "settings_save_response",
           requestId: cmd.requestId,
           ok: true,
-        } as ServerMessage),
+        }),
       );
       break;
     case "list_cronjob_runs": {
@@ -736,7 +737,7 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
           type: "cronjob_runs",
           cronjobId: cmd.cronjobId,
           runs,
-        } as ServerMessage),
+        }),
       );
       break;
     }
@@ -749,14 +750,12 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
             type: "cronjob_runs",
             cronjobId: jobId,
             runs,
-          } as ServerMessage),
+          }),
         );
       }
       // Sentinel so the client can flip its "runs loaded" flag even when no
       // cronjob has ever fired (no run dirs on disk = zero cronjob_runs sent).
-      ws.send(
-        JSON.stringify({ type: "cronjob_runs_complete" } as ServerMessage),
-      );
+      ws.send(JSON.stringify({ type: "cronjob_runs_complete" }));
       break;
     }
     case "load_cronjob_run": {
@@ -768,13 +767,13 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
         cmd.runId,
       );
       for (const entry of entries) {
-        ws.send(JSON.stringify({ type: "log_entry", entry } as ServerMessage));
+        ws.send(JSON.stringify({ type: "log_entry", entry }));
       }
       break;
     }
     case "send_cronjob_run_message":
       // Don't await — let it stream in the background (matches send_message).
-      CronjobManager.sendRunMessage(
+      void CronjobManager.sendRunMessage(
         cmd.cronjobId,
         cmd.runId,
         cmd.text,
@@ -784,7 +783,7 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
       break;
     case "edit_cronjob_run_message":
       // Don't await — let it stream in the background (matches edit_message).
-      CronjobManager.editRunMessage(
+      void CronjobManager.editRunMessage(
         cmd.cronjobId,
         cmd.runId,
         cmd.logEntryId,
@@ -798,8 +797,8 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
         defaultRoomId: cmd.defaultRoomId,
         notifRooms: cmd.notifRooms,
       });
-      broadcast({ type: "user_updated", user } as ServerMessage);
-      broadcast({ type: "users_list", users: listUsers() } as ServerMessage);
+      broadcast({ type: "user_updated", user });
+      broadcast({ type: "users_list", users: listUsers() });
       break;
     }
     case "update_user": {
@@ -807,15 +806,15 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
       if (cmd.changes.envFile && cmd.changes.envFile.trim()) {
         try {
           AgentManager.validateEnvPath(cmd.changes.envFile.trim());
-        } catch (err: any) {
+        } catch (err) {
           if (cmd.requestId) {
             ws.send(
               JSON.stringify({
                 type: "settings_save_response",
                 requestId: cmd.requestId,
                 ok: false,
-                error: err.message || "Invalid env file",
-              } as ServerMessage),
+                error: errMessage(err, "Invalid env file"),
+              }),
             );
           }
           break;
@@ -830,7 +829,7 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
               requestId: cmd.requestId,
               ok: false,
               error: result.error,
-            } as ServerMessage),
+            }),
           );
         }
         break;
@@ -841,7 +840,7 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
             type: "settings_save_response",
             requestId: cmd.requestId,
             ok: true,
-          } as ServerMessage),
+          }),
         );
       }
       // Tell the client the old key when a re-key rename happened, so it can
@@ -853,13 +852,13 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
         type: "user_updated",
         user: result.user,
         ...(renamed ? { prevName: cmd.username } : {}),
-      } as ServerMessage);
-      broadcast({ type: "users_list", users: listUsers() } as ServerMessage);
+      });
+      broadcast({ type: "users_list", users: listUsers() });
       break;
     }
     case "delete_user": {
       deleteUser(cmd.username);
-      broadcast({ type: "users_list", users: listUsers() } as ServerMessage);
+      broadcast({ type: "users_list", users: listUsers() });
       break;
     }
   }
@@ -1021,7 +1020,10 @@ const server = Bun.serve({
             headers: corsHeaders,
           });
         }
-        if (!body.title || !body.createdBy) {
+        if (
+          typeof body.title !== "string" ||
+          typeof body.createdBy !== "string"
+        ) {
           return new Response(
             JSON.stringify({ error: "title and createdBy required" }),
             { status: 400, headers: corsHeaders },
@@ -1033,18 +1035,15 @@ const server = Bun.serve({
             { status: 400, headers: corsHeaders },
           );
         }
-        const task = AgentManager.addTask(
-          String(body.title),
-          String(body.createdBy),
-          {
-            description: body.description
-              ? String(body.description)
-              : undefined,
-            priority: body.priority as TaskItem["priority"] | undefined,
-            assignee: body.assignee ? String(body.assignee) : undefined,
-            username: body.username ? String(body.username) : undefined,
-          },
-        );
+        const task = AgentManager.addTask(body.title, body.createdBy, {
+          description:
+            typeof body.description === "string" ? body.description : undefined,
+          priority: body.priority,
+          assignee:
+            typeof body.assignee === "string" ? body.assignee : undefined,
+          username:
+            typeof body.username === "string" ? body.username : undefined,
+        });
         return new Response(JSON.stringify(task), {
           status: 201,
           headers: corsHeaders,
@@ -1082,19 +1081,16 @@ const server = Bun.serve({
             "title" | "description" | "priority" | "status" | "assignee"
           >
         > = {};
-        if (body.title !== undefined) changes.title = String(body.title);
+        if (typeof body.title === "string") changes.title = body.title;
         if (body.description !== undefined)
-          changes.description = body.description
-            ? String(body.description)
-            : undefined;
-        if (body.status !== undefined)
-          changes.status = body.status as TaskItem["status"];
+          changes.description =
+            typeof body.description === "string" ? body.description : undefined;
+        if (body.status !== undefined) changes.status = body.status;
         if (body.priority !== undefined)
-          changes.priority = body.priority
-            ? (body.priority as TaskItem["priority"])
-            : undefined;
+          changes.priority = body.priority ? body.priority : undefined;
         if (body.assignee !== undefined)
-          changes.assignee = body.assignee ? String(body.assignee) : undefined;
+          changes.assignee =
+            typeof body.assignee === "string" ? body.assignee : undefined;
         const task = AgentManager.updateTask(taskId, changes);
         if (!task)
           return new Response(JSON.stringify({ error: "not found" }), {
@@ -1118,7 +1114,7 @@ const server = Bun.serve({
         const changes: Partial<Pick<TaskItem, "status" | "assignee">> = {
           status: "in_progress",
         };
-        if (body.assignee) changes.assignee = String(body.assignee);
+        if (typeof body.assignee === "string") changes.assignee = body.assignee;
         const task = AgentManager.updateTask(taskId, changes);
         if (!task)
           return new Response(JSON.stringify({ error: "not found" }), {
@@ -1169,7 +1165,7 @@ const server = Bun.serve({
           "Access-Control-Allow-Origin": "*",
           "Content-Type": "application/json",
         };
-        const agentId = parts[1]!;
+        const agentId = parts[1];
         let dir: string | undefined;
         try {
           const body = (await req.json()) as Record<string, unknown> | null;
@@ -1192,7 +1188,7 @@ const server = Bun.serve({
           "Access-Control-Allow-Origin": "*",
           "Content-Type": "application/json",
         };
-        const agentId = parts[1]!;
+        const agentId = parts[1];
         let path: string | undefined;
         try {
           const body = (await req.json()) as Record<string, unknown> | null;
@@ -1222,7 +1218,7 @@ const server = Bun.serve({
           "Access-Control-Allow-Origin": "*",
           "Content-Type": "application/json",
         };
-        const agentId = parts[1]!;
+        const agentId = parts[1];
         let command: string | undefined;
         try {
           const body = (await req.json()) as Record<string, unknown> | null;
@@ -1254,7 +1250,7 @@ const server = Bun.serve({
           "Access-Control-Allow-Origin": "*",
           "Content-Type": "application/json",
         };
-        const receiverId = parts[1]!;
+        const receiverId = parts[1];
         let body: Record<string, unknown> | null = null;
         try {
           body = (await req.json()) as Record<string, unknown> | null;
@@ -1376,9 +1372,9 @@ const server = Bun.serve({
         return new Response(JSON.stringify({ attachments }), {
           headers: { "Content-Type": "application/json" },
         });
-      } catch (err: any) {
+      } catch (err) {
         return new Response(
-          JSON.stringify({ error: err.message || "Upload failed" }),
+          JSON.stringify({ error: errMessage(err, "Upload failed") }),
           {
             status: 500,
             headers: { "Content-Type": "application/json" },
@@ -1427,7 +1423,7 @@ const server = Bun.serve({
     }
 
     // Static file serving
-    let filePath = url.pathname === "/" ? "/index.html" : url.pathname;
+    const filePath = url.pathname === "/" ? "/index.html" : url.pathname;
     const file = Bun.file(join(UI_DIST, filePath));
     if (await file.exists()) {
       return new Response(file, {
@@ -1448,7 +1444,7 @@ const server = Bun.serve({
         JSON.stringify({
           type: "users_list",
           users: listUsers(),
-        } as ServerMessage),
+        }),
       );
       // Send current agent list
       const agents = AgentManager.getAllAgents();
@@ -1460,14 +1456,14 @@ const server = Bun.serve({
           recentCwds,
           office: AgentManager.getOfficeSettings(),
           rooms: AgentManager.getRooms(),
-        } as ServerMessage),
+        }),
       );
       // Send tasks
       ws.send(
         JSON.stringify({
           type: "tasks",
           tasks: AgentManager.getTasks(),
-        } as ServerMessage),
+        }),
       );
       // Send cronjobs + cronjobsPrompt
       ws.send(
@@ -1475,7 +1471,7 @@ const server = Bun.serve({
           type: "cronjobs_state",
           cronjobs: CronjobManager.listCronjobs(),
           cronjobsPrompt: CronjobManager.getCronjobsPrompt(),
-        } as ServerMessage),
+        }),
       );
       // Send update status
       const update = getUpdateStatus();
@@ -1486,16 +1482,14 @@ const server = Bun.serve({
             updateAvailable: true,
             current: update.current,
             latest: update.latest,
-          } as ServerMessage),
+          }),
         );
       }
       // Send cached log history and slash commands for each agent
       for (const agent of agents) {
         const logs = AgentManager.getAgentLogs(agent.id);
         for (const entry of logs) {
-          ws.send(
-            JSON.stringify({ type: "log_entry", entry } as ServerMessage),
-          );
+          ws.send(JSON.stringify({ type: "log_entry", entry }));
         }
         const cmds = AgentManager.getAgentCommands(agent.id);
         if (cmds.commands.length > 0 || cmds.skills.length > 0) {
@@ -1505,7 +1499,7 @@ const server = Bun.serve({
               agentId: agent.id,
               commands: cmds.commands,
               skills: cmds.skills,
-            } as ServerMessage),
+            }),
           );
         }
       }
@@ -1513,7 +1507,7 @@ const server = Bun.serve({
     message(ws, data) {
       try {
         const cmd = JSON.parse(data as string) as ClientCommand;
-        handleCommand(cmd, ws);
+        void handleCommand(cmd, ws);
       } catch (e) {
         console.error("Invalid command:", e);
       }
@@ -1537,12 +1531,12 @@ onUpdateChange((status) => {
     updateAvailable: status.updateAvailable,
     current: status.current,
     latest: status.latest,
-  } as ServerMessage);
+  });
 });
 startUpdateChecker();
 
 // Restore persisted agents on startup
-AgentManager.restoreAgents().then((restored) => {
+void AgentManager.restoreAgents().then((restored) => {
   if (restored.length > 0) {
     console.log(
       `Restored ${restored.length} agent(s): ${restored.map((a) => a.name).join(", ")}`,
@@ -1559,6 +1553,6 @@ startBackupScheduler();
 // Codex CLI version check. Logs ok/mismatch/not-installed to the server log.
 // Doesn't block startup — Claude agents are independent. Codex agent spawn
 // (step 8) will refuse if this check failed.
-logCodexVersionAtBoot();
+void logCodexVersionAtBoot();
 
 console.log(`Isomux running at http://localhost:${server.port}`);

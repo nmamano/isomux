@@ -89,7 +89,7 @@ export function loadCronjobs(): Cronjob[] {
         r.username = r.device ?? null;
         migrated++;
       }
-      delete (r as any).device;
+      delete (r as { device?: unknown }).device;
     }
     if (migrated > 0) {
       console.log(

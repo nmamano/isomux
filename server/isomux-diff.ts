@@ -152,8 +152,8 @@ export function computeIsomuxDiff(cwd: string): ComputeDiffResult {
     for (const line of numstat.split("\n")) {
       const parts = line.split("\t");
       if (parts.length < 3) continue;
-      const addRaw = parts[0]!;
-      const delRaw = parts[1]!;
+      const addRaw = parts[0];
+      const delRaw = parts[1];
       const path = extractPostImagePath(parts.slice(2).join("\t"));
       const isBinary = addRaw === "-" && delRaw === "-";
       const additions = isBinary ? 0 : parseInt(addRaw, 10) || 0;

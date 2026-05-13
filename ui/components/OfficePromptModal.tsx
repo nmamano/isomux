@@ -22,10 +22,11 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const requestIdRef = useRef<string>("");
 
-  // Ask the server to re-validate the stored env file on open
+  // Ask the server to re-validate the stored env file on open.
   useEffect(() => {
     const saved = office.envFile;
     if (!saved) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setStatus({ kind: "idle" });
       return;
     }

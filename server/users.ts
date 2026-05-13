@@ -53,7 +53,7 @@ function load(): Record<string, UserRecord> {
 function normalizeNotifRooms(value: unknown): NotifRoomsSetting {
   if (value === "all") return "all";
   if (Array.isArray(value) && value.every((x) => typeof x === "string"))
-    return value as string[];
+    return value;
   return "all";
 }
 

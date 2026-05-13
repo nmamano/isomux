@@ -11,6 +11,7 @@ import {
 } from "fs";
 import { extname, isAbsolute, join, resolve } from "path";
 import { homedir } from "os";
+import { errMessage } from "../shared/errors.ts";
 
 export type ResolvePathResult =
   | { kind: "ok"; path: string }
@@ -113,11 +114,11 @@ export function openFile(absPath: string): OpenFileResult {
   let st;
   try {
     st = statSync(absPath);
-  } catch (err: any) {
+  } catch (err) {
     return {
       kind: "io_error",
       path: absPath,
-      message: err?.message ?? String(err),
+      message: errMessage(err),
     };
   }
   if (!st.isFile()) return { kind: "not_file", path: absPath };
@@ -127,11 +128,11 @@ export function openFile(absPath: string): OpenFileResult {
   let content: string;
   try {
     content = readFileSync(absPath, "utf8");
-  } catch (err: any) {
+  } catch (err) {
     return {
       kind: "io_error",
       path: absPath,
-      message: err?.message ?? String(err),
+      message: errMessage(err),
     };
   }
   return {
@@ -168,11 +169,11 @@ export function saveFile(
     writeFileSync(absPath, content, "utf8");
     const st = statSync(absPath);
     return { kind: "ok", path: absPath, mtime: Math.floor(st.mtimeMs) };
-  } catch (err: any) {
+  } catch (err) {
     return {
       kind: "io_error",
       path: absPath,
-      message: err?.message ?? String(err),
+      message: errMessage(err),
     };
   }
 }

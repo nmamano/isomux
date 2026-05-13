@@ -55,7 +55,7 @@ function onVisible() {
   }
   // iOS/Android can freeze a backgrounded socket without closing it; verify with a ping.
   try {
-    socket.send(JSON.stringify({ type: "ping" } as ClientCommand));
+    socket.send(JSON.stringify({ type: "ping" }));
   } catch {
     connect(handler);
     return;

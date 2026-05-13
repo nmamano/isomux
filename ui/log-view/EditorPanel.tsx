@@ -156,9 +156,11 @@ export function EditorPanel({
   const tabMenuButtonRef = useRef<HTMLButtonElement>(null);
 
   const tabsRef = useRef<Tab[]>([]);
-  tabsRef.current = tabs;
   const activePathRef = useRef<string | null>(null);
+  /* eslint-disable react-hooks/refs */
+  tabsRef.current = tabs;
   activePathRef.current = activePath;
+  /* eslint-enable react-hooks/refs */
   // Tracks the language currently installed in the lang compartment so the
   // sync effect only reconfigures when the buffer's language actually changes.
   const installedLangRef = useRef<string | null>(null);
@@ -213,6 +215,7 @@ export function EditorPanel({
   useEffect(() => {
     const persisted = getEditorState(agentId);
     if (persisted && persisted.tabs.length > 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       for (const t of persisted.tabs) openPath(t.path);
       return;
     }
@@ -230,6 +233,7 @@ export function EditorPanel({
   // module store with a different activePath set already.
   useEffect(() => {
     if (!initialPath) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setActivePath(initialPath);
     const existing = tabsRef.current.find((t) => t.path === initialPath);
     if (!existing) openPath(initialPath);
@@ -252,7 +256,7 @@ export function EditorPanel({
         setTabsAndPersist((prev) => {
           const idx = prev.findIndex((t) => t.path === m.path);
           if (idx >= 0) {
-            const existing = prev[idx]!;
+            const existing = prev[idx];
             const next = prev.slice();
             if (existing.dirty) {
               // Preserve the dirty buffer — this happens after agent-switch
@@ -546,7 +550,7 @@ export function EditorPanel({
         if (prev !== path) return prev;
         const remaining = tabsRef.current.filter((t) => t.path !== path);
         return remaining.length > 0
-          ? remaining[remaining.length - 1]!.path
+          ? remaining[remaining.length - 1].path
           : null;
       });
       // If we just closed the last tab, force the mobile dropdown shut so a

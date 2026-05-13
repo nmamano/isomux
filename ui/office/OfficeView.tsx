@@ -5,7 +5,6 @@ import { RoomProps } from "./RoomProps.tsx";
 import { RoomTabBar } from "./RoomTabBar.tsx";
 import { DeskUnit } from "./DeskUnit.tsx";
 import { EmptySlot } from "./EmptySlot.tsx";
-import { StatusLight } from "./StatusLight.tsx";
 import { SCENE_W, SCENE_H } from "./grid.ts";
 import { send } from "../ws.ts";
 import { SunIcon, MoonIcon } from "../components/ThemeIcons.tsx";
@@ -162,6 +161,8 @@ export function OfficeView({
       swipeRef(node);
       viewport.setContainer(node);
     },
+    // viewport.setContainer is stable across renders by construction.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [swipeRef, viewport.setContainer],
   );
 
@@ -433,6 +434,8 @@ export function OfficeView({
 
         {/* Viewport layer — zoom/pan transform applies here, wrapping the centered scene */}
         <div
+          // viewport.setScene is a stable callback from useViewport.
+          // eslint-disable-next-line react-hooks/refs
           ref={viewport.setScene}
           style={{
             position: "absolute",
@@ -442,6 +445,8 @@ export function OfficeView({
         >
           {/* Centered scene container — static centering transform */}
           <div
+            // viewport.setContent: same stable-callback pattern as setScene above.
+            // eslint-disable-next-line react-hooks/refs
             ref={viewport.setContent}
             style={{
               position: "absolute",
@@ -510,6 +515,9 @@ export function OfficeView({
             {currentRoom > 0 && (
               <DoorDropZone
                 side="left"
+                // viewport.wrapClick is a stable callback that wraps a click
+                // handler to suppress clicks during pan-drag.
+                // eslint-disable-next-line react-hooks/refs
                 onClick={viewport.wrapClick(() =>
                   dispatch({ type: "set_current_room", room: currentRoom - 1 }),
                 )}
@@ -539,6 +547,8 @@ export function OfficeView({
             {currentRoom < roomCount - 1 && (
               <DoorDropZone
                 side="right"
+                // viewport.wrapClick: same stable-callback pattern as left door.
+                // eslint-disable-next-line react-hooks/refs
                 onClick={viewport.wrapClick(() =>
                   dispatch({ type: "set_current_room", room: currentRoom + 1 }),
                 )}
@@ -565,6 +575,7 @@ export function OfficeView({
                 }}
               />
             )}
+            {/* eslint-disable react-hooks/refs -- viewport.wrapClick is a stable callback */}
             {Array.from({ length: 8 }, (_, i) => {
               const agent = roomAgents.find((a) => a.desk === i);
               if (agent) {
@@ -611,16 +622,19 @@ export function OfficeView({
                 />
               );
             })}
+            {/* eslint-enable react-hooks/refs */}
           </div>
         </div>
 
         {/* Zoom controls */}
         {!embed && (
+          /* eslint-disable react-hooks/refs -- stable callbacks from useViewport */
           <ZoomControls
             onZoomIn={viewport.zoomIn}
             onZoomOut={viewport.zoomOut}
             onReset={viewport.resetView}
           />
+          /* eslint-enable react-hooks/refs */
         )}
 
         {/* Vignette */}

@@ -20,8 +20,6 @@ const SVG_STYLE: React.CSSProperties = {
 const VB = `${VB_X} ${VB_Y} ${SCENE_W} ${SCENE_H}`;
 
 export function Floor() {
-  const { currentRoom } = useAppState();
-  const neon = NEON_COLORS[currentRoom % NEON_COLORS.length];
   // Floor diamond matches wall bottom edges (2:1 isometric ratio):
   // back=(120,40), left=(-260,230), right=(500,230), front=(120,420)
   const backX = 120,

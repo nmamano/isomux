@@ -11,11 +11,10 @@ import type {
   AgentState,
   LogEntry,
   QueuedMessage,
-  SkillInfo,
   Attachment,
 } from "../../shared/types.ts";
 import { formatIdentity } from "../../shared/identity.ts";
-import { familyDisplayLabel, type ModelFamily } from "../../shared/types.ts";
+import { familyDisplayLabel } from "../../shared/types.ts";
 import { StatusLight } from "../office/StatusLight.tsx";
 import { Character } from "../office/Character.tsx";
 import { send } from "../ws.ts";
@@ -135,7 +134,7 @@ function ActivityIndicator({
   agentId: string;
 }) {
   const label = STATE_LABELS[state];
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
     if (!label) return;
@@ -449,7 +448,7 @@ function HeaderTimer({
   state: AgentState;
   stateChangedAt?: number;
 }) {
-  const [now, setNow] = useState(Date.now());
+  const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 100);
     return () => clearInterval(id);
@@ -678,18 +677,23 @@ export function LogView({
   );
   const messagesRef: RefCallback<HTMLDivElement> = useCallback(
     (node: HTMLDivElement | null) => {
-      (scrollRef as React.MutableRefObject<HTMLDivElement | null>).current =
-        node;
+      scrollRef.current = node;
       swipeRef(node);
     },
+    // useSwipeLeftRight returns a stable callback (memoized internally), so
+    // omitting swipeRef from deps is safe.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
 
   // Dismiss edit textarea when agent is no longer idle (e.g. another tab sent a message)
   useEffect(() => {
     if (agent.state !== "waiting_for_response" && editingLogEntryId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setEditingLogEntryId(null);
     }
+    // We only react to agent.state transitions, not to edit start/stop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agent.state]);
 
   // Mobile keyboard fix: use visualViewport.height as the container height.
@@ -767,6 +771,7 @@ export function LogView({
 
   // Reset selection when filter changes
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSelectedIdx(0);
   }, [filteredCommands.length, partial]);
 
@@ -809,6 +814,9 @@ export function LogView({
       const len = textareaRef.current.value.length;
       textareaRef.current.setSelectionRange(len, len);
     }
+    // Mount-only — we read `input` at mount and don't re-apply selection on
+    // every keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Ctrl+` to toggle terminal panel
@@ -822,7 +830,7 @@ export function LogView({
     }
     window.addEventListener("keydown", handleTerminalShortcut);
     return () => window.removeEventListener("keydown", handleTerminalShortcut);
-  }, [isMobile, features.terminal]);
+  }, [isMobile, features.terminal, setTerminalOpen]);
 
   // Ctrl+E to toggle editor panel. Sharing the side slot with the terminal —
   // opening one closes the other for v1 (40% width × two panels would crush
@@ -846,7 +854,7 @@ export function LogView({
     }
     window.addEventListener("keydown", handleEditorShortcut);
     return () => window.removeEventListener("keydown", handleEditorShortcut);
-  }, [isMobile, features.editor]);
+  }, [isMobile, features.editor, setEditorOpen]);
 
   function handleScroll() {
     if (!scrollRef.current) return;
@@ -933,7 +941,6 @@ export function LogView({
   // Compute agent turns: group entries between user_messages
   // For each entry, determine if it's the last in its agent turn
   const turnData = useMemo(() => {
-    const result: { isLastInTurn: boolean; turnEntries: LogEntry[] }[] = [];
     // Identify turn boundaries (user_message entries start a new turn)
     // Agent turn = all non-user entries after a user message, until the next user message
     let currentTurn: { startIdx: number; entries: LogEntry[] } = {
@@ -1133,8 +1140,7 @@ export function LogView({
   }
 
   const SpeechRecognition =
-    (window as any).SpeechRecognition ||
-    (window as any).webkitSpeechRecognition;
+    window.SpeechRecognition ?? window.webkitSpeechRecognition;
 
   // Tracks the draft text before voice started + all finalized speech segments
   const committedTextRef = useRef("");
@@ -1189,7 +1195,13 @@ export function LogView({
     }
   }
 
-  // Ctrl+Space push-to-talk
+  // Ctrl+Space push-to-talk. Latest-ref the handlers so the mount-only
+  // listener dispatches to the current agent even if agent.id changes
+  // while LogView stays mounted (avoids stale-closure on dispatch / agent.id).
+  const startListeningRef = useRef(startListening);
+  const stopListeningRef = useRef(stopListening);
+  startListeningRef.current = startListening;
+  stopListeningRef.current = stopListening;
   useEffect(() => {
     if (!SpeechRecognition || !window.isSecureContext) return;
     function onKeyDown(e: KeyboardEvent) {
@@ -1202,12 +1214,12 @@ export function LogView({
         !e.repeat
       ) {
         e.preventDefault();
-        startListening();
+        startListeningRef.current();
       }
     }
     function onKeyUp(e: KeyboardEvent) {
       if (e.code === "Space" && !e.repeat) {
-        stopListening();
+        stopListeningRef.current();
       }
     }
     window.addEventListener("keydown", onKeyDown);
@@ -1217,6 +1229,8 @@ export function LogView({
       window.removeEventListener("keyup", onKeyUp);
       recognitionRef.current?.stop();
     };
+    // SpeechRecognition is read once at mount; handlers go through refs above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function handleFileSelect(files: FileList | null) {
@@ -1332,8 +1346,7 @@ export function LogView({
     const attachments =
       validAttachments.length > 0
         ? validAttachments.map(
-            ({ id: _id, uploading: _u, error: _e, ...att }) =>
-              att as Attachment,
+            ({ id: _id, uploading: _u, error: _e, ...att }) => att,
           )
         : undefined;
     send({

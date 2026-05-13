@@ -13,14 +13,13 @@ import { createHash } from "crypto";
 import type {
   AgentInfo,
   Attachment,
-  ClaudeModel,
   EffortLevel,
   LogEntry,
-  ModelFamily,
   OfficeSettings,
   TaskItem,
 } from "../shared/types.ts";
 import { familyFromLegacyModel, generateRoomId } from "../shared/types.ts";
+import { errMessage } from "../shared/errors.ts";
 
 const ISOMUX_DIR = join(homedir(), ".isomux");
 const LOGS_DIR = join(ISOMUX_DIR, "logs");
@@ -80,7 +79,7 @@ export function loadLog(agentId: string, sessionId: string): LogEntry[] {
         });
         delete entry.images;
       }
-      return entry as LogEntry;
+      return entry;
     });
   } catch (err) {
     console.error("Failed to load log:", err);
@@ -304,9 +303,7 @@ export function appendSessionUsageSnapshot(
 }
 
 // List all sessions for an agent (sorted by most recent first), with topics from sessions.json
-export function listAgentSessions(
-  agentId: string,
-): {
+export function listAgentSessions(agentId: string): {
   sessionId: string;
   lastModified: number;
   topic: string | null;
@@ -410,7 +407,9 @@ export interface PersistedUsage {
 
 // Migrate a persisted agent that may have the legacy `model: "claude-opus-4-6"`
 // field to the current `modelFamily: "opus"` shape. Mutates in place.
-function migratePersistedAgent(agent: any) {
+function migratePersistedAgent(
+  agent: PersistedAgent & { model?: string },
+): void {
   if (agent.modelFamily) return;
   if (typeof agent.model === "string") {
     agent.modelFamily = familyFromLegacyModel(agent.model);
@@ -432,7 +431,7 @@ export function loadAgents(): Room[] {
     prompt: null,
     agents: [],
   });
-  let rooms: any[];
+  let rooms: (Room & { envFile?: string })[];
   try {
     if (!existsSync(AGENTS_FILE)) return [defaultRoom()];
     const content = readFileSync(AGENTS_FILE, "utf-8");
@@ -488,11 +487,11 @@ export function loadAgents(): Room[] {
       strippedRoomEnv++;
     }
     delete room.envFile;
-    for (const agent of room.agents as PersistedAgent[]) {
+    for (const agent of room.agents) {
       migratePersistedAgent(agent);
       // Stamp username: null on legacy agents that pre-date the user/device split.
       if (!("username" in agent)) {
-        (agent as any).username = null;
+        agent.username = null;
         migratedAgents++;
       }
     }
@@ -507,7 +506,7 @@ export function loadAgents(): Room[] {
       `[migration] stripped envFile from ${strippedRoomEnv} room(s); env is now per-user`,
     );
   }
-  return rooms as Room[];
+  return rooms;
 }
 
 export function saveAgents(rooms: Room[]) {
@@ -647,7 +646,7 @@ export function parseDotenv(content: string): Record<string, string> {
     if (i === 0 && line.charCodeAt(0) === 0xfeff) line = line.slice(1);
     const stripped = line.trim();
     if (!stripped || stripped.startsWith("#")) continue;
-    let working = stripped.startsWith("export ")
+    const working = stripped.startsWith("export ")
       ? stripped.slice(7).trimStart()
       : stripped;
     const eqIdx = working.indexOf("=");
@@ -699,8 +698,10 @@ export function readEnvFile(path: string): Record<string, string> {
   let content: string;
   try {
     content = readFileSync(path, "utf-8");
-  } catch (err: any) {
-    throw new Error(`unreadable: ${err.message || String(err)}`);
+  } catch (err) {
+    throw new Error(`unreadable: ${errMessage(err)}`, {
+      cause: err,
+    });
   }
   return parseDotenv(content);
 }
@@ -750,7 +751,7 @@ export function loadTasks(): TaskItem[] {
         r.username = r.device;
         migrated++;
       }
-      delete (r as any).device;
+      delete (r as { device?: unknown }).device;
     }
     if (migrated > 0) {
       console.log(
@@ -777,23 +778,6 @@ export function saveTasks(tasks: TaskItem[]) {
 
 const MAX_FILE_BYTES = 20 * 1024 * 1024; // 20MB
 
-const MIME_TO_EXTENSION: Record<string, string> = {
-  "image/jpeg": "jpg",
-  "image/png": "png",
-  "image/gif": "gif",
-  "image/webp": "webp",
-  "application/pdf": "pdf",
-  "text/plain": "txt",
-  "text/markdown": "md",
-  "text/csv": "csv",
-  "application/json": "json",
-  "text/xml": "xml",
-  "application/xml": "xml",
-  "text/yaml": "yaml",
-  "text/html": "html",
-  "text/css": "css",
-};
-
 const EXTENSION_TO_MIME: Record<string, string> = {
   jpg: "image/jpeg",
   jpeg: "image/jpeg",
@@ -815,7 +799,7 @@ const EXTENSION_TO_MIME: Record<string, string> = {
 /** Sanitize a filename: strip path components, replace unsafe chars, fallback to hash. */
 function sanitizeFilename(name: string): string {
   // Strip directory components
-  const base = name.replace(/.*[\/\\]/, "");
+  const base = name.replace(/.*[/\\]/, "");
   // Replace anything that isn't alphanumeric, dot, dash, underscore, or space
   const clean = base.replace(/[^a-zA-Z0-9.\-_ ]/g, "_");
   return clean || "file";
@@ -869,7 +853,7 @@ export function saveFile(
 /** Resolve a filename to its disk path, or null if invalid/missing. */
 export function getFilePath(agentId: string, filename: string): string | null {
   // Block path traversal
-  if (/[\/\\]/.test(filename) || /[\/\\]/.test(agentId)) return null;
+  if (/[/\\]/.test(filename) || /[/\\]/.test(agentId)) return null;
   if (filename === "." || filename === "..") return null;
   // Try new files/ directory first, fall back to legacy images/
   const filePath = join(LOGS_DIR, agentId, "files", filename);

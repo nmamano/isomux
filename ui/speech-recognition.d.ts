@@ -1,6 +1,5 @@
 // Minimal ambient types for the Web Speech API (Chromium/webkit only, not in
-// the standard TS DOM lib). Runtime access goes through a `(window as any)`
-// cast, so these are only here to satisfy the type checker.
+// the standard TS DOM lib). Declare on Window so callsites read typed access.
 
 interface SpeechRecognitionResult {
   readonly isFinal: boolean;
@@ -27,4 +26,13 @@ interface SpeechRecognition extends EventTarget {
   onerror: (() => void) | null;
   start(): void;
   stop(): void;
+}
+
+interface SpeechRecognitionConstructor {
+  new (): SpeechRecognition;
+}
+
+interface Window {
+  SpeechRecognition?: SpeechRecognitionConstructor;
+  webkitSpeechRecognition?: SpeechRecognitionConstructor;
 }

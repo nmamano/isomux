@@ -233,7 +233,7 @@ export default async function handler(req: Request) {
 
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-  const stream = await client.messages.stream({
+  const stream = client.messages.stream({
     model: "claude-sonnet-4-6",
     max_tokens: 1000,
     system: SYSTEM_PROMPT,

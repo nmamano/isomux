@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useAppState, useDispatch } from "../store.tsx";
+import { useAppState } from "../store.tsx";
 import { send } from "../ws.ts";
 import { CronjobDialog } from "./CronjobDialog.tsx";
 import { CronjobsPromptDialog } from "./CronjobsPromptDialog.tsx";
@@ -87,7 +87,6 @@ export function CronjobsView({
     cronjobRunsLoaded,
     isMobile,
   } = useAppState();
-  const dispatch = useDispatch();
   const [tab, setTab] = useState<Tab>("runs");
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Cronjob | null>(null);
@@ -115,6 +114,8 @@ export function CronjobsView({
   useEffect(() => {
     if (runFilter)
       send({ type: "list_cronjob_runs", cronjobId: runFilter.jobId });
+    // Depend only on the id; full runFilter object identity churns per render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runFilter?.jobId]);
 
   const allRuns: CronjobRun[] = useMemo(() => {
@@ -149,19 +150,6 @@ export function CronjobsView({
     window.addEventListener("keydown", handleKey, true);
     return () => window.removeEventListener("keydown", handleKey, true);
   }, [openRun, editing, creating, editingPrompt]);
-
-  const cellPad = isMobile ? "6px 4px" : "8px 10px";
-  const thStyle: React.CSSProperties = {
-    padding: cellPad,
-    fontSize: 10,
-    fontWeight: 700,
-    color: "var(--text-muted)",
-    fontFamily: "'JetBrains Mono',monospace",
-    letterSpacing: "0.05em",
-    textAlign: "left",
-    whiteSpace: "nowrap",
-    borderBottom: "1px solid var(--border-subtle)",
-  };
 
   return (
     <div
@@ -654,6 +642,7 @@ function RunsTable({
   const PAGE_SIZE = 50;
   const [page, setPage] = useState(0);
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPage(0);
   }, [runs.length]);
   const pageStart = page * PAGE_SIZE;

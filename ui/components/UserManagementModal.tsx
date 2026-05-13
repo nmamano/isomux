@@ -357,6 +357,7 @@ function UserEditPanel({
   // Validate the stored envFile on open.
   useEffect(() => {
     if (!user.envFile) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setValidation({ kind: "idle" });
       return;
     }

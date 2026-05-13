@@ -46,6 +46,8 @@ export function PanelResizer({
     document.body.style.cursor = "";
     document.body.style.userSelect = "";
     window.removeEventListener("mousemove", onMouseMove);
+    // Self-reference is needed to remove the listener registered by mouseDown.
+    // eslint-disable-next-line react-hooks/immutability
     window.removeEventListener("mouseup", onMouseUp);
     if (panelRef.current) {
       onCommit(panelRef.current.offsetWidth);

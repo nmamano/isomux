@@ -12,12 +12,12 @@ import type {
 import type { OfficeEvent } from "../shared/office-state.ts";
 import {
   MODEL_FAMILIES,
-  FAMILY_TO_MODEL,
   EFFORT_LEVELS,
   familyDisplayLabel,
   effortDisplayLabel,
 } from "../shared/types.ts";
 import { formatPrefix } from "../shared/identity.ts";
+import { errMessage } from "../shared/errors.ts";
 import { listAgentSessions } from "./persistence.ts";
 import {
   commands,
@@ -217,11 +217,11 @@ export function createCommandHandling(deps: HandlerDeps) {
         }
 
         deps.addLogEntry(agentId, "system", lines.join("\n"));
-      } catch (err: any) {
+      } catch (err) {
         deps.addLogEntry(
           agentId,
           "system",
-          `Failed to get context usage: ${err.message}`,
+          `Failed to get context usage: ${errMessage(err)}`,
         );
       }
       return true;
@@ -489,7 +489,7 @@ export function createCommandHandling(deps: HandlerDeps) {
     ) {
       const userMeta = buildMeta(username, device);
       deps.addLogEntry(agentId, "user_message", rawText, userMeta);
-      const room = deps.getRooms()[managed.info.room]!;
+      const room = deps.getRooms()[managed.info.room];
       const officeConfig = deps.getOfficeConfig();
       const prompt = buildSystemPrompt(
         managed.info.name,
@@ -782,9 +782,9 @@ export function createCommandHandling(deps: HandlerDeps) {
       const turn = deps.createTurnDeferred(managed);
       await managed.session!.send(prefixedSkillPrompt);
       await turn;
-    } catch (err: any) {
+    } catch (err) {
       if (err instanceof SessionSwappedError) return true;
-      deps.addLogEntry(agentId, "error", `Skill error: ${err.message}`);
+      deps.addLogEntry(agentId, "error", `Skill error: ${errMessage(err)}`);
       deps.updateState(agentId, "error");
     }
     return true;

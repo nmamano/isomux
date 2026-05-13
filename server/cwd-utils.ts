@@ -11,6 +11,7 @@ import {
   statSync,
 } from "fs";
 import { listAgentSessions } from "./persistence.ts";
+import { errMessage, errCode } from "../shared/errors.ts";
 
 // Path to the Claude CLI native binary that ships with the Agent SDK.
 // The SDK's auto-resolver tries the musl variant first on Linux, which fails
@@ -220,9 +221,9 @@ function rolloutFileHasNonMetaLine(path: string): boolean {
     if (scanned >= CODEX_ROLLOUT_HEADER_SCAN_LINES) return true;
     if (!segment.length) continue;
     scanned++;
-    let parsed: any;
+    let parsed: { type?: unknown } | null = null;
     try {
-      parsed = JSON.parse(segment);
+      parsed = JSON.parse(segment) as { type?: unknown };
     } catch {
       // For the final segment of a file that doesn't end with a newline,
       // parse failure means a mid-write capture or a line past our window —
@@ -292,10 +293,12 @@ export function validateCwd(cwd: string): string {
   let stat;
   try {
     stat = statSync(resolved);
-  } catch (err: any) {
-    if (err.code === "ENOENT")
-      throw new Error(`Directory does not exist: ${resolved}`);
-    throw new Error(`Cannot access ${resolved}: ${err.message}`);
+  } catch (err) {
+    if (errCode(err) === "ENOENT")
+      throw new Error(`Directory does not exist: ${resolved}`, { cause: err });
+    throw new Error(`Cannot access ${resolved}: ${errMessage(err)}`, {
+      cause: err,
+    });
   }
   if (!stat.isDirectory()) throw new Error(`Not a directory: ${resolved}`);
   return resolved;

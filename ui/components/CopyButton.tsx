@@ -62,7 +62,7 @@ export function CopyButton({
 
   return (
     <button
-      onClick={handleCopy}
+      onClick={() => void handleCopy()}
       className="copy-btn"
       title={copied ? "Copied!" : "Copy"}
       style={{

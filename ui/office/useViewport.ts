@@ -270,6 +270,7 @@ export function useViewport(layoutKey: string, enabled: boolean) {
   const resetView = useCallback((animate = true) => {
     state.current = { ...DEFAULT_STATE };
     applyTransform(animate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const zoomIn = useCallback(() => {
@@ -283,6 +284,7 @@ export function useViewport(layoutKey: string, enabled: boolean) {
       rect.height / 2,
       state.current.scale * VIEWPORT.ZOOM_STEP,
     );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const zoomOut = useCallback(() => {
@@ -296,6 +298,7 @@ export function useViewport(layoutKey: string, enabled: boolean) {
       rect.height / 2,
       state.current.scale / VIEWPORT.ZOOM_STEP,
     );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /** True when the user has zoomed in past the rest scale — used to route one-finger drags
@@ -324,6 +327,7 @@ export function useViewport(layoutKey: string, enabled: boolean) {
     measureSceneBounds();
     clampPan();
     applyTransform();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layoutKey]);
 
   // This effect's deps are `[container, enabled]`. The DOM handlers registered
@@ -687,6 +691,7 @@ export function useViewport(layoutKey: string, enabled: boolean) {
       // that dispatching into the handler we're about to remove.
       abortAllGestures();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [container, enabled]);
 
   return {

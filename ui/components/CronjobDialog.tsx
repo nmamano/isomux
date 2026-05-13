@@ -52,13 +52,13 @@ export function CronjobDialog({
   // the onChange clamping mid-keystroke (e.g. "3" → clamped to 5). Final values
   // are parsed and clamped at save time.
   const initialHour =
-    cronjob?.schedule.type === "interval"
-      ? 9
-      : ((cronjob?.schedule as any)?.hour ?? 9);
+    cronjob?.schedule.type === "daily" || cronjob?.schedule.type === "weekly"
+      ? cronjob.schedule.hour
+      : 9;
   const initialMinute =
-    cronjob?.schedule.type === "interval"
-      ? 0
-      : ((cronjob?.schedule as any)?.minute ?? 0);
+    cronjob?.schedule.type === "daily" || cronjob?.schedule.type === "weekly"
+      ? cronjob.schedule.minute
+      : 0;
   const initialInterval =
     cronjob?.schedule.type === "interval" ? cronjob.schedule.minutes : 60;
   const [hourStr, setHourStr] = useState(String(initialHour));
@@ -154,9 +154,9 @@ export function CronjobDialog({
       send({
         type: "update_cronjob",
         requestId: reqId,
-        id: cronjob!.id,
+        id: cronjob.id,
         changes: {
-          name: name.trim() || cronjob!.name,
+          name: name.trim() || cronjob.name,
           schedule: buildSchedule(),
           prompt,
           cwd,
@@ -252,7 +252,7 @@ export function CronjobDialog({
                 fontFamily: "'JetBrains Mono',monospace",
               }}
             >
-              #{cronjob!.id}
+              #{cronjob.id}
             </p>
           )}
 

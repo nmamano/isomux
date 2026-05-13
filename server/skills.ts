@@ -3,6 +3,11 @@ import { join } from "path";
 import { homedir } from "os";
 import { existsSync, readdirSync, readFileSync } from "fs";
 
+// Shape of ~/.claude/plugins/installed_plugins.json that we care about.
+interface PluginManifest {
+  plugins?: Record<string, { installPath?: string }[]>;
+}
+
 // Skills bundled with isomux itself (available to all users regardless of their config)
 export const BUNDLED_SKILLS_DIR = join(import.meta.dir, "..", "skills");
 
@@ -114,9 +119,11 @@ export function discoverPluginSkills(): SkillInfo[] {
   );
   if (!existsSync(manifestPath)) return skills;
 
-  let manifest: any;
+  let manifest: PluginManifest;
   try {
-    manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
+    manifest = JSON.parse(
+      readFileSync(manifestPath, "utf-8"),
+    ) as PluginManifest;
   } catch {
     return skills;
   }
@@ -126,7 +133,7 @@ export function discoverPluginSkills(): SkillInfo[] {
   for (const [key, entries] of Object.entries(manifest.plugins)) {
     if (!Array.isArray(entries) || entries.length === 0) continue;
     const pluginName = key.split("@")[0];
-    const installPath = (entries as any[])[0].installPath;
+    const installPath = entries[0].installPath;
     if (!installPath || !existsSync(installPath)) continue;
 
     // skills/<name>/SKILL.md (check user-invocable frontmatter)
@@ -210,18 +217,21 @@ function resolvePluginSkillPrompt(
     "installed_plugins.json",
   );
   if (!existsSync(manifestPath)) return null;
-  let manifest: any;
+  let manifest: PluginManifest;
   try {
-    manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
+    manifest = JSON.parse(
+      readFileSync(manifestPath, "utf-8"),
+    ) as PluginManifest;
   } catch {
     return null;
   }
 
-  const pluginKey = Object.keys(manifest.plugins ?? {}).find(
+  const plugins = manifest.plugins ?? {};
+  const pluginKey = Object.keys(plugins).find(
     (k) => k.split("@")[0] === pluginName,
   );
   if (!pluginKey) return null;
-  const entries = manifest.plugins[pluginKey];
+  const entries = plugins[pluginKey];
   if (!Array.isArray(entries) || entries.length === 0) return null;
   const installPath = entries[0].installPath;
   if (!installPath) return null;

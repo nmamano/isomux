@@ -17,6 +17,8 @@ import {
   getSessionMessages,
   type SDKMessage,
 } from "@anthropic-ai/claude-agent-sdk";
+
+type SdkSessionOptions = Parameters<typeof unstable_v2_createSession>[0];
 import {
   FAMILY_TO_MODEL,
   generateCronjobId,
@@ -38,6 +40,7 @@ import {
   claudeProjectDir,
 } from "./cwd-utils.ts";
 import { formatPrefix } from "../shared/identity.ts";
+import { errMessage } from "../shared/errors.ts";
 import { createSafetyHooks } from "./safety-hooks.ts";
 import {
   loadOfficeConfig,
@@ -394,9 +397,9 @@ How to answer questions about Isomux itself: the source lives at https://github.
 function processCronjobMessage(active: ActiveRun, msg: SDKMessage) {
   switch (msg.type) {
     case "system": {
-      const subtype = (msg as any).subtype;
+      const subtype = msg.subtype;
       if (subtype === "init") {
-        const sessionId = (msg as any).session_id as string | undefined;
+        const sessionId = msg.session_id as string | undefined;
         if (sessionId && !active.sessionId) {
           active.sessionId = sessionId;
           // If the SDK assigned a different id than rootSessionId, update the
@@ -427,7 +430,7 @@ function processCronjobMessage(active: ActiveRun, msg: SDKMessage) {
       break;
     }
     case "assistant": {
-      const content = (msg as any).message?.content;
+      const content = msg.message?.content;
       if (!Array.isArray(content)) break;
       for (const block of content) {
         if (block.type === "text" && block.text) {
@@ -445,7 +448,7 @@ function processCronjobMessage(active: ActiveRun, msg: SDKMessage) {
       break;
     }
     case "user": {
-      const content = (msg as any).message?.content;
+      const content = msg.message?.content;
       if (!Array.isArray(content)) break;
       for (const block of content) {
         if (block.type === "tool_result") {
@@ -454,8 +457,13 @@ function processCronjobMessage(active: ActiveRun, msg: SDKMessage) {
               ? block.content
               : Array.isArray(block.content)
                 ? block.content
-                    .filter((c: any) => c.type === "text")
-                    .map((c: any) => c.text)
+                    .filter(
+                      (c: {
+                        type?: string;
+                      }): c is { type: "text"; text: string } =>
+                        c.type === "text",
+                    )
+                    .map((c) => c.text)
                     .join("\n")
                 : JSON.stringify(block.content);
           // Extract image attachments from tool_result blocks (e.g. from the
@@ -465,8 +473,17 @@ function processCronjobMessage(active: ActiveRun, msg: SDKMessage) {
           let resultAttachments: Attachment[] | undefined;
           if (Array.isArray(block.content)) {
             const atts: Attachment[] = [];
-            for (const c of block.content as any[]) {
-              if (c.type === "image" && c.source?.type === "base64") {
+            type ImageBlock = {
+              type: "image";
+              source: { type: "base64"; data: string; media_type: string };
+            };
+            const isImageBlock = (c: unknown): c is ImageBlock => {
+              if (!c || typeof c !== "object") return false;
+              const o = c as { type?: unknown; source?: { type?: unknown } };
+              return o.type === "image" && o.source?.type === "base64";
+            };
+            for (const c of block.content) {
+              if (isImageBlock(c)) {
                 const decoded = Buffer.from(c.source.data, "base64");
                 const att = saveFile(
                   active.streamId,
@@ -491,10 +508,10 @@ function processCronjobMessage(active: ActiveRun, msg: SDKMessage) {
       break;
     }
     case "result": {
-      const subtype = (msg as any).subtype;
-      const usageField = (msg as any).usage;
+      const subtype = msg.subtype;
+      const usageField = msg.usage;
       if (active.sessionId && usageField) {
-        const cost = (msg as any).total_cost_usd ?? 0;
+        const cost = msg.total_cost_usd ?? 0;
         const cumulative = accumulateRunSessionUsage(
           active.jobId,
           active.runId,
@@ -519,7 +536,7 @@ function processCronjobMessage(active: ActiveRun, msg: SDKMessage) {
         }
       }
       if (subtype !== "success") {
-        const errors = (msg as any).errors;
+        const errors = msg.errors;
         const errorText = `Run stopped: ${subtype}. ${errors?.join(", ") || ""}`;
         writeLog(active, "error", errorText);
       }
@@ -561,11 +578,11 @@ async function runConsumer(active: ActiveRun) {
     }
     // Stream ended cleanly — terminal `result` arrived.
     finalizeRun(active, "completed");
-  } catch (err: any) {
+  } catch (err) {
     if (active.killed) return; // hard timeout already handled
-    console.error(`Cronjob run ${active.runId} stream error:`, err.message);
-    writeLog(active, "error", `Stream error: ${err.message}`);
-    finalizeRun(active, "failed", `Stream error: ${err.message}`);
+    console.error(`Cronjob run ${active.runId} stream error:`, errMessage(err));
+    writeLog(active, "error", `Stream error: ${errMessage(err)}`);
+    finalizeRun(active, "failed", `Stream error: ${errMessage(err)}`);
   }
 }
 
@@ -630,9 +647,9 @@ function fire(
   let cwdError: string | null = null;
   try {
     validateCwd(job.cwd);
-  } catch (err: any) {
+  } catch (err) {
     cwdValid = false;
-    cwdError = err.message || "Invalid cwd";
+    cwdError = errMessage(err) || "Invalid cwd";
   }
 
   const runId = generateCronjobRunId();
@@ -672,7 +689,7 @@ function fire(
   }
 
   const systemPrompt = buildCronjobSystemPrompt(job);
-  const opts: any = {
+  const opts: SdkSessionOptions = {
     model: FAMILY_TO_MODEL[job.modelFamily],
     permissionMode: job.permissionMode,
     pathToClaudeCodeExecutable: CLAUDE_NATIVE_BIN,
@@ -688,11 +705,11 @@ function fire(
   let session: ReturnType<typeof unstable_v2_createSession>;
   try {
     session = unstable_v2_createSession(opts);
-  } catch (err: any) {
+  } catch (err) {
     const updated = updateRun(jobId, runId, {
       status: "failed",
       endedAt: Date.now(),
-      errorReason: `Failed to create session: ${err.message || String(err)}`,
+      errorReason: `Failed to create session: ${errMessage(err)}`,
     });
     if (updated) eventHandler({ type: "cronjob_run_updated", run: updated });
     return updated ?? run;
@@ -729,21 +746,17 @@ function fire(
 
   // Send the prompt as the first user message. Wrap in a try so ergonomic
   // errors don't crash the tick.
-  (async () => {
+  void (async () => {
     try {
       await session.send(job.prompt);
-    } catch (err: any) {
+    } catch (err) {
       if (active.killed) return;
-      console.error(`Cronjob run ${runId} input error:`, err.message);
-      writeLog(
-        active,
-        "error",
-        `Failed to send prompt: ${err.message || String(err)}`,
-      );
+      console.error(`Cronjob run ${runId} input error:`, errMessage(err));
+      writeLog(active, "error", `Failed to send prompt: ${errMessage(err)}`);
       try {
         session.close();
       } catch {}
-      finalizeRun(active, "failed", err.message || String(err));
+      finalizeRun(active, "failed", errMessage(err));
     }
   })();
 
@@ -847,7 +860,10 @@ function emitRunErrorEntry(jobId: string, runId: string, message: string) {
   eventHandler({ type: "log_entry", entry });
 }
 
-function buildRunResumeOpts(run: CronjobRun, resumeSessionId: string): any {
+function buildRunResumeOpts(
+  run: CronjobRun,
+  resumeSessionId: string,
+): SdkSessionOptions {
   // Roll the current-run usage into priorRunsUsage so the SDK's per-process
   // cost counter resetting to zero (which it does on every resume) doesn't
   // wipe lifetime accounting. Mirrors agent-manager's createSession.
@@ -868,7 +884,6 @@ function buildRunResumeOpts(run: CronjobRun, resumeSessionId: string): any {
     executableArgs,
     cwd: run.cwdSnapshot,
     hooks: createSafetyHooks(),
-    resume: resumeSessionId,
   };
 }
 
@@ -959,11 +974,11 @@ export async function sendRunMessage(
   }
   try {
     validateCwd(run.cwdSnapshot);
-  } catch (err: any) {
+  } catch (err) {
     emitRunErrorEntry(
       jobId,
       runId,
-      `Cannot resume: cwd is invalid: ${err.message || String(err)}`,
+      `Cannot resume: cwd is invalid: ${errMessage(err)}`,
     );
     return;
   }
@@ -984,12 +999,8 @@ export async function sendRunMessage(
     let session: ReturnType<typeof unstable_v2_resumeSession>;
     try {
       session = unstable_v2_resumeSession(leaf, buildRunResumeOpts(run, leaf));
-    } catch (err: any) {
-      emitRunErrorEntry(
-        jobId,
-        runId,
-        `Failed to resume: ${err.message || String(err)}`,
-      );
+    } catch (err) {
+      emitRunErrorEntry(jobId, runId, `Failed to resume: ${errMessage(err)}`);
       return;
     }
 
@@ -1003,21 +1014,17 @@ export async function sendRunMessage(
 
     const prefix = formatPrefix({ username, device });
     const prefixedText = prefix ? `${prefix}${text}` : text;
-    (async () => {
+    void (async () => {
       try {
         await session.send(prefixedText);
-      } catch (err: any) {
+      } catch (err) {
         if (active.killed) return;
-        console.error(`Cronjob run ${runId} send error:`, err.message);
-        writeLog(
-          active,
-          "error",
-          `Failed to send: ${err.message || String(err)}`,
-        );
+        console.error(`Cronjob run ${runId} send error:`, errMessage(err));
+        writeLog(active, "error", `Failed to send: ${errMessage(err)}`);
         try {
           session.close();
         } catch {}
-        finalizeRun(active, "failed", err.message || String(err));
+        finalizeRun(active, "failed", errMessage(err));
       }
     })();
   } finally {
@@ -1061,11 +1068,11 @@ export async function editRunMessage(
   }
   try {
     validateCwd(run.cwdSnapshot);
-  } catch (err: any) {
+  } catch (err) {
     emitRunErrorEntry(
       jobId,
       runId,
-      `Cannot edit: cwd is invalid: ${err.message || String(err)}`,
+      `Cannot edit: cwd is invalid: ${errMessage(err)}`,
     );
     return;
   }
@@ -1111,11 +1118,11 @@ async function editRunMessageImpl(
   let sdkMessages: Awaited<ReturnType<typeof getSessionMessages>>;
   try {
     sdkMessages = await getSessionMessages(leaf);
-  } catch (err: any) {
+  } catch (err) {
     emitRunErrorEntry(
       jobId,
       runId,
-      `Failed to load session messages: ${err.message || String(err)}`,
+      `Failed to load session messages: ${errMessage(err)}`,
     );
     return;
   }
@@ -1151,17 +1158,22 @@ async function editRunMessageImpl(
   ) {
     const m = sdkMessages[i];
     if (m.type !== "user") continue;
-    const msg = m.message as any;
-    const contentBlocks = Array.isArray(msg?.content)
-      ? msg.content
+    const msg = m.message as { content?: unknown } | unknown[] | string;
+    const contentBlocks: unknown[] = Array.isArray(
+      (msg as { content?: unknown })?.content,
+    )
+      ? (msg as { content: unknown[] }).content
       : Array.isArray(msg)
         ? msg
         : typeof msg === "string"
           ? [{ type: "text", text: msg }]
           : [];
-    const msgContent = contentBlocks
-      .filter((b: any) => b.type === "text")
-      .map((b: any) => b.text)
+    const msgContent = (contentBlocks as { type?: string; text?: string }[])
+      .filter(
+        (b): b is { type: "text"; text: string } =>
+          b.type === "text" && typeof b.text === "string",
+      )
+      .map((b) => b.text)
       .join("");
     if (msgContent === prefixedContent) {
       if (matchCount === occurrenceIndex) {
@@ -1189,12 +1201,8 @@ async function editRunMessageImpl(
       upToMessageId: predecessorUuid,
     });
     newSessionId = forkResult.sessionId;
-  } catch (err: any) {
-    emitRunErrorEntry(
-      jobId,
-      runId,
-      `Fork failed: ${err.message || String(err)}`,
-    );
+  } catch (err) {
+    emitRunErrorEntry(jobId, runId, `Fork failed: ${errMessage(err)}`);
     return;
   }
 
@@ -1206,12 +1214,8 @@ async function editRunMessageImpl(
       newSessionId,
       buildRunResumeOpts(run, newSessionId),
     );
-  } catch (err: any) {
-    emitRunErrorEntry(
-      jobId,
-      runId,
-      `Failed to start fork: ${err.message || String(err)}`,
-    );
+  } catch (err) {
+    emitRunErrorEntry(jobId, runId, `Failed to start fork: ${errMessage(err)}`);
     return;
   }
 
@@ -1280,21 +1284,21 @@ async function editRunMessageImpl(
   writeLog(active, "user_message", newText, editMeta);
   const editPrefix = formatPrefix({ username, device });
   const prefixedText = editPrefix ? `${editPrefix}${newText}` : newText;
-  (async () => {
+  void (async () => {
     try {
       await session.send(prefixedText);
-    } catch (err: any) {
+    } catch (err) {
       if (active.killed) return;
-      console.error(`Cronjob run ${runId} edit-send error:`, err.message);
+      console.error(`Cronjob run ${runId} edit-send error:`, errMessage(err));
       writeLog(
         active,
         "error",
-        `Failed to send edited message: ${err.message || String(err)}`,
+        `Failed to send edited message: ${errMessage(err)}`,
       );
       try {
         session.close();
       } catch {}
-      finalizeRun(active, "failed", err.message || String(err));
+      finalizeRun(active, "failed", errMessage(err));
     }
   })();
 }
