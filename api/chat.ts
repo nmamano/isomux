@@ -1,5 +1,3 @@
-import Anthropic from "@anthropic-ai/sdk";
-
 export const config = { runtime: "edge" };
 
 // --- Rate limiting (in-memory, resets on cold start) ---
@@ -188,6 +186,36 @@ Setup:
 - NEVER make up features or capabilities that aren't listed above. If you don't know, say so and point them to the GitHub repo or blog post.
 - When answering about limits (e.g. number of agents), use only the information above — don't speculate.`;
 
+// --- SSE parsing helpers ---
+
+async function* parseAnthropicStream(
+  body: ReadableStream<Uint8Array>,
+): AsyncGenerator<{ type?: string; delta?: { type?: string; text?: string } }> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let nl;
+    while ((nl = buffer.indexOf("\n")) !== -1) {
+      const line = buffer.slice(0, nl).replace(/\r$/, "");
+      buffer = buffer.slice(nl + 1);
+      if (!line.startsWith("data:")) continue;
+      const payload = line.slice(5).trim();
+      if (!payload || payload === "[DONE]") continue;
+      try {
+        yield JSON.parse(payload);
+      } catch {
+        // ignore malformed frame
+      }
+    }
+  }
+}
+
 // --- Handler ---
 export default async function handler(req: Request) {
   if (req.method !== "POST") {
@@ -231,27 +259,45 @@ export default async function handler(req: Request) {
     }).catch(() => {});
   }
 
-  const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-
-  const stream = client.messages.stream({
-    model: "claude-sonnet-4-6",
-    max_tokens: 1000,
-    system: SYSTEM_PROMPT,
-    messages: messages.map((m: { role: string; content: string }) => ({
-      role: m.role,
-      content: m.content,
-    })),
+  const upstream = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-api-key": process.env.ANTHROPIC_API_KEY ?? "",
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-6",
+      max_tokens: 1000,
+      system: SYSTEM_PROMPT,
+      stream: true,
+      messages: messages.map((m: { role: string; content: string }) => ({
+        role: m.role,
+        content: m.content,
+      })),
+    }),
   });
+
+  if (!upstream.ok || !upstream.body) {
+    const errText = await upstream.text().catch(() => "");
+    return new Response(
+      JSON.stringify({
+        error: `Upstream error ${upstream.status}: ${errText.slice(0, 300)}`,
+      }),
+      { status: 502, headers: { "Content-Type": "application/json" } },
+    );
+  }
 
   const encoder = new TextEncoder();
   const readable = new ReadableStream({
     async start(controller) {
       let fullText = "";
       try {
-        for await (const event of stream) {
+        for await (const event of parseAnthropicStream(upstream.body!)) {
           if (
             event.type === "content_block_delta" &&
-            event.delta.type === "text_delta"
+            event.delta?.type === "text_delta" &&
+            typeof event.delta.text === "string"
           ) {
             fullText += event.delta.text;
             controller.enqueue(
