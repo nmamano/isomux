@@ -13,6 +13,9 @@ export default tseslint.config(
       "internal-docs/",
       "server/backends/codex/_generated/",
       "site/",
+      // Stale Claude Code worktree leftovers — gitignored on disk but not
+      // by ESLint, so explicit ignore here.
+      ".claude/",
     ],
   },
   js.configs.recommended,

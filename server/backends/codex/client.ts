@@ -239,7 +239,17 @@ export class JsonRpcLiteClient {
         reject,
       });
     });
-    this.write(frame);
+    try {
+      this.write(frame);
+    } catch (err) {
+      // write() can throw if stdin is dead (subprocess never started, e.g.
+      // posix_spawn ENOENT). Drop the pending so a later child.on('error')
+      // doesn't reject an orphaned promise — that rejection has no awaiter
+      // (request()'s own catch already surfaced the write error) and would
+      // crash the process as an unhandled rejection.
+      this.pending.delete(id);
+      throw err;
+    }
     return promise;
   }
 

@@ -21,6 +21,7 @@ import {
 } from "./update-checker.ts";
 import { startBackupScheduler, getBackupStatus } from "./backup.ts";
 import { logCodexVersionAtBoot } from "./backends/codex/version-check.ts";
+import { resolveCwd } from "./cwd-utils.ts";
 import type { TaskItem } from "../shared/types.ts";
 import { isValidStatus, isValidPriority } from "../shared/types.ts";
 import { errMessage } from "../shared/errors.ts";
@@ -491,7 +492,10 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
         const backend = getBackend(cmd.agentType);
         const env = AgentManager.buildEnvFor(cmd.username);
         const models = await backend.listModels({
-          cwd: cmd.cwd,
+          // The codex subprocess's cwd must be a real directory or posix_spawn
+          // fails with ENOENT before our error path can clean up — resolve `~`
+          // here the same way AgentManager.spawn does before persisting.
+          cwd: resolveCwd(cmd.cwd),
           env,
           includeHidden: cmd.includeHidden,
         });
