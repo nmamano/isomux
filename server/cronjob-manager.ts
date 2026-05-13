@@ -266,7 +266,9 @@ export function addCronjob(input: AddCronjobInput): Cronjob {
     input.permissionMode,
   );
   const codexSandbox =
-    agentType === "codex" ? validateCodexSandbox(input.codexSandbox) : undefined;
+    agentType === "codex"
+      ? validateCodexSandbox(input.codexSandbox)
+      : undefined;
   const cronjob: Cronjob = {
     id: generateCronjobId(cronjobs.map((c) => c.id)),
     name: input.name.trim() || "Untitled cron job",
@@ -1329,7 +1331,11 @@ async function editRunMessageImpl(
   const cronjobPromptIsFirstUser = sessionMessages[0]?.role === "user";
   let matchCount = 0;
   let targetIdx = -1;
-  for (let i = cronjobPromptIsFirstUser ? 1 : 0; i < sessionMessages.length; i++) {
+  for (
+    let i = cronjobPromptIsFirstUser ? 1 : 0;
+    i < sessionMessages.length;
+    i++
+  ) {
     const m = sessionMessages[i];
     if (m.role !== "user") continue;
     if (m.text === prefixedContent) {
