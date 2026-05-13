@@ -32,6 +32,13 @@ import {
   clearLegacyUserPrefs,
   shouldNotifyRoom,
 } from "./device-settings.ts";
+import {
+  DEFAULT_THEME_ID,
+  getThemeById,
+  THEMES,
+  type Theme,
+  type ThemeMode,
+} from "./themes.ts";
 
 export interface AppState {
   agents: AgentInfo[];
@@ -615,28 +622,67 @@ export function useDispatch() {
   return useContext(DispatchCtx);
 }
 
-// Theme management — persisted to localStorage, applied via data-theme attribute on <html>
-type Theme = "dark" | "light";
-const ThemeCtx = createContext<{ theme: Theme; toggleTheme: () => void }>({
-  theme: "dark",
+// Theme management — persisted to localStorage, applied via data-theme +
+// data-theme-mode attributes on <html>. `theme` is the registered id;
+// `mode` is the resolved 'dark'|'light' from the THEMES table and drives
+// the handful of mode-dependent CSS rules (lamp glow, neon, diff2html).
+interface ThemeContextValue {
+  theme: string;
+  mode: ThemeMode;
+  setTheme: (id: string) => void;
+  toggleTheme: () => void;
+}
+
+const ThemeCtx = createContext<ThemeContextValue>({
+  theme: DEFAULT_THEME_ID,
+  mode: "dark",
+  setTheme: () => {},
   toggleTheme: () => {},
 });
 
-function getInitialTheme(): Theme {
+function getInitialThemeId(): string {
   if (typeof localStorage !== "undefined") {
     const saved = localStorage.getItem("isomux-theme");
-    if (saved === "light" || saved === "dark") return saved;
+    if (saved) {
+      const resolved = getThemeById(saved);
+      // If the stored id isn't a known theme, getThemeById falls back to
+      // the default — return the canonical id so we don't keep round-
+      // tripping the stale value.
+      return resolved.id;
+    }
   }
-  return "dark";
+  return DEFAULT_THEME_ID;
+}
+
+const LAST_THEME_KEY = {
+  dark: "isomux-theme-dark",
+  light: "isomux-theme-light",
+} as const;
+
+// Remembers the most recent theme picked within each mode so the moon/sun
+// toggle can return the user to their preferred Nord (dark) or Solarized
+// Light (light) instead of always reverting to the canonical pair.
+function getLastModeTheme(mode: ThemeMode): string {
+  if (typeof localStorage !== "undefined") {
+    const saved = localStorage.getItem(LAST_THEME_KEY[mode]);
+    if (saved) {
+      const resolved = getThemeById(saved);
+      if (resolved.mode === mode) return resolved.id;
+    }
+  }
+  return THEMES.find((t) => t.mode === mode)?.id ?? DEFAULT_THEME_ID;
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<Theme>(getInitialTheme);
+  const [themeId, setThemeId] = useState<string>(getInitialThemeId);
+  const resolved: Theme = getThemeById(themeId);
 
   useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-    localStorage.setItem("isomux-theme", theme);
-    const color = theme === "dark" ? "#0a0e16" : "#f0f2f6";
+    document.documentElement.setAttribute("data-theme", resolved.id);
+    document.documentElement.setAttribute("data-theme-mode", resolved.mode);
+    localStorage.setItem("isomux-theme", resolved.id);
+    localStorage.setItem(LAST_THEME_KEY[resolved.mode], resolved.id);
+    const color = resolved.vars["--bg-base"];
     let meta = document.querySelector<HTMLMetaElement>(
       'meta[name="theme-color"]',
     );
@@ -646,14 +692,28 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       document.head.appendChild(meta);
     }
     meta.content = color;
-  }, [theme]);
+  }, [resolved]);
 
+  const setTheme = useCallback((id: string) => {
+    setThemeId(getThemeById(id).id);
+  }, []);
+
+  // The moon/sun nav button (and the wall sun/moon Easter egg) flip between
+  // modes. We jump to the user's most recently picked theme in the opposite
+  // mode rather than the canonical Dark/Light pair, so someone using Nord +
+  // Solarized Light gets ferried between their two preferred themes.
   const toggleTheme = useCallback(() => {
-    setTheme((t) => (t === "dark" ? "light" : "dark"));
+    setThemeId((current) => {
+      const currentMode = getThemeById(current).mode;
+      const oppositeMode: ThemeMode = currentMode === "dark" ? "light" : "dark";
+      return getLastModeTheme(oppositeMode);
+    });
   }, []);
 
   return (
-    <ThemeCtx.Provider value={{ theme, toggleTheme }}>
+    <ThemeCtx.Provider
+      value={{ theme: resolved.id, mode: resolved.mode, setTheme, toggleTheme }}
+    >
       {children}
     </ThemeCtx.Provider>
   );

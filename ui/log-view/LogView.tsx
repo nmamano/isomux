@@ -21,6 +21,7 @@ import { send } from "../ws.ts";
 import { useAppState, useDispatch, useFeatures, useTheme } from "../store.tsx";
 import { LogEntryCard, serializeEntries } from "./LogEntryCard.tsx";
 import { SunIcon, MoonIcon } from "../components/ThemeIcons.tsx";
+import { ThemePicker } from "../components/ThemePicker.tsx";
 import { NavActions, type NavAction } from "../components/NavActions.tsx";
 import {
   TasksIcon,
@@ -499,7 +500,8 @@ export function LogView({
   const dispatch = useDispatch();
   const features = useFeatures();
   const device = getDevice();
-  const { theme, toggleTheme } = useTheme();
+  const { mode } = useTheme();
+  const [themePickerOpen, setThemePickerOpen] = useState(false);
   const input = drafts.get(agent.id) ?? "";
   const inputRef = useRef(input);
   inputRef.current = input;
@@ -1064,10 +1066,10 @@ export function LogView({
     },
     {
       id: "theme",
-      icon: theme === "dark" ? <MoonIcon size={15} /> : <SunIcon size={15} />,
-      label: theme === "dark" ? "Dark" : "Light",
-      onClick: toggleTheme,
-      title: theme === "dark" ? "Switch to light mode" : "Switch to dark mode",
+      icon: mode === "dark" ? <MoonIcon size={15} /> : <SunIcon size={15} />,
+      label: "Theme",
+      onClick: () => setThemePickerOpen(true),
+      title: "Change theme",
     },
   ];
 
@@ -2622,6 +2624,10 @@ export function LogView({
           />
         </div>
       )}
+      <ThemePicker
+        open={themePickerOpen}
+        onClose={() => setThemePickerOpen(false)}
+      />
     </div>
   );
 }

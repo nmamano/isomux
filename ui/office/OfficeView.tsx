@@ -8,6 +8,7 @@ import { EmptySlot } from "./EmptySlot.tsx";
 import { SCENE_W, SCENE_H } from "./grid.ts";
 import { send } from "../ws.ts";
 import { SunIcon, MoonIcon } from "../components/ThemeIcons.tsx";
+import { ThemePicker } from "../components/ThemePicker.tsx";
 import { MobileHeader, getRoomCounts } from "../components/MobileHeader.tsx";
 import { NavActions, type NavAction } from "../components/NavActions.tsx";
 import {
@@ -141,7 +142,8 @@ export function OfficeView({
   const roomNames = rooms.map((r) => r.name);
   const officePrompt = office.prompt;
   const dispatch = useDispatch();
-  const { theme, toggleTheme } = useTheme();
+  const { mode, toggleTheme } = useTheme();
+  const [themePickerOpen, setThemePickerOpen] = useState(false);
   const { embed } = useFeatures();
   const mobileScale = isMobile ? screen.width / (SCENE_W - 200) : 1;
   // layoutKey changes whenever the centered-scene static transform changes, so
@@ -274,10 +276,10 @@ export function OfficeView({
       : []),
     {
       id: "theme",
-      icon: theme === "dark" ? <MoonIcon size={15} /> : <SunIcon size={15} />,
-      label: theme === "dark" ? "Dark" : "Light",
-      onClick: toggleTheme,
-      title: theme === "dark" ? "Switch to light mode" : "Switch to dark mode",
+      icon: mode === "dark" ? <MoonIcon size={15} /> : <SunIcon size={15} />,
+      label: "Theme",
+      onClick: () => setThemePickerOpen(true),
+      title: "Change theme",
     },
   ];
 
@@ -709,6 +711,10 @@ export function OfficeView({
           onClose={() => setWallMenu(null)}
         />
       )}
+      <ThemePicker
+        open={themePickerOpen}
+        onClose={() => setThemePickerOpen(false)}
+      />
     </div>
   );
 }

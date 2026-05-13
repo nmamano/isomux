@@ -121,7 +121,7 @@ export function EditorPanel({
   // that disable iOS autocorrect/autocapitalize on the editable surface.
   mobile?: boolean;
 }) {
-  const { theme } = useTheme();
+  const { mode } = useTheme();
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const langCompartmentRef = useRef<Compartment>(new Compartment());
@@ -430,7 +430,7 @@ export function EditorPanel({
             : []),
           langCompartmentRef.current.of([]),
           themeCompartmentRef.current.of(
-            theme === "dark"
+            mode === "dark"
               ? oneDark
               : syntaxHighlighting(defaultHighlightStyle),
           ),
@@ -448,16 +448,16 @@ export function EditorPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // When theme toggles, swap the theme compartment without rebuilding state.
+  // When theme mode toggles, swap the theme compartment without rebuilding state.
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
     view.dispatch({
       effects: themeCompartmentRef.current.reconfigure(
-        theme === "dark" ? oneDark : syntaxHighlighting(defaultHighlightStyle),
+        mode === "dark" ? oneDark : syntaxHighlighting(defaultHighlightStyle),
       ),
     });
-  }, [theme]);
+  }, [mode]);
 
   // Sync the editor view whenever the active tab's content or language
   // changes — covers tab switches, content arrival from server, and external
