@@ -603,7 +603,15 @@ export function moveAgent(agentId: string, targetRoomId: string): boolean {
 }
 
 export function getAllAgents(): AgentInfo[] {
-  return [...agents.values()].map((a) => a.info);
+  // info.queue is initialized empty and never mutated; the live queue lives on
+  // managed.messageQueue and reaches connected clients via incremental
+  // agent_updated events. Splice it in here so full_state (sent on each new WS
+  // connect) carries it too. Without this, a device opening the convo after
+  // another device already queued messages would render no queue chips.
+  return [...agents.values()].map((a) => ({
+    ...a.info,
+    queue: [...a.messageQueue],
+  }));
 }
 
 function updateManifest() {
