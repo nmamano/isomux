@@ -73,8 +73,16 @@ These documents are written in my voice, so I need to approve any copy changes b
 ## 9. Resume
 
 - **File:** `~/nil/nilmamano.com/_source_assets/resume_nilmamano.tex` (the Isomux bullets under `\section*{Projects}`).
-- **Audience:** Recruiters / collaborators who download the resume PDF.
-- **Compiled output:** `~/nil/nilmamano.com/public/resume/resume_nilmamano.pdf` — requires `pdflatex` / `latexmk` recompile after edits.
+- **Audience:** Recruiters / collaborators who download the resume PDF at `nilmamano.com/resume/resume_nilmamano.pdf`.
+- **Compiled output:** `~/nil/nilmamano.com/public/resume/resume_nilmamano.pdf`. Deployed as a static asset by Vercel, so the PDF in `public/resume/` is what visitors download. Edits to the .tex don't ship until the PDF is recompiled and committed alongside.
+- **How to recompile (on auntie):** `pdflatex` is installed via `texlive-latex-recommended`, `texlive-latex-extra`, and `texlive-fonts-recommended`. Run two passes (the second is needed so hyperref settles the bookmark outlines):
+  ```
+  cd ~/nil/nilmamano.com
+  pdflatex -interaction=nonstopmode -halt-on-error -output-directory=/tmp/resume-build _source_assets/resume_nilmamano.tex
+  pdflatex -interaction=nonstopmode -halt-on-error -output-directory=/tmp/resume-build _source_assets/resume_nilmamano.tex
+  cp /tmp/resume-build/resume_nilmamano.pdf public/resume/resume_nilmamano.pdf
+  ```
+  Aux/log files stay in `/tmp/resume-build` so they don't clutter the repo. Verify with `pdftotext public/resume/resume_nilmamano.pdf - | grep <new copy>` before committing.
 - **Update when:** architecture or scope changes meaningfully (e.g., new backend, new tech in the stack list).
 
 ## 10. GitHub org profile
@@ -103,5 +111,5 @@ These aren't user-facing docs, but they do describe features and can fall out of
 5. `nilmamano.com/blog/isomux.mdx` — only for architecture-level changes.
 6. `nilmamano.com/app/components/featured-projects-carousel.tsx` and `nilmamano.com/app/lib/research-projects.ts` — only if the change rises to the elevator-pitch level.
 7. `nilmamano.com/app/lib/chat-prompts.ts` — only if the one-line summary needs to change.
-8. `nilmamano.com/_source_assets/resume_nilmamano.tex` — only for architecture/stack-level changes; remember to recompile the PDF.
+8. `nilmamano.com/_source_assets/resume_nilmamano.tex` — only for architecture/stack-level changes. Recompile the PDF (see section 9 for the command) and commit `public/resume/resume_nilmamano.pdf` alongside the .tex in the same change.
 9. `github.com/isomux/.github` `profile/README.md` — only if the headline tagline or showcase screenshot changes.
