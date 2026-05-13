@@ -5,7 +5,11 @@
     "dev": "bun run build:ui && bun run server/index.ts",
     "build:ui": "bash scripts/build.sh",
     "server": "bun run server/index.ts",
-    "gen:codex-schemas": "codex app-server generate-ts --out server/backends/codex/_generated --experimental"
+    "gen:codex-schemas": "codex app-server generate-ts --out server/backends/codex/_generated --experimental",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint . --concurrency=auto",
+    "lint:fix": "eslint . --fix --concurrency=auto"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.129",
@@ -35,9 +39,15 @@
     "react-dom": "^19.2.5"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/bun": "latest",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "typescript": "^6.0.3"
+    "eslint": "^10.3.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.6.0",
+    "prettier": "^3.8.3",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.59.3"
   }
 }

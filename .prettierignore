@@ -1,0 +1,6 @@
+bun.lock
+node_modules/
+ui/dist/
+ui/index.js
+internal-docs/
+server/backends/codex/_generated/

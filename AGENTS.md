@@ -16,6 +16,12 @@ If an action runs into permission issues because it's a destructive action, let 
 
 Debug agent issues by reading logs at `~/.isomux/logs/<agentId>/<sessionId>.jsonl`.
 
+## Formatting and linting
+
+Run prettier ONLY AFTER final human approval for commit. Do NOT format changes before human review. In particular, only run `prettier --write` after final approval; it changes files in disk which corrupts agent context and triggers file re-reads.
+
+Run ESLint during development. A good time to do it is right before human review.
+
 ## Key decisions (do not revisit)
 
 - Single Bun process. No Node, no separate API server, no database — flat-file state only.
