@@ -37,6 +37,9 @@ import {
   validateCwd,
   claudeSessionFileExists,
   claudeProjectDir,
+  codexRolloutFileExists,
+  codexRolloutHasHistory,
+  codexSessionsDir,
   moveClaudeSessionFiles,
   diagnoseProcessExit,
 } from "./cwd-utils.ts";
@@ -409,8 +412,13 @@ export async function editAgent(
   // never sees either direction. Matches the prior withAgentRollback contract.
   const updated = events[0].type === "agent_updated" ? events[0].changes : {};
   if (updated.modelFamily || updated.effort || updated.permissionMode || updated.codexSandbox) {
+    // Apply auto-resume policy BEFORE the replace transaction. The clear is
+    // intentionally outside the try/catch: if the prior Codex thread had no
+    // durable rollout, the cleared state is correct regardless of whether
+    // the new session install succeeds.
+    const sessionId = pickAutoResumeSessionId(managed);
+    if (managed.sessionId && !sessionId) clearStaleAutoResumeState(agentId, managed);
     try {
-      const sessionId = managed.sessionId;
       await replaceSession(agentId, managed, sessionId ? createSession(managed, sessionId) : createSession(managed));
     } catch (err) {
       officeState.updateAgent(agentId, snapshot);
@@ -558,6 +566,31 @@ export async function restoreAgents() {
       const effort = validateEffort(agentType, modelFamily, p.effort);
       const codexSandbox =
         agentType === "codex" ? validateCodexSandbox(p.codexSandbox) : undefined;
+      // Apply auto-resume policy up-front: a Codex thread that wasn't durable
+      // before the last shutdown is not resumable. Computing this here lets us
+      // set the initial AgentInfo.state and managed.sessionId honestly, avoiding
+      // a stale "waiting_for_response" placeholder and a misleading on-disk
+      // transcript loaded against what will become a fresh thread. A broken
+      // env file would fail buildEnvFor — we swallow it so the agent still
+      // restores (assuming the prior thread is durable) and the proper error
+      // surfaces later via createSession's own buildSessionEnv call.
+      let resumeSessionId: string | null = null;
+      if (p.lastSessionId) {
+        if (agentType === "codex") {
+          try {
+            const restoreEnv = buildEnvFor(p.username ?? undefined);
+            if (codexRolloutHasHistory(p.lastSessionId, restoreEnv)) {
+              resumeSessionId = p.lastSessionId;
+            }
+          } catch {
+            // Env build failed — assume durable so the agent still attempts
+            // resume; the real error will surface from createSession below.
+            resumeSessionId = p.lastSessionId;
+          }
+        } else {
+          resumeSessionId = p.lastSessionId;
+        }
+      }
       const info: AgentInfo = {
         id: p.id,
         name: p.name,
@@ -568,7 +601,7 @@ export async function restoreAgents() {
         permissionMode,
         modelFamily,
         effort,
-        state: p.lastSessionId ? "waiting_for_response" : "idle",
+        state: resumeSessionId ? "waiting_for_response" : "idle",
         topic: p.topic ?? null,
         topicStale: false,
         customInstructions: p.customInstructions ?? null,
@@ -583,7 +616,7 @@ export async function restoreAgents() {
       const managed: ManagedAgent = {
         info,
         session: null,
-        sessionId: p.lastSessionId,
+        sessionId: resumeSessionId,
         consumerPromise: null,
         pendingTurn: null,
         aborting: false,
@@ -612,8 +645,11 @@ export async function restoreAgents() {
 
       // Load log history into cache (browsers connect later, so we cache it).
       // Uses loadLogWithAncestors to include parent entries for forked sessions.
-      if (p.lastSessionId) {
-        const history = loadLogWithAncestors(p.id, p.lastSessionId);
+      // Skip when the auto-resume policy decided to fresh-start — the old log
+      // under a non-durable Codex threadId is at most ephemeral bootstrap
+      // noise, and showing it against the upcoming fresh thread would mislead.
+      if (resumeSessionId) {
+        const history = loadLogWithAncestors(p.id, resumeSessionId);
         if (history.length > 0) {
           logCache.set(p.id, [...history]);
         }
@@ -622,7 +658,7 @@ export async function restoreAgents() {
       // If the prior session died owing a response (e.g. server restart while
       // mid-stream), record the gap before auto-resume. Parity with the SDK's
       // lazy synthetic placeholder injected into its own transcript on resume.
-      if (p.lastSessionId) {
+      if (resumeSessionId) {
         const tail = (logCache.get(p.id) ?? []).at(-1);
         if (tail?.kind === "user_message") {
           addLogEntry(p.id, "system", "Previous response was interrupted.");
@@ -631,7 +667,7 @@ export async function restoreAgents() {
 
       // Auto-resume session
       try {
-        const session = p.lastSessionId ? createSession(managed, p.lastSessionId) : createSession(managed);
+        const session = resumeSessionId ? createSession(managed, resumeSessionId) : createSession(managed);
         installSession(p.id, managed, session);
       } catch (err: any) {
         console.error(`Failed to restore session for ${p.name}:`, err.message);
@@ -818,10 +854,11 @@ function addLogEntry(agentId: string, kind: LogEntry["kind"], content: string, m
   }
 }
 
-// Emit a log entry to the UI only (not persisted to disk) — for ephemeral messages like /resume.
-// Note: entries are still added to logCache for UI display. If sessionId is null when this is
-// called, the backfill logic in processMessage (system/init) would write them to disk. In practice
-// this doesn't happen because /resume requires existing sessions (sessionId already set).
+// Emit a log entry to the UI only (not persisted to disk) — for ephemeral
+// messages like /resume, "Conversation cleared.", permission prompts, etc.
+// Entries are tagged ephemeral:true so appendLog and the system_init backfill
+// both skip them. They still go into logCache so the UI shows them, but they
+// vanish on server restart.
 function emitEphemeralLog(agentId: string, kind: LogEntry["kind"], content: string, metadata?: Record<string, unknown>, extra?: Partial<Pick<LogEntry, "diff" | "file">>) {
   const entry: LogEntry = {
     id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -831,6 +868,7 @@ function emitEphemeralLog(agentId: string, kind: LogEntry["kind"], content: stri
     content,
     metadata,
     ...(extra ?? {}),
+    ephemeral: true,
   };
   const cached = logCache.get(agentId) ?? [];
   cached.push(entry);
@@ -972,10 +1010,12 @@ function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
           addLogEntry(agentId, "system", "Conversation cleared.");
         }
         managed.sessionId = sessionId;
-        // Backfill: write any cached log entries that were created before sessionId was known
+        // Backfill: write any cached log entries that were created before sessionId was known.
+        // Skip ephemeral entries — they're UI-only by design and must not reach disk.
         if (!hadPreviousSession) {
           const cached = logCache.get(agentId) ?? [];
           for (const entry of cached) {
+            if (entry.ephemeral) continue;
             appendLog(agentId, sessionId, entry);
           }
         }
@@ -1328,6 +1368,49 @@ export function buildEnvFor(username?: string): { [key: string]: string | undefi
   return merged;
 }
 
+// Returns the session id to use for an automatic resume attempt, or null if
+// the recorded `managed.sessionId` can't safely be resumed and the caller
+// should start fresh instead. Applies the "auto-resume policy":
+//
+//   - Codex threads that never wrote a durable rollout (no file in
+//     $CODEX_HOME/sessions, or header-only) are not resumable across process
+//     restarts. Without this filter, every startup attempt would surface a
+//     "Codex bootstrap failed: no rollout found" error.
+//   - Claude is passed through unchanged. createSession's claudeSessionFileExists
+//     check still throws if the .jsonl is gone — that's the existing behavior
+//     and only applies on cwd moves, which warrant the explicit error.
+//
+// Pure: does NOT mutate managed or logCache. The call site decides when to
+// clear stale UI state (logCache, managed.sessionId) in tandem with the
+// session install. Doing the clear BEFORE entering any withAgentRollback
+// transaction means a downstream throw rolls back AgentInfo without leaving
+// the session/log half-mutated — the cleared state is the correct end state
+// regardless, since the old thread was non-durable.
+function pickAutoResumeSessionId(managed: ManagedAgent): string | null {
+  const candidate = managed.sessionId;
+  if (!candidate) return null;
+  if (managed.info.agentType === "codex") {
+    const env = buildSessionEnv(managed);
+    if (!codexRolloutHasHistory(candidate, env)) return null;
+  }
+  return candidate;
+}
+
+// Companion to pickAutoResumeSessionId: when auto-resume policy decided to
+// drop a previously-set sessionId, clear the matching UI/cache state so the
+// new session's system_init lands as a fresh start (hadPreviousSession=false)
+// and the user doesn't see a stale on-disk transcript against a new thread.
+// Returns true if a transition was applied — callers that surface a
+// "Resumed prior session..." vs "Started a fresh session..." marker can use
+// this to choose wording.
+function clearStaleAutoResumeState(agentId: string, managed: ManagedAgent): boolean {
+  if (!managed.sessionId) return false;
+  managed.sessionId = null;
+  logCache.set(agentId, []);
+  emit({ type: "clear_logs", agentId });
+  return true;
+}
+
 function createSession(managed: ManagedAgent, resumeSessionId?: string): BackendSession {
   // Clear pendingPermission so a stale approvalId from the old (about-to-close)
   // session can't accidentally route a future user message into a dead approval.
@@ -1342,6 +1425,9 @@ function createSession(managed: ManagedAgent, resumeSessionId?: string): Backend
   } catch (err: any) {
     throw new Error(`cwd is invalid: ${err.message}. Click the agent name in the log view header to fix it.`);
   }
+  // Compute env once — both the resume preflight (Codex sessions dir lookup
+  // honors CODEX_HOME) and the session opts use it.
+  const env = buildSessionEnv(managed);
   if (
     resumeSessionId &&
     managed.info.agentType === "claude" &&
@@ -1351,6 +1437,22 @@ function createSession(managed: ManagedAgent, resumeSessionId?: string): Backend
       `Cannot resume session ${resumeSessionId.slice(0, 8)}…: its file is missing from ${claudeProjectDir(managed.info.cwd)}. ` +
       `Most commonly this happens after the agent's cwd was moved or renamed — the Claude CLI stores sessions under a path derived from cwd. ` +
       `Use /resume to pick a different session, or move the session .jsonl into the new project dir.`
+    );
+  }
+  if (
+    resumeSessionId &&
+    managed.info.agentType === "codex" &&
+    !codexRolloutFileExists(resumeSessionId, env)
+  ) {
+    // Strict (explicit-resume) paths: only block on missing-file. Header-only
+    // and corrupt rollouts will fail at Codex's thread/resume with a more
+    // specific message ("no rollout found", parse errors, etc.). Letting
+    // Codex surface those preserves precision for the fork/edit/rollback
+    // cases where the on-disk state may legitimately be in transition.
+    throw new Error(
+      `Cannot resume Codex thread ${resumeSessionId.slice(0, 8)}…: no rollout file found under ${codexSessionsDir(env)}. ` +
+      `This usually means the thread was started but never received a user turn before its process exited. ` +
+      `Use /resume to pick another session, or start a new conversation.`
     );
   }
   const room = officeState.rooms[managed.info.room]!;
@@ -1379,7 +1481,7 @@ function createSession(managed: ManagedAgent, resumeSessionId?: string): Backend
     // Codex-only sandbox; Claude backend ignores. Undefined falls back to
     // the Codex adapter's "workspace-write" default.
     sandbox: managed.info.codexSandbox,
-    env: buildSessionEnv(managed),
+    env,
   };
   const backend = getBackend(managed.info.agentType);
   return resumeSessionId
@@ -1713,7 +1815,8 @@ async function flushQueue(agentId: string): Promise<void> {
     }
     if (!managed.session) {
       try {
-        const sessionId = managed.sessionId;
+        const sessionId = pickAutoResumeSessionId(managed);
+        if (managed.sessionId && !sessionId) clearStaleAutoResumeState(agentId, managed);
         installSession(agentId, managed, sessionId ? createSession(managed, sessionId) : createSession(managed));
         // If the prior session died owing a response, mark the gap. Parity
         // with the SDK's lazy synthetic placeholder injected at this moment.
@@ -1940,11 +2043,22 @@ export async function sendMessage(agentId: string, text: string, username?: stri
   }
   if (!managed.session) {
     // Try to create a fresh session so the user's next message doesn't silently vanish.
-    // Pass managed.sessionId so the new session resumes from the prior transcript when
-    // possible — the previous session is genuinely dead, but the on-disk transcript is
-    // still intact and worth restoring.
+    // pickAutoResumeSessionId returns managed.sessionId when it's safely resumable —
+    // the previous session is genuinely dead, but the on-disk transcript is intact and
+    // worth restoring. For non-durable Codex threads, it returns null so we fresh-start
+    // cleanly instead of crashing on thread/resume.
     try {
-      const sessionId = managed.sessionId;
+      const sessionId = pickAutoResumeSessionId(managed);
+      const clearedStale = managed.sessionId && !sessionId
+        ? clearStaleAutoResumeState(agentId, managed)
+        : false;
+      // If we wiped logCache while echoEarly already added the user's
+      // message to it, the message is now gone from UI/cache. Re-add it
+      // here — the bottom of sendMessage won't re-add (echoEarly is still
+      // true) and the send below would otherwise vanish from the log.
+      if (clearedStale && echoEarly) {
+        addLogEntry(agentId, "user_message", text, buildUserMeta(username, device), attachments);
+      }
       installSession(agentId, managed, sessionId ? createSession(managed, sessionId) : createSession(managed));
       addLogEntry(agentId, "system", sessionId
         ? "Resumed prior session after the previous one ended unexpectedly."
@@ -2061,8 +2175,14 @@ export async function sendMessage(agentId: string, text: string, username?: stri
       if (picked.family === managed.info.modelFamily) {
         emitEphemeralLog(agentId, "system", `Already using ${label}.`);
       } else {
+        // Run the auto-resume policy OUTSIDE withAgentRollback so the clear
+        // commits even if the inner transaction fails — the prior Codex
+        // thread is non-durable either way, and a rollback that revives a
+        // stale logCache+sessionId pointing at a dead thread would only
+        // confuse the user.
+        const sessionId = pickAutoResumeSessionId(managed);
+        if (managed.sessionId && !sessionId) clearStaleAutoResumeState(agentId, managed);
         await withAgentRollback(managed, { modelFamily: picked.family }, async () => {
-          const sessionId = managed.sessionId;
           await replaceSession(agentId, managed, sessionId ? createSession(managed, sessionId) : createSession(managed));
         });
         for (const event of officeState.updateAgent(agentId, { modelFamily: picked.family })) emit(event);
@@ -2087,8 +2207,11 @@ export async function sendMessage(agentId: string, text: string, username?: stri
       if (picked.level === managed.info.effort) {
         emitEphemeralLog(agentId, "system", `Already using ${label}.`);
       } else {
+        // Auto-resume policy outside the rollback — see model-switch above
+        // for the rationale.
+        const sessionId = pickAutoResumeSessionId(managed);
+        if (managed.sessionId && !sessionId) clearStaleAutoResumeState(agentId, managed);
         await withAgentRollback(managed, { effort: picked.level }, async () => {
-          const sessionId = managed.sessionId;
           await replaceSession(agentId, managed, sessionId ? createSession(managed, sessionId) : createSession(managed));
         });
         for (const event of officeState.updateAgent(agentId, { effort: picked.level })) emit(event);
@@ -2181,7 +2304,6 @@ export async function abort(agentId: string) {
   managed.aborting = true;
   let abortDone!: () => void;
   managed.abortPromise = new Promise<void>((res) => { abortDone = res; });
-  const sessionId = managed.sessionId;
 
   // Flip UI state and log the interrupt up front so the agent appears to
   // stop immediately. From the user's perspective the agent stops on Ctrl+C,
@@ -2211,7 +2333,12 @@ export async function abort(agentId: string) {
     }
 
     if (needsReplace) {
-      const newSession = sessionId ? createSession(managed, sessionId) : createSession(managed);
+      // Apply auto-resume policy at the point of replace, against the
+      // freshest managed.sessionId — the hot-abort path can race with
+      // session-died events that leave sessionId stale.
+      const autoSessionId = pickAutoResumeSessionId(managed);
+      if (managed.sessionId && !autoSessionId) clearStaleAutoResumeState(agentId, managed);
+      const newSession = autoSessionId ? createSession(managed, autoSessionId) : createSession(managed);
       await replaceSession(agentId, managed, newSession);
       // If we got here via a hot-abort failure, processNormalizedEvent
       // flipped state to "error" — restore waiting_for_response so the

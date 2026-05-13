@@ -30,6 +30,10 @@ export function atomicWriteFileSync(path: string, data: string | Buffer) {
 }
 
 export function appendLog(agentId: string, sessionId: string, entry: LogEntry) {
+  // Ephemeral entries (e.g. UI-only "Conversation cleared." markers) must
+  // never reach disk — guarded here as defense-in-depth so future callers
+  // can't accidentally persist one by going through appendLog directly.
+  if (entry.ephemeral) return;
   try {
     const agentDir = join(LOGS_DIR, agentId);
     mkdirSync(agentDir, { recursive: true });

@@ -1,6 +1,6 @@
 import { resolve, join } from "path";
 import { homedir } from "os";
-import { existsSync, mkdirSync, renameSync, statSync } from "fs";
+import { closeSync, existsSync, mkdirSync, openSync, readdirSync, readSync, renameSync, statSync } from "fs";
 import { listAgentSessions } from "./persistence.ts";
 
 // Path to the Claude CLI native binary that ships with the Agent SDK.
@@ -43,6 +43,166 @@ export function claudeProjectDir(cwd: string): string {
 
 export function claudeSessionFileExists(cwd: string, sessionId: string): boolean {
   return existsSync(join(claudeProjectDir(cwd), `${sessionId}.jsonl`));
+}
+
+// Directory where Codex stores live (resumable) thread rollouts. Codex's
+// app-server reads from here when servicing thread/resume. The archived
+// counterpart at `${CODEX_HOME}/archived_sessions/` is NOT searched — once
+// a thread is archived, the user has to go through an explicit picker.
+export function codexSessionsDir(env?: { [key: string]: string | undefined }): string {
+  const codexHome = env?.CODEX_HOME || join(homedir(), ".codex");
+  return join(codexHome, "sessions");
+}
+
+// Cap on directories visited while looking for a Codex rollout file. If we
+// hit this without finding the thread, we deliberately return TRUE so the
+// caller proceeds with thread/resume — letting Codex itself surface whatever
+// the real story is — rather than silently fresh-starting what might be a
+// real old session. False negatives are worse than a slow startup.
+const CODEX_ROLLOUT_SCAN_DIR_CAP = 50000;
+
+// Cap on lines read while checking whether a rollout file has any
+// non-session_meta history. Real rollouts grow large; the header is line 1.
+// We only need to find the first non-meta line.
+const CODEX_ROLLOUT_HEADER_SCAN_LINES = 16;
+
+// Canonical 8-4-4-4-12 hex UUID. Codex thread ids are UUIDv7; tightening
+// to canonical shape matches what we actually issue and keeps malformed
+// input from getting our friendly preflight error instead of Codex's own
+// (more accurate) invalid-id surfacing.
+const CODEX_THREAD_ID_PATTERN = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+// Returns true if a Codex rollout file exists for `threadId` under
+// `${CODEX_HOME}/sessions/` (not archived_sessions). Existence-only — a
+// header-only rollout still counts as "exists". Used by strict resume paths
+// where we want Codex itself to surface the precise failure (header-only,
+// corrupt, etc.) rather than have Isomux pre-empt with a generic message.
+export function codexRolloutFileExists(
+  threadId: string,
+  env?: { [key: string]: string | undefined },
+): boolean {
+  return findCodexRolloutPath(threadId, env) !== null;
+}
+
+// Returns true if a durable, resumable Codex rollout exists for `threadId`.
+//
+// "Durable" means the rollout file is present under `${CODEX_HOME}/sessions/`
+// AND contains at least one non-session_meta line. A file that contains only
+// the session_meta header is not resumable by Codex's app-server
+// (stored_thread_to_initial_history requires actual history items), so we
+// treat header-only the same as missing.
+//
+// Errors during the filesystem walk or line scan are treated as
+// "indeterminate, assume durable" — same rationale as the dir cap above.
+//
+// Used by the auto-resume policy. Explicit-resume paths use the lighter
+// `codexRolloutFileExists` because Codex's own error wording is more
+// informative for the header-only/corrupt edge cases.
+export function codexRolloutHasHistory(
+  threadId: string,
+  env?: { [key: string]: string | undefined },
+): boolean {
+  const path = findCodexRolloutPath(threadId, env);
+  if (path === null) return false;
+  // findCodexRolloutPath uses the same dir cap and treats hits-at-cap as
+  // "indeterminate, assume durable" (returns a sentinel). Distinguish that
+  // here by returning true without the line scan.
+  if (path === "") return true;
+  return rolloutFileHasNonMetaLine(path);
+}
+
+// Returns the path to the rollout file for `threadId`, or null if not found.
+// Returns the empty string sentinel if the dir cap was hit (caller treats
+// this as "indeterminate, assume durable").
+function findCodexRolloutPath(
+  threadId: string,
+  env?: { [key: string]: string | undefined },
+): string | null {
+  if (!CODEX_THREAD_ID_PATTERN.test(threadId)) return null;
+  const sessionsDir = codexSessionsDir(env);
+  if (!existsSync(sessionsDir)) return null;
+  const filenameSuffix = `-${threadId}.jsonl`;
+  let dirsVisited = 0;
+  const stack: string[] = [sessionsDir];
+  while (stack.length > 0) {
+    if (dirsVisited >= CODEX_ROLLOUT_SCAN_DIR_CAP) {
+      return ""; // indeterminate sentinel
+    }
+    const dir = stack.pop()!;
+    dirsVisited++;
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const e of entries) {
+      const full = join(dir, e.name);
+      if (e.isDirectory()) {
+        stack.push(full);
+      } else if (e.isFile() && e.name.startsWith("rollout-") && e.name.endsWith(filenameSuffix)) {
+        return full;
+      }
+    }
+  }
+  return null;
+}
+
+// Read the rollout file's head and return true if any line within the budget
+// parses to a JSON object whose `type` is not "session_meta". Real rollouts
+// on Codex 0.130 can have a meta line of tens of KB (it embeds the full
+// base_instructions), so we read a generous 128 KB head; if a single line
+// exceeds that, return true (indeterminate, let Codex resolve).
+//
+// Trailing-newline handling: a file written as `<meta>\n<resp>` (no final
+// newline — common during mid-write or when the head window cuts off) must
+// not be misclassified as non-durable just because we conservatively dropped
+// the last segment. We try to parse the final segment; if it's valid JSON we
+// use it like any other line, and if parsing fails for that segment alone we
+// treat it as indeterminate (assume durable).
+function rolloutFileHasNonMetaLine(path: string): boolean {
+  const HEAD_BYTES = 128 * 1024;
+  let buf;
+  try {
+    const fd = openSync(path, "r");
+    try {
+      const tmp = Buffer.alloc(HEAD_BYTES);
+      const n = readSync(fd, tmp, 0, HEAD_BYTES, 0);
+      buf = tmp.subarray(0, n).toString("utf8");
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    return true;
+  }
+  const segments = buf.split("\n");
+  const trailingNewline = buf.endsWith("\n");
+  let scanned = 0;
+  for (let i = 0; i < segments.length; i++) {
+    const segment = segments[i];
+    const isLast = i === segments.length - 1;
+    // A trailing newline produces a final empty split artifact, not a real
+    // line — skip without spending budget.
+    if (isLast && trailingNewline && !segment.length) continue;
+    if (scanned >= CODEX_ROLLOUT_HEADER_SCAN_LINES) return true;
+    if (!segment.length) continue;
+    scanned++;
+    let parsed: any;
+    try {
+      parsed = JSON.parse(segment);
+    } catch {
+      // For the final segment of a file that doesn't end with a newline,
+      // parse failure means a mid-write capture or a line past our window —
+      // both indeterminate, so assume durable. Mid-file parse errors are
+      // unexpected but recoverable: skip and keep scanning.
+      if (isLast && !trailingNewline) return true;
+      continue;
+    }
+    if (parsed && typeof parsed === "object" && parsed.type && parsed.type !== "session_meta") {
+      return true;
+    }
+  }
+  return false;
 }
 
 // Move an agent's Claude CLI session files from one cwd's project dir to another.

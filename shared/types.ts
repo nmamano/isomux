@@ -278,6 +278,9 @@ export interface LogEntry {
   diff?: DiffPayload;         // present only when kind === "diff"
   file?: FilePayload;         // present only when kind === "edit-request"
   terminal?: TerminalCommandPayload; // present only when kind === "terminal-command"
+  // UI-only markers (e.g. "Conversation cleared.") that must never reach disk.
+  // appendLog and the system_init backfill both skip entries with this set.
+  ephemeral?: true;
 }
 
 // Task item (replaces todos)
