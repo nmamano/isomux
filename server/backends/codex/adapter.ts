@@ -316,10 +316,22 @@ class CodexSession implements BackendSession {
       this.verifyUserAgent(initResp.userAgent);
 
       if (this.opts.resumeThreadId) {
-        // Resume an existing thread.
+        // Resume an existing thread. Pass current settings as overrides so
+        // a UI-side change to permissionMode/sandbox/model/systemPrompt
+        // propagates instead of being stuck on whatever the thread was born
+        // with — editAgent replaceSession → resumeSession is the path that
+        // exercises this, and without the overrides the resumed thread
+        // silently keeps the original policy.
         const resumeResp = await this.client.request<{
           thread: { id: string };
-        }>("thread/resume", { threadId: this.opts.resumeThreadId });
+        }>("thread/resume", {
+          threadId: this.opts.resumeThreadId,
+          approvalPolicy: this.opts.permissionMode,
+          sandbox: this.opts.sandbox ?? DEFAULT_SANDBOX_MODE,
+          model: this.opts.modelFamily,
+          developerInstructions: this.opts.systemPrompt,
+          persistExtendedHistory: false,
+        });
         this.threadId = resumeResp.thread.id;
       } else {
         // Start a new thread.

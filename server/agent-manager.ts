@@ -1522,8 +1522,14 @@ function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
       if (ev.description) lines.push(ev.description);
       lines.push("");
       lines.push("Reply:");
+      // Backend-aware scope wording: Claude applies SDK-suggested pattern
+      // rules scoped to the session, so option 1 covers similar calls.
+      // Codex caches the exact canonicalized command (cwd, tty, sandbox
+      // included), so option 1 only covers byte-identical re-runs.
       lines.push(
-        "  1. Allow — and don't ask again for similar calls this session",
+        managed.info.agentType === "codex"
+          ? "  1. Allow — and don't ask again for this exact command this session"
+          : "  1. Allow — and don't ask again for similar calls this session",
       );
       lines.push("  2. Allow — just this time");
       lines.push("  3. Deny");
