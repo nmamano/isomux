@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Mirrors the GitHub Actions build job. Bypass with `git push --no-verify`
+# only after deciding the push is safe.
+set -e
+
+echo "→ format:check"
+bun run format:check
+
+echo "→ lint"
+bun run lint
+
+echo "→ typecheck"
+bun x tsc --noEmit

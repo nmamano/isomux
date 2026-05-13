@@ -2,6 +2,7 @@
   "name": "isomux",
   "type": "module",
   "scripts": {
+    "postinstall": "git config core.hooksPath .githooks 2>/dev/null || true",
     "dev": "bun run build:ui && bun run server/index.ts",
     "build:ui": "bash scripts/build.sh",
     "server": "bun run server/index.ts",
