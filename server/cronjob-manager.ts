@@ -527,7 +527,7 @@ function processNormalizedEvent(active: ActiveRun, ev: NormalizedEvent) {
           toolUseId: ev.toolUseId,
           ...(duration_ms != null ? { duration_ms } : {}),
         },
-        ev.attachments as Attachment[] | undefined,
+        ev.attachments,
       );
       break;
     }

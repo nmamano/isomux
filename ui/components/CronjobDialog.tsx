@@ -141,7 +141,7 @@ export function CronjobDialog({
     setAgentType(next);
     if (next === "codex") {
       setModelFamily(CODEX_MODELS[0].value);
-      setEffort("medium" as EffortLevel);
+      setEffort("medium");
       setPermissionMode("never");
     } else {
       setModelFamily("opus");

@@ -105,7 +105,7 @@ export function validateEffort(
 // events. A stale client sending `auto` is migrated to `bypassPermissions`.
 export function validateCronjobPermissionMode(
   agentType: AgentBackendType,
-  raw: CronjobPermissionMode | string | undefined,
+  raw: string | undefined,
 ): CronjobPermissionMode {
   if (agentType === "codex") return "never";
   // Claude: only "bypassPermissions" is unattended-safe with the Backend
