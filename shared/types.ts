@@ -389,9 +389,25 @@ export type Schedule =
     }
   | { type: "interval"; minutes: number };
 
-// Permission modes available for cronjobs. Subset of agent options:
-// "default" / "acceptEdits" / "plan" would block forever in an unattended run.
-export type CronjobPermissionMode = "bypassPermissions" | "auto";
+// Permission modes available for cronjobs. Subset of each backend's full set:
+// modes that block on human approval would hang forever in an unattended run.
+//   Claude: "bypassPermissions" (auto-allow all)
+//   Codex:  "never" (no approval prompts; pairs with the sandbox setting)
+// agentType selects which subset is legal at validation time.
+//
+// Note: Claude's "auto" mode IS NOT supported for cron. With the Backend
+// abstraction in place, ClaudeSession always installs `canUseTool`, which
+// routes approval decisions through the agent /resolve mechanism — cron
+// has no resolver, so an "auto" classifier mismatch would hang the run
+// until the 30-minute hard timeout. Legacy cronjobs persisted with
+// `permissionMode: "auto"` get coerced to `bypassPermissions` on load.
+export type CronjobPermissionMode = "bypassPermissions" | "never";
+
+// modelFamily is typed as `string` to span both backends — Claude uses
+// ModelFamily slugs ("opus" / "sonnet" / "haiku") while Codex uses the
+// app-server-reported model ids ("gpt-5.5" etc, fetched via model/list).
+// Validation happens server-side per agentType.
+export type CronjobModel = string;
 
 export interface Cronjob {
   id: string; // 8-char hex
@@ -399,9 +415,11 @@ export interface Cronjob {
   schedule: Schedule;
   prompt: string; // first user message at each fire
   cwd: string;
-  modelFamily: ModelFamily;
+  agentType: AgentBackendType; // immutable on edit, mirroring agents
+  modelFamily: CronjobModel;
   effort: EffortLevel;
   permissionMode: CronjobPermissionMode;
+  codexSandbox?: CodexSandboxMode; // Codex only; undefined → backend default
   enabled: boolean;
   createdBy: string; // Actor that created the record (agent name or user name)
   username: string | null; // Human boss this record is on behalf of
@@ -428,10 +446,12 @@ export interface CronjobRun {
   endedAt: number | null;
   errorReason: string | null;
   promptSnapshot: string;
-  modelFamilySnapshot: ModelFamily;
+  agentTypeSnapshot: AgentBackendType;
+  modelFamilySnapshot: CronjobModel;
   effortSnapshot: EffortLevel;
   cwdSnapshot: string;
   permissionModeSnapshot: CronjobPermissionMode;
+  codexSandboxSnapshot?: CodexSandboxMode;
   rootSessionId: string; // first session id created at fire time
   // Leaf of the fork chain — equals rootSessionId for un-forked runs. Tracked
   // separately from rootSessionId so loadRunLogWithAncestors can walk back from
@@ -823,15 +843,22 @@ export type ClientCommand =
       schedule: Schedule;
       prompt: string;
       cwd: string;
-      modelFamily: ModelFamily;
+      // Optional on the wire so a stale client (no engine picker) still
+      // creates Claude-typed cronjobs without breaking. Server defaults
+      // to "claude" when absent.
+      agentType?: AgentBackendType;
+      modelFamily: CronjobModel;
       effort: EffortLevel;
       permissionMode: CronjobPermissionMode;
+      codexSandbox?: CodexSandboxMode;
       username: string;
     }
   | {
       type: "update_cronjob";
       requestId?: string;
       id: string;
+      // agentType is immutable on edit (mirrors agents) — clients must not
+      // include it; the server will ignore it via Partial<Pick<...>> below.
       changes: Partial<
         Pick<
           Cronjob,
@@ -842,6 +869,7 @@ export type ClientCommand =
           | "modelFamily"
           | "effort"
           | "permissionMode"
+          | "codexSandbox"
           | "enabled"
         >
       >;

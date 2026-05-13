@@ -672,9 +672,11 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
         schedule: cmd.schedule,
         prompt: cmd.prompt,
         cwd: cmd.cwd,
+        agentType: cmd.agentType ?? "claude",
         modelFamily: cmd.modelFamily,
         effort: cmd.effort,
         permissionMode: cmd.permissionMode,
+        codexSandbox: cmd.codexSandbox,
         username: cmd.username,
       });
       if (cmd.requestId) {

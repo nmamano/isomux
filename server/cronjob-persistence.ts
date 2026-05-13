@@ -79,7 +79,7 @@ export function loadCronjobs(): Cronjob[] {
   try {
     if (!existsSync(CRONJOBS_FILE)) return [];
     const records = JSON.parse(readFileSync(CRONJOBS_FILE, "utf-8")) as Array<
-      Cronjob & { device?: string | null }
+      Cronjob & { device?: string | null; agentType?: Cronjob["agentType"] }
     >;
     // Migrate legacy `device` field → `username` (the field's actual semantics
     // has always been "the boss's name").
@@ -90,6 +90,19 @@ export function loadCronjobs(): Cronjob[] {
         migrated++;
       }
       delete (r as { device?: unknown }).device;
+      // Default agentType for records written before Codex cron support.
+      // Read-time only — saveCronjobs will fold it in on the next write.
+      if (r.agentType === undefined) r.agentType = "claude";
+      // Migrate "auto" permissionMode to "bypassPermissions". Pre-port cron
+      // passed permissionMode straight to the SDK without a canUseTool
+      // callback, so the SDK's internal "auto" classifier resolved the
+      // approvals. Post-port, ClaudeSession always installs canUseTool and
+      // cron has no resolver — an "auto" classifier mismatch would hang the
+      // run until the 30-min hard timeout. bypassPermissions is the safest
+      // unattended fallback.
+      if ((r as { permissionMode?: string }).permissionMode === "auto") {
+        (r as { permissionMode?: string }).permissionMode = "bypassPermissions";
+      }
     }
     if (migrated > 0) {
       console.log(
@@ -164,7 +177,25 @@ export function loadRuns(jobId: string): CronjobRun[] {
   try {
     const file = runsFile(jobId);
     if (!existsSync(file)) return [];
-    return JSON.parse(readFileSync(file, "utf-8")) as CronjobRun[];
+    const runs = JSON.parse(readFileSync(file, "utf-8")) as Array<
+      CronjobRun & { agentTypeSnapshot?: CronjobRun["agentTypeSnapshot"] }
+    >;
+    for (const r of runs) {
+      // Default agentTypeSnapshot for rows written before Codex cron support.
+      if (r.agentTypeSnapshot === undefined) r.agentTypeSnapshot = "claude";
+      // Same "auto" → "bypassPermissions" migration as cronjobs.json. Snapshot
+      // values only describe what *was* run, so coercing them doesn't change
+      // historical truth — but it prevents resume/edit from re-using "auto"
+      // for a new turn on the same run row.
+      if (
+        (r as { permissionModeSnapshot?: string }).permissionModeSnapshot ===
+        "auto"
+      ) {
+        (r as { permissionModeSnapshot?: string }).permissionModeSnapshot =
+          "bypassPermissions";
+      }
+    }
+    return runs;
   } catch (err) {
     console.error(`Failed to load runs for ${jobId}:`, err);
     return [];

@@ -1,15 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import { useAppState } from "../store.tsx";
 import { send, addRawListener, removeRawListener } from "../ws.ts";
+import { getUsername } from "../device-settings.ts";
 import {
   MODEL_FAMILIES,
   EFFORT_LEVELS,
   DEFAULT_EFFORT,
+  CODEX_MODELS,
   modelVersionLabel,
+  type AgentBackendType,
+  type BackendModelWire,
+  type CodexSandboxMode,
   type Cronjob,
   type CronjobPermissionMode,
   type EffortLevel,
-  type ModelFamily,
   type Schedule,
 } from "../../shared/types.ts";
 import {
@@ -77,20 +81,44 @@ export function CronjobDialog({
   }
   const [prompt, setPrompt] = useState(cronjob?.prompt ?? "");
   const [cwd, setCwd] = useState(cronjob?.cwd ?? "~");
-  const [modelFamily, setModelFamily] = useState<ModelFamily>(
+
+  // agentType is fixed at create-time, mirroring agents. The select is
+  // disabled on edit; to change engines the user creates a new cronjob.
+  const [agentType, setAgentType] = useState<AgentBackendType>(
+    cronjob?.agentType ?? "claude",
+  );
+  const isCodex = agentType === "codex";
+
+  const [modelFamily, setModelFamily] = useState<string>(
     cronjob?.modelFamily ?? "opus",
   );
   const [effort, setEffort] = useState<EffortLevel>(
     cronjob?.effort ?? DEFAULT_EFFORT,
   );
-  const initialPermission: CronjobPermissionMode =
-    cronjob?.permissionMode === "auto" &&
-    (cronjob?.modelFamily ?? "opus") !== "opus"
-      ? "bypassPermissions"
-      : (cronjob?.permissionMode ?? "bypassPermissions");
-  const [permissionMode, setPermissionMode] =
-    useState<CronjobPermissionMode>(initialPermission);
+  const [codexSandbox, setCodexSandbox] = useState<CodexSandboxMode>(
+    cronjob?.codexSandbox ?? "workspace-write",
+  );
+  // Initial permission mode is fixed per engine — the dropdown shows a
+  // single option in each case (no human-in-the-loop modes for unattended).
+  //   Claude: "bypassPermissions". Legacy "auto" rows have already been
+  //           migrated to bypassPermissions at load time.
+  //   Codex:  "never".
+  const [permissionMode, setPermissionMode] = useState<CronjobPermissionMode>(
+    agentType === "codex" ? "never" : "bypassPermissions",
+  );
   const [enabled, setEnabled] = useState(cronjob?.enabled ?? true);
+
+  // Codex models are fetched server-side (auth-aware via model/list). null =
+  // not yet attempted. On fetch failure we fall back to the hardcoded
+  // CODEX_MODELS list. Claude uses the static MODEL_FAMILIES list.
+  const [backendModels, setBackendModels] = useState<BackendModelWire[] | null>(
+    null,
+  );
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [modelsError, setModelsError] = useState<{
+    message: string;
+    authError: boolean;
+  } | null>(null);
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -104,6 +132,84 @@ export function CronjobDialog({
       if (pendingListener.current) removeRawListener(pendingListener.current);
     };
   }, []);
+
+  // Engine change resets dependent fields to the new backend's safe defaults
+  // so a stale Claude-flavored model/effort/permission doesn't survive a flip
+  // to Codex (or vice versa). Locked when editing — see Engine field below.
+  function handleEngineChange(next: AgentBackendType) {
+    if (next === agentType) return;
+    setAgentType(next);
+    if (next === "codex") {
+      setModelFamily(CODEX_MODELS[0].value);
+      setEffort("medium" as EffortLevel);
+      setPermissionMode("never");
+    } else {
+      setModelFamily("opus");
+      setEffort(DEFAULT_EFFORT);
+      setPermissionMode("bypassPermissions");
+    }
+  }
+
+  // Fetch the auth-appropriate Codex model list. Fires when the dialog opens
+  // on a Codex cronjob, or when the user flips the Engine select to Codex.
+  useEffect(() => {
+    if (!isCodex) return;
+    let cancelled = false;
+    /* eslint-disable react-hooks/set-state-in-effect */
+    setModelsLoading(true);
+    setModelsError(null);
+    /* eslint-enable react-hooks/set-state-in-effect */
+    const reqId = `cron-model-list-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const listener = (data: string) => {
+      try {
+        const msg = JSON.parse(data);
+        if (
+          msg.type !== "list_backend_models_response" ||
+          msg.requestId !== reqId
+        )
+          return;
+        removeRawListener(listener);
+        if (cancelled) return;
+        setModelsLoading(false);
+        if (msg.ok && Array.isArray(msg.models)) {
+          setBackendModels(msg.models);
+          // On create, snap to the auth-reported default. The model select
+          // is disabled during loading so the user can't have overridden us.
+          if (!isEdit) {
+            const def =
+              msg.models.find((m: BackendModelWire) => m.isDefault) ??
+              msg.models[0];
+            if (def) {
+              setModelFamily(def.id);
+              if (def.defaultEffort)
+                setEffort(def.defaultEffort as EffortLevel);
+            }
+          }
+        } else {
+          setModelsError({
+            message: msg.error || "Failed to load models",
+            authError: !!msg.authError,
+          });
+        }
+      } catch {}
+    };
+    addRawListener(listener);
+    send({
+      type: "list_backend_models",
+      requestId: reqId,
+      agentType,
+      cwd,
+      username: getUsername() ?? undefined,
+    });
+    return () => {
+      cancelled = true;
+      removeRawListener(listener);
+    };
+    // Intentionally not depending on cwd: re-fetching on every keystroke
+    // would spawn a codex subprocess per character. Auth is global, so the
+    // result is the same regardless of the cwd we hand model/list.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isCodex, agentType]);
 
   // ESC to close
   useEffect(() => {
@@ -151,6 +257,8 @@ export function CronjobDialog({
     pendingListener.current = listener;
 
     if (isEdit) {
+      // agentType is intentionally omitted — immutable on edit. The server's
+      // update_cronjob wire shape doesn't accept it either.
       send({
         type: "update_cronjob",
         requestId: reqId,
@@ -163,6 +271,7 @@ export function CronjobDialog({
           modelFamily,
           effort,
           permissionMode,
+          ...(isCodex ? { codexSandbox } : {}),
           enabled,
         },
       });
@@ -174,9 +283,11 @@ export function CronjobDialog({
         schedule: buildSchedule(),
         prompt,
         cwd,
+        agentType,
         modelFamily,
         effort,
         permissionMode,
+        ...(isCodex ? { codexSandbox } : {}),
         username,
       });
     }
@@ -419,44 +530,187 @@ export function CronjobDialog({
             </div>
           )}
 
+          <label style={{ ...labelStyle, marginTop: 14 }}>Engine</label>
+          {isEdit ? (
+            // Locked on edit, mirroring agents. To switch engines the user
+            // creates a new cronjob.
+            <div
+              title="Engine is fixed at create time — to switch engines, create a new cronjob."
+              style={{
+                ...inputStyle,
+                display: "flex",
+                alignItems: "center",
+                color: "var(--text-muted)",
+                fontFamily: "'JetBrains Mono',monospace",
+                textTransform: "uppercase",
+                letterSpacing: 0.5,
+                fontWeight: 600,
+                cursor: "not-allowed",
+                background: "var(--bg-elevated)",
+              }}
+            >
+              {agentType}
+            </div>
+          ) : (
+            <select
+              value={agentType}
+              onChange={(e) =>
+                handleEngineChange(e.target.value as AgentBackendType)
+              }
+              style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
+            >
+              <option value="claude">Claude</option>
+              <option value="codex">Codex</option>
+            </select>
+          )}
+
           <label style={{ ...labelStyle, marginTop: 14 }}>Model</label>
-          <select
-            value={modelFamily}
-            onChange={(e) => {
-              const next = e.target.value as ModelFamily;
-              setModelFamily(next);
-              if (next !== "opus" && permissionMode === "auto")
-                setPermissionMode("bypassPermissions");
-              if (next !== "opus" && effort === "max") setEffort("xhigh");
-            }}
-            style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
-          >
-            {MODEL_FAMILIES.map((m) => (
-              <option key={m.family} value={m.family}>
-                {m.label} ({modelVersionLabel(m.family)})
-              </option>
-            ))}
-          </select>
+          {(() => {
+            // Codex models come from the server (auth-aware via model/list).
+            // On fetch failure we fall back to the hardcoded CODEX_MODELS list
+            // so the dialog is still usable. Claude uses MODEL_FAMILIES.
+            const codexFetched = isCodex && backendModels;
+            const codexVisible = codexFetched
+              ? backendModels.filter((m) => !m.hidden)
+              : null;
+            const storedNotInList =
+              isEdit &&
+              isCodex &&
+              codexFetched &&
+              !codexVisible!.some((m) => m.id === modelFamily);
+            return (
+              <select
+                value={modelFamily}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setModelFamily(next);
+                  // Claude family-level interlock: "max" effort is opus-only.
+                  // (The "auto" permission mode interlock is gone now that
+                  // cron's only Claude permission option is bypassPermissions.)
+                  if (!isCodex && next !== "opus" && effort === "max")
+                    setEffort("xhigh");
+                  // Codex: snap effort to the new model's default if the
+                  // current effort isn't in its supportedEfforts list.
+                  if (isCodex && codexVisible) {
+                    const picked = codexVisible.find((m) => m.id === next);
+                    if (picked) {
+                      const supported = new Set(
+                        picked.supportedEfforts.map((o) => o.level),
+                      );
+                      if (!supported.has(effort) && picked.defaultEffort) {
+                        setEffort(picked.defaultEffort as EffortLevel);
+                      }
+                    }
+                  }
+                }}
+                style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
+                disabled={isCodex && modelsLoading}
+              >
+                {isCodex ? (
+                  <>
+                    {codexVisible
+                      ? codexVisible.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.label}
+                          </option>
+                        ))
+                      : CODEX_MODELS.map((m) => (
+                          <option key={m.value} value={m.value}>
+                            {m.label}
+                          </option>
+                        ))}
+                    {storedNotInList && (
+                      <option key={modelFamily} value={modelFamily}>
+                        {modelFamily} (unavailable on current login)
+                      </option>
+                    )}
+                  </>
+                ) : (
+                  MODEL_FAMILIES.map((m) => (
+                    <option key={m.family} value={m.family}>
+                      {m.label} ({modelVersionLabel(m.family)})
+                    </option>
+                  ))
+                )}
+              </select>
+            );
+          })()}
+          {isCodex && modelsLoading && (
+            <p
+              style={{
+                fontSize: 10,
+                color: "var(--text-ghost)",
+                margin: "3px 0 0",
+              }}
+            >
+              Loading available models…
+            </p>
+          )}
+          {isCodex && modelsError && !modelsLoading && (
+            <p
+              style={{
+                fontSize: 10,
+                color: "#ff6b6b",
+                margin: "3px 0 0",
+              }}
+            >
+              {modelsError.message}
+              {modelsError.authError
+                ? " — run `codex login` in a terminal."
+                : ""}
+            </p>
+          )}
 
           <label style={{ ...labelStyle, marginTop: 14 }}>
             Thinking Effort
           </label>
-          <select
-            value={effort}
-            onChange={(e) => setEffort(e.target.value as EffortLevel)}
-            style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
-          >
-            {EFFORT_LEVELS.filter(
-              (opt) => opt.level !== "max" || modelFamily === "opus",
-            ).map((opt) => (
-              <option key={opt.level} value={opt.level}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
+          {(() => {
+            // Codex: per-model supportedEfforts from model/list when available.
+            // Claude: family-level rules (max only for opus).
+            let effortOptions: { level: string; label: string }[];
+            if (isCodex) {
+              const picked = backendModels?.find((m) => m.id === modelFamily);
+              if (picked && picked.supportedEfforts.length > 0) {
+                effortOptions = picked.supportedEfforts.map((o) => {
+                  const match = EFFORT_LEVELS.find((e) => e.level === o.level);
+                  return {
+                    level: o.level,
+                    label: match
+                      ? match.label
+                      : o.level.charAt(0).toUpperCase() + o.level.slice(1),
+                  };
+                });
+              } else {
+                // No supportedEfforts reported (or list not yet loaded): fall
+                // back to the static list minus "max" (Claude-opus-only).
+                effortOptions = EFFORT_LEVELS.filter(
+                  (opt) => opt.level !== "max",
+                ).map((o) => ({ level: o.level, label: o.label }));
+              }
+            } else {
+              effortOptions = EFFORT_LEVELS.filter((opt) => {
+                if (opt.level === "max") return modelFamily === "opus";
+                if (opt.level === "minimal") return false; // Codex-only
+                return true;
+              }).map((o) => ({ level: o.level, label: o.label }));
+            }
+            return (
+              <select
+                value={effort}
+                onChange={(e) => setEffort(e.target.value as EffortLevel)}
+                style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
+              >
+                {effortOptions.map((opt) => (
+                  <option key={opt.level} value={opt.level}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            );
+          })()}
 
           <label style={{ ...labelStyle, marginTop: 14 }}>
-            Permission Mode
+            {isCodex ? "Approval Policy" : "Permission Mode"}
           </label>
           <select
             value={permissionMode}
@@ -465,12 +719,13 @@ export function CronjobDialog({
             }
             style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
           >
-            {modelFamily === "opus" && (
-              <option value="auto">
-                Auto (classifier auto-approves safe actions)
+            {isCodex ? (
+              <option value="never">Never ask (use sandbox-only)</option>
+            ) : (
+              <option value="bypassPermissions">
+                Bypass (auto-approve all)
               </option>
             )}
-            <option value="bypassPermissions">Bypass (auto-approve all)</option>
           </select>
           <p
             style={{
@@ -482,6 +737,29 @@ export function CronjobDialog({
             Cron jobs run unattended — modes that require human approval are not
             available.
           </p>
+
+          {isCodex && (
+            <>
+              <label style={{ ...labelStyle, marginTop: 14 }}>Sandbox</label>
+              <select
+                value={codexSandbox}
+                onChange={(e) =>
+                  setCodexSandbox(e.target.value as CodexSandboxMode)
+                }
+                style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
+              >
+                <option value="read-only">
+                  Read-only (model can read, never write)
+                </option>
+                <option value="workspace-write">
+                  Workspace write (write inside cwd only)
+                </option>
+                <option value="danger-full-access">
+                  Danger: full access (no sandbox)
+                </option>
+              </select>
+            </>
+          )}
 
           {isEdit && (
             <div

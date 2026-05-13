@@ -3,7 +3,6 @@ import type {
   AgentOutfit,
   AgentState,
   Attachment,
-  CodexSandboxMode,
   EffortLevel,
   LogEntry,
   OfficeSettings,
@@ -13,11 +12,9 @@ import type {
   TaskItem,
 } from "../shared/types.ts";
 import {
-  CODEX_MODELS,
   MODEL_FAMILIES,
   FAMILY_TO_MODEL,
   EFFORT_LEVELS,
-  DEFAULT_EFFORT,
   familyDisplayLabel,
   effortDisplayLabel,
   generateRoomId,
@@ -25,7 +22,6 @@ import {
 } from "../shared/types.ts";
 import { formatPrefix, formatAgentSenderPrefix } from "../shared/identity.ts";
 import { errMessage } from "../shared/errors.ts";
-import { getUserEnvFile } from "./users.ts";
 import {
   appendLog,
   loadLog,
@@ -110,6 +106,10 @@ import {
 } from "./backends/codex/version-check.ts";
 import type { BackendSession, NormalizedEvent } from "./backends/types.ts";
 import { OfficeState } from "../shared/office-state.ts";
+import { buildEnvFor, setOfficeEnvFileProvider } from "./env-loader.ts";
+// Re-export so existing callers (`AgentManager.buildEnvFor` in server/index.ts)
+// keep working without rewiring imports across the file.
+export { buildEnvFor };
 
 const LOGIN_INSTRUCTIONS = `To authenticate:
 1. Open the built-in terminal
@@ -322,83 +322,16 @@ export function getAgentDisplay(
 
 export { validateCwd };
 
-// Server-side validation for backend-specific spawn/edit options. The wire
-// types are permissive (AgentInfo's permissionMode is a union of both
-// backends' modes), so we narrow per agentType here and fall back to a safe
-// default when the value is outside the backend's allowlist. UI shouldn't
-// send mismatched values, but a stale tab or hand-crafted client could.
-function validatePermissionMode(
-  agentType: AgentInfo["agentType"],
-  raw: AgentInfo["permissionMode"] | undefined,
-): AgentInfo["permissionMode"] {
-  if (agentType === "codex") {
-    // "on-failure" is deprecated in codex 0.130 (warns on use); migrate
-    // to "on-request" at the boundary so we never persist the legacy value.
-    if (raw === "on-failure") return "on-request";
-    if (raw === "untrusted" || raw === "on-request" || raw === "never")
-      return raw;
-    return "on-request";
-  }
-  if (
-    raw === "default" ||
-    raw === "acceptEdits" ||
-    raw === "bypassPermissions" ||
-    raw === "auto"
-  )
-    return raw;
-  return "auto";
-}
-
-function validateModelFamily(
-  agentType: AgentInfo["agentType"],
-  raw: string | undefined,
-): string {
-  if (agentType === "codex") {
-    // Pass-through: the picker is fed by Codex's model/list RPC which
-    // returns auth-appropriate slugs that aren't necessarily in our
-    // hardcoded CODEX_MODELS. We can't statically know the valid set, so
-    // trust any non-empty string and let codex itself reject at thread/
-    // start with a "model not supported" turn error (whose system_text
-    // hint already points the user back at settings).
-    if (raw && typeof raw === "string" && raw.length > 0) return raw;
-    return CODEX_MODELS[0].value;
-  }
-  if (raw && isClaudeFamily(raw)) return raw;
-  return "opus";
-}
-
-function validateCodexSandbox(
-  raw: AgentInfo["codexSandbox"] | undefined,
-): CodexSandboxMode | undefined {
-  if (
-    raw === "read-only" ||
-    raw === "workspace-write" ||
-    raw === "danger-full-access"
-  )
-    return raw;
-  return undefined;
-}
-
-function validateEffort(
-  agentType: AgentInfo["agentType"],
-  modelFamily: string,
-  raw: EffortLevel | undefined,
-): EffortLevel {
-  if (agentType === "codex") {
-    // Pass-through for Codex: the per-model supportedReasoningEfforts from
-    // model/list is the real allow-list, and it can include values outside
-    // our static EFFORT_LEVELS (e.g. "none"). Trust any non-empty string
-    // and let codex reject at thread/start.
-    if (raw && typeof raw === "string" && raw.length > 0) return raw;
-    return DEFAULT_EFFORT;
-  }
-  if (!raw || !EFFORT_LEVELS.some((e) => e.level === raw))
-    return DEFAULT_EFFORT;
-  // Claude family-level rules: "minimal" is Codex-only; "max" is opus-only.
-  if (raw === "minimal") return DEFAULT_EFFORT;
-  if (raw === "max" && modelFamily !== "opus") return DEFAULT_EFFORT;
-  return raw;
-}
+// Backend-option validators live in agent-validators.ts so cron handlers can
+// share them. UI shouldn't send mismatched values, but a stale tab or hand-
+// crafted client could; each validator falls back to a safe default when the
+// value is outside the backend's allowlist.
+import {
+  validatePermissionMode,
+  validateModelFamily,
+  validateCodexSandbox,
+  validateEffort,
+} from "./agent-validators.ts";
 
 // Apply `fields` to managed.info in-place, run `fn`, and revert on throw.
 // Used by paths where a side effect (e.g. session recreate) reads AgentInfo
@@ -1778,34 +1711,23 @@ async function replaceSession(
 // User overrides office; office overrides process.env. Spawn-time failure
 // mode: if a configured env file is missing or fails to parse, throw — the
 // caller is responsible for surfacing the error to the agent log.
+//
+// The shared implementation lives in env-loader.ts so cronjob-manager can
+// import it without dragging in agent-manager (which would create an import
+// cycle through command-handlers). The office-env-file provider is registered
+// at agent-manager module init (see initEnvLoader call below) so env-loader
+// can read our `officeState` without importing it directly.
 function buildSessionEnv(
   managed: ManagedAgent,
 ): { [key: string]: string | undefined } | undefined {
   return buildEnvFor(managed.info.username ?? undefined);
 }
 
-// Same merge rules as buildSessionEnv but parameterized by username so the
-// model/list endpoint can resolve env before any agent exists. Returns
-// undefined if no env file is configured (caller can omit `env:` and let
-// the codex subprocess inherit the parent process.env directly).
-export function buildEnvFor(
-  username?: string,
-): { [key: string]: string | undefined } | undefined {
-  const officeEnvFile = officeState.office.envFile;
-  const userEnvFile = username ? getUserEnvFile(username) : null;
-  if (!officeEnvFile && !userEnvFile) return undefined;
-
-  const merged: { [key: string]: string | undefined } = { ...process.env };
-  if (officeEnvFile) {
-    const officeEnv = readEnvFile(officeEnvFile);
-    Object.assign(merged, officeEnv);
-  }
-  if (userEnvFile) {
-    const userEnv = readEnvFile(userEnvFile);
-    Object.assign(merged, userEnv);
-  }
-  return merged;
-}
+// Register the office-env-file provider once, after `officeState` exists.
+// Anchored at module top-level so cronjob-manager (which also imports
+// env-loader, possibly before fully running its own module body) can call
+// buildEnvFor synchronously by the time any scheduler tick fires.
+setOfficeEnvFileProvider(() => officeState.office.envFile);
 
 // Returns the session id to use for an automatic resume attempt, or null if
 // the recorded `managed.sessionId` can't safely be resumed and the caller

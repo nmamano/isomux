@@ -1,31 +1,30 @@
-// Cronjob scheduler + per-run SDK session lifecycle.
+// Cronjob scheduler + per-run backend session lifecycle.
 //
 // Scheduler tick: every 60s, looks at every enabled cronjob and fires those
 // whose nextFireAt has passed. Overlap rule: if a *scheduled* run is still
 // in flight for the same cronjob, write a "skipped" row instead of firing.
 // Manual "Run now" bypasses the overlap rule.
 //
-// Each fire creates a fresh V2 SDK session, sends the cronjob's prompt as the
-// first user message, streams the SDK output to a per-run JSONL log, and
-// broadcasts log entries to the UI via the existing event bus. The synthetic
-// "stream id" used for log routing is `cronjobRunStreamId(runId)`.
+// Each fire creates a fresh backend session (Claude or Codex, per the
+// cronjob's agentType), sends the prompt as the first user message,
+// consumes the normalized event stream, and broadcasts log entries to the
+// UI via the existing event bus. The synthetic "stream id" used for log
+// routing is `cronjobRunStreamId(runId)` — this is also the agentId passed
+// to the backend so attachments resolve under the run's logs/files dir.
+//
+// Cron differs from agents in lifecycle: a run is single-turn-then-close,
+// not a long-lived session. consumeUntilTurnCompleted() awaits the first
+// turn_completed (or error) event, finalizes the run row, and closes the
+// session. Resume/edit follow the same one-turn shape.
 
 import {
-  unstable_v2_createSession,
-  unstable_v2_resumeSession,
-  forkSession,
-  getSessionMessages,
-  type SDKMessage,
-} from "@anthropic-ai/claude-agent-sdk";
-
-type SdkSessionOptions = Parameters<typeof unstable_v2_createSession>[0];
-import {
-  FAMILY_TO_MODEL,
   generateCronjobId,
   generateCronjobRunId,
   cronjobRunStreamId,
   humanizeSchedule,
+  type AgentBackendType,
   type Attachment,
+  type CodexSandboxMode,
   type Cronjob,
   type CronjobRun,
   type CronjobPermissionMode,
@@ -33,20 +32,37 @@ import {
   type Schedule,
 } from "../shared/types.ts";
 import {
-  CLAUDE_NATIVE_BIN,
   validateCwd,
   resolveCwd,
   claudeSessionFileExists,
   claudeProjectDir,
+  codexRolloutFileExists,
+  codexSessionsDir,
 } from "./cwd-utils.ts";
 import { formatPrefix } from "../shared/identity.ts";
 import { errMessage } from "../shared/errors.ts";
-import { createSafetyHooks } from "./safety-hooks.ts";
+import { loadOfficeConfig, type PersistedUsage } from "./persistence.ts";
+import { getBackend } from "./backends/index.ts";
+import type {
+  BackendSession,
+  CreateSessionOptions,
+  NormalizedEvent,
+} from "./backends/types.ts";
 import {
-  loadOfficeConfig,
-  saveFile,
-  type PersistedUsage,
-} from "./persistence.ts";
+  validateCronjobPermissionMode,
+  validateModelFamily,
+  validateEffort,
+  validateCodexSandbox,
+} from "./agent-validators.ts";
+// buildEnvFor merges process.env with the office env file and the cronjob
+// owner's user env file (matches agent-manager's spawn-time env). Cron uses
+// the same builder so a user that successfully fetches Codex models with
+// their per-user OPENAI_API_KEY / CODEX_HOME via `list_backend_models` gets
+// the same env when the cronjob actually fires. Imported from env-loader
+// (not agent-manager) to keep cron decoupled from the orchestrator — the
+// `cronjob-manager → agent-manager → command-handlers → cronjob-manager`
+// cycle is what env-loader exists to break.
+import { buildEnvFor } from "./env-loader.ts";
 import {
   loadCronjobs,
   saveCronjobs,
@@ -80,8 +96,9 @@ interface ActiveRun {
   jobId: string;
   runId: string;
   streamId: string;
-  session: ReturnType<typeof unstable_v2_createSession>;
-  sessionId: string | null; // assigned on first system:init
+  agentType: AgentBackendType;
+  session: BackendSession;
+  sessionId: string | null; // assigned on first system_init event
   rootSessionId: string; // the run row's rootSessionId (placeholder until init)
   consumerPromise: Promise<void>;
   hardTimeoutTimer: ReturnType<typeof setTimeout> | null;
@@ -89,13 +106,18 @@ interface ActiveRun {
   lastAssistantText: string; // for previewText computation
   trigger: CronjobRun["trigger"];
   killed: boolean;
-  // Buffer entries created before SDK init assigns a sessionId. Without this,
-  // pre-init errors (e.g. "Failed to send prompt") get broadcast to clients
-  // but never persisted to disk, so they vanish on reload.
+  // Buffer entries created before system_init assigns a sessionId. Without
+  // this, pre-init errors (e.g. "Failed to send prompt") get broadcast to
+  // clients but never persisted to disk, so they vanish on reload.
   pendingEntries: LogEntry[];
+  // Per-turn tool-call start timestamps, keyed by toolUseId. Used to compute
+  // duration_ms on the matching tool_result event when the backend itself
+  // doesn't emit a durationMs.
+  toolCallTimestamps: Map<string, number>;
   // True for follow-up turns on a previously-finalized run (resumed or
-  // edit-forked). On resume the SDK reuses the existing sessionId, so init
-  // must NOT clobber rootSessionId — only currentSessionId tracks the leaf.
+  // edit-forked). On resume the backend reuses the existing sessionId, so
+  // system_init must NOT clobber rootSessionId — only currentSessionId
+  // tracks the leaf.
   isResume: boolean;
 }
 
@@ -225,24 +247,37 @@ export interface AddCronjobInput {
   schedule: Schedule;
   prompt: string;
   cwd: string;
+  agentType: AgentBackendType;
   modelFamily: Cronjob["modelFamily"];
   effort: Cronjob["effort"];
   permissionMode: CronjobPermissionMode;
+  codexSandbox?: CodexSandboxMode;
   username: string;
 }
 
 export function addCronjob(input: AddCronjobInput): Cronjob {
   const schedule = clampSchedule(input.schedule);
   const now = Date.now();
+  const agentType = input.agentType;
+  const modelFamily = validateModelFamily(agentType, input.modelFamily);
+  const effort = validateEffort(agentType, modelFamily, input.effort);
+  const permissionMode = validateCronjobPermissionMode(
+    agentType,
+    input.permissionMode,
+  );
+  const codexSandbox =
+    agentType === "codex" ? validateCodexSandbox(input.codexSandbox) : undefined;
   const cronjob: Cronjob = {
     id: generateCronjobId(cronjobs.map((c) => c.id)),
     name: input.name.trim() || "Untitled cron job",
     schedule,
     prompt: input.prompt,
     cwd: resolveCwd(input.cwd),
-    modelFamily: input.modelFamily,
-    effort: input.effort,
-    permissionMode: input.permissionMode,
+    agentType,
+    modelFamily,
+    effort,
+    permissionMode,
+    ...(codexSandbox ? { codexSandbox } : {}),
     enabled: true,
     createdBy: input.username,
     username: input.username,
@@ -272,6 +307,7 @@ export function updateCronjob(
       | "modelFamily"
       | "effort"
       | "permissionMode"
+      | "codexSandbox"
       | "enabled"
     >
   >,
@@ -279,14 +315,31 @@ export function updateCronjob(
   const idx = cronjobs.findIndex((c) => c.id === id);
   if (idx < 0) return null;
   const prev = cronjobs[idx];
+  // agentType is immutable on edit, mirroring agents. Re-validate the rest
+  // under the existing agentType so a stale UI payload can't slip an
+  // invalid Codex model into a Claude cronjob (or vice versa).
   const next: Cronjob = { ...prev };
   if (changes.name !== undefined) next.name = changes.name.trim() || prev.name;
   if (changes.prompt !== undefined) next.prompt = changes.prompt;
   if (changes.cwd !== undefined) next.cwd = resolveCwd(changes.cwd);
-  if (changes.modelFamily !== undefined) next.modelFamily = changes.modelFamily;
-  if (changes.effort !== undefined) next.effort = changes.effort;
+  if (changes.modelFamily !== undefined)
+    next.modelFamily = validateModelFamily(prev.agentType, changes.modelFamily);
+  if (changes.effort !== undefined)
+    next.effort = validateEffort(
+      prev.agentType,
+      next.modelFamily,
+      changes.effort,
+    );
   if (changes.permissionMode !== undefined)
-    next.permissionMode = changes.permissionMode;
+    next.permissionMode = validateCronjobPermissionMode(
+      prev.agentType,
+      changes.permissionMode,
+    );
+  if (changes.codexSandbox !== undefined && prev.agentType === "codex") {
+    const v = validateCodexSandbox(changes.codexSandbox);
+    if (v) next.codexSandbox = v;
+    else delete next.codexSandbox;
+  }
   if (changes.enabled !== undefined) next.enabled = changes.enabled;
   if (changes.schedule !== undefined) {
     next.schedule = clampSchedule(changes.schedule);
@@ -394,136 +447,117 @@ How to answer questions about Isomux itself: the source lives at https://github.
 // Run lifecycle
 // ---------------------------------------------------------------------------
 
-function processCronjobMessage(active: ActiveRun, msg: SDKMessage) {
-  switch (msg.type) {
-    case "system": {
-      const subtype = msg.subtype;
-      if (subtype === "init") {
-        const sessionId = msg.session_id as string | undefined;
-        if (sessionId && !active.sessionId) {
-          active.sessionId = sessionId;
-          // If the SDK assigned a different id than rootSessionId, update the
-          // run row so the transcript loads correctly. On resume the SDK keeps
-          // the same id, so this branch only fires for fresh-fire init or a
-          // forked-then-resumed leaf where currentSessionId is already in sync.
-          if (sessionId !== active.rootSessionId) {
-            // Only sync rootSessionId on the initial fire. For resumed/forked
-            // runs the root is fixed history; the leaf is currentSessionId.
-            const patch: Partial<CronjobRun> = active.isResume
-              ? { currentSessionId: sessionId }
-              : { rootSessionId: sessionId, currentSessionId: sessionId };
-            const updated = updateRun(active.jobId, active.runId, patch);
-            if (updated) {
-              if (!active.isResume) active.rootSessionId = sessionId;
-              eventHandler({ type: "cronjob_run_updated", run: updated });
-            }
+// Translate a NormalizedEvent into cron's LogEntry / sessions.json side
+// effects. Mirror of agent-manager.processNormalizedEvent, but with the cron
+// writeLog signature (which routes to the run's <runId>/<sessionId>.jsonl).
+//
+// Per-turn lifecycle (finalize on turn_completed, error termination, etc.)
+// lives in consumeUntilTurnCompleted — this function only logs / accumulates
+// and never closes the session.
+function processNormalizedEvent(active: ActiveRun, ev: NormalizedEvent) {
+  switch (ev.kind) {
+    case "system_init": {
+      const sessionId = ev.sessionId;
+      if (sessionId && !active.sessionId) {
+        active.sessionId = sessionId;
+        // If the backend assigned a different id than rootSessionId, update
+        // the run row so the transcript loads correctly. On resume the same
+        // id is reused, so this branch only fires for fresh-fire init or a
+        // forked-then-resumed leaf where currentSessionId is already in sync.
+        if (sessionId !== active.rootSessionId) {
+          // Only sync rootSessionId on the initial fire. For resumed/forked
+          // runs the root is fixed history; the leaf is currentSessionId.
+          const patch: Partial<CronjobRun> = active.isResume
+            ? { currentSessionId: sessionId }
+            : { rootSessionId: sessionId, currentSessionId: sessionId };
+          const updated = updateRun(active.jobId, active.runId, patch);
+          if (updated) {
+            if (!active.isResume) active.rootSessionId = sessionId;
+            eventHandler({ type: "cronjob_run_updated", run: updated });
           }
-          // Flush any pre-init log entries (errors, etc.) to the now-known
-          // session's JSONL so they survive a reload.
-          for (const entry of active.pendingEntries) {
-            appendRunLog(active.jobId, active.runId, sessionId, entry);
-            active.lastWrittenEntryId = entry.id;
-          }
-          active.pendingEntries = [];
         }
+        // Flush any pre-init log entries (errors, etc.) to the now-known
+        // session's JSONL so they survive a reload.
+        for (const entry of active.pendingEntries) {
+          appendRunLog(active.jobId, active.runId, sessionId, entry);
+          active.lastWrittenEntryId = entry.id;
+        }
+        active.pendingEntries = [];
       }
       break;
     }
-    case "assistant": {
-      const content = msg.message?.content;
-      if (!Array.isArray(content)) break;
-      for (const block of content) {
-        if (block.type === "text" && block.text) {
-          active.lastAssistantText = block.text;
-          writeLog(active, "text", block.text);
-        } else if (block.type === "tool_use") {
-          writeLog(active, "tool_call", block.name, {
-            toolId: block.id,
-            input: block.input,
-          });
-        } else if (block.type === "thinking" && block.thinking) {
-          writeLog(active, "thinking", block.thinking);
-        }
-      }
+    case "assistant_text": {
+      active.lastAssistantText = ev.text;
+      writeLog(active, "text", ev.text);
       break;
     }
-    case "user": {
-      const content = msg.message?.content;
-      if (!Array.isArray(content)) break;
-      for (const block of content) {
-        if (block.type === "tool_result") {
-          const resultText =
-            typeof block.content === "string"
-              ? block.content
-              : Array.isArray(block.content)
-                ? block.content
-                    .filter(
-                      (c: {
-                        type?: string;
-                      }): c is { type: "text"; text: string } =>
-                        c.type === "text",
-                    )
-                    .map((c) => c.text)
-                    .join("\n")
-                : JSON.stringify(block.content);
-          // Extract image attachments from tool_result blocks (e.g. from the
-          // Read tool reading an image). Files are saved under the cronjob run
-          // stream id so the existing /api/files/<agentId>/... route resolves
-          // them (~/.isomux/logs/cronrun-<runId>/files/).
-          let resultAttachments: Attachment[] | undefined;
-          if (Array.isArray(block.content)) {
-            const atts: Attachment[] = [];
-            type ImageBlock = {
-              type: "image";
-              source: { type: "base64"; data: string; media_type: string };
-            };
-            const isImageBlock = (c: unknown): c is ImageBlock => {
-              if (!c || typeof c !== "object") return false;
-              const o = c as { type?: unknown; source?: { type?: unknown } };
-              return o.type === "image" && o.source?.type === "base64";
-            };
-            for (const c of block.content) {
-              if (isImageBlock(c)) {
-                const decoded = Buffer.from(c.source.data, "base64");
-                const att = saveFile(
-                  active.streamId,
-                  decoded,
-                  c.source.media_type,
-                  `image.${c.source.media_type.split("/")[1] ?? "png"}`,
-                );
-                if (att) atts.push(att);
-              }
-            }
-            if (atts.length > 0) resultAttachments = atts;
-          }
-          writeLog(
-            active,
-            "tool_result",
-            resultText.slice(0, 10000),
-            { toolUseId: block.tool_use_id },
-            resultAttachments,
-          );
-        }
-      }
+    case "system_text": {
+      writeLog(active, "system", ev.text);
       break;
     }
-    case "result": {
-      const subtype = msg.subtype;
-      const usageField = msg.usage;
-      if (active.sessionId && usageField) {
-        const cost = msg.total_cost_usd ?? 0;
+    case "thinking": {
+      writeLog(
+        active,
+        "thinking",
+        ev.text,
+        ev.durationMs != null ? { duration_ms: ev.durationMs } : undefined,
+      );
+      break;
+    }
+    case "tool_call": {
+      active.toolCallTimestamps.set(ev.toolUseId, Date.now());
+      writeLog(active, "tool_call", ev.name, {
+        toolId: ev.toolUseId,
+        input: ev.input,
+      });
+      break;
+    }
+    case "tool_result": {
+      const callStart = active.toolCallTimestamps.get(ev.toolUseId);
+      const duration_ms =
+        ev.durationMs ?? (callStart ? Date.now() - callStart : undefined);
+      if (callStart) active.toolCallTimestamps.delete(ev.toolUseId);
+      writeLog(
+        active,
+        "tool_result",
+        ev.content.slice(0, 10000),
+        {
+          toolUseId: ev.toolUseId,
+          ...(duration_ms != null ? { duration_ms } : {}),
+        },
+        ev.attachments as Attachment[] | undefined,
+      );
+      break;
+    }
+    case "approval_request": {
+      // Should not happen for cronjob permission modes (Claude
+      // bypassPermissions, Codex never). If it does the turn will block
+      // until the 30-minute hard timeout — surface a system note so it's
+      // diagnosable in the transcript.
+      writeLog(
+        active,
+        "system",
+        `Approval requested for ${ev.toolName} — cronjobs run unattended; ` +
+          `this should not occur with the configured permission mode. ` +
+          `The run will block until the 30-minute hard timeout.`,
+      );
+      break;
+    }
+    case "turn_completed": {
+      // Accumulate usage *before* the caller closes the session. close()
+      // ends the stream, and the last usage anchor must reach disk first.
+      if (active.sessionId && ev.usage) {
         const cumulative = accumulateRunSessionUsage(
           active.jobId,
           active.runId,
           active.sessionId,
           {
-            inputTokens: usageField.input_tokens ?? 0,
-            outputTokens: usageField.output_tokens ?? 0,
-            cacheReadInputTokens: usageField.cache_read_input_tokens ?? 0,
-            cacheCreationInputTokens:
-              usageField.cache_creation_input_tokens ?? 0,
+            inputTokens: ev.usage.inputTokens,
+            outputTokens: ev.usage.outputTokens,
+            cacheReadInputTokens: ev.usage.cacheReadInputTokens,
+            cacheCreationInputTokens: ev.usage.cacheCreationInputTokens,
           },
-          cost,
+          ev.cost ?? 0,
         );
         if (active.lastWrittenEntryId) {
           appendRunSessionUsageSnapshot(
@@ -535,10 +569,58 @@ function processCronjobMessage(active: ActiveRun, msg: SDKMessage) {
           );
         }
       }
-      if (subtype !== "success") {
-        const errors = msg.errors;
-        const errorText = `Run stopped: ${subtype}. ${errors?.join(", ") || ""}`;
+      if (ev.status !== "completed") {
+        const errorText = ev.error ?? `Run stopped: ${ev.status}.`;
         writeLog(active, "error", errorText);
+        if (getBackend(active.agentType).detectAuthError(errorText)) {
+          writeLog(
+            active,
+            "system",
+            getBackend(active.agentType).getLoginInstructions(),
+          );
+        }
+      }
+      break;
+    }
+    case "usage_update": {
+      // Backend emitted running totals outside a turn boundary (Codex). Treat
+      // it like a turn_completed for accumulation; no log/state side effects.
+      if (active.sessionId) {
+        const cumulative = accumulateRunSessionUsage(
+          active.jobId,
+          active.runId,
+          active.sessionId,
+          ev.tokenUsage,
+          0,
+        );
+        if (active.lastWrittenEntryId) {
+          appendRunSessionUsageSnapshot(
+            active.jobId,
+            active.runId,
+            active.sessionId,
+            active.lastWrittenEntryId,
+            cumulative,
+          );
+        }
+      }
+      break;
+    }
+    case "compacted": {
+      writeLog(
+        active,
+        "system",
+        ev.summary ? `Context compacted: ${ev.summary}` : "Context compacted.",
+      );
+      break;
+    }
+    case "error": {
+      writeLog(active, "error", ev.message);
+      if (getBackend(active.agentType).detectAuthError(ev.message)) {
+        writeLog(
+          active,
+          "system",
+          getBackend(active.agentType).getLoginInstructions(),
+        );
       }
       break;
     }
@@ -571,13 +653,38 @@ function writeLog(
   eventHandler({ type: "log_entry", entry });
 }
 
-async function runConsumer(active: ActiveRun) {
+// Consume the backend's normalized event stream until the run's single turn
+// completes (or fails). On the first `turn_completed` for this run turn,
+// finalize the run row (status from the event) and close the session via
+// finalizeRun. Backend streams are persistent across turns, so we MUST stop
+// reading once the turn is done — otherwise a successful Codex run would
+// stay open until the hard timeout. Same one-turn shape applies to resumed
+// and edit-forked sessions installed via installResumedActive.
+async function consumeUntilTurnCompleted(active: ActiveRun) {
   try {
-    for await (const msg of active.session.stream()) {
-      processCronjobMessage(active, msg);
+    for await (const ev of active.session.stream()) {
+      processNormalizedEvent(active, ev);
+      if (ev.kind === "turn_completed") {
+        const status: CronjobRun["status"] =
+          ev.status === "completed" ? "completed" : "failed";
+        const errorReason =
+          ev.status === "completed"
+            ? null
+            : (ev.error ?? `Run stopped: ${ev.status}`);
+        finalizeRun(active, status, errorReason);
+        return;
+      }
+      if (ev.kind === "error") {
+        // processNormalizedEvent already wrote the error LogEntry; terminate.
+        finalizeRun(active, "failed", ev.message);
+        return;
+      }
     }
-    // Stream ended cleanly — terminal `result` arrived.
-    finalizeRun(active, "completed");
+    // Stream ended without a turn_completed — should not happen with healthy
+    // backends, but if it does (e.g. transport closed mid-turn), record it.
+    if (activeRuns.has(active.runId)) {
+      finalizeRun(active, "failed", "stream ended before turn completed");
+    }
   } catch (err) {
     if (active.killed) return; // hard timeout already handled
     console.error(`Cronjob run ${active.runId} stream error:`, errMessage(err));
@@ -613,9 +720,10 @@ function finalizeRun(
     }
     active.pendingEntries = [];
   }
-  // Release the underlying Claude subprocess. The V2 SDK's stream() ends per
-  // turn (not per session), so a successful run reaches finalizeRun with the
-  // session still alive — without close() it would leak until process exit.
+  // Release the backend session (Claude SDK process or Codex subprocess).
+  // Backend streams are persistent across turns; consumeUntilTurnCompleted
+  // returns after the first turn_completed, so close() here is what actually
+  // tears down the subprocess. Idempotent on the Backend contract.
   try {
     active.session.close();
   } catch {}
@@ -642,7 +750,7 @@ function fire(
   const jobId = job.id;
 
   // Validate cwd before spawning so a moved directory surfaces as a failed
-  // run rather than an opaque SDK exit.
+  // run rather than an opaque backend process-exit message.
   let cwdValid = true;
   let cwdError: string | null = null;
   try {
@@ -665,10 +773,12 @@ function fire(
     endedAt: cwdValid ? null : now,
     errorReason: cwdError,
     promptSnapshot: job.prompt,
+    agentTypeSnapshot: job.agentType,
     modelFamilySnapshot: job.modelFamily,
     effortSnapshot: job.effort,
     cwdSnapshot: job.cwd,
     permissionModeSnapshot: job.permissionMode,
+    ...(job.codexSandbox ? { codexSandboxSnapshot: job.codexSandbox } : {}),
     rootSessionId: placeholderSessionId,
     currentSessionId: placeholderSessionId,
     previewText: cwdError ?? "",
@@ -689,22 +799,34 @@ function fire(
   }
 
   const systemPrompt = buildCronjobSystemPrompt(job);
-  const opts: SdkSessionOptions = {
-    model: FAMILY_TO_MODEL[job.modelFamily],
-    permissionMode: job.permissionMode,
-    pathToClaudeCodeExecutable: CLAUDE_NATIVE_BIN,
-    executableArgs: [
-      "--append-system-prompt",
-      systemPrompt,
-      "--effort",
-      job.effort,
-    ],
-    cwd: job.cwd,
-    hooks: createSafetyHooks(),
-  };
-  let session: ReturnType<typeof unstable_v2_createSession>;
+  // Resolve env up-front so a broken env file surfaces as a "Failed to create
+  // session" run row instead of a stream-time error. Falls back to
+  // process.env when no env file is configured for the cronjob owner.
+  let env: { [key: string]: string | undefined } | undefined;
   try {
-    session = unstable_v2_createSession(opts);
+    env = buildEnvFor(job.username ?? undefined);
+  } catch (err) {
+    const updated = updateRun(jobId, runId, {
+      status: "failed",
+      endedAt: Date.now(),
+      errorReason: `Failed to build env: ${errMessage(err)}`,
+    });
+    if (updated) eventHandler({ type: "cronjob_run_updated", run: updated });
+    return updated ?? run;
+  }
+  const opts: CreateSessionOptions = {
+    agentId: cronjobRunStreamId(runId),
+    cwd: job.cwd,
+    systemPrompt,
+    modelFamily: job.modelFamily,
+    effort: job.effort,
+    permissionMode: job.permissionMode,
+    sandbox: job.codexSandbox,
+    env,
+  };
+  let session: BackendSession;
+  try {
+    session = getBackend(job.agentType).createSession(opts);
   } catch (err) {
     const updated = updateRun(jobId, runId, {
       status: "failed",
@@ -720,6 +842,7 @@ function fire(
     jobId,
     runId,
     streamId,
+    agentType: job.agentType,
     session,
     sessionId: null,
     rootSessionId: placeholderSessionId,
@@ -730,10 +853,11 @@ function fire(
     trigger,
     killed: false,
     pendingEntries: [],
+    toolCallTimestamps: new Map(),
     isResume: false,
   };
   activeRuns.set(runId, active);
-  active.consumerPromise = runConsumer(active);
+  active.consumerPromise = consumeUntilTurnCompleted(active);
   active.hardTimeoutTimer = setTimeout(() => {
     if (!activeRuns.has(runId)) return;
     active.killed = true;
@@ -744,8 +868,10 @@ function fire(
     finalizeRun(active, "timed_out", "exceeded global run timeout");
   }, HARD_TIMEOUT_MS);
 
-  // Send the prompt as the first user message. Wrap in a try so ergonomic
-  // errors don't crash the tick.
+  // Send the prompt as the first user message. session.send awaits the
+  // backend's bootstrap (Codex: initialize + thread/start; Claude: SDK
+  // handshake) and can reject if spawn / auth fails — wrap so async
+  // bootstrap errors finalize the run instead of crashing the tick.
   void (async () => {
     try {
       await session.send(job.prompt);
@@ -781,10 +907,12 @@ function recordSkippedRun(job: Cronjob): CronjobRun {
     endedAt: now,
     errorReason: "previous scheduled run still in flight",
     promptSnapshot: job.prompt,
+    agentTypeSnapshot: job.agentType,
     modelFamilySnapshot: job.modelFamily,
     effortSnapshot: job.effort,
     cwdSnapshot: job.cwd,
     permissionModeSnapshot: job.permissionMode,
+    ...(job.codexSandbox ? { codexSandboxSnapshot: job.codexSandbox } : {}),
     rootSessionId: `skipped-${runId}`,
     previewText: "",
   };
@@ -860,39 +988,46 @@ function emitRunErrorEntry(jobId: string, runId: string, message: string) {
   eventHandler({ type: "log_entry", entry });
 }
 
-function buildRunResumeOpts(
+// Build CreateSessionOptions for a resumed cronjob run. The current run's
+// usage is rolled into priorRunsUsage before each resume — backends report
+// cost cumulative-per-process, so the counter resets to zero on resume and
+// the prior segment would otherwise vanish from lifetime accounting.
+//
+// systemPrompt: re-built from the live cronjob config when still present so
+// resumed runs pick up office/cronjobs prompt edits. For deleted cronjobs
+// we'd have nothing to derive the prompt from; pass an empty string so the
+// backend's saved session keeps using whatever it was started with.
+//
+// env: resolved from the live cronjob's username (env file paths are
+// per-user, not snapshotted). Deleted-cronjob resume falls back to
+// process.env. A broken env file throws here — the caller surfaces it as
+// a "Failed to resume" entry in the run transcript.
+function buildRunSessionOptions(
   run: CronjobRun,
   resumeSessionId: string,
-): SdkSessionOptions {
-  // Roll the current-run usage into priorRunsUsage so the SDK's per-process
-  // cost counter resetting to zero (which it does on every resume) doesn't
-  // wipe lifetime accounting. Mirrors agent-manager's createSession.
+): CreateSessionOptions {
   rollRunSessionUsageOnResume(run.cronjobId, run.id, resumeSessionId);
-  // Re-pass the system prompt when the cronjob still exists so resumed runs
-  // pick up any office/cronjobs prompt edits. For deleted cronjobs the saved
-  // session preserves the original prompt — skip --append-system-prompt
-  // entirely rather than synthesize a partial one.
   const job = cronjobs.find((c) => c.id === run.cronjobId);
-  const systemPrompt = job ? buildCronjobSystemPrompt(job) : null;
-  const executableArgs = systemPrompt
-    ? ["--append-system-prompt", systemPrompt, "--effort", run.effortSnapshot]
-    : ["--effort", run.effortSnapshot];
+  const systemPrompt = job ? buildCronjobSystemPrompt(job) : "";
+  const env = buildEnvFor(job?.username ?? undefined);
   return {
-    model: FAMILY_TO_MODEL[run.modelFamilySnapshot],
-    permissionMode: run.permissionModeSnapshot,
-    pathToClaudeCodeExecutable: CLAUDE_NATIVE_BIN,
-    executableArgs,
+    agentId: cronjobRunStreamId(run.id),
     cwd: run.cwdSnapshot,
-    hooks: createSafetyHooks(),
+    systemPrompt,
+    modelFamily: run.modelFamilySnapshot,
+    effort: run.effortSnapshot,
+    permissionMode: run.permissionModeSnapshot,
+    sandbox: run.codexSandboxSnapshot,
+    env,
   };
 }
 
-// Wire up an ActiveRun around an SDK session (resumed or freshly forked).
+// Wire up an ActiveRun around a backend session (resumed or freshly forked).
 // Marks the run row "running", starts the consumer + hard timeout, and
 // returns the active so callers can persist log entries / call session.send.
 function installResumedActive(
   run: CronjobRun,
-  session: ReturnType<typeof unstable_v2_resumeSession>,
+  session: BackendSession,
   sessionId: string,
 ): ActiveRun {
   const streamId = cronjobRunStreamId(run.id);
@@ -900,6 +1035,7 @@ function installResumedActive(
     jobId: run.cronjobId,
     runId: run.id,
     streamId,
+    agentType: run.agentTypeSnapshot,
     session,
     sessionId,
     rootSessionId: run.rootSessionId,
@@ -916,6 +1052,7 @@ function installResumedActive(
     trigger: "manual",
     killed: false,
     pendingEntries: [],
+    toolCallTimestamps: new Map(),
     isResume: true,
   };
   activeRuns.set(run.id, active);
@@ -926,7 +1063,7 @@ function installResumedActive(
     errorReason: null,
   });
   if (updated) eventHandler({ type: "cronjob_run_updated", run: updated });
-  active.consumerPromise = runConsumer(active);
+  active.consumerPromise = consumeUntilTurnCompleted(active);
   active.hardTimeoutTimer = setTimeout(() => {
     if (!activeRuns.has(run.id)) return;
     active.killed = true;
@@ -968,7 +1105,7 @@ export async function sendRunMessage(
     emitRunErrorEntry(
       jobId,
       runId,
-      "Cannot resume: the original run never reached SDK init.",
+      "Cannot resume: the original run never reached backend init.",
     );
     return;
   }
@@ -982,23 +1119,20 @@ export async function sendRunMessage(
     );
     return;
   }
-  // Mirror agent-manager's claudeSessionFileExists preflight so a moved or
-  // renamed cwd surfaces a readable error instead of "process exited with 1".
-  if (!claudeSessionFileExists(run.cwdSnapshot, leaf)) {
-    emitRunErrorEntry(
-      jobId,
-      runId,
-      `Cannot resume session ${leaf.slice(0, 8)}…: its file is missing from ${claudeProjectDir(run.cwdSnapshot)}. ` +
-        `Most commonly this happens after the cwd was moved or renamed — the Claude CLI stores sessions under a path derived from cwd.`,
-    );
+  const precheckError = checkResumableSession(run, leaf);
+  if (precheckError) {
+    emitRunErrorEntry(jobId, runId, precheckError);
     return;
   }
 
   startingRuns.add(runId);
   try {
-    let session: ReturnType<typeof unstable_v2_resumeSession>;
+    let session: BackendSession;
     try {
-      session = unstable_v2_resumeSession(leaf, buildRunResumeOpts(run, leaf));
+      session = getBackend(run.agentTypeSnapshot).resumeSession(
+        leaf,
+        buildRunSessionOptions(run, leaf),
+      );
     } catch (err) {
       emitRunErrorEntry(jobId, runId, `Failed to resume: ${errMessage(err)}`);
       return;
@@ -1032,10 +1166,55 @@ export async function sendRunMessage(
   }
 }
 
+// Per-backend resume-precheck: a moved/renamed cwd or missing on-disk
+// session/rollout surfaces here as a readable error, rather than letting
+// the backend return an opaque "process exited with code 1" later. Returns
+// null when the session looks resumable; otherwise returns the error
+// message to surface in the run transcript.
+//
+// For Codex, CODEX_HOME is honored via the cronjob owner's env file, so
+// the rollout-file lookup happens under the *same* sessions/ dir the
+// actual session would use at resume — preventing a precheck pass under
+// process.env's CODEX_HOME and a resume-time failure under the user's.
+function checkResumableSession(run: CronjobRun, leaf: string): string | null {
+  if (run.agentTypeSnapshot === "claude") {
+    if (!claudeSessionFileExists(run.cwdSnapshot, leaf)) {
+      return (
+        `Cannot resume session ${leaf.slice(0, 8)}…: its file is missing from ${claudeProjectDir(run.cwdSnapshot)}. ` +
+        `Most commonly this happens after the cwd was moved or renamed — the Claude CLI stores sessions under a path derived from cwd.`
+      );
+    }
+    return null;
+  }
+  // Codex: explicit-resume paths only block on missing-file. Header-only
+  // and corrupt rollouts surface via Codex's own thread/resume error with
+  // a more specific message — let it through.
+  const job = cronjobs.find((c) => c.id === run.cronjobId);
+  let env: { [key: string]: string | undefined } | undefined;
+  try {
+    env = buildEnvFor(job?.username ?? undefined);
+  } catch (err) {
+    return `Cannot build env: ${errMessage(err)}`;
+  }
+  if (!codexRolloutFileExists(leaf, env)) {
+    return (
+      `Cannot resume Codex thread ${leaf.slice(0, 8)}…: no rollout file found under ${codexSessionsDir(env)}. ` +
+      `This usually means the thread was started but never received a user turn before its process exited.`
+    );
+  }
+  return null;
+}
+
 // Edit-to-fork a user message in a finalized run. Mirrors agent-manager's
-// editMessage: forks the SDK session at the predecessor of the target
+// editMessage: asks the backend to fork the session before the target
 // message, persists fork lineage in the run's sessions.json, then resumes
 // the new leaf and sends the edited text.
+//
+// The matching strategy (content + occurrence-index) operates on the
+// backend-agnostic NormalizedMessage list so Claude and Codex transcripts
+// look identical to this layer. Per-backend fork mechanics
+// (Claude: SDK forkSession at predecessor; Codex: thread/fork +
+// thread/rollback) hide behind backend.forkSessionBeforeMessage.
 export async function editRunMessage(
   jobId: string,
   runId: string,
@@ -1046,8 +1225,9 @@ export async function editRunMessage(
 ): Promise<void> {
   const run = findRun(jobId, runId);
   if (!run) return;
-  // Synchronous claim — see sendRunMessage. Without this, getSessionMessages
-  // and forkSession below would race against a second concurrent submission.
+  // Synchronous claim — see sendRunMessage. Without this,
+  // getSessionMessages + forkSessionBeforeMessage below would race against
+  // a second concurrent submission.
   if (activeRuns.has(runId) || startingRuns.has(runId)) return;
   if (run.status === "skipped") {
     emitRunErrorEntry(
@@ -1062,7 +1242,7 @@ export async function editRunMessage(
     emitRunErrorEntry(
       jobId,
       runId,
-      "Cannot edit: the original run never reached SDK init.",
+      "Cannot edit: the original run never reached backend init.",
     );
     return;
   }
@@ -1076,13 +1256,9 @@ export async function editRunMessage(
     );
     return;
   }
-  if (!claudeSessionFileExists(run.cwdSnapshot, leaf)) {
-    emitRunErrorEntry(
-      jobId,
-      runId,
-      `Cannot edit: session ${leaf.slice(0, 8)}… is missing from ${claudeProjectDir(run.cwdSnapshot)}. ` +
-        `Most commonly this happens after the cwd was moved or renamed — the Claude CLI stores sessions under a path derived from cwd.`,
-    );
+  const precheckError = checkResumableSession(run, leaf);
+  if (precheckError) {
+    emitRunErrorEntry(jobId, runId, `Cannot edit: ${precheckError}`);
     return;
   }
 
@@ -1104,6 +1280,7 @@ async function editRunMessageImpl(
 ): Promise<void> {
   const jobId = run.cronjobId;
   const runId = run.id;
+  const backend = getBackend(run.agentTypeSnapshot);
 
   // 1. Locate the target log entry in the run's transcript (with ancestry).
   const oldEntries = loadRunLogWithAncestors(jobId, runId, leaf);
@@ -1113,11 +1290,12 @@ async function editRunMessageImpl(
     return;
   }
 
-  // 2. Match the target to a position in the SDK session's message list. Mirror
-  //    agent-manager's content + occurrence-index strategy.
-  let sdkMessages: Awaited<ReturnType<typeof getSessionMessages>>;
+  // 2. Match the target to a position in the backend session's message list.
+  //    Uses NormalizedMessage (role + text + uuid) so the matching is engine-
+  //    agnostic — Claude and Codex both surface user turns identically here.
+  let sessionMessages: Awaited<ReturnType<typeof backend.getSessionMessages>>;
   try {
-    sdkMessages = await getSessionMessages(leaf);
+    sessionMessages = await backend.getSessionMessages(leaf, run.cwdSnapshot);
   } catch (err) {
     emitRunErrorEntry(
       jobId,
@@ -1144,38 +1322,17 @@ async function editRunMessageImpl(
       occurrenceIndex++;
     }
   }
-  // Skip the cronjob's original prompt: it's the SDK's first user message but
-  // not a LogEntry, so its content will never match (it's stored only as
+  // Skip the cronjob's original prompt: it's the backend's first user message
+  // but not a LogEntry, so its content will never match (it's stored only as
   // run.promptSnapshot). occurrenceIndex therefore counts from the first
   // post-prompt user message — i.e. the first follow-up turn.
-  const cronjobPromptIsFirstSdkUser = sdkMessages[0]?.type === "user";
+  const cronjobPromptIsFirstUser = sessionMessages[0]?.role === "user";
   let matchCount = 0;
   let targetIdx = -1;
-  for (
-    let i = cronjobPromptIsFirstSdkUser ? 1 : 0;
-    i < sdkMessages.length;
-    i++
-  ) {
-    const m = sdkMessages[i];
-    if (m.type !== "user") continue;
-    const msg = m.message as { content?: unknown } | unknown[] | string;
-    const contentBlocks: unknown[] = Array.isArray(
-      (msg as { content?: unknown })?.content,
-    )
-      ? (msg as { content: unknown[] }).content
-      : Array.isArray(msg)
-        ? msg
-        : typeof msg === "string"
-          ? [{ type: "text", text: msg }]
-          : [];
-    const msgContent = (contentBlocks as { type?: string; text?: string }[])
-      .filter(
-        (b): b is { type: "text"; text: string } =>
-          b.type === "text" && typeof b.text === "string",
-      )
-      .map((b) => b.text)
-      .join("");
-    if (msgContent === prefixedContent) {
+  for (let i = cronjobPromptIsFirstUser ? 1 : 0; i < sessionMessages.length; i++) {
+    const m = sessionMessages[i];
+    if (m.role !== "user") continue;
+    if (m.text === prefixedContent) {
       if (matchCount === occurrenceIndex) {
         targetIdx = i;
         break;
@@ -1187,32 +1344,48 @@ async function editRunMessageImpl(
     emitRunErrorEntry(
       jobId,
       runId,
-      "Cannot edit: could not locate message in SDK session.",
+      "Cannot edit: could not locate message in backend session.",
     );
     return;
   }
 
-  // 3. Fork the SDK session at the predecessor (inclusive) so the original
-  //    target message is excluded from the fork.
-  const predecessorUuid = sdkMessages[targetIdx - 1].uuid;
+  // 3. Ask the backend to fork before the target message. Each backend
+  //    handles its own fork mechanics:
+  //      Claude: SDK forkSession at predecessor (excludes target)
+  //      Codex:  thread/fork parent + thread/rollback child by N turns
+  //    The result is either a linked fork (returns { sessionId,
+  //    forkedFromSessionId }) or a fresh session (no id yet — fills on
+  //    system_init). Cron only supports the linked-fork path because the
+  //    "fresh" branch would lose the run's identity; if a backend returns
+  //    "fresh" here, surface it as an error.
+  const targetMessageId = sessionMessages[targetIdx].uuid;
   let newSessionId: string;
   try {
-    const forkResult = await forkSession(leaf, {
-      upToMessageId: predecessorUuid,
-    });
+    const forkResult = await backend.forkSessionBeforeMessage(
+      leaf,
+      targetMessageId,
+    );
+    if (forkResult.kind !== "fork") {
+      emitRunErrorEntry(
+        jobId,
+        runId,
+        "Cannot edit: backend returned a fresh session (no linked fork).",
+      );
+      return;
+    }
     newSessionId = forkResult.sessionId;
   } catch (err) {
     emitRunErrorEntry(jobId, runId, `Fork failed: ${errMessage(err)}`);
     return;
   }
 
-  // 4. Try to resume the new fork. If this fails, do NOT update currentSessionId
-  //    — leave the run pointing at the old leaf so a retry can start over.
-  let session: ReturnType<typeof unstable_v2_resumeSession>;
+  // 4. Resume the new fork. If this fails, do NOT update currentSessionId —
+  //    leave the run pointing at the old leaf so a retry can start over.
+  let session: BackendSession;
   try {
-    session = unstable_v2_resumeSession(
+    session = backend.resumeSession(
       newSessionId,
-      buildRunResumeOpts(run, newSessionId),
+      buildRunSessionOptions(run, newSessionId),
     );
   } catch (err) {
     emitRunErrorEntry(jobId, runId, `Failed to start fork: ${errMessage(err)}`);
