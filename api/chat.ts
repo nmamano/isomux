@@ -129,7 +129,7 @@ Setup:
 - Built-in commands: /clear, /help, /context, /resume, /model, /effort (per-agent thinking effort), /usage (per-agent / per-room / per-cron-job token spend)
 - Isomux additions: /isomux-all-hands (shows what everyone is up to), /isomux-system-prompt (dumps the full assembled system prompt), /isomux-cronjob-system-prompt (same for cron jobs), /isomux-diff (rich-rendered uncommitted changes in the agent's cwd — agents can also choose to show a diff card on their own), /isomux-edit (open a file in the side-panel editor; agents can offer this on their own too)
 - User skills from ~/.claude/skills/ and project commands
-- Isomux-bundled skills like /isomux-peer-review (tells an agent to review another agent's work), /isomux-grill-me (stress-tests a feature design; based on the original /grill-me by Matt Pocock), /isomux-review-and-commit, /isomux-report-bug
+- Isomux-bundled skills like /isomux-peer-review (tells an agent to review another agent's work), /isomux-pair-programming (drive a feature end-to-end with another agent reviewing design and code), /isomux-grill-me (stress-tests a feature design; based on the original /grill-me by Matt Pocock), /isomux-review-and-commit, /isomux-report-bug
 - Autocomplete dropdown with keyboard navigation
 
 ### Inter-agent Communication

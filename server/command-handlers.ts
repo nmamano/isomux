@@ -325,6 +325,9 @@ export function createCommandHandling(deps: HandlerDeps) {
       lines.push(
         "  • Use `/isomux-grill-me` to make your feature designs more robust.",
       );
+      lines.push(
+        "  • Use `/isomux-pair-programming <agent> <feature>` to drive a feature end-to-end with another agent reviewing your design and code.",
+      );
 
       deps.addLogEntry(agentId, "system", lines.join("\n"));
       deps.updateState(agentId, "waiting_for_response");
