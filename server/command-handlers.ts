@@ -120,19 +120,35 @@ export function createCommandHandling(deps: HandlerDeps) {
     async clear(agentId, managed, _args, rawText, username, device) {
       const userMeta = buildMeta(username, device);
       deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
-      managed.pendingResume = false;
-      managed.pendingResumeSessions = [];
-      managed.pendingModelPick = false;
-      managed.pendingEffortPick = false;
-      // /clear is a fresh start; queued messages were addressed to the prior
-      // context and shouldn't bleed into the new conversation. Must run BEFORE
-      // replaceSession — otherwise the post-swap idle trigger flushes them.
-      if (managed.messageQueue.length > 0) {
-        managed.messageQueue.length = 0;
-        deps.emit({ type: "agent_updated", agentId, changes: { queue: [] } });
+      // Build the new session BEFORE destroying pending control state and
+      // the message queue. If createSession throws (bad cwd, broken env,
+      // etc.) the user sees a visible error and the prior pending/queue
+      // state stays intact — they can retry or pick another recovery path.
+      // Once createSession returns, the swap commits: pending/queue clear,
+      // topic persists, replaceSession installs. Queue must clear BEFORE
+      // replaceSession or the post-swap idle trigger flushes prior-context
+      // messages into the fresh session.
+      try {
+        const newSession = deps.createSession(managed);
+        managed.pendingResume = false;
+        managed.pendingResumeSessions = [];
+        managed.pendingModelPick = false;
+        managed.pendingEffortPick = false;
+        if (managed.messageQueue.length > 0) {
+          managed.messageQueue.length = 0;
+          deps.emit({ type: "agent_updated", agentId, changes: { queue: [] } });
+        }
+        deps.persistCurrentSessionTopic(agentId, managed);
+        await deps.replaceSession(agentId, managed, newSession);
+      } catch (err) {
+        deps.emitEphemeralLog(
+          agentId,
+          "error",
+          `Failed to clear conversation: ${errMessage(err)}`,
+        );
+        deps.updateState(agentId, "error");
+        return true;
       }
-      deps.persistCurrentSessionTopic(agentId, managed);
-      await deps.replaceSession(agentId, managed, deps.createSession(managed));
       managed.sessionId = null;
       managed.topicGenerating = false;
       managed.topicMessageCount = 0;

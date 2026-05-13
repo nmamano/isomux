@@ -781,7 +781,7 @@ export async function restoreAgents() {
           agentId: p.id,
           timestamp: Date.now(),
           kind: "error",
-          content: `Failed to restore on startup: ${errMessage(err)}`,
+          content: `Failed to restore on startup: ${errMessage(err)}\nType /clear to start fresh, or /resume to pick another session.`,
         };
         const cached = logCache.get(p.id) ?? [];
         cached.push(entry);
@@ -2507,7 +2507,13 @@ export async function sendMessage(
     // orchestrator-side pointer so the normal-message path proceeds.
     managed.pendingPermission = null;
   }
-  if (!managed.session) {
+  // Skip auto-recovery for slash commands: they are control-plane actions
+  // (/clear creates a fresh session, /resume picks from disk) and must stay
+  // reachable when the data-plane session is broken. Auto-recovery applies the
+  // resume policy, which for Claude re-throws the missing-file error and would
+  // block the user's escape hatch. Normal messages still hit the recovery path
+  // below and surface the descriptive error.
+  if (!managed.session && !isSlash) {
     // Try to create a fresh session so the user's next message doesn't silently vanish.
     // pickAutoResumeSessionId returns managed.sessionId when it's safely resumable —
     // the previous session is genuinely dead, but the on-disk transcript is intact and
@@ -2555,7 +2561,11 @@ export async function sendMessage(
           buildUserMeta(username, device),
           attachments,
         );
-      addLogEntry(agentId, "error", `Cannot start session: ${errMessage(err)}`);
+      addLogEntry(
+        agentId,
+        "error",
+        `Cannot start session: ${errMessage(err)}\nType /clear to start fresh, or /resume to pick another session.`,
+      );
       updateState(agentId, "error");
       return;
     }
