@@ -60,6 +60,7 @@ function TaskDetailPanel({
   mode = "edit",
   agents = [],
   closeRef,
+  fullScreen = false,
 }: {
   task?: TaskItem;
   onClose: () => void;
@@ -67,6 +68,7 @@ function TaskDetailPanel({
   mode?: "edit" | "create";
   agents?: { name: string }[];
   closeRef?: React.MutableRefObject<(() => void) | null>;
+  fullScreen?: boolean;
 }) {
   const [title, setTitle] = useState(task?.title || "");
   const [description, setDescription] = useState(task?.description || "");
@@ -182,27 +184,40 @@ function TaskDetailPanel({
 
   const labelStyle: React.CSSProperties = dialogLabel;
 
-  return (
-    <div
-      style={{
+  const outerStyle: React.CSSProperties = fullScreen
+    ? {
+        position: "fixed",
+        inset: 0,
+        zIndex: 900,
+        background: "var(--bg-base)",
+        display: "flex",
+        flexDirection: "column",
+        animation: "hudIn 0.15s ease-out",
+      }
+    : {
         width: 340,
         maxWidth: "100%",
         borderLeft: "1px solid var(--border-subtle)",
         background: "var(--bg-surface)",
-        padding: "20px 24px",
         display: "flex",
         flexDirection: "column",
-        gap: 14,
-        overflowY: "auto",
         animation: "hudIn 0.15s ease-out",
         flexShrink: 0,
-      }}
-    >
+      };
+
+  return (
+    <div style={outerStyle}>
+      {/* Header */}
       <div
         style={{
           display: "flex",
           justifyContent: "space-between",
           alignItems: "center",
+          padding: fullScreen
+            ? "max(14px, env(safe-area-inset-top, 0px)) 20px 12px"
+            : "20px 24px 12px",
+          borderBottom: "1px solid var(--border-subtle)",
+          flexShrink: 0,
         }}
       >
         <span
@@ -220,207 +235,242 @@ function TaskDetailPanel({
             background: "none",
             border: "none",
             color: "var(--text-muted)",
-            fontSize: 18,
+            fontSize: 22,
+            lineHeight: 1,
             cursor: "pointer",
-            padding: "2px 6px",
+            padding: "4px 10px",
           }}
         >
           &times;
         </button>
       </div>
 
-      <div>
-        <label style={labelStyle}>Title</label>
-        <input
-          autoFocus={mode === "create"}
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          style={inputStyle}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") handleSave();
-            e.stopPropagation();
-          }}
-        />
-      </div>
-
-      <div>
-        <label style={labelStyle}>Description</label>
-        <textarea
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          rows={3}
-          style={{ ...inputStyle, resize: "vertical" }}
-          onKeyDown={(e) => e.stopPropagation()}
-        />
-      </div>
-
-      <div style={{ display: "flex", gap: 10 }}>
-        <div style={{ flex: 1 }}>
-          <label style={labelStyle}>Priority</label>
-          <select
-            value={priority}
-            onChange={(e) => setPriority(e.target.value as TaskPriority | "")}
+      {/* Scrollable body */}
+      <div
+        style={{
+          flex: 1,
+          minHeight: 0,
+          overflowY: "auto",
+          overscrollBehavior: "contain",
+          padding: fullScreen ? "14px 20px" : "14px 24px",
+          display: "flex",
+          flexDirection: "column",
+          gap: 14,
+        }}
+      >
+        <div>
+          <label style={labelStyle}>Title</label>
+          <input
+            autoFocus={mode === "create"}
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
             style={inputStyle}
-          >
-            <option value="">None</option>
-            <option value="P0">P0</option>
-            <option value="P1">P1</option>
-            <option value="P2">P2</option>
-            <option value="P3">P3</option>
-          </select>
+            onKeyDown={(e) => {
+              if (e.key === "Enter") handleSave();
+              e.stopPropagation();
+            }}
+          />
         </div>
-        <div style={{ flex: 1 }}>
-          <label style={labelStyle}>Status</label>
-          <select
-            value={status}
-            onChange={(e) => setStatus(e.target.value as TaskStatus)}
-            style={inputStyle}
-          >
-            <option value="open">Open</option>
-            <option value="in_progress">In Progress</option>
-            <option value="backlog">Backlog</option>
-            <option value="done">Done</option>
-          </select>
-        </div>
-      </div>
 
-      <div>
-        <label style={labelStyle}>Assignee</label>
-        <input
-          value={assignee}
-          onChange={(e) => setAssignee(e.target.value)}
-          style={inputStyle}
-          placeholder="Unassigned"
-          onKeyDown={(e) => e.stopPropagation()}
-        />
-        {agents.length > 0 && (
+        <div>
+          <label style={labelStyle}>Description</label>
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows={3}
+            style={{ ...inputStyle, resize: "vertical" }}
+            onKeyDown={(e) => e.stopPropagation()}
+          />
+        </div>
+
+        <div style={{ display: "flex", gap: 10 }}>
+          <div style={{ flex: 1 }}>
+            <label style={labelStyle}>Priority</label>
+            <select
+              value={priority}
+              onChange={(e) => setPriority(e.target.value as TaskPriority | "")}
+              style={inputStyle}
+            >
+              <option value="">None</option>
+              <option value="P0">P0</option>
+              <option value="P1">P1</option>
+              <option value="P2">P2</option>
+              <option value="P3">P3</option>
+            </select>
+          </div>
+          <div style={{ flex: 1 }}>
+            <label style={labelStyle}>Status</label>
+            <select
+              value={status}
+              onChange={(e) => setStatus(e.target.value as TaskStatus)}
+              style={inputStyle}
+            >
+              <option value="open">Open</option>
+              <option value="in_progress">In Progress</option>
+              <option value="backlog">Backlog</option>
+              <option value="done">Done</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label style={labelStyle}>Assignee</label>
+          <input
+            value={assignee}
+            onChange={(e) => setAssignee(e.target.value)}
+            style={inputStyle}
+            placeholder="Unassigned"
+            onKeyDown={(e) => e.stopPropagation()}
+          />
+          {agents.length > 0 && (
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 4,
+                marginTop: 6,
+              }}
+            >
+              {agents.map((a) => (
+                <button
+                  key={a.name}
+                  onClick={() => setAssignee(a.name)}
+                  style={{
+                    padding: "3px 8px",
+                    borderRadius: 6,
+                    border: `1px solid ${assignee === a.name ? "var(--accent)" : "var(--border)"}`,
+                    background:
+                      assignee === a.name
+                        ? "var(--accent-muted, rgba(88,166,255,0.15))"
+                        : "var(--btn-surface)",
+                    color:
+                      assignee === a.name
+                        ? "var(--accent)"
+                        : "var(--text-muted)",
+                    fontSize: 10,
+                    cursor: "pointer",
+                    fontFamily: "'JetBrains Mono',monospace",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {a.name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {mode === "edit" && task && (
           <div
-            style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}
+            style={{
+              fontSize: 11,
+              color: "var(--text-hint)",
+              fontFamily: "'JetBrains Mono',monospace",
+            }}
           >
-            {agents.map((a) => (
-              <button
-                key={a.name}
-                onClick={() => setAssignee(a.name)}
-                style={{
-                  padding: "3px 8px",
-                  borderRadius: 6,
-                  border: `1px solid ${assignee === a.name ? "var(--accent)" : "var(--border)"}`,
-                  background:
-                    assignee === a.name
-                      ? "var(--accent-muted, rgba(88,166,255,0.15))"
-                      : "var(--btn-surface)",
-                  color:
-                    assignee === a.name ? "var(--accent)" : "var(--text-muted)",
-                  fontSize: 10,
-                  cursor: "pointer",
-                  fontFamily: "'JetBrains Mono',monospace",
-                  whiteSpace: "nowrap",
-                }}
-              >
-                {a.name}
-              </button>
-            ))}
+            {task.username && task.username !== task.createdBy
+              ? `${task.createdBy} · for ${task.username}`
+              : task.createdBy}
+            {" · "}
+            {timeAgo(task.createdAt)}
           </div>
         )}
       </div>
 
-      {mode === "edit" && task && (
-        <div
-          style={{
-            fontSize: 11,
-            color: "var(--text-hint)",
-            fontFamily: "'JetBrains Mono',monospace",
-          }}
-        >
-          {task.username && task.username !== task.createdBy
-            ? `${task.createdBy} · for ${task.username}`
-            : task.createdBy}
-          {" · "}
-          {timeAgo(task.createdAt)}
-        </div>
-      )}
-
-      {confirmDiscard && (
-        <div
-          style={{
-            display: "flex",
-            gap: 8,
-            alignItems: "center",
-            padding: "8px 0",
-          }}
-        >
-          <span style={{ fontSize: 11, color: "var(--text-muted)", flex: 1 }}>
-            Discard unsaved changes?
-          </span>
-          <button
-            onClick={onClose}
+      {/* Footer */}
+      <div
+        style={{
+          padding: fullScreen
+            ? "12px 20px max(12px, env(safe-area-inset-bottom, 0px))"
+            : "12px 24px 20px",
+          borderTop: "1px solid var(--border-subtle)",
+          flexShrink: 0,
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
+        }}
+      >
+        {confirmDiscard && (
+          <div
             style={{
-              padding: "6px 12px",
-              borderRadius: 6,
-              border: "1px solid var(--red)",
-              background: "var(--red)",
-              color: "var(--bg-base)",
-              fontSize: 11,
-              fontWeight: 600,
-              cursor: "pointer",
+              display: "flex",
+              gap: 8,
+              alignItems: "center",
             }}
           >
-            Discard
-          </button>
-          <button
-            onClick={() => setConfirmDiscard(false)}
-            style={{
-              padding: "6px 12px",
-              borderRadius: 6,
-              border: "1px solid var(--border)",
-              background: "transparent",
-              color: "var(--text-primary)",
-              fontSize: 11,
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
-          >
-            Cancel
-          </button>
-        </div>
-      )}
+            <span style={{ fontSize: 11, color: "var(--text-muted)", flex: 1 }}>
+              Discard unsaved changes?
+            </span>
+            <button
+              onClick={onClose}
+              style={{
+                padding: "6px 12px",
+                borderRadius: 6,
+                border: "1px solid var(--red)",
+                background: "var(--red)",
+                color: "var(--bg-base)",
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              Discard
+            </button>
+            <button
+              onClick={() => setConfirmDiscard(false)}
+              style={{
+                padding: "6px 12px",
+                borderRadius: 6,
+                border: "1px solid var(--border)",
+                background: "transparent",
+                color: "var(--text-primary)",
+                fontSize: 11,
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        )}
 
-      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-        <button
-          onClick={handleSave}
-          disabled={!title.trim()}
-          style={{
-            flex: 1,
-            padding: "9px 0",
-            borderRadius: 8,
-            border: "none",
-            background: title.trim() ? "var(--accent)" : "var(--bg-subtle)",
-            color: title.trim() ? "var(--bg-base)" : "var(--text-muted)",
-            fontSize: 12,
-            fontWeight: 600,
-            cursor: title.trim() ? "pointer" : "default",
-          }}
-        >
-          {mode === "create" ? "Create" : "Save"}
-        </button>
-        {mode === "edit" && (
+        <div style={{ display: "flex", gap: 8 }}>
           <button
-            onClick={handleDelete}
-            onBlur={() => setConfirmDelete(false)}
+            onClick={handleSave}
+            disabled={!title.trim()}
             style={{
-              padding: "9px 14px",
+              flex: 1,
+              padding: "9px 0",
               borderRadius: 8,
-              border: `1px solid ${confirmDelete ? "var(--red)" : "var(--border)"}`,
-              background: confirmDelete ? "var(--red)" : "transparent",
-              color: confirmDelete ? "var(--bg-base)" : "var(--red)",
+              border: "none",
+              background: title.trim() ? "var(--accent)" : "var(--bg-subtle)",
+              color: title.trim() ? "var(--bg-base)" : "var(--text-muted)",
               fontSize: 12,
               fontWeight: 600,
-              cursor: "pointer",
+              cursor: title.trim() ? "pointer" : "default",
             }}
           >
-            {confirmDelete ? "Confirm?" : "Delete"}
+            {mode === "create" ? "Create" : "Save"}
           </button>
-        )}
+          {mode === "edit" && (
+            <button
+              onClick={handleDelete}
+              onBlur={() => setConfirmDelete(false)}
+              style={{
+                padding: "9px 14px",
+                borderRadius: 8,
+                border: `1px solid ${confirmDelete ? "var(--red)" : "var(--border)"}`,
+                background: confirmDelete ? "var(--red)" : "transparent",
+                color: confirmDelete ? "var(--bg-base)" : "var(--red)",
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              {confirmDelete ? "Confirm?" : "Delete"}
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -1039,54 +1089,27 @@ export function TaskView({
           ) : null)}
       </div>
 
-      {/* Mobile detail panel as overlay */}
-      {(selectedTask || creating) && isMobile && (
-        <div
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) tryClosePanel();
-          }}
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 900,
-            background: "rgba(0,0,0,0.55)",
-            backdropFilter: "blur(10px)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          <div
-            style={{
-              width: "90%",
-              maxWidth: 380,
-              maxHeight: "80vh",
-              overflowY: "auto",
-              margin: "0 auto",
-              borderRadius: 12,
-              overflow: "hidden",
-            }}
-          >
-            {creating ? (
-              <TaskDetailPanel
-                closeRef={closeRef}
-                mode="create"
-                onClose={() => setCreating(false)}
-                username={username}
-                agents={agents}
-              />
-            ) : (
-              <TaskDetailPanel
-                closeRef={closeRef}
-                task={selectedTask!}
-                onClose={() => setSelectedId(null)}
-                username={username}
-                agents={agents}
-              />
-            )}
-          </div>
-        </div>
-      )}
+      {/* Mobile detail panel as full-page */}
+      {isMobile &&
+        (creating ? (
+          <TaskDetailPanel
+            closeRef={closeRef}
+            mode="create"
+            onClose={() => setCreating(false)}
+            username={username}
+            agents={agents}
+            fullScreen
+          />
+        ) : selectedTask ? (
+          <TaskDetailPanel
+            closeRef={closeRef}
+            task={selectedTask}
+            onClose={() => setSelectedId(null)}
+            username={username}
+            agents={agents}
+            fullScreen
+          />
+        ) : null)}
     </div>
   );
 }
