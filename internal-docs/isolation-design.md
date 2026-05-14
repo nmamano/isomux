@@ -171,11 +171,11 @@ On first hub startup, if an existing `~/.isomux/` directory exists and `~/.isomu
 
 ---
 
-## Room layer: per-room env and prompts (implemented)
+## User and room layers: per-user env, per-room prompts (implemented)
 
-> Status: shipped. Code lives in `server/agent-manager.ts`, `server/persistence.ts`, `server/index.ts`, `ui/components/RoomSettingsModal.tsx`, `ui/components/OfficePromptModal.tsx`. State is `~/.isomux/agents.json` (per-room fields) plus `~/.isomux/office-config.json`.
+> Status: shipped. Code lives in `server/agent-manager.ts`, `server/env-loader.ts`, `server/users.ts`, `server/persistence.ts`, `server/index.ts`, `ui/components/UserManagementModal.tsx`, `ui/components/RoomSettingsModal.tsx`, `ui/components/OfficePromptModal.tsx`. State is `~/.isomux/agents.json` (per-room prompt fields), `~/.isomux/users.json` (per-user envFile), `~/.isomux/office-config.json` (office-level env and prompt).
 
-Three users share one isomux office (same Linux user). Each user's agents live in their own room. Agents commit and push using different GitHub identities, scoped per room. Prompt customization is also room-aware.
+Multiple users share one isomux office (same Linux user). Each user claims a display name; their agents are stamped with `info.username` at spawn time. Identity-bearing config (env file, including Git/GitHub and provider-auth credentials) is keyed by username. Prompt customization is keyed by room.
 
 ### Prompt hierarchy: office → room → agent
 
@@ -185,14 +185,17 @@ Three layers, concatenated in order with clear headers. No layer overrides anoth
 - **Room prompt.** Stored inline on `Room` in `agents.json`.
 - **Agent prompt.** Stored in the agent's `customInstructions` field.
 
-### Env hierarchy: office → room
+### Env hierarchy: process → office → user
 
-Two layers. Shallow merge: room env overrides matching keys from office env. Unset keys fall through.
+Three layers. Shallow merge: later layers override matching keys from earlier ones. Unset keys fall through.
 
+- **Process env.** Inherited from the isomux server process.
 - **Office env.** Loaded from a user-specified file path in `office-config.json`.
-- **Room env.** Loaded from a user-specified file path on each `Room`.
+- **User env.** Loaded from a user-specified file path on each `UserRecord` (`users.json`).
 
-No per-agent env. Identity is per-room (all agents in a room act as the same user). Adding per-agent env later is trivial (new `envFile` field on the agent type).
+Selection is keyed by `info.username` on agents and `job.username` on cronjobs. Unowned actions (no username) get process + office only.
+
+No per-room env. Earlier iterations stored env on `Room`, but identity is naturally per-user (the same person typically uses the same Git/provider credentials across rooms). The room-level field was migrated out in `persistence.ts`; the field is no longer on `Room`.
 
 ### Env files are user-managed, paths are absolute
 
@@ -214,22 +217,24 @@ GIT_COMMITTER_EMAIL=marc@example.com
 At spawn time:
 
 ```
-merged = { ...process.env, ...officeEnv, ...roomEnv }
+merged = { ...process.env, ...officeEnv, ...userEnv }
 ```
 
-- Room env beats office env beats `process.env`.
+- User env beats office env beats `process.env`.
 - An explicit empty-string value overrides (does not fall through). To inherit, omit the key.
-- No blocklist. Office/room env can override any key, including `PATH`, `HOME`, `SHELL`. Users are responsible for the contents of their own env files.
+- No blocklist. Office/user env can override any key, including `PATH`, `HOME`, `SHELL`. Users are responsible for the contents of their own env files.
 
 ### Env injection via SDK
 
-The Claude Agent SDK accepts an `env` option on session creation. At spawn time, isomux reads the office and room env files, merges them, and passes the result via the SDK session options. Credentials never appear in launcher scripts or any isomux-managed file.
+The Claude Agent SDK accepts an `env` option on session creation. At spawn time, isomux reads the office and user env files, merges them, and passes the result via the SDK session options. Credentials never appear in launcher scripts or any isomux-managed file.
 
-Spawn path:
+Spawn path (`server/env-loader.ts:buildEnvFor(username)`):
 1. Read office env file (if configured), parse dotenv → `officeEnv`
-2. Read room env file (if configured), parse dotenv → `roomEnv`
-3. Merge: `{ ...process.env, ...officeEnv, ...roomEnv }`
-4. Pass to `unstable_v2_createSession({ env: mergedEnv, ... })`
+2. Read user env file for `username` (if configured), parse dotenv → `userEnv`
+3. Merge: `{ ...process.env, ...officeEnv, ...userEnv }`
+4. Pass to the backend's `createSession({ env: mergedEnv, ... })`
+
+`buildEnvFor` is invoked at every spawn point: Claude `createSession` and `resumeSession`, Codex `createSession` and `resumeSession`, `list_backend_models`, cronjob fire, one-shot prompt. It returns `undefined` (not merged env) when no envFile is configured, so default-path users see no behavior change.
 
 ### Spawn-time failure mode
 
@@ -250,16 +255,84 @@ interface Room {
   id: string;                  // stable 8-char hex, e.g. "a3f8b2e1"
   name: string;                // display name, user-editable
   prompt: string | null;       // room-level prompt
-  envFile: string | null;      // absolute path to dotenv file
   agents: PersistedAgent[];
+}
+
+interface UserRecord {
+  name: string;                // display name (lowercased for keying)
+  defaultRoomId: string | null;
+  notifRooms: NotifRoomsSetting;
+  envFile: string | null;      // absolute path to dotenv file (Git, provider auth, etc.)
+  createdAt: number;
 }
 ```
 
+### Per-user provider auth (Claude / Codex)
+
+The per-user envFile is the mechanism for letting each co-tenant bill Claude/Codex against their own account, instead of sharing whatever account the host Linux user logged into. Two supported recipes per user, both as env vars in the user envFile:
+
+**Flavor A — API-key billing** (requires an Anthropic / OpenAI API account):
+
+```
+ANTHROPIC_API_KEY=sk-ant-...
+OPENAI_API_KEY=sk-...
+```
+
+**Flavor B — OAuth subscription billing** (Claude Pro/Max, ChatGPT Plus/Pro):
+
+```
+CLAUDE_CONFIG_DIR=/home/<linux-user>/.isomux-users/<user>/.claude
+CODEX_HOME=/home/<linux-user>/.isomux-users/<user>/.codex
+```
+
+Values must be absolute paths — isomux's dotenv parser does not expand `~` or `$VAR`. The shell login commands below can use `~` because the shell expands those before the CLI runs.
+
+Each tool reads credentials from the directory the env var points at. The Claude SDK honors `CLAUDE_CONFIG_DIR`; Codex honors `CODEX_HOME`. Both are documented provider env vars, not isomux-specific.
+
+#### Provisioning (Flavor B, one-time per user)
+
+The user opens an isomux terminal panel (which already runs as the host Linux user), then runs the provider's login command with the env-scoped config dir. Example for Marc:
+
+```bash
+mkdir -p ~/.isomux-users/marc/.claude && chmod 700 ~/.isomux-users/marc/.claude
+CLAUDE_CONFIG_DIR=~/.isomux-users/marc/.claude claude auth login
+
+mkdir -p ~/.isomux-users/marc/.codex && chmod 700 ~/.isomux-users/marc/.codex
+CODEX_HOME=~/.isomux-users/marc/.codex codex login
+```
+
+The CLI prints an OAuth URL; the user opens it in their own browser, signs in with their own Anthropic / OpenAI account, the token lands in the per-user dir. The user then appends the env-var lines above to their envFile, using **absolute paths** — isomux's dotenv parser does not expand `~` or `$VAR`.
+
+Direct SSH as the host user is an alternative path for users with their pubkey authorized; users without shell access can have the operator run the login command on the host while they complete OAuth in their own browser.
+
+#### Filesystem layout (Flavor B)
+
+```
+~/.claude/.credentials.json         # host user's own creds (unchanged)
+~/.isomux-users/marc/.claude/       # Marc's Claude config dir
+  .credentials.json
+  projects/                         # session files for Marc's agents
+~/.isomux-users/marc/.codex/        # Marc's Codex home
+  auth.json
+  sessions/                         # rollouts for Marc's agents
+```
+
+Isomux's own session-file preflights (`server/cwd-utils.ts:claudeProjectDir`, `claudeSessionFileExists`, `moveClaudeSessionFiles`, `diagnoseProcessExit`, plus Codex's `codexSessionsDir`) honor the same env vars, so resume preflights resolve against the same directories the spawned subprocesses use.
+
+#### What this enables and what it does not
+
+This setup prevents *accidental* account mixing and lets each user bill provider usage to their own account. It is **not** a security boundary:
+
+- Every user's per-user config dir lives under the host Linux user's `$HOME`. Anyone with shell access as the host user can read every credentials file. `chmod 700`/`600` is recommended but only protects against access from *other* Unix users on the box.
+- An in-band agent process running under the host user can also read sibling config dirs unless an OS-level isolation layer (Level 1+ in the escalation matrix below) is added.
+
+This layer is appropriate for trusted co-tenants who want clean billing separation, not for adversarial multi-tenancy.
+
 ### What this layer does *not* enforce
 
-- An agent in room A can `cat /home/nil/.secrets/team-b.env` if it knows the path.
-- An agent in room A can `ps aux` and see other agents' command lines.
-- An agent can read another room's `customInstructions` from `~/.isomux/agents.json`.
+- An agent stamped with user A can `cat /home/nil/.secrets/team-b.env` if it knows the path.
+- An agent can `ps aux` and see other agents' command lines.
+- An agent can read another user's `customInstructions` from `~/.isomux/agents.json` or another user's per-user provider config dir.
 
 Closing these gaps is the job of the process layer.
 

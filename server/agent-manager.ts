@@ -425,10 +425,20 @@ export async function editAgent(
   // the officeState.editAgent call below is what commits the mutation.
   if (validated.cwd && validated.cwd !== managed.info.cwd) {
     if (managed.info.agentType === "claude") {
-      // Claude stores sessions in ~/.claude/projects/<cwd-hash>/; moving cwd
-      // means the .jsonl files need to follow, otherwise resume can't find
-      // them. moveClaudeSessionFiles relocates them in place.
-      moveClaudeSessionFiles(agentId, managed.info.cwd, validated.cwd);
+      // Claude stores sessions under $CLAUDE_CONFIG_DIR/projects/<cwd-hash>/
+      // (default ~/.claude/projects/...); moving cwd means the .jsonl files
+      // need to follow, otherwise resume can't find them. Pass the agent's
+      // current env so the move targets the same config dir the spawn uses.
+      // NOTE: if username ever becomes editable in the same edit as cwd, this
+      // move must run with the OLD username's env (before the username
+      // mutation commits) — otherwise files would be moved into a different
+      // user's config dir.
+      moveClaudeSessionFiles(
+        agentId,
+        managed.info.cwd,
+        validated.cwd,
+        buildEnvFor(managed.info.username ?? undefined),
+      );
     } else {
       // Codex stores per-cwd rollouts in ~/.codex/; the existing thread is
       // not addressable under the new cwd. Drop the sessionId so the next
@@ -1489,11 +1499,18 @@ function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
     case "error": {
       const managed = agents.get(agentId);
       addLogEntry(agentId, "error", ev.message);
-      // diagnoseProcessExit gives Claude-specific hints (~/.claude/projects/
-      // path, "session .jsonl missing" wording). Don't run it for non-Claude
-      // agents — the message would be wrong and misleading.
+      // diagnoseProcessExit gives Claude-specific hints (CLAUDE_CONFIG_DIR/
+      // projects/ path, "session .jsonl missing" wording). Don't run it for
+      // non-Claude agents — the message would be wrong and misleading.
       if (managed && managed.info.agentType === "claude") {
-        const hints = diagnoseProcessExit(managed.info.cwd, managed.sessionId);
+        // Best-effort env build: a broken envFile must not mask the original
+        // backend error this hint is annotating. Resume preflights still
+        // throw on broken env (deliberate); the hint generator does not.
+        const hints = diagnoseProcessExit(
+          managed.info.cwd,
+          managed.sessionId,
+          envForHints(managed),
+        );
         if (hints) addLogEntry(agentId, "system", hints);
       }
       if (detectAgentAuthError(managed, ev.message)) {
@@ -1639,10 +1656,15 @@ async function runConsumer(
     const errorText = `Stream error: ${errMessage(err)}`;
     addLogEntry(agentId, "error", errorText);
     // The SDK's "process exited with code 1" is opaque; diagnose common causes.
-    // diagnoseProcessExit is Claude-specific (reads ~/.claude/projects); only
-    // call it for claude-typed agents.
+    // diagnoseProcessExit is Claude-specific (reads CLAUDE_CONFIG_DIR/projects);
+    // only call it for claude-typed agents.
     if (managed.info.agentType === "claude") {
-      const hints = diagnoseProcessExit(managed.info.cwd, managed.sessionId);
+      // Best-effort env build — see envForHints note above.
+      const hints = diagnoseProcessExit(
+        managed.info.cwd,
+        managed.sessionId,
+        envForHints(managed),
+      );
       if (hints) addLogEntry(agentId, "system", hints);
     }
     if (detectAgentAuthError(managed, errorText)) {
@@ -1729,6 +1751,23 @@ function buildSessionEnv(
   return buildEnvFor(managed.info.username ?? undefined);
 }
 
+// Error-path env build for diagnostic hints. Resume preflights deliberately
+// fail loudly on a broken envFile (an agent expecting custom creds must not
+// silently fall through to host creds). Hint generators are different: they
+// annotate an already-failed backend error, and a broken envFile here would
+// mask the real cause. Swallow and return undefined — the hint just falls back
+// to inspecting the default ~/.claude path, which is the worst-case-correct
+// behavior when we can't resolve user env.
+function envForHints(
+  managed: ManagedAgent,
+): { [key: string]: string | undefined } | undefined {
+  try {
+    return buildSessionEnv(managed);
+  } catch {
+    return undefined;
+  }
+}
+
 // Register the office-env-file provider once, after `officeState` exists.
 // Anchored at module top-level so cronjob-manager (which also imports
 // env-loader, possibly before fully running its own module body) can call
@@ -1801,16 +1840,17 @@ function createSession(
       { cause: err },
     );
   }
-  // Compute env once — both the resume preflight (Codex sessions dir lookup
-  // honors CODEX_HOME) and the session opts use it.
+  // Compute env once — both the resume preflight (Claude sessions dir lookup
+  // honors CLAUDE_CONFIG_DIR; Codex sessions dir lookup honors CODEX_HOME)
+  // and the session opts use it.
   const env = buildSessionEnv(managed);
   if (
     resumeSessionId &&
     managed.info.agentType === "claude" &&
-    !claudeSessionFileExists(managed.info.cwd, resumeSessionId)
+    !claudeSessionFileExists(managed.info.cwd, resumeSessionId, env)
   ) {
     throw new Error(
-      `Cannot resume session ${resumeSessionId.slice(0, 8)}…: its file is missing from ${claudeProjectDir(managed.info.cwd)}. ` +
+      `Cannot resume session ${resumeSessionId.slice(0, 8)}…: its file is missing from ${claudeProjectDir(managed.info.cwd, env)}. ` +
         `Most commonly this happens after the agent's cwd was moved or renamed — the Claude CLI stores sessions under a path derived from cwd. ` +
         `Use /resume to pick a different session, or move the session .jsonl into the new project dir.`,
     );

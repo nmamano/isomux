@@ -1179,10 +1179,21 @@ export async function sendRunMessage(
 // actual session would use at resume — preventing a precheck pass under
 // process.env's CODEX_HOME and a resume-time failure under the user's.
 function checkResumableSession(run: CronjobRun, leaf: string): string | null {
+  // Build env once for both branches — Claude honors CLAUDE_CONFIG_DIR for
+  // its project dir lookup, Codex honors CODEX_HOME for its sessions/ dir.
+  // A broken envFile is a real precheck failure: fall through to a clear
+  // error rather than silently checking the wrong directory.
+  const job = cronjobs.find((c) => c.id === run.cronjobId);
+  let env: { [key: string]: string | undefined } | undefined;
+  try {
+    env = buildEnvFor(job?.username ?? undefined);
+  } catch (err) {
+    return `Cannot build env: ${errMessage(err)}`;
+  }
   if (run.agentTypeSnapshot === "claude") {
-    if (!claudeSessionFileExists(run.cwdSnapshot, leaf)) {
+    if (!claudeSessionFileExists(run.cwdSnapshot, leaf, env)) {
       return (
-        `Cannot resume session ${leaf.slice(0, 8)}…: its file is missing from ${claudeProjectDir(run.cwdSnapshot)}. ` +
+        `Cannot resume session ${leaf.slice(0, 8)}…: its file is missing from ${claudeProjectDir(run.cwdSnapshot, env)}. ` +
         `Most commonly this happens after the cwd was moved or renamed — the Claude CLI stores sessions under a path derived from cwd.`
       );
     }
@@ -1191,13 +1202,6 @@ function checkResumableSession(run: CronjobRun, leaf: string): string | null {
   // Codex: explicit-resume paths only block on missing-file. Header-only
   // and corrupt rollouts surface via Codex's own thread/resume error with
   // a more specific message — let it through.
-  const job = cronjobs.find((c) => c.id === run.cronjobId);
-  let env: { [key: string]: string | undefined } | undefined;
-  try {
-    env = buildEnvFor(job?.username ?? undefined);
-  } catch (err) {
-    return `Cannot build env: ${errMessage(err)}`;
-  }
   if (!codexRolloutFileExists(leaf, env)) {
     return (
       `Cannot resume Codex thread ${leaf.slice(0, 8)}…: no rollout file found under ${codexSessionsDir(env)}. ` +
