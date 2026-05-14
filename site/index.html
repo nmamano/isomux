@@ -610,6 +610,27 @@
         color: var(--accent);
         text-decoration: underline;
       }
+      .chat-msg-bot code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.85em;
+        background: rgba(127, 127, 127, 0.18);
+        padding: 1px 5px;
+        border-radius: 4px;
+      }
+      .chat-msg-bot pre {
+        background: rgba(127, 127, 127, 0.12);
+        border-radius: 6px;
+        padding: 8px 10px;
+        margin: 6px 0;
+        overflow-x: auto;
+        white-space: pre;
+      }
+      .chat-msg-bot pre code {
+        background: transparent;
+        padding: 0;
+        font-size: 0.82em;
+        line-height: 1.45;
+      }
 
       .chat-starters {
         display: flex;
@@ -1433,7 +1454,19 @@ lingering so it survives logout.</pre
         const container = document.getElementById("chat-widget");
 
         function formatText(text) {
-          return text
+          // Extract code first so other transforms don't mangle its contents.
+          // Restore at the end with HTML-escaped bodies.
+          const blocks = [];
+          const inlines = [];
+          text = text.replace(
+            /```[^\n`]*\n?([\s\S]*?)```/g,
+            (_, code) => `\x00B${blocks.push(code) - 1}\x00`,
+          );
+          text = text.replace(
+            /`([^`\n]+)`/g,
+            (_, code) => `\x00I${inlines.push(code) - 1}\x00`,
+          );
+          text = text
             .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
             .replace(/\*([^*]+)\*/g, "<em>$1</em>")
             .replace(
@@ -1444,6 +1477,15 @@ lingering so it survives logout.</pre
               /(^|[^"'>])(https?:\/\/[^\s<)]+)/g,
               '$1<a href="$2" target="_blank" rel="noopener">$2</a>',
             );
+          text = text.replace(
+            /\x00B(\d+)\x00/g,
+            (_, i) => `<pre><code>${esc(blocks[+i].replace(/\n$/, ""))}</code></pre>`,
+          );
+          text = text.replace(
+            /\x00I(\d+)\x00/g,
+            (_, i) => `<code>${esc(inlines[+i])}</code>`,
+          );
+          return text;
         }
 
         function render() {
