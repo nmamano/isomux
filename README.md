@@ -15,9 +15,10 @@ Free · open source · no cloud · no account
 - **Works with your Claude or ChatGPT subscriptions**: if `claude` or `codex` works in your terminal, isomux works in your browser
 - **Multi-provider**: mix Claude agents and [Codex](https://github.com/openai/codex) agents in the same office
 - Works locally (run the server on localhost:4000, access it through your browser) or as a **self-hosted persistent server**:
-  - Run at home, access **from any device and by anyone** in your VPN (we use [Tailscale](https://tailscale.com/))
+  - Run at home, access **from any device** — over a VPN like [Tailscale](https://tailscale.com/), or by exposing the box publicly with a reverse proxy
+  - **Invite-link access** for people you don't want to put on your VPN: owner mints a URL, sends it out-of-band, the invitee clicks and is signed in (see [`internal-docs/access-and-invites.md`](internal-docs/access-and-invites.md))
   - No syncing headaches: same conversations, same filesystem, every device updates **in real time**
-  - [**Conversation-level collaboration**](https://x.com/Nil053/status/2050141843741081928): anyone on your VPN can chime in
+  - [**Conversation-level collaboration**](https://x.com/Nil053/status/2050141843741081928): anyone you've invited can chime in
 - Visual office metaphor: see what every agent is doing at a glance
   - **Animated characters**: sleeping when idle, typing when working, waving when waiting for you
   - [**Skeuomorphic touches**](https://x.com/Nil053/status/2039027360117506399): click the moon to toggle dark mode, click doors to switch rooms, etc.
@@ -71,9 +72,13 @@ bun run dev
 
 ### 3. Open
 
-Visit **http://localhost:4000** in your browser. Click an empty desk to spawn your first agent.
+Visit **http://localhost:4000** in your browser. The first time you start the server, no owner exists yet, so the server prints a one-time bootstrap invite URL to stdout — open it in your browser, pick a display name, and you're in. Click an empty desk to spawn your first agent.
 
-For persistent server setup (systemd + Tailscale) and voice input configuration, see [isomux.com](https://isomux.com).
+To invite other people (so they can use the office without joining your VPN), open `User Settings` → `Access` and issue invite URLs from there. Full details in [`internal-docs/access-and-invites.md`](internal-docs/access-and-invites.md).
+
+For persistent server setup (systemd + reverse proxy) and voice input configuration, see [isomux.com](https://isomux.com).
+
+> **Note:** Isomux gives shell-equivalent access to authenticated users. Only invite people you trust.
 
 ## Full Feature List
 

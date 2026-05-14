@@ -57,7 +57,6 @@ export function App() {
     drafts,
     currentRoom,
     rooms,
-    usersLoaded,
   } = useAppState();
   const roomCount = rooms.length;
   const dispatch = useDispatch();
@@ -86,9 +85,10 @@ export function App() {
   const [cronjobsOpen, setCronjobsOpen] = useState(false);
   const [updateOpen, setUpdateOpen] = useState(false);
 
-  // Auto-open the user picker (modal-locked) on first connect when this
-  // browser has no localStorage username yet.
-  const needsInitialUser = usersLoaded && username === null;
+  // Pre-auth this auto-opened the picker. Post-auth, identity comes from the
+  // session cookie, so we never force the picker to open — but we still keep
+  // username-display flow alive (for the chat-prefix etc.) via session_context.
+  const needsInitialUser = false;
 
   const viewportControlsRef = useRef<ViewportControls | null>(null);
   const focusedAgent = focusedAgentId

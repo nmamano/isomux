@@ -1,0 +1,860 @@
+// Invite + cookie-session auth. State lives in two flat files alongside the
+// rest of ~/.isomux/. Both are touched under a single in-process mutex so
+// invite acceptance (mark-consumed + upsert-user + create-session) cannot
+// interleave with concurrent acceptances of the same token.
+//
+// Threat model and the security stance for each primitive are documented at
+// the relevant operation; if you change any of these comments, double-check
+// the security checklist in the auth-core task before declaring done.
+
+import { join } from "path";
+import { homedir } from "os";
+import { existsSync, readFileSync } from "fs";
+import { randomBytes, createHash, timingSafeEqual } from "crypto";
+import type {
+  UserRole,
+  InviteWire,
+  SessionWire,
+  SessionContext,
+} from "../shared/types.ts";
+import { atomicWriteFileSync } from "./persistence.ts";
+import { claimUser, hasOwner, getUser, setUserRole } from "./users.ts";
+
+// ---------------------------------------------------------------------------
+// File layout
+
+const ISOMUX_DIR = join(homedir(), ".isomux");
+const INVITES_FILE = join(ISOMUX_DIR, "invites.json");
+const SESSIONS_FILE = join(ISOMUX_DIR, "sessions.json");
+
+// ---------------------------------------------------------------------------
+// On-disk record shapes (hashed). Raw tokens never persist.
+
+interface StoredInvite {
+  tokenHash: string; // sha256(rawToken) hex; the map key duplicates this for convenience
+  tokenPrefix: string; // first 8 chars of the raw base64url token, kept clear for UI
+  username: string | null; // null only for bootstrap invites
+  role: UserRole;
+  createdBy: string | null; // null for bootstrap
+  createdAt: number;
+  expiresAt: number;
+  consumed: boolean;
+  consumedAt: number | null;
+  bootstrap: boolean;
+}
+
+interface StoredSession {
+  sessionIdHash: string; // sha256(rawSessionId) hex
+  sessionPrefix: string; // first 8 chars of the raw base64url id, kept clear for UI
+  username: string;
+  createdAt: number;
+  lastSeenAt: number;
+  expiresAt: number;
+  absoluteExpiresAt: number;
+  userAgent: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// In-process state. Loaded once on first call; mutated under `mutate()`.
+
+let invites: Map<string, StoredInvite> | null = null;
+let sessions: Map<string, StoredSession> | null = null;
+
+// Mutex: a chain of promises. Each `mutate` awaits the previous link before
+// running, so concurrent invite acceptances and revocations serialize. The
+// chain lives at module scope so it survives across the call sites we care
+// about (HTTP handlers, WS handlers, bootstrap).
+let mutexTail: Promise<unknown> = Promise.resolve();
+function mutate<T>(fn: () => Promise<T> | T): Promise<T> {
+  const run = mutexTail.then(() => fn());
+  // Swallow errors on the tail so a thrown caller doesn't poison the chain.
+  mutexTail = run.catch(() => undefined);
+  return run;
+}
+
+// ---------------------------------------------------------------------------
+// Load / persist
+
+function loadInvitesFromDisk(): Map<string, StoredInvite> {
+  const map = new Map<string, StoredInvite>();
+  try {
+    if (!existsSync(INVITES_FILE)) return map;
+    const raw = readFileSync(INVITES_FILE, "utf-8");
+    if (!raw.trim()) return map;
+    const parsed = JSON.parse(raw) as Record<string, StoredInvite>;
+    for (const [k, v] of Object.entries(parsed)) {
+      if (!v || typeof v.tokenHash !== "string") continue;
+      map.set(k, v);
+    }
+  } catch (err) {
+    console.error("Failed to load invites.json:", err);
+  }
+  return map;
+}
+
+function loadSessionsFromDisk(): Map<string, StoredSession> {
+  const map = new Map<string, StoredSession>();
+  try {
+    if (!existsSync(SESSIONS_FILE)) return map;
+    const raw = readFileSync(SESSIONS_FILE, "utf-8");
+    if (!raw.trim()) return map;
+    const parsed = JSON.parse(raw) as Record<string, StoredSession>;
+    for (const [k, v] of Object.entries(parsed)) {
+      if (!v || typeof v.sessionIdHash !== "string") continue;
+      map.set(k, v);
+    }
+  } catch (err) {
+    console.error("Failed to load sessions.json:", err);
+  }
+  return map;
+}
+
+// Auth state mutations must surface persistence failures to the caller so
+// the caller can roll back in-memory state. Swallowing here would let
+// accept/mint/revoke report success while disk diverges from memory — on
+// the next restart the user would be locked out (consumed invite + lost
+// session) or able to reuse a "revoked" invite.
+function persistInvites() {
+  if (!invites) return;
+  const obj: Record<string, StoredInvite> = {};
+  for (const [k, v] of invites) obj[k] = v;
+  atomicWriteFileSync(INVITES_FILE, JSON.stringify(obj, null, 2));
+}
+
+function persistSessions() {
+  if (!sessions) return;
+  const obj: Record<string, StoredSession> = {};
+  for (const [k, v] of sessions) obj[k] = v;
+  atomicWriteFileSync(SESSIONS_FILE, JSON.stringify(obj, null, 2));
+}
+
+function ensureLoaded() {
+  if (invites === null) invites = loadInvitesFromDisk();
+  if (sessions === null) sessions = loadSessionsFromDisk();
+}
+
+// ---------------------------------------------------------------------------
+// Token / hashing primitives
+
+const TOKEN_BYTES = 32; // 256 bits of entropy
+const PREFIX_LEN = 8;
+
+function randomToken(): { raw: string; hash: string; prefix: string } {
+  const buf = randomBytes(TOKEN_BYTES);
+  const raw = buf.toString("base64url");
+  const hash = createHash("sha256").update(raw).digest("hex");
+  return { raw, hash, prefix: raw.slice(0, PREFIX_LEN) };
+}
+
+function hashOf(rawToken: string): string {
+  return createHash("sha256").update(rawToken).digest("hex");
+}
+
+// Constant-time hex string compare. Inputs must be the same length, which
+// they are here (sha256 hex = 64 chars). Guards against timing side channels
+// during the Map.get → compare path.
+function safeHashEq(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(Buffer.from(a), Buffer.from(b));
+}
+
+// ---------------------------------------------------------------------------
+// WS registry: sessionIdHash → sockets currently authenticated with that
+// session. Populated at upgrade; cleared at close. Used to force-close on
+// revoke so the WS doesn't keep pumping messages until the next client send.
+
+type ClosableSocket = { close: () => void };
+const wsBySession = new Map<string, Set<ClosableSocket>>();
+
+export function registerSocket(sessionIdHash: string, ws: ClosableSocket) {
+  let set = wsBySession.get(sessionIdHash);
+  if (!set) {
+    set = new Set();
+    wsBySession.set(sessionIdHash, set);
+  }
+  set.add(ws);
+}
+
+export function unregisterSocket(sessionIdHash: string, ws: ClosableSocket) {
+  const set = wsBySession.get(sessionIdHash);
+  if (!set) return;
+  set.delete(ws);
+  if (set.size === 0) wsBySession.delete(sessionIdHash);
+}
+
+function forceCloseSocketsForSession(sessionIdHash: string) {
+  const set = wsBySession.get(sessionIdHash);
+  if (!set) return;
+  for (const ws of set) {
+    try {
+      ws.close();
+    } catch {}
+  }
+  wsBySession.delete(sessionIdHash);
+}
+
+// ---------------------------------------------------------------------------
+// Bootstrap: mint an owner-tagged invite on server start when no owner exists.
+
+const BOOTSTRAP_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+
+// Returns null when an owner already exists (no bootstrap needed) or when the
+// flag-set forbids regeneration. The caller (server boot) logs the URL.
+export async function ensureBootstrapInvite(opts: {
+  regenerate: boolean;
+}): Promise<{ rawToken: string; expiresAt: number } | null> {
+  return mutate(() => {
+    ensureLoaded();
+    if (hasOwner()) return null;
+    // Drop any prior unconsumed bootstrap invites if asked; otherwise reuse a
+    // still-valid one so a stdout/journal scrape works on a restart.
+    const now = Date.now();
+    if (opts.regenerate) {
+      for (const [k, v] of invites!) {
+        if (v.bootstrap && !v.consumed) invites!.delete(k);
+      }
+    } else {
+      for (const v of invites!.values()) {
+        if (v.bootstrap && !v.consumed && v.expiresAt > now) {
+          // Already have a valid bootstrap invite. Caller has no way to recover
+          // the raw token from disk (only the hash is stored), so we return null
+          // and the caller logs a hint pointing at --regenerate-bootstrap.
+          return null;
+        }
+      }
+    }
+    const { raw, hash, prefix } = randomToken();
+    const invite: StoredInvite = {
+      tokenHash: hash,
+      tokenPrefix: prefix,
+      username: null,
+      role: "owner",
+      createdBy: null,
+      createdAt: now,
+      expiresAt: now + BOOTSTRAP_TTL_MS,
+      consumed: false,
+      consumedAt: null,
+      bootstrap: true,
+    };
+    invites!.set(hash, invite);
+    try {
+      persistInvites();
+    } catch (err) {
+      invites!.delete(hash);
+      throw err;
+    }
+    return { rawToken: raw, expiresAt: invite.expiresAt };
+  });
+}
+
+// True if there's still an unconsumed bootstrap invite outstanding (used by
+// the regeneration command to decide whether to skip regenerate work).
+export function hasUnconsumedBootstrapInvite(): boolean {
+  ensureLoaded();
+  const now = Date.now();
+  for (const v of invites!.values()) {
+    if (v.bootstrap && !v.consumed && v.expiresAt > now) return true;
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------------------
+// Mint / accept / revoke invites
+
+export interface MintOptions {
+  username: string | null; // null only allowed for bootstrap path internally
+  role: UserRole;
+  ttlSeconds: number;
+  createdBy: string | null;
+  allowExisting: boolean;
+  bootstrap?: boolean;
+}
+
+export interface MintResult {
+  ok: true;
+  rawToken: string;
+  invite: StoredInvite;
+}
+export interface MintErr {
+  ok: false;
+  error: string;
+  code:
+    | "INVALID_USERNAME"
+    | "USER_EXISTS"
+    | "INVALID_TTL"
+    | "INVALID_ROLE"
+    | "ROLE_MISMATCH";
+}
+
+const MAX_TTL_SECONDS = 90 * 24 * 60 * 60; // 90 days
+const MIN_TTL_SECONDS = 60; // 1 minute floor
+
+export async function mintInvite(
+  opts: MintOptions,
+): Promise<MintResult | MintErr> {
+  return mutate(() => {
+    ensureLoaded();
+    const trimmedName = opts.username?.trim() ?? null;
+    if (!opts.bootstrap) {
+      if (!trimmedName)
+        return {
+          ok: false,
+          error: "Username required",
+          code: "INVALID_USERNAME",
+        };
+      if (opts.role !== "owner" && opts.role !== "member")
+        return { ok: false, error: "Invalid role", code: "INVALID_ROLE" };
+      const existing = getUser(trimmedName);
+      if (existing && !opts.allowExisting)
+        return {
+          ok: false,
+          error: `User "${existing.name}" already exists. Use allowExisting to issue an additional invite for them.`,
+          code: "USER_EXISTS",
+        };
+      if (existing && existing.role !== opts.role)
+        return {
+          ok: false,
+          error: `Invite role (${opts.role}) does not match existing user role (${existing.role}). Change the user's role first.`,
+          code: "ROLE_MISMATCH",
+        };
+    }
+    if (
+      typeof opts.ttlSeconds !== "number" ||
+      opts.ttlSeconds < MIN_TTL_SECONDS ||
+      opts.ttlSeconds > MAX_TTL_SECONDS
+    )
+      return { ok: false, error: "Invalid TTL", code: "INVALID_TTL" };
+
+    const { raw, hash, prefix } = randomToken();
+    const now = Date.now();
+    const invite: StoredInvite = {
+      tokenHash: hash,
+      tokenPrefix: prefix,
+      username: trimmedName,
+      role: opts.role,
+      createdBy: opts.createdBy,
+      createdAt: now,
+      expiresAt: now + opts.ttlSeconds * 1000,
+      consumed: false,
+      consumedAt: null,
+      bootstrap: !!opts.bootstrap,
+    };
+    invites!.set(hash, invite);
+    try {
+      persistInvites();
+    } catch (err) {
+      invites!.delete(hash);
+      throw err;
+    }
+    return { ok: true, rawToken: raw, invite };
+  });
+}
+
+// Look up an invite without consuming it. Used by GET /i/<token> so link
+// previewers / chat unfurlers / browser prefetch don't burn the one-time
+// invite — actual consumption happens on the subsequent POST.
+export interface InvitePeek {
+  needsName: boolean; // true for bootstrap or otherwise null-username invites
+  username: string | null;
+  role: UserRole;
+  bootstrap: boolean;
+}
+export function peekInvite(
+  rawToken: string,
+): InvitePeek | { error: "not_found" | "consumed" | "expired" } {
+  ensureLoaded();
+  if (!rawToken) return { error: "not_found" };
+  const hash = hashOf(rawToken);
+  const invite = invites!.get(hash);
+  if (!invite) return { error: "not_found" };
+  if (!safeHashEq(invite.tokenHash, hash)) return { error: "not_found" };
+  if (invite.consumed) return { error: "consumed" };
+  if (invite.expiresAt < Date.now()) return { error: "expired" };
+  return {
+    needsName: invite.username === null,
+    username: invite.username,
+    role: invite.role,
+    bootstrap: invite.bootstrap,
+  };
+}
+
+export interface AcceptOk {
+  ok: true;
+  rawSessionId: string;
+  expiresAt: number;
+  absoluteExpiresAt: number;
+  username: string;
+  role: UserRole;
+  isBootstrap: boolean;
+  inviteNeedsName: boolean;
+}
+export interface AcceptErr {
+  ok: false;
+  error:
+    | "not_found"
+    | "consumed"
+    | "expired"
+    | "needs_name"
+    | "invalid_name"
+    | "role_mismatch";
+}
+
+// Accept an invite token. If the invite has a pre-set username, that username
+// is bound to the new session. If the invite is a bootstrap invite, the
+// caller must supply `chosenName` (the only path where invitees pick their
+// own display name).
+export async function acceptInvite(
+  rawToken: string,
+  ctx: { userAgent: string | null; chosenName?: string | null },
+): Promise<AcceptOk | AcceptErr> {
+  return mutate(() => {
+    ensureLoaded();
+    const hash = hashOf(rawToken);
+    const invite = invites!.get(hash);
+    if (!invite) return { ok: false, error: "not_found" };
+    // Constant-time check to guard against any path where the Map.get had
+    // accepted via prefix matching in the future.
+    if (!safeHashEq(invite.tokenHash, hash))
+      return { ok: false, error: "not_found" };
+    if (invite.consumed) return { ok: false, error: "consumed" };
+    if (invite.expiresAt < Date.now()) return { ok: false, error: "expired" };
+
+    // Bootstrap path: invitee picks the display name on this request.
+    let chosenName: string | null = invite.username;
+    if (invite.username === null) {
+      const raw = (ctx.chosenName ?? "").trim();
+      if (!raw) return { ok: false, error: "needs_name" };
+      // Cheap shape check; mirrors the constraints implicit elsewhere in the
+      // codebase (display names sent to other agents, used as map keys, etc).
+      if (raw.length > 64) return { ok: false, error: "invalid_name" };
+      if (!/^[\p{L}\p{N} ._'-]+$/u.test(raw))
+        return { ok: false, error: "invalid_name" };
+      chosenName = raw;
+    } else {
+      const existing = getUser(invite.username);
+      if (existing && existing.role !== invite.role)
+        return { ok: false, error: "role_mismatch" };
+    }
+    if (!chosenName) return { ok: false, error: "invalid_name" };
+
+    // Idempotent upsert of user record. The role-preservation rule applies
+    // to *member* invites: accepting one for an existing user must not flip
+    // their role. Bootstrap is the one exception — it's the first-owner
+    // recovery / pre-auth-migration path. If no owner exists and a
+    // bootstrap invite is being accepted, promote the chosen user (creating
+    // them if needed, or promoting an existing pre-auth member record).
+    let userRecord = getUser(chosenName);
+    if (invite.bootstrap) {
+      if (!userRecord) {
+        userRecord = claimUser(chosenName, { role: "owner" });
+      } else if (userRecord.role !== "owner") {
+        setUserRole(userRecord.name, "owner");
+        userRecord = getUser(userRecord.name)!;
+      }
+    } else if (!userRecord) {
+      userRecord = claimUser(chosenName, { role: invite.role });
+    }
+
+    // Create the session.
+    const { raw: rawSessionId, hash: sessionHash, prefix } = randomToken();
+    const now = Date.now();
+    const rollingTtlMs = 30 * 24 * 60 * 60 * 1000;
+    const absoluteTtlMs = 90 * 24 * 60 * 60 * 1000;
+    const session: StoredSession = {
+      sessionIdHash: sessionHash,
+      sessionPrefix: prefix,
+      username: userRecord.name,
+      createdAt: now,
+      lastSeenAt: now,
+      expiresAt: now + rollingTtlMs,
+      absoluteExpiresAt: now + absoluteTtlMs,
+      userAgent: ctx.userAgent,
+    };
+
+    // Fail-closed ordering: persist the invite-consumed flag BEFORE the
+    // session. If we issued a cookie but the invite stayed live, the
+    // bearer URL would still be redeemable for a second session — the
+    // worse failure mode. The downside of this ordering is that on a rare
+    // mid-flow disk failure the invite ends up consumed without a session
+    // having been created (the user re-clicks and sees 410); we accept
+    // that UX cost to preserve the one-time-bearer guarantee.
+    const prevConsumed = invite.consumed;
+    invite.consumed = true;
+    invite.consumedAt = now;
+    try {
+      persistInvites();
+    } catch (err) {
+      invite.consumed = prevConsumed;
+      invite.consumedAt = null;
+      throw err;
+    }
+    sessions!.set(sessionHash, session);
+    try {
+      persistSessions();
+    } catch (err) {
+      // Session-persist failure: roll the session out of memory AND roll
+      // the invite back to unconsumed so the user can retry. If the
+      // invite-revert write also fails we have a permanently-consumed
+      // invite with no usable session — catastrophic but isolated: log
+      // loudly, propagate to the caller, the user sees 500 and the owner
+      // mints a fresh invite.
+      sessions!.delete(sessionHash);
+      invite.consumed = prevConsumed;
+      invite.consumedAt = null;
+      try {
+        persistInvites();
+      } catch (revertErr) {
+        console.error(
+          "[auth] catastrophic: invite consumed on disk but session " +
+            "persist + revert both failed; this invite is now permanently " +
+            "unusable. Mint a replacement.",
+          err,
+          revertErr,
+        );
+      }
+      throw err;
+    }
+
+    return {
+      ok: true,
+      rawSessionId,
+      expiresAt: session.expiresAt,
+      absoluteExpiresAt: session.absoluteExpiresAt,
+      username: userRecord.name,
+      role: userRecord.role,
+      isBootstrap: invite.bootstrap,
+      inviteNeedsName: invite.username === null,
+    };
+  });
+}
+
+export type RevokeResult = "ok" | "not_found" | "ambiguous";
+
+// Find at most two matching rows; if more than one matches the same display
+// prefix we refuse to revoke either, so an extremely unlikely 8-char prefix
+// collision can't silently target the wrong record. The owner UI surfaces
+// the ambiguous outcome so they can copy a longer identifier (not yet
+// exposed in V1; for now they'd see "ambiguous" and need to mint a new one
+// or wait for natural expiry).
+export async function revokeInviteByPrefix(
+  prefix: string,
+): Promise<RevokeResult> {
+  return mutate(() => {
+    ensureLoaded();
+    const matches: string[] = [];
+    for (const [k, v] of invites!) {
+      if (v.tokenPrefix === prefix) matches.push(k);
+      if (matches.length > 1) break;
+    }
+    if (matches.length === 0) return "not_found";
+    if (matches.length > 1) return "ambiguous";
+    const k = matches[0];
+    const prev = invites!.get(k)!;
+    invites!.delete(k);
+    try {
+      persistInvites();
+    } catch (err) {
+      invites!.set(k, prev);
+      throw err;
+    }
+    return "ok";
+  });
+}
+
+export async function revokeSessionByPrefix(
+  prefix: string,
+): Promise<RevokeResult> {
+  return mutate(() => {
+    ensureLoaded();
+    const matches: string[] = [];
+    for (const [k, v] of sessions!) {
+      if (v.sessionPrefix === prefix) matches.push(k);
+      if (matches.length > 1) break;
+    }
+    if (matches.length === 0) return "not_found";
+    if (matches.length > 1) return "ambiguous";
+    const hash = matches[0];
+    const prev = sessions!.get(hash)!;
+    sessions!.delete(hash);
+    try {
+      persistSessions();
+    } catch (err) {
+      sessions!.set(hash, prev);
+      throw err;
+    }
+    forceCloseSocketsForSession(hash);
+    return "ok";
+  });
+}
+
+export async function logoutBySessionHash(
+  sessionIdHash: string,
+): Promise<boolean> {
+  return mutate(() => {
+    ensureLoaded();
+    const prev = sessions!.get(sessionIdHash);
+    if (!prev) return false;
+    sessions!.delete(sessionIdHash);
+    try {
+      persistSessions();
+    } catch (err) {
+      sessions!.set(sessionIdHash, prev);
+      throw err;
+    }
+    forceCloseSocketsForSession(sessionIdHash);
+    return true;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Validation (per-request hot path: must be O(1), no IO).
+
+export interface SessionLookup {
+  sessionIdHash: string;
+  username: string;
+  role: UserRole;
+  needsRolling: boolean; // caller should persist a refreshed lastSeenAt+expiresAt
+}
+
+// Validate a raw session cookie value. Returns null if the cookie is missing,
+// unknown, expired (rolling or absolute), or for a user whose record vanished.
+// Updates lastSeenAt in memory on every hit; persistence is throttled by the
+// caller (we'd hammer disk otherwise).
+let lastPersist = 0;
+const PERSIST_THROTTLE_MS = 30_000; // re-persist lastSeenAt at most every 30s
+
+export function validateSession(
+  rawCookie: string | null,
+): SessionLookup | null {
+  if (!rawCookie) return null;
+  ensureLoaded();
+  const hash = hashOf(rawCookie);
+  return validateByHash(hash);
+}
+
+// Per-message recheck path. WS handlers cache the session hash at upgrade and
+// re-validate by hash on every message; this avoids reconstructing the
+// (now-discarded) raw cookie and is identical to validateSession otherwise.
+export function revalidateByHash(sessionIdHash: string): SessionLookup | null {
+  ensureLoaded();
+  return validateByHash(sessionIdHash);
+}
+
+function validateByHash(hash: string): SessionLookup | null {
+  const session = sessions!.get(hash);
+  if (!session) return null;
+  if (!safeHashEq(session.sessionIdHash, hash)) return null;
+  const now = Date.now();
+  if (session.expiresAt < now || session.absoluteExpiresAt < now) {
+    sessions!.delete(hash);
+    forceCloseSocketsForSession(hash);
+    return null;
+  }
+  const user = getUser(session.username);
+  if (!user) {
+    // User record was removed; the session is orphaned and unsafe to honor.
+    sessions!.delete(hash);
+    forceCloseSocketsForSession(hash);
+    return null;
+  }
+  const rollingTtlMs = 30 * 24 * 60 * 60 * 1000;
+  const newExpires = Math.min(now + rollingTtlMs, session.absoluteExpiresAt);
+  let needsRolling = false;
+  if (newExpires > session.expiresAt + 60_000) {
+    session.expiresAt = newExpires;
+    needsRolling = true;
+  }
+  session.lastSeenAt = now;
+  // Throttled rolling persist on the hot path. Failures here are non-fatal
+  // (the in-memory state is the authoritative read source until restart),
+  // and propagating would block validation on a disk hiccup. Log and move
+  // on; the next successful write picks up the latest state.
+  if (now - lastPersist > PERSIST_THROTTLE_MS) {
+    lastPersist = now;
+    try {
+      persistSessions();
+    } catch (err) {
+      console.error("[auth] throttled sessions persist failed:", err);
+    }
+  }
+  return {
+    sessionIdHash: hash,
+    username: user.name,
+    role: user.role,
+    needsRolling,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Wire shapes for owner UI.
+
+function toInviteWire(v: StoredInvite): InviteWire {
+  return {
+    tokenPrefix: v.tokenPrefix,
+    username: v.username,
+    role: v.role,
+    createdBy: v.createdBy,
+    createdAt: v.createdAt,
+    expiresAt: v.expiresAt,
+    ...(v.bootstrap ? { bootstrap: true as const } : {}),
+  };
+}
+
+function toSessionWire(v: StoredSession): SessionWire {
+  return {
+    sessionPrefix: v.sessionPrefix,
+    username: v.username,
+    createdAt: v.createdAt,
+    lastSeenAt: v.lastSeenAt,
+    expiresAt: v.expiresAt,
+    absoluteExpiresAt: v.absoluteExpiresAt,
+    userAgent: v.userAgent,
+  };
+}
+
+export function listInvites(): InviteWire[] {
+  ensureLoaded();
+  const now = Date.now();
+  // Surface only outstanding (not consumed, not expired) invites; pruning
+  // consumed rows from disk happens elsewhere if it becomes worth it.
+  const result: InviteWire[] = [];
+  for (const v of invites!.values()) {
+    if (v.consumed) continue;
+    if (v.expiresAt < now) continue;
+    result.push(toInviteWire(v));
+  }
+  return result.sort((a, b) => b.createdAt - a.createdAt);
+}
+
+export function listActiveSessions(): SessionWire[] {
+  ensureLoaded();
+  const now = Date.now();
+  const result: SessionWire[] = [];
+  for (const v of sessions!.values()) {
+    if (v.expiresAt < now || v.absoluteExpiresAt < now) continue;
+    result.push(toSessionWire(v));
+  }
+  return result.sort((a, b) => b.lastSeenAt - a.lastSeenAt);
+}
+
+export function sessionContextFor(lookup: SessionLookup): SessionContext {
+  return { username: lookup.username, role: lookup.role };
+}
+
+// ---------------------------------------------------------------------------
+// Cookie + origin helpers used by the middleware.
+
+export const COOKIE_NAME = "isomux_session";
+
+export function buildPublicOrigin(): { origin: string; isHttps: boolean } {
+  const raw = process.env.ISOMUX_PUBLIC_ORIGIN?.trim();
+  const fallback = `http://localhost:${process.env.PORT || "4000"}`;
+  const origin =
+    raw && /^https?:\/\//i.test(raw) ? raw.replace(/\/$/, "") : fallback;
+  return { origin, isHttps: origin.startsWith("https://") };
+}
+
+// Build the Set-Cookie header value. Caller picks Max-Age (we anchor to the
+// absolute cap so the cookie naturally expires when the session can't be
+// rolled any further).
+export function setCookieHeader(
+  rawSessionId: string,
+  absoluteExpiresAt: number,
+): string {
+  const { isHttps } = buildPublicOrigin();
+  const maxAgeSec = Math.max(
+    0,
+    Math.floor((absoluteExpiresAt - Date.now()) / 1000),
+  );
+  const attrs = [
+    `${COOKIE_NAME}=${rawSessionId}`,
+    `Path=/`,
+    `HttpOnly`,
+    `SameSite=Lax`,
+    `Max-Age=${maxAgeSec}`,
+  ];
+  if (isHttps) attrs.push("Secure");
+  return attrs.join("; ");
+}
+
+export function clearCookieHeader(): string {
+  const { isHttps } = buildPublicOrigin();
+  const attrs = [
+    `${COOKIE_NAME}=`,
+    `Path=/`,
+    `HttpOnly`,
+    `SameSite=Lax`,
+    `Max-Age=0`,
+  ];
+  if (isHttps) attrs.push("Secure");
+  return attrs.join("; ");
+}
+
+// Parse the `Cookie` request header and return the raw session cookie value,
+// or null if absent. Multi-cookie strings ("a=1; b=2") parsed without bringing
+// in a dependency.
+export function readSessionCookie(req: Request): string | null {
+  const header = req.headers.get("cookie");
+  if (!header) return null;
+  const parts = header.split(";");
+  for (const part of parts) {
+    const idx = part.indexOf("=");
+    if (idx <= 0) continue;
+    const name = part.slice(0, idx).trim();
+    if (name !== COOKIE_NAME) continue;
+    const value = part.slice(idx + 1).trim();
+    return value || null;
+  }
+  return null;
+}
+
+// Echoing-prevention: don't allow log lines to leak raw cookies/tokens. The
+// auth code never logs raw values; this helper just gives a safe printable
+// for debug paths.
+export function safePrefix(rawToken: string): string {
+  return rawToken.slice(0, PREFIX_LEN);
+}
+
+// ---------------------------------------------------------------------------
+// Test helpers (NOT exposed via routes; only callable from in-process tests).
+// Exists because the auth-core task explicitly forbids a runtime no-auth
+// bypass — tests exercise the real path through this helper.
+
+export interface TestSeedResult {
+  rawToken: string;
+  rawSessionId: string;
+  username: string;
+  role: UserRole;
+}
+
+export async function _testSeedOwner(
+  displayName: string,
+): Promise<TestSeedResult> {
+  const m = await mintInvite({
+    username: null,
+    role: "owner",
+    ttlSeconds: 600,
+    createdBy: null,
+    allowExisting: false,
+    bootstrap: true,
+  });
+  if (!m.ok) throw new Error(`seed: mint failed: ${m.error}`);
+  const a = await acceptInvite(m.rawToken, {
+    userAgent: "test",
+    chosenName: displayName,
+  });
+  if (!a.ok) throw new Error(`seed: accept failed: ${a.error}`);
+  return {
+    rawToken: m.rawToken,
+    rawSessionId: a.rawSessionId,
+    username: a.username,
+    role: a.role,
+  };
+}
+
+// Wipe both maps; intended for tests only. Does not touch disk.
+export function _testResetState() {
+  invites = new Map();
+  sessions = new Map();
+  wsBySession.clear();
+}

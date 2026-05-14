@@ -23,6 +23,9 @@ import type {
   Cronjob,
   CronjobRun,
   UserRecord,
+  SessionContext,
+  InviteWire,
+  SessionWire,
 } from "../shared/types.ts";
 import { connect, send } from "./ws.ts";
 import { type Features, PRODUCTION_FEATURES } from "../shared/features.ts";
@@ -83,10 +86,22 @@ export interface AppState {
   updateCurrent: { sha: string; message: string; date: string };
   updateLatest: { sha: string; message: string; date: string };
   // Server-stored boss profiles. `users` is keyed by lowercase(name). The
-  // current device's user is whichever record matches localStorage's
-  // isomux-username; null if that key is unset or the record hasn't loaded.
+  // current device's user is identified by `sessionContext.username`, which
+  // the server sends right after WS open from the session cookie. Pre-auth
+  // setups have null until the server emits session_context.
   users: Map<string, UserRecord>;
   usersLoaded: boolean;
+  // Owner-only access state. Both maps stay empty (and the corresponding
+  // owner UI is hidden) for members and unauthenticated states.
+  sessionContext: SessionContext | null;
+  invitesList: InviteWire[];
+  invitesLoaded: boolean;
+  activeSessions: SessionWire[];
+  activeSessionsLoaded: boolean;
+  // When the per-message session recheck fails (server emits
+  // session_expired), the UI surfaces a banner and queues a reload so the
+  // user lands back at the bootstrap/login flow on the next tick.
+  sessionExpired: boolean;
 }
 
 type Action =
@@ -138,6 +153,20 @@ type Action =
   | { type: "rooms_reordered"; order: string[] }
   | { type: "users_list"; users: UserRecord[] }
   | { type: "user_updated"; user: UserRecord; prevName?: string }
+  | { type: "session_context"; context: SessionContext }
+  | { type: "invites_list"; invites: InviteWire[] }
+  | { type: "sessions_active_list"; sessions: SessionWire[] }
+  | {
+      type: "invite_minted";
+      requestId?: string;
+      ok: boolean;
+      url?: string;
+      invite?: InviteWire;
+      error?: string;
+    }
+  | { type: "invite_revoked"; tokenPrefix: string }
+  | { type: "session_revoked"; sessionPrefix: string }
+  | { type: "session_expired" }
   | SettingsSaveResponse
   | SettingsValidationResponse
   | {
@@ -391,6 +420,42 @@ function reducer(state: AppState, action: Action): AppState {
       users.set(action.user.name.toLowerCase(), action.user);
       return { ...state, users };
     }
+    case "session_context":
+      return { ...state, sessionContext: action.context };
+    case "invites_list":
+      return { ...state, invitesList: action.invites, invitesLoaded: true };
+    case "sessions_active_list":
+      return {
+        ...state,
+        activeSessions: action.sessions,
+        activeSessionsLoaded: true,
+      };
+    case "invite_minted": {
+      // Surfacing the URL is handled by the AccessPane via a one-shot raw
+      // listener; the reducer only needs to keep the optimistic invite list
+      // fresh. The server also broadcasts a fresh invites_list, so this is
+      // belt-and-suspenders.
+      if (action.ok && action.invite) {
+        return { ...state, invitesList: [action.invite, ...state.invitesList] };
+      }
+      return state;
+    }
+    case "invite_revoked":
+      return {
+        ...state,
+        invitesList: state.invitesList.filter(
+          (i) => i.tokenPrefix !== action.tokenPrefix,
+        ),
+      };
+    case "session_revoked":
+      return {
+        ...state,
+        activeSessions: state.activeSessions.filter(
+          (s) => s.sessionPrefix !== action.sessionPrefix,
+        ),
+      };
+    case "session_expired":
+      return { ...state, sessionExpired: true };
     case "cronjobs_state":
       return {
         ...state,
@@ -498,6 +563,12 @@ const initialState: AppState = {
   updateLatest: { sha: "", message: "", date: "" },
   users: new Map(),
   usersLoaded: false,
+  sessionContext: null,
+  invitesList: [],
+  invitesLoaded: false,
+  activeSessions: [],
+  activeSessionsLoaded: false,
+  sessionExpired: false,
 };
 
 const StateCtx = createContext<AppState>(initialState);
@@ -541,37 +612,44 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
 
   useEffect(() => {
-    let claimed = false;
+    let legacyMigrated = false;
     connect((msg: ServerMessage) => {
       dispatch(msg as Action);
       if (msg.type === "full_state") dispatch({ type: "connected" });
-      // After the server's users_list arrives, ensure our localStorage
-      // username is registered server-side. If the record already exists the
-      // server treats this as a no-op; otherwise it creates the record using
-      // any legacy localStorage prefs we might have.
-      if (msg.type === "users_list" && !claimed) {
-        const username = getUsername();
-        if (username) {
-          const key = username.toLowerCase();
-          const exists = msg.users.some((u) => u.name.toLowerCase() === key);
-          if (!exists) {
-            const legacy = readLegacyUserPrefs();
-            send({
-              type: "claim_user",
-              username,
-              defaultRoomId: legacy.defaultRoomId,
-              notifRooms: legacy.notifRooms,
-            });
-          }
-          // Whether the record was just created or already existed, the
-          // legacy localStorage keys are now redundant. Drop them so they
-          // don't drift if the user later edits server-side prefs.
+      // Once both session_context and users_list have arrived, mirror any
+      // legacy localStorage prefs (defaultRoomId, notifRooms) into the user
+      // record — but only if the server hasn't recorded values for them yet.
+      // The session cookie is authoritative for the username; we don't try
+      // to coerce the device's old localStorage name onto the session.
+      if (msg.type === "session_context" && !legacyMigrated) {
+        const legacy = readLegacyUserPrefs();
+        if (legacy.defaultRoomId || legacy.notifRooms) {
+          send({
+            type: "claim_user",
+            username: msg.context.username,
+            defaultRoomId: legacy.defaultRoomId,
+            notifRooms: legacy.notifRooms,
+          });
           clearLegacyUserPrefs();
-          claimed = true;
         }
+        // Keep localStorage's name aligned to the session so other UI bits
+        // that still read getUsername() agree with the cookie identity.
+        try {
+          localStorage.setItem("isomux-username", msg.context.username);
+        } catch {}
+        legacyMigrated = true;
       }
     });
   }, []);
+
+  // session_expired: the per-message WS recheck found the session revoked or
+  // expired. Reload the page so the next navigation goes through the auth
+  // gate and lands the user on the login / bootstrap-invite page.
+  useEffect(() => {
+    if (!state.sessionExpired) return;
+    const id = setTimeout(() => window.location.reload(), 800);
+    return () => clearTimeout(id);
+  }, [state.sessionExpired]);
 
   // Track mobile viewport
   useEffect(() => {

@@ -535,12 +535,45 @@ export interface RoomWire {
 // file by lowercase(name); display case is whatever the user supplied.
 export type NotifRoomsSetting = "all" | string[];
 
+export type UserRole = "owner" | "member";
+
 export interface UserRecord {
   name: string; // display case, e.g. "Nil"
   defaultRoomId: string | null;
   notifRooms: NotifRoomsSetting;
   envFile: string | null; // absolute path to dotenv file
   createdAt: number;
+  role: UserRole; // app-level role; owner can mint invites and revoke sessions
+}
+
+// Sent to the client over the WS at connect time so the UI knows whether to
+// render owner-only surfaces (Access pane, "Sign out" reachability, etc.).
+export interface SessionContext {
+  username: string;
+  role: UserRole;
+}
+
+// Wire shape for an outstanding invite (owner UI). Raw token never crosses
+// the wire — only the 8-char display prefix.
+export interface InviteWire {
+  tokenPrefix: string;
+  username: string | null; // null for unconsumed bootstrap invites
+  role: UserRole;
+  createdBy: string | null; // null for bootstrap (no owner existed yet)
+  createdAt: number;
+  expiresAt: number;
+  bootstrap?: true; // present on bootstrap invites so the UI can label them
+}
+
+// Wire shape for an active session (owner UI).
+export interface SessionWire {
+  sessionPrefix: string; // 8-char display prefix; not the full token
+  username: string;
+  createdAt: number;
+  lastSeenAt: number;
+  expiresAt: number;
+  absoluteExpiresAt: number;
+  userAgent: string | null;
 }
 
 // Response to update_*_settings (sent only to the requesting client)
@@ -689,6 +722,20 @@ export type ServerMessage =
   | { type: "rooms_reordered"; order: string[] }
   | { type: "users_list"; users: UserRecord[] }
   | { type: "user_updated"; user: UserRecord; prevName?: string }
+  | { type: "session_context"; context: SessionContext }
+  | { type: "invites_list"; invites: InviteWire[] }
+  | { type: "sessions_active_list"; sessions: SessionWire[] }
+  | {
+      type: "invite_minted";
+      requestId?: string;
+      ok: boolean;
+      url?: string;
+      invite?: InviteWire;
+      error?: string;
+    }
+  | { type: "session_revoked"; sessionPrefix: string }
+  | { type: "invite_revoked"; tokenPrefix: string }
+  | { type: "session_expired" }
   | SettingsSaveResponse
   | SettingsValidationResponse
   | AgentSaveResponse
@@ -912,6 +959,19 @@ export type ClientCommand =
       >;
     }
   | { type: "delete_user"; username: string }
+  | {
+      type: "mint_invite";
+      requestId: string;
+      username: string;
+      role: UserRole;
+      ttlSeconds: number;
+      allowExisting?: boolean;
+    }
+  | { type: "list_invites" }
+  | { type: "revoke_invite"; tokenPrefix: string }
+  | { type: "list_active_sessions" }
+  | { type: "revoke_session"; sessionPrefix: string }
+  | { type: "logout" }
   | { type: "ping" };
 
 // Generate a stable 8-char hex room ID (used at room creation and during migration)

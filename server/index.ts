@@ -35,14 +35,46 @@ import {
 import { watchFile, stopWatch, type FileWatcher } from "./file-editor.ts";
 import { mimeTypeForFilename } from "./mime-types.ts";
 import { join } from "path";
+import {
+  authenticate,
+  checkOrigin,
+  tryHandleAuthRoute,
+} from "./auth-middleware.ts";
+import {
+  buildPublicOrigin,
+  ensureBootstrapInvite,
+  hasUnconsumedBootstrapInvite,
+  listActiveSessions,
+  listInvites,
+  logoutBySessionHash,
+  mintInvite,
+  readSessionCookie,
+  registerSocket,
+  revalidateByHash,
+  revokeInviteByPrefix,
+  revokeSessionByPrefix,
+  sessionContextFor,
+  unregisterSocket,
+  validateSession,
+  type SessionLookup,
+} from "./auth.ts";
+import { lowercaseKey } from "../shared/identity.ts";
 
-const browsers = new Set<ServerWebSocket<unknown>>();
+// Each WS carries the session it was authenticated with at upgrade time. The
+// session reference is used per-message (so revoke kicks in on the next msg)
+// and to attribute writes to the right user without trusting client-supplied
+// `username` fields.
+interface WsData {
+  session: SessionLookup;
+}
+
+const browsers = new Set<ServerWebSocket<WsData>>();
 
 // Per-WS editor file watchers. Each open file gets one fs.watch handle keyed
 // by `${agentId}\0${absPath}` so the same path can be watched independently
 // across agents. Watchers close on editor_close or WS disconnect.
 const editorWatchers = new WeakMap<
-  ServerWebSocket<unknown>,
+  ServerWebSocket<WsData>,
   Map<string, FileWatcher>
 >();
 
@@ -50,7 +82,7 @@ function editorKey(agentId: string, absPath: string): string {
   return `${agentId}\0${absPath}`;
 }
 
-function getWatcherMap(ws: ServerWebSocket<unknown>): Map<string, FileWatcher> {
+function getWatcherMap(ws: ServerWebSocket<WsData>): Map<string, FileWatcher> {
   let map = editorWatchers.get(ws);
   if (!map) {
     map = new Map();
@@ -82,7 +114,81 @@ CronjobManager.onCronjobEvent((event) => {
   broadcast(event);
 });
 
-async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
+async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<WsData>) {
+  const session = ws.data.session;
+  try {
+    await dispatchCommand(cmd, ws, session);
+  } catch (err) {
+    // Top-level guard for async throws the per-case logic doesn't catch
+    // (most relevant: persistence failures from auth mutations). Surface a
+    // typed error response when the command carried a requestId so the UI
+    // can react; otherwise log so the operator sees the failure.
+    const msg = errMessage(err);
+    console.error(`[handleCommand] ${cmd.type} failed:`, err);
+    surfaceCommandError(cmd, ws, msg);
+  }
+}
+
+function surfaceCommandError(
+  cmd: ClientCommand,
+  ws: ServerWebSocket<WsData>,
+  errorMsg: string,
+): void {
+  // Each case maps a failed command to its response shape so the requesting
+  // client can stop waiting on a reply that would otherwise never arrive.
+  switch (cmd.type) {
+    case "mint_invite":
+      ws.send(
+        JSON.stringify({
+          type: "invite_minted",
+          requestId: cmd.requestId,
+          ok: false,
+          error: errorMsg,
+        }),
+      );
+      return;
+    case "spawn":
+    case "edit_agent":
+      if (cmd.requestId) {
+        ws.send(
+          JSON.stringify({
+            type: "agent_save_response",
+            requestId: cmd.requestId,
+            ok: false,
+            error: errorMsg,
+          }),
+        );
+      }
+      return;
+    case "update_user":
+    case "request_settings_validation":
+      if (cmd.requestId) {
+        ws.send(
+          JSON.stringify({
+            type: "settings_save_response",
+            requestId: cmd.requestId,
+            ok: false,
+            error: errorMsg,
+          }),
+        );
+      }
+      return;
+    default:
+      // Fire-and-forget commands (revoke_*, logout, list_*, send_message,
+      // etc.) don't have a response shape we can reach for; we already
+      // logged above.
+      return;
+  }
+}
+
+async function dispatchCommand(
+  cmd: ClientCommand,
+  ws: ServerWebSocket<WsData>,
+  session: SessionLookup,
+) {
+  // The wire still carries `username` on several command types, but the
+  // server-side authority is always session.username. Trusting cmd.username
+  // would let a member spoof another member's display name on messages.
   switch (cmd.type) {
     case "ping":
       ws.send(JSON.stringify({ type: "pong" }));
@@ -115,7 +221,7 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
           cmd.outfit,
           cmd.modelFamily,
           cmd.effort,
-          cmd.username,
+          session.username,
           cmd.agentType,
           cmd.codexSandbox,
         );
@@ -164,11 +270,12 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
       await AgentManager.abort(cmd.agentId);
       break;
     case "send_message":
-      // Don't await — let it stream in the background
+      // Don't await — let it stream in the background. Username comes from the
+      // session so a member can't spoof another member's display name in chat.
       void AgentManager.sendMessage(
         cmd.agentId,
         cmd.text,
-        cmd.username,
+        session.username,
         cmd.device,
         cmd.attachments,
       );
@@ -491,7 +598,7 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
       // it (matches what'll be used at spawn time).
       try {
         const backend = getBackend(cmd.agentType);
-        const env = AgentManager.buildEnvFor(cmd.username);
+        const env = AgentManager.buildEnvFor(session.username);
         const models = await backend.listModels({
           // The codex subprocess's cwd must be a real directory or posix_spawn
           // fails with ENOENT before our error path can clean up — resolve `~`
@@ -542,6 +649,41 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
       break;
     }
     case "request_settings_validation": {
+      // Members can only validate their own envFile. Owners can validate any
+      // user's envFile and the office envFile.
+      if (cmd.scope === "office" && session.role !== "owner") {
+        ws.send(
+          JSON.stringify({
+            type: "settings_validation",
+            requestId: cmd.requestId,
+            scope: cmd.scope,
+            username: cmd.username,
+            envFile: null,
+            ok: false,
+            error: "Only the office owner can validate office settings.",
+          }),
+        );
+        break;
+      }
+      if (
+        cmd.scope === "user" &&
+        cmd.username &&
+        lowercaseKey(cmd.username) !== lowercaseKey(session.username) &&
+        session.role !== "owner"
+      ) {
+        ws.send(
+          JSON.stringify({
+            type: "settings_validation",
+            requestId: cmd.requestId,
+            scope: cmd.scope,
+            username: cmd.username,
+            envFile: null,
+            ok: false,
+            error: "Only the office owner can validate another user's env.",
+          }),
+        );
+        break;
+      }
       let envFile: string | null = null;
       if (cmd.scope === "office") {
         envFile = AgentManager.getOfficeSettings().envFile;
@@ -590,14 +732,14 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
       break;
     }
     case "add_task": {
-      AgentManager.addTask(cmd.title, cmd.username, {
+      AgentManager.addTask(cmd.title, session.username, {
         description: cmd.description,
         priority:
           cmd.priority && isValidPriority(cmd.priority)
             ? cmd.priority
             : undefined,
         assignee: cmd.assignee,
-        username: cmd.username,
+        username: session.username,
       });
       break;
     }
@@ -646,7 +788,7 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
         cmd.agentId,
         cmd.logEntryId,
         cmd.newText,
-        cmd.username,
+        session.username,
         cmd.device,
       );
       break;
@@ -677,7 +819,7 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
         effort: cmd.effort,
         permissionMode: cmd.permissionMode,
         codexSandbox: cmd.codexSandbox,
-        username: cmd.username,
+        username: session.username,
       });
       if (cmd.requestId) {
         ws.send(
@@ -725,7 +867,7 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
       CronjobManager.deleteCronjob(cmd.id);
       break;
     case "run_cronjob_now":
-      CronjobManager.runCronjobNow(cmd.id, cmd.username);
+      CronjobManager.runCronjobNow(cmd.id, session.username);
       break;
     case "update_cronjobs_prompt":
       CronjobManager.setCronjobsPrompt(cmd.value);
@@ -784,7 +926,7 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
         cmd.cronjobId,
         cmd.runId,
         cmd.text,
-        cmd.username,
+        session.username,
         cmd.device,
       );
       break;
@@ -795,12 +937,18 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
         cmd.runId,
         cmd.logEntryId,
         cmd.newText,
-        cmd.username,
+        session.username,
         cmd.device,
       );
       break;
     case "claim_user": {
-      const user = claimUser(cmd.username, {
+      // Post-auth, the session cookie is authoritative for username.
+      // claim_user becomes a preferences-update path. Reject mismatched
+      // usernames so a client can't reach for someone else's record.
+      if (lowercaseKey(cmd.username) !== lowercaseKey(session.username)) {
+        break;
+      }
+      const user = claimUser(session.username, {
         defaultRoomId: cmd.defaultRoomId,
         notifRooms: cmd.notifRooms,
       });
@@ -809,6 +957,24 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
       break;
     }
     case "update_user": {
+      // Members can edit only their own record. Owners can edit any user's
+      // preferences but cannot change the `role` field through this path
+      // (role changes go through an admin/CLI path, not in V1).
+      const targetIsSelf =
+        lowercaseKey(cmd.username) === lowercaseKey(session.username);
+      if (!targetIsSelf && session.role !== "owner") {
+        if (cmd.requestId) {
+          ws.send(
+            JSON.stringify({
+              type: "settings_save_response",
+              requestId: cmd.requestId,
+              ok: false,
+              error: "Only the office owner can edit other users.",
+            }),
+          );
+        }
+        break;
+      }
       // Validate envFile if present.
       if (cmd.changes.envFile && cmd.changes.envFile.trim()) {
         try {
@@ -864,8 +1030,136 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<unknown>) {
       break;
     }
     case "delete_user": {
+      // Owners can delete any user (except themselves; deleting your own
+      // owner record while it's the only owner would brick the office).
+      // Members can delete only their own record.
+      const targetIsSelf =
+        lowercaseKey(cmd.username) === lowercaseKey(session.username);
+      if (!targetIsSelf && session.role !== "owner") break;
+      if (targetIsSelf && session.role === "owner") {
+        // Refuse to let the current session erase its own owner record. If
+        // the boss wants to transfer ownership they'll go through the (V2)
+        // role-change flow.
+        break;
+      }
       deleteUser(cmd.username);
       broadcast({ type: "users_list", users: listUsers() });
+      break;
+    }
+    case "mint_invite": {
+      if (session.role !== "owner") {
+        ws.send(
+          JSON.stringify({
+            type: "invite_minted",
+            requestId: cmd.requestId,
+            ok: false,
+            error: "Only owners can mint invites.",
+          }),
+        );
+        break;
+      }
+      const r = await mintInvite({
+        username: cmd.username,
+        role: cmd.role,
+        ttlSeconds: cmd.ttlSeconds,
+        createdBy: session.username,
+        allowExisting: !!cmd.allowExisting,
+      });
+      if (!r.ok) {
+        ws.send(
+          JSON.stringify({
+            type: "invite_minted",
+            requestId: cmd.requestId,
+            ok: false,
+            error: r.error,
+          }),
+        );
+        break;
+      }
+      const { origin } = buildPublicOrigin();
+      const url = `${origin}/i/${r.rawToken}`;
+      ws.send(
+        JSON.stringify({
+          type: "invite_minted",
+          requestId: cmd.requestId,
+          ok: true,
+          url,
+          invite: {
+            tokenPrefix: r.invite.tokenPrefix,
+            username: r.invite.username,
+            role: r.invite.role,
+            createdBy: r.invite.createdBy,
+            createdAt: r.invite.createdAt,
+            expiresAt: r.invite.expiresAt,
+          },
+        }),
+      );
+      broadcast({ type: "invites_list", invites: listInvites() });
+      break;
+    }
+    case "list_invites": {
+      if (session.role !== "owner") break;
+      ws.send(JSON.stringify({ type: "invites_list", invites: listInvites() }));
+      break;
+    }
+    case "revoke_invite": {
+      if (session.role !== "owner") break;
+      const result = await revokeInviteByPrefix(cmd.tokenPrefix);
+      if (result === "ok") {
+        broadcast({ type: "invite_revoked", tokenPrefix: cmd.tokenPrefix });
+        broadcast({ type: "invites_list", invites: listInvites() });
+      } else if (result === "ambiguous") {
+        console.warn(
+          `[auth] ambiguous invite prefix ${cmd.tokenPrefix} — refused revoke`,
+        );
+      }
+      break;
+    }
+    case "list_active_sessions": {
+      if (session.role !== "owner") break;
+      ws.send(
+        JSON.stringify({
+          type: "sessions_active_list",
+          sessions: listActiveSessions(),
+        }),
+      );
+      break;
+    }
+    case "revoke_session": {
+      if (session.role !== "owner") break;
+      const result = await revokeSessionByPrefix(cmd.sessionPrefix);
+      if (result === "ok") {
+        broadcast({
+          type: "session_revoked",
+          sessionPrefix: cmd.sessionPrefix,
+        });
+        broadcast({
+          type: "sessions_active_list",
+          sessions: listActiveSessions(),
+        });
+      } else if (result === "ambiguous") {
+        console.warn(
+          `[auth] ambiguous session prefix ${cmd.sessionPrefix} — refused revoke`,
+        );
+      }
+      break;
+    }
+    case "logout": {
+      // Self-logout: revoke current session, then close socket. The HTTP
+      // /auth/logout path mirrors this for the browser cookie-clear case;
+      // both paths converge on the same revoke logic.
+      //
+      // We catch persistence failures here (rather than relying on the
+      // outer guard) so we never close the socket on a failed logout —
+      // the rollback inside logoutBySessionHash restored the in-memory
+      // session, and closing the WS would mislead the user into thinking
+      // they were signed out when their cookie still works.
+      try {
+        await logoutBySessionHash(session.sessionIdHash);
+        ws.close();
+      } catch (err) {
+        console.error("[auth] logout persist failed; session preserved:", err);
+      }
       break;
     }
   }
@@ -881,11 +1175,44 @@ const server = Bun.serve({
   async fetch(req, server) {
     const url = new URL(req.url);
 
-    // WebSocket upgrade
+    // WebSocket upgrade — authenticated and origin-checked. The upgrade
+    // carries the session into ws.data so per-message handlers can attribute
+    // writes without trusting client-supplied username fields.
     if (url.pathname === "/ws") {
-      if (server.upgrade(req)) return;
+      const wsCookie = readSessionCookie(req);
+      const wsSession = validateSession(wsCookie);
+      if (!wsSession) {
+        return new Response("unauthenticated", { status: 401 });
+      }
+      if (!checkOrigin(req)) {
+        return new Response("bad origin", { status: 403 });
+      }
+      const upgraded = server.upgrade<WsData>(req, {
+        data: { session: wsSession },
+      });
+      if (upgraded) return;
       return new Response("WebSocket upgrade failed", { status: 400 });
     }
+
+    // /auth/* and /i/<token> routes. These must run before the gating check
+    // because unauthenticated visitors transition to authenticated through
+    // them.
+    const authResponse = await tryHandleAuthRoute(req, url);
+    if (authResponse) return authResponse;
+
+    // Loopback bypass is intentionally narrow: it only applies to API paths
+    // agents legitimately hit from the same box (POST /tasks, /cronjobs read
+    // routes, /agents/:id/* in-process actions). The SPA shell still requires
+    // an authenticated cookie even from localhost, so a same-host browser is
+    // pushed through the bootstrap-invite flow instead of getting a half-
+    // functional page where HTTP works but WS rejects.
+    const isAgentApiPath =
+      url.pathname.startsWith("/tasks") ||
+      url.pathname.startsWith("/cronjobs") ||
+      url.pathname.startsWith("/agents/") ||
+      url.pathname === "/backup/status";
+    const auth = authenticate(req, server, { allowLoopback: isAgentApiPath });
+    if (auth.kind === "rejected") return auth.response;
 
     // CORS preflight for task API
     if (req.method === "OPTIONS" && url.pathname.startsWith("/tasks")) {
@@ -1461,7 +1788,16 @@ const server = Bun.serve({
   websocket: {
     open(ws) {
       browsers.add(ws);
-      // Send users (boss profiles) FIRST so the full_state reducer can apply
+      registerSocket(ws.data.session.sessionIdHash, ws);
+      // Send session context FIRST so the client knows the authenticated
+      // identity and role before any reducer touches state.
+      ws.send(
+        JSON.stringify({
+          type: "session_context",
+          context: sessionContextFor(ws.data.session),
+        }),
+      );
+      // Send users (boss profiles) so the full_state reducer can apply
       // the current user's defaultRoomId from server-stored prefs.
       ws.send(
         JSON.stringify({
@@ -1528,6 +1864,16 @@ const server = Bun.serve({
       }
     },
     message(ws, data) {
+      // Per-message session recheck. Revoke kicks in here without a reconnect:
+      // revalidateByHash hits the same in-memory map and returns null if the
+      // session has been deleted (revoke), expired, or its user removed.
+      const fresh = revalidateByHash(ws.data.session.sessionIdHash);
+      if (!fresh) {
+        ws.send(JSON.stringify({ type: "session_expired" }));
+        ws.close();
+        return;
+      }
+      ws.data.session = fresh;
       try {
         const cmd = JSON.parse(data as string) as ClientCommand;
         void handleCommand(cmd, ws);
@@ -1537,6 +1883,7 @@ const server = Bun.serve({
     },
     close(ws) {
       browsers.delete(ws);
+      unregisterSocket(ws.data.session.sessionIdHash, ws);
       // Drop any per-WS editor watchers on disconnect.
       const map = editorWatchers.get(ws);
       if (map) {
@@ -1546,6 +1893,83 @@ const server = Bun.serve({
     },
   },
 });
+
+// ISOMUX_PUBLIC_ORIGIN is the canonical public URL the server expects browsers
+// to hit. We compare it against the Origin header on WS upgrades and unsafe
+// HTTP requests, and bake it into invite URLs. When it's unset, we fall back
+// to http://localhost:${PORT}. That's fine for pure-local dev, but a public
+// or tailnet deployment that forgets to set it ships invite URLs pointing at
+// localhost and refuses remote WS upgrades — silent footgun. Warn loudly so
+// the operator notices before users start hitting confusing failures.
+if (!process.env.ISOMUX_PUBLIC_ORIGIN) {
+  console.warn("");
+  console.warn(
+    "[auth] WARNING: ISOMUX_PUBLIC_ORIGIN is unset; using http://localhost:" +
+      PORT +
+      " for cookie/origin checks and invite URLs.",
+  );
+  console.warn(
+    "       For any non-localhost deployment, set this to the public URL the",
+  );
+  console.warn(
+    "       browser uses to reach the server (e.g. https://office.example.com).",
+  );
+  console.warn("");
+}
+
+// Bootstrap invite. If no owner exists in users.json we print an owner-tagged
+// invite URL once (or reuse an existing unconsumed one); the owner clicks it,
+// chooses a display name, and lands in the office. The CLI flag
+// --regenerate-bootstrap invalidates a prior unconsumed bootstrap invite and
+// mints a fresh one, for the case where the owner lost the original URL.
+const REGENERATE_BOOTSTRAP = process.argv.includes("--regenerate-bootstrap");
+
+void (async () => {
+  try {
+    const minted = await ensureBootstrapInvite({
+      regenerate: REGENERATE_BOOTSTRAP,
+    });
+    if (minted) {
+      const { origin } = buildPublicOrigin();
+      const url = `${origin}/i/${minted.rawToken}`;
+      const expiresIn = Math.round((minted.expiresAt - Date.now()) / 3600_000);
+      console.log("");
+      console.log(
+        "================================================================",
+      );
+      console.log(
+        "  Isomux: no owner exists yet. Bootstrap invite (one-time):",
+      );
+      console.log("  " + url);
+      console.log(
+        `  Valid for ~${expiresIn}h. Open this URL in your browser to`,
+      );
+      console.log(
+        "  claim ownership. This URL is printed once; if you lose it,",
+      );
+      console.log("  restart the server with --regenerate-bootstrap.");
+      console.log(
+        "================================================================",
+      );
+      console.log("");
+    } else if (hasUnconsumedBootstrapInvite()) {
+      console.log(
+        "Isomux: an unconsumed bootstrap invite already exists, but the raw URL " +
+          "is only printed once. Run with --regenerate-bootstrap to mint a fresh one.",
+      );
+    }
+  } catch (err) {
+    // Bootstrap mint failed (disk write error, etc.). Log loudly; server
+    // keeps running so the operator can fix permissions/disk and retry
+    // with --regenerate-bootstrap. Crashing here would mask the cause.
+    console.error(
+      "[auth] failed to mint bootstrap invite; the server is up but " +
+        "no one can sign in. Resolve the disk/permissions issue and " +
+        "restart with --regenerate-bootstrap:",
+      err,
+    );
+  }
+})();
 
 // Start update checker
 onUpdateChange((status) => {

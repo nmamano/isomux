@@ -13,6 +13,7 @@ import {
   dialogSaveBtn,
   dialogHint,
 } from "./dialog-styles.ts";
+import { AccessPane } from "./AccessPane.tsx";
 
 type ValidationStatus =
   | { kind: "idle" }
@@ -34,7 +35,8 @@ export function UserManagementModal({
   onSwitchUser: (name: string | null) => void;
   onClose?: () => void;
 }) {
-  const { users, rooms, isMobile } = useAppState();
+  const { users, rooms, isMobile, sessionContext } = useAppState();
+  const isOwner = sessionContext?.role === "owner";
   const userList = useMemo(
     () => [...users.values()].sort((a, b) => a.name.localeCompare(b.name)),
     [users],
@@ -196,7 +198,7 @@ export function UserManagementModal({
                           {summarizeUser(u, rooms)}
                         </div>
                       </div>
-                      {!isMe && (
+                      {!isMe && !sessionContext && (
                         <button
                           onClick={() => handleSwitchTo(u)}
                           style={smallBtnStyle}
@@ -250,38 +252,70 @@ export function UserManagementModal({
           </>
         )}
 
-        <div style={labelStyle}>Create New User</div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <input
-            autoFocus={forceCreate || userList.length === 0}
-            value={creatingName}
-            onChange={(e) => {
-              setCreatingName(e.target.value.slice(0, 32));
-              setCreatingError(null);
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") handleCreate();
-            }}
-            maxLength={32}
-            placeholder="Your name"
-            style={{ ...inputStyle, flex: 1 }}
-          />
-          <button
-            onClick={handleCreate}
-            disabled={!creatingName.trim()}
-            style={{
-              ...saveBtnStyle,
-              opacity: creatingName.trim() ? 1 : 0.5,
-              cursor: creatingName.trim() ? "pointer" : "default",
-            }}
-          >
-            Create
-          </button>
-        </div>
-        {creatingError && (
-          <p style={{ fontSize: 10, color: "#ff6b6b", margin: "6px 0 0" }}>
-            {creatingError}
-          </p>
+        {!sessionContext && (
+          <>
+            <div style={labelStyle}>Create New User</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                autoFocus={forceCreate || userList.length === 0}
+                value={creatingName}
+                onChange={(e) => {
+                  setCreatingName(e.target.value.slice(0, 32));
+                  setCreatingError(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") handleCreate();
+                }}
+                maxLength={32}
+                placeholder="Your name"
+                style={{ ...inputStyle, flex: 1 }}
+              />
+              <button
+                onClick={handleCreate}
+                disabled={!creatingName.trim()}
+                style={{
+                  ...saveBtnStyle,
+                  opacity: creatingName.trim() ? 1 : 0.5,
+                  cursor: creatingName.trim() ? "pointer" : "default",
+                }}
+              >
+                Create
+              </button>
+            </div>
+            {creatingError && (
+              <p style={{ fontSize: 10, color: "#ff6b6b", margin: "6px 0 0" }}>
+                {creatingError}
+              </p>
+            )}
+          </>
+        )}
+
+        {isOwner && <AccessPane />}
+
+        {sessionContext && (
+          <div style={{ marginTop: 24 }}>
+            <button
+              onClick={() => {
+                send({ type: "logout" });
+                // The WS will close after the server-side revoke; the page
+                // reload triggered by session_expired will land us on the
+                // login wall.
+              }}
+              style={{
+                padding: "8px 14px",
+                borderRadius: 6,
+                border: "1px solid #ff6b6b",
+                background: "transparent",
+                color: "#ff6b6b",
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+              title="End this device's session"
+            >
+              Sign out
+            </button>
+          </div>
         )}
 
         {dismissable && (

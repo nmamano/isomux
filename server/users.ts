@@ -4,7 +4,11 @@
 import { join } from "path";
 import { homedir } from "os";
 import { existsSync, readFileSync } from "fs";
-import type { UserRecord, NotifRoomsSetting } from "../shared/types.ts";
+import type {
+  UserRecord,
+  UserRole,
+  NotifRoomsSetting,
+} from "../shared/types.ts";
 import { lowercaseKey } from "../shared/identity.ts";
 import { atomicWriteFileSync } from "./persistence.ts";
 
@@ -12,6 +16,10 @@ const USERS_FILE = join(homedir(), ".isomux", "users.json");
 
 let users: Record<string, UserRecord> = {};
 let loaded = false;
+
+function normalizeRole(value: unknown): UserRole {
+  return value === "owner" ? "owner" : "member";
+}
 
 function load(): Record<string, UserRecord> {
   if (loaded) return users;
@@ -40,6 +48,7 @@ function load(): Record<string, UserRecord> {
             : null,
         createdAt:
           typeof value.createdAt === "number" ? value.createdAt : Date.now(),
+        role: normalizeRole(value.role),
       };
     }
     users = result;
@@ -57,12 +66,12 @@ function normalizeNotifRooms(value: unknown): NotifRoomsSetting {
   return "all";
 }
 
+// users.json is now auth state: roles ride here, and acceptInvite calls
+// claimUser/setUserRole before persisting the session. A swallowed write
+// failure would let us issue a session for an in-memory owner whose role
+// vanishes on restart. Persist must throw so callers can roll back.
 function persist() {
-  try {
-    atomicWriteFileSync(USERS_FILE, JSON.stringify(users, null, 2));
-  } catch (err) {
-    console.error("Failed to save users.json:", err);
-  }
+  atomicWriteFileSync(USERS_FILE, JSON.stringify(users, null, 2));
 }
 
 export function listUsers(): UserRecord[] {
@@ -81,10 +90,15 @@ export function getUserEnvFile(name: string): string | null {
 
 // Idempotent: if the record already exists, returns it untouched. Otherwise
 // creates a fresh record with the supplied initial values (used for the
-// localStorage-to-server claim path).
+// localStorage-to-server claim path and for invite acceptance). New records
+// default to role "member"; pass role: "owner" only from the bootstrap flow.
 export function claimUser(
   name: string,
-  initial?: { defaultRoomId?: string | null; notifRooms?: NotifRoomsSetting },
+  initial?: {
+    defaultRoomId?: string | null;
+    notifRooms?: NotifRoomsSetting;
+    role?: UserRole;
+  },
 ): UserRecord {
   load();
   const key = lowercaseKey(name);
@@ -95,10 +109,44 @@ export function claimUser(
     notifRooms: initial?.notifRooms ?? "all",
     envFile: null,
     createdAt: Date.now(),
+    role: initial?.role === "owner" ? "owner" : "member",
   };
   users[key] = record;
-  persist();
+  try {
+    persist();
+  } catch (err) {
+    delete users[key];
+    throw err;
+  }
   return record;
+}
+
+// True if any user has role "owner". Used by the bootstrap-on-empty-state
+// path to decide whether to mint a bootstrap invite on server start.
+export function hasOwner(): boolean {
+  load();
+  for (const u of Object.values(users)) if (u.role === "owner") return true;
+  return false;
+}
+
+// Set role on an existing user. No-op (returns false) if the user doesn't
+// exist. Used by the CLI/admin role-change path and the bootstrap invite
+// promotion path; throws (after rolling back in-memory state) if the write
+// to disk fails.
+export function setUserRole(name: string, role: UserRole): boolean {
+  load();
+  const key = lowercaseKey(name);
+  const existing = users[key];
+  if (!existing) return false;
+  if (existing.role === role) return true;
+  users[key] = { ...existing, role };
+  try {
+    persist();
+  } catch (err) {
+    users[key] = existing;
+    throw err;
+  }
+  return true;
 }
 
 // Delete a user record. No-op if the user doesn't exist (idempotent).
@@ -109,9 +157,15 @@ export function claimUser(
 export function deleteUser(name: string): boolean {
   load();
   const key = lowercaseKey(name);
-  if (!users[key]) return false;
+  const existing = users[key];
+  if (!existing) return false;
   delete users[key];
-  persist();
+  try {
+    persist();
+  } catch (err) {
+    users[key] = existing;
+    throw err;
+  }
   return true;
 }
 
@@ -162,12 +216,24 @@ export function updateUser(
           : null
         : existing.envFile,
     createdAt: existing.createdAt,
+    // role is not in the editable-via-update_user surface — it's set by
+    // setUserRole (CLI/admin path) or by claimUser on creation. Preserve
+    // existing role here so updating preferences doesn't silently
+    // downgrade an owner to member.
+    role: existing.role,
   };
 
   if (nextKey !== key) {
     delete users[key];
   }
   users[nextKey] = next;
-  persist();
+  try {
+    persist();
+  } catch (err) {
+    // Roll the rename back so memory matches disk.
+    delete users[nextKey];
+    users[key] = existing;
+    throw err;
+  }
   return { ok: true, user: next };
 }
