@@ -21,6 +21,7 @@ Free · open source · no cloud · no account
 - Visual office metaphor: see what every agent is doing at a glance
   - **Animated characters**: sleeping when idle, typing when working, waving when waiting for you
   - [**Skeuomorphic touches**](https://x.com/Nil053/status/2039027360117506399): click the moon to toggle dark mode, click doors to switch rooms, etc.
+  - [**6 color themes**](https://x.com/Nil053/status/2054709610519638506)
   - **Auto-generated topic** below each nametag, so you remember what each agent is working on
 - [**Mobile UI**](https://x.com/Nil053/status/2039996579965542516): continue conversations on your phone with a touch-optimized UI
 - Agents can [**check on each other**](https://x.com/Nil053/status/2039494626265149778) and [**message each other**](https://x.com/Nil053/status/2053179885108232328): all messages (human and agent) get queued while agents are busy.
@@ -86,7 +87,7 @@ For persistent server setup (systemd + Tailscale) and voice input configuration,
 - Status light with **escalating warnings**: amber at 2 min, red at 5 min
 - Auto-generated **conversation topic** below nametag
 - **Drag agents between desks** to rearrange
-- Light / dark theme toggle
+- **Color themes**: Dark, Light, Nord, Dracula, Solarized Dark/Light. Click the moon through the window to switch between dark and light
 
 ### Agent Creation & Editing
 
