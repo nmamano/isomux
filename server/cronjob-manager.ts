@@ -62,7 +62,8 @@ import {
 // (not agent-manager) to keep cron decoupled from the orchestrator — the
 // `cronjob-manager → agent-manager → command-handlers → cronjob-manager`
 // cycle is what env-loader exists to break.
-import { buildEnvFor } from "./env-loader.ts";
+import { buildEnvForUserId } from "./env-loader.ts";
+import { getUserByName } from "./users.ts";
 import {
   loadCronjobs,
   saveCronjobs,
@@ -252,7 +253,11 @@ export interface AddCronjobInput {
   effort: Cronjob["effort"];
   permissionMode: CronjobPermissionMode;
   codexSandbox?: CodexSandboxMode;
+  // Display snapshot of the owning user's name at creation time.
   username: string;
+  // Stable identity reference for per-user env at fire time. Optional
+  // for legacy/unowned cronjobs; new caller paths pass session.userId.
+  userId?: string | null;
 }
 
 export function addCronjob(input: AddCronjobInput): Cronjob {
@@ -282,6 +287,9 @@ export function addCronjob(input: AddCronjobInput): Cronjob {
     ...(codexSandbox ? { codexSandbox } : {}),
     enabled: true,
     createdBy: input.username,
+    userId:
+      input.userId ??
+      (input.username ? (getUserByName(input.username)?.id ?? null) : null),
     username: input.username,
     createdAt: now,
     lastFireAt: null,
@@ -806,7 +814,7 @@ function fire(
   // process.env when no env file is configured for the cronjob owner.
   let env: { [key: string]: string | undefined } | undefined;
   try {
-    env = buildEnvFor(job.username ?? undefined);
+    env = buildEnvForUserId(job.userId ?? null);
   } catch (err) {
     const updated = updateRun(jobId, runId, {
       status: "failed",
@@ -1011,7 +1019,7 @@ function buildRunSessionOptions(
   rollRunSessionUsageOnResume(run.cronjobId, run.id, resumeSessionId);
   const job = cronjobs.find((c) => c.id === run.cronjobId);
   const systemPrompt = job ? buildCronjobSystemPrompt(job) : "";
-  const env = buildEnvFor(job?.username ?? undefined);
+  const env = buildEnvForUserId(job?.userId ?? null);
   return {
     agentId: cronjobRunStreamId(run.id),
     cwd: run.cwdSnapshot,
@@ -1186,7 +1194,7 @@ function checkResumableSession(run: CronjobRun, leaf: string): string | null {
   const job = cronjobs.find((c) => c.id === run.cronjobId);
   let env: { [key: string]: string | undefined } | undefined;
   try {
-    env = buildEnvFor(job?.username ?? undefined);
+    env = buildEnvForUserId(job?.userId ?? null);
   } catch (err) {
     return `Cannot build env: ${errMessage(err)}`;
   }
@@ -1494,6 +1502,30 @@ export function startCronjobScheduler() {
   // Load configs and cronjobsPrompt (with one-shot migration from the legacy
   // location in office-config.json — see migrateCronjobsPromptFromOfficeConfig).
   cronjobs = loadCronjobs();
+  // userid migration: legacy cronjobs had only a `username` snapshot for
+  // identity. Resolve to the stable user.id so env selection from now on
+  // goes through buildEnvForUserId(job.userId), unaffected by renames.
+  let cronjobsMigrated = 0;
+  for (const job of cronjobs) {
+    if (typeof job.userId === "string" && job.userId) continue;
+    if (job.username) {
+      const owner = getUserByName(job.username);
+      job.userId = owner?.id ?? null;
+      if (!owner) {
+        console.log(
+          `[migration] cronjob "${job.name}" (username="${job.username}") has no matching user record; runs unowned`,
+        );
+      }
+    } else {
+      job.userId = null;
+    }
+    cronjobsMigrated++;
+  }
+  if (cronjobsMigrated > 0) {
+    // Persist the upgraded shape so next boot doesn't re-run the
+    // migration on every record.
+    saveCronjobs(cronjobs);
+  }
   migrateCronjobsPromptFromOfficeConfig();
   cronjobsPrompt = loadCronjobsPrompt();
 

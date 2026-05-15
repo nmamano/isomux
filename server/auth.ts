@@ -18,7 +18,13 @@ import type {
   SessionContext,
 } from "../shared/types.ts";
 import { atomicWriteFileSync } from "./persistence.ts";
-import { claimUser, hasOwner, getUser, setUserRole } from "./users.ts";
+import {
+  claimUser,
+  getUserById,
+  getUserByName,
+  hasOwner,
+  setUserRoleById,
+} from "./users.ts";
 
 // ---------------------------------------------------------------------------
 // File layout
@@ -46,7 +52,12 @@ interface StoredInvite {
 interface StoredSession {
   sessionIdHash: string; // sha256(rawSessionId) hex
   sessionPrefix: string; // first 8 chars of the raw base64url id, kept clear for UI
-  username: string;
+  // Stable user identity. `userId` is authoritative for who owns the
+  // session; the display name is resolved from the user record at
+  // validation time, so a rename flows through to all in-flight sessions
+  // automatically. Legacy on-disk sessions carry `username` instead; the
+  // loader resolves them to userId via getUserByName.
+  userId: string;
   createdAt: number;
   lastSeenAt: number;
   expiresAt: number;
@@ -92,16 +103,71 @@ function loadInvitesFromDisk(): Map<string, StoredInvite> {
   return map;
 }
 
+// True once loadSessionsFromDisk has migrated at least one session out of
+// the legacy `username` schema. ensureLoaded() observes this and forces a
+// persist on the first call so the upgraded shape sticks on disk; without
+// it the migration logic would run every boot (idempotent but noisy in
+// logs and disk-traffic on busy servers).
+let sessionsNeedsPersist = false;
+
 function loadSessionsFromDisk(): Map<string, StoredSession> {
   const map = new Map<string, StoredSession>();
   try {
     if (!existsSync(SESSIONS_FILE)) return map;
     const raw = readFileSync(SESSIONS_FILE, "utf-8");
     if (!raw.trim()) return map;
-    const parsed = JSON.parse(raw) as Record<string, StoredSession>;
+    // Legacy sessions carried `username` as the identity field; new
+    // sessions carry `userId`. The loader migrates the legacy shape by
+    // resolving username → user.id via getUserByName, and evicts any
+    // session whose username no longer matches a known user.
+    type AnySession = Partial<StoredSession> & {
+      username?: string;
+    };
+    const parsed = JSON.parse(raw) as Record<string, AnySession>;
+    let migrated = 0;
+    let evicted = 0;
     for (const [k, v] of Object.entries(parsed)) {
       if (!v || typeof v.sessionIdHash !== "string") continue;
-      map.set(k, v);
+      if (typeof v.userId === "string" && v.userId) {
+        // Already in new shape. Strip any stale username field defensively.
+        map.set(k, {
+          sessionIdHash: v.sessionIdHash,
+          sessionPrefix: v.sessionPrefix ?? "",
+          userId: v.userId,
+          createdAt: v.createdAt ?? Date.now(),
+          lastSeenAt: v.lastSeenAt ?? Date.now(),
+          expiresAt: v.expiresAt ?? 0,
+          absoluteExpiresAt: v.absoluteExpiresAt ?? 0,
+          userAgent: v.userAgent ?? null,
+        });
+        continue;
+      }
+      if (typeof v.username !== "string") continue;
+      const owner = getUserByName(v.username);
+      if (!owner) {
+        evicted++;
+        console.log(
+          `[migration] evicting session ${v.sessionPrefix ?? "?"}… (username="${v.username}" no longer maps to a user record)`,
+        );
+        continue;
+      }
+      map.set(k, {
+        sessionIdHash: v.sessionIdHash,
+        sessionPrefix: v.sessionPrefix ?? "",
+        userId: owner.id,
+        createdAt: v.createdAt ?? Date.now(),
+        lastSeenAt: v.lastSeenAt ?? Date.now(),
+        expiresAt: v.expiresAt ?? 0,
+        absoluteExpiresAt: v.absoluteExpiresAt ?? 0,
+        userAgent: v.userAgent ?? null,
+      });
+      migrated++;
+    }
+    if (migrated || evicted) {
+      console.log(
+        `[migration] sessions: migrated ${migrated} to userId, evicted ${evicted} orphans`,
+      );
+      sessionsNeedsPersist = true;
     }
   } catch (err) {
     console.error("Failed to load sessions.json:", err);
@@ -130,7 +196,20 @@ function persistSessions() {
 
 function ensureLoaded() {
   if (invites === null) invites = loadInvitesFromDisk();
-  if (sessions === null) sessions = loadSessionsFromDisk();
+  if (sessions === null) {
+    sessions = loadSessionsFromDisk();
+    // If the loader migrated any sessions out of the legacy `username`
+    // schema, force a persist now so disk picks up the upgraded shape
+    // and the next boot doesn't re-run the same migration.
+    if (sessionsNeedsPersist) {
+      sessionsNeedsPersist = false;
+      try {
+        persistSessions();
+      } catch (err) {
+        console.error("[migration] post-load sessions persist failed:", err);
+      }
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -308,7 +387,7 @@ export async function mintInvite(
         };
       if (opts.role !== "owner" && opts.role !== "member")
         return { ok: false, error: "Invalid role", code: "INVALID_ROLE" };
-      const existing = getUser(trimmedName);
+      const existing = getUserByName(trimmedName);
       if (existing && !opts.allowExisting)
         return {
           ok: false,
@@ -435,7 +514,7 @@ export async function acceptInvite(
         return { ok: false, error: "invalid_name" };
       chosenName = raw;
     } else {
-      const existing = getUser(invite.username);
+      const existing = getUserByName(invite.username);
       if (existing && existing.role !== invite.role)
         return { ok: false, error: "role_mismatch" };
     }
@@ -447,19 +526,21 @@ export async function acceptInvite(
     // recovery / pre-auth-migration path. If no owner exists and a
     // bootstrap invite is being accepted, promote the chosen user (creating
     // them if needed, or promoting an existing pre-auth member record).
-    let userRecord = getUser(chosenName);
+    let userRecord = getUserByName(chosenName);
     if (invite.bootstrap) {
       if (!userRecord) {
         userRecord = claimUser(chosenName, { role: "owner" });
       } else if (userRecord.role !== "owner") {
-        setUserRole(userRecord.name, "owner");
-        userRecord = getUser(userRecord.name)!;
+        setUserRoleById(userRecord.id, "owner");
+        userRecord = getUserById(userRecord.id)!;
       }
     } else if (!userRecord) {
       userRecord = claimUser(chosenName, { role: invite.role });
     }
 
-    // Create the session.
+    // Create the session. Identity is the stable user.id; the username
+    // field on the wire is derived at validate time from the live user
+    // record, so a later rename flows through automatically.
     const { raw: rawSessionId, hash: sessionHash, prefix } = randomToken();
     const now = Date.now();
     const rollingTtlMs = 30 * 24 * 60 * 60 * 1000;
@@ -467,7 +548,7 @@ export async function acceptInvite(
     const session: StoredSession = {
       sessionIdHash: sessionHash,
       sessionPrefix: prefix,
-      username: userRecord.name,
+      userId: userRecord.id,
       createdAt: now,
       lastSeenAt: now,
       expiresAt: now + rollingTtlMs,
@@ -615,6 +696,13 @@ export async function logoutBySessionHash(
 
 export interface SessionLookup {
   sessionIdHash: string;
+  // Stable identity. Use this for env selection, agent ownership, and any
+  // server-side authority check.
+  userId: string;
+  // Current display name, resolved from the user record at validation
+  // time so a rename propagates without reconnect. Use for message
+  // attribution, log stamping, and UI labels — anything where the value
+  // is observed at the moment of the action.
   username: string;
   role: UserRole;
   needsRolling: boolean; // caller should persist a refreshed lastSeenAt+expiresAt
@@ -654,7 +742,10 @@ function validateByHash(hash: string): SessionLookup | null {
     forceCloseSocketsForSession(hash);
     return null;
   }
-  const user = getUser(session.username);
+  // Resolve user by stable id. A delete-user evicts the session here;
+  // a rename flows the new display name through without disrupting the
+  // session at all.
+  const user = getUserById(session.userId);
   if (!user) {
     // User record was removed; the session is orphaned and unsafe to honor.
     sessions!.delete(hash);
@@ -683,6 +774,7 @@ function validateByHash(hash: string): SessionLookup | null {
   }
   return {
     sessionIdHash: hash,
+    userId: user.id,
     username: user.name,
     role: user.role,
     needsRolling,
@@ -705,9 +797,14 @@ function toInviteWire(v: StoredInvite): InviteWire {
 }
 
 function toSessionWire(v: StoredSession): SessionWire {
+  // Display name is derived from the user record at wire-formatting time.
+  // If the user has been deleted, fall back to "(deleted)" so the row
+  // still renders before the orphan-session sweeper evicts it on the
+  // next request.
+  const user = getUserById(v.userId);
   return {
     sessionPrefix: v.sessionPrefix,
-    username: v.username,
+    username: user?.name ?? "(deleted)",
     createdAt: v.createdAt,
     lastSeenAt: v.lastSeenAt,
     expiresAt: v.expiresAt,
@@ -742,7 +839,11 @@ export function listActiveSessions(): SessionWire[] {
 }
 
 export function sessionContextFor(lookup: SessionLookup): SessionContext {
-  return { username: lookup.username, role: lookup.role };
+  return {
+    userId: lookup.userId,
+    username: lookup.username,
+    role: lookup.role,
+  };
 }
 
 // ---------------------------------------------------------------------------

@@ -106,10 +106,33 @@ import {
 } from "./backends/codex/version-check.ts";
 import type { BackendSession, NormalizedEvent } from "./backends/types.ts";
 import { OfficeState } from "../shared/office-state.ts";
-import { buildEnvFor, setOfficeEnvFileProvider } from "./env-loader.ts";
+import {
+  buildEnvFor,
+  buildEnvForUserId,
+  setOfficeEnvFileProvider,
+} from "./env-loader.ts";
+import { getUserByName } from "./users.ts";
 // Re-export so existing callers (`AgentManager.buildEnvFor` in server/index.ts)
 // keep working without rewiring imports across the file.
-export { buildEnvFor };
+export { buildEnvFor, buildEnvForUserId };
+
+// Resolve the stable userId for a persisted agent. New agents carry both
+// userId and username at spawn time; legacy records had only username,
+// so we look up the user by name on load and bake the id in. If no user
+// matches the snapshot (deleted, renamed, etc.), the agent runs unowned
+// (env selection returns no per-user env).
+function resolveAgentUserId(p: PersistedAgent): string | null {
+  if (typeof p.userId === "string" && p.userId) return p.userId;
+  if (!p.username) return null;
+  const owner = getUserByName(p.username);
+  if (!owner) {
+    console.log(
+      `[migration] agent "${p.name}" (username="${p.username}") has no matching user record; running unowned`,
+    );
+    return null;
+  }
+  return owner.id;
+}
 
 const LOGIN_INSTRUCTIONS = `To authenticate:
 1. Open the built-in terminal
@@ -429,15 +452,13 @@ export async function editAgent(
       // (default ~/.claude/projects/...); moving cwd means the .jsonl files
       // need to follow, otherwise resume can't find them. Pass the agent's
       // current env so the move targets the same config dir the spawn uses.
-      // NOTE: if username ever becomes editable in the same edit as cwd, this
-      // move must run with the OLD username's env (before the username
-      // mutation commits) — otherwise files would be moved into a different
-      // user's config dir.
+      // Username can be renamed without affecting env (we look up by
+      // userId), so this is robust to in-flight renames.
       moveClaudeSessionFiles(
         agentId,
         managed.info.cwd,
         validated.cwd,
-        buildEnvFor(managed.info.username ?? undefined),
+        buildEnvForUserId(managed.info.userId),
       );
     } else {
       // Codex stores per-cwd rollouts in ~/.codex/; the existing thread is
@@ -606,6 +627,7 @@ function persistAll() {
         lastSessionId: a.sessionId,
         topic: a.info.topic,
         customInstructions: a.info.customInstructions,
+        userId: a.info.userId,
         username: a.info.username,
       });
     }
@@ -653,6 +675,12 @@ export async function restoreAgents() {
   for (let roomIdx = 0; roomIdx < loaded.length; roomIdx++) {
     for (const p of loaded[roomIdx].agents) {
       const agentType = p.agentType ?? "claude";
+      // Resolve the stable userId once for this agent and reuse for the
+      // env-restore check below + the AgentInfo construction further
+      // down. Legacy agents with only a `username` snapshot get migrated
+      // here; the `persistAll()` at the bottom of restoreAgents bakes
+      // the new shape onto disk.
+      const userId = resolveAgentUserId(p);
       // Run persisted values through the same validators as spawn/edit so
       // stored data is canonicalized at load time. Notably: codex 0.130
       // deprecated "on-failure" (warns on use) — validatePermissionMode
@@ -680,7 +708,7 @@ export async function restoreAgents() {
       if (p.lastSessionId) {
         if (agentType === "codex") {
           try {
-            const restoreEnv = buildEnvFor(p.username ?? undefined);
+            const restoreEnv = buildEnvForUserId(userId);
             if (codexRolloutHasHistory(p.lastSessionId, restoreEnv)) {
               resumeSessionId = p.lastSessionId;
             }
@@ -710,6 +738,11 @@ export async function restoreAgents() {
         agentType,
         ...(codexSandbox ? { codexSandbox } : {}),
         capabilities: getBackend(agentType).capabilities,
+        // Resolved at the top of the per-agent loop. Stable across
+        // username rename; env selection from now on goes through
+        // buildEnvForUserId(info.userId), so renames don't break
+        // ownership.
+        userId,
         username: p.username ?? null,
         queue: [],
         sessionSwapping: false,
@@ -1748,7 +1781,7 @@ async function replaceSession(
 function buildSessionEnv(
   managed: ManagedAgent,
 ): { [key: string]: string | undefined } | undefined {
-  return buildEnvFor(managed.info.username ?? undefined);
+  return buildEnvForUserId(managed.info.userId);
 }
 
 // Error-path env build for diagnostic hints. Resume preflights deliberately
@@ -1918,6 +1951,11 @@ export async function spawn(
   username?: string,
   agentType: AgentInfo["agentType"] = "claude",
   codexSandbox?: AgentInfo["codexSandbox"],
+  // Stable identity reference for the spawning user. Drives buildEnvForUserId
+  // at every subsequent createSession/resumeSession. Optional for legacy
+  // call sites; resolved from `username` if null and the snapshot still
+  // matches a known user.
+  userId?: string | null,
 ): Promise<AgentInfo | null> {
   // Reject Codex spawn if the version check signalled the CLI is missing.
   // Other check outcomes (ok / mismatch / unknown) still allow spawn — codex
@@ -1974,6 +2012,11 @@ export async function spawn(
       effort: validatedEffort,
       agentType,
       codexSandbox: validatedCodexSandbox,
+      // Prefer the supplied userId. For legacy callers that only pass
+      // username, resolve via getUserByName so the spawned agent gets a
+      // stable userId even if the caller hasn't been migrated.
+      userId:
+        userId ?? (username ? (getUserByName(username)?.id ?? null) : null),
       username,
       capabilities: getBackend(agentType).capabilities,
     });

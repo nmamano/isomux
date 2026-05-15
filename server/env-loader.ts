@@ -14,7 +14,7 @@
 // caller is responsible for surfacing the error to the agent/run log.
 
 import { readEnvFile } from "./persistence.ts";
-import { getUserEnvFile } from "./users.ts";
+import { getUserByName, getUserEnvFileById } from "./users.ts";
 
 // Provider lookup for the current office env file path. agent-manager sets
 // this once at module init from its `officeState.office.envFile` so we can
@@ -29,11 +29,16 @@ export function setOfficeEnvFileProvider(fn: () => string | null): void {
   getOfficeEnvFile = fn;
 }
 
-export function buildEnvFor(
-  username?: string,
+// Build the spawn-time env merge for a given user identity. `userId` is
+// the stable user record id; pass null for an unowned context (agents
+// with no spawning user, cronjobs not bound to a user). Returns
+// `undefined` when no office and no user env file are configured — the
+// SDK then inherits process.env as-is.
+export function buildEnvForUserId(
+  userId: string | null | undefined,
 ): { [key: string]: string | undefined } | undefined {
   const officeEnvFile = getOfficeEnvFile();
-  const userEnvFile = username ? getUserEnvFile(username) : null;
+  const userEnvFile = userId ? getUserEnvFileById(userId) : null;
   if (!officeEnvFile && !userEnvFile) return undefined;
 
   const merged: { [key: string]: string | undefined } = { ...process.env };
@@ -46,4 +51,16 @@ export function buildEnvFor(
     Object.assign(merged, userEnv);
   }
   return merged;
+}
+
+// Compatibility wrapper. New code should use `buildEnvForUserId(userId)`
+// directly. This resolves a username string (display name) to a userId
+// via case-insensitive lookup so legacy call sites that only carry a
+// username snapshot keep working. After a rename, the snapshot may no
+// longer match — those call sites should be migrated to carry userId.
+export function buildEnvFor(
+  username?: string,
+): { [key: string]: string | undefined } | undefined {
+  const userId = username ? (getUserByName(username)?.id ?? null) : null;
+  return buildEnvForUserId(userId);
 }

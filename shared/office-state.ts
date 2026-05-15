@@ -156,6 +156,12 @@ export class OfficeState {
     effort?: AgentInfo["effort"];
     agentType?: AgentInfo["agentType"];
     codexSandbox?: AgentInfo["codexSandbox"];
+    // Stable identity reference for the spawning user. Drives per-user
+    // env at session creation. Null for unowned spawns (legacy paths).
+    userId?: string | null;
+    // Display snapshot of the spawning user's name. Persisted alongside
+    // userId so the UI can label the agent without an extra lookup. Goes
+    // stale across renames; behavior reads should go through userId.
     username?: string | null;
     capabilities?: AgentInfo["capabilities"];
   }): { agent: AgentInfo; events: OfficeEvent[] } | null {
@@ -207,6 +213,7 @@ export class OfficeState {
       agentType: opts.agentType ?? "claude",
       capabilities: opts.capabilities ?? DEFAULT_AGENT_CAPABILITIES,
       ...(opts.codexSandbox ? { codexSandbox: opts.codexSandbox } : {}),
+      userId: opts.userId ?? null,
       username: opts.username ?? null,
       queue: [],
       sessionSwapping: false,

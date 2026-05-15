@@ -233,9 +233,13 @@ export interface AgentInfo {
   // (sandbox + approval-policy) while Claude has one. Undefined for Claude
   // agents.
   codexSandbox?: CodexSandboxMode;
-  // The user who spawned this agent. Per-user env (git/gh credentials) is
-  // resolved through this field at session creation time. null only for
-  // legacy unowned agents migrated from before the user/device split.
+  // The user who spawned this agent. `userId` is the stable identity
+  // reference used for per-user env lookup (drives buildEnvFor at spawn /
+  // resume / cronjob-fire time). `username` is a display snapshot taken at
+  // spawn; it can go stale across renames but isn't authoritative for any
+  // behavior. Both are null on legacy unowned agents that pre-date the
+  // user/device split.
+  userId: string | null;
   username: string | null;
   // In-memory only; never persisted. Empty after server restart.
   queue: QueuedMessage[];
@@ -372,6 +376,10 @@ export function generateCronjobRunId(existing?: string[]): string {
   return generateHexId(existing);
 }
 
+export function generateUserId(existing?: string[]): string {
+  return generateHexId(existing);
+}
+
 // ---------------------------------------------------------------------------
 // Cronjobs
 // ---------------------------------------------------------------------------
@@ -422,6 +430,11 @@ export interface Cronjob {
   codexSandbox?: CodexSandboxMode; // Codex only; undefined → backend default
   enabled: boolean;
   createdBy: string; // Actor that created the record (agent name or user name)
+  // Identity reference used for per-user env at fire time. `username` is a
+  // display snapshot that can go stale across renames; `userId` is the
+  // stable handle for env / ownership lookups. Both null for legacy
+  // unowned cronjobs.
+  userId: string | null;
   username: string | null; // Human boss this record is on behalf of
   createdAt: number;
   lastFireAt: number | null;
@@ -531,14 +544,17 @@ export interface RoomWire {
   prompt: string | null;
 }
 
-// Per-user record stored server-side in ~/.isomux/users.json. Keyed in the
-// file by lowercase(name); display case is whatever the user supplied.
+// Per-user record stored server-side in ~/.isomux/users.json. Keyed by
+// `id` (stable hex) since the V2 identity-id migration; display name lives
+// in the `name` field and can be renamed without breaking sessions/agents/
+// cronjobs that reference the user via id.
 export type NotifRoomsSetting = "all" | string[];
 
 export type UserRole = "owner" | "member";
 
 export interface UserRecord {
-  name: string; // display case, e.g. "Nil"
+  id: string; // stable 8-char hex; the storage key in users.json
+  name: string; // display case, e.g. "Nil"; case-insensitively unique
   defaultRoomId: string | null;
   notifRooms: NotifRoomsSetting;
   envFile: string | null; // absolute path to dotenv file
@@ -548,7 +564,10 @@ export interface UserRecord {
 
 // Sent to the client over the WS at connect time so the UI knows whether to
 // render owner-only surfaces (Access pane, "Sign out" reachability, etc.).
+// Display name is derived from the user record at the moment of send, so a
+// rename propagates to the wire on the next session_context emission.
 export interface SessionContext {
+  userId: string;
   username: string;
   role: UserRole;
 }

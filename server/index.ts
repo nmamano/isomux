@@ -4,6 +4,7 @@ import type {
   ClientCommand,
   BackendModelWire,
 } from "../shared/types.ts";
+import { runPreUseridBackupIfNeeded } from "./migrations.ts";
 import * as AgentManager from "./agent-manager.ts";
 import { getBackend } from "./backends/index.ts";
 import * as CronjobManager from "./cronjob-manager.ts";
@@ -59,6 +60,13 @@ import {
   type SessionLookup,
 } from "./auth.ts";
 import { lowercaseKey } from "../shared/identity.ts";
+
+// Pre-userid backup must run before any user/session/agent/cronjob state
+// touches disk. The state modules above lazy-load (no top-level disk
+// reads), so this top-of-body call is in time — but it is fragile to
+// future eager-load refactors. Keep this near the top of the module body
+// and audit if any imported module starts loading eagerly.
+runPreUseridBackupIfNeeded();
 
 // Each WS carries the session it was authenticated with at upgrade time. The
 // session reference is used per-message (so revoke kicks in on the next msg)
@@ -239,6 +247,7 @@ async function dispatchCommand(
           session.username,
           cmd.agentType,
           cmd.codexSandbox,
+          session.userId,
         );
         if (cmd.requestId) {
           if (created) {
@@ -613,7 +622,7 @@ async function dispatchCommand(
       // it (matches what'll be used at spawn time).
       try {
         const backend = getBackend(cmd.agentType);
-        const env = AgentManager.buildEnvFor(session.username);
+        const env = AgentManager.buildEnvForUserId(session.userId);
         const models = await backend.listModels({
           // The codex subprocess's cwd must be a real directory or posix_spawn
           // fails with ENOENT before our error path can clean up — resolve `~`
@@ -835,6 +844,7 @@ async function dispatchCommand(
         permissionMode: cmd.permissionMode,
         codexSandbox: cmd.codexSandbox,
         username: session.username,
+        userId: session.userId,
       });
       if (cmd.requestId) {
         ws.send(

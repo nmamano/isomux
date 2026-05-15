@@ -392,8 +392,11 @@ export interface PersistedAgent {
   lastSessionId: string | null;
   topic: string | null;
   customInstructions: string | null;
-  // null on legacy agents migrated from before the user/device split. Newly
-  // spawned agents always carry the spawning user's name here.
+  // Identity reference for per-user env at spawn/resume time. `userId` is
+  // authoritative for env lookup (via buildEnvForUserId); `username` is a
+  // display snapshot kept for UI/wire compatibility and audit purposes.
+  // Both null on legacy unowned agents.
+  userId?: string | null;
   username?: string | null;
 }
 
@@ -494,6 +497,10 @@ export function loadAgents(): Room[] {
         agent.username = null;
         migratedAgents++;
       }
+      // userId resolution from the legacy username snapshot lives in
+      // agent-manager.ts (which can statically import users.ts without
+      // creating a cycle with persistence.ts). loadAgents() leaves the
+      // field unset; restoreAgents() in agent-manager fills it.
     }
   }
   if (migratedAgents > 0) {
