@@ -286,7 +286,11 @@ export interface MintErr {
     | "ROLE_MISMATCH";
 }
 
-const MAX_TTL_SECONDS = 90 * 24 * 60 * 60; // 90 days
+// Invite TTL is the acceptance window: the URL stops being redeemable
+// after this many seconds. Session lifetime (the cookie's rolling/absolute
+// expiry) is governed separately at acceptance time — see acceptInvite —
+// and is intentionally not coupled to invite TTL.
+const MAX_TTL_SECONDS = 365 * 24 * 60 * 60; // 1 year
 const MIN_TTL_SECONDS = 60; // 1 minute floor
 
 export async function mintInvite(

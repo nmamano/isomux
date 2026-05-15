@@ -245,16 +245,129 @@ export async function tryHandleAuthRoute(
 // up a renderer.
 
 function renderLoginPage(): string {
-  return baseHtml(
-    "Isomux — sign in",
-    `
-    <h1>Isomux</h1>
-    <p>This office requires an invite link.</p>
-    <p>If the owner sent you a URL, open it. Each invite link signs you in on the device that opens it.</p>
-    <p>If you don't have one, ask the office owner to issue one from the Access pane.</p>
-    `,
-  );
+  // Static-only, generic, no state references. The isometric backdrop is a
+  // CSS-only painted grid (no image asset, no SPA bundle) so an
+  // unauthenticated visitor still sees the office's visual identity
+  // without learning anything about the deployment.
+  const body = `
+    <div class="iso-floor" aria-hidden="true">
+      <div class="desk" style="--x:0;--y:0"></div>
+      <div class="desk" style="--x:2;--y:0"></div>
+      <div class="desk" style="--x:4;--y:0"></div>
+      <div class="desk" style="--x:0;--y:2"></div>
+      <div class="desk" style="--x:2;--y:2"></div>
+      <div class="desk" style="--x:4;--y:2"></div>
+    </div>
+    <main class="card">
+      <h1>Isomux</h1>
+      <p>This office requires an invite link.</p>
+      <p>If the owner sent you a URL, open it. Each invite link signs you in on the device that opens it.</p>
+      <p class="muted">If you don't have one, ask the office owner to issue one from the Access pane.</p>
+    </main>
+  `;
+  return baseHtml("Isomux — sign in", body, undefined, LOGIN_EXTRA_CSS);
 }
+
+const LOGIN_EXTRA_CSS = `
+  /* Override base layout for the login page so the iso backdrop can fill
+     the viewport and the card can float over it. */
+  body {
+    max-width: none;
+    margin: 0;
+    min-height: 100vh;
+    background:
+      radial-gradient(120% 80% at 50% 0%, #fbeed6 0%, #f3dfb8 55%, #e5c98f 100%);
+    color: #2a2418;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    position: relative;
+    overflow: hidden;
+  }
+  @media (prefers-color-scheme: dark) {
+    body {
+      background:
+        radial-gradient(120% 80% at 50% 0%, #2f2a22 0%, #221e18 55%, #15120e 100%);
+      color: #e7dcc4;
+    }
+  }
+  /* Painted isometric floor: a grid of diamond cells. Two repeating
+     linear gradients combine to form the lines; transform tilts the whole
+     plane into an iso perspective. */
+  .iso-floor {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    transform: perspective(1200px) rotateX(60deg) rotateZ(-15deg) translateY(-10%);
+    transform-origin: 50% 50%;
+    background-image:
+      linear-gradient(to right, rgba(60,40,10,0.10) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(60,40,10,0.10) 1px, transparent 1px);
+    background-size: 80px 80px;
+    opacity: 0.7;
+  }
+  @media (prefers-color-scheme: dark) {
+    .iso-floor {
+      background-image:
+        linear-gradient(to right, rgba(220,190,130,0.10) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(220,190,130,0.10) 1px, transparent 1px);
+    }
+  }
+  /* Empty desks scattered across the iso plane. Position by --x/--y in
+     grid cells; each desk is a small rectangle painted with two tones to
+     hint at the desktop + side. */
+  .desk {
+    position: absolute;
+    left: calc(20% + var(--x, 0) * 80px);
+    top: calc(25% + var(--y, 0) * 80px);
+    width: 64px;
+    height: 44px;
+    background: linear-gradient(180deg, #c9a063 0%, #a87f48 60%, #8a6735 100%);
+    border-radius: 4px;
+    box-shadow: 0 4px 0 #6e4f24, 0 6px 12px rgba(0,0,0,0.15);
+    opacity: 0.55;
+  }
+  @media (prefers-color-scheme: dark) {
+    .desk {
+      background: linear-gradient(180deg, #6a5430 0%, #4a3a20 60%, #2e2415 100%);
+      box-shadow: 0 4px 0 #1a1407, 0 6px 12px rgba(0,0,0,0.4);
+      opacity: 0.5;
+    }
+  }
+  /* The login card itself floats above the painted floor. */
+  .card {
+    position: relative;
+    z-index: 1;
+    background: rgba(255, 250, 240, 0.92);
+    border: 1px solid rgba(110, 80, 36, 0.2);
+    border-radius: 14px;
+    padding: 32px 28px;
+    max-width: 440px;
+    width: 100%;
+    box-shadow: 0 16px 48px rgba(0,0,0,0.12);
+    backdrop-filter: blur(8px);
+  }
+  @media (prefers-color-scheme: dark) {
+    .card {
+      background: rgba(34, 28, 20, 0.92);
+      border-color: rgba(220, 190, 130, 0.18);
+      box-shadow: 0 16px 48px rgba(0,0,0,0.45);
+    }
+  }
+  .card h1 {
+    margin: 0 0 12px;
+    font-size: 1.75rem;
+    letter-spacing: -0.01em;
+  }
+  .muted {
+    color: #6a5530;
+    font-size: 0.9em;
+  }
+  @media (prefers-color-scheme: dark) {
+    .muted { color: #a88f60; }
+  }
+`;
 
 function renderAcceptPage(
   token: string,
@@ -263,6 +376,16 @@ function renderAcceptPage(
 ): string {
   const safeToken = escapeAttr(token);
   const err = errorMsg ? `<p class="err">${escapeHtml(errorMsg)}</p>` : "";
+  // Open-graph metadata so chat-app link unfurlers show a readable preview
+  // instead of just the opaque token URL. No image (intentional: any image
+  // route would still be fetched by third-party preview services who see
+  // the bearer URL anyway; keep the cost matched to the gain).
+  const og = {
+    title: needsName ? "Isomux — first-time setup" : "Isomux — accept invite",
+    description: needsName
+      ? "Open this link to claim ownership of an Isomux office."
+      : "Open this link to sign in to an Isomux office on this device.",
+  };
   if (needsName) {
     // Bootstrap (or any null-username invite): invitee picks their display
     // name. The form double-purposes as the "accept" gesture, so a link
@@ -279,6 +402,7 @@ function renderAcceptPage(
         <button type="submit">Continue</button>
       </form>
       `,
+      og,
     );
   }
   // Pre-named invite: a single-click accept gesture. Same anti-preview
@@ -294,6 +418,7 @@ function renderAcceptPage(
       <button type="submit" autofocus>Accept and continue</button>
     </form>
     `,
+    og,
   );
 }
 
@@ -316,13 +441,27 @@ function renderInviteError(kind: string): Response {
   });
 }
 
-function baseHtml(title: string, body: string): string {
+function baseHtml(
+  title: string,
+  body: string,
+  og?: { title: string; description: string },
+  extraCss: string = "",
+): string {
+  const ogMeta = og
+    ? `
+<meta property="og:title" content="${escapeAttr(og.title)}" />
+<meta property="og:description" content="${escapeAttr(og.description)}" />
+<meta property="og:type" content="website" />
+<meta name="twitter:card" content="summary" />
+<meta name="twitter:title" content="${escapeAttr(og.title)}" />
+<meta name="twitter:description" content="${escapeAttr(og.description)}" />`
+    : "";
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
 <title>${escapeHtml(title)}</title>
-<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />${ogMeta}
 <style>
   :root { color-scheme: light dark; }
   body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 480px; margin: 64px auto; padding: 0 16px; line-height: 1.5; }
@@ -333,6 +472,7 @@ function baseHtml(title: string, body: string): string {
   input[type=text] { padding: 8px; font-size: 1rem; border: 1px solid #888; border-radius: 4px; }
   button { padding: 8px 16px; font-size: 1rem; border-radius: 4px; cursor: pointer; }
   .err { color: #c33; }
+${extraCss}
 </style>
 </head>
 <body>

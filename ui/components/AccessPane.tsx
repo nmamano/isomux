@@ -2,10 +2,16 @@
 // issue new invites, revoke either. Mounts inside UserManagementModal when
 // the current session's role is "owner".
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppState } from "../store.tsx";
 import { send, addRawListener, removeRawListener } from "../ws.ts";
-import type { InviteWire, SessionWire, UserRole } from "../../shared/types.ts";
+import type {
+  InviteWire,
+  SessionWire,
+  UserRecord,
+  UserRole,
+} from "../../shared/types.ts";
+import { lowercaseKey } from "../../shared/identity.ts";
 import {
   dialogLabel,
   dialogInput,
@@ -17,8 +23,9 @@ export function AccessPane() {
   const { invitesList, invitesLoaded, activeSessions, activeSessionsLoaded } =
     useAppState();
 
-  // Owners can come from any client; lazily fetch the tables when the pane
-  // mounts so we don't ship lists to non-owners pre-emptively.
+  // Lazily fetch the owner-only lists. The session_context reducer resets
+  // both loaded flags on every WS open (including reconnects), so this
+  // effect re-runs and keeps the lists fresh across socket bounces.
   useEffect(() => {
     if (!invitesLoaded) send({ type: "list_invites" });
     if (!activeSessionsLoaded) send({ type: "list_active_sessions" });
@@ -28,47 +35,76 @@ export function AccessPane() {
     <div style={{ marginTop: 24 }}>
       <h4 style={sectionHeader}>Access</h4>
       <p style={hint}>
-        Issue invite URLs and manage who's signed in. Anyone with a valid invite
-        URL can claim a session as the username it's tagged for.
+        The first owner is bootstrapped via the URL the server prints on
+        startup. After that, you add owners and members here by issuing invite
+        URLs and sending them to the recipient.
       </p>
 
       <IssueInviteForm />
 
       <h5 style={subsectionHeader}>Outstanding invites</h5>
-      {!invitesLoaded ? (
-        <p style={hint}>Loading…</p>
-      ) : invitesList.length === 0 ? (
-        <p style={hint}>None.</p>
-      ) : (
-        <InvitesTable invites={invitesList} />
-      )}
+      {renderListSection(invitesList, invitesLoaded, (rows) => (
+        <InvitesTable invites={rows} />
+      ))}
 
       <h5 style={subsectionHeader}>Active sessions</h5>
-      {!activeSessionsLoaded ? (
-        <p style={hint}>Loading…</p>
-      ) : activeSessions.length === 0 ? (
-        <p style={hint}>None.</p>
-      ) : (
-        <SessionsTable sessions={activeSessions} />
-      )}
+      {renderListSection(activeSessions, activeSessionsLoaded, (rows) => (
+        <SessionsTable sessions={rows} />
+      ))}
     </div>
   );
+}
+
+// Render the cached rows whenever any are present, even while a refresh is
+// in flight — avoids a flicker to "Loading…" on every reconnect. Empty+not-
+// loaded shows "Loading…" (first load only); empty+loaded shows "None.".
+function renderListSection<T>(
+  rows: T[],
+  loaded: boolean,
+  renderTable: (rows: T[]) => React.ReactNode,
+): React.ReactNode {
+  if (rows.length > 0) return renderTable(rows);
+  if (!loaded) return <p style={hint}>Loading…</p>;
+  return <p style={hint}>None.</p>;
 }
 
 function IssueInviteForm() {
   const { users } = useAppState();
   const [name, setName] = useState("");
   const [role, setRole] = useState<UserRole>("member");
-  const [ttlDays, setTtlDays] = useState(7);
+  // Long-lived default. Owner can shorten per invite; 1-day is rare enough
+  // that we don't surface it as the default.
+  const [ttlDays, setTtlDays] = useState(365);
   const [allowExisting, setAllowExisting] = useState(false);
   const [mintedUrl, setMintedUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  // Track the in-flight raw listener so a navigation away mid-mint doesn't
+  // leak the one-shot subscription past the form's lifetime.
+  const pendingListenerRef = useRef<((data: string) => void) | null>(null);
+  useEffect(() => {
+    return () => {
+      const fn = pendingListenerRef.current;
+      if (fn) removeRawListener(fn);
+    };
+  }, []);
 
-  const existing = useMemo(
-    () => users.has(name.trim().toLowerCase()),
-    [users, name],
-  );
+  // Existing-user detection uses the same lowercase key the server uses
+  // (lowercaseKey, not raw toLowerCase) so unicode/whitespace handling
+  // stays consistent across the two sides.
+  const existingUser: UserRecord | null = useMemo(() => {
+    const trimmed = name.trim();
+    if (!trimmed) return null;
+    return users.get(lowercaseKey(trimmed)) ?? null;
+  }, [users, name]);
+  const existing = existingUser !== null;
+
+  // When the typed name matches an existing user, the role dropdown is
+  // hidden and the effective role is forced to the existing user's role.
+  // Issuing a mismatched role would be rejected at accept time anyway
+  // (server returns role_mismatch); surfacing the restriction up-front
+  // avoids the confusion the boss flagged.
+  const effectiveRole: UserRole = existingUser ? existingUser.role : role;
 
   function submit() {
     const trimmed = name.trim();
@@ -83,6 +119,7 @@ function IssueInviteForm() {
         if (msg.type === "invite_minted" && msg.requestId === reqId) {
           setPending(false);
           removeRawListener(listener);
+          pendingListenerRef.current = null;
           if (msg.ok) {
             setMintedUrl(msg.url);
             setName("");
@@ -93,12 +130,13 @@ function IssueInviteForm() {
         }
       } catch {}
     };
+    pendingListenerRef.current = listener;
     addRawListener(listener);
     send({
       type: "mint_invite",
       requestId: reqId,
       username: trimmed,
-      role,
+      role: effectiveRole,
       ttlSeconds: ttlDays * 24 * 60 * 60,
       allowExisting: existing ? allowExisting : false,
     });
@@ -120,14 +158,33 @@ function IssueInviteForm() {
       <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
         <label style={{ flex: 1 }}>
           <div style={subLabel}>Role</div>
-          <select
-            value={role}
-            onChange={(e) => setRole(e.target.value as UserRole)}
-            style={dialogInput}
-          >
-            <option value="member">member</option>
-            <option value="owner">owner</option>
-          </select>
+          {existingUser ? (
+            <div
+              style={{
+                ...dialogInput,
+                display: "flex",
+                alignItems: "center",
+                color: "var(--text-dim)",
+                background: "var(--bg-base)",
+                fontSize: 12,
+              }}
+              title={`Role is fixed to match the existing ${existingUser.name} record. Use the change-role flow to promote/demote.`}
+            >
+              {existingUser.role}
+              <span style={{ marginLeft: 6, color: "var(--text-hint)" }}>
+                (matches existing user)
+              </span>
+            </div>
+          ) : (
+            <select
+              value={role}
+              onChange={(e) => setRole(e.target.value as UserRole)}
+              style={dialogInput}
+            >
+              <option value="member">member</option>
+              <option value="owner">owner</option>
+            </select>
+          )}
         </label>
         <label style={{ flex: 1 }}>
           <div style={subLabel}>Expires in</div>
@@ -140,9 +197,14 @@ function IssueInviteForm() {
             <option value={7}>7 days</option>
             <option value={30}>30 days</option>
             <option value={90}>90 days</option>
+            <option value={365}>1 year</option>
           </select>
         </label>
       </div>
+      <p style={{ ...hint, marginTop: 6 }}>
+        Invite expires if unused. Accepted sessions last up to 90 days
+        regardless of this setting.
+      </p>
       {existing && (
         <label style={{ display: "flex", gap: 6, marginTop: 8, fontSize: 12 }}>
           <input
@@ -175,25 +237,86 @@ function IssueInviteForm() {
           {pending ? "Minting…" : "Issue invite"}
         </button>
       </div>
-      {mintedUrl && (
-        <div style={mintedBox}>
-          <div style={{ ...subLabel, marginTop: 0 }}>Invite URL</div>
-          <code style={codeStyle}>{mintedUrl}</code>
-          <button
-            onClick={() => {
-              void navigator.clipboard.writeText(mintedUrl);
-            }}
-            style={smallBtn}
-            title="Copy URL"
-          >
-            Copy
-          </button>
-          <p style={hint}>
-            Send this URL to the invitee. It's one-time: opening it on their
-            device signs them in. The URL is shown once — copy it now.
-          </p>
-        </div>
+      {mintedUrl && <MintedUrlBox url={mintedUrl} />}
+    </div>
+  );
+}
+
+// Surfaces the freshly-minted invite URL with a working copy button and
+// visible feedback. Falls back to a hidden-textarea + execCommand path
+// when navigator.clipboard rejects (mobile, focus quirks, permissions);
+// final fallback selects the URL so the user can copy manually.
+function MintedUrlBox({ url }: { url: string }) {
+  const codeRef = useRef<HTMLElement | null>(null);
+  const [copyState, setCopyState] = useState<
+    "idle" | "ok" | "fallback" | "fail"
+  >("idle");
+
+  async function handleCopy() {
+    // Path 1: modern clipboard API.
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+        setCopyState("ok");
+        setTimeout(() => setCopyState("idle"), 1500);
+        return;
+      }
+    } catch {
+      // fall through to legacy path
+    }
+    // Path 2: legacy textarea + execCommand (works in older Safari /
+    // contexts where the modern API is blocked).
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = url;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      const ok = document.execCommand("copy");
+      document.body.removeChild(ta);
+      if (ok) {
+        setCopyState("fallback");
+        setTimeout(() => setCopyState("idle"), 1500);
+        return;
+      }
+    } catch {}
+    // Path 3: highlight the URL so the user can ctrl-c / long-press / copy.
+    const node = codeRef.current;
+    if (node) {
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+    }
+    setCopyState("fail");
+  }
+
+  return (
+    <div style={mintedBox}>
+      <div style={{ ...subLabel, marginTop: 0 }}>Invite URL</div>
+      <code ref={codeRef} style={codeStyle}>
+        {url}
+      </code>
+      <button
+        onClick={() => {
+          void handleCopy();
+        }}
+        style={smallBtn}
+        title="Copy URL"
+      >
+        {copyState === "ok" || copyState === "fallback" ? "Copied!" : "Copy"}
+      </button>
+      {copyState === "fail" && (
+        <p style={{ ...hint, color: "#ff6b6b", marginTop: 4 }}>
+          Clipboard blocked. The URL above is selected — copy it manually.
+        </p>
       )}
+      <p style={hint}>
+        Send this URL to the invitee. It's one-time: opening it on their device
+        signs them in. The URL is shown once — copy it now.
+      </p>
     </div>
   );
 }

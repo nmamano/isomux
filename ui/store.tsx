@@ -421,7 +421,18 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, users };
     }
     case "session_context":
-      return { ...state, sessionContext: action.context };
+      // session_context arrives as the first message on every WS open,
+      // including reconnects. Reset the owner-only loaded flags so the
+      // AccessPane re-requests fresh lists; otherwise a mint/revoke on
+      // another client wouldn't reach a client that disconnected and came
+      // back. We keep the cached arrays in place so the UI doesn't flicker
+      // to "Loading…" while the refresh is in flight.
+      return {
+        ...state,
+        sessionContext: action.context,
+        invitesLoaded: false,
+        activeSessionsLoaded: false,
+      };
     case "invites_list":
       return { ...state, invitesList: action.invites, invitesLoaded: true };
     case "sessions_active_list":

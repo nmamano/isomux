@@ -182,10 +182,16 @@ export function UserManagementModal({
                             fontSize: 13,
                             fontWeight: 600,
                             color: "var(--text-primary)",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 6,
                           }}
                         >
-                          {u.name}
-                          {isMe ? " (you)" : ""}
+                          <span>
+                            {u.name}
+                            {isMe ? " (you)" : ""}
+                          </span>
+                          <RoleBadge role={u.role} />
                         </div>
                         <div
                           style={{
@@ -627,6 +633,36 @@ function UserEditPanel({
         </div>
       </div>
     </div>
+  );
+}
+
+// Compact role indicator next to each user's display name. Intentionally
+// muted: the owner/member distinction is about who can mint invites and
+// revoke sessions, not about who can do things inside the office (everyone
+// authenticated has full operational access).
+function RoleBadge({ role }: { role: "owner" | "member" }) {
+  const isOwner = role === "owner";
+  return (
+    <span
+      style={{
+        fontSize: 9,
+        fontWeight: 600,
+        textTransform: "uppercase",
+        letterSpacing: 0.5,
+        padding: "1px 6px",
+        borderRadius: 4,
+        border: `1px solid ${isOwner ? "var(--accent)" : "var(--border)"}`,
+        color: isOwner ? "var(--accent)" : "var(--text-ghost)",
+        background: "transparent",
+      }}
+      title={
+        isOwner
+          ? "Owner — can mint invites and revoke sessions"
+          : "Member — full office access, can't mint invites"
+      }
+    >
+      {role}
+    </span>
   );
 }
 
