@@ -195,6 +195,30 @@ export function hasOwner(): boolean {
   return false;
 }
 
+// Count of users with role "owner". Used by the lockout-prevention check
+// in delete_user: refusing the delete when removing the target would
+// leave zero owners on disk.
+export function countOwners(): number {
+  load();
+  let n = 0;
+  for (const u of Object.values(users)) if (u.role === "owner") n++;
+  return n;
+}
+
+// True if deleting `userId` would leave the office with zero owners on
+// the user records. Returns false when the target doesn't exist or
+// isn't an owner (the delete can't reduce the owner count).
+export function wouldDeleteLeaveNoOwner(userId: string): boolean {
+  load();
+  const target = users[userId];
+  if (!target || target.role !== "owner") return false;
+  let remaining = 0;
+  for (const u of Object.values(users)) {
+    if (u.id !== userId && u.role === "owner") remaining++;
+  }
+  return remaining === 0;
+}
+
 // ---------------------------------------------------------------------------
 // Mutations
 

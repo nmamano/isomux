@@ -13,6 +13,7 @@ import {
   readSessionCookie,
   setCookieHeader,
   validateSession,
+  wouldRevokeLeaveOfficeUnreachable,
   type SessionLookup,
 } from "./auth.ts";
 
@@ -192,12 +193,27 @@ export async function handleAccept(req: Request): Promise<Response> {
 // POST /auth/logout — clear the cookie and revoke the session server-side.
 // Origin must match: a malicious site can otherwise sign the user out via
 // a credentialed form POST (annoying, not a data breach, but still CSRF).
+// Same lockout-prevention rule as the WS logout: refuse if this is the
+// office's last active owner session.
 export async function handleLogout(req: Request): Promise<Response> {
   if (!originValidForAuthPost(req)) {
     return new Response("bad origin", { status: 403 });
   }
   const cookie = readSessionCookie(req);
   const lookup = validateSession(cookie);
+  if (lookup && wouldRevokeLeaveOfficeUnreachable(lookup.sessionIdHash)) {
+    return new Response(
+      renderLockoutBlocked(
+        "Sign out refused: this is the last active owner session in the " +
+          "office. Mint an additional invite for yourself and accept it " +
+          "on another device first, then retry.",
+      ),
+      {
+        status: 409,
+        headers: { "Content-Type": "text/html; charset=utf-8" },
+      },
+    );
+  }
   if (lookup) {
     await logoutBySessionHash(lookup.sessionIdHash);
   }
@@ -205,6 +221,15 @@ export async function handleLogout(req: Request): Promise<Response> {
     status: 302,
     headers: { Location: "/", "Set-Cookie": clearCookieHeader() },
   });
+}
+
+function renderLockoutBlocked(message: string): string {
+  return baseHtml(
+    "Isomux — sign out blocked",
+    `<h1>Sign out blocked</h1>
+    <p>${escapeHtml(message)}</p>
+    <p><a href="/">Return to office</a></p>`,
+  );
 }
 
 // /auth/* POSTs are exclusively browser-driven. Unlike the agent-API

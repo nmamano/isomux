@@ -44,6 +44,23 @@ export function UserManagementModal({
   const [creatingName, setCreatingName] = useState("");
   const [creatingError, setCreatingError] = useState<string | null>(null);
   const [editingKey, setEditingKey] = useState<string | null>(null);
+  // Holds the server's lockout-prevention reason if Sign out is refused.
+  // Shown inline near the button until dismissed.
+  const [logoutBlockedReason, setLogoutBlockedReason] = useState<string | null>(
+    null,
+  );
+  useEffect(() => {
+    const fn = (data: string) => {
+      try {
+        const m = JSON.parse(data);
+        if (m.type === "logout_blocked" && typeof m.reason === "string") {
+          setLogoutBlockedReason(m.reason);
+        }
+      } catch {}
+    };
+    addRawListener(fn);
+    return () => removeRawListener(fn);
+  }, []);
 
   // The modal is dismissable only when the user has a known name. On first
   // connect (forceCreate=true) the user MUST pick or create someone before
@@ -116,8 +133,8 @@ export function UserManagementModal({
           padding: "24px 28px",
           marginTop: isMobile ? "env(safe-area-inset-top, 16px)" : undefined,
           marginBottom: isMobile ? 16 : undefined,
-          width: isMobile ? "calc(100% - 32px)" : 520,
-          maxWidth: isMobile ? "100%" : undefined,
+          width: isMobile ? "calc(100% - 32px)" : 640,
+          maxWidth: isMobile ? "100%" : "calc(100vw - 48px)",
           maxHeight: isMobile ? "calc(100dvh - 32px)" : "85vh",
           overflowY: "auto",
           boxShadow: "0 20px 60px var(--shadow-heavy)",
@@ -302,10 +319,13 @@ export function UserManagementModal({
           <div style={{ marginTop: 24 }}>
             <button
               onClick={() => {
+                setLogoutBlockedReason(null);
                 send({ type: "logout" });
                 // The WS will close after the server-side revoke; the page
                 // reload triggered by session_expired will land us on the
-                // login wall.
+                // login wall. If the server refuses (lockout prevention),
+                // the raw listener above will set logoutBlockedReason and
+                // we'll render the inline note below.
               }}
               style={{
                 padding: "8px 14px",
@@ -321,6 +341,22 @@ export function UserManagementModal({
             >
               Sign out
             </button>
+            {logoutBlockedReason && (
+              <p
+                style={{
+                  margin: "8px 0 0",
+                  padding: "8px 12px",
+                  border: "1px solid #ff6b6b",
+                  borderRadius: 6,
+                  background: "rgba(255,107,107,0.08)",
+                  fontSize: 11,
+                  color: "#ff6b6b",
+                  maxWidth: 520,
+                }}
+              >
+                {logoutBlockedReason}
+              </p>
+            )}
           </div>
         )}
 

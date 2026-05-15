@@ -570,6 +570,11 @@ export interface SessionContext {
   userId: string;
   username: string;
   role: UserRole;
+  // 8-char display prefix of the current session. Lets the Access pane
+  // identify "this is my row" without trusting the client to track it.
+  // Used to hide the Revoke button on the user's own session row (the
+  // server-side gate is the actual safety enforcement; this is UX only).
+  currentSessionPrefix: string;
 }
 
 // Wire shape for an outstanding invite (owner UI). Raw token never crosses
@@ -755,6 +760,12 @@ export type ServerMessage =
   | { type: "session_revoked"; sessionPrefix: string }
   | { type: "invite_revoked"; tokenPrefix: string }
   | { type: "session_expired" }
+  // Lockout-prevention rejections. The server refuses to revoke or log
+  // out when the operation would leave the office with no owner who has
+  // an active session, since recovery would then require shell access.
+  // Carries a human-readable reason for the UI to surface.
+  | { type: "revoke_blocked"; sessionPrefix: string; reason: string }
+  | { type: "logout_blocked"; reason: string }
   | SettingsSaveResponse
   | SettingsValidationResponse
   | AgentSaveResponse

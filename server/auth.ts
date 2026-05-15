@@ -696,6 +696,10 @@ export async function logoutBySessionHash(
 
 export interface SessionLookup {
   sessionIdHash: string;
+  // 8-char display prefix, copied from the stored session record. Sent
+  // on the wire as `SessionContext.currentSessionPrefix` so the UI can
+  // identify the user's own row in the Access pane sessions table.
+  sessionPrefix: string;
   // Stable identity. Use this for env selection, agent ownership, and any
   // server-side authority check.
   userId: string;
@@ -774,6 +778,7 @@ function validateByHash(hash: string): SessionLookup | null {
   }
   return {
     sessionIdHash: hash,
+    sessionPrefix: session.sessionPrefix,
     userId: user.id,
     username: user.name,
     role: user.role,
@@ -843,8 +848,76 @@ export function sessionContextFor(lookup: SessionLookup): SessionContext {
     userId: lookup.userId,
     username: lookup.username,
     role: lookup.role,
+    currentSessionPrefix: lookup.sessionPrefix,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Lockout-prevention helpers
+//
+// The invariant: the office must always retain at least one owner-role
+// user with at least one active session, so an operator can recover
+// from inside the browser. Without this, revoking the last owner's last
+// session locks the office out (hasOwner() stays true, so
+// --regenerate-bootstrap is a no-op; only shell access can restore).
+//
+// Centralized here because both revoke_session and the WS/HTTP logout
+// paths need to enforce it.
+
+// Count of currently-valid sessions whose owner has role "owner".
+export function countActiveOwnerSessions(): number {
+  ensureLoaded();
+  const now = Date.now();
+  let n = 0;
+  for (const s of sessions!.values()) {
+    if (s.expiresAt < now || s.absoluteExpiresAt < now) continue;
+    const u = getUserById(s.userId);
+    if (u?.role === "owner") n++;
+  }
+  return n;
+}
+
+// True if revoking the given session hash would leave the office with
+// zero active owner sessions. Used by both revoke_session and logout —
+// they're the same operation from the lockout-prevention perspective.
+export function wouldRevokeLeaveOfficeUnreachable(
+  sessionIdHash: string,
+): boolean {
+  ensureLoaded();
+  const target = sessions!.get(sessionIdHash);
+  if (!target) return false; // revoking nothing can't lock anyone out
+  const targetUser = getUserById(target.userId);
+  if (targetUser?.role !== "owner") return false; // target isn't owner-bearing
+  const now = Date.now();
+  for (const [hash, s] of sessions!) {
+    if (hash === sessionIdHash) continue;
+    if (s.expiresAt < now || s.absoluteExpiresAt < now) continue;
+    const u = getUserById(s.userId);
+    if (u?.role === "owner") return false; // another active owner session exists
+  }
+  return true;
+}
+
+// Resolve an 8-char display prefix to a session id hash. Returns null
+// when no session matches OR more than one matches (ambiguous). The
+// caller treats both as "couldn't act on this prefix"; revoke_session
+// already has the ambiguity log path, this just gives us the hash for
+// the lockout pre-check.
+export function resolveSessionHashByPrefix(prefix: string): string | null {
+  ensureLoaded();
+  let found: string | null = null;
+  for (const [hash, s] of sessions!) {
+    if (s.sessionPrefix === prefix) {
+      if (found !== null) return null; // ambiguous
+      found = hash;
+    }
+  }
+  return found;
+}
+
+// Note: countOwners() and wouldDeleteLeaveNoOwner() live in users.ts.
+// index.ts imports them directly from there; we don't re-export through
+// auth.ts to keep the user-record predicates close to the data.
 
 // ---------------------------------------------------------------------------
 // Cookie + origin helpers used by the middleware.

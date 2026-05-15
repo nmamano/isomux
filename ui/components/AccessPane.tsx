@@ -22,6 +22,11 @@ import {
 export function AccessPane() {
   const { invitesList, invitesLoaded, activeSessions, activeSessionsLoaded } =
     useAppState();
+  // Holds the most recent server-side lockout-prevention rejection so the
+  // banner stays visible until the user dismisses or retries. Cleared on
+  // any successful state change (which we proxy via activeSessions length
+  // change — a successful revoke shrinks the list).
+  const [blockedNote, setBlockedNote] = useState<string | null>(null);
 
   // Lazily fetch the owner-only lists. The session_context reducer resets
   // both loaded flags on every WS open (including reconnects), so this
@@ -31,6 +36,21 @@ export function AccessPane() {
     if (!activeSessionsLoaded) send({ type: "list_active_sessions" });
   }, [invitesLoaded, activeSessionsLoaded]);
 
+  // Listen for the server's lockout-prevention rejections. Component-
+  // scoped raw listener so it doesn't leak across pane mounts.
+  useEffect(() => {
+    const fn = (data: string) => {
+      try {
+        const m = JSON.parse(data);
+        if (m.type === "revoke_blocked" && typeof m.reason === "string") {
+          setBlockedNote(m.reason);
+        }
+      } catch {}
+    };
+    addRawListener(fn);
+    return () => removeRawListener(fn);
+  }, []);
+
   return (
     <div style={{ marginTop: 24 }}>
       <h4 style={sectionHeader}>Access</h4>
@@ -39,6 +59,39 @@ export function AccessPane() {
         startup. After that, you add owners and members here by issuing invite
         URLs and sending them to the recipient.
       </p>
+
+      {blockedNote && (
+        <div
+          style={{
+            margin: "8px 0",
+            padding: "8px 12px",
+            border: "1px solid #ff6b6b",
+            borderRadius: 6,
+            background: "rgba(255,107,107,0.08)",
+            fontSize: 12,
+            color: "#ff6b6b",
+            display: "flex",
+            gap: 8,
+            alignItems: "flex-start",
+          }}
+        >
+          <span style={{ flex: 1 }}>{blockedNote}</span>
+          <button
+            onClick={() => setBlockedNote(null)}
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "#ff6b6b",
+              cursor: "pointer",
+              fontSize: 14,
+              padding: 0,
+            }}
+            title="Dismiss"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       <IssueInviteForm />
 
@@ -381,6 +434,8 @@ function InvitesTable({ invites }: { invites: InviteWire[] }) {
 }
 
 function SessionsTable({ sessions }: { sessions: SessionWire[] }) {
+  const { sessionContext } = useAppState();
+  const currentPrefix = sessionContext?.currentSessionPrefix ?? null;
   return (
     <table style={tableStyle}>
       <thead>
@@ -394,28 +449,49 @@ function SessionsTable({ sessions }: { sessions: SessionWire[] }) {
         </tr>
       </thead>
       <tbody>
-        {sessions.map((s) => (
-          <tr key={s.sessionPrefix}>
-            <td style={td}>{s.username}</td>
-            <td style={td}>{formatRelative(s.lastSeenAt)}</td>
-            <td style={td}>{formatRelative(s.createdAt)}</td>
-            <td style={tdEllipsis}>{s.userAgent ?? "—"}</td>
-            <td style={mono}>{s.sessionPrefix}…</td>
-            <td style={td}>
-              <button
-                onClick={() =>
-                  send({
-                    type: "revoke_session",
-                    sessionPrefix: s.sessionPrefix,
-                  })
-                }
-                style={smallBtn}
-              >
-                Revoke
-              </button>
-            </td>
-          </tr>
-        ))}
+        {sessions.map((s) => {
+          const isCurrent = s.sessionPrefix === currentPrefix;
+          return (
+            <tr key={s.sessionPrefix}>
+              <td style={td}>{s.username}</td>
+              <td style={td}>{formatRelative(s.lastSeenAt)}</td>
+              <td style={td}>{formatRelative(s.createdAt)}</td>
+              <td style={tdEllipsis}>{s.userAgent ?? "—"}</td>
+              <td style={mono}>{s.sessionPrefix}…</td>
+              <td style={td}>
+                {isCurrent ? (
+                  // Self-revoke can lock the office out if you're the last
+                  // owner; the server enforces that, but we also hide the
+                  // button on your own row so the choice never appears in
+                  // the obvious place. Sign out (with its own lockout
+                  // check) is the right exit for the current device.
+                  <span
+                    style={{
+                      fontSize: 10,
+                      color: "var(--text-ghost)",
+                      fontStyle: "italic",
+                    }}
+                    title="Use Sign out at the bottom of this dialog to end your current session."
+                  >
+                    Current session
+                  </span>
+                ) : (
+                  <button
+                    onClick={() =>
+                      send({
+                        type: "revoke_session",
+                        sessionPrefix: s.sessionPrefix,
+                      })
+                    }
+                    style={smallBtn}
+                  >
+                    Revoke
+                  </button>
+                )}
+              </td>
+            </tr>
+          );
+        })}
       </tbody>
     </table>
   );

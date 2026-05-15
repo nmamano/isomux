@@ -32,6 +32,7 @@ import {
   claimUser,
   updateUser,
   deleteUser,
+  wouldDeleteLeaveNoOwner,
 } from "./users.ts";
 import { watchFile, stopWatch, type FileWatcher } from "./file-editor.ts";
 import { mimeTypeForFilename } from "./mime-types.ts";
@@ -51,12 +52,14 @@ import {
   mintInvite,
   readSessionCookie,
   registerSocket,
+  resolveSessionHashByPrefix,
   revalidateByHash,
   revokeInviteByPrefix,
   revokeSessionByPrefix,
   sessionContextFor,
   unregisterSocket,
   validateSession,
+  wouldRevokeLeaveOfficeUnreachable,
   type SessionLookup,
 } from "./auth.ts";
 import { lowercaseKey } from "../shared/identity.ts";
@@ -1067,6 +1070,23 @@ async function dispatchCommand(
         // role-change flow.
         break;
       }
+      // Lockout-prevention: refuse deletion that would leave the office
+      // without any owner record on disk. Without this, deleting the last
+      // owner brings the office to a state where hasOwner() stays true on
+      // restart (well, would be false here, but the deletion itself
+      // already finished). Defense in depth: same invariant as the
+      // session-revoke check, applied to user records.
+      const targetUser = getUser(cmd.username);
+      if (targetUser && wouldDeleteLeaveNoOwner(targetUser.id)) {
+        // No requestId on delete_user; surface as a broadcast-style note
+        // tied to the user the operator was trying to remove. Worst case
+        // the UI shows a stale row until the operator retries — but the
+        // delete didn't happen, which is the safety property we need.
+        console.warn(
+          `[auth] delete_user "${cmd.username}" refused: would leave office with no owners`,
+        );
+        break;
+      }
       deleteUser(cmd.username);
       broadcast({ type: "users_list", users: listUsers() });
       break;
@@ -1155,6 +1175,26 @@ async function dispatchCommand(
     }
     case "revoke_session": {
       if (session.role !== "owner") break;
+      // Lockout-prevention: refuse revokes that would leave the office
+      // with no active owner sessions. This catches both self-revoke of
+      // the only owner's only session AND the rare case where an owner
+      // tries to revoke another owner's last session while having none
+      // of their own. The user-record gate (deleteUser of last owner)
+      // is a separate check on the delete path.
+      const targetHash = resolveSessionHashByPrefix(cmd.sessionPrefix);
+      if (targetHash && wouldRevokeLeaveOfficeUnreachable(targetHash)) {
+        ws.send(
+          JSON.stringify({
+            type: "revoke_blocked",
+            sessionPrefix: cmd.sessionPrefix,
+            reason:
+              "Refused: this is the last active owner session in the office. " +
+              "Mint an additional invite for an owner first, accept it on " +
+              "another device, then retry.",
+          }),
+        );
+        break;
+      }
       const result = await revokeSessionByPrefix(cmd.sessionPrefix);
       if (result === "ok") {
         broadcastToOwners({
@@ -1177,6 +1217,24 @@ async function dispatchCommand(
       // /auth/logout path mirrors this for the browser cookie-clear case;
       // both paths converge on the same revoke logic.
       //
+      // Lockout-prevention: refuse if this is the office's last active
+      // owner session. Operator must mint an additional invite first to
+      // preserve the recovery path. Cookie stays valid; socket stays
+      // open; the UI surfaces the reason inline.
+      if (wouldRevokeLeaveOfficeUnreachable(session.sessionIdHash)) {
+        ws.send(
+          JSON.stringify({
+            type: "logout_blocked",
+            reason:
+              "You're the only owner with an active session. Sign out " +
+              "would lock the office out of in-browser recovery. Mint " +
+              "an additional invite for yourself (Issue invite → your " +
+              'name → tick "additional invite for this identity") and ' +
+              "accept it on another device first.",
+          }),
+        );
+        break;
+      }
       // We catch persistence failures here (rather than relying on the
       // outer guard) so we never close the socket on a failed logout —
       // the rollback inside logoutBySessionHash restored the in-memory
