@@ -91,6 +91,21 @@ function getWatcherMap(ws: ServerWebSocket<WsData>): Map<string, FileWatcher> {
   return map;
 }
 
+// Owner-scoped fan-out for messages that carry Access-pane state (invite +
+// session lists). Members don't render that pane, but a plain broadcast()
+// would still seed it into their reducer state — leaking token prefixes,
+// usernames, expiry timestamps, and user-agent strings to clients that
+// have no UX for them. Routing only the owner-WS subset preserves the
+// owner-only design contract.
+function broadcastToOwners(msg: ServerMessage) {
+  const data = JSON.stringify(msg);
+  for (const ws of browsers) {
+    if (ws.data.session.role === "owner") {
+      ws.send(data);
+    }
+  }
+}
+
 function broadcast(msg: ServerMessage) {
   const data = JSON.stringify(msg);
   for (const ws of browsers) {
@@ -1094,7 +1109,7 @@ async function dispatchCommand(
           },
         }),
       );
-      broadcast({ type: "invites_list", invites: listInvites() });
+      broadcastToOwners({ type: "invites_list", invites: listInvites() });
       break;
     }
     case "list_invites": {
@@ -1106,8 +1121,11 @@ async function dispatchCommand(
       if (session.role !== "owner") break;
       const result = await revokeInviteByPrefix(cmd.tokenPrefix);
       if (result === "ok") {
-        broadcast({ type: "invite_revoked", tokenPrefix: cmd.tokenPrefix });
-        broadcast({ type: "invites_list", invites: listInvites() });
+        broadcastToOwners({
+          type: "invite_revoked",
+          tokenPrefix: cmd.tokenPrefix,
+        });
+        broadcastToOwners({ type: "invites_list", invites: listInvites() });
       } else if (result === "ambiguous") {
         console.warn(
           `[auth] ambiguous invite prefix ${cmd.tokenPrefix} — refused revoke`,
@@ -1129,11 +1147,11 @@ async function dispatchCommand(
       if (session.role !== "owner") break;
       const result = await revokeSessionByPrefix(cmd.sessionPrefix);
       if (result === "ok") {
-        broadcast({
+        broadcastToOwners({
           type: "session_revoked",
           sessionPrefix: cmd.sessionPrefix,
         });
-        broadcast({
+        broadcastToOwners({
           type: "sessions_active_list",
           sessions: listActiveSessions(),
         });

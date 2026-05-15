@@ -248,39 +248,60 @@ function IssueInviteForm() {
 // final fallback selects the URL so the user can copy manually.
 function MintedUrlBox({ url }: { url: string }) {
   const codeRef = useRef<HTMLElement | null>(null);
+  const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [copyState, setCopyState] = useState<
     "idle" | "ok" | "fallback" | "fail"
   >("idle");
+
+  // Clear any in-flight feedback timer if the component unmounts while a
+  // success indicator is still flashing — avoids setState-after-unmount.
+  useEffect(() => {
+    return () => {
+      if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
+    };
+  }, []);
+
+  function flashFeedback(next: "ok" | "fallback") {
+    setCopyState(next);
+    if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
+    feedbackTimerRef.current = setTimeout(() => {
+      feedbackTimerRef.current = null;
+      setCopyState("idle");
+    }, 1500);
+  }
 
   async function handleCopy() {
     // Path 1: modern clipboard API.
     try {
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(url);
-        setCopyState("ok");
-        setTimeout(() => setCopyState("idle"), 1500);
+        flashFeedback("ok");
         return;
       }
     } catch {
       // fall through to legacy path
     }
     // Path 2: legacy textarea + execCommand (works in older Safari /
-    // contexts where the modern API is blocked).
+    // contexts where the modern API is blocked). The temporary textarea
+    // is removed in `finally` so a thrown exception inside `select()` /
+    // `execCommand()` can't leak an invisible DOM node into the page.
+    const ta = document.createElement("textarea");
+    ta.value = url;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
     try {
-      const ta = document.createElement("textarea");
-      ta.value = url;
-      ta.style.position = "fixed";
-      ta.style.opacity = "0";
-      document.body.appendChild(ta);
       ta.select();
       const ok = document.execCommand("copy");
-      document.body.removeChild(ta);
       if (ok) {
-        setCopyState("fallback");
-        setTimeout(() => setCopyState("idle"), 1500);
+        flashFeedback("fallback");
         return;
       }
-    } catch {}
+    } catch {
+      // fall through to manual-select path
+    } finally {
+      document.body.removeChild(ta);
+    }
     // Path 3: highlight the URL so the user can ctrl-c / long-press / copy.
     const node = codeRef.current;
     if (node) {

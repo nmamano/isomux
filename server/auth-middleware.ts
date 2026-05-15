@@ -236,8 +236,43 @@ export async function tryHandleAuthRoute(
   if (url.pathname === "/auth/logout" && req.method === "POST") {
     return handleLogout(req);
   }
+  // GET /auth/login-bg.png — pre-auth static asset (the login page's
+  // backdrop screenshot). Same image as the marketing site so an unauth
+  // visitor sees nothing about this specific deployment. Long-cached
+  // because the asset is build-time-baked and treated as immutable.
+  if (url.pathname === "/auth/login-bg.png" && req.method === "GET") {
+    return handleLoginBackdrop();
+  }
   return null;
 }
+
+async function handleLoginBackdrop(): Promise<Response> {
+  // Read from ui/dist (build.sh copies the screenshot there). If the file
+  // is missing — e.g. a dev install that didn't run build:ui — fall back
+  // to a transparent 1x1 so the login page still renders.
+  const path = new URL("../ui/dist/login-bg.png", import.meta.url).pathname;
+  const file = Bun.file(path);
+  if (!(await file.exists())) {
+    return new Response(EMPTY_PNG, {
+      status: 200,
+      headers: { "Content-Type": "image/png" },
+    });
+  }
+  return new Response(file, {
+    status: 200,
+    headers: {
+      "Content-Type": "image/png",
+      "Cache-Control": "public, max-age=31536000, immutable",
+    },
+  });
+}
+
+// 1x1 transparent PNG used as a graceful fallback when the build hasn't
+// staged the real backdrop. Decoded once at module load.
+const EMPTY_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGBgAAAABQABh6FO1AAAAABJRU5ErkJggg==",
+  "base64",
+);
 
 // ---------------------------------------------------------------------------
 // HTML helpers. Kept inline to avoid a separate templating layer; the auth
@@ -245,19 +280,13 @@ export async function tryHandleAuthRoute(
 // up a renderer.
 
 function renderLoginPage(): string {
-  // Static-only, generic, no state references. The isometric backdrop is a
-  // CSS-only painted grid (no image asset, no SPA bundle) so an
-  // unauthenticated visitor still sees the office's visual identity
-  // without learning anything about the deployment.
+  // Static-only, generic, no state references. The backdrop is a baked
+  // screenshot of the office UI served from /auth/login-bg.png (the same
+  // asset isomux.com uses on its marketing page). The asset reveals
+  // nothing about this specific deployment — it's a public screenshot
+  // with hardcoded demo characters.
   const body = `
-    <div class="iso-floor" aria-hidden="true">
-      <div class="desk" style="--x:0;--y:0"></div>
-      <div class="desk" style="--x:2;--y:0"></div>
-      <div class="desk" style="--x:4;--y:0"></div>
-      <div class="desk" style="--x:0;--y:2"></div>
-      <div class="desk" style="--x:2;--y:2"></div>
-      <div class="desk" style="--x:4;--y:2"></div>
-    </div>
+    <div class="login-bg" aria-hidden="true"></div>
     <main class="card">
       <h1>Isomux</h1>
       <p>This office requires an invite link.</p>
@@ -292,48 +321,21 @@ const LOGIN_EXTRA_CSS = `
       color: #e7dcc4;
     }
   }
-  /* Painted isometric floor: a grid of diamond cells. Two repeating
-     linear gradients combine to form the lines; transform tilts the whole
-     plane into an iso perspective. */
-  .iso-floor {
+  /* Backdrop is a baked screenshot of the office UI (the same one
+     isomux.com uses on its marketing page). We center+cover it and lift
+     opacity a touch so the login card stays readable in front. */
+  .login-bg {
     position: absolute;
     inset: 0;
     pointer-events: none;
-    transform: perspective(1200px) rotateX(60deg) rotateZ(-15deg) translateY(-10%);
-    transform-origin: 50% 50%;
-    background-image:
-      linear-gradient(to right, rgba(60,40,10,0.10) 1px, transparent 1px),
-      linear-gradient(to bottom, rgba(60,40,10,0.10) 1px, transparent 1px);
-    background-size: 80px 80px;
-    opacity: 0.7;
-  }
-  @media (prefers-color-scheme: dark) {
-    .iso-floor {
-      background-image:
-        linear-gradient(to right, rgba(220,190,130,0.10) 1px, transparent 1px),
-        linear-gradient(to bottom, rgba(220,190,130,0.10) 1px, transparent 1px);
-    }
-  }
-  /* Empty desks scattered across the iso plane. Position by --x/--y in
-     grid cells; each desk is a small rectangle painted with two tones to
-     hint at the desktop + side. */
-  .desk {
-    position: absolute;
-    left: calc(20% + var(--x, 0) * 80px);
-    top: calc(25% + var(--y, 0) * 80px);
-    width: 64px;
-    height: 44px;
-    background: linear-gradient(180deg, #c9a063 0%, #a87f48 60%, #8a6735 100%);
-    border-radius: 4px;
-    box-shadow: 0 4px 0 #6e4f24, 0 6px 12px rgba(0,0,0,0.15);
+    background-image: url('/auth/login-bg.png');
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
     opacity: 0.55;
   }
   @media (prefers-color-scheme: dark) {
-    .desk {
-      background: linear-gradient(180deg, #6a5430 0%, #4a3a20 60%, #2e2415 100%);
-      box-shadow: 0 4px 0 #1a1407, 0 6px 12px rgba(0,0,0,0.4);
-      opacity: 0.5;
-    }
+    .login-bg { opacity: 0.35; }
   }
   /* The login card itself floats above the painted floor. */
   .card {
@@ -358,7 +360,6 @@ const LOGIN_EXTRA_CSS = `
   .card h1 {
     margin: 0 0 12px;
     font-size: 1.75rem;
-    letter-spacing: -0.01em;
   }
   .muted {
     color: #6a5530;
