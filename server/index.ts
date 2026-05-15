@@ -45,6 +45,7 @@ import {
 import {
   buildPublicOrigin,
   ensureBootstrapInvite,
+  evictSessionsForUserId,
   hasUnconsumedBootstrapInvite,
   listActiveSessions,
   listInvites,
@@ -1138,6 +1139,14 @@ async function dispatchCommand(
       // sees the target absent and resolves the pending delete cleanly.
       deleteUser(cmd.username);
       broadcast({ type: "users_list", users: listUsers() });
+      // Evict any sessions the deleted user still had open: their
+      // browsers get session_expired + close so they land on the login
+      // wall instead of looping reconnect against a now-orphaned cookie.
+      // Covers both self-delete (member) and owner-deletes-member; the
+      // owner-deletes-self path was already refused above.
+      if (targetUser) {
+        await evictSessionsForUserId(targetUser.id);
+      }
       break;
     }
     case "mint_invite": {

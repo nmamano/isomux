@@ -255,7 +255,10 @@ function safeHashEq(a: string, b: string): boolean {
 // session. Populated at upgrade; cleared at close. Used to force-close on
 // revoke so the WS doesn't keep pumping messages until the next client send.
 
-type ClosableSocket = { close: () => void };
+// `send` is optional so test doubles can register a minimal stub; the real
+// caller (Bun's ServerWebSocket) provides both. The notify-before-close
+// contract below relies on it when present.
+type ClosableSocket = { send?: (data: string) => void; close: () => void };
 const wsBySession = new Map<string, Set<ClosableSocket>>();
 
 export function registerSocket(sessionIdHash: string, ws: ClosableSocket) {
@@ -274,10 +277,21 @@ export function unregisterSocket(sessionIdHash: string, ws: ClosableSocket) {
   if (set.size === 0) wsBySession.delete(sessionIdHash);
 }
 
-function forceCloseSocketsForSession(sessionIdHash: string) {
+// Notify-then-close contract for server-initiated session invalidation:
+// revoke, logout, expiry, orphan-after-user-delete. The client's WS
+// onclose handler (ui/ws.ts) blindly retries on close, so closing without
+// `session_expired` first leaves the browser in a 2s reconnect loop
+// against a 401-returning upgrade. Sending the message first lets the
+// store's reload-to-login effect (ui/store.tsx) take over instead.
+// Both operations are best-effort: a send on a closing socket may throw,
+// a close on an already-closed socket is benign.
+function forceExpireSocketsForSession(sessionIdHash: string) {
   const set = wsBySession.get(sessionIdHash);
   if (!set) return;
   for (const ws of set) {
+    try {
+      ws.send?.(JSON.stringify({ type: "session_expired" }));
+    } catch {}
     try {
       ws.close();
     } catch {}
@@ -692,7 +706,7 @@ export async function revokeSessionByPrefix(
       sessions!.set(hash, prev);
       throw err;
     }
-    forceCloseSocketsForSession(hash);
+    forceExpireSocketsForSession(hash);
     return "ok";
   });
 }
@@ -711,8 +725,43 @@ export async function logoutBySessionHash(
       sessions!.set(sessionIdHash, prev);
       throw err;
     }
-    forceCloseSocketsForSession(sessionIdHash);
+    forceExpireSocketsForSession(sessionIdHash);
     return true;
+  });
+}
+
+// Evict all active sessions belonging to a user. Called by delete_user so
+// the deleted user's open tabs land on the login wall instead of idling
+// with an orphaned session that the per-message recheck would only catch
+// on the next interaction. Each socket gets `session_expired` then close
+// via forceExpireSocketsForSession.
+//
+// Persist-failure semantics differ from logoutBySessionHash/revokeSessionByPrefix
+// on purpose: those are user-requested mutations on otherwise-valid sessions,
+// so a disk write failure rolls them back and surfaces the error. Here the
+// user record is already gone — leaving the in-memory sessions in place
+// would preserve authority for a deleted user until next message-time
+// orphan eviction. Log loudly and continue; the next validateSession on
+// any reused cookie will re-evict the disk row.
+export async function evictSessionsForUserId(userId: string): Promise<number> {
+  return mutate(() => {
+    ensureLoaded();
+    const hashes: string[] = [];
+    for (const [hash, s] of sessions!) {
+      if (s.userId === userId) hashes.push(hash);
+    }
+    if (hashes.length === 0) return 0;
+    for (const hash of hashes) sessions!.delete(hash);
+    try {
+      persistSessions();
+    } catch (err) {
+      console.error(
+        `[auth] evictSessionsForUserId persist failed (userId=${userId}, count=${hashes.length}):`,
+        err,
+      );
+    }
+    for (const hash of hashes) forceExpireSocketsForSession(hash);
+    return hashes.length;
   });
 }
 
@@ -768,17 +817,19 @@ function validateByHash(hash: string): SessionLookup | null {
   const now = Date.now();
   if (session.expiresAt < now || session.absoluteExpiresAt < now) {
     sessions!.delete(hash);
-    forceCloseSocketsForSession(hash);
+    forceExpireSocketsForSession(hash);
     return null;
   }
-  // Resolve user by stable id. A delete-user evicts the session here;
-  // a rename flows the new display name through without disrupting the
-  // session at all.
+  // Resolve user by stable id. delete_user evicts active sessions
+  // proactively via evictSessionsForUserId, so this branch is the
+  // fallback that catches stale-cookie / stale-disk cases where the
+  // user record vanished without the proactive path firing. A rename
+  // flows the new display name through without disrupting the session.
   const user = getUserById(session.userId);
   if (!user) {
     // User record was removed; the session is orphaned and unsafe to honor.
     sessions!.delete(hash);
-    forceCloseSocketsForSession(hash);
+    forceExpireSocketsForSession(hash);
     return null;
   }
   const rollingTtlMs = 30 * 24 * 60 * 60 * 1000;

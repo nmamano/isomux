@@ -174,8 +174,13 @@ export function UserManagementModal({
               }}
             >
               {userList.map((u) => {
-                const isMe =
-                  currentUsername?.toLowerCase() === u.name.toLowerCase();
+                // Post-auth, identity comes from session_context (the cookie's
+                // userId is authoritative). Pre-auth (picker before invite
+                // accept) has no sessionContext; fall back to the localStorage
+                // name so the picker can still highlight the last-used row.
+                const isMe = sessionContext
+                  ? sessionContext.userId === u.id
+                  : currentUsername?.toLowerCase() === u.name.toLowerCase();
                 const isEditing = editingKey === u.name.toLowerCase();
                 return (
                   <div
@@ -229,14 +234,18 @@ export function UserManagementModal({
                           Use
                         </button>
                       )}
-                      <button
-                        onClick={() =>
-                          setEditingKey(isEditing ? null : u.name.toLowerCase())
-                        }
-                        style={smallBtnStyle}
-                      >
-                        {isEditing ? "Close" : "Edit"}
-                      </button>
+                      {(isMe || isOwner || !sessionContext) && (
+                        <button
+                          onClick={() =>
+                            setEditingKey(
+                              isEditing ? null : u.name.toLowerCase(),
+                            )
+                          }
+                          style={smallBtnStyle}
+                        >
+                          {isEditing ? "Close" : "Edit"}
+                        </button>
+                      )}
                     </div>
                     {isEditing && (
                       <UserEditPanel
