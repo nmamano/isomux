@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppState } from "../store.tsx";
 import { send, addRawListener, removeRawListener } from "../ws.ts";
 import {
@@ -420,14 +420,81 @@ function UserEditPanel({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // Holds the server's lockout-prevention reason if delete_user is refused.
+  // Same shape as the logout_blocked / revoke_blocked surfaces elsewhere —
+  // shown inline next to Delete so the boss sees why the row didn't go.
+  const [deleteBlockedReason, setDeleteBlockedReason] = useState<string | null>(
+    null,
+  );
+  // Tracks the requestId of an in-flight delete so we can correlate the
+  // server's delete_user_blocked / users_list responses. Kept in a ref
+  // because it's read inside a raw listener closure that doesn't need to
+  // trigger a re-render when it changes.
+  const pendingDeleteReqRef = useRef<string | null>(null);
+  // Mirror the latest onDeleted into a ref so the raw-listener effect can
+  // mount once and stay subscribed — re-running it on every parent render
+  // (the parent re-creates the callback inline) would churn the listener
+  // and open a tiny race window where a server message lands between
+  // remove + re-add.
+  const onDeletedRef = useRef(onDeleted);
+  useEffect(() => {
+    onDeletedRef.current = onDeleted;
+  }, [onDeleted]);
+  const userNameRef = useRef(user.name);
+  useEffect(() => {
+    userNameRef.current = user.name;
+  }, [user.name]);
+
+  // Correlate the server's response to delete_user. The raw listener fires
+  // before the store dispatch so calling onDeleted here runs synchronously
+  // alongside the users_list state update — the parent batches both into
+  // one render (editingKey cleared + user gone from the list).
+  useEffect(() => {
+    const fn = (data: string) => {
+      // Cheap early-out: skip JSON.parse on every server message when we
+      // don't have a delete in flight.
+      if (!pendingDeleteReqRef.current) return;
+      try {
+        const m = JSON.parse(data);
+        if (
+          m.type === "delete_user_blocked" &&
+          m.requestId === pendingDeleteReqRef.current
+        ) {
+          pendingDeleteReqRef.current = null;
+          setDeleteBlockedReason(
+            typeof m.reason === "string" ? m.reason : "Refused.",
+          );
+          setConfirmDelete(false);
+          return;
+        }
+        if (m.type === "users_list" && Array.isArray(m.users)) {
+          const targetLower = userNameRef.current.toLowerCase();
+          const stillPresent = m.users.some(
+            (u: { name?: unknown }) =>
+              typeof u?.name === "string" &&
+              u.name.toLowerCase() === targetLower,
+          );
+          if (!stillPresent) {
+            pendingDeleteReqRef.current = null;
+            onDeletedRef.current?.();
+          }
+        }
+      } catch {}
+    };
+    addRawListener(fn);
+    return () => removeRawListener(fn);
+  }, []);
 
   function handleDelete() {
     if (!confirmDelete) {
       setConfirmDelete(true);
       return;
     }
-    send({ type: "delete_user", username: user.name });
-    onDeleted?.();
+    if (pendingDeleteReqRef.current) return;
+    const reqId = `delete-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    pendingDeleteReqRef.current = reqId;
+    setDeleteBlockedReason(null);
+    send({ type: "delete_user", requestId: reqId, username: user.name });
   }
 
   // Validate the stored envFile on open.
@@ -622,6 +689,22 @@ function UserEditPanel({
       {error && (
         <p style={{ fontSize: 10, color: "#ff6b6b", margin: "6px 0 0" }}>
           {error}
+        </p>
+      )}
+
+      {deleteBlockedReason && (
+        <p
+          style={{
+            margin: "8px 0 0",
+            padding: "8px 12px",
+            border: "1px solid #ff6b6b",
+            borderRadius: 6,
+            background: "rgba(255,107,107,0.08)",
+            fontSize: 11,
+            color: "#ff6b6b",
+          }}
+        >
+          {deleteBlockedReason}
         </p>
       )}
 

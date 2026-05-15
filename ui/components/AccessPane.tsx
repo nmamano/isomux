@@ -27,6 +27,7 @@ export function AccessPane() {
   // any successful state change (which we proxy via activeSessions length
   // change — a successful revoke shrinks the list).
   const [blockedNote, setBlockedNote] = useState<string | null>(null);
+  const prevSessionsLenRef = useRef<number>(activeSessions.length);
 
   // Lazily fetch the owner-only lists. The session_context reducer resets
   // both loaded flags on every WS open (including reconnects), so this
@@ -50,6 +51,17 @@ export function AccessPane() {
     addRawListener(fn);
     return () => removeRawListener(fn);
   }, []);
+
+  // Auto-clear the banner on any successful active-session change. The
+  // user fixed whatever the rejection was about (typically by minting an
+  // extra invite then retrying the revoke) — keeping the banner up after
+  // the list shrinks is noise.
+  useEffect(() => {
+    const prev = prevSessionsLenRef.current;
+    const curr = activeSessions.length;
+    prevSessionsLenRef.current = curr;
+    if (curr < prev) setBlockedNote(null);
+  }, [activeSessions.length]);
 
   return (
     <div style={{ marginTop: 24 }}>

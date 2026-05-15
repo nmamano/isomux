@@ -1061,13 +1061,38 @@ async function dispatchCommand(
       // Owners can delete any user (except themselves; deleting your own
       // owner record while it's the only owner would brick the office).
       // Members can delete only their own record.
+      //
+      // Every refusal path emits delete_user_blocked so the client can
+      // surface a reason and clear its pending state. Silent breaks here
+      // would hang the panel (handleDelete waits for either blocked or
+      // users_list-with-target-absent before clearing pendingDeleteReqRef).
       const targetIsSelf =
         lowercaseKey(cmd.username) === lowercaseKey(session.username);
-      if (!targetIsSelf && session.role !== "owner") break;
+      if (!targetIsSelf && session.role !== "owner") {
+        ws.send(
+          JSON.stringify({
+            type: "delete_user_blocked",
+            requestId: cmd.requestId,
+            username: cmd.username,
+            reason: "Refused: only owners can delete other users.",
+          }),
+        );
+        break;
+      }
       if (targetIsSelf && session.role === "owner") {
         // Refuse to let the current session erase its own owner record. If
         // the boss wants to transfer ownership they'll go through the (V2)
         // role-change flow.
+        ws.send(
+          JSON.stringify({
+            type: "delete_user_blocked",
+            requestId: cmd.requestId,
+            username: cmd.username,
+            reason:
+              "Refused: an owner can't delete their own user record. " +
+              "Sign out from this session or transfer ownership first.",
+          }),
+        );
         break;
       }
       // Lockout-prevention: refuse deletion that would leave the office
@@ -1078,15 +1103,24 @@ async function dispatchCommand(
       // session-revoke check, applied to user records.
       const targetUser = getUser(cmd.username);
       if (targetUser && wouldDeleteLeaveNoOwner(targetUser.id)) {
-        // No requestId on delete_user; surface as a broadcast-style note
-        // tied to the user the operator was trying to remove. Worst case
-        // the UI shows a stale row until the operator retries — but the
-        // delete didn't happen, which is the safety property we need.
         console.warn(
           `[auth] delete_user "${cmd.username}" refused: would leave office with no owners`,
         );
+        ws.send(
+          JSON.stringify({
+            type: "delete_user_blocked",
+            requestId: cmd.requestId,
+            username: cmd.username,
+            reason:
+              "Refused: this is the last owner record. Promote another " +
+              "user to owner first, then retry.",
+          }),
+        );
         break;
       }
+      // deleteUser is a no-op when the username doesn't exist; the
+      // broadcast below still fires so the client's users_list-watcher
+      // sees the target absent and resolves the pending delete cleanly.
       deleteUser(cmd.username);
       broadcast({ type: "users_list", users: listUsers() });
       break;
@@ -1295,8 +1329,7 @@ const server = Bun.serve({
     // normalized by the parser so path-traversal via .. can't escape /icons/.
     if (
       req.method === "GET" &&
-      (url.pathname === "/manifest.json" ||
-        url.pathname.startsWith("/icons/"))
+      (url.pathname === "/manifest.json" || url.pathname.startsWith("/icons/"))
     ) {
       const f = Bun.file(join(UI_DIST, url.pathname));
       if (await f.exists()) {

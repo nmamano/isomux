@@ -766,6 +766,12 @@ export type ServerMessage =
   // Carries a human-readable reason for the UI to surface.
   | { type: "revoke_blocked"; sessionPrefix: string; reason: string }
   | { type: "logout_blocked"; reason: string }
+  | {
+      type: "delete_user_blocked";
+      requestId?: string;
+      username: string;
+      reason: string;
+    }
   | SettingsSaveResponse
   | SettingsValidationResponse
   | AgentSaveResponse
@@ -988,7 +994,7 @@ export type ClientCommand =
         Pick<UserRecord, "name" | "defaultRoomId" | "notifRooms" | "envFile">
       >;
     }
-  | { type: "delete_user"; username: string }
+  | { type: "delete_user"; requestId?: string; username: string }
   | {
       type: "mint_invite";
       requestId: string;
