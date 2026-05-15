@@ -2040,24 +2040,18 @@ const server = Bun.serve({
 // ISOMUX_PUBLIC_ORIGIN is the canonical public URL the server expects browsers
 // to hit. We compare it against the Origin header on WS upgrades and unsafe
 // HTTP requests, and bake it into invite URLs. When it's unset, we fall back
-// to http://localhost:${PORT}. That's fine for pure-local dev, but a public
-// or tailnet deployment that forgets to set it ships invite URLs pointing at
-// localhost and refuses remote WS upgrades — silent footgun. Warn loudly so
-// the operator notices before users start hitting confusing failures.
+// to http://localhost:${PORT} — local-only single-user setups are a primary
+// use case (run isomux on your laptop, hit it in your own browser, never
+// share). Log one informational line so the operator knows which mode they're
+// in; not a warning — the localhost default is a valid configuration, not a
+// mistake. Remote deployments that forget to set it will see the line and
+// realize they need to.
 if (!process.env.ISOMUX_PUBLIC_ORIGIN) {
-  console.warn("");
-  console.warn(
-    "[auth] WARNING: ISOMUX_PUBLIC_ORIGIN is unset; using http://localhost:" +
+  console.log(
+    "[auth] local-only mode: ISOMUX_PUBLIC_ORIGIN unset, using http://localhost:" +
       PORT +
-      " for cookie/origin checks and invite URLs.",
+      ". Set this env var to your public URL to enable remote browser access.",
   );
-  console.warn(
-    "       For any non-localhost deployment, set this to the public URL the",
-  );
-  console.warn(
-    "       browser uses to reach the server (e.g. https://office.example.com).",
-  );
-  console.warn("");
 }
 
 // Bootstrap invite. If no owner exists in users.json we print an owner-tagged
