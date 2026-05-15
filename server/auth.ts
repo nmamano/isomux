@@ -225,6 +225,29 @@ export function setOnInviteConsumed(cb: () => void): void {
   onInviteConsumedHook = cb;
 }
 
+// Fired whenever the active-sessions set changes via server-initiated
+// invalidation: revoke, logout, evict-after-delete, hot-path expiry,
+// hot-path orphan cleanup. The dispatcher wires this to broadcast a
+// fresh sessions_active_list to owners so their AccessPane sessions
+// table stays current without each call site having to remember.
+// Mirrors setOnInviteConsumed; bare signal because the broadcast fans
+// out the full filtered list via listActiveSessions().
+let onSessionsChangedHook: () => void = () => {};
+
+export function setOnSessionsChanged(cb: () => void): void {
+  onSessionsChangedHook = cb;
+}
+
+// Wrap the broadcast call so a hook exception (network, serialization)
+// cannot fail the auth mutation that triggered it. Logs and continues.
+function fireSessionsChangedHook(): void {
+  try {
+    onSessionsChangedHook();
+  } catch (err) {
+    console.error("[auth] onSessionsChangedHook threw:", err);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Token / hashing primitives
 
@@ -707,6 +730,7 @@ export async function revokeSessionByPrefix(
       throw err;
     }
     forceExpireSocketsForSession(hash);
+    fireSessionsChangedHook();
     return "ok";
   });
 }
@@ -726,6 +750,7 @@ export async function logoutBySessionHash(
       throw err;
     }
     forceExpireSocketsForSession(sessionIdHash);
+    fireSessionsChangedHook();
     return true;
   });
 }
@@ -761,6 +786,9 @@ export async function evictSessionsForUserId(userId: string): Promise<number> {
       );
     }
     for (const hash of hashes) forceExpireSocketsForSession(hash);
+    // Fire once per batch — the broadcast replaces the whole list, so
+    // per-hash firing would just be redundant fanout.
+    fireSessionsChangedHook();
     return hashes.length;
   });
 }
@@ -818,6 +846,10 @@ function validateByHash(hash: string): SessionLookup | null {
   if (session.expiresAt < now || session.absoluteExpiresAt < now) {
     sessions!.delete(hash);
     forceExpireSocketsForSession(hash);
+    // Memory changed even though we don't persist here (hot-path: the
+    // throttled-persist further down covers steady-state drift); the
+    // owner UI still wants the row removed from its sessions table.
+    fireSessionsChangedHook();
     return null;
   }
   // Resolve user by stable id. delete_user evicts active sessions
@@ -830,6 +862,7 @@ function validateByHash(hash: string): SessionLookup | null {
     // User record was removed; the session is orphaned and unsafe to honor.
     sessions!.delete(hash);
     forceExpireSocketsForSession(hash);
+    fireSessionsChangedHook();
     return null;
   }
   const rollingTtlMs = 30 * 24 * 60 * 60 * 1000;

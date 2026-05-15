@@ -59,6 +59,7 @@ import {
   revokeSessionByPrefix,
   sessionContextFor,
   setOnInviteConsumed,
+  setOnSessionsChanged,
   unregisterSocket,
   validateSession,
   wouldRevokeLeaveOfficeUnreachable,
@@ -81,6 +82,18 @@ runPreUseridBackupIfNeeded();
 // the consumed invite drop off the Outstanding list.
 setOnInviteConsumed(() => {
   broadcastToOwners({ type: "invites_list", invites: listInvites() });
+  broadcastToOwners({
+    type: "sessions_active_list",
+    sessions: listActiveSessions(),
+  });
+});
+
+// Owner AccessPane sessions table stays fresh on any server-initiated
+// session invalidation: revoke, logout, delete-user fanout, and the
+// hot-path expiry / orphan branches in validateByHash. Without this,
+// e.g. deleting a member silently leaves their row in the table until
+// the owner reloads.
+setOnSessionsChanged(() => {
   broadcastToOwners({
     type: "sessions_active_list",
     sessions: listActiveSessions(),
