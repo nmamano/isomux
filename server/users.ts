@@ -53,6 +53,15 @@ type RawUserRecord = Partial<UserRecord> & { name?: unknown };
 function load(): Record<string, UserRecord> {
   if (loaded) return users;
   loaded = true;
+  // Parse + normalize happens inside a try/catch so a corrupt or
+  // unreadable users.json falls back to an empty map (current behavior:
+  // surface the error in the log, then let the server continue with no
+  // users). The migration persist is OUTSIDE that catch so a write
+  // failure during the one-shot upgrade does NOT silently empty the
+  // in-memory map — it propagates to the caller (server boot) and
+  // halts the process. Operator restores from the pre-userid backup
+  // bundle or fixes filesystem perms before retrying.
+  let migratedAny = false;
   try {
     if (!existsSync(USERS_FILE)) {
       users = {};
@@ -64,7 +73,6 @@ function load(): Record<string, UserRecord> {
     >;
     const result: Record<string, UserRecord> = {};
     const existingIds: string[] = [];
-    let migratedAny = false;
     // First pass: collect any ids that are already present, so the id
     // generator doesn't collide with them on the second pass.
     for (const value of Object.values(parsed)) {
@@ -104,15 +112,17 @@ function load(): Record<string, UserRecord> {
       };
     }
     users = result;
-    if (migratedAny) {
-      // Persist the upgraded format immediately so any caller that reads
-      // users.json off-disk after this point sees the new shape. Throws
-      // on failure — migration must not silently fall back.
-      persist();
-    }
   } catch (err) {
     console.error("Failed to load users.json:", err);
     users = {};
+    return users;
+  }
+  if (migratedAny) {
+    // Outside the parse-catch on purpose: if this write fails, propagate
+    // so server boot aborts. Continuing with the migration applied in
+    // memory but absent from disk would let acceptInvite issue sessions
+    // for owners whose id-keyed shape vanishes on the next restart.
+    persist();
   }
   return users;
 }
