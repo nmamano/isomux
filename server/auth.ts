@@ -213,6 +213,19 @@ function ensureLoaded() {
 }
 
 // ---------------------------------------------------------------------------
+// Hooks for the dispatcher to be notified of acceptance events. Used so
+// index.ts can broadcast updated invite/session lists to owner WSes when
+// an invite is consumed via HTTP (which never touches the WS dispatch
+// path and therefore wouldn't otherwise trigger a fan-out). Defaults to
+// no-op so auth.ts stays standalone; index.ts overrides at boot.
+
+let onInviteConsumedHook: () => void = () => {};
+
+export function setOnInviteConsumed(cb: () => void): void {
+  onInviteConsumedHook = cb;
+}
+
+// ---------------------------------------------------------------------------
 // Token / hashing primitives
 
 const TOKEN_BYTES = 32; // 256 bits of entropy
@@ -598,6 +611,18 @@ export async function acceptInvite(
         );
       }
       throw err;
+    }
+
+    // Fire the post-accept hook so the dispatcher in index.ts can fan an
+    // updated invite/session list out to owner WSes. Without this, a
+    // browser that minted the invite while a *separate* browser opens
+    // /auth/accept would never see its Access pane refresh — that flow
+    // doesn't touch the WS dispatch path and was the gap in the
+    // earlier "real-time invites" fix (which only covered reconnect).
+    try {
+      onInviteConsumedHook();
+    } catch (err) {
+      console.error("[auth] onInviteConsumedHook threw:", err);
     }
 
     return {

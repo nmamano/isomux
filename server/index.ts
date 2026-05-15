@@ -57,6 +57,7 @@ import {
   revokeInviteByPrefix,
   revokeSessionByPrefix,
   sessionContextFor,
+  setOnInviteConsumed,
   unregisterSocket,
   validateSession,
   wouldRevokeLeaveOfficeUnreachable,
@@ -70,6 +71,20 @@ import { lowercaseKey } from "../shared/identity.ts";
 // future eager-load refactors. Keep this near the top of the module body
 // and audit if any imported module starts loading eagerly.
 runPreUseridBackupIfNeeded();
+
+// When an invite is consumed (typically via HTTP POST /auth/accept,
+// which never touches the WS dispatch loop), fan out an updated
+// invites_list to every owner WS so their Access pane re-renders in
+// real time. Without this hook, a browser that minted an invite while a
+// *separate* browser opened the /i/ URL would have to reconnect to see
+// the consumed invite drop off the Outstanding list.
+setOnInviteConsumed(() => {
+  broadcastToOwners({ type: "invites_list", invites: listInvites() });
+  broadcastToOwners({
+    type: "sessions_active_list",
+    sessions: listActiveSessions(),
+  });
+});
 
 // Each WS carries the session it was authenticated with at upgrade time. The
 // session reference is used per-message (so revoke kicks in on the next msg)
@@ -2050,7 +2065,7 @@ if (!process.env.ISOMUX_PUBLIC_ORIGIN) {
   console.log(
     "[auth] local-only mode: ISOMUX_PUBLIC_ORIGIN unset, using http://localhost:" +
       PORT +
-      ". Set this env var to your public URL to enable remote browser access.",
+      ". Set this env var to your public URL to enable remote browser access. See docs/access-and-invites.md.",
   );
 }
 
