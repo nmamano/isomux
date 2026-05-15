@@ -1286,6 +1286,30 @@ const server = Bun.serve({
     const authResponse = await tryHandleAuthRoute(req, url);
     if (authResponse) return authResponse;
 
+    // PWA manifest + app icons: iOS Safari fetches these out-of-band when
+    // "Add to Home Screen" runs, and the apple-touch-icon fetch in particular
+    // can happen without the page's cookies. If 401'd here the PWA tile
+    // shows a generic icon and the manifest's name/colors don't apply.
+    // Whitelisted unauthenticated; they're public marketing-grade assets
+    // baked at build time and contain no deployment state. URL.pathname is
+    // normalized by the parser so path-traversal via .. can't escape /icons/.
+    if (
+      req.method === "GET" &&
+      (url.pathname === "/manifest.json" ||
+        url.pathname.startsWith("/icons/"))
+    ) {
+      const f = Bun.file(join(UI_DIST, url.pathname));
+      if (await f.exists()) {
+        return new Response(f, {
+          headers: {
+            "Content-Type": mimeTypeForFilename(url.pathname),
+            "Cache-Control": "public, max-age=31536000, immutable",
+          },
+        });
+      }
+      // fall through to the 404 path below if the asset isn't on disk
+    }
+
     // Loopback bypass is intentionally narrow: it only applies to API paths
     // agents legitimately hit from the same box (POST /tasks, /cronjobs read
     // routes, /agents/:id/* in-process actions). The SPA shell still requires
