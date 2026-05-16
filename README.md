@@ -76,6 +76,8 @@ Visit **http://localhost:4000** in your browser. The first time you start the se
 
 To invite other people (so they can use the office without joining your VPN), open `User Settings` → `Access` and issue invite URLs from there. Full details in [`docs/access-and-invites.md`](docs/access-and-invites.md).
 
+To expose the office to the public internet so invite links work from anywhere (without buying a domain or opening router ports), paste the Tailscale Funnel agent prompt from [`docs/access-and-invites.md`](docs/access-and-invites.md#recommended-tailscale-funnel) into one of your agents. Cloudflare Tunnel and Caddy alternatives are documented in the same file.
+
 For persistent server setup (systemd + reverse proxy) and voice input configuration, see [isomux.com](https://isomux.com).
 
 > **Note:** Isomux gives shell-equivalent access to authenticated users. Only invite people you trust.

@@ -18,6 +18,7 @@ import type {
   SessionContext,
 } from "../shared/types.ts";
 import { atomicWriteFileSync } from "./persistence.ts";
+import { normalizePublicOrigin } from "../shared/public-origin.ts";
 import {
   claimUser,
   getUserById,
@@ -1033,12 +1034,62 @@ export function resolveSessionHashByPrefix(prefix: string): string | null {
 
 export const COOKIE_NAME = "isomux_session";
 
-export function buildPublicOrigin(): { origin: string; isHttps: boolean } {
+// Precedence: process.env.ISOMUX_PUBLIC_ORIGIN > office-config.json's
+// `publicOrigin` (registered via setPublicOriginFallback at boot) >
+// localhost fallback. Both env and config are operator-authored; we never
+// infer the origin from request headers. Both go through the same
+// validator — a malformed env value falls through to config rather than
+// poisoning the Origin allowlist with e.g. `https://host/path`.
+let cachedFallbackOrigin: string | null = null;
+let envEvaluated = false;
+let envCachedOrigin: string | null = null;
+
+export function setPublicOriginFallback(origin: string | null): void {
+  cachedFallbackOrigin = origin;
+}
+
+function evaluateEnvOrigin(): string | null {
+  if (envEvaluated) return envCachedOrigin;
+  envEvaluated = true;
   const raw = process.env.ISOMUX_PUBLIC_ORIGIN?.trim();
+  if (!raw) {
+    envCachedOrigin = null;
+    return null;
+  }
+  const normalized = normalizePublicOrigin(raw);
+  if (!normalized) {
+    console.error(
+      `[auth] ISOMUX_PUBLIC_ORIGIN="${raw}" is not a valid public origin (need https://<host> or http://localhost; no path/query/fragment); ignoring`,
+    );
+    envCachedOrigin = null;
+    return null;
+  }
+  envCachedOrigin = normalized;
+  return normalized;
+}
+
+export function buildPublicOrigin(): {
+  origin: string;
+  isHttps: boolean;
+  source: "env" | "config" | "localhost";
+} {
+  const envOrigin = evaluateEnvOrigin();
+  if (envOrigin) {
+    return {
+      origin: envOrigin,
+      isHttps: envOrigin.startsWith("https://"),
+      source: "env",
+    };
+  }
+  if (cachedFallbackOrigin) {
+    return {
+      origin: cachedFallbackOrigin,
+      isHttps: cachedFallbackOrigin.startsWith("https://"),
+      source: "config",
+    };
+  }
   const fallback = `http://localhost:${process.env.PORT || "4000"}`;
-  const origin =
-    raw && /^https?:\/\//i.test(raw) ? raw.replace(/\/$/, "") : fallback;
-  return { origin, isHttps: origin.startsWith("https://") };
+  return { origin: fallback, isHttps: false, source: "localhost" };
 }
 
 // Build the Set-Cookie header value. Caller picks Max-Age (we anchor to the

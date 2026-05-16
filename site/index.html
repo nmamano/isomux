@@ -1244,6 +1244,101 @@ that auto-rebuilds the UI on start and restarts on failure. Enable
 lingering so it survives logout.</pre
           >
 
+          <h3>4. Expose it to the public internet (optional)</h3>
+          <p>
+            By default the office is reachable only from devices on your
+            tailnet. To let people use invite links from anywhere on the
+            internet, expose it via
+            <a
+              href="https://tailscale.com/kb/1223/funnel"
+              target="_blank"
+              rel="noopener"
+              >Tailscale Funnel</a
+            >. No domain to buy, no router port-forwarding. Tailscale's relay
+            forwards an encrypted TCP tunnel to your box, where the local
+            Tailscale daemon terminates TLS — the relay never sees plaintext.
+            Your existing
+            <code
+              style="
+                background: var(--bg);
+                padding: 1px 6px;
+                border-radius: 4px;
+                font-size: 0.85em;
+              "
+              >*.ts.net</code
+            >
+            hostname becomes publicly resolvable.
+          </p>
+          <p style="margin-top: 12px">
+            Give this prompt to one of your Isomux agents:
+          </p>
+          <pre>
+Set up Tailscale Funnel so my isomux office is publicly reachable
+from the internet.
+
+Steps:
+
+1. If tailscale isn't installed, install it and pause to ask me to
+   authenticate.
+
+2. Confirm my tailnet has MagicDNS + HTTPS certs enabled in the
+   admin console. Walk me through if needed.
+
+3. Confirm the tailnet policy has a `funnel` nodeAttr covering
+   this device. Ask me to add it if not.
+
+4. Run `tailscale serve status` and `tailscale funnel status` to
+   see what's currently configured. Enabling Funnel on port 443
+   will either make every other path/mapping on port 443
+   publicly reachable, or replace them entirely (Tailscale's
+   docs: a port is either all-private Serve or all-public
+   Funnel, never mixed). If port 443 has any mappings beyond the
+   one pointing at isomux (default localhost:4000), list each by
+   name and target. Stop and ask before continuing. For each
+   extra mapping I need to choose one of: (a) confirm it's safe
+   to expose publicly, (b) move it to a different port and
+   update the Serve config, or (c) remove it. If moving to a
+   different port, prefer a port outside Tailscale's
+   Funnel-eligible list (avoid 443, 8443, 10000) so a future
+   Funnel command can't accidentally expose it.
+
+5. Once port 443 carries only the isomux mapping, run:
+   `tailscale funnel --bg http://localhost:4000`
+
+6. Capture the public URL from `tailscale funnel status --json`.
+
+7. Update ~/.config/systemd/user/isomux.service.d/override.conf
+   so it sets `Environment="ISOMUX_PUBLIC_ORIGIN=&lt;url&gt;"`. Create
+   the directory if needed; preserve any other lines in the
+   file. If the value already matches, skip the write.
+
+8. Run `systemctl --user daemon-reload`.
+
+9. Ask me before restarting isomux (interrupts active agents).
+   Skip the restart if the running service already has the right
+   `ISOMUX_PUBLIC_ORIGIN` (check with
+   `systemctl --user show isomux -p Environment`).
+
+10. Verify the public URL responds. Ask me to test from a device
+    not on the tailnet (phone on cellular, or any non-tailnet
+    machine). A curl from the box itself goes over the tailnet
+    path and isn't a true public-reachability check.</pre
+          >
+          <p
+            style="margin-top: 8px; color: var(--text-dim); font-size: 0.85rem"
+          >
+            Funnel is currently in beta and has non-configurable bandwidth
+            limits, but those limits accommodate isomux's WebSocket traffic at
+            typical personal and small-team scale. Cloudflare Tunnel, Caddy, and
+            other reverse-proxy setups are documented as alternatives in
+            <a
+              href="https://github.com/nmamano/isomux/blob/main/docs/access-and-invites.md"
+              target="_blank"
+              rel="noopener"
+              >docs/access-and-invites.md</a
+            >.
+          </p>
+
           <details class="section-collapse" style="margin-top: 24px">
             <summary>
               <h3 style="display: inline">

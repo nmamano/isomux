@@ -13,6 +13,7 @@ import {
   saveRecentCwd,
   getFilePath,
   saveFile,
+  loadServerConfig,
 } from "./persistence.ts";
 import type { Attachment } from "../shared/types.ts";
 import {
@@ -60,6 +61,7 @@ import {
   sessionContextFor,
   setOnInviteConsumed,
   setOnSessionsChanged,
+  setPublicOriginFallback,
   unregisterSocket,
   validateSession,
   wouldRevokeLeaveOfficeUnreachable,
@@ -73,6 +75,12 @@ import { lowercaseKey } from "../shared/identity.ts";
 // future eager-load refactors. Keep this near the top of the module body
 // and audit if any imported module starts loading eagerly.
 runPreUseridBackupIfNeeded();
+
+// Register the office-config.json `publicOrigin` fallback before any
+// auth/origin code runs. Order matters: the local-only-mode log below and
+// the bootstrap invite URL both read buildPublicOrigin(); without this
+// call, a config-file-written publicOrigin would be ignored on first boot.
+setPublicOriginFallback(loadServerConfig().publicOrigin);
 
 // When an invite is consumed (typically via HTTP POST /auth/accept,
 // which never touches the WS dispatch loop), fan out an updated
@@ -2074,21 +2082,27 @@ const server = Bun.serve({
   },
 });
 
-// ISOMUX_PUBLIC_ORIGIN is the canonical public URL the server expects browsers
-// to hit. We compare it against the Origin header on WS upgrades and unsafe
-// HTTP requests, and bake it into invite URLs. When it's unset, we fall back
-// to http://localhost:${PORT} — local-only single-user setups are a primary
-// use case (run isomux on your laptop, hit it in your own browser, never
-// share). Log one informational line so the operator knows which mode they're
-// in; not a warning — the localhost default is a valid configuration, not a
-// mistake. Remote deployments that forget to set it will see the line and
-// realize they need to.
-if (!process.env.ISOMUX_PUBLIC_ORIGIN) {
-  console.log(
-    "[auth] local-only mode: ISOMUX_PUBLIC_ORIGIN unset, using http://localhost:" +
-      PORT +
-      ". Set this env var to your public URL to enable remote browser access. See docs/access-and-invites.md.",
-  );
+// The public origin is the canonical URL the server expects browsers to hit.
+// We compare it against the Origin header on WS upgrades and unsafe HTTP
+// requests, and bake it into invite URLs. Resolution precedence is env >
+// office-config.json `publicOrigin` > localhost fallback. Log one
+// informational line so the operator knows which mode they're in; localhost
+// is a valid configuration for single-user setups, not a mistake.
+{
+  const resolved = buildPublicOrigin();
+  if (resolved.source === "env") {
+    console.log(
+      `[auth] using ISOMUX_PUBLIC_ORIGIN from env: ${resolved.origin}`,
+    );
+  } else if (resolved.source === "config") {
+    console.log(
+      `[auth] using publicOrigin from office-config.json: ${resolved.origin}`,
+    );
+  } else {
+    console.log(
+      `[auth] local-only mode: no public origin configured, using ${resolved.origin}. See docs/access-and-invites.md for the Tailscale Funnel agent prompt or other remote-access options.`,
+    );
+  }
 }
 
 // Bootstrap invite. If no owner exists in users.json we print an owner-tagged

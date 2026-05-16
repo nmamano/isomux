@@ -56,11 +56,77 @@ Inviting a user who already exists requires the `Issue an additional invite` con
 
 ## Reachability
 
-Auth gates who can use the office once they reach it. Getting the box itself reachable from outside your home network is a separate problem with several solutions. Pick one:
+Auth gates who can use the office once they reach it. Getting the box itself reachable from outside your home network is a separate problem.
 
-### Option A: Tailscale (recommended if you already use it)
+### Recommended: Tailscale Funnel
 
-Run the box on your tailnet. Anyone who needs access has to be on the same tailnet. Invites still apply on top — this is double-gating, which is fine. Set:
+Funnel exposes a single port on a Tailscale machine to the public internet over the box's existing `*.ts.net` hostname. Free, no domain to buy, no router port-forwarding, no inbound IP exposure. Tailscale's relay forwards an encrypted TCP tunnel between the visitor and your node; TLS terminates on your box, not at the relay, so the relay cannot read traffic in flight.
+
+Trade-offs:
+
+- **Dependency on Tailscale's relay and control plane.** Your reachability is contingent on Tailscale's infrastructure being up and on Tailscale not changing the free tier in adverse ways.
+- **Beta status.** Funnel has been in beta since Tailscale v1.38.3 (April 2023) and is still beta as of v1.96+. No SLA, behavior can change.
+- **Non-configurable bandwidth limits.** Tailscale doesn't publish the cap, but it's generous enough that the WebSocket traffic isomux generates doesn't realistically hit it at personal or small-team scale.
+- **Public DNS visibility.** Your `*.ts.net` hostname (and therefore your tailnet name) becomes resolvable from the public internet and appears in Certificate Transparency logs once Tailscale provisions a Let's Encrypt cert.
+
+To set this up, paste the following prompt into one of your isomux agents. The agent will install Tailscale if needed, walk you through enabling Funnel in the admin console, detect any existing services sharing port 443, and finish by capturing the public URL into your server config.
+
+```
+Set up Tailscale Funnel so my isomux office is publicly reachable
+from the internet.
+
+Steps:
+
+1. If tailscale isn't installed, install it and pause to ask me to
+   authenticate.
+
+2. Confirm my tailnet has MagicDNS + HTTPS certs enabled in the
+   admin console. Walk me through if needed.
+
+3. Confirm the tailnet policy has a `funnel` nodeAttr covering
+   this device. Ask me to add it if not.
+
+4. Run `tailscale serve status` and `tailscale funnel status` to
+   see what's currently configured. Enabling Funnel on port 443
+   will either make every other path/mapping on port 443
+   publicly reachable, or replace them entirely (Tailscale's
+   docs: a port is either all-private Serve or all-public
+   Funnel, never mixed). If port 443 has any mappings beyond the
+   one pointing at isomux (default localhost:4000), list each by
+   name and target. Stop and ask before continuing. For each
+   extra mapping I need to choose one of: (a) confirm it's safe
+   to expose publicly, (b) move it to a different port and
+   update the Serve config, or (c) remove it. If moving to a
+   different port, prefer a port outside Tailscale's
+   Funnel-eligible list (avoid 443, 8443, 10000) so a future
+   Funnel command can't accidentally expose it.
+
+5. Once port 443 carries only the isomux mapping, run:
+   `tailscale funnel --bg http://localhost:4000`
+
+6. Capture the public URL from `tailscale funnel status --json`.
+
+7. Update ~/.config/systemd/user/isomux.service.d/override.conf
+   so it sets `Environment="ISOMUX_PUBLIC_ORIGIN=<url>"`. Create
+   the directory if needed; preserve any other lines in the
+   file. If the value already matches, skip the write.
+
+8. Run `systemctl --user daemon-reload`.
+
+9. Ask me before restarting isomux (interrupts active agents).
+   Skip the restart if the running service already has the right
+   `ISOMUX_PUBLIC_ORIGIN` (check with
+   `systemctl --user show isomux -p Environment`).
+
+10. Verify the public URL responds. Ask me to test from a device
+    not on the tailnet (phone on cellular, or any non-tailnet
+    machine). A curl from the box itself goes over the tailnet
+    path and isn't a true public-reachability check.
+```
+
+### Alternative: Tailscale, tailnet-only (no public URL)
+
+If you don't want a public URL at all, run isomux on your tailnet and only invite people who are willing to join. Tailscale Serve gives you HTTPS at `https://auntie.<your-tailnet>.ts.net`. Tell isomux about it:
 
 ```
 ISOMUX_PUBLIC_ORIGIN=https://auntie.<your-tailnet>.ts.net
@@ -72,21 +138,21 @@ or for plain HTTP over the tailnet:
 ISOMUX_PUBLIC_ORIGIN=http://auntie:4000
 ```
 
-### Option B: Cloudflare Tunnel (recommended for new setups)
+Invite links still work over the tailnet, but invitees have to install Tailscale and join your tailnet first.
 
-Tunnel dials out from the box to Cloudflare's edge — no inbound port-forward, no public IP exposure, free TLS. Trade-off: Cloudflare terminates TLS at their edge and can technically see plaintext between their edge and your origin.
+### Alternative: Cloudflare Tunnel
 
-Install `cloudflared`, run `cloudflared tunnel login`, create a tunnel, route a hostname to `localhost:4000`. Set:
+Same outbound-tunnel shape as Funnel, but with Cloudflare's edge instead of Tailscale's. Requires a domain on a Cloudflare-managed zone (the auto-generated `<uuid>.cfargotunnel.com` URL is only a CNAME target, not directly browsable, and `trycloudflare.com` quick tunnels do not support the WebSocket traffic isomux relies on). The trade-off is a domain you have to buy and manage, plus Cloudflare's edge can technically see plaintext between its proxy and your origin.
+
+To set up by hand: install `cloudflared`, run `cloudflared tunnel login`, create a named tunnel, route your hostname to `localhost:4000`, then set:
 
 ```
 ISOMUX_PUBLIC_ORIGIN=https://your-tunnel-hostname.example.com
 ```
 
-A bundled setup wizard for this is tracked as a separate task; for now follow the upstream Cloudflare docs.
+### Alternative: Caddy + your own DNS
 
-### Option C: Caddy + your own DNS
-
-Open port 443 on your router, point a DNS A record at your home IP (or use a DDNS provider), put Caddy in front of isomux:
+No third-party hop in the data path. You open port 443 on your router, point a DNS A record at your home IP (or use DDNS for a dynamic IP), and run Caddy in front of isomux:
 
 ```
 office.example.com {
@@ -100,20 +166,26 @@ Caddy auto-provisions a Let's Encrypt cert. Set:
 ISOMUX_PUBLIC_ORIGIN=https://office.example.com
 ```
 
-You own everything. Trade-off: your home IP is publicly visible and you carry the DDoS surface.
+You own the stack end-to-end. Trade-offs: your home IP is publicly visible, you carry any DDoS surface, and this path fails entirely if your ISP puts you behind CG-NAT (so you can't port-forward in the first place).
 
 ## ISOMUX_PUBLIC_ORIGIN
 
-The server reads this env var at startup to compute:
+The server resolves the public origin at startup with this precedence:
+
+1. `ISOMUX_PUBLIC_ORIGIN` env var. This is what the Tailscale Funnel agent prompt above writes (into `~/.config/systemd/user/isomux.service.d/override.conf`), and also what you'd set in your shell rc or another systemd `Environment=` directive.
+2. `publicOrigin` in `~/.isomux/office-config.json`. A manual fallback you'd reach for if you're running isomux outside systemd (or otherwise can't set the env var). Edit the file directly — the agent safety hook blocks isomux agents from writing into `~/.isomux/`.
+3. Fallback to `http://localhost:${PORT}` (default `http://localhost:4000`).
+
+The resolved value drives:
 
 - The Origin allowlist for WebSocket upgrades.
 - The Origin allowlist for state-changing HTTP requests.
-- Whether the session cookie's `Secure` attribute should be set (`Secure` on `https://`, omitted on `http://localhost`).
+- Whether the session cookie's `Secure` attribute is set (set on `https://`, omitted on `http://localhost`).
 - The base URL for invite URLs.
 
-If unset, the server falls back to `http://localhost:${PORT}` (default `http://localhost:4000`). The fallback only makes sense for localhost-only deployments — for any networked use, set this explicitly.
+Both the env var and the config key are **operator-authored configuration**. The server never infers the origin from `Host` or `X-Forwarded-Host` headers, since that's how WebSocket-hijacking bugs happen. An invalid `publicOrigin` in `office-config.json` is logged and ignored at boot; the server degrades to the localhost fallback unless the env var supplies a valid value.
 
-**Do not** infer the origin from `Host` or `X-Forwarded-Host` headers — that's how WebSocket-hijacking bugs happen. The operator sets `ISOMUX_PUBLIC_ORIGIN` once at deploy.
+The localhost fallback only makes sense for single-user laptop setups. For any networked use, set one of the two paths explicitly. The Tailscale Funnel agent prompt above is the easiest way to get a valid HTTPS origin without touching DNS or routers by hand.
 
 ## State files
 

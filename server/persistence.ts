@@ -20,6 +20,7 @@ import type {
 } from "../shared/types.ts";
 import { familyFromLegacyModel, generateRoomId } from "../shared/types.ts";
 import { errMessage } from "../shared/errors.ts";
+import { normalizePublicOrigin } from "../shared/public-origin.ts";
 
 const ISOMUX_DIR = join(homedir(), ".isomux");
 const LOGS_DIR = join(ISOMUX_DIR, "logs");
@@ -590,6 +591,14 @@ export function saveRecentCwd(cwd: string) {
 // Office-level settings (prompt + env file path) stored in office-config.json.
 // On first load, if the legacy office-prompt.md exists and no config file does,
 // fold the .md content into the JSON and leave the .md in place as a one-time backup.
+//
+// The same file also carries deployment-level keys not edited via the UI
+// (currently `publicOrigin`, used as a fallback for `ISOMUX_PUBLIC_ORIGIN`
+// when the env var is unset — see docs/access-and-invites.md). Those keys
+// are NOT part of OfficeSettings; `loadOfficeConfig`/`saveOfficeConfig`
+// only surface prompt + envFile to the UI-mutated office state. Save uses
+// a read-modify-write so sibling keys outside OfficeSettings survive UI
+// saves.
 export function loadOfficeConfig(): OfficeSettings {
   try {
     if (existsSync(OFFICE_CONFIG_FILE)) {
@@ -634,10 +643,88 @@ export function loadOfficeConfig(): OfficeSettings {
 
 export function saveOfficeConfig(config: OfficeSettings) {
   try {
-    atomicWriteFileSync(OFFICE_CONFIG_FILE, JSON.stringify(config, null, 2));
+    const merged = {
+      ...readOfficeConfigRaw(),
+      prompt: config.prompt,
+      envFile: config.envFile,
+    };
+    atomicWriteFileSync(OFFICE_CONFIG_FILE, JSON.stringify(merged, null, 2));
   } catch (err) {
     console.error("Failed to save office config:", err);
   }
+}
+
+// Server/deployment config that shares office-config.json but isn't part of
+// the UI-mutated OfficeSettings. Currently just `publicOrigin`, used as a
+// fallback when `ISOMUX_PUBLIC_ORIGIN` is unset in the environment. Server
+// reads at boot only; writes are operator-authored (direct file edit, or
+// future tooling that runs outside the agent safety-hook sandbox).
+
+export interface ServerConfig {
+  publicOrigin: string | null;
+}
+
+// Re-read the raw JSON object so save paths can do a read-modify-write that
+// preserves unrelated sibling keys (e.g. `publicOrigin` when the UI saves
+// prompt/envFile, or vice versa). Always returns a plain object — missing
+// file or parse failure both map to `{}`.
+function readOfficeConfigRaw(): Record<string, unknown> {
+  try {
+    if (!existsSync(OFFICE_CONFIG_FILE)) return {};
+    const parsed = JSON.parse(readFileSync(OFFICE_CONFIG_FILE, "utf-8"));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+// Read `publicOrigin` from office-config.json. Invalid values (path, query,
+// non-localhost http, malformed URL) are logged and ignored, returning null
+// so server boot degrades to the localhost fallback rather than throwing.
+export function loadServerConfig(): ServerConfig {
+  const raw = readOfficeConfigRaw();
+  if (!("publicOrigin" in raw)) return { publicOrigin: null };
+  const candidate = raw.publicOrigin;
+  if (candidate === null) return { publicOrigin: null };
+  if (typeof candidate !== "string") {
+    console.error(
+      "[server-config] publicOrigin in office-config.json is not a string; ignoring",
+    );
+    return { publicOrigin: null };
+  }
+  const normalized = normalizePublicOrigin(candidate);
+  if (!normalized) {
+    console.error(
+      `[server-config] publicOrigin "${candidate}" in office-config.json is not a valid public origin (need https://<host> or http://localhost); ignoring`,
+    );
+    return { publicOrigin: null };
+  }
+  return { publicOrigin: normalized };
+}
+
+// Persist `publicOrigin` to office-config.json, preserving all other keys.
+// Validated here as defense in depth — callers should fail loudly rather
+// than persist a value the server would later silently drop. Not currently
+// reached from the running server; exposed for tooling that writes the
+// fallback from outside the agent safety hook (which blocks writes into
+// ~/.isomux/ from agent sessions).
+export function saveServerConfig(config: ServerConfig) {
+  let nextValue: string | null;
+  if (config.publicOrigin === null) {
+    nextValue = null;
+  } else {
+    const normalized = normalizePublicOrigin(config.publicOrigin);
+    if (!normalized) {
+      throw new Error(
+        `invalid publicOrigin: ${config.publicOrigin} (need https://<host> or http://localhost)`,
+      );
+    }
+    nextValue = normalized;
+  }
+  const merged = { ...readOfficeConfigRaw(), publicOrigin: nextValue };
+  atomicWriteFileSync(OFFICE_CONFIG_FILE, JSON.stringify(merged, null, 2));
 }
 
 // Minimal dotenv parser. Supports KEY=VALUE, comments (#), export prefix,
