@@ -16,6 +16,7 @@ import {
   wouldRevokeLeaveOfficeUnreachable,
   type SessionLookup,
 } from "./auth.ts";
+import { hasOwner } from "./users.ts";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
@@ -343,15 +344,22 @@ function renderLoginPage(officeName: string | null): string {
   // The visible page body remains generic — the backdrop is a baked
   // screenshot of the office UI served from /auth/login-bg.png (the same
   // asset isomux.com uses on its marketing page) so it reveals nothing
-  // about this specific deployment. The office name is surfaced only via
-  // the browser-tab title for consistency with the SPA shell.
+  // about this specific deployment. Once an owner exists, the office name is
+  // surfaced only via the browser-tab title for consistency with the SPA shell.
+  const hasOfficeOwner = hasOwner();
   const body = `
     <div class="login-bg" aria-hidden="true"></div>
     <main class="card">
       <h1>Isomux</h1>
-      <p>This office requires an invite link.</p>
+      ${
+        hasOfficeOwner
+          ? `<p>This office requires an invite link.</p>
       <p>If the owner sent you a URL, open it. Each invite link signs you in on the device that opens it.</p>
-      <p class="muted">If you don't have one, ask the office owner to issue one from the Access pane.</p>
+      <p class="muted">If you don't have one, ask the office owner to issue one from the Access pane.</p>`
+          : `<p>No owner exists for this office yet.</p>
+      <p>The server printed a one-time bootstrap URL to its log on startup. Open that URL to claim ownership.</p>
+      <p class="muted">For the systemd service, check <code>journalctl --user -u isomux</code>. If the URL was lost, restart with <code>--regenerate-bootstrap</code>.</p>`
+      }
     </main>
   `;
   return baseHtml(
