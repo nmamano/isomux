@@ -278,15 +278,16 @@ class CodexSession implements BackendSession {
     cacheReadInputTokens: 0,
     cacheCreationInputTokens: 0,
   };
-  // Latest snapshot for /context. Codex doesn't expose a context-usage RPC, so
-  // we surface what the cumulative `thread/tokenUsage/updated` notifications
-  // carry: total tokens consumed and the model's context window. Null until
-  // the first notification arrives (typically right after the first turn).
-  private lastTotalTokens: number | null = null;
+  // Latest snapshot for /context. We use the `last` (most recent turn) field
+  // of the tokenUsage notification, not `total` (cumulative-since-thread-
+  // start). `last.inputTokens` is the prompt size of the last turn — i.e.
+  // what was in context when the model spoke — and `last.outputTokens` is
+  // what was appended after. Together they approximate the context fullness
+  // heading into the next turn. Using `total.*` here would mis-report cache
+  // re-reads (which sum across turns) as live context usage. Null until the
+  // first notification arrives (typically right after the first turn).
   private modelContextWindow: number | null = null;
-  // Codex's per-category breakdown from the same notification. Surfaced as
-  // ContextUsage.categories so /context shows where the tokens went.
-  private lastCodexBreakdown: {
+  private lastTurnBreakdown: {
     inputNewTokens: number;
     inputCachedTokens: number;
     outputTokens: number;
@@ -546,28 +547,31 @@ class CodexSession implements BackendSession {
   }
 
   async getContextUsage(): Promise<ContextUsage | null> {
-    // Codex doesn't expose a context-usage RPC; instead, every turn ends
-    // with a `thread/tokenUsage/updated` notification carrying cumulative
-    // totals + the model's context window. We cache that snapshot in the
-    // notification handler and return it here.
+    // Codex doesn't expose a context-usage RPC; we synthesize one from the
+    // last-turn breakdown cached in the `thread/tokenUsage/updated` handler.
+    // See the lastTurnBreakdown field comment for why `last.*` is the right
+    // signal (vs `total.*`, which sums cache re-reads across turns).
     if (
-      this.lastTotalTokens === null ||
+      this.lastTurnBreakdown === null ||
       this.modelContextWindow === null ||
       this.modelContextWindow <= 0
     ) {
       return null;
     }
     const maxTokens = this.modelContextWindow;
-    const totalTokens = this.lastTotalTokens;
+    const b = this.lastTurnBreakdown;
+    const totalTokens =
+      b.inputNewTokens +
+      b.inputCachedTokens +
+      b.outputTokens +
+      b.reasoningOutputTokens;
     const percentage = Math.min(100, (totalTokens / maxTokens) * 100);
-    const categories: { name: string; tokens: number }[] = [];
-    if (this.lastCodexBreakdown) {
-      const b = this.lastCodexBreakdown;
-      categories.push({ name: "Input (new)", tokens: b.inputNewTokens });
-      categories.push({ name: "Input (cached)", tokens: b.inputCachedTokens });
-      categories.push({ name: "Output", tokens: b.outputTokens });
-      categories.push({ name: "Reasoning", tokens: b.reasoningOutputTokens });
-    }
+    const categories = [
+      { name: "Input (new)", tokens: b.inputNewTokens },
+      { name: "Input (cached)", tokens: b.inputCachedTokens },
+      { name: "Output", tokens: b.outputTokens },
+      { name: "Reasoning", tokens: b.reasoningOutputTokens },
+    ];
     return {
       model: modelDisplayLabel(this.opts.modelFamily),
       totalTokens,
@@ -652,20 +656,23 @@ class CodexSession implements BackendSession {
         break;
       }
 
-      // ---- Token usage (cumulative; convert to delta) ----
-      // Wire shape: ThreadTokenUsageUpdatedNotification (v2). The inner
-      // TokenUsageBreakdown uses Codex field names that don't line up 1:1
-      // with our orchestrator's Claude-style TokenUsage — we translate:
-      //   Codex inputTokens   = prompt total (incl. cache hits)
-      //   Codex cachedInputTokens = subset that came from cache
-      //   Codex outputTokens  = completion tokens (reasoning is a subset
-      //                          for reasoning-capable models, per OpenAI's
-      //                          docs)
-      //   Codex reasoningOutputTokens = reasoning subset of outputTokens
-      // → ours inputTokens = inputTokens - cachedInputTokens (new prompt)
-      // → ours cacheReadInputTokens = cachedInputTokens
-      // → ours cacheCreationInputTokens = 0 (Codex doesn't separate)
-      // → ours outputTokens = outputTokens (reasoning already included)
+      // ---- Token usage ----
+      // Wire shape: ThreadTokenUsageUpdatedNotification (v2). The payload
+      // carries two breakdowns: `total` (cumulative since thread start) and
+      // `last` (most recent turn only). We use them for different things:
+      //   - `total` → usage_update delta (lifetime billing accounting)
+      //   - `last`  → /context snapshot (current context fullness)
+      // TokenUsageBreakdown field semantics (per OpenAI):
+      //   inputTokens   = prompt total (incl. cache hits)
+      //   cachedInputTokens = subset that came from cache
+      //   outputTokens  = completion tokens (reasoning is a subset for
+      //                    reasoning-capable models, not separate)
+      //   reasoningOutputTokens = reasoning subset of outputTokens
+      // Translation to our Claude-style TokenUsage:
+      //   ours inputTokens = inputTokens - cachedInputTokens (new prompt)
+      //   ours cacheReadInputTokens = cachedInputTokens
+      //   ours cacheCreationInputTokens = 0 (Codex doesn't separate)
+      //   ours outputTokens = outputTokens (reasoning already included)
       case "thread/tokenUsage/updated": {
         // Typed against the generated v2 schema so tsc catches future wire
         // drift — this handler was previously broken by exactly that kind of
@@ -675,16 +682,16 @@ class CodexSession implements BackendSession {
           | null
           | undefined;
         const tu = notif?.tokenUsage;
-        const total = tu?.total;
-        if (!total) break;
-        const codexInput = total.inputTokens;
-        const codexCached = total.cachedInputTokens;
-        const codexOutput = total.outputTokens;
-        const codexReasoning = total.reasoningOutputTokens;
+        if (!tu) break;
+        // `total` drives the cumulative usage_update event (lifetime billing).
+        const total = tu.total;
+        const totalInput = total.inputTokens;
+        const totalCached = total.cachedInputTokens;
+        const totalOutput = total.outputTokens;
         const cumulative: TokenUsage = {
-          inputTokens: Math.max(0, codexInput - codexCached),
-          outputTokens: codexOutput,
-          cacheReadInputTokens: codexCached,
+          inputTokens: Math.max(0, totalInput - totalCached),
+          outputTokens: totalOutput,
+          cacheReadInputTokens: totalCached,
           cacheCreationInputTokens: 0,
         };
         const delta: TokenUsage = {
@@ -704,17 +711,20 @@ class CodexSession implements BackendSession {
           cacheCreationInputTokens: 0,
         };
         this.lastCumulativeUsage = cumulative;
-        // Snapshot for /context. Use Codex's authoritative `totalTokens`
-        // rather than recomputing — avoids drift if their accounting changes.
-        this.lastTotalTokens = total.totalTokens;
+        // `last` drives the /context snapshot (current context fullness).
+        const last = tu.last;
+        const lastInput = last.inputTokens;
+        const lastCached = last.cachedInputTokens;
+        const lastOutput = last.outputTokens;
+        const lastReasoning = last.reasoningOutputTokens;
         if (tu.modelContextWindow !== null) {
           this.modelContextWindow = tu.modelContextWindow;
         }
-        this.lastCodexBreakdown = {
-          inputNewTokens: Math.max(0, codexInput - codexCached),
-          inputCachedTokens: codexCached,
-          outputTokens: Math.max(0, codexOutput - codexReasoning),
-          reasoningOutputTokens: codexReasoning,
+        this.lastTurnBreakdown = {
+          inputNewTokens: Math.max(0, lastInput - lastCached),
+          inputCachedTokens: lastCached,
+          outputTokens: Math.max(0, lastOutput - lastReasoning),
+          reasoningOutputTokens: lastReasoning,
         };
         this.enqueue({ kind: "usage_update", tokenUsage: delta });
         break;
