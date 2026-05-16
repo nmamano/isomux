@@ -400,6 +400,13 @@ function summarizeUser(
     parts.push(
       `notify: ${u.notifRooms.length} room${u.notifRooms.length === 1 ? "" : "s"}`,
     );
+  // Surface the ACL only when it's restrictive — "all" is the default
+  // and would be noisy on every row.
+  if (u.allowedRooms !== "all") {
+    parts.push(
+      `access: ${u.allowedRooms.length} room${u.allowedRooms.length === 1 ? "" : "s"}`,
+    );
+  }
   if (u.envFile) parts.push("env: configured");
   return parts.join(" · ");
 }
@@ -415,13 +422,21 @@ function UserEditPanel({
   onRenamed?: (newName: string) => void;
   onDeleted?: () => void;
 }) {
-  const { rooms } = useAppState();
+  const { rooms, sessionContext } = useAppState();
+  // Owner-only fields (currently: allowedRooms). The server rejects
+  // changes to those fields from non-owner sessions even on self-edit,
+  // but we also hide the editor here so members don't see disabled
+  // controls they can't use.
+  const isOwner = sessionContext?.role === "owner";
   const [name, setName] = useState(user.name);
   const [defaultRoomId, setDefaultRoomId] = useState<string | null>(
     user.defaultRoomId,
   );
   const [notifSetting, setNotifSetting] = useState<NotifRoomsSetting>(
     user.notifRooms,
+  );
+  const [allowedSetting, setAllowedSetting] = useState<NotifRoomsSetting>(
+    user.allowedRooms,
   );
   const [envFile, setEnvFile] = useState<string>(user.envFile ?? "");
   const [validation, setValidation] = useState<ValidationStatus>({
@@ -554,6 +569,25 @@ function UserEditPanel({
     setNotifSetting(coversAll ? "all" : next);
   }
 
+  // Same shape as toggleRoomNotif: "all" is the no-restriction value;
+  // toggling a room off "all" expands the list to every other room so the
+  // unchecked state reads correctly. Toggling such that every room is
+  // present collapses back to "all" so a re-add doesn't end up storing
+  // a redundant array.
+  function toggleRoomAllowed(roomId: string) {
+    if (allowedSetting === "all") {
+      setAllowedSetting(rooms.filter((r) => r.id !== roomId).map((r) => r.id));
+      return;
+    }
+    const has = allowedSetting.includes(roomId);
+    const next = has
+      ? allowedSetting.filter((id) => id !== roomId)
+      : [...allowedSetting, roomId];
+    const coversAll =
+      rooms.length > 0 && rooms.every((r) => next.includes(r.id));
+    setAllowedSetting(coversAll ? "all" : next);
+  }
+
   function handleSave() {
     const trimmed = name.trim();
     if (!trimmed) return;
@@ -581,11 +615,15 @@ function UserEditPanel({
       type: "update_user",
       requestId: reqId,
       username: user.name,
+      // Only owners can change allowedRooms (server enforces and the UI
+      // hides the section). Omit the field for member self-edits so the
+      // payload doesn't trip the server-side field-level gate.
       changes: {
         name: renamed ? trimmed : undefined,
         defaultRoomId,
         notifRooms: notifSetting,
         envFile: envFile.trim() || null,
+        ...(isOwner ? { allowedRooms: allowedSetting } : {}),
       },
     });
   }
@@ -677,6 +715,69 @@ function UserEditPanel({
           })
         )}
       </div>
+
+      {isOwner && (
+        <>
+          <label style={subLabelStyle}>
+            Allowed Rooms{" "}
+            <span style={hintStyle}>
+              (rooms this user can see and act in)
+            </span>
+          </label>
+          <div
+            style={{
+              border: "1px solid var(--border)",
+              borderRadius: 8,
+              background: "var(--bg-base)",
+              padding: "4px 0",
+              maxHeight: 140,
+              overflowY: "auto",
+            }}
+          >
+            {rooms.length === 0 ? (
+              <div
+                style={{
+                  padding: "8px 12px",
+                  fontSize: 12,
+                  color: "var(--text-ghost)",
+                }}
+              >
+                No rooms yet.
+              </div>
+            ) : (
+              rooms.map((r) => {
+                const checked =
+                  allowedSetting === "all" || allowedSetting.includes(r.id);
+                return (
+                  <label
+                    key={r.id}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      padding: "6px 12px",
+                      fontSize: 12,
+                      color: "var(--text-primary)",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleRoomAllowed(r.id)}
+                      style={{
+                        accentColor: "var(--accent)",
+                        cursor: "pointer",
+                      }}
+                    />
+                    <span>{r.name}</span>
+                  </label>
+                );
+              })
+            )}
+          </div>
+        </>
+      )}
 
       <label style={subLabelStyle}>
         Env File Path{" "}

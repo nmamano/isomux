@@ -561,6 +561,13 @@ export interface UserRecord {
   envFile: string | null; // absolute path to dotenv file
   createdAt: number;
   role: UserRole; // app-level role; owner can mint invites and revoke sessions
+  // Rooms this user can see and act in. "all" (default) preserves the
+  // pre-ACL behavior; an explicit string[] of roomIds restricts the user
+  // to those rooms server-side (filtered reads + write-side rejections).
+  // Owners are not gated by this field — the server treats their sessions
+  // as having full access regardless of the stored value. Only owners can
+  // mutate this through update_user.
+  allowedRooms: NotifRoomsSetting;
 }
 
 // Sent to the client over the WS at connect time so the UI knows whether to
@@ -998,8 +1005,19 @@ export type ClientCommand =
       type: "update_user";
       requestId?: string;
       username: string;
+      // `allowedRooms` is part of the wire so owners can set it through
+      // the same handler that edits other preferences. The server-side
+      // handler refuses any change to allowedRooms from non-owner
+      // sessions, including self-edits.
       changes: Partial<
-        Pick<UserRecord, "name" | "defaultRoomId" | "notifRooms" | "envFile">
+        Pick<
+          UserRecord,
+          | "name"
+          | "defaultRoomId"
+          | "notifRooms"
+          | "envFile"
+          | "allowedRooms"
+        >
       >;
     }
   | { type: "delete_user"; requestId?: string; username: string }

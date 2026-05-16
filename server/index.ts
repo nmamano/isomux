@@ -3,7 +3,10 @@ import type {
   ServerMessage,
   ClientCommand,
   BackendModelWire,
+  AgentInfo,
+  RoomWire,
 } from "../shared/types.ts";
+import type { AgentEvent } from "./internal-types.ts";
 import { runPreUseridBackupIfNeeded } from "./migrations.ts";
 import * as AgentManager from "./agent-manager.ts";
 import { getBackend } from "./backends/index.ts";
@@ -204,6 +207,293 @@ function broadcast(msg: ServerMessage) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Per-WS room ACL projection
+//
+// Members can be restricted to a subset of rooms via UserRecord.allowedRooms.
+// Owners and members with "all" are not restricted. The wire contract uses
+// numeric `room` indices on AgentInfo and on tab-bar order, so when we hide
+// rooms from a member we must rewrite those indices into a dense visible
+// space. Otherwise the member's UI iterates over a global rooms array with
+// holes and `agent.room === currentRoom` checks miss.
+//
+// Helpers below are the single source of truth for those translations;
+// per-WS event routing and the connect-time full_state both go through
+// them.
+
+function isOwnerSession(session: SessionLookup): boolean {
+  return session.role === "owner";
+}
+
+// A session has "full access" when the server treats it as seeing every
+// room: owners (regardless of stored allowedRooms) and members whose
+// allowedRooms is "all". For these sessions every per-WS path collapses
+// to the original broadcast — kept on the fast path.
+function sessionHasFullRoomAccess(session: SessionLookup): boolean {
+  if (isOwnerSession(session)) return true;
+  const user = getUserById(session.userId);
+  if (!user) return false;
+  return user.allowedRooms === "all";
+}
+
+function roomAllowedForSession(
+  session: SessionLookup,
+  roomId: string,
+): boolean {
+  if (isOwnerSession(session)) return true;
+  const user = getUserById(session.userId);
+  if (!user) return false;
+  const allowed = user.allowedRooms;
+  if (allowed === "all") return true;
+  return allowed.includes(roomId);
+}
+
+interface VisibleRoomProjection {
+  rooms: RoomWire[];
+  // global room index → dense visible index, or -1 if hidden for this session
+  globalToVisible: number[];
+  // dense visible index → global room index
+  visibleToGlobal: number[];
+}
+
+function visibleRoomProjection(
+  session: SessionLookup,
+): VisibleRoomProjection {
+  const all = AgentManager.getRooms();
+  if (sessionHasFullRoomAccess(session)) {
+    // Identity projection; avoid per-room allocations on the fast path.
+    const identity: number[] = all.map((_, i) => i);
+    return { rooms: all, globalToVisible: identity, visibleToGlobal: identity };
+  }
+  const rooms: RoomWire[] = [];
+  const globalToVisible: number[] = new Array(all.length).fill(-1);
+  const visibleToGlobal: number[] = [];
+  for (let i = 0; i < all.length; i++) {
+    if (roomAllowedForSession(session, all[i].id)) {
+      globalToVisible[i] = rooms.length;
+      visibleToGlobal.push(i);
+      rooms.push(all[i]);
+    }
+  }
+  return { rooms, globalToVisible, visibleToGlobal };
+}
+
+// Returns a fresh AgentInfo with `room` rewritten to the dense visible
+// index, or null if the agent's current room isn't visible to this
+// session. Callers must never mutate the shared AgentInfo from
+// AgentManager — we always shallow-copy.
+function projectAgentForSession(
+  session: SessionLookup,
+  agent: AgentInfo,
+  projection?: VisibleRoomProjection,
+): AgentInfo | null {
+  const proj = projection ?? visibleRoomProjection(session);
+  const visible = proj.globalToVisible[agent.room];
+  if (visible === undefined || visible < 0) return null;
+  if (visible === agent.room) return agent; // identity (full-access fast path)
+  return { ...agent, room: visible };
+}
+
+// True if a given agentId currently lives in a room visible to this
+// session. Looks up the agent's room from AgentManager — caller doesn't
+// need to know it. Used by per-agent event routing (log_entry,
+// slash_commands, terminal_*) and write-side enforcement.
+function agentVisibleForSession(
+  session: SessionLookup,
+  agentId: string,
+): boolean {
+  if (sessionHasFullRoomAccess(session)) return true;
+  const agent = AgentManager.getAllAgents().find((a) => a.id === agentId);
+  if (!agent) return false;
+  const rooms = AgentManager.getRooms();
+  const roomId = rooms[agent.room]?.id;
+  if (!roomId) return false;
+  return roomAllowedForSession(session, roomId);
+}
+
+// Build and send the full_state payload for a given WS using the session's
+// projected room/agent view. Used at connect time and as the targeted
+// refresh after any change that could shift this session's visible set
+// (allowedRooms changes, agent moves across rooms, room close/rename/
+// reorder when explicit-list members are connected). Mid-session callers
+// pass replayLogsForVisible=true to also resend cached log entries for
+// agents the session can now see; without that flag, newly visible agents
+// would render in the UI with no history until the next reload.
+function sendProjectedFullState(
+  ws: ServerWebSocket<WsData>,
+  options?: { replayLogsForVisible?: boolean },
+) {
+  const session = ws.data.session;
+  const proj = visibleRoomProjection(session);
+  const agents: AgentInfo[] = [];
+  for (const a of AgentManager.getAllAgents()) {
+    const projected = projectAgentForSession(session, a, proj);
+    if (projected) agents.push(projected);
+  }
+  ws.send(
+    JSON.stringify({
+      type: "full_state",
+      agents,
+      recentCwds: loadRecentCwds(),
+      office: AgentManager.getOfficeSettings(),
+      rooms: proj.rooms,
+    }),
+  );
+  if (options?.replayLogsForVisible) {
+    for (const a of agents) {
+      const logs = AgentManager.getAgentLogs(a.id);
+      for (const entry of logs) {
+        ws.send(JSON.stringify({ type: "log_entry", entry }));
+      }
+      const cmds = AgentManager.getAgentCommands(a.id);
+      if (cmds.commands.length > 0 || cmds.skills.length > 0) {
+        ws.send(
+          JSON.stringify({
+            type: "slash_commands",
+            agentId: a.id,
+            commands: cmds.commands,
+            skills: cmds.skills,
+          }),
+        );
+      }
+    }
+  }
+}
+
+// Push a fresh projected full_state to every WS owned by a specific
+// userId. Called after a successful update_user that changed allowedRooms
+// — every device that user is connected from gets the new view applied
+// without a reconnect. Owners are unaffected by allowedRooms but the call
+// is cheap (identity projection) so we don't branch.
+function pushProjectedFullStateForUserId(userId: string) {
+  for (const ws of browsers) {
+    if (ws.data.session.userId === userId) {
+      sendProjectedFullState(ws, { replayLogsForVisible: true });
+    }
+  }
+}
+
+// Per-WS dispatch for events that touch a specific room or agent. Owners
+// and "all"-access members get the event verbatim (fast path). Members
+// with an explicit allowedRooms list get either:
+//   - a projected event (rewriting agent.room index), or
+//   - a suppressed event (the room/agent isn't visible), or
+//   - a fresh projected full_state when the event would have shifted
+//     their dense room index (room close/rename/reorder, or agent move
+//     across rooms).
+//
+// The full_state-on-shift approach is heavy-handed but keeps the UI's
+// existing positional contract intact. log entries are replayed for
+// agents that become newly visible inside the same call.
+function routeAgentEvent(event: AgentEvent) {
+  for (const ws of browsers) {
+    routeAgentEventToWs(ws, event);
+  }
+}
+
+function routeAgentEventToWs(
+  ws: ServerWebSocket<WsData>,
+  event: AgentEvent,
+) {
+  const session = ws.data.session;
+
+  if (sessionHasFullRoomAccess(session)) {
+    ws.send(JSON.stringify(event));
+    return;
+  }
+
+  switch (event.type) {
+    case "agent_added": {
+      const projected = projectAgentForSession(session, event.agent);
+      if (projected) {
+        ws.send(JSON.stringify({ type: "agent_added", agent: projected }));
+      }
+      break;
+    }
+    case "agent_removed": {
+      // Idempotent on the receiver — fine to deliver even if they never
+      // saw the agent.
+      ws.send(JSON.stringify(event));
+      break;
+    }
+    case "agent_updated": {
+      if (event.changes.room !== undefined) {
+        // Room move: visibility could be entering, leaving, or staying
+        // (with a shifted dense index). Cheapest correct play is a
+        // targeted full_state refresh — but the UI's full_state reducer
+        // clears logs/slashCommands, so we must replay them for every
+        // currently-visible agent or the member loses transcripts.
+        sendProjectedFullState(ws, { replayLogsForVisible: true });
+      } else if (agentVisibleForSession(session, event.agentId)) {
+        // No room index in the change — non-room fields are safe to
+        // forward verbatim.
+        ws.send(JSON.stringify(event));
+      }
+      break;
+    }
+    case "room_created": {
+      if (roomAllowedForSession(session, event.room.id)) {
+        // New room is at the end of the global rooms array → also at
+        // the end of this session's visible array. No index shift.
+        ws.send(JSON.stringify(event));
+      }
+      // If the room is not allowed, the member's visible list is
+      // unchanged.
+      break;
+    }
+    case "room_closed":
+    case "room_renamed":
+    case "room_settings_updated": {
+      const roomId = event.roomId;
+      if (!roomAllowedForSession(session, roomId)) {
+        // Room isn't visible — closing/renaming/settings-updating it has
+        // no effect on the member's view.
+        break;
+      }
+      // Closing a visible room shifts dense indices below it; rename and
+      // settings_updated don't. Cheaper to always refresh than to special-
+      // case rename, which would still need a stable currentRoom check.
+      // The refresh replays logs/slashCommands for currently-visible
+      // agents — full_state clears them in the client reducer, so a bare
+      // refresh would wipe every visible transcript.
+      if (event.type === "room_closed") {
+        sendProjectedFullState(ws, { replayLogsForVisible: true });
+      } else {
+        ws.send(JSON.stringify(event));
+      }
+      break;
+    }
+    case "rooms_reordered": {
+      // Global order changed; the dense visible projection may have
+      // shifted in arbitrary ways. Refresh + replay so the member's
+      // transcripts survive the index re-mapping.
+      sendProjectedFullState(ws, { replayLogsForVisible: true });
+      break;
+    }
+    case "log_entry": {
+      if (agentVisibleForSession(session, event.entry.agentId)) {
+        ws.send(JSON.stringify(event));
+      }
+      break;
+    }
+    case "clear_logs":
+    case "slash_commands":
+    case "terminal_output":
+    case "terminal_exit": {
+      if (agentVisibleForSession(session, event.agentId)) {
+        ws.send(JSON.stringify(event));
+      }
+      break;
+    }
+    case "office_settings_updated":
+    case "tasks_changed": {
+      // No room scope — everyone sees these.
+      ws.send(JSON.stringify(event));
+      break;
+    }
+  }
+}
+
 // Wire AgentManager events to WebSocket broadcasts
 AgentManager.onEvent((event) => {
   // Task mutations carry the full list as a domain event; the wire still
@@ -212,7 +502,14 @@ AgentManager.onEvent((event) => {
     broadcast({ type: "tasks", tasks: event.tasks });
     return;
   }
-  broadcast(event);
+  // Office settings are not room-scoped — same payload for everyone.
+  if (event.type === "office_settings_updated") {
+    broadcast(event);
+    return;
+  }
+  // All remaining events touch a specific room or agent — route per-WS so
+  // restricted members get a projected view (or suppression).
+  routeAgentEvent(event);
 });
 
 // Wire CronjobManager events to WebSocket broadcasts
@@ -300,6 +597,44 @@ async function dispatchCommand(
       ws.send(JSON.stringify({ type: "pong" }));
       break;
     case "spawn": {
+      // ACL gate: spawn target room must be visible to this session.
+      // cmd.roomId is optional on the wire — for restricted sessions we
+      // can't trust the AgentManager fallback (which lands the agent in
+      // global room 0), so resolve to the first visible room and pass
+      // that down explicitly. Owners / "all"-access members preserve the
+      // legacy behavior of passing undefined through.
+      let resolvedRoomId: string | undefined = cmd.roomId;
+      if (resolvedRoomId !== undefined) {
+        if (!roomAllowedForSession(session, resolvedRoomId)) {
+          if (cmd.requestId) {
+            ws.send(
+              JSON.stringify({
+                type: "agent_save_response",
+                requestId: cmd.requestId,
+                ok: false,
+                error: "You don't have access to that room.",
+              }),
+            );
+          }
+          break;
+        }
+      } else if (!sessionHasFullRoomAccess(session)) {
+        const visible = visibleRoomProjection(session).rooms;
+        if (visible.length === 0) {
+          if (cmd.requestId) {
+            ws.send(
+              JSON.stringify({
+                type: "agent_save_response",
+                requestId: cmd.requestId,
+                ok: false,
+                error: "You have no visible rooms in this office.",
+              }),
+            );
+          }
+          break;
+        }
+        resolvedRoomId = visible[0].id;
+      }
       try {
         AgentManager.validateCwd(cmd.cwd);
       } catch (err) {
@@ -323,7 +658,7 @@ async function dispatchCommand(
           cmd.permissionMode,
           cmd.desk,
           cmd.customInstructions,
-          cmd.roomId,
+          resolvedRoomId,
           cmd.outfit,
           cmd.modelFamily,
           cmd.effort,
@@ -371,12 +706,15 @@ async function dispatchCommand(
       break;
     }
     case "kill":
+      if (!agentVisibleForSession(session, cmd.agentId)) break;
       await AgentManager.kill(cmd.agentId);
       break;
     case "abort":
+      if (!agentVisibleForSession(session, cmd.agentId)) break;
       await AgentManager.abort(cmd.agentId);
       break;
     case "send_message":
+      if (!agentVisibleForSession(session, cmd.agentId)) break;
       // Don't await — let it stream in the background. Username comes from the
       // session so a member can't spoof another member's display name in chat.
       void AgentManager.sendMessage(
@@ -388,18 +726,35 @@ async function dispatchCommand(
       );
       break;
     case "cancel_queued":
+      if (!agentVisibleForSession(session, cmd.agentId)) break;
       AgentManager.cancelQueued(cmd.agentId, cmd.messageId);
       break;
     case "send_now":
+      if (!agentVisibleForSession(session, cmd.agentId)) break;
       void AgentManager.sendNow(cmd.agentId);
       break;
     case "new_conversation":
+      if (!agentVisibleForSession(session, cmd.agentId)) break;
       await AgentManager.newConversation(cmd.agentId);
       break;
     case "resume":
+      if (!agentVisibleForSession(session, cmd.agentId)) break;
       await AgentManager.resume(cmd.agentId, cmd.sessionId);
       break;
     case "edit_agent": {
+      if (!agentVisibleForSession(session, cmd.agentId)) {
+        if (cmd.requestId) {
+          ws.send(
+            JSON.stringify({
+              type: "agent_save_response",
+              requestId: cmd.requestId,
+              ok: false,
+              error: "You don't have access to that agent.",
+            }),
+          );
+        }
+        break;
+      }
       if (cmd.cwd) {
         try {
           AgentManager.validateCwd(cmd.cwd);
@@ -453,26 +808,41 @@ async function dispatchCommand(
       break;
     }
     case "swap_desks":
+      if (!roomAllowedForSession(session, cmd.roomId)) break;
       AgentManager.swapDesks(cmd.deskA, cmd.deskB, cmd.roomId);
       break;
     case "set_topic":
+      if (!agentVisibleForSession(session, cmd.agentId)) break;
       AgentManager.setTopic(cmd.agentId, cmd.topic);
       break;
     case "reset_topic":
+      if (!agentVisibleForSession(session, cmd.agentId)) break;
       AgentManager.resetTopic(cmd.agentId);
       break;
     case "list_sessions": {
+      if (!agentVisibleForSession(session, cmd.agentId)) break;
       const sessions = AgentManager.listSessions(cmd.agentId);
       const currentSessionId = AgentManager.getCurrentSessionId(cmd.agentId);
-      broadcast({
+      // Fan out per-WS, only to sessions that can see this agent.
+      // A plain broadcast() would leak session metadata (ids, topics,
+      // timestamps) for a hidden agent to every restricted member —
+      // even if their UI doesn't render it without the agent row, the
+      // payload would still cross the wire to them.
+      const data = JSON.stringify({
         type: "sessions_list",
         agentId: cmd.agentId,
         sessions,
         currentSessionId,
       });
+      for (const subscriber of browsers) {
+        if (agentVisibleForSession(subscriber.data.session, cmd.agentId)) {
+          subscriber.send(data);
+        }
+      }
       break;
     }
     case "terminal_open": {
+      if (!agentVisibleForSession(session, cmd.agentId)) break;
       const opened = AgentManager.openTerminal(cmd.agentId);
       if (opened) {
         // Replay buffered output so the browser catches up
@@ -488,15 +858,30 @@ async function dispatchCommand(
       break;
     }
     case "terminal_input":
+      if (!agentVisibleForSession(session, cmd.agentId)) break;
       AgentManager.terminalInput(cmd.agentId, cmd.data);
       break;
     case "terminal_resize":
+      if (!agentVisibleForSession(session, cmd.agentId)) break;
       AgentManager.terminalResize(cmd.agentId, cmd.cols, cmd.rows);
       break;
     case "terminal_close":
+      if (!agentVisibleForSession(session, cmd.agentId)) break;
       AgentManager.closeTerminal(cmd.agentId);
       break;
     case "editor_open": {
+      if (!agentVisibleForSession(session, cmd.agentId)) {
+        ws.send(
+          JSON.stringify({
+            type: "editor_open_error",
+            agentId: cmd.agentId,
+            path: cmd.path,
+            reason: "io_error",
+            message: "agent not found",
+          }),
+        );
+        break;
+      }
       const probe = AgentManager.openEditorFile(cmd.agentId, cmd.path);
       if (!probe.ok) {
         ws.send(
@@ -556,6 +941,18 @@ async function dispatchCommand(
       break;
     }
     case "editor_save": {
+      if (!agentVisibleForSession(session, cmd.agentId)) {
+        ws.send(
+          JSON.stringify({
+            type: "editor_save_response",
+            agentId: cmd.agentId,
+            path: cmd.path,
+            ok: false,
+            error: "agent not found",
+          }),
+        );
+        break;
+      }
       // Resolve against the agent's cwd in case the client sent a relative
       // path (it shouldn't, but the resolution is cheap and matches open).
       const abs = AgentManager.resolveEditorPathForAgent(cmd.agentId, cmd.path);
@@ -613,6 +1010,7 @@ async function dispatchCommand(
       break;
     }
     case "editor_close": {
+      if (!agentVisibleForSession(session, cmd.agentId)) break;
       const abs = AgentManager.resolveEditorPathForAgent(cmd.agentId, cmd.path);
       if (!abs) break;
       const map = getWatcherMap(ws);
@@ -625,6 +1023,20 @@ async function dispatchCommand(
       break;
     }
     case "update_office_settings": {
+      // Office-wide settings (prompt, envFile, display name) are
+      // owner-only. Defense-in-depth: the UI also renders read-only for
+      // members, but the server is the authority.
+      if (session.role !== "owner") {
+        ws.send(
+          JSON.stringify({
+            type: "settings_save_response",
+            requestId: cmd.requestId,
+            ok: false,
+            error: "Only owners can edit office settings.",
+          }),
+        );
+        break;
+      }
       const envFile =
         cmd.envFile && cmd.envFile.trim() ? cmd.envFile.trim() : null;
       if (envFile) {
@@ -675,6 +1087,17 @@ async function dispatchCommand(
       break;
     }
     case "update_room_settings": {
+      if (!roomAllowedForSession(session, cmd.roomId)) {
+        ws.send(
+          JSON.stringify({
+            type: "settings_save_response",
+            requestId: cmd.requestId,
+            ok: false,
+            error: "You don't have access to that room.",
+          }),
+        );
+        break;
+      }
       const ok = AgentManager.setRoomSettings(cmd.roomId, cmd.prompt);
       if (!ok) {
         ws.send(
@@ -897,21 +1320,38 @@ async function dispatchCommand(
       break;
     }
     case "create_room":
+      // V1: create_room is not access-gated. New rooms are reachable by
+      // anyone with `allowedRooms: "all"`; members on an explicit list
+      // don't see the new room until an owner grants it. Room-CRUD-as-
+      // owner-only is a separate product decision.
       AgentManager.createRoom(cmd.name);
       break;
     case "close_room":
+      if (!roomAllowedForSession(session, cmd.roomId)) break;
       AgentManager.closeRoom(cmd.roomId);
       break;
     case "rename_room":
+      if (!roomAllowedForSession(session, cmd.roomId)) break;
       AgentManager.renameRoom(cmd.roomId, cmd.name);
       break;
-    case "move_agent":
+    case "move_agent": {
+      // Source and target rooms must both be visible to the session.
+      // agentVisibleForSession looks up the agent's current global room.
+      if (!agentVisibleForSession(session, cmd.agentId)) break;
+      if (!roomAllowedForSession(session, cmd.targetRoomId)) break;
       AgentManager.moveAgent(cmd.agentId, cmd.targetRoomId);
       break;
+    }
     case "reorder_rooms":
+      // Reorder shapes the office's global room order. Members on an
+      // explicit allowed list see only a slice of the rooms, so they
+      // can't author a coherent reordering of the global list. Members
+      // with `allowedRooms: "all"` and owners can reorder freely.
+      if (!sessionHasFullRoomAccess(session)) break;
       AgentManager.reorderRooms(cmd.order);
       break;
     case "edit_message":
+      if (!agentVisibleForSession(session, cmd.agentId)) break;
       // Don't await — let it stream in the background (like send_message)
       void AgentManager.editMessage(
         cmd.agentId,
@@ -1105,6 +1545,25 @@ async function dispatchCommand(
         }
         break;
       }
+      // Field-level gate: only owners can mutate allowedRooms, even on
+      // self-edit. Without this a member could send
+      // `changes.allowedRooms = "all"` and grant themselves full access.
+      if (
+        cmd.changes.allowedRooms !== undefined &&
+        session.role !== "owner"
+      ) {
+        if (cmd.requestId) {
+          ws.send(
+            JSON.stringify({
+              type: "settings_save_response",
+              requestId: cmd.requestId,
+              ok: false,
+              error: "Only owners can change room access.",
+            }),
+          );
+        }
+        break;
+      }
       // Validate envFile if present.
       if (cmd.changes.envFile && cmd.changes.envFile.trim()) {
         try {
@@ -1157,6 +1616,13 @@ async function dispatchCommand(
         ...(renamed ? { prevName: cmd.username } : {}),
       });
       broadcast({ type: "users_list", users: listUsers() });
+      // If the owner changed this user's allowedRooms, push a fresh
+      // projected full_state (with log replay) to every WS that user is
+      // connected from — their visible rooms/agents and conversation
+      // history reflect the new access without a reload.
+      if (cmd.changes.allowedRooms !== undefined) {
+        pushProjectedFullStateForUserId(result.user.id);
+      }
       break;
     }
     case "delete_user": {
@@ -2215,18 +2681,10 @@ const server = Bun.serve<WsData>({
           users: listUsers(),
         }),
       );
-      // Send current agent list
-      const agents = AgentManager.getAllAgents();
-      const recentCwds = loadRecentCwds();
-      ws.send(
-        JSON.stringify({
-          type: "full_state",
-          agents,
-          recentCwds,
-          office: AgentManager.getOfficeSettings(),
-          rooms: AgentManager.getRooms(),
-        }),
-      );
+      // Send projected full_state (rooms + agents filtered to the
+      // session's allowedRooms; for owners and "all"-access members this
+      // is the identity projection).
+      sendProjectedFullState(ws);
       // Send tasks
       ws.send(
         JSON.stringify({
@@ -2254,8 +2712,12 @@ const server = Bun.serve<WsData>({
           }),
         );
       }
-      // Send cached log history and slash commands for each agent
-      for (const agent of agents) {
+      // Send cached log history and slash commands for each agent the
+      // session can see. agentVisibleForSession short-circuits to true
+      // for full-access sessions so the gate is free on the fast path.
+      const session = ws.data.session;
+      for (const agent of AgentManager.getAllAgents()) {
+        if (!agentVisibleForSession(session, agent.id)) continue;
         const logs = AgentManager.getAgentLogs(agent.id);
         for (const entry of logs) {
           ws.send(JSON.stringify({ type: "log_entry", entry }));

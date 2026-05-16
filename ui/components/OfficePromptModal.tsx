@@ -14,7 +14,12 @@ type ValidationStatus =
   | { kind: "error"; message: string };
 
 export function OfficePromptModal({ onClose }: { onClose: () => void }) {
-  const { office, isMobile } = useAppState();
+  const { office, isMobile, sessionContext } = useAppState();
+  // Members can open this modal but can't edit it. Read-only state grays
+  // inputs and hides the Save button; the server also rejects
+  // update_office_settings from non-owner sessions.
+  const isOwner = sessionContext?.role === "owner";
+  const readOnly = !isOwner;
   const [text, setText] = useState(office.prompt ?? "");
   const [envFile, setEnvFile] = useState(office.envFile ?? "");
   const [name, setName] = useState(office.name ?? "");
@@ -23,10 +28,13 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const requestIdRef = useRef<string>("");
 
-  // Ask the server to re-validate the stored env file on open.
+  // Ask the server to re-validate the stored env file on open. Members
+  // can't validate office env files (the server gates that command to
+  // owners), so skip the request entirely — the input still shows the
+  // stored path for context.
   useEffect(() => {
     const saved = office.envFile;
-    if (!saved) {
+    if (!saved || readOnly) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setStatus({ kind: "idle" });
       return;
@@ -55,7 +63,7 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
       scope: "office",
     });
     return () => removeRawListener(listener);
-  }, [office.envFile]);
+  }, [office.envFile, readOnly]);
 
   function handleSave() {
     const reqId = `office-save-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -85,14 +93,16 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
     });
   }
 
-  // Place cursor at end of text on mount
+  // Place cursor at end of text on mount. Skip for read-only mode so we
+  // don't auto-focus an input the member can't edit.
   useEffect(() => {
+    if (readOnly) return;
     const ta = textareaRef.current;
     if (ta) {
       ta.focus();
       ta.setSelectionRange(ta.value.length, ta.value.length);
     }
-  }, []);
+  }, [readOnly]);
 
   // ESC to close
   useEffect(() => {
@@ -148,6 +158,22 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
         >
           Office Settings
         </h3>
+        {readOnly && (
+          <p
+            style={{
+              fontSize: 11,
+              color: "var(--text-ghost)",
+              margin: "8px 0 0",
+              padding: "8px 10px",
+              background: "var(--bg-input)",
+              border: "1px solid var(--border-subtle)",
+              borderRadius: 6,
+              lineHeight: 1.4,
+            }}
+          >
+            View only. Only office owners can edit office-wide settings.
+          </p>
+        )}
 
         <label
           style={{
@@ -169,7 +195,8 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
           onChange={(e) => setName(e.target.value)}
           placeholder="Nil's Office"
           maxLength={60}
-          style={inputStyle}
+          readOnly={readOnly}
+          style={readOnly ? readOnlyInputStyle : inputStyle}
         />
 
         <label
@@ -194,7 +221,8 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
             setStatus({ kind: "idle" });
           }}
           placeholder="/home/you/.secrets/office.env"
-          style={inputStyle}
+          readOnly={readOnly}
+          style={readOnly ? readOnlyInputStyle : inputStyle}
         />
         <ValidationLine status={status} />
 
@@ -219,7 +247,11 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
           onChange={(e) => setText(e.target.value)}
           placeholder="e.g. Always write tests. Use TypeScript. Be concise."
           rows={8}
-          style={{ ...inputStyle, resize: "vertical" }}
+          readOnly={readOnly}
+          style={{
+            ...(readOnly ? readOnlyInputStyle : inputStyle),
+            resize: "vertical",
+          }}
         />
         <p
           style={{
@@ -240,11 +272,13 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
           }}
         >
           <button onClick={onClose} style={cancelBtnStyle} disabled={saving}>
-            Cancel
+            {readOnly ? "Close" : "Cancel"}
           </button>
-          <button onClick={handleSave} style={saveBtnStyle} disabled={saving}>
-            {saving ? "Saving…" : "Save"}
-          </button>
+          {!readOnly && (
+            <button onClick={handleSave} style={saveBtnStyle} disabled={saving}>
+              {saving ? "Saving…" : "Save"}
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -278,5 +312,14 @@ function ValidationLine({ status }: { status: ValidationStatus }) {
 }
 
 const inputStyle: React.CSSProperties = dialogInput;
+// Visually-distinct read-only variant: grayed text + opacity, matches the
+// "view only" framing for member sessions opening the office settings.
+const readOnlyInputStyle: React.CSSProperties = {
+  ...dialogInput,
+  color: "var(--text-ghost)",
+  background: "var(--bg-input)",
+  cursor: "default",
+  opacity: 0.75,
+};
 const cancelBtnStyle: React.CSSProperties = dialogCancelBtn;
 const saveBtnStyle: React.CSSProperties = dialogSaveBtn;

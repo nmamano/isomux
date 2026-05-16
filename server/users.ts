@@ -45,6 +45,14 @@ function normalizeNotifRooms(value: unknown): NotifRoomsSetting {
   return "all";
 }
 
+// Same shape and normalization as notifRooms, but stored as the ACL
+// allow-list. Bad/missing values default to "all" so an upgrade of an
+// older users.json doesn't accidentally lock anyone out — owners opt
+// members down explicitly through the UI afterwards.
+function normalizeAllowedRooms(value: unknown): NotifRoomsSetting {
+  return normalizeNotifRooms(value);
+}
+
 // Treat a raw object as a user record. Used both for the post-migration
 // format (id-keyed) and the legacy name-keyed format — the id field is
 // optional here; load() assigns one if it's missing.
@@ -109,6 +117,7 @@ function load(): Record<string, UserRecord> {
         createdAt:
           typeof value.createdAt === "number" ? value.createdAt : Date.now(),
         role: normalizeRole(value.role),
+        allowedRooms: normalizeAllowedRooms(value.allowedRooms),
       };
     }
     users = result;
@@ -232,6 +241,7 @@ export function claimUser(
     defaultRoomId?: string | null;
     notifRooms?: NotifRoomsSetting;
     role?: UserRole;
+    allowedRooms?: NotifRoomsSetting;
   },
 ): UserRecord {
   load();
@@ -246,6 +256,10 @@ export function claimUser(
     envFile: null,
     createdAt: Date.now(),
     role: initial?.role === "owner" ? "owner" : "member",
+    // ACL allow-list. Callers from invite-acceptance/admin paths can seed
+    // a restrictive value; the WS handler for claim_user ignores client-
+    // supplied allowedRooms and never reaches this branch with a value.
+    allowedRooms: initial?.allowedRooms ?? "all",
   };
   users[id] = record;
   try {
@@ -316,7 +330,10 @@ export function deleteUser(name: string): boolean {
 export function updateUserById(
   id: string,
   changes: Partial<
-    Pick<UserRecord, "name" | "defaultRoomId" | "notifRooms" | "envFile">
+    Pick<
+      UserRecord,
+      "name" | "defaultRoomId" | "notifRooms" | "envFile" | "allowedRooms"
+    >
   >,
 ): { ok: true; user: UserRecord } | { ok: false; error: string } {
   load();
@@ -363,6 +380,10 @@ export function updateUserById(
     // Preserve existing role here so updating preferences doesn't
     // silently downgrade an owner to member.
     role: existing.role,
+    allowedRooms:
+      changes.allowedRooms !== undefined
+        ? normalizeAllowedRooms(changes.allowedRooms)
+        : existing.allowedRooms,
   };
 
   users[id] = next;
@@ -381,7 +402,10 @@ export function updateUserById(
 export function updateUser(
   name: string,
   changes: Partial<
-    Pick<UserRecord, "name" | "defaultRoomId" | "notifRooms" | "envFile">
+    Pick<
+      UserRecord,
+      "name" | "defaultRoomId" | "notifRooms" | "envFile" | "allowedRooms"
+    >
   >,
 ): { ok: true; user: UserRecord } | { ok: false; error: string } {
   const existing = getUserByName(name);
