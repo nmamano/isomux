@@ -602,6 +602,7 @@ export function Walls({
       </g>
       {/* Clock on right wall (skewed to match 2:1 wall angle ~27°) */}
       <g
+        data-no-pan
         transform="translate(240,-85) skewY(27)"
         onClick={onOpenCronjobs}
         style={
