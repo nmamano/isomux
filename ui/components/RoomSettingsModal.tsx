@@ -14,8 +14,11 @@ export function RoomSettingsModal({
   roomId: string;
   onClose: () => void;
 }) {
-  const { rooms, isMobile } = useAppState();
+  const { agents, rooms, isMobile } = useAppState();
   const room = rooms.find((r) => r.id === roomId);
+  const roomIndex = rooms.findIndex((r) => r.id === roomId);
+  const canDeleteRoom =
+    roomIndex > 0 && agents.every((agent) => agent.room !== roomIndex);
   const [name, setName] = useState(room?.name ?? "");
   const [prompt, setPrompt] = useState(room?.prompt ?? "");
   const [saving, setSaving] = useState(false);
@@ -177,30 +180,45 @@ export function RoomSettingsModal({
         <div
           style={{
             display: "flex",
-            justifyContent: "flex-end",
+            justifyContent: canDeleteRoom ? "space-between" : "flex-end",
+            alignItems: "center",
             gap: 8,
             marginTop: 20,
           }}
         >
-          <button onClick={onClose} style={cancelBtnStyle} disabled={saving}>
-            Cancel
-          </button>
-          {(() => {
-            const disabled = saving || !name.trim();
-            return (
-              <button
-                onClick={handleSave}
-                disabled={disabled}
-                style={{
-                  ...saveBtnStyle,
-                  opacity: disabled ? 0.45 : 1,
-                  cursor: disabled ? "not-allowed" : "pointer",
-                }}
-              >
-                {saving ? "Saving…" : "Save"}
-              </button>
-            );
-          })()}
+          {canDeleteRoom && (
+            <button
+              onClick={() => {
+                send({ type: "close_room", roomId });
+                onClose();
+              }}
+              style={deleteBtnStyle}
+              disabled={saving}
+            >
+              Delete empty room
+            </button>
+          )}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={onClose} style={cancelBtnStyle} disabled={saving}>
+              Cancel
+            </button>
+            {(() => {
+              const disabled = saving || !name.trim();
+              return (
+                <button
+                  onClick={handleSave}
+                  disabled={disabled}
+                  style={{
+                    ...saveBtnStyle,
+                    opacity: disabled ? 0.45 : 1,
+                    cursor: disabled ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {saving ? "Saving…" : "Save"}
+                </button>
+              );
+            })()}
+          </div>
         </div>
       </div>
     </div>
@@ -214,5 +232,11 @@ const cancelBtnStyle: React.CSSProperties = {
 };
 const saveBtnStyle: React.CSSProperties = {
   ...dialogSaveBtn,
+  fontFamily: "'DM Sans',sans-serif",
+};
+const deleteBtnStyle: React.CSSProperties = {
+  ...dialogCancelBtn,
+  borderColor: "rgba(255, 107, 107, 0.45)",
+  color: "#ff8a8a",
   fontFamily: "'DM Sans',sans-serif",
 };
