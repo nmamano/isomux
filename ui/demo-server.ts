@@ -6,11 +6,14 @@ import type {
   ModelFamily,
   Cronjob,
   Schedule,
+  UserRecord,
+  UserRole,
 } from "../shared/types.ts";
 import {
   DEFAULT_AGENT_CAPABILITIES,
   DEFAULT_EFFORT,
   generateCronjobId,
+  generateUserId,
 } from "../shared/types.ts";
 import { shimEmit } from "./ws.ts";
 
@@ -235,6 +238,7 @@ function ensureSeeded() {
   seeded = true;
   seedOffice();
   seedCronjobs();
+  seedUsers();
   state.setOfficeSettings(
     "Be concise. No paragraphs when bullets will do. Never push to main without asking. Never help Dwight set backdoors of any kind.",
     null,
@@ -549,6 +553,44 @@ function seedCronjobs() {
         lastFireAt ?? createdAt,
         now,
       ),
+    });
+  }
+}
+
+// Users: maintained as a plain in-memory map (not via OfficeState), same as
+// cronjobs. The demo has no real auth — sessionContext is never emitted —
+// so AccessPane, MyDevicesPane, and the Sign out button stay hidden in the
+// modal; the user picker, "Use" button, Edit panel, and Create form work
+// against this map.
+const users = new Map<string, UserRecord>();
+
+const DEMO_USERS_SEED: { name: string; role: UserRole }[] = [
+  // "demo-boss" is the device's pre-set username (see demo-entry.tsx) — seeding
+  // it here makes the picker highlight a "(you)" row instead of starting empty.
+  { name: "demo-boss", role: "owner" },
+  { name: "Michael", role: "owner" },
+  { name: "Pam", role: "member" },
+  { name: "Dwight", role: "member" },
+  { name: "Angela", role: "member" },
+];
+
+function seedUsers() {
+  const roomIds = state.getState().rooms.map((r) => r.id);
+  const defaultRoomId = roomIds[0] ?? null;
+  const now = Date.now();
+  const usedIds = new Set<string>();
+  for (const { name, role } of DEMO_USERS_SEED) {
+    const id = generateUserId(Array.from(usedIds));
+    usedIds.add(id);
+    users.set(name.toLowerCase(), {
+      id,
+      name,
+      defaultRoomId,
+      notifRooms: defaultRoomId ? [defaultRoomId] : [],
+      envFile: null,
+      createdAt: now,
+      role,
+      allowedRooms: [...roomIds],
     });
   }
 }
@@ -928,6 +970,114 @@ export function handleCommand(cmd: ClientCommand) {
       shimEmit({ type: "cronjob_runs_complete" });
       break;
     }
+    case "claim_user": {
+      const trimmed = cmd.username.trim();
+      if (!trimmed) break;
+      const key = trimmed.toLowerCase();
+      // The modal pre-checks for duplicates, but guard anyway so a stale
+      // claim doesn't overwrite an existing record.
+      if (users.has(key)) break;
+      const roomIds = state.getState().rooms.map((r) => r.id);
+      const defaultRoomId =
+        cmd.defaultRoomId !== undefined
+          ? cmd.defaultRoomId
+          : (roomIds[0] ?? null);
+      const newUser: UserRecord = {
+        id: generateUserId([...users.values()].map((u) => u.id)),
+        name: trimmed,
+        defaultRoomId,
+        notifRooms: cmd.notifRooms ?? (roomIds[0] ? [roomIds[0]] : []),
+        envFile: null,
+        createdAt: Date.now(),
+        role: "member",
+        allowedRooms: [...roomIds],
+      };
+      users.set(key, newUser);
+      shimEmit({ type: "user_updated", user: newUser });
+      shimEmit({ type: "users_list", users: [...users.values()] });
+      break;
+    }
+    case "update_user": {
+      const key = cmd.username.toLowerCase();
+      const existing = users.get(key);
+      if (!existing) {
+        if (cmd.requestId) {
+          shimEmit({
+            type: "settings_save_response",
+            requestId: cmd.requestId,
+            ok: false,
+            error: `User '${cmd.username}' not found.`,
+          });
+        }
+        break;
+      }
+      const trimmedName = cmd.changes.name?.trim();
+      const renamed = !!trimmedName && trimmedName !== existing.name;
+      if (renamed && trimmedName) {
+        const newKey = trimmedName.toLowerCase();
+        if (newKey !== key && users.has(newKey)) {
+          if (cmd.requestId) {
+            shimEmit({
+              type: "settings_save_response",
+              requestId: cmd.requestId,
+              ok: false,
+              error: `Name '${trimmedName}' is taken.`,
+            });
+          }
+          break;
+        }
+      }
+      const updated: UserRecord = {
+        ...existing,
+        ...(renamed && trimmedName ? { name: trimmedName } : {}),
+        ...(cmd.changes.defaultRoomId !== undefined
+          ? { defaultRoomId: cmd.changes.defaultRoomId }
+          : {}),
+        ...(cmd.changes.notifRooms !== undefined
+          ? { notifRooms: cmd.changes.notifRooms }
+          : {}),
+        ...(cmd.changes.envFile !== undefined
+          ? { envFile: cmd.changes.envFile }
+          : {}),
+        ...(cmd.changes.allowedRooms !== undefined
+          ? { allowedRooms: cmd.changes.allowedRooms }
+          : {}),
+      };
+      if (renamed) users.delete(key);
+      users.set(updated.name.toLowerCase(), updated);
+      shimEmit({
+        type: "user_updated",
+        user: updated,
+        ...(renamed ? { prevName: existing.name } : {}),
+      });
+      shimEmit({ type: "users_list", users: [...users.values()] });
+      if (cmd.requestId) {
+        shimEmit({
+          type: "settings_save_response",
+          requestId: cmd.requestId,
+          ok: true,
+        });
+      }
+      break;
+    }
+    case "delete_user": {
+      const key = cmd.username.toLowerCase();
+      if (users.has(key)) {
+        users.delete(key);
+        // The edit panel's raw listener resolves the pending delete when it
+        // sees a users_list without the target — no need for an extra
+        // delete_user_blocked path here since the demo has nothing to block.
+        shimEmit({ type: "users_list", users: [...users.values()] });
+      }
+      break;
+    }
+    case "logout": {
+      // The Sign out button only renders when sessionContext is truthy, and
+      // the demo never emits one — so this case is effectively unreachable.
+      // Kept as an explicit no-op in case a future code path sends logout
+      // unconditionally, to avoid hanging the WS shim.
+      break;
+    }
     // Silent no-ops
     case "terminal_open":
     case "terminal_input":
@@ -957,5 +1107,6 @@ export function sendInitialState() {
   });
   shimEmit({ type: "tasks", tasks: s.tasks });
   shimEmit({ type: "cronjobs_state", cronjobs: [...cronjobs], cronjobsPrompt });
+  shimEmit({ type: "users_list", users: [...users.values()] });
   seedLogs();
 }
