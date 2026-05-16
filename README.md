@@ -15,7 +15,7 @@ Free · open source · no cloud · no account
 - **Works with your Claude or ChatGPT subscriptions**: if `claude` or `codex` works in your terminal, isomux works in your browser
 - **Multi-provider**: mix Claude agents and [Codex](https://github.com/openai/codex) agents in the same office
 - Works locally (run the server on localhost:4000, access it through your browser) or as a **self-hosted persistent server**:
-  - Run at home, access **from any device** — over a VPN like [Tailscale](https://tailscale.com/), or by exposing the box publicly with a reverse proxy
+  - Run at home, access **from any device** (see [how](docs/access-and-invites.md))
   - **Invite-link access** for people you don't want to put on your VPN: owner mints a URL, sends it out-of-band, the invitee clicks and is signed in (see [`docs/access-and-invites.md`](docs/access-and-invites.md))
   - No syncing headaches: same conversations, same filesystem, every device updates **in real time**
   - [**Conversation-level collaboration**](https://x.com/Nil053/status/2050141843741081928): anyone you've invited can chime in
@@ -160,7 +160,7 @@ For persistent server setup (systemd + reverse proxy) and voice input configurat
 
 ### Mobile Support
 
-- **Open from your phone** — same Tailscale URL, touch-optimized UI
+- **Open from your phone** — same server URL (tailnet or public), touch-optimized UI
 - **Instant sync** — laptop and phone see the same state in real time over WebSocket
 - **Agent list view** as an alternative to the isometric office on small screens
 - **Full conversation view** with readable font sizes and two-row header
@@ -176,11 +176,11 @@ For persistent server setup (systemd + reverse proxy) and voice input configurat
 ### System & Backend
 
 - **Real-time sync via WebSocket** — every connected device stays in lockstep
-- **Multi-user real-time collaboration** — when accessed over Tailscale, multiple humans can chime in to the same conversation simultaneously
+- **Multi-user real-time collaboration** — multiple authenticated users can chime in to the same conversation simultaneously
 - **Single Bun process** — no bundler, no database, minimal deps
 - **Reuses CLI auth from the underlying provider** — your Claude or ChatGPT subscription works out of the box; no separate API key needed
 - **Built-in safety hooks** — blocks `rm -rf`, `git reset --hard`, and other footguns out of the box
-- **Works on a headless server** — run on a Mac Mini or Linux box, access from anywhere via Tailscale
+- **Works on a headless server** — run on a Mac Mini or Linux box, access from your tailnet or publicly via Tailscale Funnel / reverse proxy
 - **Daily local backup**: your office (agents, conversations, settings) is snapshotted once a day; restore from a recent snapshot if anything goes wrong
 
 ## How it works

@@ -65,7 +65,7 @@ Funnel exposes a single port on a Tailscale machine to the public internet over 
 Trade-offs:
 
 - **Dependency on Tailscale's relay and control plane.** Your reachability is contingent on Tailscale's infrastructure being up and on Tailscale not changing the free tier in adverse ways.
-- **Beta status.** Funnel has been in beta since Tailscale v1.38.3 (April 2023) and is still beta as of v1.96+. No SLA, behavior can change.
+- **Beta status.** Funnel is in beta and requires Tailscale v1.38.3 or later. No SLA, behavior can change.
 - **Non-configurable bandwidth limits.** Tailscale doesn't publish the cap, but it's generous enough that the WebSocket traffic isomux generates doesn't realistically hit it at personal or small-team scale.
 - **Public DNS visibility.** Your `*.ts.net` hostname (and therefore your tailnet name) becomes resolvable from the public internet and appears in Certificate Transparency logs once Tailscale provisions a Let's Encrypt cert.
 

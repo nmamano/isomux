@@ -57,7 +57,7 @@ The core thesis: **by anthropomorphizing agents, we reduce cognitive load** — 
 ## Self-hosted Persistent Server (Mac Mini style)
 Isomux shines when you run it on your own always-on machine (like a Mac Mini), and then access it from all your devices.
 Your phone and laptop see the same conversations, in real time, with UIs optimized for each. Agents keep running even if you close the browser.
-Bonus: anyone else on your Tailnet can chime in to the same conversation in real time, so multiple humans can collaborate with the same agent.
+Bonus: anyone you invite can chime in to the same conversation in real time, so multiple humans can collaborate with the same agent.
 
 Setup:
 1. Install Tailscale (free) on the server, your laptop, and your phone.
@@ -65,6 +65,7 @@ Setup:
 3. For persistence, set up a systemd user service that auto-rebuilds the UI on start and restarts on failure, with lingering enabled so it survives logout.
 4. On your phone, use "Add to Home Screen" for a full-screen app experience.
 5. For voice input over Tailscale, enable HTTPS certificates in the Tailscale admin console and run \`tailscale serve --bg http://localhost:4000\`.
+6. To let people use the office from outside your Tailscale network — friends, collaborators on a different VPN, anyone — expose it via Tailscale Funnel. Free, no domain needed, no router work. There's an agent prompt in \`docs/access-and-invites.md\` that walks an Isomux agent through the setup end-to-end. Cloudflare Tunnel and Caddy are documented as alternatives in the same file.
 
 ## Full Feature List
 
@@ -146,13 +147,21 @@ Setup:
 - Kill removes agent and frees desk
 
 ### Mobile Support
-- Open from your phone — same Tailscale URL, touch-optimized UI
+- Open from your phone — same server URL (whether tailnet-only or public via Funnel / reverse proxy), touch-optimized UI
 - Instant sync — laptop and phone see the same state in real time over WebSocket
 - The isometric office works on mobile; there's also an agent list view as an alternative
 - Full conversation view with readable font sizes and two-row header
 - Send & abort buttons for touch input; left/right swipe to cycle agents
 - Safe area insets for notch/home bar devices
 - "Add to Home Screen" in Safari/Chrome turns Isomux into a standalone web app on your phone — no app store needed, it gets its own icon and opens full-screen without browser UI
+
+### Access & Invites
+- Self-hosted browser auth: every request is gated by a session cookie. No accounts, no passwords.
+- Single-use invite links: the office owner mints a URL in User Settings → Access, sends it out-of-band (text, Signal, email), the invitee clicks and is signed in. One URL per device.
+- Two roles: owner (can mint invites and revoke sessions) and member (can use the office). The split controls who can expand the trust boundary, not what they can access once inside.
+- The owner can revoke any active session or unconsumed invite from the Access pane; revocation force-closes the affected WebSocket within ~1s.
+- Sessions roll for 30 days on activity, capped at 90 days from creation. They survive server restarts.
+- To make the office reachable from outside your Tailscale network — friends, collaborators on a different VPN — the recommended path is Tailscale Funnel. The agent prompt in \`docs/access-and-invites.md\` walks an Isomux agent through the whole setup. Cloudflare Tunnel and Caddy are documented as alternatives.
 
 ### Safety
 - All agents can run in bypassPermissions mode with safety hooks as guardrails

@@ -314,6 +314,9 @@ export function createCommandHandling(deps: HandlerDeps) {
         "  • Isomux also works on your phone. The easiest way is to connect it to the same tailscale network as the machine running it (it's free).",
       );
       lines.push(
+        "  • Once the office is reachable from outside your tailnet (e.g. via Tailscale Funnel — see `docs/access-and-invites.md`), the owner can open `User Settings` → `Access` and mint one-time invite URLs. Recipients click and are signed in — no accounts, no passwords.",
+      );
+      lines.push(
         "  • The built-in side-panel terminal is useful for one-off situations where you need to run something manually, like auth flows.",
       );
       lines.push(
