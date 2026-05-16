@@ -5,6 +5,8 @@ import type {
   BackendModelWire,
   AgentInfo,
   RoomWire,
+  NotifRoomsSetting,
+  UserRecord,
 } from "../shared/types.ts";
 import type { AgentEvent } from "./internal-types.ts";
 import { runPreUseridBackupIfNeeded } from "./migrations.ts";
@@ -36,6 +38,7 @@ import {
   getUserById,
   claimUser,
   updateUser,
+  updateUserById,
   deleteUser,
   wouldDeleteLeaveNoOwner,
 } from "./users.ts";
@@ -70,6 +73,7 @@ import {
   setOnInviteConsumed,
   setOnSessionsChanged,
   setPublicOriginFallback,
+  setRoomsSnapshotProvider,
   unregisterSocket,
   validateSession,
   wouldRevokeLeaveOfficeUnreachable,
@@ -90,6 +94,12 @@ runPreUseridBackupIfNeeded();
 // the bootstrap invite URL both read buildPublicOrigin(); without this
 // call, a config-file-written publicOrigin would be ignored on first boot.
 setPublicOriginFallback(loadServerConfig().publicOrigin);
+
+// Inject the room snapshot provider auth.ts uses when seeding a new
+// owner's allowedRooms at invite-acceptance time. The provider closes
+// over AgentManager.getRooms() rather than auth.ts importing
+// agent-manager directly — keeps the dependency graph one-way.
+setRoomsSnapshotProvider(() => AgentManager.getRooms().map((r) => r.id));
 
 // When an invite is consumed (typically via HTTP POST /auth/accept,
 // which never touches the WS dispatch loop), fan out an updated
@@ -221,31 +231,34 @@ function broadcast(msg: ServerMessage) {
 // per-WS event routing and the connect-time full_state both go through
 // them.
 
-function isOwnerSession(session: SessionLookup): boolean {
-  return session.role === "owner";
-}
-
-// A session has "full access" when the server treats it as seeing every
-// room: owners (regardless of stored allowedRooms) and members whose
-// allowedRooms is "all". For these sessions every per-WS path collapses
-// to the original broadcast — kept on the fast path.
+// Visibility is fully encoded in UserRecord.allowedRooms. There is no
+// per-room "private" flag and no "all" sentinel — the literal list IS
+// the access control. "Private to creator + owners" is an emergent
+// behavior of the create_room handler adding the new roomId to those
+// users' lists at creation time. Future rooms are added explicitly to
+// every owner + the creator.
+//
+// A session has "full access" when its user's allowedRooms covers
+// every current room id — that's the only state where the routing
+// fast-path can skip the projection. Owners with a self-imposed
+// restriction (allowedRooms missing some room ids) lose full access
+// just like restricted members would.
 function sessionHasFullRoomAccess(session: SessionLookup): boolean {
-  if (isOwnerSession(session)) return true;
   const user = getUserById(session.userId);
   if (!user) return false;
-  return user.allowedRooms === "all";
+  for (const r of AgentManager.getRooms()) {
+    if (!user.allowedRooms.includes(r.id)) return false;
+  }
+  return true;
 }
 
 function roomAllowedForSession(
   session: SessionLookup,
   roomId: string,
 ): boolean {
-  if (isOwnerSession(session)) return true;
   const user = getUserById(session.userId);
   if (!user) return false;
-  const allowed = user.allowedRooms;
-  if (allowed === "all") return true;
-  return allowed.includes(roomId);
+  return user.allowedRooms.includes(roomId);
 }
 
 interface VisibleRoomProjection {
@@ -363,8 +376,9 @@ function sendProjectedFullState(
 // Push a fresh projected full_state to every WS owned by a specific
 // userId. Called after a successful update_user that changed allowedRooms
 // — every device that user is connected from gets the new view applied
-// without a reconnect. Owners are unaffected by allowedRooms but the call
-// is cheap (identity projection) so we don't branch.
+// without a reconnect. Users whose allowedRooms already covers every
+// room get the identity projection, so the call is cheap; we don't
+// need to branch on role.
 function pushProjectedFullStateForUserId(userId: string) {
   for (const ws of browsers) {
     if (ws.data.session.userId === userId) {
@@ -373,9 +387,30 @@ function pushProjectedFullStateForUserId(userId: string) {
   }
 }
 
-// Per-WS dispatch for events that touch a specific room or agent. Owners
-// and "all"-access members get the event verbatim (fast path). Members
-// with an explicit allowedRooms list get either:
+// Push the unfiltered global rooms list to every owner WS. Used after
+// any change to the global rooms array so the owner-only admin view
+// (currently: the Allowed Rooms editor in UserManagementModal) keeps
+// in sync. Owners with an explicit allowedRooms still see only their
+// subset in the main UI; this channel is purely for the admin surface
+// where they grant/revoke other users' room access. Members never
+// receive this — leaking the full room list across visibility lines
+// would defeat the per-user ACL.
+function pushAllRoomsListToOwners() {
+  const data = JSON.stringify({
+    type: "all_rooms_list",
+    rooms: AgentManager.getRooms(),
+  });
+  for (const ws of browsers) {
+    if (ws.data.session.role === "owner") {
+      ws.send(data);
+    }
+  }
+}
+
+// Per-WS dispatch for events that touch a specific room or agent.
+// Sessions whose allowedRooms covers every current room id take the
+// fast path and receive the event verbatim. Sessions with partial
+// coverage get either:
 //   - a projected event (rewriting agent.room index), or
 //   - a suppressed event (the room/agent isn't visible), or
 //   - a fresh projected full_state when the event would have shifted
@@ -510,6 +545,19 @@ AgentManager.onEvent((event) => {
   // All remaining events touch a specific room or agent — route per-WS so
   // restricted members get a projected view (or suppression).
   routeAgentEvent(event);
+  // Any mutation of the global rooms list also refreshes the owner-only
+  // admin view of all rooms (used by UserManagementModal). Done here
+  // (rather than inside routeAgentEvent) so the all_rooms_list message
+  // doesn't fan out per-event-type; one shot per mutation.
+  if (
+    event.type === "room_created" ||
+    event.type === "room_closed" ||
+    event.type === "room_renamed" ||
+    event.type === "rooms_reordered" ||
+    event.type === "room_settings_updated"
+  ) {
+    pushAllRoomsListToOwners();
+  }
 });
 
 // Wire CronjobManager events to WebSocket broadcasts
@@ -1319,13 +1367,61 @@ async function dispatchCommand(
       AgentManager.deleteTask(cmd.id);
       break;
     }
-    case "create_room":
-      // V1: create_room is not access-gated. New rooms are reachable by
-      // anyone with `allowedRooms: "all"`; members on an explicit list
-      // don't see the new room until an owner grants it. Room-CRUD-as-
-      // owner-only is a separate product decision.
-      AgentManager.createRoom(cmd.name);
+    case "create_room": {
+      // Anyone can create rooms. Access control is the literal
+      // allowedRooms list — no per-room flag, no sentinel. The handler
+      // seeds the right users explicitly:
+      //   - The creator (sees their own creation).
+      //   - Every current owner (owners always see every room; the
+      //     model materializes that invariant on every room creation
+      //     rather than encoding it in a sentinel).
+      // Members other than the creator are NOT auto-added; they
+      // become visible only when an owner grants them via the Allowed
+      // Rooms editor.
+      const newRoomId = AgentManager.createRoom(cmd.name);
+      const usersToUpdate: UserRecord[] = [];
+      const seen = new Set<string>();
+      const creator = getUserById(session.userId);
+      if (creator) {
+        usersToUpdate.push(creator);
+        seen.add(creator.id);
+      }
+      for (const u of listUsers()) {
+        if (u.role === "owner" && !seen.has(u.id)) {
+          usersToUpdate.push(u);
+          seen.add(u.id);
+        }
+      }
+      let anyUpdate = false;
+      for (const u of usersToUpdate) {
+        if (u.allowedRooms.includes(newRoomId)) continue;
+        // Mirror auto-add on notifRooms so the prune invariant holds:
+        // a user's notif list always tracks the rooms they can see.
+        // No-op when the room is somehow already present.
+        const notifPatch: { notifRooms?: NotifRoomsSetting } = {};
+        if (!u.notifRooms.includes(newRoomId)) {
+          notifPatch.notifRooms = [...u.notifRooms, newRoomId];
+        }
+        const result = updateUserById(u.id, {
+          allowedRooms: [...u.allowedRooms, newRoomId],
+          ...notifPatch,
+        });
+        if (result.ok) {
+          broadcast({ type: "user_updated", user: result.user });
+          // The `room_created` event was already filtered out for this
+          // user's WSes at fan-out time (their allowedRooms didn't
+          // include the new id yet). A projected full_state catches
+          // them up; logs/slashCommands are replayed for visible
+          // agents inside the helper.
+          pushProjectedFullStateForUserId(u.id);
+          anyUpdate = true;
+        }
+      }
+      if (anyUpdate) {
+        broadcast({ type: "users_list", users: listUsers() });
+      }
       break;
+    }
     case "close_room":
       if (!roomAllowedForSession(session, cmd.roomId)) break;
       AgentManager.closeRoom(cmd.roomId);
@@ -1343,10 +1439,10 @@ async function dispatchCommand(
       break;
     }
     case "reorder_rooms":
-      // Reorder shapes the office's global room order. Members on an
-      // explicit allowed list see only a slice of the rooms, so they
-      // can't author a coherent reordering of the global list. Members
-      // with `allowedRooms: "all"` and owners can reorder freely.
+      // Reorder shapes the office's global room order. Sessions whose
+      // allowedRooms doesn't cover every current room see only a slice
+      // of the office and can't author a coherent reorder of the
+      // global list. sessionHasFullRoomAccess encodes that test.
       if (!sessionHasFullRoomAccess(session)) break;
       AgentManager.reorderRooms(cmd.order);
       break;
@@ -1582,7 +1678,72 @@ async function dispatchCommand(
           break;
         }
       }
-      const result = updateUser(cmd.username, cmd.changes);
+      // Runtime-validate allowedRooms + notifRooms shapes on the wire.
+      // Both are now strict string[]; a stale tab from before either
+      // refactor could still send the legacy "all" sentinel, and
+      // treating a string as a string[] in the auto-prune logic below
+      // would expand it to per-char garbage. Reject malformed values
+      // explicitly so the user sees an error rather than silently
+      // corrupting their record.
+      const effectiveChanges = { ...cmd.changes };
+      const isStringArray = (v: unknown): boolean =>
+        Array.isArray(v) && v.every((x) => typeof x === "string");
+      if (
+        effectiveChanges.allowedRooms !== undefined &&
+        !isStringArray(effectiveChanges.allowedRooms)
+      ) {
+        if (cmd.requestId) {
+          ws.send(
+            JSON.stringify({
+              type: "settings_save_response",
+              requestId: cmd.requestId,
+              ok: false,
+              error:
+                "Invalid allowedRooms (must be an array of room ids). Reload the page and retry.",
+            }),
+          );
+        }
+        break;
+      }
+      if (
+        effectiveChanges.notifRooms !== undefined &&
+        !isStringArray(effectiveChanges.notifRooms)
+      ) {
+        if (cmd.requestId) {
+          ws.send(
+            JSON.stringify({
+              type: "settings_save_response",
+              requestId: cmd.requestId,
+              ok: false,
+              error:
+                "Invalid notifRooms (must be an array of room ids). Reload the page and retry.",
+            }),
+          );
+        }
+        break;
+      }
+      // Enforce notifRooms ⊆ allowedRooms whenever either field is in
+      // the change set. A room you can't see can't deliver
+      // notifications, so the two settings can't disagree without
+      // leaving dead entries in users.json. Runs even when only
+      // notifRooms is being updated, so a stale or crafted client
+      // can't drift the invariant past this handler. Computed once
+      // so a single updateUser call applies both atomically and the
+      // user_updated broadcast picks up the consistent shape.
+      if (
+        effectiveChanges.allowedRooms !== undefined ||
+        effectiveChanges.notifRooms !== undefined
+      ) {
+        const targetUser = getUser(cmd.username);
+        const newAllowed =
+          effectiveChanges.allowedRooms ?? targetUser?.allowedRooms ?? [];
+        const baselineNotif =
+          effectiveChanges.notifRooms ?? targetUser?.notifRooms ?? [];
+        effectiveChanges.notifRooms = baselineNotif.filter((id) =>
+          newAllowed.includes(id),
+        );
+      }
+      const result = updateUser(cmd.username, effectiveChanges);
       if (!result.ok) {
         if (cmd.requestId) {
           ws.send(
@@ -2682,9 +2843,20 @@ const server = Bun.serve<WsData>({
         }),
       );
       // Send projected full_state (rooms + agents filtered to the
-      // session's allowedRooms; for owners and "all"-access members this
-      // is the identity projection).
+      // session's allowedRooms; sessions whose allowedRooms covers
+      // every current room get the identity projection).
       sendProjectedFullState(ws);
+      // Owners also receive the unfiltered global rooms list so the
+      // admin surface (UserManagementModal's Allowed Rooms editor) can
+      // grant access to rooms the owner has hidden from their own view.
+      if (ws.data.session.role === "owner") {
+        ws.send(
+          JSON.stringify({
+            type: "all_rooms_list",
+            rooms: AgentManager.getRooms(),
+          }),
+        );
+      }
       // Send tasks
       ws.send(
         JSON.stringify({

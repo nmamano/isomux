@@ -650,6 +650,70 @@ export function OfficeView({
             }}
           />
         )}
+
+        {/* Empty-state overlay for members with no visible rooms (the
+            default for new members until they create their own room or
+            an owner grants them access). The office floor/walls/desks
+            underneath still render so the scene still reads as an
+            office — the boss specifically wanted the empty-office vibe
+            as background. */}
+        {rooms.length === 0 && (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              pointerEvents: "none",
+              zIndex: 100,
+            }}
+          >
+            <div
+              style={{
+                padding: "18px 24px",
+                borderRadius: 12,
+                background: "var(--bg-overlay)",
+                backdropFilter: "blur(12px)",
+                border: "1px solid var(--border-light)",
+                textAlign: "center",
+                maxWidth: 340,
+                boxShadow: "0 8px 32px var(--shadow-heavy)",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 14,
+                  fontWeight: 700,
+                  color: "var(--text-primary)",
+                }}
+              >
+                No rooms assigned
+              </div>
+              <div
+                style={{
+                  fontSize: 11,
+                  color: "var(--text-ghost)",
+                  marginTop: 8,
+                  lineHeight: 1.5,
+                }}
+              >
+                <p style={{ margin: "0 0 8px" }}>
+                  Use the <strong>+</strong> in the room tab bar to
+                  create your own room.
+                </p>
+                <p style={{ margin: "0 0 8px" }}>
+                  New rooms you create are visible only to you and the
+                  office owners by default (owners can change that).
+                </p>
+                <p style={{ margin: 0 }}>
+                  You can also ask an owner to add you to existing
+                  rooms.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Bottom HUD */}

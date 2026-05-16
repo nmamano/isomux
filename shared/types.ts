@@ -538,7 +538,15 @@ export interface OfficeSettings {
   name: string | null;
 }
 
-// A room with stable ID, display name, and per-room config
+// A room with stable ID, display name, and per-room config.
+// Access control lives entirely in `UserRecord.allowedRooms` — the
+// create-room handler adds the new roomId to the creator's list and
+// to every current owner's list, regardless of the creator's role.
+// There is no per-room "private" flag; "private to creator + owners"
+// is an emergent behavior of who's been added to which user's
+// allowedRooms at creation time. Members other than the creator are
+// not auto-added; an owner has to grant them through the Allowed
+// Rooms editor.
 export interface RoomWire {
   id: string; // 8-char hex, stable
   name: string; // display name
@@ -549,7 +557,12 @@ export interface RoomWire {
 // `id` (stable hex) since the V2 identity-id migration; display name lives
 // in the `name` field and can be renamed without breaking sessions/agents/
 // cronjobs that reference the user via id.
-export type NotifRoomsSetting = "all" | string[];
+//
+// Both notifRooms and allowedRooms are strict string[] — no "all"
+// sentinel. New users get an explicit snapshot of the rooms they're
+// allowed to see at creation time; the create_room handler appends
+// new room ids to the right users' lists as the office evolves.
+export type NotifRoomsSetting = string[];
 
 export type UserRole = "owner" | "member";
 
@@ -561,13 +574,18 @@ export interface UserRecord {
   envFile: string | null; // absolute path to dotenv file
   createdAt: number;
   role: UserRole; // app-level role; owner can mint invites and revoke sessions
-  // Rooms this user can see and act in. "all" (default) preserves the
-  // pre-ACL behavior; an explicit string[] of roomIds restricts the user
-  // to those rooms server-side (filtered reads + write-side rejections).
-  // Owners are not gated by this field — the server treats their sessions
-  // as having full access regardless of the stored value. Only owners can
-  // mutate this through update_user.
-  allowedRooms: NotifRoomsSetting;
+  // Rooms this user can see and act in — strict string[] of roomIds.
+  // The literal list IS the access control: server filters reads and
+  // rejects writes for any room not in this array. No "all" sentinel.
+  // New owners receive a snapshot of current room ids at creation
+  // time; new members default to `[]`. The create_room handler
+  // appends the new roomId to the creator AND to every current owner,
+  // so new rooms land in owners' allowedRooms by default. Owners can
+  // still hide rooms from their own view by removing entries here;
+  // the admin `all_rooms_list` channel surfaces the unfiltered global
+  // list for the owner UI. Only owners can mutate this through
+  // update_user.
+  allowedRooms: string[];
 }
 
 // Sent to the client over the WS at connect time so the UI knows whether to
@@ -756,6 +774,11 @@ export type ServerMessage =
   | { type: "users_list"; users: UserRecord[] }
   | { type: "user_updated"; user: UserRecord; prevName?: string }
   | { type: "session_context"; context: SessionContext }
+  // Owner-only: unfiltered global rooms list. Owners with an explicit
+  // allowedRooms list still see only their subset in the main UI, but
+  // need every room here to manage other users' room access. Members
+  // never receive this message.
+  | { type: "all_rooms_list"; rooms: RoomWire[] }
   | { type: "invites_list"; invites: InviteWire[] }
   | { type: "sessions_active_list"; sessions: SessionWire[] }
   | {
@@ -1008,7 +1031,8 @@ export type ClientCommand =
       // `allowedRooms` is part of the wire so owners can set it through
       // the same handler that edits other preferences. The server-side
       // handler refuses any change to allowedRooms from non-owner
-      // sessions, including self-edits.
+      // sessions, including self-edits. Type is strict `string[]` —
+      // no "all" sentinel; client sends the complete list to grant.
       changes: Partial<
         Pick<
           UserRecord,

@@ -63,7 +63,11 @@ export interface OfficeStateData {
 export class OfficeState {
   private agents = new Map<string, AgentInfo>();
   private _rooms: RoomWire[] = [
-    { id: generateRoomId(), name: "Room 1", prompt: null },
+    {
+      id: generateRoomId(),
+      name: "Room 1",
+      prompt: null,
+    },
   ];
   private _office: OfficeSettings = {
     prompt: null,
@@ -132,7 +136,13 @@ export class OfficeState {
     this._rooms =
       rooms.length > 0
         ? [...rooms]
-        : [{ id: generateRoomId(), name: "Room 1", prompt: null }];
+        : [
+            {
+              id: generateRoomId(),
+              name: "Room 1",
+              prompt: null,
+            },
+          ];
   }
 
   setOfficeDirect(office: OfficeSettings) {

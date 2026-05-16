@@ -26,7 +26,21 @@ import {
   getUserByName,
   hasOwner,
   setUserRoleById,
+  updateUserById,
 } from "./users.ts";
+
+// Injected by server/index.ts at boot. New owners need a snapshot of
+// every current room id as their initial allowedRooms (the strict
+// string[] model has no "all" sentinel, so "owners see every room" has
+// to be materialized at creation time). auth.ts is intentionally kept
+// free of agent-manager dependencies; the provider sidesteps a cycle.
+let roomsSnapshotProvider: (() => string[]) | null = null;
+export function setRoomsSnapshotProvider(fn: () => string[]): void {
+  roomsSnapshotProvider = fn;
+}
+function snapshotRoomIds(): string[] {
+  return roomsSnapshotProvider ? roomsSnapshotProvider() : [];
+}
 
 // ---------------------------------------------------------------------------
 // File layout
@@ -616,13 +630,60 @@ export async function acceptInvite(
     let userRecord = getUserByName(chosenName);
     if (invite.bootstrap) {
       if (!userRecord) {
-        userRecord = claimUser(chosenName, { role: "owner" });
-      } else if (userRecord.role !== "owner") {
-        setUserRoleById(userRecord.id, "owner");
+        // Bootstrap owner gets a snapshot of every current room so the
+        // "owners see all" intent survives the no-"all"-sentinel model.
+        userRecord = claimUser(chosenName, {
+          role: "owner",
+          allowedRooms: snapshotRoomIds(),
+        });
+      } else {
+        // Existing user becoming the bootstrap owner. Three states to
+        // handle: (a) member being promoted, (b) already-owner that
+        // came from a partial-failure recovery, (c) ill-formed
+        // pre-state. Materialize allowedRooms FIRST (idempotent),
+        // then promote the role. If allowedRooms persistence throws,
+        // the role stays where it was — a retry of the bootstrap
+        // accept starts fresh from the same branch. If role
+        // persistence throws after a successful allowedRooms write,
+        // the retry sees an owner with correct allowedRooms and the
+        // setUserRoleById branch becomes a no-op. Ordering matters:
+        // doing role first would let a partial failure leave the
+        // user as an owner without room access, and the next attempt
+        // would skip materialization (the old buggy shape).
+        const snapshot = snapshotRoomIds();
+        try {
+          const r = updateUserById(userRecord.id, {
+            allowedRooms: snapshot,
+          });
+          if (!r.ok) {
+            console.warn(
+              `[auth] bootstrap allowedRooms update for ${userRecord.name} returned not-ok: ${r.error}`,
+            );
+          }
+        } catch (err) {
+          console.warn(
+            `[auth] bootstrap allowedRooms persist for ${userRecord.name} threw: ${(err as Error).message}`,
+          );
+          // Don't promote the role if allowedRooms didn't land — the
+          // next bootstrap accept will re-attempt both.
+          throw err;
+        }
+        if (userRecord.role !== "owner") {
+          setUserRoleById(userRecord.id, "owner");
+        }
         userRecord = getUserById(userRecord.id)!;
       }
     } else if (!userRecord) {
-      userRecord = claimUser(chosenName, { role: invite.role });
+      // Owner invites seed the new owner with every current room id;
+      // member invites land on the [] default, leaving the new member
+      // with no rooms visible until an owner grants access or they
+      // create their own.
+      userRecord = claimUser(chosenName, {
+        role: invite.role,
+        ...(invite.role === "owner"
+          ? { allowedRooms: snapshotRoomIds() }
+          : {}),
+      });
     }
 
     // Create the session. Identity is the stable user.id; the username

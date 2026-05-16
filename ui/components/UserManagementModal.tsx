@@ -36,8 +36,13 @@ export function UserManagementModal({
   onSwitchUser: (name: string | null) => void;
   onClose?: () => void;
 }) {
-  const { users, rooms, isMobile, sessionContext } = useAppState();
+  const { users, rooms, allRooms, isMobile, sessionContext } = useAppState();
   const isOwner = sessionContext?.role === "owner";
+  // Owners need every room for the Allowed Rooms editor and the user
+  // summaries below, including rooms they've hidden from their own
+  // view. `allRooms` is pushed by the server to owner WSes only;
+  // members fall back to their projected `rooms` (already filtered).
+  const editorRooms = allRooms.length > 0 ? allRooms : rooms;
   const userList = useMemo(
     () => [...users.values()].sort((a, b) => a.name.localeCompare(b.name)),
     [users],
@@ -224,7 +229,7 @@ export function UserManagementModal({
                             marginTop: 2,
                           }}
                         >
-                          {summarizeUser(u, rooms)}
+                          {summarizeUser(u, editorRooms)}
                         </div>
                       </div>
                       {!isMe && !sessionContext && (
@@ -395,18 +400,12 @@ function summarizeUser(
   const parts: string[] = [];
   const room = rooms.find((r) => r.id === u.defaultRoomId);
   parts.push(`default: ${room?.name ?? "first room"}`);
-  if (u.notifRooms === "all") parts.push("notify: all rooms");
-  else
-    parts.push(
-      `notify: ${u.notifRooms.length} room${u.notifRooms.length === 1 ? "" : "s"}`,
-    );
-  // Surface the ACL only when it's restrictive — "all" is the default
-  // and would be noisy on every row.
-  if (u.allowedRooms !== "all") {
-    parts.push(
-      `access: ${u.allowedRooms.length} room${u.allowedRooms.length === 1 ? "" : "s"}`,
-    );
-  }
+  parts.push(
+    `notify: ${u.notifRooms.length} room${u.notifRooms.length === 1 ? "" : "s"}`,
+  );
+  parts.push(
+    `access: ${u.allowedRooms.length} room${u.allowedRooms.length === 1 ? "" : "s"}`,
+  );
   if (u.envFile) parts.push("env: configured");
   return parts.join(" · ");
 }
@@ -422,12 +421,18 @@ function UserEditPanel({
   onRenamed?: (newName: string) => void;
   onDeleted?: () => void;
 }) {
-  const { rooms, sessionContext } = useAppState();
+  const { rooms, allRooms, sessionContext } = useAppState();
   // Owner-only fields (currently: allowedRooms). The server rejects
   // changes to those fields from non-owner sessions even on self-edit,
   // but we also hide the editor here so members don't see disabled
   // controls they can't use.
   const isOwner = sessionContext?.role === "owner";
+  // Use the unfiltered global rooms list when available so the owner
+  // can manage other users' access to rooms they've hidden from their
+  // own view, and so the Notifications list reflects every room the
+  // target user might actually see. Members fall back to their
+  // projected `rooms` (which already match what they can see).
+  const editorRooms = allRooms.length > 0 ? allRooms : rooms;
   const [name, setName] = useState(user.name);
   const [defaultRoomId, setDefaultRoomId] = useState<string | null>(
     user.defaultRoomId,
@@ -435,7 +440,7 @@ function UserEditPanel({
   const [notifSetting, setNotifSetting] = useState<NotifRoomsSetting>(
     user.notifRooms,
   );
-  const [allowedSetting, setAllowedSetting] = useState<NotifRoomsSetting>(
+  const [allowedSetting, setAllowedSetting] = useState<string[]>(
     user.allowedRooms,
   );
   const [envFile, setEnvFile] = useState<string>(user.envFile ?? "");
@@ -555,37 +560,28 @@ function UserEditPanel({
     return () => removeRawListener(listener);
   }, [user.envFile, user.name]);
 
+  // notifSetting and allowedSetting are both strict string[] (no "all"
+  // sentinel). Toggling adds or removes a roomId.
   function toggleRoomNotif(roomId: string) {
-    if (notifSetting === "all") {
-      setNotifSetting(rooms.filter((r) => r.id !== roomId).map((r) => r.id));
-      return;
-    }
     const has = notifSetting.includes(roomId);
-    const next = has
-      ? notifSetting.filter((id) => id !== roomId)
-      : [...notifSetting, roomId];
-    const coversAll =
-      rooms.length > 0 && rooms.every((r) => next.includes(r.id));
-    setNotifSetting(coversAll ? "all" : next);
+    setNotifSetting(
+      has
+        ? notifSetting.filter((id) => id !== roomId)
+        : [...notifSetting, roomId],
+    );
   }
 
-  // Same shape as toggleRoomNotif: "all" is the no-restriction value;
-  // toggling a room off "all" expands the list to every other room so the
-  // unchecked state reads correctly. Toggling such that every room is
-  // present collapses back to "all" so a re-add doesn't end up storing
-  // a redundant array.
+  // When a room is removed from access, also prune notifSetting
+  // locally so the checkboxes never sit in an inconsistent state
+  // mid-edit — the server applies the same prune on save, but the
+  // client-side mirror keeps the UI honest immediately.
   function toggleRoomAllowed(roomId: string) {
-    if (allowedSetting === "all") {
-      setAllowedSetting(rooms.filter((r) => r.id !== roomId).map((r) => r.id));
-      return;
-    }
     const has = allowedSetting.includes(roomId);
-    const next = has
+    const newAllowed = has
       ? allowedSetting.filter((id) => id !== roomId)
       : [...allowedSetting, roomId];
-    const coversAll =
-      rooms.length > 0 && rooms.every((r) => next.includes(r.id));
-    setAllowedSetting(coversAll ? "all" : next);
+    setAllowedSetting(newAllowed);
+    setNotifSetting(notifSetting.filter((id) => newAllowed.includes(id)));
   }
 
   function handleSave() {
@@ -653,7 +649,7 @@ function UserEditPanel({
         style={inputStyle}
       >
         <option value="">Whichever is first</option>
-        {rooms.map((r) => (
+        {editorRooms.map((r) => (
           <option key={r.id} value={r.id}>
             {r.name}
           </option>
@@ -676,20 +672,35 @@ function UserEditPanel({
           overflowY: "auto",
         }}
       >
-        {rooms.length === 0 ? (
-          <div
-            style={{
-              padding: "8px 12px",
-              fontSize: 12,
-              color: "var(--text-ghost)",
-            }}
-          >
-            No rooms yet.
-          </div>
-        ) : (
-          rooms.map((r) => {
-            const checked =
-              notifSetting === "all" || notifSetting.includes(r.id);
+        {(() => {
+          // Show notif checkboxes only for rooms the target user can
+          // actually see — listing rooms outside their allowedRooms
+          // would let an owner check Notif for a room the user can't
+          // reach, an immediately-pruned state. Owner view: filtered
+          // by the in-progress allowedSetting; member self-view:
+          // `rooms` is already projected so the filter is a no-op.
+          // Notif checkboxes show only rooms the target user can
+          // actually reach (i.e., rooms in allowedSetting). Owner
+          // editing themselves with restricted allowed: notif row
+          // shrinks too. Owner editing a member: same.
+          const notifRoomsToShow = editorRooms.filter((r) =>
+            allowedSetting.includes(r.id),
+          );
+          if (notifRoomsToShow.length === 0) {
+            return (
+              <div
+                style={{
+                  padding: "8px 12px",
+                  fontSize: 12,
+                  color: "var(--text-ghost)",
+                }}
+              >
+                No rooms yet.
+              </div>
+            );
+          }
+          return notifRoomsToShow.map((r) => {
+            const checked = notifSetting.includes(r.id);
             return (
               <label
                 key={r.id}
@@ -712,8 +723,8 @@ function UserEditPanel({
                 <span>{r.name}</span>
               </label>
             );
-          })
-        )}
+          });
+        })()}
       </div>
 
       {isOwner && (
@@ -734,7 +745,7 @@ function UserEditPanel({
               overflowY: "auto",
             }}
           >
-            {rooms.length === 0 ? (
+            {editorRooms.length === 0 ? (
               <div
                 style={{
                   padding: "8px 12px",
@@ -745,9 +756,8 @@ function UserEditPanel({
                 No rooms yet.
               </div>
             ) : (
-              rooms.map((r) => {
-                const checked =
-                  allowedSetting === "all" || allowedSetting.includes(r.id);
+              editorRooms.map((r) => {
+                const checked = allowedSetting.includes(r.id);
                 return (
                   <label
                     key={r.id}

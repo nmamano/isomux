@@ -94,6 +94,12 @@ export interface AppState {
   // Owner-only access state. Both maps stay empty (and the corresponding
   // owner UI is hidden) for members and unauthenticated states.
   sessionContext: SessionContext | null;
+  // Owner-only: unfiltered global rooms list, used by the Allowed Rooms
+  // editor in UserManagementModal so an owner with a restricted
+  // allowedRooms can still grant other users access to rooms outside
+  // their own subset. Empty (and the editor falls back to `rooms`)
+  // for members and pre-auth states.
+  allRooms: RoomWire[];
   invitesList: InviteWire[];
   invitesLoaded: boolean;
   activeSessions: SessionWire[];
@@ -155,6 +161,7 @@ type Action =
   | { type: "users_list"; users: UserRecord[] }
   | { type: "user_updated"; user: UserRecord; prevName?: string }
   | { type: "session_context"; context: SessionContext }
+  | { type: "all_rooms_list"; rooms: RoomWire[] }
   | { type: "invites_list"; invites: InviteWire[] }
   | { type: "sessions_active_list"; sessions: SessionWire[] }
   | {
@@ -438,6 +445,11 @@ function reducer(state: AppState, action: Action): AppState {
         invitesLoaded: false,
         activeSessionsLoaded: false,
       };
+    case "all_rooms_list":
+      // Owner-only payload. Members never receive this; the case is
+      // still reachable via the dispatcher type union so no special
+      // guard is needed.
+      return { ...state, allRooms: action.rooms };
     case "invites_list":
       return { ...state, invitesList: action.invites, invitesLoaded: true };
     case "sessions_active_list":
@@ -580,6 +592,7 @@ const initialState: AppState = {
   users: new Map(),
   usersLoaded: false,
   sessionContext: null,
+  allRooms: [],
   invitesList: [],
   invitesLoaded: false,
   activeSessions: [],
@@ -693,7 +706,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     ) {
       const username = getUsername();
       const me = username ? state.users.get(username.toLowerCase()) : undefined;
-      const notifRooms = me?.notifRooms ?? "all";
+      const notifRooms = me?.notifRooms ?? [];
       if (shouldNotifyRoom(state.soundTrigger.roomId, notifRooms)) {
         playNotificationSound();
       }

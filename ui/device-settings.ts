@@ -42,19 +42,21 @@ export function readLegacyUserPrefs(): {
   notifRooms: NotifRoomsSetting;
 } {
   if (typeof localStorage === "undefined")
-    return { defaultRoomId: null, notifRooms: "all" };
+    return { defaultRoomId: null, notifRooms: [] };
   const defaultRoomId = localStorage.getItem(LEGACY_KEY_DEFAULT_ROOM);
   const raw = localStorage.getItem(LEGACY_KEY_NOTIF_ROOMS);
-  let notifRooms: NotifRoomsSetting = "all";
+  let notifRooms: NotifRoomsSetting = [];
   if (raw) {
     try {
       const parsed = JSON.parse(raw);
-      if (parsed === "all") notifRooms = "all";
-      else if (
+      if (
         Array.isArray(parsed) &&
         parsed.every((x) => typeof x === "string")
-      )
+      ) {
         notifRooms = parsed;
+      }
+      // Legacy "all" sentinel collapses to []; the user can re-enable
+      // notifications per-room through User Settings if they want.
     } catch {}
   }
   return { defaultRoomId, notifRooms };
@@ -70,7 +72,6 @@ export function shouldNotifyRoom(
   roomId: string | null,
   setting: NotifRoomsSetting,
 ): boolean {
-  if (setting === "all") return true;
   if (roomId == null) return false;
   return setting.includes(roomId);
 }

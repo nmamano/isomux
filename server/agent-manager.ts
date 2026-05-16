@@ -184,8 +184,22 @@ const agents = new Map<string, ManagedAgent>();
 const logCache = new Map<string, LogEntry[]>(); // agentId → entries
 let eventHandler: EventHandler = () => {};
 const initialOfficeConfig: OfficeSettings = loadOfficeConfig();
+// Read the persisted rooms+agents shape ONCE at module init. The rooms
+// are seeded into OfficeState now so AgentManager.getRooms() returns
+// the real persisted ids immediately — required because auth.ts's
+// snapshot provider runs (e.g. on bootstrap invite acceptance) before
+// the async restoreAgents() finishes. restoreAgents reuses the cached
+// value for the agent-restoration pass below.
+const initialLoadedAgents = loadAgents();
 const officeState = new OfficeState({
-  rooms: [{ id: generateRoomId(), name: "Room 1", prompt: null }],
+  rooms:
+    initialLoadedAgents.length > 0
+      ? initialLoadedAgents.map((r) => ({
+          id: r.id,
+          name: r.name,
+          prompt: r.prompt,
+        }))
+      : [{ id: generateRoomId(), name: "Room 1", prompt: null }],
   office: {
     prompt: initialOfficeConfig.prompt,
     envFile: initialOfficeConfig.envFile,
@@ -671,10 +685,11 @@ export async function restoreAgents() {
     });
   } catch {}
 
-  const loaded = loadAgents();
-  officeState.setRooms(
-    loaded.map((r) => ({ id: r.id, name: r.name, prompt: r.prompt })),
-  );
+  // Rooms were seeded at module init from initialLoadedAgents — reuse
+  // the cached value rather than re-running loadAgents() here. Reading
+  // agents.json twice on boot was harmless but wasteful, and the
+  // cached version is what auth.ts's snapshot provider already saw.
+  const loaded = initialLoadedAgents;
 
   for (let roomIdx = 0; roomIdx < loaded.length; roomIdx++) {
     for (const p of loaded[roomIdx].agents) {

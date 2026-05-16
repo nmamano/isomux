@@ -17,11 +17,7 @@
 import { join } from "path";
 import { homedir } from "os";
 import { existsSync, readFileSync } from "fs";
-import type {
-  UserRecord,
-  UserRole,
-  NotifRoomsSetting,
-} from "../shared/types.ts";
+import type { UserRecord, UserRole, NotifRoomsSetting } from "../shared/types.ts";
 import { generateUserId } from "../shared/types.ts";
 import { lowercaseKey } from "../shared/identity.ts";
 import { atomicWriteFileSync } from "./persistence.ts";
@@ -39,18 +35,27 @@ function normalizeRole(value: unknown): UserRole {
 }
 
 function normalizeNotifRooms(value: unknown): NotifRoomsSetting {
-  if (value === "all") return "all";
-  if (Array.isArray(value) && value.every((x) => typeof x === "string"))
+  if (Array.isArray(value) && value.every((x) => typeof x === "string")) {
     return value;
-  return "all";
+  }
+  // Legacy "all" sentinel or any other bad shape → []. The auto-prune
+  // on the next update_user (or the claim_user default for a brand-new
+  // user) is what bakes the intended explicit list onto disk.
+  return [];
 }
 
-// Same shape and normalization as notifRooms, but stored as the ACL
-// allow-list. Bad/missing values default to "all" so an upgrade of an
-// older users.json doesn't accidentally lock anyone out — owners opt
-// members down explicitly through the UI afterwards.
-function normalizeAllowedRooms(value: unknown): NotifRoomsSetting {
-  return normalizeNotifRooms(value);
+// Strict string[] normalization for the ACL allow-list. Legacy "all"
+// sentinel values are expanded to an explicit snapshot of current
+// rooms by migrateAllowedRoomsArrayIfNeeded at boot, so by the time
+// this loader runs the on-disk value is either a string[] or
+// absent/garbage. Bad values normalize to [] (member-style "no rooms
+// visible"); the boot migration preserves the prior "see everything"
+// intent for any user that was on "all".
+function normalizeAllowedRooms(value: unknown): string[] {
+  if (Array.isArray(value) && value.every((x) => typeof x === "string")) {
+    return value;
+  }
+  return [];
 }
 
 // Treat a raw object as a user record. Used both for the post-migration
@@ -241,25 +246,34 @@ export function claimUser(
     defaultRoomId?: string | null;
     notifRooms?: NotifRoomsSetting;
     role?: UserRole;
-    allowedRooms?: NotifRoomsSetting;
+    allowedRooms?: string[];
   },
 ): UserRecord {
   load();
   const existing = getUserByName(name);
   if (existing) return existing;
   const id = generateUserId(Object.keys(users));
+  const role: UserRole = initial?.role === "owner" ? "owner" : "member";
+  // Resolved allowedRooms is the basis for the default notifRooms — a
+  // new user gets notified for every room they can see by default
+  // (parallels the prior "notifRooms: all" semantics but now stored
+  // as an explicit list).
+  const resolvedAllowed = initial?.allowedRooms ?? [];
   const record: UserRecord = {
     id,
     name: name.trim(),
     defaultRoomId: initial?.defaultRoomId ?? null,
-    notifRooms: initial?.notifRooms ?? "all",
+    notifRooms: initial?.notifRooms ?? [...resolvedAllowed],
     envFile: null,
     createdAt: Date.now(),
-    role: initial?.role === "owner" ? "owner" : "member",
-    // ACL allow-list. Callers from invite-acceptance/admin paths can seed
-    // a restrictive value; the WS handler for claim_user ignores client-
-    // supplied allowedRooms and never reaches this branch with a value.
-    allowedRooms: initial?.allowedRooms ?? "all",
+    role,
+    // ACL allow-list. Strict string[] — no sentinel. New members
+    // default to [] (no rooms visible until an owner grants access or
+    // the member creates their own room). New owners need a snapshot
+    // of current room ids passed in by the caller (invite acceptance
+    // in auth.ts) to preserve "owners see everything" semantics; they
+    // default to [] here if the caller omits the snapshot.
+    allowedRooms: resolvedAllowed,
   };
   users[id] = record;
   try {
@@ -334,7 +348,7 @@ export function updateUserById(
       UserRecord,
       "name" | "defaultRoomId" | "notifRooms" | "envFile" | "allowedRooms"
     >
-  >,
+  > & { allowedRooms?: string[] },
 ): { ok: true; user: UserRecord } | { ok: false; error: string } {
   load();
   const existing = users[id];
@@ -406,7 +420,7 @@ export function updateUser(
       UserRecord,
       "name" | "defaultRoomId" | "notifRooms" | "envFile" | "allowedRooms"
     >
-  >,
+  > & { allowedRooms?: string[] },
 ): { ok: true; user: UserRecord } | { ok: false; error: string } {
   const existing = getUserByName(name);
   if (!existing) return { ok: false, error: `User ${name} not found` };
