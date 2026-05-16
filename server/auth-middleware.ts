@@ -358,13 +358,14 @@ function renderLoginPage(officeName: string | null): string {
     authPageTitle(officeName, "sign in"),
     body,
     undefined,
-    LOGIN_EXTRA_CSS,
+    PREAUTH_EXTRA_CSS,
   );
 }
 
-const LOGIN_EXTRA_CSS = `
-  /* Override base layout for the login page so the iso backdrop can fill
-     the viewport and the card can float over it. */
+// Shared CSS for pre-auth pages (login + invite accept). Overrides the
+// base layout so the iso backdrop fills the viewport and the card floats
+// over it.
+const PREAUTH_EXTRA_CSS = `
   body {
     max-width: none;
     margin: 0;
@@ -462,32 +463,45 @@ function renderAcceptPage(
     return baseHtml(
       authPageTitle(officeName, "first-time setup"),
       `
-      <h1>Welcome to your new Isomux office</h1>
-      <p>You're the first person to claim this office. Pick a display name — it'll appear next to anything you say.</p>
-      <form method="POST" action="/auth/accept">
-        <input type="hidden" name="token" value="${safeToken}" />
-        <label>Display name <input name="name" type="text" autofocus maxlength="64" required pattern="[\\p{L}\\p{N} ._'\\-]+" /></label>
-        ${err}
-        <button type="submit">Continue</button>
-      </form>
+      <div class="login-bg" aria-hidden="true"></div>
+      <main class="card">
+        <h1>Welcome to your new Isomux office</h1>
+        <p>You're the first person to claim this office. Pick a display name — it'll appear next to anything you say.</p>
+        <form method="POST" action="/auth/accept">
+          <input type="hidden" name="token" value="${safeToken}" />
+          <label>Display name <input name="name" type="text" autofocus maxlength="64" required pattern="[\\p{L}\\p{N} ._'\\-]+" /></label>
+          ${err}
+          <button type="submit">Continue</button>
+        </form>
+      </main>
       `,
       og,
+      PREAUTH_EXTRA_CSS,
     );
   }
   // Pre-named invite: a single-click accept gesture. Same anti-preview
-  // property — the GET only renders the form; consumption is on POST.
+  // property — the GET only renders the form; consumption is on POST. When
+  // the office has a display name we surface it in the heading so the
+  // invitee can confirm they're joining the right office before clicking.
+  const heading = officeName
+    ? `Open your invite to the Isomux office: ${escapeHtml(officeName)}`
+    : "Open your Isomux invite";
   return baseHtml(
     authPageTitle(officeName, "accept invite"),
     `
-    <h1>Open your Isomux invite</h1>
-    <p>Clicking the button below will sign you in on this device.</p>
-    <form method="POST" action="/auth/accept">
-      <input type="hidden" name="token" value="${safeToken}" />
-      ${err}
-      <button type="submit" autofocus>Accept and continue</button>
-    </form>
+    <div class="login-bg" aria-hidden="true"></div>
+    <main class="card">
+      <h1>${heading}</h1>
+      <p>Clicking the button below will sign you in on this device.</p>
+      <form method="POST" action="/auth/accept">
+        <input type="hidden" name="token" value="${safeToken}" />
+        ${err}
+        <button type="submit" autofocus>Accept and continue</button>
+      </form>
+    </main>
     `,
     og,
+    PREAUTH_EXTRA_CSS,
   );
 }
 
