@@ -1335,7 +1335,7 @@ const UI_DIST = join(import.meta.dir, "..", "ui", "dist");
 
 const PORT = parseInt(process.env.PORT || "4000");
 
-const server = Bun.serve({
+const server = Bun.serve<WsData>({
   port: PORT,
   async fetch(req, server) {
     const url = new URL(req.url);
@@ -1352,7 +1352,7 @@ const server = Bun.serve({
       if (!checkOrigin(req)) {
         return new Response("bad origin", { status: 403 });
       }
-      const upgraded = server.upgrade<WsData>(req, {
+      const upgraded = server.upgrade(req, {
         data: { session: wsSession },
       });
       if (upgraded) return;

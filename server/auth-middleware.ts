@@ -34,7 +34,7 @@ function isLoopback(addr: string | null): boolean {
   );
 }
 
-export function requestIsLoopback(req: Request, server: Server): boolean {
+export function requestIsLoopback<T>(req: Request, server: Server<T>): boolean {
   try {
     const info = server.requestIP(req);
     return isLoopback(info?.address ?? null);
@@ -99,9 +99,9 @@ function unauthorized(req: Request): Response {
 // to claim a cookie via /i/<token> instead of getting a half-functional
 // landing page where HTTP works but WS doesn't.
 
-export function authenticate(
+export function authenticate<T>(
   req: Request,
-  server: Server,
+  server: Server<T>,
   opts?: { allowLoopback?: boolean },
 ): AuthResult {
   const looped = !!opts?.allowLoopback && requestIsLoopback(req, server);
