@@ -614,6 +614,10 @@ export function loadOfficeConfig(): OfficeSettings {
           typeof parsed.envFile === "string" && parsed.envFile
             ? parsed.envFile
             : null,
+        name:
+          typeof parsed.name === "string" && parsed.name.trim()
+            ? parsed.name.trim()
+            : null,
       };
     }
   } catch (err) {
@@ -627,7 +631,11 @@ export function loadOfficeConfig(): OfficeSettings {
       if (raw.trim()) legacyPrompt = raw;
     }
   } catch {}
-  const config: OfficeSettings = { prompt: legacyPrompt, envFile: null };
+  const config: OfficeSettings = {
+    prompt: legacyPrompt,
+    envFile: null,
+    name: null,
+  };
   // Only persist if the legacy prompt actually had content — otherwise a fresh
   // install touches a new file for no reason, and the next save/set will write
   // it anyway once there's real data.
@@ -647,6 +655,7 @@ export function saveOfficeConfig(config: OfficeSettings) {
       ...readOfficeConfigRaw(),
       prompt: config.prompt,
       envFile: config.envFile,
+      name: config.name,
     };
     atomicWriteFileSync(OFFICE_CONFIG_FILE, JSON.stringify(merged, null, 2));
   } catch (err) {

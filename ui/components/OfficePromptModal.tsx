@@ -17,6 +17,7 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
   const { office, isMobile } = useAppState();
   const [text, setText] = useState(office.prompt ?? "");
   const [envFile, setEnvFile] = useState(office.envFile ?? "");
+  const [name, setName] = useState(office.name ?? "");
   const [status, setStatus] = useState<ValidationStatus>({ kind: "idle" });
   const [saving, setSaving] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -80,6 +81,7 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
       requestId: reqId,
       prompt: text.trim() ? text : null,
       envFile: envFile.trim() || null,
+      name: name.trim() || null,
     });
   }
 
@@ -154,6 +156,29 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
             fontWeight: 600,
             color: "var(--text-muted)",
             marginTop: 18,
+            marginBottom: 5,
+          }}
+        >
+          Office Name{" "}
+          <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
+            (optional, shown in browser tab)
+          </span>
+        </label>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="Nil's Office"
+          maxLength={60}
+          style={inputStyle}
+        />
+
+        <label
+          style={{
+            display: "block",
+            fontSize: 11,
+            fontWeight: 600,
+            color: "var(--text-muted)",
+            marginTop: 14,
             marginBottom: 5,
           }}
         >

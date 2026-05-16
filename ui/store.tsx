@@ -143,6 +143,7 @@ type Action =
       type: "office_settings_updated";
       prompt: string | null;
       envFile: string | null;
+      name: string | null;
     }
   | { type: "tasks"; tasks: TaskItem[] }
   | { type: "set_current_room"; room: number }
@@ -367,7 +368,11 @@ function reducer(state: AppState, action: Action): AppState {
     case "office_settings_updated":
       return {
         ...state,
-        office: { prompt: action.prompt, envFile: action.envFile },
+        office: {
+          prompt: action.prompt,
+          envFile: action.envFile,
+          name: action.name,
+        },
       };
     case "tasks":
       return { ...state, tasks: action.tasks, tasksLoaded: true };
@@ -559,7 +564,7 @@ const initialState: AppState = {
   recentCwds: [],
   slashCommands: new Map(),
   stateChangedAt: new Map(),
-  office: { prompt: null, envFile: null },
+  office: { prompt: null, envFile: null, name: null },
   rooms: [],
   tasks: [],
   tasksLoaded: false,

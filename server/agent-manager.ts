@@ -189,6 +189,7 @@ const officeState = new OfficeState({
   office: {
     prompt: initialOfficeConfig.prompt,
     envFile: initialOfficeConfig.envFile,
+    name: initialOfficeConfig.name,
   },
 });
 let officeStatePersistenceEnabled = false;
@@ -206,6 +207,7 @@ officeState.onChange((event) => {
     saveOfficeConfig({
       prompt: officeState.office.prompt,
       envFile: officeState.office.envFile,
+      name: officeState.office.name,
     });
     return;
   }
@@ -230,6 +232,7 @@ export function getOfficeSettings(): OfficeSettings {
   return {
     prompt: officeState.office.prompt,
     envFile: officeState.office.envFile,
+    name: officeState.office.name,
   };
 }
 
@@ -276,8 +279,9 @@ export function deleteTask(id: string): boolean {
 export function setOfficeSettings(
   prompt: string | null,
   envFile: string | null,
+  name: string | null,
 ) {
-  const events = officeState.setOfficeSettings(prompt, envFile);
+  const events = officeState.setOfficeSettings(prompt, envFile, name);
   // System prompt is rebuilt at every createSession from current office/room/agent
   // config, so the new office prompt automatically lands on the next conversation.
   for (const event of events) eventHandler(event);

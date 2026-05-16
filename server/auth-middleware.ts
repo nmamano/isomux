@@ -77,17 +77,26 @@ function wantsJson(req: Request): boolean {
   return accept.includes("application/json") || !accept.includes("text/html");
 }
 
-function unauthorized(req: Request): Response {
+function unauthorized(req: Request, officeName: string | null): Response {
   if (wantsJson(req)) {
     return new Response(JSON.stringify({ error: "unauthenticated" }), {
       status: 401,
       headers: { "Content-Type": "application/json" },
     });
   }
-  return new Response(renderLoginPage(), {
+  return new Response(renderLoginPage(officeName), {
     status: 401,
     headers: { "Content-Type": "text/html; charset=utf-8" },
   });
+}
+
+// Browser-tab title for /auth/* and /i/<token> pages. Mirrors the format
+// used by the SPA shell (see serveIndexHtml in server/index.ts) so the tab
+// title stays consistent across authenticated and pre-auth surfaces.
+function authPageTitle(officeName: string | null, suffix: string): string {
+  return officeName
+    ? `${officeName} | Isomux — ${suffix}`
+    : `Isomux — ${suffix}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -102,7 +111,7 @@ function unauthorized(req: Request): Response {
 export function authenticate<T>(
   req: Request,
   server: Server<T>,
-  opts?: { allowLoopback?: boolean },
+  opts?: { allowLoopback?: boolean; officeName?: string | null },
 ): AuthResult {
   const looped = !!opts?.allowLoopback && requestIsLoopback(req, server);
   // Origin check runs regardless of the cookie path. A user's browser
@@ -128,7 +137,10 @@ export function authenticate<T>(
   const cookie = readSessionCookie(req);
   const session = validateSession(cookie);
   if (!session) {
-    return { kind: "rejected", response: unauthorized(req) };
+    return {
+      kind: "rejected",
+      response: unauthorized(req, opts?.officeName ?? null),
+    };
   }
   return { kind: "ok", session };
 }
@@ -142,19 +154,29 @@ export function authenticate<T>(
 // consumption happens on POST /auth/accept. The two-step shape protects
 // against link previewers / chat unfurlers / scanners burning the one-time
 // invite before the human opens it.
-export function handleInvitePeek(_req: Request, token: string): Response {
+export function handleInvitePeek(
+  _req: Request,
+  token: string,
+  officeName: string | null,
+): Response {
   const peek = peekInvite(token);
-  if ("error" in peek) return renderInviteError(peek.error);
-  return new Response(renderAcceptPage(token, peek.needsName, null), {
-    status: 200,
-    headers: { "Content-Type": "text/html; charset=utf-8" },
-  });
+  if ("error" in peek) return renderInviteError(peek.error, officeName);
+  return new Response(
+    renderAcceptPage(token, peek.needsName, null, officeName),
+    {
+      status: 200,
+      headers: { "Content-Type": "text/html; charset=utf-8" },
+    },
+  );
 }
 
 // POST /auth/accept — actually consume the invite, create the session,
 // set the cookie. `name` is only required for null-username invites
 // (bootstrap, etc.). Origin must match ISOMUX_PUBLIC_ORIGIN.
-export async function handleAccept(req: Request): Promise<Response> {
+export async function handleAccept(
+  req: Request,
+  officeName: string | null,
+): Promise<Response> {
   if (!originValidForAuthPost(req)) {
     return new Response("bad origin", { status: 403 });
   }
@@ -163,20 +185,25 @@ export async function handleAccept(req: Request): Promise<Response> {
   const nameField = form?.get("name");
   const token = typeof tokenField === "string" ? tokenField : "";
   const name = typeof nameField === "string" ? nameField : "";
-  if (!token) return renderInviteError("not_found");
+  if (!token) return renderInviteError("not_found", officeName);
   const ua = req.headers.get("user-agent");
   const result = await acceptInvite(token, { userAgent: ua, chosenName: name });
   if (!result.ok) {
     if (result.error === "needs_name" || result.error === "invalid_name") {
       return new Response(
-        renderAcceptPage(token, true, "Please pick a display name."),
+        renderAcceptPage(
+          token,
+          true,
+          "Please pick a display name.",
+          officeName,
+        ),
         {
           status: 400,
           headers: { "Content-Type": "text/html; charset=utf-8" },
         },
       );
     }
-    return renderInviteError(result.error);
+    return renderInviteError(result.error, officeName);
   }
   return new Response(null, {
     status: 302,
@@ -195,7 +222,10 @@ export async function handleAccept(req: Request): Promise<Response> {
 // a credentialed form POST (annoying, not a data breach, but still CSRF).
 // Same lockout-prevention rule as the WS logout: refuse if this is the
 // office's last active owner session.
-export async function handleLogout(req: Request): Promise<Response> {
+export async function handleLogout(
+  req: Request,
+  officeName: string | null,
+): Promise<Response> {
   if (!originValidForAuthPost(req)) {
     return new Response("bad origin", { status: 403 });
   }
@@ -207,6 +237,7 @@ export async function handleLogout(req: Request): Promise<Response> {
         "Sign out refused: this is the last active owner session in the " +
           "office. Mint an additional invite for yourself and accept it " +
           "on another device first, then retry.",
+        officeName,
       ),
       {
         status: 409,
@@ -223,9 +254,12 @@ export async function handleLogout(req: Request): Promise<Response> {
   });
 }
 
-function renderLockoutBlocked(message: string): string {
+function renderLockoutBlocked(
+  message: string,
+  officeName: string | null,
+): string {
   return baseHtml(
-    "Isomux — sign out blocked",
+    authPageTitle(officeName, "sign out blocked"),
     `<h1>Sign out blocked</h1>
     <p>${escapeHtml(message)}</p>
     <p><a href="/">Return to office</a></p>`,
@@ -247,19 +281,20 @@ function originValidForAuthPost(req: Request): boolean {
 export async function tryHandleAuthRoute(
   req: Request,
   url: URL,
+  officeName: string | null,
 ): Promise<Response | null> {
   // GET /i/<token> — peek + render accept page (NEVER consumes).
   if (req.method === "GET" && url.pathname.startsWith("/i/")) {
     const token = url.pathname.slice(3);
-    if (!token) return renderInviteError("not_found");
-    return handleInvitePeek(req, token);
+    if (!token) return renderInviteError("not_found", officeName);
+    return handleInvitePeek(req, token, officeName);
   }
   // POST /auth/accept — actually consumes the invite. Origin-checked.
   if (url.pathname === "/auth/accept" && req.method === "POST") {
-    return handleAccept(req);
+    return handleAccept(req, officeName);
   }
   if (url.pathname === "/auth/logout" && req.method === "POST") {
-    return handleLogout(req);
+    return handleLogout(req, officeName);
   }
   // GET /auth/login-bg.png — pre-auth static asset (the login page's
   // backdrop screenshot). Same image as the marketing site so an unauth
@@ -304,12 +339,12 @@ const EMPTY_PNG = Buffer.from(
 // pages are static enough that string concatenation is clearer than spinning
 // up a renderer.
 
-function renderLoginPage(): string {
-  // Static-only, generic, no state references. The backdrop is a baked
+function renderLoginPage(officeName: string | null): string {
+  // The visible page body remains generic — the backdrop is a baked
   // screenshot of the office UI served from /auth/login-bg.png (the same
-  // asset isomux.com uses on its marketing page). The asset reveals
-  // nothing about this specific deployment — it's a public screenshot
-  // with hardcoded demo characters.
+  // asset isomux.com uses on its marketing page) so it reveals nothing
+  // about this specific deployment. The office name is surfaced only via
+  // the browser-tab title for consistency with the SPA shell.
   const body = `
     <div class="login-bg" aria-hidden="true"></div>
     <main class="card">
@@ -319,7 +354,12 @@ function renderLoginPage(): string {
       <p class="muted">If you don't have one, ask the office owner to issue one from the Access pane.</p>
     </main>
   `;
-  return baseHtml("Isomux — sign in", body, undefined, LOGIN_EXTRA_CSS);
+  return baseHtml(
+    authPageTitle(officeName, "sign in"),
+    body,
+    undefined,
+    LOGIN_EXTRA_CSS,
+  );
 }
 
 const LOGIN_EXTRA_CSS = `
@@ -399,13 +439,16 @@ function renderAcceptPage(
   token: string,
   needsName: boolean,
   errorMsg: string | null,
+  officeName: string | null,
 ): string {
   const safeToken = escapeAttr(token);
   const err = errorMsg ? `<p class="err">${escapeHtml(errorMsg)}</p>` : "";
   // Open-graph metadata so chat-app link unfurlers show a readable preview
   // instead of just the opaque token URL. No image (intentional: any image
   // route would still be fetched by third-party preview services who see
-  // the bearer URL anyway; keep the cost matched to the gain).
+  // the bearer URL anyway; keep the cost matched to the gain). The office
+  // name is intentionally NOT plumbed into OG fields — those are scraped
+  // by external preview services we shouldn't leak the office name to.
   const og = {
     title: needsName ? "Isomux — first-time setup" : "Isomux — accept invite",
     description: needsName
@@ -417,7 +460,7 @@ function renderAcceptPage(
     // name. The form double-purposes as the "accept" gesture, so a link
     // previewer can't burn it just by fetching the URL.
     return baseHtml(
-      "Isomux — first-time setup",
+      authPageTitle(officeName, "first-time setup"),
       `
       <h1>Welcome to your new Isomux office</h1>
       <p>You're the first person to claim this office. Pick a display name — it'll appear next to anything you say.</p>
@@ -434,7 +477,7 @@ function renderAcceptPage(
   // Pre-named invite: a single-click accept gesture. Same anti-preview
   // property — the GET only renders the form; consumption is on POST.
   return baseHtml(
-    "Isomux — accept invite",
+    authPageTitle(officeName, "accept invite"),
     `
     <h1>Open your Isomux invite</h1>
     <p>Clicking the button below will sign you in on this device.</p>
@@ -448,7 +491,10 @@ function renderAcceptPage(
   );
 }
 
-function renderInviteError(kind: string): Response {
+function renderInviteError(
+  kind: string,
+  officeName: string | null,
+): Response {
   const msg =
     kind === "consumed"
       ? "This invite has already been used."
@@ -458,7 +504,7 @@ function renderInviteError(kind: string): Response {
           ? "This invite can't be accepted because the existing user has a different role. Ask the owner to mint a new invite."
           : "This invite is no longer valid.";
   const body = baseHtml(
-    "Isomux — invite",
+    authPageTitle(officeName, "invite"),
     `<h1>Invite unavailable</h1><p>${escapeHtml(msg)}</p>`,
   );
   return new Response(body, {

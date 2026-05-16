@@ -32,6 +32,7 @@ export type OfficeEvent =
       type: "office_settings_updated";
       prompt: string | null;
       envFile: string | null;
+      name: string | null;
     }
   | { type: "tasks_changed"; tasks: TaskItem[] };
 
@@ -64,7 +65,11 @@ export class OfficeState {
   private _rooms: RoomWire[] = [
     { id: generateRoomId(), name: "Room 1", prompt: null },
   ];
-  private _office: OfficeSettings = { prompt: null, envFile: null };
+  private _office: OfficeSettings = {
+    prompt: null,
+    envFile: null,
+    name: null,
+  };
   private _tasks: TaskItem[] = [];
   private _recentCwds: string[] = [];
   private onChangeHandlers = new Set<(event: OfficeEvent) => void>();
@@ -477,14 +482,21 @@ export class OfficeState {
   setOfficeSettings(
     prompt: string | null,
     envFile: string | null,
+    name: string | null,
   ): OfficeEvent[] {
     const normalizedPrompt = prompt && prompt.trim() ? prompt.trim() : null;
-    this._office = { prompt: normalizedPrompt, envFile: envFile || null };
+    const normalizedName = name && name.trim() ? name.trim() : null;
+    this._office = {
+      prompt: normalizedPrompt,
+      envFile: envFile || null,
+      name: normalizedName,
+    };
     const events: OfficeEvent[] = [
       {
         type: "office_settings_updated",
         prompt: this._office.prompt,
         envFile: this._office.envFile,
+        name: this._office.name,
       },
     ];
     this.emitEvents(events);

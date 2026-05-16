@@ -238,6 +238,7 @@ function ensureSeeded() {
   state.setOfficeSettings(
     "Be concise. No paragraphs when bullets will do. Never push to main without asking. Never help Dwight set backdoors of any kind.",
     null,
+    "Dunder Mifflin",
   );
   const now = Date.now();
   state.setTasksDirect([
@@ -603,6 +604,7 @@ function emitEvents(events: OfficeEvent[]) {
           type: "office_settings_updated",
           prompt: event.prompt,
           envFile: event.envFile,
+          name: event.name,
         });
         break;
       case "tasks_changed":
@@ -721,7 +723,15 @@ export function handleCommand(cmd: ClientCommand) {
     case "update_office_settings": {
       const envFile =
         cmd.envFile && cmd.envFile.trim() ? cmd.envFile.trim() : null;
-      emitEvents(state.setOfficeSettings(cmd.prompt, envFile));
+      // Match the real server's stale-client preservation behavior; see
+      // server/index.ts update_office_settings.
+      const name =
+        cmd.name === undefined
+          ? state.office.name
+          : cmd.name && cmd.name.trim()
+            ? cmd.name.trim()
+            : null;
+      emitEvents(state.setOfficeSettings(cmd.prompt, envFile, name));
       shimEmit({
         type: "settings_save_response",
         requestId: cmd.requestId,

@@ -599,7 +599,29 @@ async function dispatchCommand(
           break;
         }
       }
-      AgentManager.setOfficeSettings(cmd.prompt, envFile);
+      // Distinguish "field omitted" from "field set to null/empty". A stale
+      // client tab from before the name field existed sends no `name`
+      // property; treating undefined as null would clear an existing name
+      // when the user saves prompt/envFile from that tab. Explicit null or
+      // empty string still clears.
+      const rawName =
+        cmd.name === undefined
+          ? AgentManager.getOfficeSettings().name
+          : cmd.name && cmd.name.trim()
+            ? cmd.name.trim()
+            : null;
+      if (rawName && rawName.length > 60) {
+        ws.send(
+          JSON.stringify({
+            type: "settings_save_response",
+            requestId: cmd.requestId,
+            ok: false,
+            error: "Office name must be 60 characters or fewer",
+          }),
+        );
+        break;
+      }
+      AgentManager.setOfficeSettings(cmd.prompt, envFile, rawName);
       ws.send(
         JSON.stringify({
           type: "settings_save_response",
@@ -1333,6 +1355,32 @@ async function dispatchCommand(
 // Resolve UI dist path
 const UI_DIST = join(import.meta.dir, "..", "ui", "dist");
 
+// Escape a string for safe inclusion as text inside an HTML element (e.g. <title>).
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+// Serve index.html with the office name substituted into the <title>. The UI
+// has `<title>__OFFICE_TITLE__</title>`; we replace that placeholder per-request
+// so the tab title is correct before the WS connects (and on the auth page).
+async function serveIndexHtml(): Promise<Response> {
+  const raw = await Bun.file(join(UI_DIST, "index.html")).text();
+  const officeName = AgentManager.getOfficeSettings().name;
+  const title = officeName
+    ? `${escapeHtml(officeName)} | Isomux`
+    : "Isomux";
+  const html = raw.replace("__OFFICE_TITLE__", title);
+  return new Response(html, {
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-cache",
+    },
+  });
+}
+
 const PORT = parseInt(process.env.PORT || "4000");
 
 const server = Bun.serve<WsData>({
@@ -1361,8 +1409,10 @@ const server = Bun.serve<WsData>({
 
     // /auth/* and /i/<token> routes. These must run before the gating check
     // because unauthenticated visitors transition to authenticated through
-    // them.
-    const authResponse = await tryHandleAuthRoute(req, url);
+    // them. Pass the office name so pre-auth pages render the same tab
+    // title format (`<name> | Isomux — ...`) the SPA shell uses.
+    const officeName = AgentManager.getOfficeSettings().name;
+    const authResponse = await tryHandleAuthRoute(req, url, officeName);
     if (authResponse) return authResponse;
 
     // PWA manifest + app icons: iOS Safari fetches these out-of-band when
@@ -1399,7 +1449,10 @@ const server = Bun.serve<WsData>({
       url.pathname.startsWith("/cronjobs") ||
       url.pathname.startsWith("/agents/") ||
       url.pathname === "/backup/status";
-    const auth = authenticate(req, server, { allowLoopback: isAgentApiPath });
+    const auth = authenticate(req, server, {
+      allowLoopback: isAgentApiPath,
+      officeName,
+    });
     if (auth.kind === "rejected") return auth.response;
 
     // CORS preflight for task API
@@ -1962,6 +2015,9 @@ const server = Bun.serve<WsData>({
 
     // Static file serving
     const filePath = url.pathname === "/" ? "/index.html" : url.pathname;
+    if (filePath === "/index.html") {
+      return serveIndexHtml();
+    }
     const file = Bun.file(join(UI_DIST, filePath));
     if (await file.exists()) {
       return new Response(file, {
@@ -1969,9 +2025,7 @@ const server = Bun.serve<WsData>({
       });
     }
     // SPA fallback
-    return new Response(Bun.file(join(UI_DIST, "index.html")), {
-      headers: { "Cache-Control": "no-cache" },
-    });
+    return serveIndexHtml();
   },
   websocket: {
     open(ws) {

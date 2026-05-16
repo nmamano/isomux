@@ -531,10 +531,11 @@ export interface SkillInfo {
   description?: string;
 }
 
-// Office-level settings (prompt + optional env file path)
+// Office-level settings (prompt + optional env file path + optional display name)
 export interface OfficeSettings {
   prompt: string | null;
   envFile: string | null;
+  name: string | null;
 }
 
 // A room with stable ID, display name, and per-room config
@@ -737,6 +738,7 @@ export type ServerMessage =
       type: "office_settings_updated";
       prompt: string | null;
       envFile: string | null;
+      name: string | null;
     }
   | { type: "tasks"; tasks: TaskItem[] }
   | { type: "room_created"; room: RoomWire }
@@ -865,6 +867,12 @@ export type ClientCommand =
       requestId: string;
       prompt: string | null;
       envFile: string | null;
+      // Optional rather than `string | null` so a stale client tab from
+      // before the name field existed (which sends no `name` property)
+      // is distinguishable from an explicit clear. The server handler
+      // preserves the current name when this is undefined; explicit null
+      // or empty string clears it.
+      name?: string | null;
     }
   | {
       type: "update_room_settings";
