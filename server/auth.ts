@@ -19,6 +19,7 @@ import type {
 } from "../shared/types.ts";
 import { atomicWriteFileSync } from "./persistence.ts";
 import { normalizePublicOrigin } from "../shared/public-origin.ts";
+import { lowercaseKey } from "../shared/identity.ts";
 import {
   claimUser,
   getUserById,
@@ -398,7 +399,18 @@ export interface MintOptions {
   createdBy: string | null;
   allowExisting: boolean;
   bootstrap?: boolean;
+  // Member self-invite path: revoke any other outstanding (unconsumed,
+  // unexpired) invite bound to the same username in the same mutation, so
+  // each member only ever has one active self-invite. Atomic with the new
+  // mint so a concurrent caller can't see both the old and new at once.
+  replacePriorForUsername?: boolean;
 }
+
+// Hard cap on TTL for invites a member mints for their own additional
+// devices. The Tailscale-style trust model accepts that a leaked link
+// equals an impersonator; the short window narrows that risk without
+// blocking the use case (member regenerates if the first one expires).
+export const MEMBER_MAX_INVITE_TTL_SECONDS = 60 * 60; // 1 hour
 
 export interface MintResult {
   ok: true;
@@ -459,6 +471,25 @@ export async function mintInvite(
     )
       return { ok: false, error: "Invalid TTL", code: "INVALID_TTL" };
 
+    // Member self-invite path: remove any outstanding (unconsumed,
+    // unexpired) invites bound to the same username before inserting the
+    // new one, so the "1 active self-invite per member" rule is enforced
+    // atomically with the mint.
+    const removedKeys: string[] = [];
+    const removedSnapshots: StoredInvite[] = [];
+    if (opts.replacePriorForUsername && trimmedName) {
+      const target = lowercaseKey(trimmedName);
+      const now0 = Date.now();
+      for (const [k, v] of invites!) {
+        if (v.consumed) continue;
+        if (v.expiresAt < now0) continue;
+        if (!v.username || lowercaseKey(v.username) !== target) continue;
+        removedKeys.push(k);
+        removedSnapshots.push(v);
+      }
+      for (const k of removedKeys) invites!.delete(k);
+    }
+
     const { raw, hash, prefix } = randomToken();
     const now = Date.now();
     const invite: StoredInvite = {
@@ -478,6 +509,11 @@ export async function mintInvite(
       persistInvites();
     } catch (err) {
       invites!.delete(hash);
+      // Roll back the replace-prior deletions too, so a persist failure
+      // leaves disk + memory in the pre-mint state.
+      for (let i = 0; i < removedKeys.length; i++) {
+        invites!.set(removedKeys[i], removedSnapshots[i]);
+      }
       throw err;
     }
     return { ok: true, rawToken: raw, invite };
@@ -942,6 +978,26 @@ export function listInvites(): InviteWire[] {
   return result.sort((a, b) => b.createdAt - a.createdAt);
 }
 
+// Self-scoped invite list for the member UI. Matches by lowercased
+// display name (the same key the rest of the codebase uses for user
+// identity in invite-binding); userId isn't stored on invites so a
+// rename between mint and list will hide the row from the member's own
+// view, but acceptance still binds to the recorded name. The 1-hour
+// member TTL keeps that window narrow.
+export function listInvitesForUsername(name: string): InviteWire[] {
+  ensureLoaded();
+  const now = Date.now();
+  const target = lowercaseKey(name);
+  const result: InviteWire[] = [];
+  for (const v of invites!.values()) {
+    if (v.consumed) continue;
+    if (v.expiresAt < now) continue;
+    if (!v.username || lowercaseKey(v.username) !== target) continue;
+    result.push(toInviteWire(v));
+  }
+  return result.sort((a, b) => b.createdAt - a.createdAt);
+}
+
 export function listActiveSessions(): SessionWire[] {
   ensureLoaded();
   const now = Date.now();
@@ -951,6 +1007,121 @@ export function listActiveSessions(): SessionWire[] {
     result.push(toSessionWire(v));
   }
   return result.sort((a, b) => b.lastSeenAt - a.lastSeenAt);
+}
+
+// Self-scoped session list for the member UI. Filters by stable userId
+// (StoredSession.userId is rename-stable) so a member can see and
+// revoke their own devices without leaking other users' sessions.
+export function listActiveSessionsForUserId(userId: string): SessionWire[] {
+  ensureLoaded();
+  const now = Date.now();
+  const result: SessionWire[] = [];
+  for (const v of sessions!.values()) {
+    if (v.expiresAt < now || v.absoluteExpiresAt < now) continue;
+    if (v.userId !== userId) continue;
+    result.push(toSessionWire(v));
+  }
+  return result.sort((a, b) => b.lastSeenAt - a.lastSeenAt);
+}
+
+// Scoped revoke: atomic find-check-delete inside one mutate() for the
+// member self-revoke path. The non-scoped revokeInviteByPrefix would
+// require a separate authorization read first, splitting the auth
+// invariant across the mutex boundary; doing it all in one mutate keeps
+// the check and the mutation atomic. Ambiguity is detected at the
+// prefix level (so an astronomically unlikely collision between two
+// outstanding invites refuses regardless of caller scope); a unique
+// prefix that doesn't belong to the caller returns "not_found" so we
+// don't reveal that another user holds that prefix.
+export async function revokeOutstandingInviteByPrefixForUsername(
+  prefix: string,
+  username: string,
+): Promise<RevokeResult> {
+  return mutate(() => {
+    ensureLoaded();
+    const target = lowercaseKey(username);
+    const now = Date.now();
+    const matches: string[] = [];
+    for (const [k, v] of invites!) {
+      if (v.tokenPrefix !== prefix) continue;
+      if (v.consumed) continue;
+      if (v.expiresAt < now) continue;
+      matches.push(k);
+      if (matches.length > 1) break;
+    }
+    if (matches.length === 0) return "not_found";
+    if (matches.length > 1) return "ambiguous";
+    const k = matches[0];
+    const row = invites!.get(k)!;
+    if (!row.username || lowercaseKey(row.username) !== target) {
+      return "not_found";
+    }
+    invites!.delete(k);
+    try {
+      persistInvites();
+    } catch (err) {
+      invites!.set(k, row);
+      throw err;
+    }
+    return "ok";
+  });
+}
+
+// Scoped session revoker. Extends RevokeResult with "would_strand_office"
+// for the role-race case (caller's WS opened as a member but they've
+// since been promoted to owner without reconnecting; revoking their
+// session would now leave the office unreachable).
+export type ScopedSessionRevokeResult = RevokeResult | "would_strand_office";
+
+// Same atomic find-check-delete pattern as the scoped invite revoker.
+// Identity is by stable userId (StoredSession.userId), so a rename does
+// not affect the scope check. The lockout-prevention check runs ONLY
+// after the row has been confirmed to belong to the caller — that
+// ordering is load-bearing for confidentiality: running it on any
+// prefix (as a precheck outside the scope test) would let a member
+// probe whether a foreign prefix corresponds to the last owner
+// session, since the "blocked" response would diverge from
+// "not_found". Sockets bound to the revoked session are force-closed
+// inside the same mutate so the disconnect cannot precede the
+// persisted revoke.
+export async function revokeActiveSessionByPrefixForUserId(
+  prefix: string,
+  userId: string,
+): Promise<ScopedSessionRevokeResult> {
+  return mutate(() => {
+    ensureLoaded();
+    const now = Date.now();
+    const matches: string[] = [];
+    for (const [k, v] of sessions!) {
+      if (v.sessionPrefix !== prefix) continue;
+      if (v.expiresAt < now || v.absoluteExpiresAt < now) continue;
+      matches.push(k);
+      if (matches.length > 1) break;
+    }
+    if (matches.length === 0) return "not_found";
+    if (matches.length > 1) return "ambiguous";
+    const hash = matches[0];
+    const row = sessions!.get(hash)!;
+    if (row.userId !== userId) return "not_found";
+    // Confidentiality-critical: this check is *after* the scope test
+    // so a foreign last-owner prefix can never produce a divergent
+    // response. For a member whose role hasn't changed since WS open
+    // it's a no-op (their session can't be owner-bearing); the check
+    // exists for the in-flight promotion case.
+    if (wouldRevokeLeaveOfficeUnreachable(hash)) {
+      return "would_strand_office";
+    }
+    sessions!.delete(hash);
+    try {
+      persistSessions();
+    } catch (err) {
+      sessions!.set(hash, row);
+      throw err;
+    }
+    forceExpireSocketsForSession(hash);
+    fireSessionsChangedHook();
+    return "ok";
+  });
 }
 
 export function sessionContextFor(lookup: SessionLookup): SessionContext {

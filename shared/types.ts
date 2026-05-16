@@ -1011,6 +1011,16 @@ export type ClientCommand =
       ttlSeconds: number;
       allowExisting?: boolean;
     }
+  // Self-invite: no client-supplied knobs. The server binds the invite
+  // to the caller's own user record (via stable session.userId), sets
+  // role to mirror the caller's current role (members mint member
+  // invites, owners mint owner invites), and pins TTL to the member
+  // cap (1 hour). Available to any authenticated session; members use
+  // it for the "My devices" pane, and owners could use it from a
+  // future quick-add path. Keeping this as a separate wire shape from
+  // mint_invite means the type system — not a runtime check —
+  // prevents the caller from supplying overridable fields.
+  | { type: "mint_self_invite"; requestId: string }
   | { type: "list_invites" }
   | { type: "revoke_invite"; tokenPrefix: string }
   | { type: "list_active_sessions" }

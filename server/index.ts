@@ -30,6 +30,7 @@ import { errMessage } from "../shared/errors.ts";
 import {
   listUsers,
   getUser,
+  getUserById,
   claimUser,
   updateUser,
   deleteUser,
@@ -49,14 +50,18 @@ import {
   evictSessionsForUserId,
   hasUnconsumedBootstrapInvite,
   listActiveSessions,
+  listActiveSessionsForUserId,
   listInvites,
+  listInvitesForUsername,
   logoutBySessionHash,
   mintInvite,
   readSessionCookie,
   registerSocket,
   resolveSessionHashByPrefix,
   revalidateByHash,
+  revokeActiveSessionByPrefixForUserId,
   revokeInviteByPrefix,
+  revokeOutstandingInviteByPrefixForUsername,
   revokeSessionByPrefix,
   sessionContextFor,
   setOnInviteConsumed,
@@ -65,6 +70,7 @@ import {
   unregisterSocket,
   validateSession,
   wouldRevokeLeaveOfficeUnreachable,
+  MEMBER_MAX_INVITE_TTL_SECONDS,
   type SessionLookup,
 } from "./auth.ts";
 import { lowercaseKey } from "../shared/identity.ts";
@@ -89,23 +95,18 @@ setPublicOriginFallback(loadServerConfig().publicOrigin);
 // *separate* browser opened the /i/ URL would have to reconnect to see
 // the consumed invite drop off the Outstanding list.
 setOnInviteConsumed(() => {
-  broadcastToOwners({ type: "invites_list", invites: listInvites() });
-  broadcastToOwners({
-    type: "sessions_active_list",
-    sessions: listActiveSessions(),
-  });
+  pushInvitesListToEachWs();
+  pushSessionsListToEachWs();
 });
 
 // Owner AccessPane sessions table stays fresh on any server-initiated
 // session invalidation: revoke, logout, delete-user fanout, and the
 // hot-path expiry / orphan branches in validateByHash. Without this,
 // e.g. deleting a member silently leaves their row in the table until
-// the owner reloads.
+// the owner reloads. Per-WS pushers also keep the member's
+// "My devices" sessions table consistent on the same events.
 setOnSessionsChanged(() => {
-  broadcastToOwners({
-    type: "sessions_active_list",
-    sessions: listActiveSessions(),
-  });
+  pushSessionsListToEachWs();
 });
 
 // Each WS carries the session it was authenticated with at upgrade time. The
@@ -139,17 +140,59 @@ function getWatcherMap(ws: ServerWebSocket<WsData>): Map<string, FileWatcher> {
   return map;
 }
 
-// Owner-scoped fan-out for messages that carry Access-pane state (invite +
-// session lists). Members don't render that pane, but a plain broadcast()
-// would still seed it into their reducer state — leaking token prefixes,
-// usernames, expiry timestamps, and user-agent strings to clients that
-// have no UX for them. Routing only the owner-WS subset preserves the
-// owner-only design contract.
+// Owner-scoped fan-out for messages that carry full-office Access state
+// (per-prefix events like invite_revoked/session_revoked, and the
+// owner-only full invites/sessions lists). Members don't render the
+// owner Access pane, but a plain broadcast() would still seed those
+// rows into their reducer state — leaking other users' token prefixes,
+// usernames, expiry timestamps, and user-agent strings. Routing only
+// the owner-WS subset preserves the owner-only design contract.
 function broadcastToOwners(msg: ServerMessage) {
   const data = JSON.stringify(msg);
   for (const ws of browsers) {
     if (ws.data.session.role === "owner") {
       ws.send(data);
+    }
+  }
+}
+
+// Push an invites_list to every WS using the right scope for the
+// receiving session: owners get the full list; members get just the
+// invites bound to their own username (driving the member "My devices"
+// pane). Used after every mutation that could change either scope.
+function pushInvitesListToEachWs() {
+  for (const ws of browsers) {
+    const s = ws.data.session;
+    if (s.role === "owner") {
+      ws.send(JSON.stringify({ type: "invites_list", invites: listInvites() }));
+    } else {
+      const me = getUserById(s.userId);
+      const list = me ? listInvitesForUsername(me.name) : [];
+      ws.send(JSON.stringify({ type: "invites_list", invites: list }));
+    }
+  }
+}
+
+// Companion to pushInvitesListToEachWs for active sessions. Owners get
+// every active session; members get sessions whose userId matches their
+// own — the rename-stable filter.
+function pushSessionsListToEachWs() {
+  for (const ws of browsers) {
+    const s = ws.data.session;
+    if (s.role === "owner") {
+      ws.send(
+        JSON.stringify({
+          type: "sessions_active_list",
+          sessions: listActiveSessions(),
+        }),
+      );
+    } else {
+      ws.send(
+        JSON.stringify({
+          type: "sessions_active_list",
+          sessions: listActiveSessionsForUserId(s.userId),
+        }),
+      );
     }
   }
 }
@@ -1199,7 +1242,8 @@ async function dispatchCommand(
             type: "invite_minted",
             requestId: cmd.requestId,
             ok: false,
-            error: "Only owners can mint invites.",
+            error:
+              "Only owners can mint invites. Use mint_self_invite to add another of your own devices.",
           }),
         );
         break;
@@ -1240,23 +1284,112 @@ async function dispatchCommand(
           },
         }),
       );
-      broadcastToOwners({ type: "invites_list", invites: listInvites() });
+      // Owner-issued invites can land in a member's "My devices" pane
+      // when they're bound to that member's name (the existing
+      // "additional invite for this identity" flow), so push scoped
+      // lists to every WS rather than only owners.
+      pushInvitesListToEachWs();
+      break;
+    }
+    case "mint_self_invite": {
+      // Tailscale-style "additional device" flow. The command carries
+      // no overridable knobs — the server binds the invite to the
+      // caller's own user record (via stable session.userId, so a
+      // rename mid-flow doesn't matter), mirrors the caller's current
+      // role (members mint member invites, owners mint owner invites),
+      // and uses the 1-hour TTL cap. replacePriorForUsername enforces
+      // the 1-outstanding-per-user rule atomically. Available to any
+      // authenticated session — members reach this from the My
+      // devices pane; owners could surface a quick-add path on top of
+      // the same handler.
+      const me = getUserById(session.userId);
+      if (!me) {
+        ws.send(
+          JSON.stringify({
+            type: "invite_minted",
+            requestId: cmd.requestId,
+            ok: false,
+            error: "Your user record is missing; reload and try again.",
+          }),
+        );
+        break;
+      }
+      const r = await mintInvite({
+        username: me.name,
+        role: me.role === "owner" ? "owner" : "member",
+        ttlSeconds: MEMBER_MAX_INVITE_TTL_SECONDS,
+        createdBy: session.username,
+        allowExisting: true,
+        replacePriorForUsername: true,
+      });
+      if (!r.ok) {
+        ws.send(
+          JSON.stringify({
+            type: "invite_minted",
+            requestId: cmd.requestId,
+            ok: false,
+            error: r.error,
+          }),
+        );
+        break;
+      }
+      const { origin } = buildPublicOrigin();
+      const url = `${origin}/i/${r.rawToken}`;
+      ws.send(
+        JSON.stringify({
+          type: "invite_minted",
+          requestId: cmd.requestId,
+          ok: true,
+          url,
+          invite: {
+            tokenPrefix: r.invite.tokenPrefix,
+            username: r.invite.username,
+            role: r.invite.role,
+            createdBy: r.invite.createdBy,
+            createdAt: r.invite.createdAt,
+            expiresAt: r.invite.expiresAt,
+          },
+        }),
+      );
+      pushInvitesListToEachWs();
       break;
     }
     case "list_invites": {
-      if (session.role !== "owner") break;
-      ws.send(JSON.stringify({ type: "invites_list", invites: listInvites() }));
+      if (session.role === "owner") {
+        ws.send(
+          JSON.stringify({ type: "invites_list", invites: listInvites() }),
+        );
+      } else {
+        const me = getUserById(session.userId);
+        const list = me ? listInvitesForUsername(me.name) : [];
+        ws.send(JSON.stringify({ type: "invites_list", invites: list }));
+      }
       break;
     }
     case "revoke_invite": {
-      if (session.role !== "owner") break;
-      const result = await revokeInviteByPrefix(cmd.tokenPrefix);
+      // Owners use the unrestricted revoker; members route through the
+      // scoped mutator so authorization and the state change happen in
+      // a single mutate() — no TOCTOU window between "is this mine?"
+      // and "delete it". A unique prefix that isn't theirs returns
+      // "not_found" silently so we don't reveal the foreign row's
+      // existence.
+      let result: "ok" | "not_found" | "ambiguous";
+      if (session.role === "owner") {
+        result = await revokeInviteByPrefix(cmd.tokenPrefix);
+      } else {
+        const me = getUserById(session.userId);
+        if (!me) break;
+        result = await revokeOutstandingInviteByPrefixForUsername(
+          cmd.tokenPrefix,
+          me.name,
+        );
+      }
       if (result === "ok") {
         broadcastToOwners({
           type: "invite_revoked",
           tokenPrefix: cmd.tokenPrefix,
         });
-        broadcastToOwners({ type: "invites_list", invites: listInvites() });
+        pushInvitesListToEachWs();
       } else if (result === "ambiguous") {
         console.warn(
           `[auth] ambiguous invite prefix ${cmd.tokenPrefix} — refused revoke`,
@@ -1265,47 +1398,82 @@ async function dispatchCommand(
       break;
     }
     case "list_active_sessions": {
-      if (session.role !== "owner") break;
-      ws.send(
-        JSON.stringify({
-          type: "sessions_active_list",
-          sessions: listActiveSessions(),
-        }),
-      );
+      if (session.role === "owner") {
+        ws.send(
+          JSON.stringify({
+            type: "sessions_active_list",
+            sessions: listActiveSessions(),
+          }),
+        );
+      } else {
+        ws.send(
+          JSON.stringify({
+            type: "sessions_active_list",
+            sessions: listActiveSessionsForUserId(session.userId),
+          }),
+        );
+      }
       break;
     }
     case "revoke_session": {
-      if (session.role !== "owner") break;
-      // Lockout-prevention: refuse revokes that would leave the office
-      // with no active owner sessions. This catches both self-revoke of
-      // the only owner's only session AND the rare case where an owner
-      // tries to revoke another owner's last session while having none
-      // of their own. The user-record gate (deleteUser of last owner)
-      // is a separate check on the delete path.
-      const targetHash = resolveSessionHashByPrefix(cmd.sessionPrefix);
-      if (targetHash && wouldRevokeLeaveOfficeUnreachable(targetHash)) {
-        ws.send(
-          JSON.stringify({
-            type: "revoke_blocked",
+      // Branch on role BEFORE any prefix-based check. The owner path
+      // runs its lockout precheck against the global session set
+      // (owners can revoke anyone's session, so they're allowed to
+      // know that a given prefix is the last owner session). The
+      // member path must not run that precheck on the unscoped set,
+      // because a divergent "blocked" reason for a foreign prefix
+      // would leak the existence of an owner session at that prefix.
+      // Instead, the scoped mutator folds the lockout check inside its
+      // own scope-confirmed branch — so "would_strand_office" only
+      // ever surfaces for a row the caller actually owns.
+      const lockoutReason =
+        "Refused: this is the last active owner session in the office. " +
+        "Mint an additional invite for an owner first, accept it on " +
+        "another device, then retry.";
+      if (session.role === "owner") {
+        const targetHash = resolveSessionHashByPrefix(cmd.sessionPrefix);
+        if (targetHash && wouldRevokeLeaveOfficeUnreachable(targetHash)) {
+          ws.send(
+            JSON.stringify({
+              type: "revoke_blocked",
+              sessionPrefix: cmd.sessionPrefix,
+              reason: lockoutReason,
+            }),
+          );
+          break;
+        }
+        const result = await revokeSessionByPrefix(cmd.sessionPrefix);
+        if (result === "ok") {
+          broadcastToOwners({
+            type: "session_revoked",
             sessionPrefix: cmd.sessionPrefix,
-            reason:
-              "Refused: this is the last active owner session in the office. " +
-              "Mint an additional invite for an owner first, accept it on " +
-              "another device, then retry.",
-          }),
-        );
+          });
+          pushSessionsListToEachWs();
+        } else if (result === "ambiguous") {
+          console.warn(
+            `[auth] ambiguous session prefix ${cmd.sessionPrefix} — refused revoke`,
+          );
+        }
         break;
       }
-      const result = await revokeSessionByPrefix(cmd.sessionPrefix);
+      const result = await revokeActiveSessionByPrefixForUserId(
+        cmd.sessionPrefix,
+        session.userId,
+      );
       if (result === "ok") {
         broadcastToOwners({
           type: "session_revoked",
           sessionPrefix: cmd.sessionPrefix,
         });
-        broadcastToOwners({
-          type: "sessions_active_list",
-          sessions: listActiveSessions(),
-        });
+        pushSessionsListToEachWs();
+      } else if (result === "would_strand_office") {
+        ws.send(
+          JSON.stringify({
+            type: "revoke_blocked",
+            sessionPrefix: cmd.sessionPrefix,
+            reason: lockoutReason,
+          }),
+        );
       } else if (result === "ambiguous") {
         console.warn(
           `[auth] ambiguous session prefix ${cmd.sessionPrefix} — refused revoke`,

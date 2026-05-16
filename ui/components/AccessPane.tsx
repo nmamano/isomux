@@ -123,7 +123,8 @@ export function AccessPane() {
 // Render the cached rows whenever any are present, even while a refresh is
 // in flight — avoids a flicker to "Loading…" on every reconnect. Empty+not-
 // loaded shows "Loading…" (first load only); empty+loaded shows "None.".
-function renderListSection<T>(
+// Exported so MyDevicesPane renders the member-scoped lists identically.
+export function renderListSection<T>(
   rows: T[],
   loaded: boolean,
   renderTable: (rows: T[]) => React.ReactNode,
@@ -311,7 +312,9 @@ function IssueInviteForm() {
 // visible feedback. Falls back to a hidden-textarea + execCommand path
 // when navigator.clipboard rejects (mobile, focus quirks, permissions);
 // final fallback selects the URL so the user can copy manually.
-function MintedUrlBox({ url }: { url: string }) {
+// Exported so the member self-invite path (MyDevicesPane) renders the
+// minted link with identical copy behavior.
+export function MintedUrlBox({ url }: { url: string }) {
   const codeRef = useRef<HTMLElement | null>(null);
   const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [copyState, setCopyState] = useState<
@@ -407,7 +410,7 @@ function MintedUrlBox({ url }: { url: string }) {
   );
 }
 
-function InvitesTable({ invites }: { invites: InviteWire[] }) {
+export function InvitesTable({ invites }: { invites: InviteWire[] }) {
   return (
     <table style={tableStyle}>
       <thead>
@@ -445,7 +448,7 @@ function InvitesTable({ invites }: { invites: InviteWire[] }) {
   );
 }
 
-function SessionsTable({ sessions }: { sessions: SessionWire[] }) {
+export function SessionsTable({ sessions }: { sessions: SessionWire[] }) {
   const { sessionContext } = useAppState();
   const currentPrefix = sessionContext?.currentSessionPrefix ?? null;
   return (
@@ -529,21 +532,23 @@ function formatExpiry(ts: number): string {
   return `${d}d`;
 }
 
-const sectionHeader: React.CSSProperties = {
+// Styles shared with MyDevicesPane (the member-scoped parallel view).
+// Exported so both panes match visually without a separate styles file.
+export const sectionHeader: React.CSSProperties = {
   fontSize: 14,
   fontWeight: 700,
   margin: "0 0 4px",
   color: "var(--text-primary)",
 };
-const subsectionHeader: React.CSSProperties = {
+export const subsectionHeader: React.CSSProperties = {
   fontSize: 12,
   fontWeight: 700,
   margin: "16px 0 6px",
   color: "var(--text-primary)",
 };
 const subLabel: React.CSSProperties = { ...dialogLabel, marginTop: 8 };
-const hint: React.CSSProperties = dialogHint;
-const cardStyle: React.CSSProperties = {
+export const hint: React.CSSProperties = dialogHint;
+export const cardStyle: React.CSSProperties = {
   border: "1px solid var(--border)",
   borderRadius: 8,
   padding: 12,

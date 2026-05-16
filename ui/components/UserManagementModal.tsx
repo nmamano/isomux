@@ -14,6 +14,7 @@ import {
   dialogHint,
 } from "./dialog-styles.ts";
 import { AccessPane } from "./AccessPane.tsx";
+import { MyDevicesPane } from "./MyDevicesPane.tsx";
 
 type ValidationStatus =
   | { kind: "idle" }
@@ -322,7 +323,7 @@ export function UserManagementModal({
           </>
         )}
 
-        {isOwner && <AccessPane />}
+        {isOwner ? <AccessPane /> : sessionContext && <MyDevicesPane />}
 
         {sessionContext && (
           <div style={{ marginTop: 24 }}>
