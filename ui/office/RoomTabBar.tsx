@@ -12,10 +12,6 @@ export function RoomTabBar() {
   const [dragOver, setDragOver] = useState<number | null>(null);
   const [settingsRoomId, setSettingsRoomId] = useState<string | null>(null);
 
-  // Auto-show: visible when roomCount > 1 OR Room 1 is full (8 agents)
-  const room0Full = agents.filter((a) => a.room === 0).length >= 8;
-  if (roomCount <= 1 && !room0Full) return null;
-
   function handleDragStart(e: React.DragEvent, i: number) {
     setDragFrom(i);
     e.dataTransfer.effectAllowed = "move";
