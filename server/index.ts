@@ -37,6 +37,7 @@ import {
   getUser,
   getUserById,
   claimUser,
+  pruneStaleRoomRefs,
   updateUser,
   updateUserById,
   deleteUser,
@@ -1422,10 +1423,44 @@ async function dispatchCommand(
       }
       break;
     }
-    case "close_room":
+    case "close_room": {
       if (!roomAllowedForSession(session, cmd.roomId)) break;
-      AgentManager.closeRoom(cmd.roomId);
+      const closed = AgentManager.closeRoom(cmd.roomId);
+      if (closed) {
+        // Strip the closed roomId from every user's allowedRooms /
+        // notifRooms so stale references don't accumulate. Without
+        // this the User Settings summary will keep counting closed
+        // rooms, and any future close_room/create_room sequence
+        // could grow the on-disk lists indefinitely.
+        let touched = false;
+        for (const u of listUsers()) {
+          const inAllowed = u.allowedRooms.includes(cmd.roomId);
+          const inNotif = u.notifRooms.includes(cmd.roomId);
+          if (!inAllowed && !inNotif) continue;
+          const changes: { allowedRooms?: string[]; notifRooms?: string[] } =
+            {};
+          if (inAllowed) {
+            changes.allowedRooms = u.allowedRooms.filter(
+              (id) => id !== cmd.roomId,
+            );
+          }
+          if (inNotif) {
+            changes.notifRooms = u.notifRooms.filter(
+              (id) => id !== cmd.roomId,
+            );
+          }
+          const r = updateUserById(u.id, changes);
+          if (r.ok) {
+            broadcast({ type: "user_updated", user: r.user });
+            touched = true;
+          }
+        }
+        if (touched) {
+          broadcast({ type: "users_list", users: listUsers() });
+        }
+      }
       break;
+    }
     case "rename_room":
       if (!roomAllowedForSession(session, cmd.roomId)) break;
       AgentManager.renameRoom(cmd.roomId, cmd.name);
@@ -3032,6 +3067,19 @@ void AgentManager.restoreAgents().then((restored) => {
     console.log(
       `Restored ${restored.length} agent(s): ${restored.map((a) => a.name).join(", ")}`,
     );
+  }
+  // One-time hygiene pass: remove any stale roomIds from users'
+  // allowedRooms / notifRooms that don't match a currently-existing
+  // room. Catches references left behind by close_room calls from
+  // earlier versions that didn't prune user records inline. Cheap
+  // no-op once a deployment has converged.
+  const validIds = AgentManager.getRooms().map((r) => r.id);
+  const pruned = pruneStaleRoomRefs(validIds);
+  if (pruned > 0) {
+    console.log(
+      `[startup] pruned stale room refs from ${pruned} user record(s)`,
+    );
+    broadcast({ type: "users_list", users: listUsers() });
   }
 });
 

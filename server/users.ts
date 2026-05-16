@@ -410,6 +410,38 @@ export function updateUserById(
   return { ok: true, user: next };
 }
 
+// Walk every user record and remove any roomIds from allowedRooms /
+// notifRooms that aren't in the supplied set of currently-valid room
+// ids. Persisted in one write if anything was touched. Used at boot
+// to clean up references to rooms that were closed in an earlier
+// process before the close_room handler began pruning user records
+// inline. Returns the count of users whose records changed.
+export function pruneStaleRoomRefs(validRoomIds: string[]): number {
+  load();
+  const validSet = new Set(validRoomIds);
+  let touched = 0;
+  for (const key of Object.keys(users)) {
+    const u = users[key];
+    const newAllowed = u.allowedRooms.filter((id) => validSet.has(id));
+    const newNotif = u.notifRooms.filter((id) => validSet.has(id));
+    if (
+      newAllowed.length !== u.allowedRooms.length ||
+      newNotif.length !== u.notifRooms.length
+    ) {
+      users[key] = {
+        ...u,
+        allowedRooms: newAllowed,
+        notifRooms: newNotif,
+      };
+      touched++;
+    }
+  }
+  if (touched > 0) {
+    persist();
+  }
+  return touched;
+}
+
 // Compatibility wrapper for the WS dispatch path which still passes
 // display name. Resolves to id via case-insensitive lookup, then
 // delegates.
