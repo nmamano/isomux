@@ -68,6 +68,7 @@ import type { ModelListParams } from "./_generated/v2/ModelListParams.ts";
 import type { ModelListResponse } from "./_generated/v2/ModelListResponse.ts";
 import type { ThreadRollbackParams } from "./_generated/v2/ThreadRollbackParams.ts";
 import type { ThreadRollbackResponse } from "./_generated/v2/ThreadRollbackResponse.ts";
+import type { ThreadTokenUsageUpdatedNotification } from "./_generated/v2/ThreadTokenUsageUpdatedNotification.ts";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -110,6 +111,10 @@ const MODEL_OPTIONS: ModelOption[] = [
   { value: "gpt-5.3-codex", label: "GPT-5.3 Codex" },
   { value: "gpt-5.2", label: "GPT-5.2" },
 ];
+
+function modelDisplayLabel(slug: string): string {
+  return MODEL_OPTIONS.find((m) => m.value === slug)?.label ?? slug;
+}
 
 // Permission/approval mode options. AskForApproval enum minus the deprecated
 // "on-failure" variant (codex 0.130 emits a deprecation warning on use). The
@@ -273,6 +278,20 @@ class CodexSession implements BackendSession {
     cacheReadInputTokens: 0,
     cacheCreationInputTokens: 0,
   };
+  // Latest snapshot for /context. Codex doesn't expose a context-usage RPC, so
+  // we surface what the cumulative `thread/tokenUsage/updated` notifications
+  // carry: total tokens consumed and the model's context window. Null until
+  // the first notification arrives (typically right after the first turn).
+  private lastTotalTokens: number | null = null;
+  private modelContextWindow: number | null = null;
+  // Codex's per-category breakdown from the same notification. Surfaced as
+  // ContextUsage.categories so /context shows where the tokens went.
+  private lastCodexBreakdown: {
+    inputNewTokens: number;
+    inputCachedTokens: number;
+    outputTokens: number;
+    reasoningOutputTokens: number;
+  } | null = null;
   // Resolves when bootstrap (initialize + thread/start) completes — success
   // or failure. send() / approve() / abort() await this so they don't race
   // the async setup. On failure threadId stays null; callers see a clear
@@ -527,9 +546,35 @@ class CodexSession implements BackendSession {
   }
 
   async getContextUsage(): Promise<ContextUsage | null> {
-    // Codex doesn't expose a context-window breakdown RPC at v1. The
-    // /context handler shows "not available" when null is returned.
-    return null;
+    // Codex doesn't expose a context-usage RPC; instead, every turn ends
+    // with a `thread/tokenUsage/updated` notification carrying cumulative
+    // totals + the model's context window. We cache that snapshot in the
+    // notification handler and return it here.
+    if (
+      this.lastTotalTokens === null ||
+      this.modelContextWindow === null ||
+      this.modelContextWindow <= 0
+    ) {
+      return null;
+    }
+    const maxTokens = this.modelContextWindow;
+    const totalTokens = this.lastTotalTokens;
+    const percentage = Math.min(100, (totalTokens / maxTokens) * 100);
+    const categories: { name: string; tokens: number }[] = [];
+    if (this.lastCodexBreakdown) {
+      const b = this.lastCodexBreakdown;
+      categories.push({ name: "Input (new)", tokens: b.inputNewTokens });
+      categories.push({ name: "Input (cached)", tokens: b.inputCachedTokens });
+      categories.push({ name: "Output", tokens: b.outputTokens });
+      categories.push({ name: "Reasoning", tokens: b.reasoningOutputTokens });
+    }
+    return {
+      model: modelDisplayLabel(this.opts.modelFamily),
+      totalTokens,
+      maxTokens,
+      percentage,
+      categories,
+    };
   }
 
   // -------------------------------------------------------------------------
@@ -608,14 +653,39 @@ class CodexSession implements BackendSession {
       }
 
       // ---- Token usage (cumulative; convert to delta) ----
+      // Wire shape: ThreadTokenUsageUpdatedNotification (v2). The inner
+      // TokenUsageBreakdown uses Codex field names that don't line up 1:1
+      // with our orchestrator's Claude-style TokenUsage — we translate:
+      //   Codex inputTokens   = prompt total (incl. cache hits)
+      //   Codex cachedInputTokens = subset that came from cache
+      //   Codex outputTokens  = completion tokens (reasoning is a subset
+      //                          for reasoning-capable models, per OpenAI's
+      //                          docs)
+      //   Codex reasoningOutputTokens = reasoning subset of outputTokens
+      // → ours inputTokens = inputTokens - cachedInputTokens (new prompt)
+      // → ours cacheReadInputTokens = cachedInputTokens
+      // → ours cacheCreationInputTokens = 0 (Codex doesn't separate)
+      // → ours outputTokens = outputTokens (reasoning already included)
       case "thread/tokenUsage/updated": {
-        const usage = params?.usage as Partial<TokenUsage> | undefined;
-        if (!usage) break;
+        // Typed against the generated v2 schema so tsc catches future wire
+        // drift — this handler was previously broken by exactly that kind of
+        // schema mismatch (was reading `params.usage`, never existed in v2).
+        const notif = params as
+          | ThreadTokenUsageUpdatedNotification
+          | null
+          | undefined;
+        const tu = notif?.tokenUsage;
+        const total = tu?.total;
+        if (!total) break;
+        const codexInput = total.inputTokens;
+        const codexCached = total.cachedInputTokens;
+        const codexOutput = total.outputTokens;
+        const codexReasoning = total.reasoningOutputTokens;
         const cumulative: TokenUsage = {
-          inputTokens: usage.inputTokens ?? 0,
-          outputTokens: usage.outputTokens ?? 0,
-          cacheReadInputTokens: usage.cacheReadInputTokens ?? 0,
-          cacheCreationInputTokens: usage.cacheCreationInputTokens ?? 0,
+          inputTokens: Math.max(0, codexInput - codexCached),
+          outputTokens: codexOutput,
+          cacheReadInputTokens: codexCached,
+          cacheCreationInputTokens: 0,
         };
         const delta: TokenUsage = {
           inputTokens: Math.max(
@@ -631,13 +701,21 @@ class CodexSession implements BackendSession {
             cumulative.cacheReadInputTokens -
               this.lastCumulativeUsage.cacheReadInputTokens,
           ),
-          cacheCreationInputTokens: Math.max(
-            0,
-            cumulative.cacheCreationInputTokens -
-              this.lastCumulativeUsage.cacheCreationInputTokens,
-          ),
+          cacheCreationInputTokens: 0,
         };
         this.lastCumulativeUsage = cumulative;
+        // Snapshot for /context. Use Codex's authoritative `totalTokens`
+        // rather than recomputing — avoids drift if their accounting changes.
+        this.lastTotalTokens = total.totalTokens;
+        if (tu.modelContextWindow !== null) {
+          this.modelContextWindow = tu.modelContextWindow;
+        }
+        this.lastCodexBreakdown = {
+          inputNewTokens: Math.max(0, codexInput - codexCached),
+          inputCachedTokens: codexCached,
+          outputTokens: Math.max(0, codexOutput - codexReasoning),
+          reasoningOutputTokens: codexReasoning,
+        };
         this.enqueue({ kind: "usage_update", tokenUsage: delta });
         break;
       }
