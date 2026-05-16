@@ -122,6 +122,9 @@ Steps:
     not on the tailnet (phone on cellular, or any non-tailnet
     machine). A curl from the box itself goes over the tailnet
     path and isn't a true public-reachability check.
+
+If you run into any issues with this setup, ask in the Isomux
+Discord: https://discord.gg/FrjEYyNvYs
 ```
 
 ### Alternative: Tailscale, tailnet-only (no public URL)
