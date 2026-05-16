@@ -731,9 +731,7 @@ function UserEditPanel({
         <>
           <label style={subLabelStyle}>
             Allowed Rooms{" "}
-            <span style={hintStyle}>
-              (rooms this user can see and act in)
-            </span>
+            <span style={hintStyle}>(rooms this user can see and act in)</span>
           </label>
           <div
             style={{

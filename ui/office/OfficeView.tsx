@@ -699,16 +699,15 @@ export function OfficeView({
                 }}
               >
                 <p style={{ margin: "0 0 8px" }}>
-                  Use the <strong>+</strong> in the room tab bar to
-                  create your own room.
+                  Use the <strong>+</strong> in the room tab bar to create your
+                  own room.
                 </p>
                 <p style={{ margin: "0 0 8px" }}>
-                  New rooms you create are visible only to you and the
-                  office owners by default (owners can change that).
+                  New rooms you create are visible only to you and the office
+                  owners by default (owners can change that).
                 </p>
                 <p style={{ margin: 0 }}>
-                  You can also ask an owner to add you to existing
-                  rooms.
+                  You can also ask an owner to add you to existing rooms.
                 </p>
               </div>
             </div>

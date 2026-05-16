@@ -513,10 +513,7 @@ function renderAcceptPage(
   );
 }
 
-function renderInviteError(
-  kind: string,
-  officeName: string | null,
-): Response {
+function renderInviteError(kind: string, officeName: string | null): Response {
   const msg =
     kind === "consumed"
       ? "This invite has already been used."

@@ -49,10 +49,7 @@ export function readLegacyUserPrefs(): {
   if (raw) {
     try {
       const parsed = JSON.parse(raw);
-      if (
-        Array.isArray(parsed) &&
-        parsed.every((x) => typeof x === "string")
-      ) {
+      if (Array.isArray(parsed) && parsed.every((x) => typeof x === "string")) {
         notifRooms = parsed;
       }
       // Legacy "all" sentinel collapses to []; the user can re-enable

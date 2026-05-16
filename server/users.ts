@@ -17,7 +17,11 @@
 import { join } from "path";
 import { homedir } from "os";
 import { existsSync, readFileSync } from "fs";
-import type { UserRecord, UserRole, NotifRoomsSetting } from "../shared/types.ts";
+import type {
+  UserRecord,
+  UserRole,
+  NotifRoomsSetting,
+} from "../shared/types.ts";
 import { generateUserId } from "../shared/types.ts";
 import { lowercaseKey } from "../shared/identity.ts";
 import { atomicWriteFileSync } from "./persistence.ts";

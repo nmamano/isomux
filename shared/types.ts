@@ -1036,11 +1036,7 @@ export type ClientCommand =
       changes: Partial<
         Pick<
           UserRecord,
-          | "name"
-          | "defaultRoomId"
-          | "notifRooms"
-          | "envFile"
-          | "allowedRooms"
+          "name" | "defaultRoomId" | "notifRooms" | "envFile" | "allowedRooms"
         >
       >;
     }

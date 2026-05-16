@@ -680,9 +680,7 @@ export async function acceptInvite(
       // create their own.
       userRecord = claimUser(chosenName, {
         role: invite.role,
-        ...(invite.role === "owner"
-          ? { allowedRooms: snapshotRoomIds() }
-          : {}),
+        ...(invite.role === "owner" ? { allowedRooms: snapshotRoomIds() } : {}),
       });
     }
 

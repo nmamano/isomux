@@ -270,9 +270,7 @@ interface VisibleRoomProjection {
   visibleToGlobal: number[];
 }
 
-function visibleRoomProjection(
-  session: SessionLookup,
-): VisibleRoomProjection {
+function visibleRoomProjection(session: SessionLookup): VisibleRoomProjection {
   const all = AgentManager.getRooms();
   if (sessionHasFullRoomAccess(session)) {
     // Identity projection; avoid per-room allocations on the fast path.
@@ -427,10 +425,7 @@ function routeAgentEvent(event: AgentEvent) {
   }
 }
 
-function routeAgentEventToWs(
-  ws: ServerWebSocket<WsData>,
-  event: AgentEvent,
-) {
+function routeAgentEventToWs(ws: ServerWebSocket<WsData>, event: AgentEvent) {
   const session = ws.data.session;
 
   if (sessionHasFullRoomAccess(session)) {
@@ -1445,9 +1440,7 @@ async function dispatchCommand(
             );
           }
           if (inNotif) {
-            changes.notifRooms = u.notifRooms.filter(
-              (id) => id !== cmd.roomId,
-            );
+            changes.notifRooms = u.notifRooms.filter((id) => id !== cmd.roomId);
           }
           const r = updateUserById(u.id, changes);
           if (r.ok) {
@@ -1679,10 +1672,7 @@ async function dispatchCommand(
       // Field-level gate: only owners can mutate allowedRooms, even on
       // self-edit. Without this a member could send
       // `changes.allowedRooms = "all"` and grant themselves full access.
-      if (
-        cmd.changes.allowedRooms !== undefined &&
-        session.role !== "owner"
-      ) {
+      if (cmd.changes.allowedRooms !== undefined && session.role !== "owner") {
         if (cmd.requestId) {
           ws.send(
             JSON.stringify({
@@ -2187,10 +2177,7 @@ const UI_DIST = join(import.meta.dir, "..", "ui", "dist");
 
 // Escape a string for safe inclusion as text inside an HTML element (e.g. <title>).
 function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 // Serve index.html with the office name substituted into the <title>. The UI
@@ -2199,9 +2186,7 @@ function escapeHtml(s: string): string {
 async function serveIndexHtml(): Promise<Response> {
   const raw = await Bun.file(join(UI_DIST, "index.html")).text();
   const officeName = AgentManager.getOfficeSettings().name;
-  const title = officeName
-    ? `${escapeHtml(officeName)} | Isomux`
-    : "Isomux";
+  const title = officeName ? `${escapeHtml(officeName)} | Isomux` : "Isomux";
   const html = raw.replace("__OFFICE_TITLE__", title);
   return new Response(html, {
     headers: {
