@@ -3243,12 +3243,72 @@ export async function editMessage(
 ) {
   const managed = agents.get(agentId);
   if (!managed) return;
-  if (!managed.sessionId) {
-    addLogEntry(agentId, "error", "Cannot edit: no active session.");
-    return;
-  }
   if (managed.info.state !== "waiting_for_response") {
     addLogEntry(agentId, "error", "Cannot edit while agent is busy.");
+    return;
+  }
+
+  const oldLogCache = [...(logCache.get(agentId) ?? [])];
+
+  // Find target up front so the ephemeral short-circuit and the not-found
+  // error can return before the fork pipeline runs.
+  const targetEntry = oldLogCache.find((e) => e.id === logEntryId);
+  if (!targetEntry || targetEntry.kind !== "user_message") {
+    addLogEntry(agentId, "error", "Cannot edit: message not found.");
+    return;
+  }
+
+  // Ephemeral entries (e.g., unknown / unsupported slash commands echoed via
+  // command-handlers.ts's emitEphemeralLog path) never reached the backend
+  // transcript, so there's no fork point. Rewrite the failed attempt by
+  // trimming it + any trailing ephemeral siblings and re-dispatching through
+  // sendMessage, which routes the corrected text back through the slash-
+  // command pipeline so a fixed `/cmd` resolves to its handler. Refuse if
+  // real turns or later user messages follow — the user can't selectively
+  // rewrite without also discarding subsequent conversation.
+  if (targetEntry.ephemeral) {
+    // Multi-step flows (/resume, /model, /effort, permission prompts) leave
+    // pending state on managed expecting the next user message as the pick.
+    // Re-dispatching the edited text via sendMessage would be consumed by
+    // that pending handler rather than treated as a replacement, silently
+    // resuming a session / changing a model / answering a permission prompt.
+    // Force the user to answer or cancel the pending flow first.
+    if (inMultiStepFlow(managed)) {
+      addLogEntry(
+        agentId,
+        "error",
+        "Cannot edit this prompt while an interactive command is pending. Answer or cancel it first.",
+      );
+      return;
+    }
+    const targetPos = oldLogCache.findIndex((e) => e.id === logEntryId);
+    const afterTarget = oldLogCache.slice(targetPos + 1);
+    const hasRealAfter = afterTarget.some((e) => !e.ephemeral);
+    const hasUserAfter = afterTarget.some((e) => e.kind === "user_message");
+    if (hasRealAfter || hasUserAfter) {
+      addLogEntry(
+        agentId,
+        "error",
+        "Cannot edit: this message wasn't sent to the agent and newer messages followed. Send a new message instead.",
+      );
+      return;
+    }
+    const trimmed = oldLogCache.slice(0, targetPos);
+    logCache.set(agentId, trimmed);
+    emit({ type: "clear_logs", agentId });
+    for (const entry of trimmed) {
+      emit({ type: "log_entry", entry });
+    }
+    await sendMessage(agentId, newText, username, device);
+    return;
+  }
+
+  // The fork pipeline below needs a backend session to fork from. Checked
+  // here rather than at function entry so the ephemeral short-circuit above
+  // can still fix a failed slash command in a session-less / first-message
+  // state where sessionId is unset.
+  if (!managed.sessionId) {
+    addLogEntry(agentId, "error", "Cannot edit: no active session.");
     return;
   }
 
@@ -3262,21 +3322,13 @@ export async function editMessage(
 
   const oldSessionId = managed.sessionId;
   persistCurrentSessionTopic(agentId, managed);
-  const oldLogCache = [...(logCache.get(agentId) ?? [])];
   const oldTopic = managed.info.topic;
   const oldTopicStale = managed.info.topicStale;
 
   try {
     // --- Phase 1: Fallible SDK operations (no UI/cache mutations yet) ---
 
-    // 1. Find the target LogEntry in the current log cache
-    const targetEntry = oldLogCache.find((e) => e.id === logEntryId);
-    if (!targetEntry || targetEntry.kind !== "user_message") {
-      addLogEntry(agentId, "error", "Cannot edit: message not found.");
-      return;
-    }
-
-    // 2. Get backend session messages and match by content + occurrence index.
+    // 1. Get backend session messages and match by content + occurrence index.
     //    For skill-expanded slash commands the log entry's `content` is the
     //    raw command (e.g. "/grill") but the SDK received the expanded prompt;
     //    `metadata.sdkText` captures that expanded form for matching.
@@ -3348,7 +3400,7 @@ export async function editMessage(
       return;
     }
 
-    // 3. Ask the backend to fork before the edited message. The backend
+    // 2. Ask the backend to fork before the edited message. The backend
     //    decides whether this produces a real linked branch (kind: "fork",
     //    parent preserved on disk) or a fresh unrelated session (kind:
     //    "fresh", first-message edits on backends without empty-history fork
@@ -3362,7 +3414,7 @@ export async function editMessage(
     const isFreshSession = forkResult.kind === "fresh";
     const newSessionId = forkResult.kind === "fork" ? forkResult.sessionId : "";
 
-    // 4. Persist fork metadata for the linked-branch case only. Fresh
+    // 3. Persist fork metadata for the linked-branch case only. Fresh
     //    sessions have no historical relationship to the parent — linking
     //    them would mislead /resume's branched UI.
     if (forkResult.kind === "fork") {
@@ -3412,7 +3464,7 @@ export async function editMessage(
       );
     }
 
-    // 5. Create new session from fork (or fresh session for non-linked
+    // 4. Create new session from fork (or fresh session for non-linked
     //    first-message edits), then close old.
     const newSession = isFreshSession
       ? createSession(managed)
@@ -3427,14 +3479,14 @@ export async function editMessage(
 
     // --- Phase 2: UI/cache mutations (point of no return) ---
 
-    // 6. Build parent entries (everything before the edited message)
+    // 5. Build parent entries (everything before the edited message)
     const parentEntries: LogEntry[] = [];
     for (const entry of oldLogCache) {
       if (entry.id === logEntryId) break;
       parentEntries.push(entry);
     }
 
-    // 7. Clear UI and replay parent entries (not persisted — ancestors are loaded
+    // 6. Clear UI and replay parent entries (not persisted — ancestors are loaded
     //    via loadLogWithAncestors on resume, avoiding log duplication on disk)
     logCache.set(agentId, []);
     emit({ type: "clear_logs", agentId });
@@ -3445,21 +3497,21 @@ export async function editMessage(
       }
     }
 
-    // 8. Add system log entry at branch point
+    // 7. Add system log entry at branch point
     addLogEntry(
       agentId,
       "system",
       `Branched from: ${oldTopic || oldSessionId.slice(0, 8) + "..."}`,
     );
 
-    // 9. Inherit topic (marked stale so it regenerates after first exchange)
+    // 8. Inherit topic (marked stale so it regenerates after first exchange)
     for (const event of officeState.updateAgent(agentId, {
       topic: oldTopic,
       topicStale: true,
     }))
       emit(event);
 
-    // 10. Send the edited message
+    // 9. Send the edited message
     beginTurn(agentId, { humanInput: true });
     addLogEntry(
       agentId,
