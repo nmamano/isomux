@@ -1,4 +1,10 @@
-import { useRef, useState, useEffect, useCallback } from "react";
+import {
+  useRef,
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useCallback,
+} from "react";
 export interface ViewportState {
   x: number;
   y: number;
@@ -24,6 +30,12 @@ const VIEWPORT = {
 } as const;
 
 const DEFAULT_STATE: ViewportState = { x: 0, y: 0, scale: 1 };
+
+// Module-scoped so the user's zoom/pan survives OfficeView unmounts (entering
+// a chat, tasks, cronjobs, mobile list). The hook's design treats viewport as
+// global across rooms — module scope extends that to "global across views"
+// without round-tripping through React state. Mutated in place via state.current.
+const persistedState: ViewportState = { ...DEFAULT_STATE };
 
 // Pan should start from any non-interactive surface in the scene. Every clickable
 // target in the scene — including native HTML5 drag sources like DeskUnit — opts
@@ -126,7 +138,7 @@ export function useViewport(layoutKey: string, enabled: boolean) {
     contentRef.current = node;
   }, []);
 
-  const state = useRef<ViewportState>({ ...DEFAULT_STATE });
+  const state = useRef<ViewportState>(persistedState);
   const gesture = useRef<Gesture>({ kind: "idle" });
   /** Scene content bounds in viewport-layer-local coords (pre-zoom). Null until measured. */
   const sceneBounds = useRef<{
@@ -268,7 +280,12 @@ export function useViewport(layoutKey: string, enabled: boolean) {
   // so they're invariant under state changes — no need to re-measure after
   // resetting. At DEFAULT_STATE, clampPan is a no-op by construction.
   const resetView = useCallback((animate = true) => {
-    state.current = { ...DEFAULT_STATE };
+    // Mutate in place so the module-scoped persistedState stays the single
+    // source of truth across mounts. Reassigning state.current to a fresh
+    // object would orphan persistedState at its last value.
+    state.current.x = DEFAULT_STATE.x;
+    state.current.y = DEFAULT_STATE.y;
+    state.current.scale = DEFAULT_STATE.scale;
     applyTransform(animate);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -323,7 +340,10 @@ export function useViewport(layoutKey: string, enabled: boolean) {
   // Re-measure scene bounds when the centered scene's static transform
   // changes (embed/isMobile/mobileScale). ResizeObserver only catches
   // container size changes, not transform-only updates to inner content.
-  useEffect(() => {
+  // useLayoutEffect (not useEffect) so a remount with persisted non-default
+  // state paints once at the saved transform — avoids the default→saved
+  // flash when going back to office view from chat/tasks/list.
+  useLayoutEffect(() => {
     measureSceneBounds();
     clampPan();
     applyTransform();
