@@ -34,6 +34,7 @@ import {
   CODEX_MODELS,
   isValidStatus,
   isValidPriority,
+  type AgentOutfit,
 } from "../shared/types.ts";
 import { errMessage } from "../shared/errors.ts";
 import {
@@ -140,12 +141,36 @@ function welcomeAgentPrompt(self: string, sibling: string): string {
   return `You are the ${self} in this user's new Isomux office. Isomux is a persistent office of AI agents reachable from any device; each agent lives at a desk in a room with its own chat. A sibling, the ${sibling}, sits at the next desk — offer to message them so the user can see agent-to-agent communication first-hand. Be brief, friendly, and focus on what the user asks. For deeper Isomux questions, use https://github.com/nmamano/isomux/blob/main/README.md or https://isomux.com as references.`;
 }
 
+// Fixed outfits so both welcome agents have a recognizable, friendly look on
+// every fresh install instead of the random palette new spawns get. Opus =
+// blue/glasses, Codex = pink/tie — visually distinct so the user can tell
+// them apart at a glance from the desk view.
+const OPUS_WELCOME_OUTFIT: AgentOutfit = {
+  hat: "bow",
+  color: "#45B7D1",
+  hair: "#6C5CE7",
+  hairStyle: "long",
+  skin: "#FDEBD0",
+  beard: "none",
+  accessory: "glasses",
+};
+const CODEX_WELCOME_OUTFIT: AgentOutfit = {
+  hat: "none",
+  color: "#E85D75",
+  hair: "#E84393",
+  hairStyle: "ponytail",
+  skin: "#FDEBD0",
+  beard: "stubble",
+  accessory: "tie",
+};
+
 async function spawnWelcomeAgent(
   name: string,
   sibling: string,
   agentType: "claude" | "codex",
   modelFamily: string,
   permissionMode: "auto" | "on-request",
+  outfit: AgentOutfit,
   username: string,
 ): Promise<void> {
   try {
@@ -156,7 +181,7 @@ async function spawnWelcomeAgent(
       undefined,
       welcomeAgentPrompt(name, sibling),
       undefined,
-      undefined,
+      outfit,
       modelFamily,
       undefined,
       username,
@@ -178,13 +203,22 @@ setOnBootstrapAccepted(async ({ username }) => {
   if (AgentManager.getAllAgents().length > 0) return;
   const opus = "Opus Welcome Agent";
   const codex = "Codex Welcome Agent";
-  await spawnWelcomeAgent(opus, codex, "claude", "opus", "auto", username);
+  await spawnWelcomeAgent(
+    opus,
+    codex,
+    "claude",
+    "opus",
+    "auto",
+    OPUS_WELCOME_OUTFIT,
+    username,
+  );
   await spawnWelcomeAgent(
     codex,
     opus,
     "codex",
     CODEX_MODELS[0].value,
     "on-request",
+    CODEX_WELCOME_OUTFIT,
     username,
   );
 });
