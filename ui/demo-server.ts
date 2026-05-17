@@ -591,6 +591,7 @@ function seedUsers() {
       createdAt: now,
       role,
       allowedRooms: [...roomIds],
+      memberPrompt: null,
     });
   }
 }
@@ -991,6 +992,7 @@ export function handleCommand(cmd: ClientCommand) {
         createdAt: Date.now(),
         role: "member",
         allowedRooms: [...roomIds],
+        memberPrompt: null,
       };
       users.set(key, newUser);
       shimEmit({ type: "user_updated", user: newUser });
@@ -1041,6 +1043,13 @@ export function handleCommand(cmd: ClientCommand) {
           : {}),
         ...(cmd.changes.allowedRooms !== undefined
           ? { allowedRooms: cmd.changes.allowedRooms }
+          : {}),
+        ...(cmd.changes.memberPrompt !== undefined
+          ? {
+              memberPrompt: cmd.changes.memberPrompt?.trim()
+                ? cmd.changes.memberPrompt.trim()
+                : null,
+            }
           : {}),
       };
       if (renamed) users.delete(key);

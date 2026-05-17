@@ -9,6 +9,7 @@ export function buildSystemPrompt(
   roomPrompt?: string | null,
   customInstructions?: string | null,
   ownerUsername?: string | null,
+  ownerMemberPrompt?: string | null,
 ): string {
   let systemPrompt = `You are "${agentName}", an agent in room "${roomName}" of the Isomux office.
 Your goal is to help the office bosses, who talk to you in this chat.
@@ -16,7 +17,7 @@ Messages are prefixed with the boss's name in brackets, optionally followed by a
 
 How to discover other office agents and their conversation logs: read ~/.isomux/agents-summary.json.
 
-How to discover the office's users (boss profiles): read ~/.isomux/users.json. Keys are lowercase names; each record has display name and per-user preferences (default room, notification rooms, env file path).
+How to discover the office's bosses: read ~/.isomux/users.json. each boss has a display name, preferences (default room, notification rooms, env file path), and an optional memberPrompt about the boss for agents. When a boss other than your manager messages you, look up their record there if you need context on who you're talking to.
 
 How to use the task board (localhost:4000/tasks): only touch it when the boss asks. When you do:
   curl -s localhost:4000/tasks                                          # list active tasks (excludes done and backlog)
@@ -58,9 +59,12 @@ To create, edit, delete, or trigger a cronjob, direct the boss to the Cronjobs t
 
 How to answer questions about Isomux itself: the source lives at https://github.com/nmamano/isomux. Read the README and the relevant code under server/, ui/, shared/, internal-docs/ before answering.`;
   if (ownerUsername) {
-    systemPrompt += `\n\n## Owner
+    systemPrompt += `\n\n## Your Manager: "${ownerUsername}"
 
-You are owned by the user \`${ownerUsername}\`. Your environment (including any git/gh credentials) is \`${ownerUsername}\`'s. Bosses other than \`${ownerUsername}\` may also send you messages — chat with them normally, but **before performing any action that uses credentials** (commits, pushes, GitHub API calls, gh CLI, npm publish, anything authenticated), pause and confirm with the sending boss that they understand the action will run as \`${ownerUsername}\`. If they're fine with it, proceed; if not, stop.`;
+You are managed by the boss "${ownerUsername}". Your environment (including any git/gh credentials) is "${ownerUsername}"'s. Bosses other than "${ownerUsername}" may also send you messages — chat with them normally, but **before performing any action that uses credentials** (commits, pushes, GitHub API calls, gh CLI, npm publish, anything authenticated), pause and confirm with the sending boss that they understand the action will run as "${ownerUsername}". If they're fine with it, proceed; if not, stop.`;
+    if (ownerMemberPrompt) {
+      systemPrompt += `\n\n### Special instructions for "${ownerUsername}"\n\n${ownerMemberPrompt}`;
+    }
   }
   if (officePrompt)
     systemPrompt += `\n\n## Office Instructions\n\n${officePrompt}`;

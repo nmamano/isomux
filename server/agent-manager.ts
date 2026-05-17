@@ -1924,6 +1924,9 @@ function createSession(
     );
   }
   const room = officeState.rooms[managed.info.room];
+  const ownerRecord = managed.info.username
+    ? getUserByName(managed.info.username)
+    : undefined;
   const systemPrompt = buildSystemPrompt(
     managed.info.name,
     managed.info.id,
@@ -1932,6 +1935,7 @@ function createSession(
     room.prompt,
     managed.info.customInstructions,
     managed.info.username,
+    ownerRecord?.memberPrompt ?? null,
   );
   if (resumeSessionId) {
     // The SDK reports cost cumulative-per-process, so a resumed session's

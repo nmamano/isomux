@@ -450,6 +450,15 @@ How to answer questions about Isomux itself: the source lives at https://github.
     prompt += `\n\n## Office Instructions\n\n${officeConfig.prompt}`;
   if (cronjobsPrompt)
     prompt += `\n\n## Cron Jobs Instructions\n\n${cronjobsPrompt}`;
+  // memberPrompt for the boss this cronjob runs on behalf of, looked up
+  // at build time so renames / edits to the user's profile take effect
+  // on the next fire without touching the cronjob record itself.
+  if (cronjob.username) {
+    const ownerRecord = getUserByName(cronjob.username);
+    if (ownerRecord?.memberPrompt) {
+      prompt += `\n\n## Special instructions for "${cronjob.username}"\n\n${ownerRecord.memberPrompt}`;
+    }
+  }
   return prompt;
 }
 

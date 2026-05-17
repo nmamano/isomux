@@ -586,6 +586,15 @@ export interface UserRecord {
   // list for the owner UI. Only owners can mutate this through
   // update_user.
   allowedRooms: string[];
+  // Self-described member profile prompt. Auto-injected into the system
+  // prompt of every agent owned by this user, so the agent has standing
+  // context about who its owner is. Other agents can also look up this
+  // field for any user via ~/.isomux/users.json when a different boss
+  // messages them. Optional; null/empty means no profile prompt.
+  // Named "member" rather than "owner" because the field exists on every
+  // user record regardless of role (member is the superset; UserRole
+  // "owner" is the admin-privilege flag).
+  memberPrompt: string | null;
 }
 
 // Sent to the client over the WS at connect time so the UI knows whether to
@@ -1036,7 +1045,12 @@ export type ClientCommand =
       changes: Partial<
         Pick<
           UserRecord,
-          "name" | "defaultRoomId" | "notifRooms" | "envFile" | "allowedRooms"
+          | "name"
+          | "defaultRoomId"
+          | "notifRooms"
+          | "envFile"
+          | "allowedRooms"
+          | "memberPrompt"
         >
       >;
     }

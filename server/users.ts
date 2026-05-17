@@ -62,6 +62,16 @@ function normalizeAllowedRooms(value: unknown): string[] {
   return [];
 }
 
+// memberPrompt is self-described user context auto-injected into the
+// system prompt of every agent owned by this user. Trim whitespace and
+// treat empty strings as absent (null) so the system-prompt builder
+// can use a simple truthiness check.
+function normalizeMemberPrompt(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
 // Treat a raw object as a user record. Used both for the post-migration
 // format (id-keyed) and the legacy name-keyed format — the id field is
 // optional here; load() assigns one if it's missing.
@@ -127,6 +137,7 @@ function load(): Record<string, UserRecord> {
           typeof value.createdAt === "number" ? value.createdAt : Date.now(),
         role: normalizeRole(value.role),
         allowedRooms: normalizeAllowedRooms(value.allowedRooms),
+        memberPrompt: normalizeMemberPrompt(value.memberPrompt),
       };
     }
     users = result;
@@ -278,6 +289,7 @@ export function claimUser(
     // in auth.ts) to preserve "owners see everything" semantics; they
     // default to [] here if the caller omits the snapshot.
     allowedRooms: resolvedAllowed,
+    memberPrompt: null,
   };
   users[id] = record;
   try {
@@ -350,7 +362,12 @@ export function updateUserById(
   changes: Partial<
     Pick<
       UserRecord,
-      "name" | "defaultRoomId" | "notifRooms" | "envFile" | "allowedRooms"
+      | "name"
+      | "defaultRoomId"
+      | "notifRooms"
+      | "envFile"
+      | "allowedRooms"
+      | "memberPrompt"
     >
   > & { allowedRooms?: string[] },
 ): { ok: true; user: UserRecord } | { ok: false; error: string } {
@@ -402,6 +419,10 @@ export function updateUserById(
       changes.allowedRooms !== undefined
         ? normalizeAllowedRooms(changes.allowedRooms)
         : existing.allowedRooms,
+    memberPrompt:
+      changes.memberPrompt !== undefined
+        ? normalizeMemberPrompt(changes.memberPrompt)
+        : existing.memberPrompt,
   };
 
   users[id] = next;
@@ -454,7 +475,12 @@ export function updateUser(
   changes: Partial<
     Pick<
       UserRecord,
-      "name" | "defaultRoomId" | "notifRooms" | "envFile" | "allowedRooms"
+      | "name"
+      | "defaultRoomId"
+      | "notifRooms"
+      | "envFile"
+      | "allowedRooms"
+      | "memberPrompt"
     >
   > & { allowedRooms?: string[] },
 ): { ok: true; user: UserRecord } | { ok: false; error: string } {

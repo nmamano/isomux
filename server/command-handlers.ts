@@ -25,6 +25,7 @@ import {
   type CommandConfig,
 } from "./commands.ts";
 import { buildSystemPrompt } from "./system-prompt.ts";
+import { getUserByName } from "./users.ts";
 import { listCronjobs, buildCronjobSystemPrompt } from "./cronjob-manager.ts";
 import { resolveSkillPrompt } from "./skills.ts";
 import { renderUsageReport, formatRelativeTime } from "./usage-report.ts";
@@ -513,6 +514,9 @@ export function createCommandHandling(deps: HandlerDeps) {
       deps.addLogEntry(agentId, "user_message", rawText, userMeta);
       const room = deps.getRooms()[managed.info.room];
       const officeConfig = deps.getOfficeConfig();
+      const ownerRecord = managed.info.username
+        ? getUserByName(managed.info.username)
+        : undefined;
       const prompt = buildSystemPrompt(
         managed.info.name,
         managed.info.id,
@@ -520,6 +524,8 @@ export function createCommandHandling(deps: HandlerDeps) {
         officeConfig.prompt,
         room.prompt,
         managed.info.customInstructions,
+        managed.info.username,
+        ownerRecord?.memberPrompt ?? null,
       );
       // Pick a fence longer than any backtick run inside the prompt so the block
       // renders verbatim regardless of what office/room/agent prompts contain.

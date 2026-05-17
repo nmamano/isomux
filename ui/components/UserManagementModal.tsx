@@ -407,6 +407,7 @@ function summarizeUser(
     `access: ${u.allowedRooms.length} room${u.allowedRooms.length === 1 ? "" : "s"}`,
   );
   if (u.envFile) parts.push("env: configured");
+  if (u.memberPrompt) parts.push("profile: set");
   return parts.join(" · ");
 }
 
@@ -444,6 +445,9 @@ function UserEditPanel({
     user.allowedRooms,
   );
   const [envFile, setEnvFile] = useState<string>(user.envFile ?? "");
+  const [memberPrompt, setMemberPrompt] = useState<string>(
+    user.memberPrompt ?? "",
+  );
   const [validation, setValidation] = useState<ValidationStatus>({
     kind: "idle",
   });
@@ -619,6 +623,7 @@ function UserEditPanel({
         defaultRoomId,
         notifRooms: notifSetting,
         envFile: envFile.trim() || null,
+        memberPrompt: memberPrompt.trim() || null,
         ...(isOwner ? { allowedRooms: allowedSetting } : {}),
       },
     });
@@ -804,6 +809,27 @@ function UserEditPanel({
         style={inputStyle}
       />
       <ValidationLine status={validation} />
+
+      <label style={subLabelStyle}>
+        Profile Prompt{" "}
+        <span style={hintStyle}>
+          (auto-injected into the system prompt of agents you own; other
+          users&apos; agents can look it up if they need context on you)
+        </span>
+      </label>
+      <textarea
+        value={memberPrompt}
+        onChange={(e) => setMemberPrompt(e.target.value)}
+        placeholder="A few notes for agents about who you are, your role, how you like to collaborate…"
+        rows={5}
+        style={{
+          ...inputStyle,
+          minHeight: 90,
+          resize: "vertical",
+          fontFamily: "inherit",
+          lineHeight: 1.45,
+        }}
+      />
 
       {error && (
         <p style={{ fontSize: 10, color: "#ff6b6b", margin: "6px 0 0" }}>
