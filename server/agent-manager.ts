@@ -1633,6 +1633,16 @@ function createTurnDeferred(managed: ManagedAgent): Promise<void> {
     resolve = res;
     reject = rej;
   });
+  // Defensive: a noop catch so a reject() that fires before any awaiter
+  // attaches doesn't trip Bun's unhandled-rejection handler (which exits
+  // the process). Real awaiters still receive the rejection through their
+  // own await. Concretely: sendMessage rejects this deferred in its catch
+  // block when session.send() throws BEFORE the `await turn` line runs
+  // (e.g. codex bootstrap failure on first message of an agent whose
+  // backend CLI is missing). Without this guard the orphan rejection
+  // crashes the server. Same pattern as JsonRpcLiteClient.request() in
+  // backends/codex/client.ts.
+  promise.catch(() => {});
   managed.pendingTurn = { resolve, reject };
   return promise;
 }
