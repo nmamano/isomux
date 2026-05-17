@@ -2225,6 +2225,10 @@ export function LogView({
                   autoResize(e.target);
                 }}
                 onKeyDown={(e) => {
+                  // While the OS IME is composing (CJK / accent input), let
+                  // the composition consume Enter and other keys; we don't
+                  // want to send, autocomplete, or abort mid-composition.
+                  if (e.nativeEvent.isComposing) return;
                   // Autocomplete navigation
                   if (showAutocomplete && filteredCommands.length > 0) {
                     if (e.key === "ArrowUp") {

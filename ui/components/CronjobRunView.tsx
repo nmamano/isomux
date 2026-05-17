@@ -533,7 +533,12 @@ export function CronjobRunView({
                   autoResize(e.target);
                 }}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey && !isTouchPrimary) {
+                  if (
+                    e.key === "Enter" &&
+                    !e.shiftKey &&
+                    !isTouchPrimary &&
+                    !e.nativeEvent.isComposing
+                  ) {
                     e.preventDefault();
                     handleSend();
                   }
