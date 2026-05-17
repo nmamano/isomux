@@ -31,6 +31,7 @@ import { readFileSync, statSync } from "fs";
 
 import { getFilePath } from "../../persistence.ts";
 import { errMessage } from "../../../shared/errors.ts";
+import { BackendNotConfiguredError } from "../../internal-types.ts";
 
 import type {
   ApprovalDecision,
@@ -464,12 +465,14 @@ class CodexSession implements BackendSession {
     await this.bootstrapPromise;
     if (this.closed) throw new Error("CodexSession.send: session is closed");
     if (!this.threadId) {
-      // Re-throw the captured bootstrap failure so the chat-visible error
-      // (via sendMessage's addLogEntry) carries the actionable text — the
-      // install hint or whatever specific cause failed bootstrap — not a
-      // generic "cannot send" prefix.
-      throw (
-        this.bootstrapError ?? new Error("Codex bootstrap failed; cannot send")
+      // Bootstrap failed — wrap the captured error in BackendNotConfiguredError
+      // so sendMessage / flushQueue / editMessage know to surface this calmly
+      // (system log entry, agent stays idle) rather than as a real turn error
+      // that flips the agent to error state. The actionable text (install
+      // hint, login prompt, etc.) is already in bootstrapError.message and
+      // gets surfaced verbatim — no "Error:" wrapping.
+      throw new BackendNotConfiguredError(
+        this.bootstrapError?.message ?? "Codex bootstrap failed; cannot send",
       );
     }
 

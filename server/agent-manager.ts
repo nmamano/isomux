@@ -92,6 +92,7 @@ import {
 } from "./terminal.ts";
 import { createCommandHandling } from "./command-handlers.ts";
 import {
+  BackendNotConfiguredError,
   SessionSwappedError,
   inMultiStepFlow,
   type ManagedAgent,
@@ -2468,6 +2469,17 @@ async function flushQueue(agentId: string): Promise<void> {
         }
         return;
       }
+      if (err instanceof BackendNotConfiguredError) {
+        // Backend can't run at all (CLI missing, auth missing, etc.). The
+        // .message is already user-actionable — surface verbatim as a system
+        // log entry and keep the agent in idle so the user can fix the setup
+        // and retry without a red error state. Items stay in the queue; the
+        // next send/flush re-attempts and will surface the same message
+        // again until the backend is configured.
+        addLogEntry(agentId, "system", err.message);
+        updateState(agentId, "idle");
+        return;
+      }
       console.error(`Agent ${agentId} flush error:`, errMessage(err));
       addLogEntry(agentId, "error", `Error flushing queue: ${errMessage(err)}`);
       updateState(agentId, "error");
@@ -2939,6 +2951,16 @@ export async function sendMessage(
       } catch {}
     }
     if (err instanceof SessionSwappedError) return;
+    if (err instanceof BackendNotConfiguredError) {
+      // Backend isn't usable (CLI missing, auth missing, etc.). The message
+      // is already user-actionable — surface verbatim as a system entry and
+      // keep the agent idle. User can configure the backend and retry; no
+      // need for a red error state. Matches Claude's calm "not logged in"
+      // UX where a misconfigured backend doesn't paint the desk red.
+      addLogEntry(agentId, "system", err.message);
+      updateState(agentId, "idle");
+      return;
+    }
     console.error(`Agent ${agentId} send error:`, errMessage(err));
     addLogEntry(agentId, "error", `Error: ${errMessage(err)}`);
     updateState(agentId, "error");
@@ -3579,6 +3601,14 @@ export async function editMessage(
         emit(event);
     }
 
+    if (err instanceof BackendNotConfiguredError) {
+      // Rollback above already restored the pre-edit state; surface the
+      // setup-required message calmly so the desk doesn't go red over a
+      // misconfigured backend. User configures and re-edits.
+      addLogEntry(agentId, "system", err.message);
+      updateState(agentId, "idle");
+      return;
+    }
     addLogEntry(
       agentId,
       "error",

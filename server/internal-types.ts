@@ -115,6 +115,21 @@ export class SessionSwappedError extends Error {
   }
 }
 
+// Thrown by a backend session.send() when the backend isn't usable at all —
+// CLI not installed, auth missing, etc. — i.e. the failure is about the
+// agent's setup, not about the turn. sendMessage / flushQueue / editMessage
+// catch this and route it to a calmer presentation than a real turn error:
+// the `message` lands in chat as a system log entry, the agent stays in idle
+// instead of transitioning to error, and the user can edit/retry. The
+// message itself should already be user-actionable (install hint, login
+// prompt, etc.) — it's surfaced verbatim with no "Error:" prefix.
+export class BackendNotConfiguredError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BackendNotConfiguredError";
+  }
+}
+
 // True while the agent is part-way through a two-step pending flow (the
 // previous turn ended asking for a permission decision / resume pick / model
 // pick / effort pick). The next user message gets interpreted as the pick, so
