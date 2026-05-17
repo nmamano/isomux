@@ -497,6 +497,14 @@ export function LogView({
     connected,
     sidePanels,
   } = useAppState();
+  // Use `pointer: coarse` instead of viewport `isMobile` so narrow desktop
+  // windows (split-screen) with a hardware keyboard still send on Enter.
+  const isTouchPrimary = useMemo(
+    () =>
+      typeof window !== "undefined" &&
+      !!window.matchMedia?.("(pointer: coarse)").matches,
+    [],
+  );
   const dispatch = useDispatch();
   const features = useFeatures();
   const device = getDevice();
@@ -1997,8 +2005,8 @@ export function LogView({
             >
               <span>⚠</span>
               <span>
-                Couldn't send — you're offline. Your message is still in the
-                box; try again once you reconnect.
+                Couldn't send — reconnecting. Your message is still in the box;
+                try again once the banner clears.
               </span>
             </div>
           )}
@@ -2258,7 +2266,7 @@ export function LogView({
                       return;
                     }
                   }
-                  if (e.key === "Enter" && !e.shiftKey && !isMobile) {
+                  if (e.key === "Enter" && !e.shiftKey && !isTouchPrimary) {
                     e.preventDefault();
                     handleSend();
                   }

@@ -19,12 +19,14 @@ export function ConnectionBanner() {
         left: 0,
         right: 0,
         zIndex: 9999,
-        paddingTop: "env(safe-area-inset-top, 0px)",
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
         gap: 8,
-        padding: "4px 16px",
+        paddingTop: "calc(4px + env(safe-area-inset-top, 0px))",
+        paddingBottom: 4,
+        paddingLeft: 16,
+        paddingRight: 16,
         background: "var(--red, #c0392b)",
         color: "white",
         fontSize: 11,
@@ -46,7 +48,7 @@ export function ConnectionBanner() {
           animation: "isomuxBannerPulse 1.4s ease-in-out infinite",
         }}
       />
-      <span>Offline — reconnecting</span>
+      <span>Reconnecting…</span>
       <style>{`
         @keyframes isomuxBannerSlideIn {
           from { opacity: 0; transform: translateY(-100%); }

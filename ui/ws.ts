@@ -13,7 +13,6 @@ let pongTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let visibilityBound = false;
-let onlineBound = false;
 
 // Bad-wifi case: TCP thinks the socket is alive but no data is flowing.
 // onclose can take 30s+ to fire. A periodic ping with a short pong grace
@@ -83,10 +82,11 @@ function startHeartbeat() {
 function forceReconnect() {
   if (!handler) return;
   connHandler?.(false);
-  try {
-    socket?.close();
-  } catch {}
-  // onclose schedules the reconnect.
+  // Don't wait for onclose: the failure mode we're handling is precisely that
+  // onclose may be delayed or never fire (TCP zombie, browser-blocked close
+  // handshake). connect() bumps socketGen and tears the old socket down
+  // itself, so any later onclose for the dead socket becomes a no-op.
+  connect(handler, connHandler ?? undefined);
 }
 
 function onVisible() {
@@ -111,17 +111,6 @@ function onVisible() {
   }, 3000);
 }
 
-function onOnline() {
-  if (!handler) return;
-  if (!socket || socket.readyState !== WebSocket.OPEN) {
-    connect(handler, connHandler ?? undefined);
-  }
-}
-
-function onOffline() {
-  connHandler?.(false);
-}
-
 export function connect(onMessage: MessageHandler, onConn?: ConnHandler) {
   handler = onMessage;
   if (onConn) connHandler = onConn;
@@ -136,11 +125,6 @@ export function connect(onMessage: MessageHandler, onConn?: ConnHandler) {
   if (typeof document !== "undefined" && !visibilityBound) {
     document.addEventListener("visibilitychange", onVisible);
     visibilityBound = true;
-  }
-  if (typeof window !== "undefined" && !onlineBound) {
-    window.addEventListener("online", onOnline);
-    window.addEventListener("offline", onOffline);
-    onlineBound = true;
   }
 
   clearReconnectTimer();
