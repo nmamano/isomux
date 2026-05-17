@@ -675,6 +675,12 @@ function buildSdkOpts(opts: CreateSessionOptions): SdkSessionOptions {
     ],
     cwd: opts.cwd,
     hooks: createSafetyHooks(),
+    // AskUserQuestion has no usable UI in isomux: the canUseTool approval
+    // shows only "Allow/Deny" without rendering the question text, and the
+    // headless tool execution returns empty answers — which the agent then
+    // rationalizes as "you accepted the defaults". Agents should ask
+    // clarifying questions in plain chat instead.
+    disallowedTools: ["AskUserQuestion"],
   };
   if (opts.env) sdkOpts.env = opts.env;
   return sdkOpts;
