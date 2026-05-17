@@ -193,7 +193,7 @@ Invite acceptance persists the invite-consumed flag **before** the session (`ser
 
 ### 5.10 Pre-auth POST Origin gate
 
-`POST /auth/accept` and `POST /auth/logout` use `originValidForAuthPost` — Origin must be present **and** matching. An attacker cannot trigger invite-accept or logout on the victim's behalf via a credentialed fetch.
+`POST /auth/accept` and `POST /auth/logout` use `originValidForAuthPost`: Origin must match the resolved public origin, except when the Origin header is absent or the literal string `"null"` — in that case the request is accepted only if `Sec-Fetch-Site: same-origin` is present, a browser-attested Fetch Metadata signal that page JavaScript cannot forge or override. Empty-string Origin fails closed. The `null`-Origin fallback is needed because Chrome sends `Origin: null` on top-level form POSTs originating from a page that carries `Referrer-Policy: no-referrer` (the hardening landed in §6 item 2), which would otherwise lock every fresh-install bootstrap accept out of its own form. A cross-origin attacker submitting a credentialed form to /auth/accept gets `Sec-Fetch-Site: cross-site` or `same-site`, never `same-origin`, so the CSRF defense holds.
 
 ### 5.11 Bootstrap self-disable
 
@@ -237,6 +237,7 @@ These are the changes implemented in the same pass that produced this document, 
 2. **`Referrer-Policy: no-referrer` on every HTML response.**
    - `securityHeaders()` helper in `server/auth-middleware.ts`. Spread into every `Response` from the auth pages, the invite-error page, the redirect on accept/logout, and the SPA shell (`serveIndexHtml` in `server/index.ts`).
    - Closes the "future outbound link from accept page leaks token via Referer" sub-finding.
+   - **Known interaction.** Chrome's behavior on a top-level form POST from a page carrying `Referrer-Policy: no-referrer` is to send `Origin: null` instead of the page origin (privacy headers coupled in Chrome's implementation). This broke the original strict-equality check in `originValidForAuthPost` for every fresh-install bootstrap accept on Chrome; the gate now falls back to `Sec-Fetch-Site: same-origin` when Origin is absent or `"null"`, preserving the CSRF defense (see §5.10). Discovered during welcome-agent laptop testing post-audit.
 
 3. **`Strict-Transport-Security: max-age=31536000` on HTML responses when origin is HTTPS.**
    - Same helper. `includeSubDomains` deliberately omitted (see Section 5.16).

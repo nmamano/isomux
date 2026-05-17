@@ -335,11 +335,21 @@ function renderLockoutBlocked(
 
 // /auth/* POSTs are exclusively browser-driven. Unlike the agent-API
 // endpoints (which accept missing Origin from local curl), these require
-// an explicit Origin match. There's no legitimate use case for a non-
-// browser caller hitting them.
+// an explicit Origin match — except for the absent/`null` Origin case,
+// where we fall back to the Fetch Metadata `Sec-Fetch-Site: same-origin`
+// signal (browser-attested, not forgeable by page JS). The literal-`null`
+// case happens on Chrome for top-level form POSTs from a page that sets
+// `Referrer-Policy: no-referrer` (the audit §6 hardening); absent Origin
+// is the broader legacy/privacy case. Empty-string Origin fails closed.
+function hasSameOriginFetchMetadata(req: Request): boolean {
+  return req.headers.get("sec-fetch-site") === "same-origin";
+}
 function originValidForAuthPost(req: Request): boolean {
   const origin = req.headers.get("origin");
-  if (!origin) return false;
+  if (origin === null || origin === "null") {
+    return hasSameOriginFetchMetadata(req);
+  }
+  if (origin === "") return false;
   return checkOrigin(req);
 }
 
