@@ -1,4 +1,4 @@
-node_modules/
+node_modules
 ui/dist/
 site/demo/demo-entry.js
 site/demo/index.html
