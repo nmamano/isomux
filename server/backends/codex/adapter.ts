@@ -298,6 +298,12 @@ class CodexSession implements BackendSession {
   // the async setup. On failure threadId stays null; callers see a clear
   // "bootstrap failed" error instead of "not initialized yet."
   private bootstrapPromise: Promise<void>;
+  // Captured at bootstrap-failure time, re-thrown by send() on the
+  // first user message attempt so the actionable error (install hint,
+  // auth failure, etc.) lands in chat AND transitions the agent to
+  // error state THEN — matches Claude's lazy-auth UX where the agent
+  // looks idle from spawn until the user actually messages it.
+  private bootstrapError: Error | null = null;
 
   constructor(private readonly opts: CodexSessionInitOpts) {
     const clientOpts: JsonRpcLiteClientOptions = {
@@ -370,9 +376,19 @@ class CodexSession implements BackendSession {
         model: this.opts.modelFamily,
       });
     } catch (err) {
+      // Defer the error to send(): we want this agent to look idle from
+      // spawn so the desk indicator doesn't go red before the user has
+      // even tried it (Claude's auth-failure UX is the reference). Emit
+      // system_init so the orchestrator transitions us to idle instead
+      // of leaving the agent in pre-init; sessionId is unused for a
+      // never-started thread (nothing to persist, nothing to resume).
+      this.bootstrapError =
+        err instanceof Error ? err : new Error(errMessage(err));
       this.enqueue({
-        kind: "error",
-        message: `Codex bootstrap failed: ${errMessage(err)}`,
+        kind: "system_init",
+        sessionId: "",
+        slashCommands: [],
+        model: this.opts.modelFamily,
       });
       this.markEnded();
     }
@@ -447,8 +463,15 @@ class CodexSession implements BackendSession {
     // the awaiting sendMessage / flushQueue caller).
     await this.bootstrapPromise;
     if (this.closed) throw new Error("CodexSession.send: session is closed");
-    if (!this.threadId)
-      throw new Error("CodexSession.send: codex bootstrap failed; cannot send");
+    if (!this.threadId) {
+      // Re-throw the captured bootstrap failure so the chat-visible error
+      // (via sendMessage's addLogEntry) carries the actionable text — the
+      // install hint or whatever specific cause failed bootstrap — not a
+      // generic "cannot send" prefix.
+      throw (
+        this.bootstrapError ?? new Error("Codex bootstrap failed; cannot send")
+      );
+    }
 
     const input = buildCodexUserInput(text, attachments, this.opts.agentId);
     // Only flip turnInFlight after turn/start succeeds. If the request throws

@@ -369,6 +369,17 @@ export class JsonRpcLiteClient {
   private write(frame: unknown): void {
     if (!this.child) throw new Error("client not started");
     const line = JSON.stringify(frame) + "\n";
+    // child.pid is undefined when spawn() failed synchronously (e.g. ENOENT
+    // from a missing codex binary). Translating here wins the race against
+    // the async child.on('error') ENOENT handler so the user-visible chat
+    // error is the actionable install hint, not the technical
+    // "stdin is not writable" message that fires when the dead child's
+    // stdin stream is already closed.
+    if (this.child.pid === undefined) {
+      throw new Error(
+        `Codex CLI is not installed on the server. Install with \`sudo npm install -g @openai/codex@${CODEX_CLI_PINNED_VERSION}\` and restart isomux.`,
+      );
+    }
     if (!this.child.stdin.writable) {
       throw new Error("codex stdin is not writable");
     }
