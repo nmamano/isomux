@@ -1332,9 +1332,12 @@ function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
   switch (ev.kind) {
     case "system_init": {
       const managed = agents.get(agentId);
-      // Defensive: backends should always supply sessionId in practice, but
-      // we still process the event (slash_commands/skills land below) if
-      // it's missing.
+      // Two paths reach here: (1) a real bootstrap success, sessionId set to
+      // the backend's thread id — install session tracking below; (2) the
+      // codex bootstrap-failure path emits an empty sessionId so the agent
+      // transitions to idle without us pretending it has a usable session,
+      // see backends/codex/adapter.ts bootstrap catch. Slash_commands/skills
+      // still land below in either case.
       if (managed && ev.sessionId) {
         const sessionId = ev.sessionId;
         const hadPreviousSession = !!managed.sessionId;
@@ -2293,6 +2296,13 @@ async function flushQueue(agentId: string): Promise<void> {
   if (managed.messageQueue.length === 0) return;
 
   managed.flushInProgress = true;
+  // Set by the BackendNotConfiguredError soft-catch below to tell the finally
+  // block NOT to auto-re-trigger flushQueue. Without this guard, the catch
+  // leaves state=idle + queue intact, the finally's re-flush condition then
+  // matches, the re-flush throws the same error, the catch fires again, and
+  // we spam-loop on the unconfigured backend. User-paced retries (next
+  // sendMessage / next state transition) still get a fresh attempt.
+  let backendNotConfigured = false;
   try {
     // Wait for any in-flight turn to truly end before starting a new one. The
     // trigger from updateState fires synchronously inside processMessage,
@@ -2475,9 +2485,11 @@ async function flushQueue(agentId: string): Promise<void> {
         // log entry and keep the agent in idle so the user can fix the setup
         // and retry without a red error state. Items stay in the queue; the
         // next send/flush re-attempts and will surface the same message
-        // again until the backend is configured.
+        // again until the backend is configured. The local flag suppresses
+        // the finally block's auto-re-flush to avoid a tight loop.
         addLogEntry(agentId, "system", err.message);
         updateState(agentId, "idle");
+        backendNotConfigured = true;
         return;
       }
       console.error(`Agent ${agentId} flush error:`, errMessage(err));
@@ -2487,8 +2499,11 @@ async function flushQueue(agentId: string): Promise<void> {
   } finally {
     if (agents.has(agentId)) {
       managed.flushInProgress = false;
-      // Re-flush if more arrived during the await, and we're still in an idle state.
+      // Re-flush if more arrived during the await, and we're still in an idle
+      // state. Skip when the catch path marked the backend as not configured
+      // — see the flag's declaration above for why.
       if (
+        !backendNotConfigured &&
         managed.messageQueue.length > 0 &&
         isQueueIdleState(managed.info.state) &&
         !inMultiStepFlow(managed)
@@ -3364,6 +3379,11 @@ export async function editMessage(
   const oldTopic = managed.info.topic;
   const oldTopicStale = managed.info.topicStale;
 
+  // Declared up here so the Phase-9 send's catch can reach it. Assigned the
+  // moment the turn deferred is installed (Phase 9); null before then so a
+  // pre-send throw doesn't try to reject something that was never created.
+  let editOwnPending: ManagedAgent["pendingTurn"] = null;
+
   try {
     // --- Phase 1: Fallible SDK operations (no UI/cache mutations yet) ---
 
@@ -3562,12 +3582,23 @@ export async function editMessage(
     const editPrefix = formatPrefix({ username, device });
     const prefixedNew = editPrefix ? `${editPrefix}${newText}` : newText;
     const turn = createTurnDeferred(managed);
+    editOwnPending = managed.pendingTurn;
     await managed.session!.send(prefixedNew);
     await turn;
     // Topic mutation above + system/init persistAll on first-message edits
     // already covered the persisted state; nothing further changes during
     // the turn that needs an end-of-edit snapshot.
   } catch (err) {
+    // Symmetric with sendMessage/flushQueue: if session.send() threw before
+    // `await turn` ran, the deferred we just installed is still parked in
+    // managed.pendingTurn — reject + clear it so abort/state logic doesn't
+    // observe a phantom in-flight turn during the rollback below.
+    if (editOwnPending && managed.pendingTurn === editOwnPending) {
+      managed.pendingTurn = null;
+      try {
+        editOwnPending.reject(err);
+      } catch {}
+    }
     // User aborted (or another explicit session swap) after the fork was
     // installed — the fork and its partial turn are a legitimate result,
     // not a failure. The triggering swap's own persistAll covered state.
@@ -3583,7 +3614,10 @@ export async function editMessage(
         await replaceSession(agentId, managed, rollbackSession);
         managed.sessionId = oldSessionId;
       } catch {
-        // Can't restore session — leave in error state
+        // Can't restore session — the generic-error path below sets state to
+        // "error" which surfaces the broken session. The BackendNotConfigured
+        // path goes to "idle" regardless (friendlier UX over a rare edge
+        // case where both rollback fails AND the backend is unconfigured).
       }
 
       // Restore the old log cache and UI

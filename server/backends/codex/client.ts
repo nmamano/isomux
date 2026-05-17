@@ -33,6 +33,11 @@ import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
 import { errMessage } from "../../../shared/errors.ts";
 import { CODEX_CLI_PINNED_VERSION } from "./version-check.ts";
 
+// Used by both ENOENT detection paths (sync write-guard check on child.pid
+// and async child.on('error')) so they can't drift out of sync. Surfaced
+// verbatim into chat by sendMessage's BackendNotConfiguredError handling.
+const CODEX_NOT_INSTALLED_MESSAGE = `Codex CLI is not installed on the server. Install with \`sudo npm install -g @openai/codex@${CODEX_CLI_PINNED_VERSION}\` and restart isomux.`;
+
 import type { InitializeParams } from "./_generated/InitializeParams.ts";
 import type { InitializeResponse } from "./_generated/InitializeResponse.ts";
 
@@ -167,7 +172,7 @@ export class JsonRpcLiteClient {
       this.closed = true;
       const message =
         err.code === "ENOENT"
-          ? `Codex CLI is not installed on the server. Install with \`sudo npm install -g @openai/codex@${CODEX_CLI_PINNED_VERSION}\` and restart isomux.`
+          ? CODEX_NOT_INSTALLED_MESSAGE
           : `codex subprocess error: ${err.message}`;
       this.failAllPending(message);
     });
@@ -376,9 +381,7 @@ export class JsonRpcLiteClient {
     // "stdin is not writable" message that fires when the dead child's
     // stdin stream is already closed.
     if (this.child.pid === undefined) {
-      throw new Error(
-        `Codex CLI is not installed on the server. Install with \`sudo npm install -g @openai/codex@${CODEX_CLI_PINNED_VERSION}\` and restart isomux.`,
-      );
+      throw new Error(CODEX_NOT_INSTALLED_MESSAGE);
     }
     if (!this.child.stdin.writable) {
       throw new Error("codex stdin is not writable");

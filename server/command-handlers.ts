@@ -806,11 +806,22 @@ export function createCommandHandling(deps: HandlerDeps) {
     deps.beginTurn(agentId, { humanInput: true });
     const prefix = formatPrefix({ username, device });
     const prefixedSkillPrompt = prefix ? `${prefix}${fullPrompt}` : fullPrompt;
+    const turn = deps.createTurnDeferred(managed);
+    const skillOwnPending = managed.pendingTurn;
     try {
-      const turn = deps.createTurnDeferred(managed);
       await managed.session!.send(prefixedSkillPrompt);
       await turn;
     } catch (err) {
+      // Symmetric with sendMessage/flushQueue: a session.send() throw before
+      // `await turn` runs leaves the deferred parked in managed.pendingTurn —
+      // reject + clear so abort/state logic doesn't observe a phantom in-
+      // flight turn.
+      if (skillOwnPending && managed.pendingTurn === skillOwnPending) {
+        managed.pendingTurn = null;
+        try {
+          skillOwnPending.reject(err);
+        } catch {}
+      }
       if (err instanceof SessionSwappedError) return true;
       deps.addLogEntry(agentId, "error", `Skill error: ${errMessage(err)}`);
       deps.updateState(agentId, "error");
