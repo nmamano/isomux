@@ -108,6 +108,11 @@ export interface AppState {
   // session_expired), the UI surfaces a banner and queues a reload so the
   // user lands back at the bootstrap/login flow on the next tick.
   sessionExpired: boolean;
+  // Monotonic: false until the first full_state arrives, then true forever.
+  // Lets components suppress negative UI (empty-state overlays, reconnect
+  // banner) during the brief pre-hydration window without overloading
+  // `connected`, which is deliberately tied to full_state arrival.
+  hasReceivedInitialState: boolean;
 }
 
 type Action =
@@ -235,6 +240,7 @@ function reducer(state: AppState, action: Action): AppState {
             .filter((a) => a.state !== "idle" && a.state !== "stopped")
             .map((a) => [a.id, Date.now()]),
         ),
+        hasReceivedInitialState: true,
       };
     }
     case "agent_added":
@@ -601,6 +607,7 @@ const initialState: AppState = {
   activeSessions: [],
   activeSessionsLoaded: false,
   sessionExpired: false,
+  hasReceivedInitialState: false,
 };
 
 const StateCtx = createContext<AppState>(initialState);

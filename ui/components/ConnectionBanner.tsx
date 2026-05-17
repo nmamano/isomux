@@ -1,15 +1,17 @@
 import { useAppState } from "../store.tsx";
 
-// Brief grace window — covers reconnect blips during full_state hydration so
-// the banner doesn't flash on every transient cycle. Implemented as a CSS
-// animation-delay (with fill-mode backwards) so the banner mounts immediately
-// when disconnected but stays visually hidden for SHOW_DELAY_MS; if connection
-// recovers within that window, the component unmounts before it ever appears.
+// Brief grace window — covers reconnect blips so the banner doesn't flash on
+// every transient cycle. Implemented as a CSS animation-delay (with fill-mode
+// backwards) so the banner mounts immediately when disconnected but stays
+// visually hidden for SHOW_DELAY_MS; if connection recovers within that window,
+// the component unmounts before it ever appears. First-load hydration is
+// handled separately via hasReceivedInitialState below (we don't show the
+// banner at all until we've received the first full_state).
 const SHOW_DELAY_MS = 600;
 
 export function ConnectionBanner() {
-  const { connected } = useAppState();
-  if (connected) return null;
+  const { connected, hasReceivedInitialState } = useAppState();
+  if (connected || !hasReceivedInitialState) return null;
 
   return (
     <div

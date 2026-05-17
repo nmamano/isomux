@@ -137,6 +137,7 @@ export function OfficeView({
     rooms,
     isMobile,
     updateAvailable,
+    hasReceivedInitialState,
   } = useAppState();
   const roomCount = rooms.length;
   const roomNames = rooms.map((r) => r.name);
@@ -656,8 +657,9 @@ export function OfficeView({
             an owner grants them access). The office floor/walls/desks
             underneath still render so the scene still reads as an
             office — the boss specifically wanted the empty-office vibe
-            as background. */}
-        {rooms.length === 0 && (
+            as background. Gated on hasReceivedInitialState so it doesn't
+            flash during the pre-hydration window when rooms is still []. */}
+        {hasReceivedInitialState && rooms.length === 0 && (
           <div
             style={{
               position: "absolute",
