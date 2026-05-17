@@ -100,10 +100,6 @@ import {
   type EnqueueResult,
 } from "./internal-types.ts";
 import { getBackend } from "./backends/index.ts";
-import {
-  checkCodexVersion,
-  getCodexVersionStatus,
-} from "./backends/codex/version-check.ts";
 import type { BackendSession, NormalizedEvent } from "./backends/types.ts";
 import { OfficeState } from "../shared/office-state.ts";
 import {
@@ -1980,20 +1976,12 @@ export async function spawn(
   // matches a known user.
   userId?: string | null,
 ): Promise<AgentInfo | null> {
-  // Reject Codex spawn if the version check signalled the CLI is missing.
-  // Other check outcomes (ok / mismatch / unknown) still allow spawn — codex
-  // is present and we hope for compatibility. Run the check now if it hasn't
-  // settled yet (a spawn racing the boot-time logCodexVersionAtBoot would
-  // previously see null and bypass the guard, deferring failure to the codex
-  // subprocess spawn).
-  if (agentType === "codex") {
-    const status = getCodexVersionStatus() ?? (await checkCodexVersion());
-    if (status.kind === "not_installed") {
-      throw new Error(
-        "Codex CLI is not installed on the server. Install with `sudo npm install -g @openai/codex@0.130.0` and restart isomux.",
-      );
-    }
-  }
+  // Spawn is always allowed even if the backend CLI is missing — the failure
+  // surfaces as a chat-visible error on first message (codex client's
+  // child.on('error') translates ENOENT to an install hint; Claude SDK errors
+  // surface analogously). Keeping the policies symmetric across backends means
+  // a user can put an agent at a desk before configuring its backend, and the
+  // welcome-agent seed gets one Opus and one Codex desk on every fresh install.
   const resolvedCwd = resolveCwd(cwd);
 
   // Server-side validation. Anything outside the backend's allowlist falls

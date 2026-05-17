@@ -20,6 +20,14 @@ import { hasOwner } from "./users.ts";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
+// Fires after a successful bootstrap accept; awaited best-effort by
+// handleAccept. `null` resets for repeated test boots.
+type BootstrapAcceptedCb = (opts: { username: string }) => Promise<void> | void;
+let onBootstrapAccepted: BootstrapAcceptedCb | null = null;
+export function setOnBootstrapAccepted(cb: BootstrapAcceptedCb | null): void {
+  onBootstrapAccepted = cb;
+}
+
 // ---------------------------------------------------------------------------
 // Loopback detection. Localhost calls (agent-to-server curl, in-process tests)
 // bypass cookie auth — the host already trusts its own processes. The cookie
@@ -247,6 +255,14 @@ export async function handleAccept(
       );
     }
     return renderInviteError(result.error, officeName);
+  }
+  if (result.isBootstrap && onBootstrapAccepted) {
+    // Best-effort: never roll back the accept on hook failure.
+    try {
+      await onBootstrapAccepted({ username: result.username });
+    } catch (err) {
+      console.error("[auth] onBootstrapAccepted threw:", err);
+    }
   }
   return new Response(null, {
     status: 302,

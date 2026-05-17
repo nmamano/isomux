@@ -31,6 +31,7 @@
 
 import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
 import { errMessage } from "../../../shared/errors.ts";
+import { CODEX_CLI_PINNED_VERSION } from "./version-check.ts";
 
 import type { InitializeParams } from "./_generated/InitializeParams.ts";
 import type { InitializeResponse } from "./_generated/InitializeResponse.ts";
@@ -157,9 +158,18 @@ export class JsonRpcLiteClient {
         } catch {}
       }
     });
-    this.child.on("error", (err: Error) => {
-      // Spawn failure (e.g. binary not found). Fail any pending requests.
-      this.failAllPending(`codex subprocess error: ${err.message}`);
+    this.child.on("error", (err: NodeJS.ErrnoException) => {
+      // Spawn failure. Translate ENOENT to a user-actionable install hint so
+      // the chat-visible error is meaningful rather than just the raw errno;
+      // every other failure falls through to the underlying message. Mark the
+      // client closed so any subsequent request short-circuits on the
+      // `this.closed` guard in request() instead of writing to a dead process.
+      this.closed = true;
+      const message =
+        err.code === "ENOENT"
+          ? `Codex CLI is not installed on the server. Install with \`sudo npm install -g @openai/codex@${CODEX_CLI_PINNED_VERSION}\` and restart isomux.`
+          : `codex subprocess error: ${err.message}`;
+      this.failAllPending(message);
     });
     this.child.on("exit", (code, signal) => {
       this.exitInfo = { code, signal };

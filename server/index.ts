@@ -30,7 +30,11 @@ import { startBackupScheduler, getBackupStatus } from "./backup.ts";
 import { logCodexVersionAtBoot } from "./backends/codex/version-check.ts";
 import { resolveCwd } from "./cwd-utils.ts";
 import type { TaskItem } from "../shared/types.ts";
-import { isValidStatus, isValidPriority } from "../shared/types.ts";
+import {
+  CODEX_MODELS,
+  isValidStatus,
+  isValidPriority,
+} from "../shared/types.ts";
 import { errMessage } from "../shared/errors.ts";
 import {
   listUsers,
@@ -50,6 +54,7 @@ import {
   authenticate,
   checkOrigin,
   securityHeaders,
+  setOnBootstrapAccepted,
   tryHandleAuthRoute,
 } from "./auth-middleware.ts";
 import {
@@ -121,6 +126,67 @@ setOnInviteConsumed(() => {
 // "My devices" sessions table consistent on the same events.
 setOnSessionsChanged(() => {
   pushSessionsListToEachWs();
+});
+
+// First-install onboarding: pre-spawn one Claude and one Codex welcome agent
+// so the new owner can try whichever backend they're set up for. Spawn is
+// always allowed (no CLI install check); the other backend surfaces a
+// chat-visible error on first message — missing CLI, missing auth, all the
+// same UX. Per-spawn try/catch is defense in depth against any unexpected
+// throw. Awaited so both agents are in officeState before the redirected
+// browser reads `full_state`. Guarded so an owner-recovery on an existing
+// office doesn't double-seed.
+function welcomeAgentPrompt(self: string, sibling: string): string {
+  return `You are the ${self} in this user's new Isomux office. Isomux is a persistent office of AI agents reachable from any device; each agent lives at a desk in a room with its own chat. A sibling, the ${sibling}, sits at the next desk — offer to message them so the user can see agent-to-agent communication first-hand. Be brief, friendly, and focus on what the user asks. For deeper Isomux questions, use https://github.com/nmamano/isomux/blob/main/README.md or https://isomux.com as references.`;
+}
+
+async function spawnWelcomeAgent(
+  name: string,
+  sibling: string,
+  agentType: "claude" | "codex",
+  modelFamily: string,
+  permissionMode: "auto" | "on-request",
+  username: string,
+): Promise<void> {
+  try {
+    const created = await AgentManager.spawn(
+      name,
+      "~",
+      permissionMode,
+      undefined,
+      welcomeAgentPrompt(name, sibling),
+      undefined,
+      undefined,
+      modelFamily,
+      undefined,
+      username,
+      agentType,
+      undefined,
+      undefined,
+    );
+    if (!created) {
+      console.warn(
+        `[bootstrap] ${name} spawn returned null (duplicate name or full room?)`,
+      );
+    }
+  } catch (err) {
+    console.warn(`[bootstrap] ${name} spawn threw:`, err);
+  }
+}
+
+setOnBootstrapAccepted(async ({ username }) => {
+  if (AgentManager.getAllAgents().length > 0) return;
+  const opus = "Opus Welcome Agent";
+  const codex = "Codex Welcome Agent";
+  await spawnWelcomeAgent(opus, codex, "claude", "opus", "auto", username);
+  await spawnWelcomeAgent(
+    codex,
+    opus,
+    "codex",
+    CODEX_MODELS[0].value,
+    "on-request",
+    username,
+  );
 });
 
 // Each WS carries the session it was authenticated with at upgrade time. The
