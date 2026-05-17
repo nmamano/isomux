@@ -250,8 +250,8 @@ function IssueInviteForm() {
         </label>
       </div>
       <p style={{ ...hint, marginTop: 6 }}>
-        Invite link expires 24h after issuing if unused. Accepted sessions
-        last up to 1 year (revocable from the Access pane any time).
+        Invite link expires 24h after issuing if unused. Accepted sessions last
+        up to 1 year (revocable from the Access pane any time).
       </p>
       {existing && (
         <label style={{ display: "flex", gap: 6, marginTop: 8, fontSize: 12 }}>

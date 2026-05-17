@@ -25,12 +25,12 @@ A separate **shared-device** risk applies to anyone who opens Isomux on a comput
 
 ## 2. Findings (ranked)
 
-| # | Severity | Title | Status |
-|---|---|---|---|
-| 1 | **Medium** | Bootstrap invite token is printed to stdout/systemd journal during the bootstrap window | **Documented; alternative delivery path remains a follow-up** |
-| 2 | **Low** | Invite URLs are bearer tokens — they live in the recipient's browser history and delivery channel until consumed | **Mitigated** (24h owner / 1h self TTL; `Referrer-Policy: no-referrer`; one-time use) |
-| 3 | **Low** | Session cookie persists 30d rolling / 365d absolute — a forgotten session on a shared device remains valid | **Documented; per-device revoke is the mitigation** |
-| 4 | **Informational** | `GET /i/<token>` distinguishes `not_found` / `consumed` / `expired` in the response | **Not actionable** (256-bit entropy) |
+| #   | Severity          | Title                                                                                                            | Status                                                                                |
+| --- | ----------------- | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| 1   | **Medium**        | Bootstrap invite token is printed to stdout/systemd journal during the bootstrap window                          | **Documented; alternative delivery path remains a follow-up**                         |
+| 2   | **Low**           | Invite URLs are bearer tokens — they live in the recipient's browser history and delivery channel until consumed | **Mitigated** (24h owner / 1h self TTL; `Referrer-Policy: no-referrer`; one-time use) |
+| 3   | **Low**           | Session cookie persists 30d rolling / 365d absolute — a forgotten session on a shared device remains valid       | **Documented; per-device revoke is the mitigation**                                   |
+| 4   | **Informational** | `GET /i/<token>` distinguishes `not_found` / `consumed` / `expired` in the response                              | **Not actionable** (256-bit entropy)                                                  |
 
 The original audit pass also flagged **missing HSTS** and **invite-URL referrer leakage** as separate findings; both were closed by hardening landed during this audit (Section 6).
 
@@ -95,7 +95,7 @@ On a single-user box this is the operator only. On a shared dev box, a container
 
 **Severity:** Low (after the hardening landed in this audit; was Medium before).
 
-**Description.** An invite URL contains a 256-bit token and grants the role/identity the invite was minted for. The token has 256 bits of entropy and is SHA-256-hashed on disk (forgery is infeasible), but the *raw* URL appears in several recoverable places between minting and acceptance:
+**Description.** An invite URL contains a 256-bit token and grants the role/identity the invite was minted for. The token has 256 bits of entropy and is SHA-256-hashed on disk (forgery is infeasible), but the _raw_ URL appears in several recoverable places between minting and acceptance:
 
 1. **Browser history.** Every browser that opens the URL retains the full path including the token. Cloud-synced browsers (Chrome Sync, Edge Sync, Firefox Sync) replicate the URL across signed-in devices.
 2. **The delivery channel** — whatever email, chat, or SMS the operator used to send the link.
@@ -145,7 +145,7 @@ The cookie's `SameSite=Lax`, `HttpOnly`, `Secure`-on-HTTPS, and host-only attrib
 
 **Severity:** Informational.
 
-**Description.** `peekInvite` (`server/auth.ts:546-563`) returns one of three distinct errors — `not_found`, `consumed`, `expired` — and the HTTP handler `renderInviteError` renders a different message for each. An attacker who somehow obtained a *partial* token (e.g. the 8-character display prefix from a log entry) could in principle distinguish "this prefix maps to a real token that's been used" from "this prefix doesn't map to anything." With 256 bits of token entropy this is not an actionable brute-force channel.
+**Description.** `peekInvite` (`server/auth.ts:546-563`) returns one of three distinct errors — `not_found`, `consumed`, `expired` — and the HTTP handler `renderInviteError` renders a different message for each. An attacker who somehow obtained a _partial_ token (e.g. the 8-character display prefix from a log entry) could in principle distinguish "this prefix maps to a real token that's been used" from "this prefix doesn't map to anything." With 256 bits of token entropy this is not an actionable brute-force channel.
 
 **Recommendation (optional).** Collapse all three error codes into a single "This invite is no longer valid" response. The legitimate user loses a small UX nicety (they don't learn whether their invite specifically expired vs was already consumed); the response carries no signal about the token's lifecycle state. Not implemented in this audit pass.
 
@@ -156,54 +156,71 @@ The cookie's `SameSite=Lax`, `HttpOnly`, `Secure`-on-HTTPS, and host-only attrib
 These are observed-and-confirmed-correct implementation details that defend against the in-scope threats:
 
 ### 5.1 Token entropy
+
 Both invite tokens and session ids are 32 bytes (256 bits) of `randomBytes`, base64url-encoded (`server/auth.ts:273-278`). Forgery by brute force is infeasible.
 
 ### 5.2 Hash-only on-disk storage
+
 Only `sha256(rawToken)` and an 8-character display prefix are persisted (`server/auth.ts:55-82`). A read of `~/.isomux/invites.json` or `~/.isomux/sessions.json` does not yield usable bearer tokens.
 
 ### 5.3 Constant-time comparison
+
 `safeHashEq` (`server/auth.ts:287-290`) compares hex strings via `timingSafeEqual` after a length check, used on every invite peek, accept, and session validate.
 
 ### 5.4 Mutex-serialized state mutations
+
 A single in-process promise chain (`server/auth.ts:95-100`) serializes every mutation. Two concurrent attempts to consume the same invite cannot both succeed.
 
 ### 5.5 Fail-closed persist ordering
+
 Invite acceptance persists the invite-consumed flag **before** the session (`server/auth.ts:705-721`). A mid-flow disk failure leaves the invite consumed without a session, the safer failure mode.
 
 ### 5.6 Cookie attribute set
+
 `setCookieHeader` (`server/auth.ts:1328-1346`) emits `HttpOnly; Path=/; SameSite=Lax`, with `Secure` when the resolved public origin is HTTPS, and no `Domain` attribute (host-only).
 
 ### 5.7 Origin allowlist construction
+
 `buildPublicOrigin` (`server/auth.ts:1301-1323`) resolves precedence env → office-config → localhost. The server **never** infers the origin from `Host` or `X-Forwarded-Host` headers, defeating DNS rebinding and Host-header confusion. Malformed values are logged and ignored rather than poisoning the allowlist.
 
 ### 5.8 WebSocket upgrade gating
+
 `/ws` (`server/index.ts:2209-2223`) requires both a valid cookie **and** an Origin header matching the resolved public origin. No loopback bypass on `/ws`. A cross-origin website cannot upgrade to the office WebSocket.
 
 ### 5.9 State-changing HTTP Origin gate
+
 `authenticate()` (`server/auth-middleware.ts`) rejects mismatched Origin on POST/PUT/PATCH/DELETE. Modern browsers attach Origin to fetch/XHR and to cross-site POST navigations, and `SameSite=Lax` independently strips credentials from cross-site non-top-level requests. Either defense alone suffices.
 
 ### 5.10 Pre-auth POST Origin gate
+
 `POST /auth/accept` and `POST /auth/logout` use `originValidForAuthPost` — Origin must be present **and** matching. An attacker cannot trigger invite-accept or logout on the victim's behalf via a credentialed fetch.
 
 ### 5.11 Bootstrap self-disable
+
 `ensureBootstrapInvite` returns null when an owner already exists. `--regenerate-bootstrap` only acts while no owner exists.
 
 ### 5.12 Atomic disk writes
+
 `persistInvites` and `persistSessions` use temp-file-plus-rename. A crash mid-write cannot leave the on-disk state inconsistent.
 
 ### 5.13 Notify-then-close revoke contract
-`forceExpireSocketsForSession` (`server/auth.ts:327-339`) sends `{type: "session_expired"}` *before* closing the socket. A revoked tab lands on the login page within ~1 second rather than looping reconnect against a 401.
+
+`forceExpireSocketsForSession` (`server/auth.ts:327-339`) sends `{type: "session_expired"}` _before_ closing the socket. A revoked tab lands on the login page within ~1 second rather than looping reconnect against a 401.
 
 ### 5.14 Per-message session recheck
+
 WS messages re-validate via `revalidateByHash`. Revocation takes effect on the next message without a reconnect; orphaned sessions are evicted on the spot.
 
 ### 5.15 Wire-trust override
+
 The command dispatcher uses `session.username` server-side rather than trusting `cmd.username` (`server/index.ts:636-638`). A captured cookie cannot be used to spoof a different user's display name on chat messages.
 
 ### 5.16 Security headers on every HTML surface
+
 `Referrer-Policy: no-referrer` on every HTML response (`server/auth-middleware.ts:securityHeaders()`); `Strict-Transport-Security: max-age=31536000` added when the resolved public origin is HTTPS. `includeSubDomains` deliberately not set — the operator may not own siblings of the office origin (Tailscale Funnel, Cloudflare, Caddy under various parent domains); operators wanting subdomain-wide HSTS can layer it at their reverse proxy.
 
 ### 5.17 Bootstrap-URL-not-recoverable
+
 Raw tokens never persist (Section 5.2). Once the bootstrap URL has scrolled off stdout/journal retention, no on-disk path recovers it.
 
 ---
@@ -235,21 +252,27 @@ The session absolute cap was also raised from 90 days to 1 year (`absoluteTtlMs`
 ## 7. CSRF / CSWSH analysis
 
 ### 7.1 WebSocket upgrade
+
 `/ws` rejects missing or mismatched Origin and missing/invalid cookie. No loopback bypass. **Verdict: safe.**
 
 ### 7.2 State-changing HTTP
+
 Non-safe methods reject mismatched Origin. Missing Origin is accepted (for loopback curl from same-host agents), but modern browsers attach Origin to fetch/XHR and generally to cross-site POST navigations, and `SameSite=Lax` independently strips credentials from cross-site non-top-level requests. The two defenses are independent. **Verdict: safe.**
 
 ### 7.3 Pre-auth POSTs
+
 `POST /auth/accept` and `POST /auth/logout` require Origin present **and** matching. **Verdict: safe.**
 
 ### 7.4 CORS wildcard on `/tasks` and `/cronjobs`
+
 Both endpoints return `Access-Control-Allow-Origin: *`. With `credentials: include` the browser may still attach the cookie to the request, but it will not expose the response body to JavaScript because a wildcard ACAO lacks `Access-Control-Allow-Credentials: true`. For state-changing routes the Origin gate independently rejects mismatched origins before any response is generated. **Verdict: surprising but not a bypass.** Optional cleanup: replace `*` with the resolved public origin.
 
 ### 7.5 DNS rebinding
+
 Cookie is host-only (no `Domain`). Origin allowlist is operator-configured, not header-inferred. An attacker domain that briefly resolves to the office IP still produces an Origin header equal to the attacker's domain — the allowlist check fails. **Verdict: safe.**
 
 ### 7.6 HTTP-host-header confusion
+
 Public origin is never inferred from `Host` or `X-Forwarded-Host` (Section 5.7). **Verdict: safe.**
 
 ---
@@ -257,15 +280,19 @@ Public origin is never inferred from `Host` or `X-Forwarded-Host` (Section 5.7).
 ## 8. Cross-cutting observations
 
 ### 8.1 No rate limiting on `/i/<token>` or `/auth/accept`
+
 Neither endpoint has rate limiting. With 256-bit token entropy this is not an actionable brute-force surface for full tokens. A global rate limit (e.g. 10 invite-peek requests per IP per minute, 5 accept attempts per IP per minute) would be cheap insurance and would surface attacker scanning in the access log. Not implemented in this audit pass.
 
 ### 8.2 The localhost fallback is plaintext
+
 When neither `ISOMUX_PUBLIC_ORIGIN` nor `office-config.json.publicOrigin` is set, the resolved origin is `http://localhost:${PORT}` and cookies are issued without `Secure`. The documentation states the localhost fallback is appropriate only for single-user laptop setups, but the implementation does not enforce that — a deployment that's accidentally bound to a non-loopback interface while still on the localhost fallback issues plaintext cookies that any LAN attacker can capture. Hardening recommendation: refuse to bind to a non-loopback interface when in localhost-fallback mode, or at least log a strong warning.
 
 ### 8.3 Log hygiene
+
 Raw tokens are never logged outside the documented bootstrap path (Finding 1). `safePrefix` (`server/auth.ts:1382-1384`) is used for the few diagnostic log lines that need to reference an invite/session. No additional token leakage was found in error paths or `console.error` calls.
 
 ### 8.4 Cookie revocation latency
+
 A revoked session is force-closed within ~1 second on any active WebSocket (per-message recheck + notify-then-close). For an HTTP-only attacker (no WebSocket) the next HTTP request returns 401 immediately. Revocation is effectively synchronous from the legitimate user's perspective.
 
 ---
@@ -327,7 +354,7 @@ The audit's initial pass surfaced a class of **post-acceptance** authorization g
 
 ### C.4 Loopback agent-API trusts any same-host process as an agent
 
-- `server/index.ts:2548-2729` — `POST /agents/:id/diff|edit-file|read-file|terminal-command|message` are loopback-bypassable; the handlers validate `senderAgentId` exists but do not authenticate that the calling process *is* that agent.
+- `server/index.ts:2548-2729` — `POST /agents/:id/diff|edit-file|read-file|terminal-command|message` are loopback-bypassable; the handlers validate `senderAgentId` exists but do not authenticate that the calling process _is_ that agent.
 - A same-host process can post messages and surface UI cards purporting to come from any other agent.
 
 **Status:** documented in `docs/access-and-invites.md` as "Not protection against rogue agents." Tightening requires per-agent auth tokens on `/agents/:id/*` calls.
@@ -346,4 +373,4 @@ The audit's initial pass surfaced a class of **post-acceptance** authorization g
 
 ---
 
-*End of report.*
+_End of report._

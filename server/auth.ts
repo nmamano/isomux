@@ -446,11 +446,7 @@ export interface MintResult {
 export interface MintErr {
   ok: false;
   error: string;
-  code:
-    | "INVALID_USERNAME"
-    | "USER_EXISTS"
-    | "INVALID_ROLE"
-    | "ROLE_MISMATCH";
+  code: "INVALID_USERNAME" | "USER_EXISTS" | "INVALID_ROLE" | "ROLE_MISMATCH";
 }
 
 // Invite TTL is the acceptance window: the URL stops being redeemable
@@ -525,7 +521,8 @@ export async function mintInvite(
       // accept it from clients of mint_invite), so it's a reliable
       // proxy without adding a separate "selfInvite" field.
       expiresAt:
-        now + (opts.replacePriorForUsername ? SELF_INVITE_TTL_MS : INVITE_TTL_MS),
+        now +
+        (opts.replacePriorForUsername ? SELF_INVITE_TTL_MS : INVITE_TTL_MS),
       consumed: false,
       consumedAt: null,
       bootstrap: !!opts.bootstrap,
