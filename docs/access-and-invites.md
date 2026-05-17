@@ -2,6 +2,8 @@
 
 How Isomux gates who can use an office, and how the invite-link flow works end-to-end.
 
+For an audit-level treatment of the same system — threat model, findings, verified controls, CSRF/CSWSH analysis — see [docs/security-audit.md](./security-audit.md).
+
 ## TL;DR
 
 - Isomux gives shell-equivalent access to authenticated users. Only invite people you trust.
