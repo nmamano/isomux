@@ -138,9 +138,6 @@ function IssueInviteForm() {
   const { users } = useAppState();
   const [name, setName] = useState("");
   const [role, setRole] = useState<UserRole>("member");
-  // Long-lived default. Owner can shorten per invite; 1-day is rare enough
-  // that we don't surface it as the default.
-  const [ttlDays, setTtlDays] = useState(365);
   const [allowExisting, setAllowExisting] = useState(false);
   const [mintedUrl, setMintedUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -203,7 +200,6 @@ function IssueInviteForm() {
       requestId: reqId,
       username: trimmed,
       role: effectiveRole,
-      ttlSeconds: ttlDays * 24 * 60 * 60,
       allowExisting: existing ? allowExisting : false,
     });
   }
@@ -252,24 +248,10 @@ function IssueInviteForm() {
             </select>
           )}
         </label>
-        <label style={{ flex: 1 }}>
-          <div style={subLabel}>Expires in</div>
-          <select
-            value={ttlDays}
-            onChange={(e) => setTtlDays(Number(e.target.value))}
-            style={dialogInput}
-          >
-            <option value={1}>1 day</option>
-            <option value={7}>7 days</option>
-            <option value={30}>30 days</option>
-            <option value={90}>90 days</option>
-            <option value={365}>1 year</option>
-          </select>
-        </label>
       </div>
       <p style={{ ...hint, marginTop: 6 }}>
-        Invite expires if unused. Accepted sessions last up to 90 days
-        regardless of this setting.
+        Invite link expires 24h after issuing if unused. Accepted sessions
+        last up to 1 year (revocable from the Access pane any time).
       </p>
       {existing && (
         <label style={{ display: "flex", gap: 6, marginTop: 8, fontSize: 12 }}>

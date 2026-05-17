@@ -160,7 +160,7 @@ Setup:
 - Single-use invite links: the office owner mints a URL in User Settings → Access, sends it out-of-band (text, Signal, email), the invitee clicks and is signed in. One URL per device.
 - Two roles: owner (can mint invites and revoke sessions) and member (can use the office). The split controls who can expand the trust boundary, not what they can access once inside.
 - The owner can revoke any active session or unconsumed invite from the Access pane; revocation force-closes the affected WebSocket within ~1s.
-- Sessions roll for 30 days on activity, capped at 90 days from creation. They survive server restarts.
+- Sessions roll for 30 days on activity, capped at 1 year from creation. They survive server restarts.
 - To make the office reachable from outside your Tailscale network — friends, collaborators on a different VPN — the recommended path is Tailscale Funnel. The agent prompt in \`docs/access-and-invites.md\` walks an Isomux agent through the whole setup. Cloudflare Tunnel and Caddy are documented as alternatives.
 
 ### Safety

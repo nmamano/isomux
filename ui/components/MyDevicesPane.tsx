@@ -153,9 +153,9 @@ function GenerateDeviceLinkForm() {
     pendingListenerRef.current = listener;
     addRawListener(listener);
     // mint_self_invite carries no client-supplied knobs: the server
-    // derives target/role/TTL from session.userId and the member cap,
-    // so a tampered client cannot extend the window or impersonate
-    // another user.
+    // derives target/role/TTL from session.userId and the self-invite
+    // cap, so a tampered client cannot extend the window or
+    // impersonate another user.
     send({ type: "mint_self_invite", requestId: reqId });
   }
 

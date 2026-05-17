@@ -40,11 +40,13 @@ The flag invalidates the prior unconsumed bootstrap and mints a fresh one. It on
 
 Once you're the owner, open `User Settings` → `Access` pane:
 
-- **Issue invite**: enter a display name, pick a role, pick a TTL. Click `Issue invite`. The URL appears once — copy it. The URL is one-time per device.
+- **Issue invite**: enter a display name, pick a role. Click `Issue invite`. The URL appears once — copy it. The URL is one-time per device and expires 24 hours after issuing if unused.
 - **Outstanding invites**: every unclaimed invite is listed with its token prefix; revoke any from this table.
 - **Active sessions**: every currently-signed-in device; revoke any to immediately disconnect them.
 
 Send each URL to the invitee through whatever channel you trust (Signal, text, email). The invitee opens it on their device → cookie set → they're in. No installs, no accounts, no passwords.
+
+Owner-issued invite links expire 24h after issuing if unused; self-device links (generated from the My devices pane) expire after 1h. Neither TTL is configurable: invite URLs are bearer tokens, and the shorter their acceptance window, the smaller the exposure if the URL ends up in the recipient's browser history, sync, or messaging archive. The self-invite path uses the tighter 1h window because the legitimate flow is "both my devices are right here, click it now"; the 24h window on owner-issued invites covers a realistic send-and-wait delivery. If the first link expires before the recipient can act, mint a fresh one. The session that's created on acceptance is governed by a separate, much longer lifetime (see Cookie semantics below).
 
 ### 3. Multi-device users
 
@@ -206,13 +208,29 @@ All three files are written atomically (temp + rename) and serialized under a si
 - Attributes: `HttpOnly; Path=/; SameSite=Lax`
 - `Secure` set when `ISOMUX_PUBLIC_ORIGIN` is `https://`, omitted when `http://localhost*`.
 - Rolling expiry: 30 days, refreshed on activity.
-- Absolute cap: 90 days from creation.
+- Absolute cap: 1 year from creation.
+
+The 1-year cap is a deliberate usability/security trade-off. The
+cookie carries `HttpOnly`, `SameSite=Lax`, `Secure`-on-HTTPS,
+host-only scope, and a per-message server-side recheck so a revoke
+from the Access pane disconnects an active session within ~1s — the
+residual risk is the shared-device case where the user forgot to
+sign out (the security audit calls this out under external-access
+"session lifetime on shared devices"). Devices used in untrusted
+environments should be revoked from the Access pane (or signed out
+explicitly) rather than relying on session expiry.
 
 ## What this is not
 
 - Not a security boundary inside the office. Members can use the terminal panel to read any file the isomux process can read — including other users' env files. The owner/member split controls who **expands the trust boundary**, not what they can access once inside. OS-level isolation between members is a separate concern (tracked as a follow-up task).
 - Not protection against rogue agents. An agent spawned in the office runs with the host Linux user's permissions; the cookie auth doesn't constrain what agents do.
 - Not a substitute for backups. Revoking a leaked session ends future use of that session but doesn't undo any state the leaked session already modified.
+
+## Bootstrap-window exposure
+
+The one-time bootstrap invite URL is printed to stdout on first boot and lands in the user's systemd journal. **Anyone with read access to that journal during the bootstrap window (24h) can claim ownership** by opening the URL before the operator does. On a single-user box this is just the operator. On a multi-user box, a shared dev server, a container with a logging sidecar, or any host that ships journal entries to a centralized collector, the audience may be larger than the deploying operator.
+
+If your deployment matches one of those broader-audience patterns, treat the bootstrap window as the highest-stakes window in the office's lifecycle. Best practice: boot the server, open the URL immediately to claim ownership, and confirm `journalctl --user -u isomux` no longer shows an unclaimed invite. Once an owner exists, the bootstrap path self-disables — `--regenerate-bootstrap` is the only way to reopen it, and it requires shell access plus no-owner state.
 
 ## Operating notes
 

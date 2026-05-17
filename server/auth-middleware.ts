@@ -57,6 +57,39 @@ export function checkOrigin(req: Request): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Standard response headers for every HTML surface (SPA shell, login,
+// invite-accept, error pages). Two headers:
+//
+//   Referrer-Policy: no-referrer
+//     The invite URL contains a bearer token. Without this header, a
+//     future outbound link or subresource on the invite-accept page
+//     could leak the token via the Referer header. Setting this
+//     unconditionally also covers back-button-to-bookmark navigations
+//     from a still-live token.
+//
+//   Strict-Transport-Security (HTTPS only)
+//     HSTS protects later requests that start over HTTP (stale
+//     bookmark, scheme-less hostname, HTTP redirect chain) by pinning
+//     the origin to HTTPS for max-age. A direct HTTPS request is
+//     protected by TLS validation independently — HSTS does not
+//     improve that first HTTPS visit unless the domain is preloaded.
+//     `includeSubDomains` is NOT set: an office origin on a shared
+//     parent domain (e.g. `office.example.com` where the operator
+//     doesn't own all of `*.example.com`) should not pin siblings to
+//     HTTPS. Operators who want subdomain-wide HSTS can layer it at
+//     their reverse proxy.
+export function securityHeaders(): Record<string, string> {
+  const { isHttps } = buildPublicOrigin();
+  const h: Record<string, string> = {
+    "Referrer-Policy": "no-referrer",
+  };
+  if (isHttps) {
+    h["Strict-Transport-Security"] = "max-age=31536000";
+  }
+  return h;
+}
+
+// ---------------------------------------------------------------------------
 // Auth-result type that the index.ts dispatcher consumes.
 
 export interface AuthOk {
@@ -87,7 +120,10 @@ function unauthorized(req: Request, officeName: string | null): Response {
   }
   return new Response(renderLoginPage(officeName), {
     status: 401,
-    headers: { "Content-Type": "text/html; charset=utf-8" },
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      ...securityHeaders(),
+    },
   });
 }
 
@@ -166,7 +202,10 @@ export function handleInvitePeek(
     renderAcceptPage(token, peek.needsName, null, officeName),
     {
       status: 200,
-      headers: { "Content-Type": "text/html; charset=utf-8" },
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        ...securityHeaders(),
+      },
     },
   );
 }
@@ -200,7 +239,10 @@ export async function handleAccept(
         ),
         {
           status: 400,
-          headers: { "Content-Type": "text/html; charset=utf-8" },
+          headers: {
+            "Content-Type": "text/html; charset=utf-8",
+            ...securityHeaders(),
+          },
         },
       );
     }
@@ -214,6 +256,7 @@ export async function handleAccept(
         result.rawSessionId,
         result.absoluteExpiresAt,
       ),
+      ...securityHeaders(),
     },
   });
 }
@@ -242,7 +285,10 @@ export async function handleLogout(
       ),
       {
         status: 409,
-        headers: { "Content-Type": "text/html; charset=utf-8" },
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          ...securityHeaders(),
+        },
       },
     );
   }
@@ -251,7 +297,11 @@ export async function handleLogout(
   }
   return new Response(null, {
     status: 302,
-    headers: { Location: "/", "Set-Cookie": clearCookieHeader() },
+    headers: {
+      Location: "/",
+      "Set-Cookie": clearCookieHeader(),
+      ...securityHeaders(),
+    },
   });
 }
 
@@ -528,7 +578,10 @@ function renderInviteError(kind: string, officeName: string | null): Response {
   );
   return new Response(body, {
     status: 410, // Gone — invite was once valid (or never)
-    headers: { "Content-Type": "text/html; charset=utf-8" },
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      ...securityHeaders(),
+    },
   });
 }
 

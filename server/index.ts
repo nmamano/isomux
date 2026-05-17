@@ -49,6 +49,7 @@ import { join } from "path";
 import {
   authenticate,
   checkOrigin,
+  securityHeaders,
   tryHandleAuthRoute,
 } from "./auth-middleware.ts";
 import {
@@ -78,7 +79,6 @@ import {
   unregisterSocket,
   validateSession,
   wouldRevokeLeaveOfficeUnreachable,
-  MEMBER_MAX_INVITE_TTL_SECONDS,
   type SessionLookup,
 } from "./auth.ts";
 import { lowercaseKey } from "../shared/identity.ts";
@@ -1903,7 +1903,6 @@ async function dispatchCommand(
       const r = await mintInvite({
         username: cmd.username,
         role: cmd.role,
-        ttlSeconds: cmd.ttlSeconds,
         createdBy: session.username,
         allowExisting: !!cmd.allowExisting,
       });
@@ -1949,8 +1948,11 @@ async function dispatchCommand(
       // caller's own user record (via stable session.userId, so a
       // rename mid-flow doesn't matter), mirrors the caller's current
       // role (members mint member invites, owners mint owner invites),
-      // and uses the 1-hour TTL cap. replacePriorForUsername enforces
-      // the 1-outstanding-per-user rule atomically. Available to any
+      // and uses the tighter self-invite TTL (SELF_INVITE_TTL_MS in
+      // auth.ts — currently 1h; the legitimate flow is "both devices
+      // are with me, click it now"). replacePriorForUsername enforces
+      // the 1-outstanding-per-user rule atomically AND is the marker
+      // mintInvite uses to pick the self-invite TTL. Available to any
       // authenticated session — members reach this from the My
       // devices pane; owners could surface a quick-add path on top of
       // the same handler.
@@ -1969,7 +1971,6 @@ async function dispatchCommand(
       const r = await mintInvite({
         username: me.name,
         role: me.role === "owner" ? "owner" : "member",
-        ttlSeconds: MEMBER_MAX_INVITE_TTL_SECONDS,
         createdBy: session.username,
         allowExisting: true,
         replacePriorForUsername: true,
@@ -2192,6 +2193,7 @@ async function serveIndexHtml(): Promise<Response> {
     headers: {
       "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": "no-cache",
+      ...securityHeaders(),
     },
   });
 }

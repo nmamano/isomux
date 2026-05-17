@@ -341,7 +341,26 @@ function forceExpireSocketsForSession(sessionIdHash: string) {
 // ---------------------------------------------------------------------------
 // Bootstrap: mint an owner-tagged invite on server start when no owner exists.
 
-const BOOTSTRAP_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+// Invite acceptance window. 24h, fixed for the standard invite paths
+// (bootstrap, owner-issued via mint_invite). Invite URLs are bearer
+// tokens; the shorter the acceptance window, the smaller the exposure
+// in browser history, the delivery channel, and disk-restorable
+// backups. 24h covers every realistic delivery-to-click scenario;
+// longer windows trade real security for marginal convenience the
+// per-username `replacePriorForUsername` flow already covers (the
+// operator can mint a fresh invite if the first one expires).
+export const INVITE_TTL_MS = 24 * 60 * 60 * 1000;
+// Kept for the bootstrap call site; the value is identical to
+// INVITE_TTL_MS but the alias keeps the bootstrap-specific comment
+// cluster readable.
+const BOOTSTRAP_TTL_MS = INVITE_TTL_MS;
+// Member self-invite (mint_self_invite) is deliberately tighter than
+// the standard 24h. The use case is "I'm at my laptop, I want to add
+// my phone right now" — both devices are physically with the member
+// and the link is intended to be clicked within seconds. A 1h window
+// is more than enough for the legitimate flow and shrinks the
+// bearer-URL exposure window by 24x compared to the standard TTL.
+const SELF_INVITE_TTL_MS = 60 * 60 * 1000;
 
 // Returns null when an owner already exists (no bootstrap needed) or when the
 // flag-set forbids regeneration. The caller (server boot) logs the URL.
@@ -409,7 +428,6 @@ export function hasUnconsumedBootstrapInvite(): boolean {
 export interface MintOptions {
   username: string | null; // null only allowed for bootstrap path internally
   role: UserRole;
-  ttlSeconds: number;
   createdBy: string | null;
   allowExisting: boolean;
   bootstrap?: boolean;
@@ -419,12 +437,6 @@ export interface MintOptions {
   // mint so a concurrent caller can't see both the old and new at once.
   replacePriorForUsername?: boolean;
 }
-
-// Hard cap on TTL for invites a member mints for their own additional
-// devices. The Tailscale-style trust model accepts that a leaked link
-// equals an impersonator; the short window narrows that risk without
-// blocking the use case (member regenerates if the first one expires).
-export const MEMBER_MAX_INVITE_TTL_SECONDS = 60 * 60; // 1 hour
 
 export interface MintResult {
   ok: true;
@@ -437,17 +449,17 @@ export interface MintErr {
   code:
     | "INVALID_USERNAME"
     | "USER_EXISTS"
-    | "INVALID_TTL"
     | "INVALID_ROLE"
     | "ROLE_MISMATCH";
 }
 
 // Invite TTL is the acceptance window: the URL stops being redeemable
-// after this many seconds. Session lifetime (the cookie's rolling/absolute
-// expiry) is governed separately at acceptance time — see acceptInvite —
-// and is intentionally not coupled to invite TTL.
-const MAX_TTL_SECONDS = 365 * 24 * 60 * 60; // 1 year
-const MIN_TTL_SECONDS = 60; // 1 minute floor
+// after this many ms. Standard invite paths (bootstrap, owner-issued
+// via mint_invite) use INVITE_TTL_MS; member self-invite uses the
+// tighter SELF_INVITE_TTL_MS. There is no per-invite knob in either
+// path. Session lifetime (the cookie's rolling/absolute expiry) is
+// governed separately at acceptance time — see acceptInvite — and is
+// intentionally not coupled to invite TTL.
 
 export async function mintInvite(
   opts: MintOptions,
@@ -478,12 +490,6 @@ export async function mintInvite(
           code: "ROLE_MISMATCH",
         };
     }
-    if (
-      typeof opts.ttlSeconds !== "number" ||
-      opts.ttlSeconds < MIN_TTL_SECONDS ||
-      opts.ttlSeconds > MAX_TTL_SECONDS
-    )
-      return { ok: false, error: "Invalid TTL", code: "INVALID_TTL" };
 
     // Member self-invite path: remove any outstanding (unconsumed,
     // unexpired) invites bound to the same username before inserting the
@@ -513,7 +519,13 @@ export async function mintInvite(
       role: opts.role,
       createdBy: opts.createdBy,
       createdAt: now,
-      expiresAt: now + opts.ttlSeconds * 1000,
+      // Self-invite path picks the tighter TTL. The marker is
+      // replacePriorForUsername — that flag is set only by
+      // mint_self_invite (server-driven; the wire shape doesn't
+      // accept it from clients of mint_invite), so it's a reliable
+      // proxy without adding a separate "selfInvite" field.
+      expiresAt:
+        now + (opts.replacePriorForUsername ? SELF_INVITE_TTL_MS : INVITE_TTL_MS),
       consumed: false,
       consumedAt: null,
       bootstrap: !!opts.bootstrap,
@@ -690,7 +702,18 @@ export async function acceptInvite(
     const { raw: rawSessionId, hash: sessionHash, prefix } = randomToken();
     const now = Date.now();
     const rollingTtlMs = 30 * 24 * 60 * 60 * 1000;
-    const absoluteTtlMs = 90 * 24 * 60 * 60 * 1000;
+    // Session absolute cap is 1 year. This is a deliberate
+    // usability/security trade-off: the cookie carries HttpOnly,
+    // SameSite=Lax, Secure-on-HTTPS, host-only scope, and a
+    // per-message server-side recheck that propagates a revoke
+    // within ~1s, so the residual risk of a long session is
+    // dominated by shared-device scenarios where the user forgot to
+    // sign out (covered in the security audit's external-access
+    // analysis under "session lifetime on shared devices"). The
+    // 30-day rolling refresh still evicts truly idle sessions long
+    // before the absolute cap fires; the absolute cap exists as a
+    // hard upper bound for sessions kept warm by continued use.
+    const absoluteTtlMs = 365 * 24 * 60 * 60 * 1000;
     const session: StoredSession = {
       sessionIdHash: sessionHash,
       sessionPrefix: prefix,
@@ -1401,7 +1424,6 @@ export async function _testSeedOwner(
   const m = await mintInvite({
     username: null,
     role: "owner",
-    ttlSeconds: 600,
     createdBy: null,
     allowExisting: false,
     bootstrap: true,
