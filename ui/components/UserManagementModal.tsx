@@ -7,6 +7,14 @@ import {
 } from "../device-settings.ts";
 import type { NotifRoomsSetting, UserRecord } from "../../shared/types.ts";
 import {
+  GHOST_COLOR_PALETTE,
+  GHOST_VARIANTS,
+  isHexColor,
+  normalizeHexColor,
+  type GhostVariant,
+} from "../../shared/avatar.ts";
+import { GhostGraphic } from "../office/ghostVariants.tsx";
+import {
   dialogLabel,
   dialogInput,
   dialogCancelBtn,
@@ -28,11 +36,20 @@ type ValidationStatus =
 export function UserManagementModal({
   currentUsername,
   forceCreate,
+  initialUserId,
   onSwitchUser,
   onClose,
 }: {
   currentUsername: string | null;
   forceCreate: boolean;
+  // Live-avatars: when set, the modal opens with this user's edit
+  // panel expanded (used by ghost click → settings shortcut). Read
+  // once on mount; updates to this prop while the modal is mounted
+  // do NOT re-sync the selection. The parent (App.tsx) clears the
+  // value on close, so each reopen with a different initialUserId
+  // mounts a fresh modal and applies the new target — which is the
+  // only path that exercises this prop today.
+  initialUserId?: string | null;
   onSwitchUser: (name: string | null) => void;
   onClose?: () => void;
 }) {
@@ -49,7 +66,16 @@ export function UserManagementModal({
   );
   const [creatingName, setCreatingName] = useState("");
   const [creatingError, setCreatingError] = useState<string | null>(null);
-  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [editingKey, setEditingKey] = useState<string | null>(() => {
+    if (!initialUserId) return null;
+    // Resolve userId → display name → lowercased map key. If the user
+    // record isn't in the store yet (rare race on first connect),
+    // fall back to the generic open state — the user just sees the list.
+    for (const u of users.values()) {
+      if (u.id === initialUserId) return u.name.toLowerCase();
+    }
+    return null;
+  });
   // Holds the server's lockout-prevention reason if Sign out is refused.
   // Shown inline near the button until dismissed.
   const [logoutBlockedReason, setLogoutBlockedReason] = useState<string | null>(
@@ -448,6 +474,15 @@ function UserEditPanel({
   const [memberPrompt, setMemberPrompt] = useState<string>(
     user.memberPrompt ?? "",
   );
+  // Live-avatars: visual identity for the user's ghost in the office
+  // scene. Color is stored as #rrggbb (normalized at save time);
+  // variant is one of GHOST_VARIANTS. Both default to the user record's
+  // current value (which the server fills in with a hash-derived hue +
+  // "classic" for legacy records on read).
+  const [avatarColor, setAvatarColor] = useState<string>(user.avatarColor);
+  const [avatarVariant, setAvatarVariant] = useState<GhostVariant>(
+    user.avatarVariant,
+  );
   const [validation, setValidation] = useState<ValidationStatus>({
     kind: "idle",
   });
@@ -624,6 +659,10 @@ function UserEditPanel({
         notifRooms: notifSetting,
         envFile: envFile.trim() || null,
         memberPrompt: memberPrompt.trim() || null,
+        avatarColor: isHexColor(avatarColor)
+          ? normalizeHexColor(avatarColor)
+          : user.avatarColor,
+        avatarVariant,
         ...(isOwner ? { allowedRooms: allowedSetting } : {}),
       },
     });
@@ -643,6 +682,20 @@ function UserEditPanel({
         onChange={(e) => setName(e.target.value.slice(0, 32))}
         maxLength={32}
         style={inputStyle}
+      />
+
+      <label style={subLabelStyle}>
+        Avatar{" "}
+        <span style={hintStyle}>
+          (your ghost in the office scene; other users see it next to the
+          agent you&apos;re viewing)
+        </span>
+      </label>
+      <AvatarPicker
+        color={avatarColor}
+        variant={avatarVariant}
+        onColorChange={setAvatarColor}
+        onVariantChange={setAvatarVariant}
       />
 
       <label style={subLabelStyle}>
@@ -895,6 +948,124 @@ function UserEditPanel({
             {saving ? "Saving…" : "Save"}
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// Live-avatars: picker for the user's ghost color + variant. 8 variant
+// thumbnails (clickable) over a row of palette swatches plus a hex
+// input for users who want a color outside the curated palette.
+function AvatarPicker({
+  color,
+  variant,
+  onColorChange,
+  onVariantChange,
+}: {
+  color: string;
+  variant: GhostVariant;
+  onColorChange: (next: string) => void;
+  onVariantChange: (next: GhostVariant) => void;
+}) {
+  return (
+    <div
+      style={{
+        border: "1px solid var(--border)",
+        borderRadius: 6,
+        padding: 10,
+        background: "var(--bg-base)",
+      }}
+    >
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(4, 1fr)",
+          gap: 6,
+          marginBottom: 10,
+        }}
+      >
+        {GHOST_VARIANTS.map((v) => {
+          const selected = v === variant;
+          return (
+            <button
+              key={v}
+              type="button"
+              onClick={() => onVariantChange(v)}
+              title={v}
+              style={{
+                background: selected
+                  ? "var(--bg-input)"
+                  : "transparent",
+                border: `1px solid ${
+                  selected ? "var(--accent)" : "var(--border)"
+                }`,
+                borderRadius: 6,
+                padding: "8px 0 4px",
+                cursor: "pointer",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+              }}
+            >
+              <GhostGraphic variant={v} color={color} size={44} />
+              <span
+                style={{
+                  fontSize: 9,
+                  color: selected ? "var(--accent)" : "var(--text-ghost)",
+                  marginTop: 2,
+                }}
+              >
+                {v}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 6,
+          alignItems: "center",
+        }}
+      >
+        {GHOST_COLOR_PALETTE.map((c) => {
+          const selected =
+            isHexColor(color) &&
+            normalizeHexColor(color) === c.toLowerCase();
+          return (
+            <button
+              key={c}
+              type="button"
+              onClick={() => onColorChange(c)}
+              title={c}
+              style={{
+                width: 22,
+                height: 22,
+                borderRadius: "50%",
+                border: selected
+                  ? "2px solid var(--accent)"
+                  : "1px solid var(--border)",
+                background: c,
+                cursor: "pointer",
+                padding: 0,
+              }}
+            />
+          );
+        })}
+        <input
+          value={color}
+          onChange={(e) => onColorChange(e.target.value)}
+          placeholder="#88d1f0"
+          spellCheck={false}
+          style={{
+            ...inputStyle,
+            width: 90,
+            marginLeft: 6,
+            fontFamily:
+              "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+          }}
+        />
       </div>
     </div>
   );

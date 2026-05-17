@@ -1203,12 +1203,19 @@ export async function revokeActiveSessionByPrefixForUserId(
   });
 }
 
-export function sessionContextFor(lookup: SessionLookup): SessionContext {
+export function sessionContextFor(
+  lookup: SessionLookup,
+  connectionId: string,
+): SessionContext {
   return {
     userId: lookup.userId,
     username: lookup.username,
     role: lookup.role,
     currentSessionPrefix: lookup.sessionPrefix,
+    // Per-WS id (live-avatars). The caller owns the connectionId since
+    // it's set at WS upgrade time; auth.ts deliberately stays agnostic
+    // about the per-connection slot on WsData.
+    connectionId,
   };
 }
 

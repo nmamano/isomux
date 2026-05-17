@@ -6,8 +6,15 @@ import type {
   AgentInfo,
   RoomWire,
   NotifRoomsSetting,
+  PresenceInfo,
   UserRecord,
 } from "../shared/types.ts";
+import {
+  listAllPresence,
+  refreshPresenceForUser,
+  removePresence,
+  setPresence,
+} from "./presence.ts";
 import type { AgentEvent } from "./internal-types.ts";
 import { runPreUseridBackupIfNeeded } from "./migrations.ts";
 import * as AgentManager from "./agent-manager.ts";
@@ -227,9 +234,23 @@ setOnBootstrapAccepted(async ({ username }) => {
 // Each WS carries the session it was authenticated with at upgrade time. The
 // session reference is used per-message (so revoke kicks in on the next msg)
 // and to attribute writes to the right user without trusting client-supplied
-// `username` fields.
+// `username` fields. The `connectionId` is a per-WS identifier (NOT per
+// auth session) — multiple tabs of the same user share `session.sessionIdHash`
+// but get distinct `connectionId`s, so live-avatars presence keyed by
+// connectionId gives one ghost per tab (the design contract).
 interface WsData {
   session: SessionLookup;
+  connectionId: string;
+}
+
+let connectionIdCounter = 0;
+function nextConnectionId(): string {
+  connectionIdCounter++;
+  // Timestamp-prefixed counter: unique within a process lifetime even if
+  // the same WS hash reconnects rapidly; the counter ticks per upgrade.
+  // Not security-sensitive (the auth boundary is the cookie); just needs
+  // to be unique across concurrent connections.
+  return `c${Date.now().toString(36)}-${connectionIdCounter.toString(36)}`;
 }
 
 const browsers = new Set<ServerWebSocket<WsData>>();
@@ -316,6 +337,63 @@ function broadcast(msg: ServerMessage) {
   const data = JSON.stringify(msg);
   for (const ws of browsers) {
     ws.send(data);
+  }
+}
+
+// Build the per-recipient presence_list. Remaps each entry's
+// currentRoomId (stored as a global room id) into the recipient's
+// dense visible room index via visibleRoomProjection, the same
+// projection used for AgentInfo.room. Entries whose room isn't visible
+// to the recipient are omitted; off-scene entries (currentRoomId =
+// null) are also omitted from the wire per design (UI noise + privacy).
+// The recipient's own session is included on the same currentRoomId
+// gate; "self hidden in LogView" is a client-local concern.
+function buildPresenceListFor(session: SessionLookup): PresenceInfo[] {
+  const projection = visibleRoomProjection(session);
+  const rooms = AgentManager.getRooms();
+  // Pre-index global roomId → global index for O(1) lookup per entry.
+  const roomIdToGlobalIdx = new Map<string, number>();
+  for (let i = 0; i < rooms.length; i++) {
+    roomIdToGlobalIdx.set(rooms[i].id, i);
+  }
+  const out: PresenceInfo[] = [];
+  for (const p of listAllPresence()) {
+    if (p.currentRoomId === null) continue;
+    const globalIdx = roomIdToGlobalIdx.get(p.currentRoomId);
+    if (globalIdx === undefined) continue;
+    const visibleIdx = projection.globalToVisible[globalIdx];
+    if (visibleIdx === undefined || visibleIdx < 0) continue;
+    out.push({
+      connectionId: p.connectionId,
+      userId: p.userId,
+      username: p.username,
+      avatarColor: p.avatarColor,
+      avatarVariant: p.avatarVariant,
+      currentRoom: visibleIdx,
+      focusedAgentId: p.focusedAgentId,
+      viewMode: p.viewMode,
+    });
+  }
+  // Deterministic order so client renders don't reshuffle on every
+  // broadcast. connectionId is per-WS, stable while the connection
+  // lives, and reconnects produce a fresh id (replacing the old entry
+  // entirely, not reshuffling the existing ones).
+  out.sort((a, b) => a.connectionId.localeCompare(b.connectionId));
+  return out;
+}
+
+function sendPresenceListTo(ws: ServerWebSocket<WsData>) {
+  ws.send(
+    JSON.stringify({
+      type: "presence_list",
+      entries: buildPresenceListFor(ws.data.session),
+    }),
+  );
+}
+
+function pushPresenceListToEachWs() {
+  for (const ws of browsers) {
+    sendPresenceListTo(ws);
   }
 }
 
@@ -741,6 +819,73 @@ async function dispatchCommand(
     case "ping":
       ws.send(JSON.stringify({ type: "pong" }));
       break;
+    case "presence_update": {
+      // Live-avatars: the sender tells us where their ghost should
+      // appear. Resolve the dense visible room index they sent through
+      // their OWN visibleRoomProjection back to a global room id; an
+      // out-of-bounds index or a room that's not in their allowedRooms
+      // gets clamped to null (sanitize, don't reject — most common
+      // cause is a race with an allowedRooms change). Self user record
+      // supplies avatarColor + avatarVariant so the wire payload is
+      // self-contained and the recipients don't need to join.
+      const user = getUserById(session.userId);
+      if (!user) break;
+      const projection = visibleRoomProjection(session);
+      const rooms = AgentManager.getRooms();
+      let roomId: string | null = null;
+      if (
+        cmd.currentRoom !== null &&
+        Number.isInteger(cmd.currentRoom) &&
+        cmd.currentRoom >= 0 &&
+        cmd.currentRoom < projection.visibleToGlobal.length
+      ) {
+        const globalIdx = projection.visibleToGlobal[cmd.currentRoom];
+        const r = rooms[globalIdx];
+        if (r && user.allowedRooms.includes(r.id)) {
+          roomId = r.id;
+        }
+      }
+      // Clamp focusedAgentId: must reference a real agent whose room
+      // matches the claimed roomId (so a stale cross-room focus claim
+      // becomes null server-side instead of degrading to lobby on the
+      // recipient). Membership in user.allowedRooms is implicit in the
+      // roomId === agentRoomId check, since roomId was already
+      // sanitized against allowedRooms above.
+      let focusedAgentId: string | null = null;
+      if (
+        typeof cmd.focusedAgentId === "string" &&
+        cmd.focusedAgentId &&
+        roomId !== null
+      ) {
+        const agent = AgentManager.getAllAgents().find(
+          (a) => a.id === cmd.focusedAgentId,
+        );
+        const agentRoomId =
+          agent !== undefined ? (rooms[agent.room]?.id ?? null) : null;
+        if (agentRoomId === roomId) {
+          focusedAgentId = cmd.focusedAgentId;
+        }
+      }
+      const viewMode: "office" | "log" | "away" =
+        cmd.viewMode === "log" || cmd.viewMode === "away"
+          ? cmd.viewMode
+          : "office";
+      const changed = setPresence({
+        connectionId: ws.data.connectionId,
+        userId: session.userId,
+        username: user.name,
+        avatarColor: user.avatarColor,
+        avatarVariant: user.avatarVariant,
+        currentRoomId: roomId,
+        focusedAgentId,
+        viewMode,
+        lastSeenAt: Date.now(),
+      });
+      if (changed) {
+        pushPresenceListToEachWs();
+      }
+      break;
+    }
     case "spawn": {
       // ACL gate: spawn target room must be visible to this session.
       // cmd.roomId is optional on the wire — for restricted sessions we
@@ -1910,6 +2055,27 @@ async function dispatchCommand(
       if (cmd.changes.allowedRooms !== undefined) {
         pushProjectedFullStateForUserId(result.user.id);
       }
+      // Live-avatars: keep denormalized presence fields (display name,
+      // avatarColor, avatarVariant) in sync, and sanitize currentRoomId
+      // against any new allowedRooms. Rebroadcast only if anything
+      // actually changed; common case (name-only edit on a user with no
+      // active ghost) is a no-op.
+      const allowedSet =
+        cmd.changes.allowedRooms !== undefined
+          ? new Set(result.user.allowedRooms)
+          : undefined;
+      const presenceTouched = refreshPresenceForUser(
+        result.user.id,
+        {
+          name: result.user.name,
+          avatarColor: result.user.avatarColor,
+          avatarVariant: result.user.avatarVariant,
+        },
+        allowedSet,
+      );
+      if (presenceTouched) {
+        pushPresenceListToEachWs();
+      }
       break;
     }
     case "delete_user": {
@@ -2319,7 +2485,7 @@ const server = Bun.serve<WsData>({
         return new Response("bad origin", { status: 403 });
       }
       const upgraded = server.upgrade(req, {
-        data: { session: wsSession },
+        data: { session: wsSession, connectionId: nextConnectionId() },
       });
       if (upgraded) return;
       return new Response("WebSocket upgrade failed", { status: 400 });
@@ -3031,11 +3197,14 @@ const server = Bun.serve<WsData>({
       browsers.add(ws);
       registerSocket(ws.data.session.sessionIdHash, ws);
       // Send session context FIRST so the client knows the authenticated
-      // identity and role before any reducer touches state.
+      // identity and role before any reducer touches state. connectionId
+      // is per-WS (live-avatars) so the client can identify its OWN
+      // ghost in presence_list — same auth session can be running in
+      // multiple tabs and each tab has a distinct connectionId.
       ws.send(
         JSON.stringify({
           type: "session_context",
-          context: sessionContextFor(ws.data.session),
+          context: sessionContextFor(ws.data.session, ws.data.connectionId),
         }),
       );
       // Send users (boss profiles) so the full_state reducer can apply
@@ -3110,6 +3279,11 @@ const server = Bun.serve<WsData>({
           );
         }
       }
+      // Live-avatars: send the current presence snapshot (filtered to
+      // rooms this session can see) so the new client renders existing
+      // ghosts immediately rather than waiting for the next
+      // presence_update from someone else.
+      sendPresenceListTo(ws);
     },
     message(ws, data) {
       // Per-message session recheck. Revoke kicks in here without a reconnect:
@@ -3137,6 +3311,15 @@ const server = Bun.serve<WsData>({
       if (map) {
         for (const w of map.values()) stopWatch(w);
         editorWatchers.delete(ws);
+      }
+      // Live-avatars cleanup. Idempotent: removePresence returns true
+      // only if an entry existed. Key is the per-WS connectionId, NOT
+      // the auth session hash — that distinction is what makes
+      // reconnects and same-cookie multi-tab work: when a tab reconnects
+      // it gets a NEW connectionId, and the OLD close handler here
+      // removes only the OLD id, never racing with the new tab's entry.
+      if (removePresence(ws.data.connectionId)) {
+        pushPresenceListToEachWs();
       }
     },
   },

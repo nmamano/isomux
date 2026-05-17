@@ -5,7 +5,8 @@ import { RoomProps } from "./RoomProps.tsx";
 import { RoomTabBar } from "./RoomTabBar.tsx";
 import { DeskUnit } from "./DeskUnit.tsx";
 import { EmptySlot } from "./EmptySlot.tsx";
-import { SCENE_W, SCENE_H } from "./grid.ts";
+import { Ghost } from "./Ghost.tsx";
+import { DESK_SLOTS, SCENE_W, SCENE_H, deskPixelPos } from "./grid.ts";
 import { send } from "../ws.ts";
 import { SunIcon, MoonIcon } from "../components/ThemeIcons.tsx";
 import { ThemePicker } from "../components/ThemePicker.tsx";
@@ -27,7 +28,96 @@ import {
 import { useSwipeLeftRight } from "../hooks/useSwipeLeftRight.ts";
 import { useViewport } from "./useViewport.ts";
 import { ZoomControls } from "./ZoomControls.tsx";
-import type { AgentInfo } from "../../shared/types.ts";
+import type { AgentInfo, PresenceInfo } from "../../shared/types.ts";
+
+// Pixel size of a single ghost (width). ~50% of the agent character
+// (52×68) so it reads as "small floating watcher" against the desks.
+// Height scales proportionally inside the SVG viewBox.
+const GHOST_SIZE = 40;
+
+// "Outside SE wall" lobby coordinates. Until the desk repositioning in
+// task 11384153 lands, idle ghosts can't fit anywhere on the floor;
+// they line up here, past the SE wall. Adjacent ghosts step right by
+// `GHOST_LOBBY_GAP` so the name tags don't collide.
+const GHOST_LOBBY_BASE_X = 600;
+const GHOST_LOBBY_BASE_Y = 590;
+const GHOST_LOBBY_GAP = 52;
+
+// Stack offsets for multiple bosses focused on the same agent. Small
+// diagonal step so the second/third ghost peeks out from behind the
+// first. The cap-3-visible + N-badge logic is intentionally NOT
+// implemented in v1; a count of 4+ at one desk should be vanishingly
+// rare given the office's user count.
+const GHOST_STACK_DX = 18;
+const GHOST_STACK_DY = 4;
+
+interface GhostPlacement {
+  presence: PresenceInfo;
+  left: number;
+  top: number;
+  dimmed: boolean;
+}
+
+// Compute pixel placements for every ghost that should render in the
+// current room. Returns deterministic order (driven by the sorted
+// presences array, which the server sorts by connectionId). The
+// recipient's "self in LogView" filter is applied here so the boss
+// doesn't see their own ghost overlaying the agent they're chatting
+// with — OTHER tabs/devices of the same user remain visible (the
+// connectionId is per-WS, not per-cookie).
+function computeGhostPlacements(
+  presences: PresenceInfo[],
+  roomAgents: AgentInfo[],
+  currentRoom: number,
+  ownConnectionId: string | null,
+): GhostPlacement[] {
+  const placements: GhostPlacement[] = [];
+  const groups = new Map<string, PresenceInfo[]>();
+  for (const p of presences) {
+    if (p.currentRoom !== currentRoom) continue;
+    if (p.connectionId === ownConnectionId && p.viewMode === "log") continue;
+    const agent =
+      p.focusedAgentId !== null
+        ? roomAgents.find((a) => a.id === p.focusedAgentId)
+        : undefined;
+    const key = agent ? `desk:${agent.desk}` : "lobby";
+    const arr = groups.get(key);
+    if (arr) arr.push(p);
+    else groups.set(key, [p]);
+  }
+  for (const [key, group] of groups) {
+    if (key === "lobby") {
+      group.forEach((p, i) => {
+        placements.push({
+          presence: p,
+          left: GHOST_LOBBY_BASE_X + i * GHOST_LOBBY_GAP,
+          top: GHOST_LOBBY_BASE_Y,
+          dimmed: p.viewMode === "away",
+        });
+      });
+    } else {
+      const deskIndex = Number(key.slice(5));
+      const slot = DESK_SLOTS[deskIndex];
+      if (!slot) continue;
+      const { left: deskLeft, top: deskTop } = deskPixelPos(slot.row, slot.col);
+      // SE of the chair. Chair anchor is (deskLeft+90, deskTop+116);
+      // the ghost top-left sits a touch lower-right of that so the
+      // body's visual centroid hovers near the chair shoulder. Layout
+      // is intentionally cramped pre-desk-repositioning (task 11384153).
+      const baseX = deskLeft + 130;
+      const baseY = deskTop + 90;
+      group.forEach((p, i) => {
+        placements.push({
+          presence: p,
+          left: baseX + i * GHOST_STACK_DX,
+          top: baseY + i * GHOST_STACK_DY,
+          dimmed: p.viewMode === "away",
+        });
+      });
+    }
+  }
+  return placements;
+}
 
 /** HTML drop zone positioned over an SVG door — SVG elements are unreliable drag-and-drop targets */
 function DoorDropZone({
@@ -102,6 +192,11 @@ interface OfficeViewProps {
   onSpawn: (deskIndex: number) => void;
   onContextMenu: (x: number, y: number, agent: AgentInfo) => void;
   onOpenUserSettings: () => void;
+  // Click on a ghost: open user settings preopened to that user. Distinct
+  // from `onOpenUserSettings` (which opens to the current user / the
+  // generic flow). Optional so other consumers of OfficeView aren't
+  // forced to thread a handler they don't need.
+  onOpenUserSettingsForUser?: (userId: string) => void;
   onOpenDeviceSettings: () => void;
   onEditOfficePrompt: () => void;
   onEditRoomSettings?: () => void;
@@ -117,6 +212,7 @@ export function OfficeView({
   onSpawn,
   onContextMenu,
   onOpenUserSettings,
+  onOpenUserSettingsForUser,
   onOpenDeviceSettings,
   onEditOfficePrompt,
   onEditRoomSettings,
@@ -138,6 +234,8 @@ export function OfficeView({
     isMobile,
     updateAvailable,
     hasReceivedInitialState,
+    presences,
+    sessionContext,
   } = useAppState();
   const roomCount = rooms.length;
   const roomNames = rooms.map((r) => r.name);
@@ -626,6 +724,29 @@ export function OfficeView({
               );
             })}
             {/* eslint-enable react-hooks/refs */}
+            {/* Live-avatars: floating ghost per active presence whose
+                currentRoom matches the viewer's currentRoom. Rendered
+                last (and with high z-index) so they sit above desks,
+                walls, and props per Q20 in the design memo. */}
+            {computeGhostPlacements(
+              presences,
+              roomAgents,
+              currentRoom,
+              sessionContext?.connectionId ?? null,
+            ).map((p) => (
+              <Ghost
+                key={p.presence.connectionId}
+                left={p.left}
+                top={p.top}
+                size={GHOST_SIZE}
+                variant={p.presence.avatarVariant}
+                color={p.presence.avatarColor}
+                username={p.presence.username}
+                userId={p.presence.userId}
+                dimmed={p.dimmed}
+                onClick={onOpenUserSettingsForUser}
+              />
+            ))}
           </div>
         </div>
 

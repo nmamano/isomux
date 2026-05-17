@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useAppState, useDispatch } from "./store.tsx";
+import { send } from "./ws.ts";
 import { OfficeView, type ViewportControls } from "./office/OfficeView.tsx";
 import { LogView } from "./log-view/LogView.tsx";
 import { AgentListView } from "./components/AgentListView.tsx";
@@ -60,6 +61,7 @@ export function App() {
     rooms,
     office,
     connected,
+    sessionContext,
   } = useAppState();
   // Keep the tab title in sync with the office name. Server renders the
   // correct title into index.html for cold loads; this effect only takes over
@@ -89,6 +91,12 @@ export function App() {
   const [username, setUsername] = useState<string | null>(() => getUsername());
   const [editingDeviceSettings, setEditingDeviceSettings] = useState(false);
   const [editingUserSettings, setEditingUserSettings] = useState(false);
+  // Live-avatars: when a ghost is clicked, the user-settings modal opens
+  // preopened to that user. Null = generic open (no preselection),
+  // string = open with that user selected. Reset to null on close so a
+  // subsequent generic open (UserIcon button) lands on the current user
+  // the usual way.
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [editingOfficePrompt, setEditingOfficePrompt] = useState(false);
   const [editingRoomSettings, setEditingRoomSettings] = useState<string | null>(
     null,
@@ -141,6 +149,50 @@ export function App() {
     );
     if (nextId) dispatch({ type: "focus", agentId: nextId });
   }, [dispatch, agents, drafts, currentRoom, focusedAgentId]);
+
+  // Live-avatars: tell the server where this session's ghost should
+  // appear. Fires whenever any of the relevant view states change, plus
+  // once on session_context arrival (so a fresh WS gets the initial
+  // position registered without waiting for user input). The server
+  // dedupes on its end so identical updates don't cascade into a
+  // broadcast.
+  const anyModalOpen =
+    editingUserSettings ||
+    editingDeviceSettings ||
+    editingOfficePrompt ||
+    editingRoomSettings !== null ||
+    updateOpen;
+  const viewMode: "office" | "log" | "away" =
+    tasksOpen || cronjobsOpen || anyModalOpen
+      ? "away"
+      : focusedAgentId
+        ? "log"
+        : "office";
+  // When a focused agent moves rooms (owner drags them across with
+  // move_agent), the viewer's state.currentRoom doesn't follow — but
+  // the ghost should anchor to wherever the agent IS, not where the
+  // viewer last clicked. Use the agent's room as the presence room
+  // when focused; fall back to the viewer's selection otherwise.
+  // Depending on the scalar `focusedAgent?.room` (a number) instead
+  // of the `focusedAgent` object identity keeps the effect quiet
+  // through unrelated agent_updated noise like state/log changes.
+  const focusedAgentRoom = focusedAgent?.room ?? null;
+  const presenceRoom =
+    focusedAgentRoom !== null ? focusedAgentRoom : currentRoom;
+  useEffect(() => {
+    if (!sessionContext) return;
+    send({
+      type: "presence_update",
+      currentRoom: presenceRoom,
+      focusedAgentId,
+      viewMode,
+    });
+  }, [
+    sessionContext,
+    presenceRoom,
+    focusedAgentId,
+    viewMode,
+  ]);
 
   // Browser back button: navigate to office view instead of leaving the page.
   // Model: office = home, any other view = one level deep. Only one history
@@ -295,10 +347,14 @@ export function App() {
         <UserManagementModal
           currentUsername={username}
           forceCreate={needsInitialUser}
+          initialUserId={editingUserId}
           onSwitchUser={(name) => setUsername(name)}
           onClose={
             editingUserSettings && !needsInitialUser
-              ? () => setEditingUserSettings(false)
+              ? () => {
+                  setEditingUserSettings(false);
+                  setEditingUserId(null);
+                }
               : undefined
           }
         />
@@ -353,6 +409,10 @@ export function App() {
           onSpawn={(desk) => setSpawnPickerDesk(desk)}
           onContextMenu={(x, y, agent) => setCtxMenu({ x, y, agent })}
           onOpenUserSettings={() => setEditingUserSettings(true)}
+          onOpenUserSettingsForUser={(userId) => {
+            setEditingUserId(userId);
+            setEditingUserSettings(true);
+          }}
           onOpenDeviceSettings={() => setEditingDeviceSettings(true)}
           onEditOfficePrompt={() => setEditingOfficePrompt(true)}
           onEditRoomSettings={() => {

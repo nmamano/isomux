@@ -1,3 +1,5 @@
+import type { GhostVariant } from "./avatar.ts";
+
 // Agent states derived from SDK stream events
 export type AgentState =
   | "idle"
@@ -580,6 +582,14 @@ export interface UserRecord {
   envFile: string | null; // absolute path to dotenv file
   createdAt: number;
   role: UserRole; // app-level role; owner can invite users, revoke sessions, and set per-user room access
+  // Visual identity for the live-avatars feature. avatarColor is a hex
+  // string ("#rrggbb"); avatarVariant picks one of the 8 ghost shapes in
+  // shared/avatar.ts → GHOST_VARIANTS. Defaults are filled in at read
+  // time in server/users.ts (hash-derived color, "classic" variant) so
+  // legacy records without these fields render correctly. Editable
+  // through update_user.
+  avatarColor: string;
+  avatarVariant: GhostVariant;
   // Rooms this user can see and act in — strict string[] of roomIds.
   // The literal list IS the access control: server filters reads and
   // rejects writes for any room not in this array. No "all" sentinel.
@@ -616,6 +626,15 @@ export interface SessionContext {
   // Used to hide the Revoke button on the user's own session row (the
   // server-side gate is the actual safety enforcement; this is UX only).
   currentSessionPrefix: string;
+  // Per-WS-connection id (live-avatars feature). Multiple tabs of the
+  // same user share `currentSessionPrefix` because the auth session is
+  // cookie-scoped, but each tab gets its own connectionId so the per-
+  // tab ghost identity stays distinct (per-session presence in the
+  // design memo means per-tab, not per-cookie). Generated server-side
+  // on WS open, sent down in session_context, and round-tripped in
+  // every PresenceInfo so clients can filter their OWN connection's
+  // ghost from the scene when in LogView.
+  connectionId: string;
 }
 
 // Wire shape for an outstanding invite (owner UI). Raw token never crosses
@@ -628,6 +647,37 @@ export interface InviteWire {
   createdAt: number;
   expiresAt: number;
   bootstrap?: true; // present on bootstrap invites so the UI can label them
+}
+
+// Wire shape for a single live-presence entry (live-avatars feature).
+// One PresenceInfo per active WS connection whose ghost is renderable;
+// off-scene sessions (viewMode "away" with no currentRoom) are omitted
+// from the broadcast entirely. Display fields (username, avatarColor,
+// avatarVariant) are baked into the wire so clients don't need to join
+// against the users map at render time — avoids races where a fresh
+// presence_list arrives before users_list catches up.
+export interface PresenceInfo {
+  // Per-connection id matching SessionContext.connectionId on the
+  // owning client. Stable for the lifetime of the WS; replaced on
+  // reconnect. The React key + sort key for ghosts; clients identify
+  // their OWN ghost by comparing this against
+  // state.sessionContext.connectionId.
+  connectionId: string;
+  // Stable user id. The click-to-open-user-settings shortcut on a ghost
+  // resolves to this id so the modal preopens the right user even if
+  // their display name has just changed.
+  userId: string;
+  username: string;
+  avatarColor: string;
+  avatarVariant: GhostVariant;
+  // Dense visible room index for the recipient (server rewrites this on
+  // a per-WS basis via visibleRoomProjection so the client filter
+  // `entry.currentRoom === state.currentRoom` works for restricted
+  // members the same as for full-access sessions). null when the
+  // session has not yet sent its first presence_update.
+  currentRoom: number | null;
+  focusedAgentId: string | null;
+  viewMode: "office" | "log" | "away";
 }
 
 // Wire shape for an active session (owner UI).
@@ -789,6 +839,7 @@ export type ServerMessage =
   | { type: "users_list"; users: UserRecord[] }
   | { type: "user_updated"; user: UserRecord; prevName?: string }
   | { type: "session_context"; context: SessionContext }
+  | { type: "presence_list"; entries: PresenceInfo[] }
   // Owner-only: unfiltered global rooms list. Owners with an explicit
   // allowedRooms list still see only their subset in the main UI, but
   // need every room here to manage other users' room access. Members
@@ -1057,6 +1108,8 @@ export type ClientCommand =
           | "envFile"
           | "allowedRooms"
           | "memberPrompt"
+          | "avatarColor"
+          | "avatarVariant"
         >
       >;
     }
@@ -1085,6 +1138,19 @@ export type ClientCommand =
   | { type: "list_active_sessions" }
   | { type: "revoke_session"; sessionPrefix: string }
   | { type: "logout" }
+  | {
+      // Live-avatars feature: client tells the server where its ghost
+      // should appear. Sent on initial WS open (after session_context
+      // arrives), on focus change, on room change, and on view-mode
+      // transitions (TaskView/Cronjobs/Settings open or close).
+      // The server sanitizes currentRoom against the sender's
+      // allowedRooms — out-of-bounds room ids (e.g. from a race with
+      // an access revoke) are clamped to null rather than rejected.
+      type: "presence_update";
+      currentRoom: number | null;
+      focusedAgentId: string | null;
+      viewMode: "office" | "log" | "away";
+    }
   | { type: "ping" };
 
 // Generate a stable 8-char hex room ID (used at room creation and during migration)

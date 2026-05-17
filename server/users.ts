@@ -25,6 +25,13 @@ import type {
 import { generateUserId } from "../shared/types.ts";
 import { lowercaseKey } from "../shared/identity.ts";
 import { atomicWriteFileSync } from "./persistence.ts";
+import {
+  defaultGhostColorForUserId,
+  isGhostVariant,
+  isHexColor,
+  normalizeHexColor,
+  type GhostVariant,
+} from "../shared/avatar.ts";
 
 const USERS_FILE = join(homedir(), ".isomux", "users.json");
 
@@ -70,6 +77,24 @@ function normalizeMemberPrompt(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed ? trimmed : null;
+}
+
+// Avatar color (live-avatars feature). Stored as a normalized lowercase
+// "#rrggbb" string. Legacy records without the field — or any record
+// where the value isn't a valid hex color — fall back to a stable
+// hash-of-userId pick from the curated palette. Read-time only; no
+// file rewrite on boot (the new field lands on the next user-edit save).
+function normalizeAvatarColor(value: unknown, userId: string): string {
+  if (isHexColor(value)) return normalizeHexColor(value);
+  return defaultGhostColorForUserId(userId);
+}
+
+// Avatar variant (live-avatars feature). One of the 8 GHOST_VARIANTS.
+// Default for legacy records is "classic" — same body as the original
+// PoC and the lowest-disruption fallback for anyone whose stored value
+// drifts out of the supported set.
+function normalizeAvatarVariant(value: unknown): GhostVariant {
+  return isGhostVariant(value) ? value : "classic";
 }
 
 // Treat a raw object as a user record. Used both for the post-migration
@@ -138,6 +163,8 @@ function load(): Record<string, UserRecord> {
         role: normalizeRole(value.role),
         allowedRooms: normalizeAllowedRooms(value.allowedRooms),
         memberPrompt: normalizeMemberPrompt(value.memberPrompt),
+        avatarColor: normalizeAvatarColor(value.avatarColor, id),
+        avatarVariant: normalizeAvatarVariant(value.avatarVariant),
       };
     }
     users = result;
@@ -290,6 +317,11 @@ export function claimUser(
     // default to [] here if the caller omits the snapshot.
     allowedRooms: resolvedAllowed,
     memberPrompt: null,
+    // Live-avatars defaults. Color is deterministic per user-id so the
+    // same user gets a consistent hue across restarts; variant is the
+    // baseline ghost shape. Both are user-editable post-creation.
+    avatarColor: defaultGhostColorForUserId(id),
+    avatarVariant: "classic",
   };
   users[id] = record;
   try {
@@ -368,6 +400,8 @@ export function updateUserById(
       | "envFile"
       | "allowedRooms"
       | "memberPrompt"
+      | "avatarColor"
+      | "avatarVariant"
     >
   > & { allowedRooms?: string[] },
 ): { ok: true; user: UserRecord } | { ok: false; error: string } {
@@ -423,6 +457,14 @@ export function updateUserById(
       changes.memberPrompt !== undefined
         ? normalizeMemberPrompt(changes.memberPrompt)
         : existing.memberPrompt,
+    avatarColor:
+      changes.avatarColor !== undefined
+        ? normalizeAvatarColor(changes.avatarColor, existing.id)
+        : existing.avatarColor,
+    avatarVariant:
+      changes.avatarVariant !== undefined
+        ? normalizeAvatarVariant(changes.avatarVariant)
+        : existing.avatarVariant,
   };
 
   users[id] = next;
@@ -481,6 +523,8 @@ export function updateUser(
       | "envFile"
       | "allowedRooms"
       | "memberPrompt"
+      | "avatarColor"
+      | "avatarVariant"
     >
   > & { allowedRooms?: string[] },
 ): { ok: true; user: UserRecord } | { ok: false; error: string } {

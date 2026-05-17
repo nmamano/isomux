@@ -18,6 +18,12 @@ import {
   generateCronjobId,
   generateUserId,
 } from "../shared/types.ts";
+import {
+  defaultGhostColorForUserId,
+  isGhostVariant,
+  isHexColor,
+  normalizeHexColor,
+} from "../shared/avatar.ts";
 import { shimEmit } from "./ws.ts";
 
 const state = new OfficeState();
@@ -597,6 +603,8 @@ function seedUsers() {
       role,
       allowedRooms: [...roomIds],
       memberPrompt: null,
+      avatarColor: defaultGhostColorForUserId(id),
+      avatarVariant: "classic",
     });
   }
   const ricky = users.get("ricky");
@@ -1031,8 +1039,9 @@ export function handleCommand(cmd: ClientCommand) {
         cmd.defaultRoomId !== undefined
           ? cmd.defaultRoomId
           : (roomIds[0] ?? null);
+      const newId = generateUserId([...users.values()].map((u) => u.id));
       const newUser: UserRecord = {
-        id: generateUserId([...users.values()].map((u) => u.id)),
+        id: newId,
         name: trimmed,
         defaultRoomId,
         notifRooms: cmd.notifRooms ?? (roomIds[0] ? [roomIds[0]] : []),
@@ -1041,6 +1050,8 @@ export function handleCommand(cmd: ClientCommand) {
         role: "member",
         allowedRooms: [...roomIds],
         memberPrompt: null,
+        avatarColor: defaultGhostColorForUserId(newId),
+        avatarVariant: "classic",
       };
       users.set(key, newUser);
       shimEmit({ type: "user_updated", user: newUser });
@@ -1098,6 +1109,13 @@ export function handleCommand(cmd: ClientCommand) {
                 ? cmd.changes.memberPrompt.trim()
                 : null,
             }
+          : {}),
+        ...(cmd.changes.avatarColor !== undefined && isHexColor(cmd.changes.avatarColor)
+          ? { avatarColor: normalizeHexColor(cmd.changes.avatarColor) }
+          : {}),
+        ...(cmd.changes.avatarVariant !== undefined &&
+        isGhostVariant(cmd.changes.avatarVariant)
+          ? { avatarVariant: cmd.changes.avatarVariant }
           : {}),
       };
       if (renamed) users.delete(key);

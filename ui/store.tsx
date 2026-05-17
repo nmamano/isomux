@@ -22,6 +22,7 @@ import type {
   SettingsValidationResponse,
   Cronjob,
   CronjobRun,
+  PresenceInfo,
   UserRecord,
   SessionContext,
   InviteWire,
@@ -113,6 +114,15 @@ export interface AppState {
   // banner) during the brief pre-hydration window without overloading
   // `connected`, which is deliberately tied to full_state arrival.
   hasReceivedInitialState: boolean;
+  // Live-avatars: other connections' presence in the office scene.
+  // Pre-filtered by the server for the current session's allowedRooms
+  // and sorted by connectionId. The client renders one Ghost per entry
+  // whose currentRoom matches state.currentRoom (rooms render
+  // independently). Self entry (matching state.sessionContext.
+  // connectionId, which is per-WS not per-cookie) is hidden client-
+  // side when viewing LogView — the server still sends it so OTHER
+  // tabs/devices of the same user remain visible as their own ghosts.
+  presences: PresenceInfo[];
 }
 
 type Action =
@@ -167,6 +177,7 @@ type Action =
   | { type: "users_list"; users: UserRecord[] }
   | { type: "user_updated"; user: UserRecord; prevName?: string }
   | { type: "session_context"; context: SessionContext }
+  | { type: "presence_list"; entries: PresenceInfo[] }
   | { type: "all_rooms_list"; rooms: RoomWire[] }
   | { type: "invites_list"; invites: InviteWire[] }
   | { type: "sessions_active_list"; sessions: SessionWire[] }
@@ -441,6 +452,8 @@ function reducer(state: AppState, action: Action): AppState {
       users.set(action.user.name.toLowerCase(), action.user);
       return { ...state, users };
     }
+    case "presence_list":
+      return { ...state, presences: action.entries };
     case "session_context":
       // session_context arrives as the first message on every WS open,
       // including reconnects. Reset the owner-only loaded flags so the
@@ -608,6 +621,7 @@ const initialState: AppState = {
   activeSessionsLoaded: false,
   sessionExpired: false,
   hasReceivedInitialState: false,
+  presences: [],
 };
 
 const StateCtx = createContext<AppState>(initialState);
