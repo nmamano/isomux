@@ -41,6 +41,14 @@ export function CronjobRunView({
   onClose: () => void;
 }) {
   const { cronjobRunsByJob, isMobile, logs } = useAppState();
+  // Use `pointer: coarse` instead of viewport `isMobile` so narrow desktop
+  // windows (split-screen) with a hardware keyboard still send on Enter.
+  const isTouchPrimary = useMemo(
+    () =>
+      typeof window !== "undefined" &&
+      !!window.matchMedia?.("(pointer: coarse)").matches,
+    [],
+  );
   const streamId = cronjobRunStreamId(runId);
   const runs = cronjobRunsByJob.get(jobId) ?? [];
   const run = runs.find((r) => r.id === runId);
@@ -525,7 +533,7 @@ export function CronjobRunView({
                   autoResize(e.target);
                 }}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey && !isMobile) {
+                  if (e.key === "Enter" && !e.shiftKey && !isTouchPrimary) {
                     e.preventDefault();
                     handleSend();
                   }
