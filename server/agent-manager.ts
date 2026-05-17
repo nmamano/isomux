@@ -2482,13 +2482,16 @@ async function flushQueue(agentId: string): Promise<void> {
       if (err instanceof BackendNotConfiguredError) {
         // Backend can't run at all (CLI missing, auth missing, etc.). The
         // .message is already user-actionable — surface verbatim as a system
-        // log entry and keep the agent in idle so the user can fix the setup
-        // and retry without a red error state. Items stay in the queue; the
-        // next send/flush re-attempts and will surface the same message
-        // again until the backend is configured. The local flag suppresses
-        // the finally block's auto-re-flush to avoid a tight loop.
+        // log entry. State goes to waiting_for_response (not idle) so the
+        // desk shows the awake/waving pose: the agent has produced output
+        // (the install hint) and is waiting for the user to act on it.
+        // Idle would render as closed-eyes "sleeping" and look like nothing
+        // happened. Items stay in the queue; the next send/flush re-attempts
+        // and will surface the same message again until the backend is
+        // configured. The local flag suppresses the finally block's
+        // auto-re-flush to avoid a tight loop.
         addLogEntry(agentId, "system", err.message);
-        updateState(agentId, "idle");
+        updateState(agentId, "waiting_for_response");
         backendNotConfigured = true;
         return;
       }
@@ -2968,12 +2971,12 @@ export async function sendMessage(
     if (err instanceof SessionSwappedError) return;
     if (err instanceof BackendNotConfiguredError) {
       // Backend isn't usable (CLI missing, auth missing, etc.). The message
-      // is already user-actionable — surface verbatim as a system entry and
-      // keep the agent idle. User can configure the backend and retry; no
-      // need for a red error state. Matches Claude's calm "not logged in"
-      // UX where a misconfigured backend doesn't paint the desk red.
+      // is already user-actionable — surface verbatim as a system entry.
+      // State goes to waiting_for_response (not idle) so the desk shows the
+      // awake/waving pose; idle would render as closed-eyes "sleeping" and
+      // make it look like the send did nothing.
       addLogEntry(agentId, "system", err.message);
-      updateState(agentId, "idle");
+      updateState(agentId, "waiting_for_response");
       return;
     }
     console.error(`Agent ${agentId} send error:`, errMessage(err));
@@ -3638,9 +3641,11 @@ export async function editMessage(
     if (err instanceof BackendNotConfiguredError) {
       // Rollback above already restored the pre-edit state; surface the
       // setup-required message calmly so the desk doesn't go red over a
-      // misconfigured backend. User configures and re-edits.
+      // misconfigured backend. waiting_for_response (not idle) so the desk
+      // shows awake/waving — the agent produced output and is waiting for
+      // the user to act on it.
       addLogEntry(agentId, "system", err.message);
-      updateState(agentId, "idle");
+      updateState(agentId, "waiting_for_response");
       return;
     }
     addLogEntry(
