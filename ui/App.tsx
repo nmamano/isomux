@@ -12,6 +12,7 @@ import { UserManagementModal } from "./components/UserManagementModal.tsx";
 import { TaskView } from "./components/TaskView.tsx";
 import { CronjobsView } from "./components/CronjobsView.tsx";
 import { UpdateModal } from "./components/UpdateModal.tsx";
+import { ConnectionBanner } from "./components/ConnectionBanner.tsx";
 import { CSS } from "./styles.ts";
 import { getUsername } from "./device-settings.ts";
 import type { AgentBackendType, AgentInfo } from "../shared/types.ts";
@@ -289,6 +290,7 @@ export function App() {
   return (
     <>
       <style>{CSS}</style>
+      <ConnectionBanner />
       {(needsInitialUser || editingUserSettings) && (
         <UserManagementModal
           currentUsername={username}

@@ -124,6 +124,7 @@ type Action =
   | { type: "log_entry"; entry: LogEntry }
   | { type: "focus"; agentId: string | null }
   | { type: "connected" }
+  | { type: "disconnected" }
   | {
       type: "sessions_list";
       agentId: string;
@@ -323,6 +324,8 @@ function reducer(state: AppState, action: Action): AppState {
     }
     case "connected":
       return { ...state, connected: true };
+    case "disconnected":
+      return { ...state, connected: false };
     case "sessions_list": {
       const sessionsList = new Map(state.sessionsList);
       sessionsList.set(action.agentId, {
@@ -642,33 +645,38 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let legacyMigrated = false;
-    connect((msg: ServerMessage) => {
-      dispatch(msg as Action);
-      if (msg.type === "full_state") dispatch({ type: "connected" });
-      // Once both session_context and users_list have arrived, mirror any
-      // legacy localStorage prefs (defaultRoomId, notifRooms) into the user
-      // record — but only if the server hasn't recorded values for them yet.
-      // The session cookie is authoritative for the username; we don't try
-      // to coerce the device's old localStorage name onto the session.
-      if (msg.type === "session_context" && !legacyMigrated) {
-        const legacy = readLegacyUserPrefs();
-        if (legacy.defaultRoomId || legacy.notifRooms) {
-          send({
-            type: "claim_user",
-            username: msg.context.username,
-            defaultRoomId: legacy.defaultRoomId,
-            notifRooms: legacy.notifRooms,
-          });
-          clearLegacyUserPrefs();
+    connect(
+      (msg: ServerMessage) => {
+        dispatch(msg as Action);
+        if (msg.type === "full_state") dispatch({ type: "connected" });
+        // Once both session_context and users_list have arrived, mirror any
+        // legacy localStorage prefs (defaultRoomId, notifRooms) into the user
+        // record — but only if the server hasn't recorded values for them yet.
+        // The session cookie is authoritative for the username; we don't try
+        // to coerce the device's old localStorage name onto the session.
+        if (msg.type === "session_context" && !legacyMigrated) {
+          const legacy = readLegacyUserPrefs();
+          if (legacy.defaultRoomId || legacy.notifRooms) {
+            send({
+              type: "claim_user",
+              username: msg.context.username,
+              defaultRoomId: legacy.defaultRoomId,
+              notifRooms: legacy.notifRooms,
+            });
+            clearLegacyUserPrefs();
+          }
+          // Keep localStorage's name aligned to the session so other UI bits
+          // that still read getUsername() agree with the cookie identity.
+          try {
+            localStorage.setItem("isomux-username", msg.context.username);
+          } catch {}
+          legacyMigrated = true;
         }
-        // Keep localStorage's name aligned to the session so other UI bits
-        // that still read getUsername() agree with the cookie identity.
-        try {
-          localStorage.setItem("isomux-username", msg.context.username);
-        } catch {}
-        legacyMigrated = true;
-      }
-    });
+      },
+      (isConnected: boolean) => {
+        if (!isConnected) dispatch({ type: "disconnected" });
+      },
+    );
   }, []);
 
   // session_expired: the per-message WS recheck found the session revoked or

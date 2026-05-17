@@ -671,6 +671,11 @@ export function LogView({
   const [editingLogEntryId, setEditingLogEntryId] = useState<string | null>(
     null,
   );
+  const [sendError, setSendError] = useState(false);
+  // Don't surface the inline error after a reconnect — `connected` flipping
+  // back to true is enough signal to the user that their previous send
+  // attempt is stale.
+  const showSendError = sendError && !connected;
   const dragCounterRef = useRef(0);
   const swipeRef = useSwipeLeftRight(
     onSwipeLeft ?? (() => {}),
@@ -1351,7 +1356,7 @@ export function LogView({
             ({ id: _id, uploading: _u, error: _e, ...att }) => att,
           )
         : undefined;
-    send({
+    const ok = send({
       type: "send_message",
       agentId: agent.id,
       text,
@@ -1359,6 +1364,14 @@ export function LogView({
       device: device || undefined,
       attachments,
     });
+    if (!ok) {
+      // Socket isn't open — leave the composer state intact so the user can
+      // retry once the banner clears. We only flag the inline error; the
+      // top-level ConnectionBanner explains the broader state.
+      setSendError(true);
+      return;
+    }
+    setSendError(false);
     setInput("");
     setStagedAttachments([]);
     stopListening();
@@ -1966,6 +1979,29 @@ export function LogView({
             onChange={(e) => handleFileSelect(e.target.files)}
           />
           <SessionSwapIndicator swapping={agent.sessionSwapping ?? false} />
+          {showSendError && (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                marginBottom: 8,
+                padding: "6px 10px",
+                borderRadius: 6,
+                background: "var(--red-bg, rgba(192,57,43,0.12))",
+                border: "1px solid var(--red, #c0392b)",
+                color: "var(--red, #c0392b)",
+                fontSize: isMobile ? 12 : 11,
+                fontWeight: 600,
+              }}
+            >
+              <span>⚠</span>
+              <span>
+                Couldn't send — you're offline. Your message is still in the
+                box; try again once you reconnect.
+              </span>
+            </div>
+          )}
           <QueueChips
             queue={agent.queue ?? []}
             agentId={agent.id}
