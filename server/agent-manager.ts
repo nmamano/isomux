@@ -140,7 +140,7 @@ const LOGIN_INSTRUCTIONS = `To authenticate:
 Once complete, it takes effect immediately for all Isomux agents.`;
 
 const AUTH_ERROR_PATTERNS =
-  /unauthori[zs]ed|not authenticated|authentication|auth.*expired|invalid.*token|login.*required|403|401/i;
+  /unauthori[zs]ed|not authenticated|authentication|auth.*expired|invalid.*token|login.*required|not logged in|run \/login|403|401/i;
 function isAuthError(text: string): boolean {
   return AUTH_ERROR_PATTERNS.test(text);
 }
@@ -1405,9 +1405,20 @@ function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
     case "assistant_text":
       addLogEntry(agentId, "text", ev.text);
       break;
-    case "system_text":
+    case "system_text": {
       addLogEntry(agentId, "system", ev.text);
+      // Claude's SDK emits its "Not logged in · Please run /login" notice as
+      // a synthetic assistant message that the claude adapter routes here as
+      // system_text. Without auth-error detection at this layer, the user
+      // saw the terse SDK line with no context. Run the same detection +
+      // login-instruction append the error / turn_completed paths use so
+      // the chat has actionable next steps either way.
+      const managedForAuth = agents.get(agentId);
+      if (detectAgentAuthError(managedForAuth, ev.text)) {
+        addLogEntry(agentId, "system", agentLoginInstructions(managedForAuth));
+      }
       break;
+    }
     case "thinking": {
       const managed = agents.get(agentId);
       const duration_ms =
@@ -2298,10 +2309,12 @@ async function flushQueue(agentId: string): Promise<void> {
   managed.flushInProgress = true;
   // Set by the BackendNotConfiguredError soft-catch below to tell the finally
   // block NOT to auto-re-trigger flushQueue. Without this guard, the catch
-  // leaves state=idle + queue intact, the finally's re-flush condition then
-  // matches, the re-flush throws the same error, the catch fires again, and
-  // we spam-loop on the unconfigured backend. User-paced retries (next
-  // sendMessage / next state transition) still get a fresh attempt.
+  // leaves the agent in a queue-idle state (waiting_for_response satisfies
+  // isQueueIdleState the same as idle does) with the queue still intact, so
+  // the finally's re-flush condition matches, the re-flush throws the same
+  // error, the catch fires again, and we spam-loop on the unconfigured
+  // backend. User-paced retries (next sendMessage / next state transition)
+  // still get a fresh attempt.
   let backendNotConfigured = false;
   try {
     // Wait for any in-flight turn to truly end before starting a new one. The

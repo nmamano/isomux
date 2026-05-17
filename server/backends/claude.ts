@@ -53,6 +53,7 @@ import type { ModelFamily, EffortLevel } from "../../shared/types.ts";
 import { getFilePath, saveFile } from "../persistence.ts";
 import { createSafetyHooks } from "../safety-hooks.ts";
 import { CLAUDE_NATIVE_BIN } from "../cwd-utils.ts";
+import { isClaudeCodeInstalled } from "./claude-install-check.ts";
 
 import type {
   ApprovalDecision,
@@ -85,8 +86,10 @@ const LOGIN_INSTRUCTIONS = `To authenticate:
 
 Once complete, it takes effect immediately for all Isomux agents.`;
 
+const CLAUDE_CODE_NOT_INSTALLED_MESSAGE = `Claude Code is not installed. Install with \`npm install -g @anthropic-ai/claude-code\`, then run \`claude\` and \`/login\` in the built-in terminal to authenticate. Alternatively, set ANTHROPIC_API_KEY in your env.`;
+
 const AUTH_ERROR_PATTERNS =
-  /unauthori[zs]ed|not authenticated|authentication|auth.*expired|invalid.*token|login.*required|403|401/i;
+  /unauthori[zs]ed|not authenticated|authentication|auth.*expired|invalid.*token|login.*required|not logged in|run \/login|403|401/i;
 
 const CAPABILITIES: BackendCapabilities = {
   fork: true,
@@ -833,7 +836,13 @@ export const claudeBackend: Backend = {
   },
 
   getLoginInstructions(): string {
-    return LOGIN_INSTRUCTIONS;
+    // Symmetric with Codex's "CLI not installed" install hint: if the user
+    // can't actually run `claude` and `/login` (binary missing from PATH),
+    // surface the install command first instead of the terminal walkthrough
+    // that would just produce a "command not found".
+    return isClaudeCodeInstalled()
+      ? LOGIN_INSTRUCTIONS
+      : CLAUDE_CODE_NOT_INSTALLED_MESSAGE;
   },
 };
 
