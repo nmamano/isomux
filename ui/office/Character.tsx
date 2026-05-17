@@ -533,33 +533,6 @@ export function Character({
     return wrap(
       <>
         <rect x={16} y={36} width={20} height={16} fill={bc} rx={3} />
-        <g>
-          <rect
-            x={38}
-            y={20}
-            width={7}
-            height={10}
-            fill={skin}
-            rx={2}
-            transform="rotate(-5 41 25)"
-          >
-            <animate
-              attributeName="transform"
-              values="rotate(-5 41 25);rotate(12 41 25);rotate(-5 41 25)"
-              dur="0.8s"
-              repeatCount="indefinite"
-            />
-          </rect>
-          <circle cx={41} cy={17} r={5.5} fill={skin}>
-            <animate
-              attributeName="cy"
-              values="17;15;17"
-              dur="0.8s"
-              repeatCount="indefinite"
-            />
-          </circle>
-        </g>
-        <rect x={7} y={40} width={7} height={4} fill={skin} rx={2} />
         <ellipse cx={hCx} cy={hCy} rx={10} ry={10} fill={skin} />
         <Hair style={hairStyle} color={hair} headCx={hCx} headCy={hCy} />
         <Hat type={outfit.hat} color={bc} headCx={hCx} headCy={hCy} />
@@ -575,6 +548,19 @@ export function Character({
           strokeWidth={0.8}
         />
         <Beard type={beard} color={hair} headCx={hCx} headCy={hCy} />
+        <rect x={7} y={40} width={7} height={4} fill={skin} rx={2} />
+        {/* Raised right arm — arm and hand pivot together at the shoulder */}
+        <g>
+          <rect x={34} y={20} width={4} height={19} fill={skin} rx={2} />
+          <circle cx={36} cy={19} r={4} fill={skin} />
+          <animateTransform
+            attributeName="transform"
+            type="rotate"
+            values="-15 36 39;15 36 39;-15 36 39"
+            dur="0.9s"
+            repeatCount="indefinite"
+          />
+        </g>
         <rect x={18} y={52} width={6} height={10} fill="#444" rx={2} />
         <rect x={28} y={52} width={6} height={10} fill="#444" rx={2} />
       </>,
