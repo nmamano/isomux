@@ -180,6 +180,47 @@ function emitLoginInstructions(
   }
 }
 
+// Flip the agent into the BackendNotConfigured quarantine. Called from the
+// three BackendNotConfiguredError catches (flushQueue / sendMessage /
+// editMessage) on the first failure for this session. Idempotent: if the
+// flag is already set, log a warning and no-op — reaching this twice is a
+// sign of a missed upstream guard rather than a normal path. We don't throw
+// here: this runs in an error-recovery path, and turning a setup issue into
+// a red-state internal error would mask the real problem.
+//
+// The essential invariant is: set the flag BEFORE the updateState call. If
+// updateState runs while the flag is still false, its queue-flush trigger
+// sees a non-empty queue + idle-ish state and fires flushQueue — which
+// produces the SECOND hint+card this whole thing exists to suppress. The
+// hint/card emit and queue drain can happen in either relative order; we do
+// emit first so the user sees the actionable message above the bookkeeping
+// "Cleared N queued message(s)" line.
+function markBackendNotConfigured(
+  agentId: string,
+  managed: ManagedAgent,
+  err: BackendNotConfiguredError,
+): void {
+  if (managed.backendNotConfigured) {
+    console.warn(
+      `[agent-manager] BackendNotConfigured quarantine already set for ${agentId}; duplicate mark suppressed`,
+    );
+    return;
+  }
+  emitLoginInstructions(agentId, { text: err.message, command: err.command });
+  managed.backendNotConfigured = true;
+  const queuedCount = managed.messageQueue.length;
+  if (queuedCount > 0) {
+    managed.messageQueue.length = 0;
+    addLogEntry(
+      agentId,
+      "system",
+      `Cleared ${queuedCount} queued message${queuedCount === 1 ? "" : "s"} because the backend is not configured.`,
+    );
+    emitQueueUpdate(agentId, managed);
+  }
+  updateState(agentId, "waiting_for_response");
+}
+
 // Build the metadata blob attached to a user_message log entry. Carries
 // username + device so display helpers can reconstruct `[Nil (Phone)]`. Old
 // log entries written before the device split lack the device key — readers
@@ -815,6 +856,7 @@ export async function restoreAgents() {
         messageQueue: [],
         flushInProgress: false,
         queueDedupe: new Map(),
+        backendNotConfigured: false,
       };
       agents.set(p.id, managed);
 
@@ -1126,13 +1168,16 @@ function updateState(agentId: string, state: AgentState) {
 
   // Trigger queue flush on transition into an idle state (and only when the
   // queue actually has items waiting). Swapping into the same state is a
-  // no-op so we don't re-fire the trigger from intra-state edits.
+  // no-op so we don't re-fire the trigger from intra-state edits. Skip when
+  // the agent is quarantined: re-flushing a known-broken backend would
+  // double-emit the install/login hint that's already on screen.
   if (
     state !== prev &&
     isQueueIdleState(state) &&
     managed.messageQueue.length > 0 &&
     !managed.flushInProgress &&
-    !inMultiStepFlow(managed)
+    !inMultiStepFlow(managed) &&
+    !managed.backendNotConfigured
   ) {
     flushQueue(agentId).catch((err: unknown) => {
       console.error(
@@ -1227,6 +1272,11 @@ function emitEphemeralLog(
 async function generateTopic(agentId: string) {
   const managed = agents.get(agentId);
   if (!managed || managed.topicGenerating) return;
+  // Skip topic generation for quarantined agents: oneShotPrompt would just
+  // throw the install/login error every time, flashing the topic to "..."
+  // and back to null while flooding the server log with "Topic generation
+  // failed for ...:" lines on every user message.
+  if (managed.backendNotConfigured) return;
 
   managed.topicGenerating = true;
   for (const event of officeState.updateAgent(agentId, {
@@ -1772,6 +1822,12 @@ function installSession(
   managed: ManagedAgent,
   session: BackendSession,
 ) {
+  // Reset the BackendNotConfigured quarantine on every session install. Covers
+  // /clear, /resume, editAgent, auto-recovery, agentType switches — anything
+  // that swaps in a new session deserves a fresh shot at the backend. If the
+  // replacement is still broken, the first real send will re-flip the flag
+  // via markBackendNotConfigured.
+  managed.backendNotConfigured = false;
   managed.session = session;
   managed.consumerPromise = runConsumer(agentId, managed, session);
 }
@@ -2113,6 +2169,7 @@ export async function spawn(
     messageQueue: [],
     flushInProgress: false,
     queueDedupe: new Map(),
+    backendNotConfigured: false,
   };
   agents.set(id, managed);
   for (const event of events) emit(event);
@@ -2279,6 +2336,22 @@ export function enqueueMessage(
     return { ok: false, error: `agent_${state}`, status: 409 };
   }
 
+  // Reject upfront when the backend is quarantined: the original install/login
+  // hint is already in chat, the queue was drained at quarantine time, and
+  // we don't want to re-attempt session.send (which would surface the same
+  // hint again). Callers (curl, sibling agents) see the failure and can
+  // wait until the human resolves setup. The visible hint stays in chat as
+  // the only source of truth for "this agent needs configuration".
+  if (managed.backendNotConfigured) {
+    return {
+      ok: false,
+      error: "backend_not_configured",
+      status: 409,
+      message:
+        "Backend is not configured for this agent. See setup instructions in the agent's chat.",
+    };
+  }
+
   // Idempotency check first; record only after a successful accept below so
   // a 429-rejected retry doesn't poison the dedup map.
   if (msg.clientMessageId && managed.queueDedupe.has(msg.clientMessageId)) {
@@ -2323,17 +2396,13 @@ async function flushQueue(agentId: string): Promise<void> {
   if (!managed) return;
   if (managed.flushInProgress) return;
   if (managed.messageQueue.length === 0) return;
+  // Belt-and-braces against any caller that bypassed the updateState guard.
+  // The quarantine drains the queue on entry so this should only fire if
+  // something re-enqueued after quarantine started, which the enqueueMessage
+  // guard also prevents.
+  if (managed.backendNotConfigured) return;
 
   managed.flushInProgress = true;
-  // Set by the BackendNotConfiguredError soft-catch below to tell the finally
-  // block NOT to auto-re-trigger flushQueue. Without this guard, the catch
-  // leaves the agent in a queue-idle state (waiting_for_response satisfies
-  // isQueueIdleState the same as idle does) with the queue still intact, so
-  // the finally's re-flush condition matches, the re-flush throws the same
-  // error, the catch fires again, and we spam-loop on the unconfigured
-  // backend. User-paced retries (next sendMessage / next state transition)
-  // still get a fresh attempt.
-  let backendNotConfigured = false;
   try {
     // Wait for any in-flight turn to truly end before starting a new one. The
     // trigger from updateState fires synchronously inside processMessage,
@@ -2511,24 +2580,15 @@ async function flushQueue(agentId: string): Promise<void> {
         return;
       }
       if (err instanceof BackendNotConfiguredError) {
-        // Backend can't run at all (CLI missing, auth missing, etc.). The
-        // .message is already user-actionable — surface verbatim as a system
-        // log entry, plus an adjacent terminal-command card when the error
-        // carries a companion install/login command (set at the throw site).
-        // State goes to waiting_for_response (not idle) so the desk shows
-        // the awake/waving pose: the agent has produced output (the install
-        // hint) and is waiting for the user to act on it. Idle would render
-        // as closed-eyes "sleeping" and look like nothing happened. Items
-        // stay in the queue; the next send/flush re-attempts and will
-        // surface the same message again until the backend is configured.
-        // The local flag suppresses the finally block's auto-re-flush to
-        // avoid a tight loop.
-        emitLoginInstructions(agentId, {
-          text: err.message,
-          command: err.command,
-        });
-        updateState(agentId, "waiting_for_response");
-        backendNotConfigured = true;
+        // Backend can't run at all (CLI missing, auth missing, etc.).
+        // markBackendNotConfigured emits the hint+card, drains the queue
+        // (so messageQueue.length goes to zero), sets the agent-wide
+        // quarantine flag, and transitions state to waiting_for_response in
+        // the right order so updateState's queue-flush trigger short-
+        // circuits and we don't double-emit. The finally block's auto
+        // re-flush check below naturally no-ops because the queue is now
+        // empty AND the agent-wide flag is set.
+        markBackendNotConfigured(agentId, managed, err);
         return;
       }
       console.error(`Agent ${agentId} flush error:`, errMessage(err));
@@ -2539,10 +2599,12 @@ async function flushQueue(agentId: string): Promise<void> {
     if (agents.has(agentId)) {
       managed.flushInProgress = false;
       // Re-flush if more arrived during the await, and we're still in an idle
-      // state. Skip when the catch path marked the backend as not configured
-      // — see the flag's declaration above for why.
+      // state. The agent-wide backendNotConfigured flag also short-circuits
+      // here as defence in depth — if the catch above ran, the queue is
+      // empty anyway, but a future error path that leaves the queue partly
+      // populated shouldn't accidentally retry on a quarantined backend.
       if (
-        !backendNotConfigured &&
+        !managed.backendNotConfigured &&
         managed.messageQueue.length > 0 &&
         isQueueIdleState(managed.info.state) &&
         !inMultiStepFlow(managed)
@@ -2593,6 +2655,37 @@ export async function sendMessage(
 ) {
   const managed = agents.get(agentId);
   if (!managed) return;
+
+  // Quarantine fast-path: echo the user's message + one terse system line.
+  // Skip beginTurn / generateTopic / session.send so the desk doesn't briefly
+  // render as "thinking" against a backend that can't respond. Slash commands
+  // bypass — /clear is the escape hatch that installs a fresh session and
+  // clears the quarantine. Multi-step pending replies (permission/resume/
+  // model/effort) also bypass: those states require a live session to have
+  // produced them, so they shouldn't coexist with quarantine in practice,
+  // but routing through this fast-path would swallow the user's pick and be
+  // hard to diagnose. The existing branches below handle them correctly.
+  // The original install/login hint emitted at quarantine time stays the
+  // only on-screen card; here we don't re-emit it.
+  if (
+    managed.backendNotConfigured &&
+    !text.startsWith("/") &&
+    !inMultiStepFlow(managed)
+  ) {
+    addLogEntry(
+      agentId,
+      "user_message",
+      text,
+      buildUserMeta(username, device),
+      attachments,
+    );
+    addLogEntry(
+      agentId,
+      "system",
+      "Backend still not configured. See setup instructions above.",
+    );
+    return;
+  }
 
   // Route through queue when busy. Multi-step pending flows (permission /
   // resume / model / effort) need the existing path because the user's reply
@@ -3006,18 +3099,12 @@ export async function sendMessage(
     }
     if (err instanceof SessionSwappedError) return;
     if (err instanceof BackendNotConfiguredError) {
-      // Backend isn't usable (CLI missing, auth missing, etc.). The message
-      // is already user-actionable — surface verbatim as a system entry,
-      // plus an adjacent terminal-command card when the error carries a
-      // companion install/login command. State goes to waiting_for_response
-      // (not idle) so the desk shows the awake/waving pose; idle would
-      // render as closed-eyes "sleeping" and make it look like the send
-      // did nothing.
-      emitLoginInstructions(agentId, {
-        text: err.message,
-        command: err.command,
-      });
-      updateState(agentId, "waiting_for_response");
+      // Backend isn't usable (CLI missing, auth missing, etc.).
+      // markBackendNotConfigured emits the hint+card, drains the queue,
+      // sets the quarantine flag, and transitions state in the right order
+      // (flag-before-state) so updateState's queue-flush trigger
+      // short-circuits and we don't double-emit.
+      markBackendNotConfigured(agentId, managed, err);
       return;
     }
     console.error(`Agent ${agentId} send error:`, errMessage(err));
@@ -3682,15 +3769,9 @@ export async function editMessage(
     if (err instanceof BackendNotConfiguredError) {
       // Rollback above already restored the pre-edit state; surface the
       // setup-required message calmly so the desk doesn't go red over a
-      // misconfigured backend. Plus an adjacent terminal-command card when
-      // the error carries a companion install/login command.
-      // waiting_for_response (not idle) so the desk shows awake/waving —
-      // the agent produced output and is waiting for the user to act on it.
-      emitLoginInstructions(agentId, {
-        text: err.message,
-        command: err.command,
-      });
-      updateState(agentId, "waiting_for_response");
+      // misconfigured backend. markBackendNotConfigured handles emit +
+      // queue drain + flag + state in the right order.
+      markBackendNotConfigured(agentId, managed, err);
       return;
     }
     addLogEntry(

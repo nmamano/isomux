@@ -87,6 +87,15 @@ export interface ManagedAgent {
   // clientMessageId → expiresAtMs. Per-receiver dedup window for HTTP retries.
   // 5 min TTL; entries are pruned lazily inside enqueueMessage.
   queueDedupe: Map<string, number>;
+  // Quarantine flag: true after the first BackendNotConfiguredError fires for
+  // this agent's current session, false again on session replacement
+  // (installSession). While true: enqueueMessage rejects, sendMessage replies
+  // with a terse "still not configured" line without entering thinking state,
+  // flushQueue early-returns, generateTopic early-returns, and updateState's
+  // queue-flush trigger short-circuits. Stops the per-message duplicate-hint
+  // loop where one user send was producing two emit cycles (sendMessage
+  // catch + updateState→flushQueue catch).
+  backendNotConfigured: boolean;
 }
 
 export type AgentEvent =
@@ -153,7 +162,10 @@ export function inMultiStepFlow(managed: ManagedAgent): boolean {
 }
 
 // Result of enqueueMessage. `status` is the HTTP status the WS/HTTP layer
-// should forward for the failure case.
+// should forward for the failure case. `error` is a short code for callers
+// that want to branch programmatically; `message` (optional) is a
+// human-readable explanation suitable for surfacing to chat or to a curl
+// caller's stdout.
 export type EnqueueResult =
   | { ok: true; queued: boolean; deduped?: boolean; messageId?: string }
-  | { ok: false; error: string; status: number };
+  | { ok: false; error: string; status: number; message?: string };
