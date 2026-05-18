@@ -787,10 +787,12 @@ export function createCommandHandling(deps: HandlerDeps) {
         sdkText: fullPrompt,
       });
       if (!result.ok) {
+        // Prefer the human-readable message when present (e.g. the
+        // backend_not_configured branch); fall back to the short error code.
         deps.addLogEntry(
           agentId,
           "system",
-          `Could not queue ${rawText}: ${result.error}`,
+          `Could not queue ${rawText}: ${result.message ?? result.error}`,
         );
       }
       return true;

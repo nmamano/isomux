@@ -2822,10 +2822,16 @@ const server = Bun.serve<WsData>({
           clientMessageId,
         });
         if (!result.ok) {
-          return new Response(JSON.stringify({ error: result.error }), {
-            status: result.status,
-            headers: corsHeaders,
-          });
+          return new Response(
+            JSON.stringify({
+              error: result.error,
+              ...(result.message ? { message: result.message } : {}),
+            }),
+            {
+              status: result.status,
+              headers: corsHeaders,
+            },
+          );
         }
         return new Response(JSON.stringify(result), { headers: corsHeaders });
       }
