@@ -1186,6 +1186,15 @@ export function handleCommand(cmd: ClientCommand) {
         ...(renamed ? { prevName: existing.name } : {}),
       });
       shimEmit({ type: "users_list", users: [...users.values()] });
+      // Live-avatars: if the edited user is Stephen (whose phone ghost
+      // cycles through room 0), re-emit his presence now so a color /
+      // variant change takes effect immediately instead of waiting up
+      // to 6 seconds for the next cycle tick. Mirrors what the real
+      // server does via refreshPresenceForUser + pushPresenceListToEachWs.
+      const stephen = users.get("stephen");
+      if (stephen && updated.id === stephen.id) {
+        emitStephenPresence();
+      }
       if (cmd.requestId) {
         shimEmit({
           type: "settings_save_response",
