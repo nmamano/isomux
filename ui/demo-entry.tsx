@@ -19,7 +19,7 @@ setShim(handleCommand, sendInitialState);
 
 // Hardcode username so the modal is skipped.
 // Safe: demo runs at isomux.com/demo, real app is self-hosted (different origin).
-localStorage.setItem("isomux-username", "demo-boss");
+localStorage.setItem("isomux-username", "Ricky");
 
 const isMobile =
   /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ||

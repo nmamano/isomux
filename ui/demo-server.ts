@@ -2,10 +2,13 @@ import { OfficeState, type OfficeEvent } from "../shared/office-state.ts";
 import type {
   AgentInfo,
   ClientCommand,
+  InviteWire,
   LogEntry,
   ModelFamily,
   Cronjob,
   Schedule,
+  SessionContext,
+  SessionWire,
   UserRecord,
   UserRole,
 } from "../shared/types.ts";
@@ -242,7 +245,7 @@ function ensureSeeded() {
   state.setOfficeSettings(
     "Be concise. No paragraphs when bullets will do. Never push to main without asking. Never help Dwight set backdoors of any kind.",
     null,
-    "Dunder Mifflin",
+    "The Demo",
   );
   const now = Date.now();
   state.setTasksDirect([
@@ -433,9 +436,7 @@ function seedLogs() {
     for (const { kind, content, metadata } of entries) {
       t += 3000 + Math.random() * 5000;
       const meta =
-        kind === "user_message"
-          ? { ...metadata, username: "demo-boss" }
-          : metadata;
+        kind === "user_message" ? { ...metadata, username: "Ricky" } : metadata;
       const entry = makeLogEntry(agentId, kind, content, meta);
       entry.timestamp = t;
       shimEmit({ type: "log_entry", entry });
@@ -558,21 +559,25 @@ function seedCronjobs() {
 }
 
 // Users: maintained as a plain in-memory map (not via OfficeState), same as
-// cronjobs. The demo has no real auth — sessionContext is never emitted —
-// so AccessPane, MyDevicesPane, and the Sign out button stay hidden in the
-// modal; the user picker, "Use" button, Edit panel, and Create form work
-// against this map.
+// cronjobs. The demo fakes auth — sendInitialState emits a session_context
+// for Ricky (owner), so the modal renders the same "real office" surfaces
+// (AccessPane for owners, Sign out, etc.) instead of the pre-auth picker.
 const users = new Map<string, UserRecord>();
 
 const DEMO_USERS_SEED: { name: string; role: UserRole }[] = [
-  // "demo-boss" is the device's pre-set username (see demo-entry.tsx) — seeding
-  // it here makes the picker highlight a "(you)" row instead of starting empty.
-  { name: "demo-boss", role: "owner" },
-  { name: "Michael", role: "owner" },
-  { name: "Pam", role: "member" },
-  { name: "Dwight", role: "member" },
-  { name: "Angela", role: "member" },
+  // "Ricky" is the device's pre-set username (see demo-entry.tsx) and the
+  // identity carried by the session_context emitted at connect time.
+  { name: "Ricky", role: "owner" },
+  { name: "Stephen", role: "member" },
 ];
+
+// Active sessions surfaced in the Access pane. Two for Ricky (laptop +
+// phone) and one for Stephen, matching what a real office shows after a
+// few devices have been signed in.
+const CURRENT_SESSION_PREFIX = "a1b2c3d4";
+let activeSessionsList: SessionWire[] = [];
+let invitesListSeed: InviteWire[] = [];
+let sessionContext: SessionContext | null = null;
 
 function seedUsers() {
   const roomIds = state.getState().rooms.map((r) => r.id);
@@ -594,6 +599,49 @@ function seedUsers() {
       memberPrompt: null,
     });
   }
+  const ricky = users.get("ricky");
+  if (ricky) {
+    sessionContext = {
+      userId: ricky.id,
+      username: ricky.name,
+      role: ricky.role,
+      currentSessionPrefix: CURRENT_SESSION_PREFIX,
+    };
+  }
+  const LAPTOP_UA =
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+  const PHONE_UA =
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1";
+  activeSessionsList = [
+    {
+      sessionPrefix: CURRENT_SESSION_PREFIX,
+      username: "Ricky",
+      createdAt: now - 7 * 86400000,
+      lastSeenAt: now - 30_000,
+      expiresAt: now + 30 * 86400000,
+      absoluteExpiresAt: now + 365 * 86400000,
+      userAgent: LAPTOP_UA,
+    },
+    {
+      sessionPrefix: "7e9f0a12",
+      username: "Ricky",
+      createdAt: now - 3 * 86400000,
+      lastSeenAt: now - 2 * 3600000,
+      expiresAt: now + 30 * 86400000,
+      absoluteExpiresAt: now + 365 * 86400000,
+      userAgent: PHONE_UA,
+    },
+    {
+      sessionPrefix: "9f8e7d6c",
+      username: "Stephen",
+      createdAt: now - 5 * 86400000,
+      lastSeenAt: now - 15 * 60_000,
+      expiresAt: now + 30 * 86400000,
+      absoluteExpiresAt: now + 365 * 86400000,
+      userAgent: LAPTOP_UA,
+    },
+  ];
+  invitesListSeed = [];
 }
 
 // Track pending reply timeouts per agent to avoid flickering on rapid sends
@@ -1081,10 +1129,46 @@ export function handleCommand(cmd: ClientCommand) {
       break;
     }
     case "logout": {
-      // The Sign out button only renders when sessionContext is truthy, and
-      // the demo never emits one — so this case is effectively unreachable.
-      // Kept as an explicit no-op in case a future code path sends logout
-      // unconditionally, to avoid hanging the WS shim.
+      // The demo emits a session_context so this button is reachable, but
+      // there's no real auth to tear down — emit session_expired so the
+      // store reloads the page (which lands on the same seeded demo
+      // identity again).
+      shimEmit({ type: "session_expired" });
+      break;
+    }
+    case "list_invites": {
+      shimEmit({ type: "invites_list", invites: [...invitesListSeed] });
+      break;
+    }
+    case "list_active_sessions": {
+      shimEmit({
+        type: "sessions_active_list",
+        sessions: [...activeSessionsList],
+      });
+      break;
+    }
+    case "revoke_session": {
+      activeSessionsList = activeSessionsList.filter(
+        (s) => s.sessionPrefix !== cmd.sessionPrefix,
+      );
+      shimEmit({ type: "session_revoked", sessionPrefix: cmd.sessionPrefix });
+      break;
+    }
+    case "revoke_invite": {
+      invitesListSeed = invitesListSeed.filter(
+        (i) => i.tokenPrefix !== cmd.tokenPrefix,
+      );
+      shimEmit({ type: "invite_revoked", tokenPrefix: cmd.tokenPrefix });
+      break;
+    }
+    case "mint_invite":
+    case "mint_self_invite": {
+      shimEmit({
+        type: "invite_minted",
+        requestId: cmd.requestId,
+        ok: false,
+        error: "Invites are disabled in the demo.",
+      });
       break;
     }
     // Silent no-ops
@@ -1117,5 +1201,8 @@ export function sendInitialState() {
   shimEmit({ type: "tasks", tasks: s.tasks });
   shimEmit({ type: "cronjobs_state", cronjobs: [...cronjobs], cronjobsPrompt });
   shimEmit({ type: "users_list", users: [...users.values()] });
+  if (sessionContext) {
+    shimEmit({ type: "session_context", context: sessionContext });
+  }
   seedLogs();
 }
