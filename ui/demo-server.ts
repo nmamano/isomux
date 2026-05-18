@@ -6,6 +6,7 @@ import type {
   LogEntry,
   ModelFamily,
   Cronjob,
+  PresenceInfo,
   Schedule,
   SessionContext,
   SessionWire,
@@ -239,6 +240,56 @@ function seedOffice() {
       turnHadHumanInput: false,
     });
   }
+}
+
+// Demo presence: a single ghost for "Stephen (phone)" that cycles
+// through every agent in the office every 6 seconds, advertising a
+// different focusedAgentId / currentRoom on each tick. Clients render
+// the ghost SE of whichever desk Stephen's "looking at"; when the
+// cycle lands on an agent in a room the viewer isn't on, the ghost
+// simply doesn't render (matches real-presence behavior) until the
+// viewer switches rooms or the cycle moves on. Re-emitting the entire
+// presence_list on each tick is what the real server does too — the
+// shape is identical, just constructed inline here.
+const STEPHEN_PHONE_CONNECTION_ID = "demo-stephen-phone";
+let cycleIndex = 0;
+let cycleTimer: ReturnType<typeof setInterval> | null = null;
+
+function emitStephenPresence() {
+  const stephen = users.get("stephen");
+  if (!stephen) return;
+  // Cycle only through agents in room 0. The seed has Angela in room
+  // 1, and the client-side currentRoom filter would (correctly) hide
+  // the ghost whenever the cycle landed on her — which reads as a
+  // 6-second blank gap in a single-room demo view.
+  const agents = state.getState().agents.filter((a) => a.room === 0);
+  if (agents.length === 0) return;
+  const agent = agents[cycleIndex % agents.length];
+  const entry: PresenceInfo = {
+    connectionId: STEPHEN_PHONE_CONNECTION_ID,
+    userId: stephen.id,
+    username: stephen.name,
+    device: "Phone",
+    avatarColor: stephen.avatarColor,
+    avatarVariant: stephen.avatarVariant,
+    currentRoom: agent.room,
+    focusedAgentId: agent.id,
+    viewMode: "log",
+  };
+  shimEmit({ type: "presence_list", entries: [entry] });
+}
+
+function startStephenGhostCycle() {
+  if (cycleTimer) return;
+  // Initial emission so the ghost appears immediately at agent 0 rather
+  // than 6 seconds later.
+  emitStephenPresence();
+  cycleTimer = setInterval(() => {
+    const total = state.getState().agents.filter((a) => a.room === 0).length;
+    if (total === 0) return;
+    cycleIndex = (cycleIndex + 1) % total;
+    emitStephenPresence();
+  }, 6000);
 }
 
 let seeded = false;
@@ -577,9 +628,9 @@ const DEMO_USERS_SEED: { name: string; role: UserRole }[] = [
   { name: "Stephen", role: "member" },
 ];
 
-// Active sessions surfaced in the Access pane. Two for Ricky (laptop +
-// phone) and one for Stephen, matching what a real office shows after a
-// few devices have been signed in.
+// Active sessions surfaced in the Access pane. Ricky on laptop is the
+// viewer; Stephen has two sessions (laptop + phone) — the phone session
+// is the one whose ghost cycles through the office below.
 const CURRENT_SESSION_PREFIX = "a1b2c3d4";
 let activeSessionsList: SessionWire[] = [];
 let invitesListSeed: InviteWire[] = [];
@@ -604,7 +655,10 @@ function seedUsers() {
       allowedRooms: [...roomIds],
       memberPrompt: null,
       avatarColor: defaultGhostColorForUserId(id),
-      avatarVariant: "classic",
+      // Stephen gets a distinctive variant so the cycling ghost is
+      // visually distinct from a default classic Casper as it moves
+      // between desks in the demo.
+      avatarVariant: name === "Stephen" ? "stubby-arms" : "classic",
     });
   }
   const ricky = users.get("ricky");
@@ -614,6 +668,11 @@ function seedUsers() {
       username: ricky.name,
       role: ricky.role,
       currentSessionPrefix: CURRENT_SESSION_PREFIX,
+      // Fixed demo connectionId — the real server generates these per WS
+      // upgrade. The viewer's own ghost is filtered client-side by
+      // matching this, so Ricky never sees themselves while Stephen's
+      // cycling ghost (different connectionId) renders normally.
+      connectionId: "demo-ricky-laptop",
     };
   }
   const LAPTOP_UA =
@@ -632,7 +691,7 @@ function seedUsers() {
     },
     {
       sessionPrefix: "7e9f0a12",
-      username: "Ricky",
+      username: "Stephen",
       createdAt: now - 3 * 86400000,
       lastSeenAt: now - 2 * 3600000,
       expiresAt: now + 30 * 86400000,
@@ -1110,7 +1169,8 @@ export function handleCommand(cmd: ClientCommand) {
                 : null,
             }
           : {}),
-        ...(cmd.changes.avatarColor !== undefined && isHexColor(cmd.changes.avatarColor)
+        ...(cmd.changes.avatarColor !== undefined &&
+        isHexColor(cmd.changes.avatarColor)
           ? { avatarColor: normalizeHexColor(cmd.changes.avatarColor) }
           : {}),
         ...(cmd.changes.avatarVariant !== undefined &&
@@ -1223,4 +1283,10 @@ export function sendInitialState() {
     shimEmit({ type: "session_context", context: sessionContext });
   }
   seedLogs();
+  // Start Stephen's phone ghost cycle AFTER users_list + session_context
+  // so the first presence_list emission lands with the user record
+  // already in the client store (otherwise the ghost render would
+  // briefly miss the username/color denormalization). Idempotent —
+  // re-calls after the first are no-ops.
+  startStephenGhostCycle();
 }
