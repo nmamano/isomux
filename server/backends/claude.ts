@@ -498,12 +498,14 @@ function* translateSDKMessage(
         // orchestration) and the SDK's wire shape is the only place we
         // have the base64 bytes.
         //
-        // DEPRECATED — the canonical path for an agent to show a file is
-        // POST /agents/:id/read-file (see emitAgentReadFile). This branch
-        // remains as a transition fallback for resumed Claude sessions
-        // whose system prompt still teaches the Read-tool convention, and
-        // for cronjob runs (which have no agent-scoped HTTP endpoint).
-        // Codex agents never hit this path; they call /read-file directly.
+        // Not the canonical "show a file to the boss" path — that's POST
+        // /agents/:id/read-file (or /cronjobs/:id/runs/:runId/read-file
+        // for cronjobs); the system prompt teaches those endpoints. This
+        // branch stays because it's a useful side effect: when an agent
+        // genuinely uses Read on an image to look at it themselves, the
+        // image still surfaces in the conversation so the boss can see
+        // what the agent saw. Agents don't need to know about this.
+        // Codex agents never hit this path; they go straight to /read-file.
         let attachments: Attachment[] | undefined;
         if (Array.isArray(block.content)) {
           const atts: Attachment[] = [];

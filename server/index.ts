@@ -2389,19 +2389,59 @@ const server = Bun.serve<WsData>({
       return new Response(null, {
         headers: {
           "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET, OPTIONS",
+          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
           "Access-Control-Allow-Headers": "Content-Type",
         },
       });
     }
 
-    // Cronjobs HTTP API (read-only — mutations go through WebSocket)
+    // Cronjobs HTTP API (read-only — mutations go through WebSocket, except
+    // POST /cronjobs/:id/runs/:runId/read-file which lets an in-flight run
+    // surface a file in its transcript — the cronjob equivalent of POST
+    // /agents/:id/read-file).
     if (url.pathname.startsWith("/cronjobs")) {
       const corsHeaders = {
         "Access-Control-Allow-Origin": "*",
         "Content-Type": "application/json",
       };
-      const parts = url.pathname.split("/").filter(Boolean); // ["cronjobs"] or ["cronjobs", id] or ["cronjobs", id, "runs"] or ["cronjobs", id, "runs", runId]
+      const parts = url.pathname.split("/").filter(Boolean); // ["cronjobs"] or ["cronjobs", id] or ["cronjobs", id, "runs"] or ["cronjobs", id, "runs", runId, ...]
+      // POST /cronjobs/:jobId/runs/:runId/read-file — copy a file into the
+      // run's files dir and emit a `file-view` log entry so the run's
+      // transcript renders it inline (images) or as a clickable file chip.
+      // Body: { path }.
+      if (
+        req.method === "POST" &&
+        parts.length === 5 &&
+        parts[2] === "runs" &&
+        parts[4] === "read-file"
+      ) {
+        const jobId = parts[1];
+        const runId = parts[3];
+        let path: string | undefined;
+        try {
+          const body = (await req.json()) as Record<string, unknown> | null;
+          if (body && typeof body.path === "string") path = body.path;
+        } catch {}
+        if (!path) {
+          return new Response(JSON.stringify({ error: "missing path" }), {
+            status: 400,
+            headers: corsHeaders,
+          });
+        }
+        const result = CronjobManager.emitCronjobRunReadFile(
+          jobId,
+          runId,
+          path,
+        );
+        if (!result.ok)
+          return new Response(JSON.stringify({ error: result.error }), {
+            status: result.status,
+            headers: corsHeaders,
+          });
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: corsHeaders,
+        });
+      }
       if (req.method !== "GET") {
         return new Response(JSON.stringify({ error: "method not allowed" }), {
           status: 405,

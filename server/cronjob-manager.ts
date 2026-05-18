@@ -41,7 +41,15 @@ import {
 } from "./cwd-utils.ts";
 import { formatPrefix } from "../shared/identity.ts";
 import { errMessage } from "../shared/errors.ts";
-import { loadOfficeConfig, type PersistedUsage } from "./persistence.ts";
+import {
+  loadOfficeConfig,
+  saveFile as savePersistedFile,
+  type PersistedUsage,
+} from "./persistence.ts";
+import { resolveEditorPath } from "./file-editor.ts";
+import { mimeTypeForFilename } from "./mime-types.ts";
+import { existsSync, statSync, readFileSync } from "fs";
+import { basename } from "path";
 import { getBackend } from "./backends/index.ts";
 import type {
   BackendSession,
@@ -415,13 +423,19 @@ export function getRunTranscript(
 // System prompt for cronjobs
 // ---------------------------------------------------------------------------
 
-export function buildCronjobSystemPrompt(cronjob: Cronjob): string {
+export function buildCronjobSystemPrompt(
+  cronjob: Cronjob,
+  runId?: string,
+): string {
   const officeConfig = loadOfficeConfig();
   // humanizeSchedule produces sentence-case ("Daily at 09:00"); lowercase the
   // first letter so it reads as a sentence fragment ("You run daily at 09:00").
   // Only the first letter — keeps weekday abbreviations like "Mon" capitalized.
   const human = humanizeSchedule(cronjob.schedule);
   const scheduleDescription = human.charAt(0).toLowerCase() + human.slice(1);
+  // Inspection (no live runId) renders the URL with a `<runId>` placeholder
+  // so the boss can see the template; the spawn/resume paths pass the real id.
+  const runIdForUrl = runId ?? "<runId>";
 
   let prompt = `You are "${cronjob.name}", a scheduled cron job in the Isomux office. You run ${scheduleDescription}.
 
@@ -436,7 +450,8 @@ How to use the task board (localhost:4000/tasks): only touch it if your prompt d
     -d '{"title":"...","createdBy":"${cronjob.name}"}'                  # create
   curl -s -X POST localhost:4000/tasks/ID/done -d '{}'                  # mark done
 
-How to show an image: read the image file with the Read tool — it renders inline in the conversation.
+How to surface a file in the run transcript (images render inline; other files render as a clickable file chip): call POST localhost:4000/cronjobs/${cronjob.id}/runs/${runIdForUrl}/read-file with body {"path":"..."}. The path can be relative to your cwd, absolute, or \`~/...\`. Use this when you've produced or want to surface a file (a plot, screenshot, generated PDF, log snippet) for whoever reviews the run.
+  curl -s -X POST localhost:4000/cronjobs/${cronjob.id}/runs/${runIdForUrl}/read-file -H 'Content-Type: application/json' -d '{"path":"plot.png"}'
 
 How to inspect cronjobs (~/.isomux/cronjobs/): cronjobs are scheduled SDK sessions, not agents — they fire daily/weekly/at an interval, run a fresh session with a configured prompt, and save the transcript as a "run". They have no desk or persistent identity. Only touch them when the boss asks.
   ~/.isomux/cronjobs/cronjobs.json                              # all cronjob configs
@@ -823,7 +838,7 @@ function fire(
     return run;
   }
 
-  const systemPrompt = buildCronjobSystemPrompt(job);
+  const systemPrompt = buildCronjobSystemPrompt(job, runId);
   // Resolve env up-front so a broken env file surfaces as a "Failed to create
   // session" run row instead of a stream-time error. Falls back to
   // process.env when no env file is configured for the cronjob owner.
@@ -992,6 +1007,87 @@ export function runCronjobNow(id: string, username: string): CronjobRun | null {
 }
 
 // ---------------------------------------------------------------------------
+// File display — cronjob equivalent of POST /agents/:id/read-file
+// ---------------------------------------------------------------------------
+
+// Display cap mirrors agent-manager's MAX_READ_FILE_BYTES. Files larger than
+// this surface a system note instead of being copied — the inline-display path
+// is for plots / screenshots / logs, not arbitrary blobs.
+const MAX_RUN_READ_FILE_BYTES = 20 * 1024 * 1024;
+
+// Resolve a path against the run's cwdSnapshot, copy it into the run's files
+// dir (hash-deduped via saveFile, namespaced by the synthetic cronrun-<runId>
+// stream id), and emit a `file-view` log entry so the run transcript renders
+// the attachment inline. Cronjob counterpart of emitAgentReadFile — cronjobs
+// don't live in the agents Map, so they need their own lookup path. Only
+// active runs qualify: the entry has to land on a live stream so a reviewer
+// sees it in context.
+export function emitCronjobRunReadFile(
+  jobId: string,
+  runId: string,
+  rawPath: string,
+): { ok: true } | { ok: false; status: number; error: string } {
+  const active = activeRuns.get(runId);
+  if (!active || active.jobId !== jobId) {
+    return { ok: false, status: 404, error: "active run not found" };
+  }
+  const run = findRun(jobId, runId);
+  if (!run) return { ok: false, status: 404, error: "run not found" };
+  const resolved = resolveEditorPath(rawPath, run.cwdSnapshot);
+  if (resolved.kind === "bad_path") {
+    return { ok: false, status: 400, error: "missing or empty path" };
+  }
+  const absPath = resolved.path;
+  if (!existsSync(absPath)) {
+    writeLog(active, "system", `\`${absPath}\` does not exist.`);
+    return { ok: true };
+  }
+  let st;
+  try {
+    st = statSync(absPath);
+  } catch (err) {
+    writeLog(
+      active,
+      "system",
+      `Failed to read \`${absPath}\`: ${errMessage(err)}`,
+    );
+    return { ok: true };
+  }
+  if (!st.isFile()) {
+    writeLog(active, "system", `\`${absPath}\` is not a file.`);
+    return { ok: true };
+  }
+  if (st.size > MAX_RUN_READ_FILE_BYTES) {
+    writeLog(
+      active,
+      "system",
+      `\`${absPath}\` is ${(st.size / (1024 * 1024)).toFixed(1)} MB — too large to display (${MAX_RUN_READ_FILE_BYTES / (1024 * 1024)} MB limit).`,
+    );
+    return { ok: true };
+  }
+  let data: Buffer;
+  try {
+    data = readFileSync(absPath);
+  } catch (err) {
+    writeLog(
+      active,
+      "system",
+      `Failed to read \`${absPath}\`: ${errMessage(err)}`,
+    );
+    return { ok: true };
+  }
+  const originalName = basename(absPath);
+  const mediaType = mimeTypeForFilename(originalName);
+  const att = savePersistedFile(active.streamId, data, mediaType, originalName);
+  if (!att) {
+    writeLog(active, "system", `Failed to save \`${absPath}\` for display.`);
+    return { ok: true };
+  }
+  writeLog(active, "file-view", originalName, undefined, [att]);
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
 // Resume / edit-to-fork — follow-up turns into a finalized run
 // ---------------------------------------------------------------------------
 
@@ -1033,7 +1129,7 @@ function buildRunSessionOptions(
 ): CreateSessionOptions {
   rollRunSessionUsageOnResume(run.cronjobId, run.id, resumeSessionId);
   const job = cronjobs.find((c) => c.id === run.cronjobId);
-  const systemPrompt = job ? buildCronjobSystemPrompt(job) : "";
+  const systemPrompt = job ? buildCronjobSystemPrompt(job, run.id) : "";
   const env = buildEnvForUserId(job?.userId ?? null);
   return {
     agentId: cronjobRunStreamId(run.id),
