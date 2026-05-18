@@ -921,8 +921,8 @@ function RoleBadge({ role }: { role: "owner" | "member" }) {
       }}
       title={
         isOwner
-          ? "Owner — can mint invites and revoke sessions"
-          : "Member — full office access, can't mint invites"
+          ? "Owner — can invite users, revoke sessions, and set per-user room access"
+          : "Member — can act in rooms the owner allowed; can't invite or revoke"
       }
     >
       {role}

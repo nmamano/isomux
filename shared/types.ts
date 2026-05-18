@@ -579,7 +579,7 @@ export interface UserRecord {
   notifRooms: NotifRoomsSetting;
   envFile: string | null; // absolute path to dotenv file
   createdAt: number;
-  role: UserRole; // app-level role; owner can mint invites and revoke sessions
+  role: UserRole; // app-level role; owner can invite users, revoke sessions, and set per-user room access
   // Rooms this user can see and act in — strict string[] of roomIds.
   // The literal list IS the access control: server filters reads and
   // rejects writes for any room not in this array. No "all" sentinel.
