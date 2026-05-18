@@ -1,5 +1,5 @@
 ---
-name: isomux-review
+name: isomux-subagent-review
 description: Review uncommitted changes by spawning a subagent to look for bugs and assess if the approach is principled or hacky. Use before committing to get a code review.
 ---
 

@@ -189,7 +189,7 @@ export interface QueuedMessage {
     | { kind: "agent"; agentId: string; agentName: string; roomName: string };
   text: string; // what we show in chat (raw user input)
   // What we send to the SDK in place of `text`. Set when the queued item is a
-  // pre-expanded slash command (e.g. /isomux-review → full skill prompt).
+  // pre-expanded slash command (e.g. /isomux-subagent-review → full skill prompt).
   // Stays undefined for plain user messages.
   sdkText?: string;
   // True when the message landed while the agent was busy (thinking /

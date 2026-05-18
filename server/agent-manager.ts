@@ -2541,8 +2541,8 @@ async function flushQueue(agentId: string): Promise<void> {
       );
     }
     for (const m of items) {
-      // sdkText is set for pre-expanded slash commands (e.g. an /isomux-review
-      // queued while the agent was mid-turn): chat shows m.text "/isomux-review",
+      // sdkText is set for pre-expanded slash commands (e.g. an /isomux-subagent-review
+      // queued while the agent was mid-turn): chat shows m.text "/isomux-subagent-review",
       // but the SDK needs the full skill prompt.
       promptParts.push(`${senderPrefixText(m.sender)}${m.sdkText ?? m.text}`);
       if (m.attachments) allAttachments.push(...m.attachments);
