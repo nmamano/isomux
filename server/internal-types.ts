@@ -54,6 +54,7 @@ export interface ManagedAgent {
     sessionId: string;
     lastModified: number;
     topic: string | null;
+    topicMessageCount: number;
   }[];
   // /model two-step state
   pendingModelPick: boolean;

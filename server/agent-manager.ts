@@ -790,6 +790,14 @@ export async function restoreAgents() {
           resumeSessionId = p.lastSessionId;
         }
       }
+      // Look up the persisted topicMessageCount baseline for the session
+      // we're about to resume. Combined with a textCount scan of the loaded
+      // history below, this lets us decide whether the persisted topic has
+      // drifted since the topic was last generated.
+      const persistedTopicCount = resumeSessionId
+        ? (listAgentSessions(p.id).find((s) => s.sessionId === resumeSessionId)
+            ?.topicMessageCount ?? 0)
+        : 0;
       const info: AgentInfo = {
         id: p.id,
         name: p.name,
@@ -802,6 +810,10 @@ export async function restoreAgents() {
         effort,
         state: resumeSessionId ? "waiting_for_response" : "idle",
         topic: p.topic ?? null,
+        // Stale-on-load is determined by the textCount scan below (after
+        // logs are loaded into the cache). Default to false here so a clean
+        // restart doesn't flash the ↻ button on agents whose topic is
+        // actually current.
         topicStale: false,
         customInstructions: p.customInstructions ?? null,
         agentType,
@@ -837,7 +849,7 @@ export async function restoreAgents() {
         thinkingStartedAt: 0,
         toolCallTimestamps: new Map(),
         topicGenerating: false,
-        topicMessageCount: 0,
+        topicMessageCount: persistedTopicCount,
         topicGenToken: 0,
         pendingResume: false,
         pendingResumeSessions: [],
@@ -862,6 +874,26 @@ export async function restoreAgents() {
         const history = loadLogWithAncestors(p.id, resumeSessionId);
         if (history.length > 0) {
           logCache.set(p.id, [...history]);
+        }
+        // Detect topic drift against the persisted baseline: if the
+        // replayed history has grown past where the topic was last
+        // generated, flag stale (lights up the ↻ button) and, if past the
+        // refresh threshold, regenerate now so the agent's nametag is
+        // honest the moment the user looks at it. fire-and-forget — the
+        // call only needs logCache, which is populated above.
+        if (info.topic) {
+          const textCount = history.filter(
+            (e) => e.kind === "user_message" || e.kind === "text",
+          ).length;
+          const drift = textCount - persistedTopicCount;
+          if (drift > 0) {
+            // Mutate directly: officeState is fresh from addExistingAgent,
+            // no subscribers are listening yet (broadcast comes later).
+            info.topicStale = true;
+          }
+          if (drift >= TOPIC_REGEN_THRESHOLD) {
+            void generateTopic(p.id);
+          }
         }
       }
 
@@ -1258,6 +1290,29 @@ function emitEphemeralLog(
   emit({ type: "log_entry", entry });
 }
 
+// Auto-regenerate the topic once this many new user_message+text entries have
+// accumulated since the topic was last generated. The goal is catching
+// "the conversation is now about a fundamentally different thing" (the same
+// signal /clear gives explicitly), not chasing every subtle drift — a smaller
+// number would burn Sonnet calls on minor shifts that the original topic
+// still describes well enough. Users who want an earlier refresh have the ↻
+// button in LogView (calls resetTopic, no threshold).
+const TOPIC_REGEN_THRESHOLD = 20;
+
+// True when the conversation has accumulated enough new exchanges since the
+// topic was generated that the topic likely no longer describes what the
+// agent is actually working on. Used by the post-resume / post-restart /
+// long-session triggers; the manual ↻ button uses the looser topicStale
+// signal (any drift at all) via resetTopic directly.
+function shouldAutoRegenerateTopic(managed: ManagedAgent): boolean {
+  if (!managed.info.topicStale) return false;
+  if (managed.info.topic === null || managed.info.topic === "...") return false;
+  const textCount = (logCache.get(managed.info.id) ?? []).filter(
+    (e) => e.kind === "user_message" || e.kind === "text",
+  ).length;
+  return textCount - managed.topicMessageCount >= TOPIC_REGEN_THRESHOLD;
+}
+
 // Generate a short topic description for an agent's conversation
 async function generateTopic(agentId: string) {
   const managed = agents.get(agentId);
@@ -1327,9 +1382,16 @@ async function generateTopic(agentId: string) {
       // officeState.setTopic mutates topic + topicStale, fires persistAll via onChange,
       // and returns the agent_updated event.
       for (const event of officeState.setTopic(agentId, topic)) emit(event);
-      // Persist topic to sessions.json for resume list
+      // Persist topic + the textCount at which it was generated, so that on
+      // resume/restart we can compute drift against the replayed history and
+      // decide whether to auto-refresh.
       if (managed.sessionId) {
-        persistSessionTopic(agentId, managed.sessionId, topic);
+        persistSessionTopic(
+          agentId,
+          managed.sessionId,
+          topic,
+          textEntries.length,
+        );
       }
     }
   } catch (err) {
@@ -2498,7 +2560,10 @@ async function flushQueue(agentId: string): Promise<void> {
       // before its first await — running it earlier (e.g. before the send) on
       // a fresh conversation finds an empty cache and bails out, leaving topic
       // null. Matches the sendMessage path which also logs before triggering.
-      if (managed.info.topic === null && !managed.topicGenerating) {
+      if (
+        (managed.info.topic === null || shouldAutoRegenerateTopic(managed)) &&
+        !managed.topicGenerating
+      ) {
         void generateTopic(agentId);
       }
       const sentIds = new Set(items.map((m) => m.id));
@@ -2662,7 +2727,10 @@ export async function sendMessage(
       attachments,
     );
     beginTurn(agentId, { humanInput: true });
-    if (managed.info.topic === null && !managed.topicGenerating) {
+    if (
+      (managed.info.topic === null || shouldAutoRegenerateTopic(managed)) &&
+      !managed.topicGenerating
+    ) {
       void generateTopic(agentId); // fire-and-forget
     }
   }
@@ -2827,7 +2895,10 @@ export async function sendMessage(
         await replaceSession(agentId, managed, newSession);
         managed.sessionId = picked.sessionId;
         managed.topicGenerating = false;
-        managed.topicMessageCount = 0;
+        // Restore the textCount baseline from sessions.json so drift is
+        // measured against the replayed history, not from zero (otherwise
+        // any first new message after resume trivially trips the threshold).
+        managed.topicMessageCount = picked.topicMessageCount;
         managed.topicGenToken++;
         // Clear and replay resumed session's logs (walks fork ancestry)
         const history = loadLogWithAncestors(agentId, picked.sessionId);
@@ -2839,11 +2910,16 @@ export async function sendMessage(
             emit({ type: "log_entry", entry });
           }
         }
+        const replayedTextCount = history.filter(
+          (e) => e.kind === "user_message" || e.kind === "text",
+        ).length;
+        const drift = replayedTextCount - picked.topicMessageCount;
         // Restore topic — officeState.updateAgent fires persistAll via onChange,
-        // capturing the new sessionId set above.
+        // capturing the new sessionId set above. topicStale reflects whether
+        // the replayed history has moved past the topic's generation point.
         for (const event of officeState.updateAgent(agentId, {
           topic: picked.topic,
-          topicStale: false,
+          topicStale: drift > 0,
         }))
           emit(event);
         emitEphemeralLog(
@@ -2852,7 +2928,15 @@ export async function sendMessage(
           `Resumed session: ${picked.topic || picked.sessionId.slice(0, 8) + "..."}`,
         );
         updateState(agentId, "waiting_for_response");
-        if (!picked.topic) {
+        // Regenerate immediately if there's no topic at all, or if the
+        // resumed conversation has drifted enough since the topic was last
+        // generated. Waiting for the next user_message would let one stale
+        // message through; firing here keeps the resumed agent's topic
+        // honest from the moment the user sees it.
+        if (
+          !picked.topic ||
+          drift >= TOPIC_REGEN_THRESHOLD
+        ) {
           void generateTopic(agentId);
         }
       } catch (err) {
@@ -2990,8 +3074,14 @@ export async function sendMessage(
     );
     beginTurn(agentId, { humanInput: true });
 
-    // Auto-generate topic on first user message in a conversation
-    if (managed.info.topic === null && !managed.topicGenerating) {
+    // First-message bootstrap (topic === null) OR drift-driven refresh after
+    // resume/restart/long session (shouldAutoRegenerateTopic). The threshold
+    // inside the helper keeps cost bounded to ~one regen per
+    // TOPIC_REGEN_THRESHOLD new user/text entries.
+    if (
+      (managed.info.topic === null || shouldAutoRegenerateTopic(managed)) &&
+      !managed.topicGenerating
+    ) {
       void generateTopic(agentId); // fire-and-forget
     }
   }
@@ -3034,7 +3124,12 @@ export async function sendMessage(
 
 function persistCurrentSessionTopic(agentId: string, managed: ManagedAgent) {
   if (managed.sessionId && managed.info.topic && managed.info.topic !== "...") {
-    persistSessionTopic(agentId, managed.sessionId, managed.info.topic);
+    persistSessionTopic(
+      agentId,
+      managed.sessionId,
+      managed.info.topic,
+      managed.topicMessageCount,
+    );
   }
 }
 
@@ -3296,7 +3391,6 @@ export async function resume(agentId: string, sessionId: string) {
     await replaceSession(agentId, managed, newSession);
     managed.sessionId = sessionId;
     managed.topicGenerating = false;
-    managed.topicMessageCount = 0;
     managed.topicGenToken++;
 
     // Clear and replay resumed session's logs (walks fork ancestry for branched sessions)
@@ -3310,14 +3404,20 @@ export async function resume(agentId: string, sessionId: string) {
       }
     }
 
-    // Restore topic from sessions.json — officeState.updateAgent fires
-    // persistAll via onChange, capturing the new sessionId set above.
+    // Restore topic + topicMessageCount baseline from sessions.json so drift
+    // can be measured against the replayed history.
     const sessions = listAgentSessions(agentId);
     const sessionEntry = sessions.find((s) => s.sessionId === sessionId);
     const restoredTopic = sessionEntry?.topic ?? null;
+    const restoredCount = sessionEntry?.topicMessageCount ?? 0;
+    managed.topicMessageCount = restoredCount;
+    const replayedTextCount = history.filter(
+      (e) => e.kind === "user_message" || e.kind === "text",
+    ).length;
+    const drift = replayedTextCount - restoredCount;
     for (const event of officeState.updateAgent(agentId, {
       topic: restoredTopic,
-      topicStale: false,
+      topicStale: drift > 0,
     }))
       emit(event);
 
@@ -3328,8 +3428,10 @@ export async function resume(agentId: string, sessionId: string) {
       `Resumed session: ${restoredTopic || sessionId.slice(0, 8) + "..."}`,
     );
 
-    // If no topic, regenerate from session logs
-    if (!restoredTopic) {
+    // Regenerate now (rather than waiting for the next user_message) if the
+    // topic is missing or the replayed history has drifted past the
+    // refresh threshold — same policy as the /resume two-step flow above.
+    if (!restoredTopic || drift >= TOPIC_REGEN_THRESHOLD) {
       void generateTopic(agentId);
     }
   } catch (err) {
@@ -3563,12 +3665,24 @@ export async function editMessage(
       const parentBase = targetIsFirstUserMessage
         ? undefined
         : findUsageAtFork(agentId, forkFromSessionId, logEntryId);
+      // Count the parent's user/text entries up to the fork point — that's
+      // the baseline for measuring drift on the new branch. Persisting it
+      // alongside the inherited topic lets a later /resume of this fork
+      // correctly recognize that the topic is in sync (or not).
+      let parentTopicMessageCount = 0;
+      for (const entry of oldLogCache) {
+        if (entry.id === logEntryId) break;
+        if (entry.kind === "user_message" || entry.kind === "text") {
+          parentTopicMessageCount++;
+        }
+      }
       persistSessionFork(
         agentId,
         newSessionId,
         forkFromSessionId,
         logEntryId,
         oldTopic,
+        parentTopicMessageCount,
         parentBase,
       );
     }
@@ -3583,17 +3697,23 @@ export async function editMessage(
     // For forks, set it now.
     managed.sessionId = isFreshSession ? null : newSessionId;
     managed.topicGenerating = false;
-    managed.topicMessageCount = 0;
-    managed.topicGenToken++;
-
-    // --- Phase 2: UI/cache mutations (point of no return) ---
-
-    // 5. Build parent entries (everything before the edited message)
+    // Build parentEntries up front so we can both seed managed.topicMessageCount
+    // and replay them into logCache below from the same computation.
     const parentEntries: LogEntry[] = [];
     for (const entry of oldLogCache) {
       if (entry.id === logEntryId) break;
       parentEntries.push(entry);
     }
+    // Anchor drift detection to the parent's text count at the fork point.
+    // Zeroing here (as the previous code did) would trip the regen threshold
+    // on the very first new exchange in the fork — defeating the threshold's
+    // debounce. Match what's persisted alongside the inherited topic above.
+    managed.topicMessageCount = parentEntries.filter(
+      (e) => e.kind === "user_message" || e.kind === "text",
+    ).length;
+    managed.topicGenToken++;
+
+    // --- Phase 2: UI/cache mutations (point of no return) ---
 
     // 6. Clear UI and replay parent entries (not persisted — ancestors are loaded
     //    via loadLogWithAncestors on resume, avoiding log duplication on disk)
@@ -3613,7 +3733,10 @@ export async function editMessage(
       `Branched from: ${oldTopic || oldSessionId.slice(0, 8) + "..."}`,
     );
 
-    // 8. Inherit topic (marked stale so it regenerates after first exchange)
+    // 8. Inherit parent's topic, marked stale. The drift-aware trigger in
+    //    the next user_message path will regenerate it once the fork has
+    //    accumulated TOPIC_REGEN_THRESHOLD new user/text entries; the ↻
+    //    button is enabled immediately for users who want it sooner.
     for (const event of officeState.updateAgent(agentId, {
       topic: oldTopic,
       topicStale: true,
@@ -3712,9 +3835,15 @@ export function setTopic(agentId: string, topic: string) {
     (e) => e.kind === "user_message" || e.kind === "text",
   ).length;
   managed.topicMessageCount = textCount;
-  // Persist to sessions.json so resume list shows the manual topic
+  // Persist to sessions.json so resume list shows the manual topic; the
+  // count anchors future drift detection to the moment the user signed off.
   if (managed.sessionId) {
-    persistSessionTopic(agentId, managed.sessionId, managed.info.topic);
+    persistSessionTopic(
+      agentId,
+      managed.sessionId,
+      managed.info.topic,
+      textCount,
+    );
   }
   updateManifest();
 }
