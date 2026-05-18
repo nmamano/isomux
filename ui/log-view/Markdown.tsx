@@ -95,8 +95,9 @@ marked.use({
           source: match[1],
         };
       },
-      renderer(token: { source?: string }) {
-        return `<div class="mermaid">${escapeHtml(token.source ?? "")}</div>\n`;
+      renderer(token) {
+        const source = (token as { source?: string }).source ?? "";
+        return `<div class="mermaid">${escapeHtml(source)}</div>\n`;
       },
     },
   ],
