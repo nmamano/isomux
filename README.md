@@ -16,7 +16,7 @@ Free · open source · no cloud · no account
 - **Multi-provider**: mix Claude agents and [Codex](https://github.com/openai/codex) agents in the same office
 - Works locally (run the server on localhost:4000, access it through your browser) or as a **self-hosted persistent server**:
   - Run at home, access **from any device** (see [how](docs/access-and-invites.md))
-  - **Invite-link access** for people you don't want to put on your VPN: owner mints a URL, sends it out-of-band, the invitee clicks and is signed in (see [`docs/access-and-invites.md`](docs/access-and-invites.md))
+  - **Invite-link access**: owner mints a URL per device, sends it out-of-band, the invitee clicks and is signed in. No accounts, no passwords (see [`docs/access-and-invites.md`](docs/access-and-invites.md))
   - No syncing headaches: same conversations, same filesystem, every device updates **in real time**
   - [**Conversation-level collaboration**](https://x.com/Nil053/status/2050141843741081928): anyone you've invited can chime in
 - Visual office metaphor: see what every agent is doing at a glance
@@ -75,7 +75,7 @@ bun run dev
 
 Visit **http://localhost:4000** in your browser. The first time you start the server, no owner exists yet, so the server prints a one-time bootstrap invite URL to stdout — open it in your browser, pick a display name, and you're in. Click an empty desk to spawn your first agent.
 
-To invite other people (so they can use the office without joining your VPN), open `User Settings` → `Access` and issue invite URLs from there. Full details in [`docs/access-and-invites.md`](docs/access-and-invites.md).
+To let other people use the office, open `User Settings` → `Access` and issue invite URLs from there. Full details in [`docs/access-and-invites.md`](docs/access-and-invites.md).
 
 To expose the office to the public internet so invite links work from anywhere (without buying a domain or opening router ports), paste the Tailscale Funnel agent prompt from [`docs/access-and-invites.md`](docs/access-and-invites.md#recommended-tailscale-funnel) into one of your agents. Cloudflare Tunnel and Caddy alternatives are documented in the same file.
 
