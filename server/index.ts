@@ -1671,6 +1671,14 @@ async function dispatchCommand(
       if (anyUpdate) {
         broadcast({ type: "users_list", users: listUsers() });
       }
+      // Live-avatars: rebroadcast presence so any newly-room-granted
+      // user (creator, owners) sees ghosts in the correct dense room
+      // index. New rooms are appended to the global rooms array, so
+      // existing dense indices don't shift for users who DIDN'T get
+      // access — but the call is cheap and keeps the invariant
+      // (room mutations rebroadcast presence) consistent across all
+      // three room handlers.
+      pushPresenceListToEachWs();
       break;
     }
     case "close_room": {
@@ -1706,6 +1714,17 @@ async function dispatchCommand(
         if (touched) {
           broadcast({ type: "users_list", users: listUsers() });
         }
+        // Live-avatars: closing a room shifts dense room indices for
+        // every user whose allowedRooms covered it (the now-gone room
+        // collapses out of their visible projection). Cached
+        // PresenceInfo.currentRoom values on clients become stale —
+        // ghosts would render in the wrong room or disappear until
+        // an unrelated presence broadcast happens. Rebroadcast forces
+        // each recipient to re-receive the dense-index remap. Orphan
+        // presence entries whose currentRoomId pointed at the closed
+        // room are dropped naturally by buildPresenceListFor (the
+        // roomId no longer resolves) on this same broadcast.
+        pushPresenceListToEachWs();
       }
       break;
     }
@@ -1728,6 +1747,12 @@ async function dispatchCommand(
       // global list. sessionHasFullRoomAccess encodes that test.
       if (!sessionHasFullRoomAccess(session)) break;
       AgentManager.reorderRooms(cmd.order);
+      // Live-avatars: reorder remaps every dense room index, so
+      // cached PresenceInfo.currentRoom values on every client are
+      // immediately stale. Rebroadcast so clients re-render ghosts
+      // at the right room indices without waiting for any unrelated
+      // presence event.
+      pushPresenceListToEachWs();
       break;
     case "edit_message":
       if (!agentVisibleForSession(session, cmd.agentId)) break;
