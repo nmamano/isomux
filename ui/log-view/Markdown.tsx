@@ -1,4 +1,4 @@
-import { useMemo, useCallback } from "react";
+import { useMemo, useCallback, useEffect, useRef } from "react";
 import { Marked } from "marked";
 import { markedHighlight } from "marked-highlight";
 import hljs from "highlight.js/lib/core";
@@ -68,6 +68,63 @@ renderer.link = ({ href, title, text }) => {
 };
 marked.use({ renderer });
 
+// Capture ```mermaid fenced blocks before the default fenced-code tokenizer.
+// Emits a <div class="mermaid"> whose textContent is the diagram source;
+// the React effect below lazy-loads mermaid and replaces each div with the
+// rendered SVG. Escaping is required because the source can contain HTML
+// metacharacters (e.g. <, >) that would otherwise break the wrapper.
+const escapeHtml = (s: string) =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+marked.use({
+  extensions: [
+    {
+      name: "mermaidBlock",
+      level: "block",
+      start(src: string) {
+        const idx = src.indexOf("```mermaid");
+        return idx >= 0 ? idx : undefined;
+      },
+      tokenizer(src: string) {
+        const match = /^```mermaid[ \t]*\n([\s\S]*?)\n```(?:[ \t]*(?:\n|$))/.exec(
+          src,
+        );
+        if (!match) return undefined;
+        return {
+          type: "mermaidBlock",
+          raw: match[0],
+          source: match[1],
+        };
+      },
+      renderer(token: { source?: string }) {
+        return `<div class="mermaid">${escapeHtml(token.source ?? "")}</div>\n`;
+      },
+    },
+  ],
+});
+
+// Lazy singleton: mermaid is ~1MB minified, so we only fetch it the first
+// time a message containing a mermaid block reaches the renderer.
+let mermaidPromise: Promise<typeof import("mermaid").default> | null = null;
+function getMermaid() {
+  if (!mermaidPromise) {
+    mermaidPromise = import("mermaid").then((mod) => {
+      const m = mod.default;
+      const mode =
+        document.documentElement.getAttribute("data-theme-mode") === "dark"
+          ? "dark"
+          : "default";
+      m.initialize({
+        startOnLoad: false,
+        theme: mode,
+        securityLevel: "strict",
+        fontFamily: "DM Sans, sans-serif",
+      });
+      return m;
+    });
+  }
+  return mermaidPromise;
+}
+
 const COPY_SVG = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5V3.5a1.5 1.5 0 0 0-1.5-1.5H3.5A1.5 1.5 0 0 0 2 3.5V9a1.5 1.5 0 0 0 1.5 1.5h2"/></svg>`;
 const CHECK_SVG = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3.5 8.5 6.5 11.5 12.5 4.5"/></svg>`;
 const COPY_BTN_HTML = `<button class="copy-btn code-copy-btn" title="Copy">${COPY_SVG}</button>`;
@@ -124,8 +181,35 @@ export function Markdown({ content }: { content: string }) {
     }, 1500);
   }, []);
 
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // After every render, find any unprocessed mermaid blocks and hand them to
+  // the lazy-loaded mermaid library. mermaid.run() marks each node with
+  // data-processed="true" so the selector naturally skips re-rendered ones.
+  useEffect(() => {
+    const root = containerRef.current;
+    if (!root) return;
+    const nodes = root.querySelectorAll<HTMLElement>(
+      ".mermaid:not([data-processed])",
+    );
+    if (nodes.length === 0) return;
+    let cancelled = false;
+    void getMermaid().then(async (m) => {
+      if (cancelled) return;
+      try {
+        await m.run({ nodes: Array.from(nodes) });
+      } catch {
+        // mermaid.run() renders errors inline on the failing node; no need to log.
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [html]);
+
   return (
     <div
+      ref={containerRef}
       className="md-content"
       onClick={(e) => void onClick(e)}
       dangerouslySetInnerHTML={{ __html: html }}

@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Build main app
-bun build ui/index.tsx --outdir ui/dist --production
+# Build main app. --splitting enables code splitting so dynamic imports (e.g.
+# the mermaid renderer loaded only when a chat message contains a mermaid
+# block) are pulled into separate chunks instead of being inlined into the
+# main bundle.
+bun build ui/index.tsx --outdir ui/dist --production --splitting
 cp ui/index.html ui/dist/index.html
 cp node_modules/@xterm/xterm/css/xterm.css ui/dist/xterm.css
 cp node_modules/diff2html/bundles/css/diff2html.min.css ui/dist/diff2html.css
