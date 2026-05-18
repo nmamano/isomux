@@ -61,10 +61,11 @@ interface GhostPlacement {
 // Compute pixel placements for every ghost that should render in the
 // current room. Returns deterministic order (driven by the sorted
 // presences array, which the server sorts by connectionId). The
-// recipient's "self in LogView" filter is applied here so the boss
-// doesn't see their own ghost overlaying the agent they're chatting
-// with — OTHER tabs/devices of the same user remain visible (the
-// connectionId is per-WS, not per-cookie).
+// recipient's own ghost is filtered out entirely — a boss never sees
+// their own avatar (only other devices / other users render). If the
+// boss is the only device connected to themselves, no ghost renders;
+// other tabs/devices of the same user appear as their own ghosts via
+// their own connectionId.
 function computeGhostPlacements(
   presences: PresenceInfo[],
   roomAgents: AgentInfo[],
@@ -75,7 +76,7 @@ function computeGhostPlacements(
   const groups = new Map<string, PresenceInfo[]>();
   for (const p of presences) {
     if (p.currentRoom !== currentRoom) continue;
-    if (p.connectionId === ownConnectionId && p.viewMode === "log") continue;
+    if (p.connectionId === ownConnectionId) continue;
     const agent =
       p.focusedAgentId !== null
         ? roomAgents.find((a) => a.id === p.focusedAgentId)
@@ -742,6 +743,7 @@ export function OfficeView({
                 variant={p.presence.avatarVariant}
                 color={p.presence.avatarColor}
                 username={p.presence.username}
+                device={p.presence.device}
                 userId={p.presence.userId}
                 dimmed={p.dimmed}
                 onClick={onOpenUserSettingsForUser}

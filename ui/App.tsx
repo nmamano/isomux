@@ -15,7 +15,7 @@ import { CronjobsView } from "./components/CronjobsView.tsx";
 import { UpdateModal } from "./components/UpdateModal.tsx";
 import { ConnectionBanner } from "./components/ConnectionBanner.tsx";
 import { CSS } from "./styles.ts";
-import { getUsername } from "./device-settings.ts";
+import { getUsername, getDevice } from "./device-settings.ts";
 import type { AgentBackendType, AgentInfo } from "../shared/types.ts";
 import { EngineChooserDialog } from "./components/EngineChooserDialog.tsx";
 
@@ -186,6 +186,11 @@ export function App() {
       currentRoom: presenceRoom,
       focusedAgentId,
       viewMode,
+      // Read device inline rather than as a dep so we don't need to
+      // wire a localStorage-change subscription. Device-label edits
+      // happen in DeviceSettings, whose close transitions viewMode
+      // and refires this effect with the fresh value.
+      device: getDevice(),
     });
   }, [
     sessionContext,

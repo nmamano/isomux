@@ -20,8 +20,11 @@ export const CSS = `
   @keyframes mic-pulse { 0%,100%{box-shadow:0 0 0 0 rgba(255,50,50,0.4)} 50%{box-shadow:0 0 0 6px rgba(255,50,50,0)} }
   /* Live-avatars: ghost fade-in on connect / room change / scene mount.
      Disconnect uses CSS opacity transitions in the Ghost component
-     itself; this keyframe only handles the appear path. */
-  @keyframes ghostFadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
+     itself; this keyframe only handles the appear path. Opacity only —
+     a translate here would clobber the name-tag's inline
+     transform: translateX(-50%) centering for the 300ms of the
+     animation, briefly shifting the tag by half its width. */
+  @keyframes ghostFadeIn { from{opacity:0} to{opacity:1} }
 
 ${emitThemesCss()}
 

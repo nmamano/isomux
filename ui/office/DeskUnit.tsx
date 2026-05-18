@@ -114,6 +114,7 @@ export function DeskUnit({
   const z = (pos.row * 2 + pos.col + 1) * 10;
 
   return (
+    <>
     <div
       ref={containerRef}
       draggable
@@ -186,18 +187,25 @@ export function DeskUnit({
           modelFamily={agent.modelFamily}
         />
       </div>
+    </div>
 
-      {/* Floating nametag — outer div handles positioning, inner handles animation */}
+      {/* Floating nametag — hoisted out of the DeskUnit container to a
+          scene-level sibling at high z so it always renders above
+          floating ghost avatars (live-avatars feature). Position is
+          computed from the desk's pixel coords; the per-desk z bump
+          (z + 10000) preserves the front-vs-back isometric ordering
+          between nametags themselves when two desks' chips overlap. */}
       <div
         style={{
           position: "absolute",
-          top: agent.topic ? -58 : -48,
-          left: "50%",
+          top: pxTop + (agent.topic ? -58 : -48),
+          left: pxLeft + 90,
           transform: "translateX(-50%)",
-          zIndex: 100,
+          zIndex: z + 10000,
           display: "flex",
           flexDirection: "column",
           alignItems: "center",
+          pointerEvents: "none",
         }}
       >
         <div
@@ -267,6 +275,6 @@ export function DeskUnit({
           </div>
         )}
       </div>
-    </div>
+    </>
   );
 }

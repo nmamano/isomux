@@ -25,6 +25,9 @@ export interface PresenceState {
   connectionId: string;
   userId: string;
   username: string;
+  // Per-device label sent by the client (DeviceSettings localStorage).
+  // Null when the device hasn't named itself yet.
+  device: string | null;
   avatarColor: string;
   avatarVariant: GhostVariant;
   // GLOBAL room id (not a dense visible index). Per-recipient broadcast
@@ -50,6 +53,7 @@ export function setPresence(state: PresenceState): boolean {
   if (!existing) return true;
   return (
     existing.username !== state.username ||
+    existing.device !== state.device ||
     existing.avatarColor !== state.avatarColor ||
     existing.avatarVariant !== state.avatarVariant ||
     existing.currentRoomId !== state.currentRoomId ||

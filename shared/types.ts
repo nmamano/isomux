@@ -668,6 +668,11 @@ export interface PresenceInfo {
   // their display name has just changed.
   userId: string;
   username: string;
+  // Per-device label set in DeviceSettings (e.g. "Phone", "Laptop").
+  // Surfaced on the name-tag chip so other bosses can tell which of
+  // a user's devices the ghost belongs to. null when the device hasn't
+  // picked a label — the chip falls back to just the username.
+  device: string | null;
   avatarColor: string;
   avatarVariant: GhostVariant;
   // Dense visible room index for the recipient (server rewrites this on
@@ -1150,6 +1155,10 @@ export type ClientCommand =
       currentRoom: number | null;
       focusedAgentId: string | null;
       viewMode: "office" | "log" | "away";
+      // Client-supplied device label (from localStorage isomux-device).
+      // Optional on the wire so a tab that hasn't named its device
+      // sends an undefined / empty payload; server stores null.
+      device?: string | null;
     }
   | { type: "ping" };
 

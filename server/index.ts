@@ -367,6 +367,7 @@ function buildPresenceListFor(session: SessionLookup): PresenceInfo[] {
       connectionId: p.connectionId,
       userId: p.userId,
       username: p.username,
+      device: p.device,
       avatarColor: p.avatarColor,
       avatarVariant: p.avatarVariant,
       currentRoom: visibleIdx,
@@ -870,10 +871,18 @@ async function dispatchCommand(
         cmd.viewMode === "log" || cmd.viewMode === "away"
           ? cmd.viewMode
           : "office";
+      // Device label is client-supplied; trim and treat empty as null
+      // so a device that hasn't named itself doesn't add "()" noise to
+      // the name-tag chip.
+      const device =
+        typeof cmd.device === "string" && cmd.device.trim()
+          ? cmd.device.trim().slice(0, 24)
+          : null;
       const changed = setPresence({
         connectionId: ws.data.connectionId,
         userId: session.userId,
         username: user.name,
+        device,
         avatarColor: user.avatarColor,
         avatarVariant: user.avatarVariant,
         currentRoomId: roomId,

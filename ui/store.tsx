@@ -119,9 +119,11 @@ export interface AppState {
   // and sorted by connectionId. The client renders one Ghost per entry
   // whose currentRoom matches state.currentRoom (rooms render
   // independently). Self entry (matching state.sessionContext.
-  // connectionId, which is per-WS not per-cookie) is hidden client-
-  // side when viewing LogView — the server still sends it so OTHER
-  // tabs/devices of the same user remain visible as their own ghosts.
+  // connectionId, per-WS not per-cookie) is hidden client-side
+  // unconditionally — the boss never sees their own avatar. The
+  // server still sends it so OTHER tabs/devices of the same user
+  // remain visible as their own ghosts (each with its own
+  // connectionId).
   presences: PresenceInfo[];
 }
 
