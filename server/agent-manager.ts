@@ -3007,11 +3007,16 @@ export async function sendMessage(
     if (err instanceof SessionSwappedError) return;
     if (err instanceof BackendNotConfiguredError) {
       // Backend isn't usable (CLI missing, auth missing, etc.). The message
-      // is already user-actionable — surface verbatim as a system entry.
-      // State goes to waiting_for_response (not idle) so the desk shows the
-      // awake/waving pose; idle would render as closed-eyes "sleeping" and
-      // make it look like the send did nothing.
-      addLogEntry(agentId, "system", err.message);
+      // is already user-actionable — surface verbatim as a system entry,
+      // plus an adjacent terminal-command card when the error carries a
+      // companion install/login command. State goes to waiting_for_response
+      // (not idle) so the desk shows the awake/waving pose; idle would
+      // render as closed-eyes "sleeping" and make it look like the send
+      // did nothing.
+      emitLoginInstructions(agentId, {
+        text: err.message,
+        command: err.command,
+      });
       updateState(agentId, "waiting_for_response");
       return;
     }
@@ -3677,10 +3682,14 @@ export async function editMessage(
     if (err instanceof BackendNotConfiguredError) {
       // Rollback above already restored the pre-edit state; surface the
       // setup-required message calmly so the desk doesn't go red over a
-      // misconfigured backend. waiting_for_response (not idle) so the desk
-      // shows awake/waving — the agent produced output and is waiting for
-      // the user to act on it.
-      addLogEntry(agentId, "system", err.message);
+      // misconfigured backend. Plus an adjacent terminal-command card when
+      // the error carries a companion install/login command.
+      // waiting_for_response (not idle) so the desk shows awake/waving —
+      // the agent produced output and is waiting for the user to act on it.
+      emitLoginInstructions(agentId, {
+        text: err.message,
+        command: err.command,
+      });
       updateState(agentId, "waiting_for_response");
       return;
     }
