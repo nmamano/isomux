@@ -1337,12 +1337,23 @@ async function generateTopic(agentId: string) {
   // LLM call, the token will have changed and we drop the stale result.
   const startToken = managed.topicGenToken;
 
-  // Build context: first user message + last 5 text entries
+  // Build context: first user message + last 5 user messages.
+  // textEntries (user + text) is still the drift-counting source — it
+  // measures how far the conversation has moved since the last regen — but
+  // the labeller itself only sees user messages. Assistant text in the
+  // prompt biases the model toward whatever the agent happened to quote /
+  // paste from files, which produces confidently-wrong labels rooted in
+  // incidental content (e.g. a labeller fed a file-read snippet describing
+  // mermaid will label the conversation "mermaid" even if the user never
+  // asked about mermaid). Restricting to user messages anchors the label
+  // to what the user actually said. Each message is capped at 1000 chars
+  // so a single long bug report doesn't crowd out the rest.
   const logs = logCache.get(agentId) ?? [];
   const textEntries = logs.filter(
     (e) => e.kind === "user_message" || e.kind === "text",
   );
-  const firstUserMsg = textEntries.find((e) => e.kind === "user_message");
+  const userEntries = logs.filter((e) => e.kind === "user_message");
+  const firstUserMsg = userEntries[0];
   if (!firstUserMsg) {
     managed.topicGenerating = false;
     for (const event of officeState.updateAgent(agentId, { topic: null }))
@@ -1350,21 +1361,17 @@ async function generateTopic(agentId: string) {
     return;
   }
 
-  const lastFive = textEntries.slice(-5);
+  const CAP = 1000;
+  const lastFive = userEntries.slice(-5);
   let context: string;
-  if (textEntries.length <= 1) {
-    context = `User message: ${firstUserMsg.content}`;
+  if (userEntries.length <= 1) {
+    context = `User message: ${firstUserMsg.content.slice(0, CAP)}`;
   } else {
     // Deduplicate if first message is already in lastFive
     const recent = lastFive.filter((e) => e.id !== firstUserMsg.id);
     context =
-      `First message: ${firstUserMsg.content}\n\nRecent conversation:\n` +
-      recent
-        .map(
-          (e) =>
-            `${e.kind === "user_message" ? "User" : "Assistant"}: ${e.content.slice(0, 200)}`,
-        )
-        .join("\n");
+      `First message: ${firstUserMsg.content.slice(0, CAP)}\n\nRecent messages:\n` +
+      recent.map((e) => `User: ${e.content.slice(0, CAP)}`).join("\n");
   }
 
   // System framing matters: without it, Sonnet occasionally roleplayed as the
