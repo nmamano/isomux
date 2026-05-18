@@ -1,9 +1,83 @@
 import { join } from "path";
 import { homedir, userInfo } from "os";
+import { accessSync, constants as fsConstants } from "fs";
+import { spawnSync } from "child_process";
 import type { ManagedAgent } from "./internal-types.ts";
 
 const PTY_SIDECAR_PATH = join(import.meta.dir, "pty-sidecar.cjs");
 const MAX_PTY_BUFFER = 100_000;
+
+// Resolve an absolute path to a REAL Node.js binary for spawning the PTY
+// sidecar. Bun.spawn(["node", …]) is unsafe here: if a launch env lacks `node`
+// on PATH (cron, systemd-user, non-login SSH on macOS), Bun falls back to
+// running ITSELF in node-compat mode under the name "node". The sidecar then
+// loads node-pty's native binding under Bun's runtime, which doesn't drive
+// the PTY correctly — terminal panel comes up blank/dead. Probe order:
+//   1. ISOMUX_NODE_PATH override
+//   2. Known absolute installs (Homebrew arm64, Homebrew/Linux x64,
+//      distro Linux, MacPorts)
+//   3. Bare "node" via PATH (still validated — Bun's node-compat answers
+//      `process.versions.bun`, which we reject)
+// Validation is `accessSync(X_OK)` + a one-shot `--exit-on-Bun` probe.
+// Cached after the first probe; restart the server to re-resolve.
+const NODE_CANDIDATES = [
+  "/opt/homebrew/bin/node",
+  "/usr/local/bin/node",
+  "/usr/bin/node",
+  "/opt/local/bin/node",
+];
+
+let cachedNodePath: string | null | undefined;
+
+function probeRealNode(candidate: string): boolean {
+  // X_OK check is path-form-aware: absolute paths get a direct executable
+  // check; bare "node" would throw ENOENT here, so we skip and let spawnSync
+  // do its own PATH lookup. Either way the version probe below is the final
+  // arbiter — accessSync just rejects obviously-broken absolute paths fast.
+  if (candidate.startsWith("/")) {
+    try {
+      accessSync(candidate, fsConstants.X_OK);
+    } catch {
+      return false;
+    }
+  }
+  // Reject Bun's node-compat: under Bun, process.versions.bun is set.
+  const result = spawnSync(
+    candidate,
+    [
+      "-e",
+      "process.exit(process.versions && process.versions.node && !process.versions.bun ? 0 : 1)",
+    ],
+    { timeout: 5000, stdio: "ignore" },
+  );
+  return result.status === 0;
+}
+
+function resolveRealNode(): string | null {
+  if (cachedNodePath !== undefined) return cachedNodePath;
+  const override = process.env.ISOMUX_NODE_PATH;
+  if (override) {
+    if (probeRealNode(override)) {
+      cachedNodePath = override;
+      return cachedNodePath;
+    }
+    console.warn(
+      `[terminal] ISOMUX_NODE_PATH=${override} did not validate as real Node; falling back to default probe`,
+    );
+  }
+  for (const candidate of NODE_CANDIDATES) {
+    if (probeRealNode(candidate)) {
+      cachedNodePath = candidate;
+      return cachedNodePath;
+    }
+  }
+  if (probeRealNode("node")) {
+    cachedNodePath = "node";
+    return cachedNodePath;
+  }
+  cachedNodePath = null;
+  return null;
+}
 
 type TerminalEvent =
   | { type: "terminal_output"; agentId: string; data: string }
@@ -44,7 +118,18 @@ export function openTerminal(agentId: string, deps: TerminalDeps): boolean {
     PATH: process.env.PATH || "/usr/local/bin:/usr/bin:/bin",
   };
 
-  const sidecar = Bun.spawn(["node", PTY_SIDECAR_PATH], {
+  const nodePath = resolveRealNode();
+  if (!nodePath) {
+    console.warn(
+      `[terminal] cannot open PTY for ${agentId}: no real Node.js binary found. ` +
+        `node-pty's native bindings won't run under Bun's node-compat. ` +
+        `Install Node and either put it on PATH or set ISOMUX_NODE_PATH.`,
+    );
+    deps.emit({ type: "terminal_exit", agentId, exitCode: 127 });
+    return false;
+  }
+
+  const sidecar = Bun.spawn([nodePath, PTY_SIDECAR_PATH], {
     stdin: "pipe",
     stdout: "pipe",
     stderr: "inherit",
@@ -113,7 +198,7 @@ export function openTerminal(agentId: string, deps: TerminalDeps): boolean {
   });
 
   console.log(
-    `[terminal] Spawned sidecar for ${agentId}: shell=${shell}, cwd=${managed.info.cwd}, pid=${sidecar.pid}`,
+    `[terminal] Spawned sidecar for ${agentId}: shell=${shell}, cwd=${managed.info.cwd}, node=${nodePath}, pid=${sidecar.pid}`,
   );
   return true;
 }
