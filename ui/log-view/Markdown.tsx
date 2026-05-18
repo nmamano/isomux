@@ -85,9 +85,8 @@ marked.use({
         return idx >= 0 ? idx : undefined;
       },
       tokenizer(src: string) {
-        const match = /^```mermaid[ \t]*\n([\s\S]*?)\n```(?:[ \t]*(?:\n|$))/.exec(
-          src,
-        );
+        const match =
+          /^```mermaid[ \t]*\n([\s\S]*?)\n```(?:[ \t]*(?:\n|$))/.exec(src);
         if (!match) return undefined;
         return {
           type: "mermaidBlock",

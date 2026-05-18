@@ -2950,10 +2950,7 @@ export async function sendMessage(
         // generated. Waiting for the next user_message would let one stale
         // message through; firing here keeps the resumed agent's topic
         // honest from the moment the user sees it.
-        if (
-          !picked.topic ||
-          drift >= TOPIC_REGEN_THRESHOLD
-        ) {
+        if (!picked.topic || drift >= TOPIC_REGEN_THRESHOLD) {
           void generateTopic(agentId);
         }
       } catch (err) {
