@@ -63,7 +63,7 @@ Setup:
 1. Install Tailscale (free) on the server, your laptop, and your phone.
 2. Access Isomux from any device at \`http://<tailscale-server-ip>:4000\`. Tip: rename your machine in the Tailscale admin console to something friendly like \`my-mac-mini\`, then access at \`http://my-mac-mini:4000\`.
 3. For persistence, set up a systemd user service that auto-rebuilds the UI on start and restarts on failure, with lingering enabled so it survives logout.
-4. On your phone, use "Add to Home Screen" for a full-screen app experience.
+4. Install Isomux as an app for a full-screen experience: on iPhone, use Safari's "Add to Home Screen"; on Android, Chrome will prompt you to install on first visit.
 5. For voice input over Tailscale, enable HTTPS certificates in the Tailscale admin console and run \`tailscale serve --bg http://localhost:4000\`.
 6. To let people use the office from outside your Tailscale network — friends, collaborators on a different VPN, anyone — expose it via Tailscale Funnel. Free, no domain needed, no router work. There's an agent prompt in \`docs/access-and-invites.md\` that walks an Isomux agent through the setup end-to-end. Cloudflare Tunnel and Caddy are documented as alternatives in the same file.
 
@@ -153,7 +153,7 @@ Setup:
 - Full conversation view with readable font sizes and two-row header
 - Send & abort buttons for touch input; left/right swipe to cycle agents
 - Safe area insets for notch/home bar devices
-- "Add to Home Screen" in Safari/Chrome turns Isomux into a standalone web app on your phone — no app store needed, it gets its own icon and opens full-screen without browser UI
+- Installable as a PWA on your phone: on iPhone, use Safari's "Add to Home Screen"; on Android, Chrome prompts you to install on first visit. No app store needed, gets its own icon, opens full-screen without browser UI
 
 ### Access & Invites
 - Self-hosted browser auth: every request is gated by a session cookie. No accounts, no passwords.

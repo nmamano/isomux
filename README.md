@@ -166,7 +166,7 @@ For persistent server setup (systemd + reverse proxy) and voice input configurat
 - **Full conversation view** with readable font sizes and two-row header
 - **Send & abort buttons** for touch input
 - Safe area insets for notch/home bar devices
-- **Installable as a PWA**: add to home screen for a native app feel (HTTPS or localhost)
+- **Installable as a PWA** for a native app feel: on iPhone, use Safari's "Add to Home Screen"; on Android, Chrome prompts you to install on first visit (HTTPS or localhost)
 
 ### Notifications
 
