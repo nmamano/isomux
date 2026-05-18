@@ -157,9 +157,27 @@ function detectAgentAuthError(
   if (!managed) return isAuthError(text);
   return getBackend(managed.info.agentType).detectAuthError(text);
 }
-function agentLoginInstructions(managed: ManagedAgent | undefined): string {
-  if (!managed) return LOGIN_INSTRUCTIONS;
+function agentLoginInstructions(managed: ManagedAgent | undefined): {
+  text: string;
+  command?: string;
+} {
+  if (!managed) return { text: LOGIN_INSTRUCTIONS };
   return getBackend(managed.info.agentType).getLoginInstructions();
+}
+
+// Emit a system log entry with the login/install text, plus an adjacent
+// terminal-command card when the backend supplies a companion shell command.
+// Centralizes the dual-emission pattern so the four detectAgentAuthError
+// callsites and the BackendNotConfiguredError catch all render the same
+// shape: explanatory text first, then a clickable card the user can copy.
+function emitLoginInstructions(
+  agentId: string,
+  instructions: { text: string; command?: string },
+): void {
+  addLogEntry(agentId, "system", instructions.text);
+  if (instructions.command) {
+    emitAgentTerminalCommand(agentId, instructions.command);
+  }
 }
 
 // Build the metadata blob attached to a user_message log entry. Carries
@@ -1415,7 +1433,7 @@ function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
       // the chat has actionable next steps either way.
       const managedForAuth = agents.get(agentId);
       if (detectAgentAuthError(managedForAuth, ev.text)) {
-        addLogEntry(agentId, "system", agentLoginInstructions(managedForAuth));
+        emitLoginInstructions(agentId, agentLoginInstructions(managedForAuth));
       }
       break;
     }
@@ -1512,7 +1530,7 @@ function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
             : (ev.error ?? `Agent stopped: ${ev.status}.`);
           addLogEntry(agentId, "error", errorText);
           if (detectAgentAuthError(managed, errorText)) {
-            addLogEntry(agentId, "system", agentLoginInstructions(managed));
+            emitLoginInstructions(agentId, agentLoginInstructions(managed));
           }
           updateState(agentId, "error");
         }
@@ -1577,7 +1595,7 @@ function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
         if (hints) addLogEntry(agentId, "system", hints);
       }
       if (detectAgentAuthError(managed, ev.message)) {
-        addLogEntry(agentId, "system", agentLoginInstructions(managed));
+        emitLoginInstructions(agentId, agentLoginInstructions(managed));
       }
       // Reject any in-flight turn so sendMessage / executeSkill don't hang.
       const turn = managed?.pendingTurn;
@@ -1741,7 +1759,7 @@ async function runConsumer(
       if (hints) addLogEntry(agentId, "system", hints);
     }
     if (detectAgentAuthError(managed, errorText)) {
-      addLogEntry(agentId, "system", agentLoginInstructions(managed));
+      emitLoginInstructions(agentId, agentLoginInstructions(managed));
     }
     updateState(agentId, "error");
   }
@@ -2495,15 +2513,20 @@ async function flushQueue(agentId: string): Promise<void> {
       if (err instanceof BackendNotConfiguredError) {
         // Backend can't run at all (CLI missing, auth missing, etc.). The
         // .message is already user-actionable — surface verbatim as a system
-        // log entry. State goes to waiting_for_response (not idle) so the
-        // desk shows the awake/waving pose: the agent has produced output
-        // (the install hint) and is waiting for the user to act on it.
-        // Idle would render as closed-eyes "sleeping" and look like nothing
-        // happened. Items stay in the queue; the next send/flush re-attempts
-        // and will surface the same message again until the backend is
-        // configured. The local flag suppresses the finally block's
-        // auto-re-flush to avoid a tight loop.
-        addLogEntry(agentId, "system", err.message);
+        // log entry, plus an adjacent terminal-command card when the error
+        // carries a companion install/login command (set at the throw site).
+        // State goes to waiting_for_response (not idle) so the desk shows
+        // the awake/waving pose: the agent has produced output (the install
+        // hint) and is waiting for the user to act on it. Idle would render
+        // as closed-eyes "sleeping" and look like nothing happened. Items
+        // stay in the queue; the next send/flush re-attempts and will
+        // surface the same message again until the backend is configured.
+        // The local flag suppresses the finally block's auto-re-flush to
+        // avoid a tight loop.
+        emitLoginInstructions(agentId, {
+          text: err.message,
+          command: err.command,
+        });
         updateState(agentId, "waiting_for_response");
         backendNotConfigured = true;
         return;

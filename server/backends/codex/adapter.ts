@@ -75,7 +75,14 @@ import type { ThreadTokenUsageUpdatedNotification } from "./_generated/v2/Thread
 // Constants
 // ---------------------------------------------------------------------------
 
-const LOGIN_INSTRUCTIONS = `Codex is not signed in. Run \`codex login\` in a terminal, or set OPENAI_API_KEY.`;
+const LOGIN_INSTRUCTIONS = `To sign in to Codex:
+1. Open the built-in terminal
+2. Run \`codex login\`
+3. Follow the auth prompts
+
+Once complete, it takes effect immediately for all Isomux agents. Alternatively, set \`OPENAI_API_KEY\` in your env.`;
+
+const LOGIN_COMMAND = `codex login`;
 
 const AUTH_ERROR_PATTERNS =
   /unauthori[zs]ed|not authenticated|authentication|auth.*expired|invalid.*token|login.*required|chatgpt.*login|openai_api_key|403|401/i;
@@ -470,9 +477,15 @@ class CodexSession implements BackendSession {
       // (system log entry, agent stays idle) rather than as a real turn error
       // that flips the agent to error state. The actionable text (install
       // hint, login prompt, etc.) is already in bootstrapError.message and
-      // gets surfaced verbatim — no "Error:" wrapping.
+      // gets surfaced verbatim — no "Error:" wrapping. If the bootstrap error
+      // tagged a companion shell command (ENOENT → install command; see
+      // makeNotInstalledError in client.ts), forward it so the catch site
+      // can emit a [Copy to terminal] card next to the system message.
+      const command = (this.bootstrapError as { command?: string } | null)
+        ?.command;
       throw new BackendNotConfiguredError(
         this.bootstrapError?.message ?? "Codex bootstrap failed; cannot send",
+        command,
       );
     }
 
@@ -1639,7 +1652,7 @@ export const codexBackend: Backend = {
     return AUTH_ERROR_PATTERNS.test(text);
   },
 
-  getLoginInstructions(): string {
-    return LOGIN_INSTRUCTIONS;
+  getLoginInstructions(): { text: string; command?: string } {
+    return { text: LOGIN_INSTRUCTIONS, command: LOGIN_COMMAND };
   },
 };

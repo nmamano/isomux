@@ -335,7 +335,10 @@ export interface Backend {
   // Inspect a thrown / surfaced error string for known auth-failure signals.
   detectAuthError(text: string): boolean;
 
-  // User-facing instructions for re-authenticating. Surfaced as a system log
-  // entry after an auth-error is detected.
-  getLoginInstructions(): string;
+  // User-facing instructions for re-authenticating. `text` is surfaced as a
+  // system log entry after an auth-error is detected; `command`, when present,
+  // is emitted as an adjacent terminal-command card the user can click to
+  // copy into the built-in terminal (single-line shell command — open the
+  // REPL, run the login subcommand, etc.).
+  getLoginInstructions(): { text: string; command?: string };
 }

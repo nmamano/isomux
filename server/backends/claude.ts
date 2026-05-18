@@ -78,7 +78,7 @@ import type {
 // Constants
 // ---------------------------------------------------------------------------
 
-const LOGIN_INSTRUCTIONS = `To authenticate:
+const LOGIN_INSTRUCTIONS = `To authenticate Claude Code:
 1. Open the built-in terminal
 2. Run \`claude\`
 3. Type \`/login\`
@@ -86,7 +86,18 @@ const LOGIN_INSTRUCTIONS = `To authenticate:
 
 Once complete, it takes effect immediately for all Isomux agents.`;
 
-const CLAUDE_CODE_NOT_INSTALLED_MESSAGE = `Claude Code is not installed. Install with \`npm install -g @anthropic-ai/claude-code\`, then run \`claude\` and \`/login\` in the built-in terminal to authenticate. Alternatively, set ANTHROPIC_API_KEY in your env.`;
+const LOGIN_COMMAND = `claude`;
+
+const CLAUDE_CODE_NOT_INSTALLED_MESSAGE = `To install Claude Code:
+1. Open the built-in terminal
+2. Run \`npm install -g @anthropic-ai/claude-code\`
+3. Run \`claude\`
+4. Type \`/login\`
+5. Follow the auth flow
+
+Once complete, it takes effect immediately for all Isomux agents. Alternatively, set \`ANTHROPIC_API_KEY\` in your env.`;
+
+const INSTALL_COMMAND = `npm install -g @anthropic-ai/claude-code`;
 
 const AUTH_ERROR_PATTERNS =
   /unauthori[zs]ed|not authenticated|authentication|auth.*expired|invalid.*token|login.*required|not logged in|run \/login|403|401/i;
@@ -835,14 +846,15 @@ export const claudeBackend: Backend = {
     return AUTH_ERROR_PATTERNS.test(text);
   },
 
-  getLoginInstructions(): string {
+  getLoginInstructions(): { text: string; command?: string } {
     // Symmetric with Codex's "CLI not installed" install hint: if the user
     // can't actually run `claude` and `/login` (binary missing from PATH),
     // surface the install command first instead of the terminal walkthrough
-    // that would just produce a "command not found".
+    // that would just produce a "command not found". `command` rides along
+    // so the catch site can emit a [Copy to terminal] card next to the text.
     return isClaudeCodeInstalled()
-      ? LOGIN_INSTRUCTIONS
-      : CLAUDE_CODE_NOT_INSTALLED_MESSAGE;
+      ? { text: LOGIN_INSTRUCTIONS, command: LOGIN_COMMAND }
+      : { text: CLAUDE_CODE_NOT_INSTALLED_MESSAGE, command: INSTALL_COMMAND };
   },
 };
 

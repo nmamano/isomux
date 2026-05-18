@@ -36,7 +36,26 @@ import { CODEX_CLI_PINNED_VERSION } from "./version-check.ts";
 // Used by both ENOENT detection paths (sync write-guard check on child.pid
 // and async child.on('error')) so they can't drift out of sync. Surfaced
 // verbatim into chat by sendMessage's BackendNotConfiguredError handling.
-const CODEX_NOT_INSTALLED_MESSAGE = `Codex CLI is not installed. Install with \`sudo npm install -g @openai/codex@${CODEX_CLI_PINNED_VERSION}\` and restart isomux.`;
+const CODEX_NOT_INSTALLED_MESSAGE = `To install Codex CLI:
+1. Open the built-in terminal
+2. Run \`sudo npm install -g @openai/codex@${CODEX_CLI_PINNED_VERSION}\`
+3. Restart isomux
+
+Once complete, it takes effect immediately for all Isomux agents.`;
+
+// Companion shell command for the [Copy to terminal] card adapter.ts emits
+// next to the install message. Exported so the adapter can carry it through
+// BackendNotConfiguredError without re-deriving it from the text.
+export const CODEX_INSTALL_COMMAND = `sudo npm install -g @openai/codex@${CODEX_CLI_PINNED_VERSION}`;
+
+// Tags the thrown Error with the install command so adapter.ts can forward
+// it into BackendNotConfiguredError → terminal-command card without coupling
+// to the message string. Read with `(err as { command?: string }).command`.
+function makeNotInstalledError(message: string): Error & { command?: string } {
+  const e = new Error(message) as Error & { command?: string };
+  e.command = CODEX_INSTALL_COMMAND;
+  return e;
+}
 
 import type { InitializeParams } from "./_generated/InitializeParams.ts";
 import type { InitializeResponse } from "./_generated/InitializeResponse.ts";
@@ -169,12 +188,14 @@ export class JsonRpcLiteClient {
       // every other failure falls through to the underlying message. Mark the
       // client closed so any subsequent request short-circuits on the
       // `this.closed` guard in request() instead of writing to a dead process.
+      // Tag ENOENT with the install command so adapter.ts can forward it into
+      // BackendNotConfiguredError → terminal-command card.
       this.closed = true;
-      const message =
-        err.code === "ENOENT"
-          ? CODEX_NOT_INSTALLED_MESSAGE
-          : `codex subprocess error: ${err.message}`;
-      this.failAllPending(message);
+      if (err.code === "ENOENT") {
+        this.failAllPending(makeNotInstalledError(CODEX_NOT_INSTALLED_MESSAGE));
+      } else {
+        this.failAllPending(`codex subprocess error: ${err.message}`);
+      }
     });
     this.child.on("exit", (code, signal) => {
       this.exitInfo = { code, signal };
@@ -381,7 +402,7 @@ export class JsonRpcLiteClient {
     // "stdin is not writable" message that fires when the dead child's
     // stdin stream is already closed.
     if (this.child.pid === undefined) {
-      throw new Error(CODEX_NOT_INSTALLED_MESSAGE);
+      throw makeNotInstalledError(CODEX_NOT_INSTALLED_MESSAGE);
     }
     if (!this.child.stdin.writable) {
       throw new Error("codex stdin is not writable");
@@ -510,10 +531,11 @@ export class JsonRpcLiteClient {
     );
   }
 
-  private failAllPending(reason: string): void {
+  private failAllPending(reason: string | Error): void {
+    const err = typeof reason === "string" ? new Error(reason) : reason;
     for (const [, pending] of this.pending) {
       try {
-        pending.reject(new Error(reason));
+        pending.reject(err);
       } catch {}
     }
     this.pending.clear();

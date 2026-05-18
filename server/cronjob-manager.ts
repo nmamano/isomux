@@ -592,10 +592,13 @@ function processNormalizedEvent(active: ActiveRun, ev: NormalizedEvent) {
         const errorText = ev.error ?? `Run stopped: ${ev.status}.`;
         writeLog(active, "error", errorText);
         if (getBackend(active.agentType).detectAuthError(errorText)) {
+          // Cronjob runs have no chat desk; surface the text portion of the
+          // login hint and drop the companion terminal-command — there's
+          // nowhere for a [Copy to terminal] card to render.
           writeLog(
             active,
             "system",
-            getBackend(active.agentType).getLoginInstructions(),
+            getBackend(active.agentType).getLoginInstructions().text,
           );
         }
       }
@@ -635,10 +638,13 @@ function processNormalizedEvent(active: ActiveRun, ev: NormalizedEvent) {
     case "error": {
       writeLog(active, "error", ev.message);
       if (getBackend(active.agentType).detectAuthError(ev.message)) {
+        // Cronjob runs have no chat desk; surface the text portion of the
+        // login hint and drop the companion terminal-command — there's
+        // nowhere for a [Copy to terminal] card to render.
         writeLog(
           active,
           "system",
-          getBackend(active.agentType).getLoginInstructions(),
+          getBackend(active.agentType).getLoginInstructions().text,
         );
       }
       break;
