@@ -5,7 +5,7 @@ import { RoomProps } from "./RoomProps.tsx";
 import { RoomTabBar } from "./RoomTabBar.tsx";
 import { DeskUnit } from "./DeskUnit.tsx";
 import { EmptySlot } from "./EmptySlot.tsx";
-import { Ghost } from "./Ghost.tsx";
+import { GhostBody, GhostTag } from "./Ghost.tsx";
 import { DESK_SLOTS, SCENE_W, SCENE_H, deskPixelPos } from "./grid.ts";
 import { send } from "../ws.ts";
 import { SunIcon, MoonIcon } from "../components/ThemeIcons.tsx";
@@ -59,24 +59,34 @@ interface GhostPlacement {
 }
 
 // Compute pixel placements for every ghost that should render in the
-// current room. Returns deterministic order (driven by the sorted
-// presences array, which the server sorts by connectionId). The
-// recipient's own ghost is filtered out entirely — a boss never sees
-// their own avatar (only other devices / other users render). If the
-// boss is the only device connected to themselves, no ghost renders;
-// other tabs/devices of the same user appear as their own ghosts via
-// their own connectionId.
+// current room. Output is in INPUT ORDER (which the server sorts by
+// connectionId), NOT grouped by anchor. Stable React child order
+// keyed by connectionId is the invariant that prevents browsers
+// from reorder-induced re-attach + animation restart on unrelated
+// ghosts when someone arrives at or leaves a different desk.
+// Anchor membership only determines coordinates and intra-group
+// stack rank, never iteration order.
+//
+// The recipient's own ghost is filtered out entirely — a boss never
+// sees their own avatar (only other devices / other users render).
+// If the boss is the only device connected, no ghost renders; other
+// tabs/devices of the same user appear as their own ghosts via their
+// own connectionId.
 function computeGhostPlacements(
   presences: PresenceInfo[],
   roomAgents: AgentInfo[],
   currentRoom: number,
   ownConnectionId: string | null,
 ): GhostPlacement[] {
-  const placements: GhostPlacement[] = [];
+  // First pass: filter to visible-here-and-not-self.
+  const visible = presences.filter(
+    (p) =>
+      p.currentRoom === currentRoom && p.connectionId !== ownConnectionId,
+  );
+  // Second pass: group only to compute per-anchor rank. Index within
+  // the group becomes the stack offset multiplier (i * DX, i * DY).
   const groups = new Map<string, PresenceInfo[]>();
-  for (const p of presences) {
-    if (p.currentRoom !== currentRoom) continue;
-    if (p.connectionId === ownConnectionId) continue;
+  for (const p of visible) {
     const agent =
       p.focusedAgentId !== null
         ? roomAgents.find((a) => a.id === p.focusedAgentId)
@@ -86,16 +96,25 @@ function computeGhostPlacements(
     if (arr) arr.push(p);
     else groups.set(key, [p]);
   }
+  const rankByConn = new Map<string, { key: string; index: number }>();
   for (const [key, group] of groups) {
+    group.forEach((p, index) => {
+      rankByConn.set(p.connectionId, { key, index });
+    });
+  }
+  // Third pass: emit placements in `visible` (= connectionId-sorted)
+  // order, regardless of anchor. The React key downstream is the
+  // connectionId, so this output order is the React child order.
+  const out: GhostPlacement[] = [];
+  for (const p of visible) {
+    const rank = rankByConn.get(p.connectionId);
+    if (!rank) continue;
+    const { key, index: i } = rank;
+    let left: number;
+    let top: number;
     if (key === "lobby") {
-      group.forEach((p, i) => {
-        placements.push({
-          presence: p,
-          left: GHOST_LOBBY_BASE_X + i * GHOST_LOBBY_GAP,
-          top: GHOST_LOBBY_BASE_Y,
-          dimmed: p.viewMode === "away",
-        });
-      });
+      left = GHOST_LOBBY_BASE_X + i * GHOST_LOBBY_GAP;
+      top = GHOST_LOBBY_BASE_Y;
     } else {
       const deskIndex = Number(key.slice(5));
       const slot = DESK_SLOTS[deskIndex];
@@ -105,19 +124,17 @@ function computeGhostPlacements(
       // the ghost top-left sits a touch lower-right of that so the
       // body's visual centroid hovers near the chair shoulder. Layout
       // is intentionally cramped pre-desk-repositioning (task 11384153).
-      const baseX = deskLeft + 130;
-      const baseY = deskTop + 90;
-      group.forEach((p, i) => {
-        placements.push({
-          presence: p,
-          left: baseX + i * GHOST_STACK_DX,
-          top: baseY + i * GHOST_STACK_DY,
-          dimmed: p.viewMode === "away",
-        });
-      });
+      left = deskLeft + 130 + i * GHOST_STACK_DX;
+      top = deskTop + 90 + i * GHOST_STACK_DY;
     }
+    out.push({
+      presence: p,
+      left,
+      top,
+      dimmed: p.viewMode === "away",
+    });
   }
-  return placements;
+  return out;
 }
 
 /** HTML drop zone positioned over an SVG door — SVG elements are unreliable drag-and-drop targets */
@@ -729,26 +746,58 @@ export function OfficeView({
                 currentRoom matches the viewer's currentRoom. Rendered
                 last (and with high z-index) so they sit above desks,
                 walls, and props per Q20 in the design memo. */}
-            {computeGhostPlacements(
-              presences,
-              roomAgents,
-              currentRoom,
-              sessionContext?.connectionId ?? null,
-            ).map((p) => (
-              <Ghost
-                key={p.presence.connectionId}
-                left={p.left}
-                top={p.top}
-                size={GHOST_SIZE}
-                variant={p.presence.avatarVariant}
-                color={p.presence.avatarColor}
-                username={p.presence.username}
-                device={p.presence.device}
-                userId={p.presence.userId}
-                dimmed={p.dimmed}
-                onClick={onOpenUserSettingsForUser}
-              />
-            ))}
+            {(() => {
+              const ghostPlacements = computeGhostPlacements(
+                presences,
+                roomAgents,
+                currentRoom,
+                sessionContext?.connectionId ?? null,
+              );
+              // Two layers, two stable per-connection keys per layer.
+              // The body layer and tag layer are independent React
+              // siblings, each iterating placements in connectionId
+              // order. Body/tag never interleave in the DOM, so a
+              // new arrival's body insertion can't shift an existing
+              // ghost's tag (or vice versa). Combined with stable
+              // output order, no existing ghost's DOM node moves
+              // when an unrelated anchor changes — which is what
+              // keeps CSS transitions intact and prevents browsers
+              // from re-attach-restarting any inline animations.
+              return (
+                <>
+                  {ghostPlacements.map((p) => (
+                    <GhostBody
+                      key={p.presence.connectionId}
+                      left={p.left}
+                      top={p.top}
+                      size={GHOST_SIZE}
+                      variant={p.presence.avatarVariant}
+                      color={p.presence.avatarColor}
+                      username={p.presence.username}
+                      device={p.presence.device}
+                      userId={p.presence.userId}
+                      dimmed={p.dimmed}
+                      onClick={onOpenUserSettingsForUser}
+                    />
+                  ))}
+                  {ghostPlacements.map((p) => (
+                    <GhostTag
+                      key={p.presence.connectionId}
+                      left={p.left}
+                      top={p.top}
+                      size={GHOST_SIZE}
+                      variant={p.presence.avatarVariant}
+                      color={p.presence.avatarColor}
+                      username={p.presence.username}
+                      device={p.presence.device}
+                      userId={p.presence.userId}
+                      dimmed={p.dimmed}
+                      onClick={onOpenUserSettingsForUser}
+                    />
+                  ))}
+                </>
+              );
+            })()}
           </div>
         </div>
 
