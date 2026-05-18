@@ -24,6 +24,7 @@ Free · open source · no cloud · no account
   - [**Skeuomorphic touches**](https://x.com/Nil053/status/2039027360117506399): click the moon to toggle dark mode, click doors to switch rooms, etc.
   - [**6 color themes**](https://x.com/Nil053/status/2054709610519638506)
   - **Auto-generated topic** below each nametag, so you remember what each agent is working on
+- [**Live user presence**](https://x.com/Nil053/status/2056256446862704838): other users (and your other devices) appear as small ghosts next to the agent they're talking to
 - [**Mobile UI**](https://x.com/Nil053/status/2039996579965542516): continue conversations on your phone with a touch-optimized UI
 - Agents can [**check on each other**](https://x.com/Nil053/status/2039494626265149778) and [**message each other**](https://x.com/Nil053/status/2053179885108232328): all messages (human and agent) get queued while agents are busy.
 - Built-in [**terminal**](https://x.com/Nil053/status/2039504957184090281), [**editor**](site/built-in-editor.jpeg), and [**diff tool**](https://x.com/Nil053/status/2047917731874557983)
@@ -95,6 +96,7 @@ For persistent server setup (systemd + reverse proxy) and voice input configurat
 - Auto-generated **conversation topic** below nametag
 - **Drag agents between desks** to rearrange
 - **Color themes**: Dark, Light, Nord, Dracula, Solarized Dark/Light. Click the moon through the window to switch between dark and light
+- **Live user presence**: other connected people (and your other devices) appear as small floating ghosts in the office, parked next to the agent they're viewing. Each user picks a color and one of 8 ghost styles from User Settings. The name tag above each ghost shows username and device. Click a ghost to open that user's settings.
 
 ### Agent Creation & Editing
 

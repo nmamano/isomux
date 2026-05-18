@@ -357,6 +357,18 @@
         font-weight: bold;
       }
 
+      /* Subtle underline on highlight links so the accent-colored bolded
+         text reads as a link, not just emphasis. Thin + offset keeps it
+         understated; thickens on hover for a clearer affordance. */
+      .feature-highlights a {
+        text-decoration: underline;
+        text-decoration-thickness: 1px;
+        text-underline-offset: 3px;
+      }
+      .feature-highlights a:hover {
+        text-decoration-thickness: 2px;
+      }
+
       .feature-details summary {
         font-family:
           "Space Grotesk",
@@ -953,6 +965,15 @@
               remember what each agent is working on
             </li>
           </ul>
+        </li>
+        <li>
+          <a
+            href="https://x.com/Nil053/status/2056256446862704838"
+            target="_blank"
+            rel="noopener"
+            ><strong>Live user presence</strong></a
+          >: other users (and your other devices) appear as small ghosts next to
+          the agent they're talking to
         </li>
         <li>
           <a
