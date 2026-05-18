@@ -36,7 +36,7 @@ sudo tailscale up
 
 Rename your machine in the [Tailscale admin console](https://login.tailscale.com/admin/machines) to something friendly (e.g. `my-mac-mini`), then open from any tailnet device at `http://my-mac-mini:4000`.
 
-This works fine for *your* devices and for collaborators you trust enough to invite onto your tailnet. Most people, though, will not want to install Tailscale just to drop into your office — for them you need a public URL.
+This works fine for _your_ devices and for collaborators you trust enough to invite onto your tailnet. Most people, though, will not want to install Tailscale just to drop into your office — for them you need a public URL.
 
 ### Other users (public URL)
 

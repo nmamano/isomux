@@ -63,8 +63,7 @@
       );
     text = text.replace(
       /\x00B(\d+)\x00/g,
-      (_, i) =>
-        `<pre><code>${esc(blocks[+i].replace(/\n$/, ""))}</code></pre>`,
+      (_, i) => `<pre><code>${esc(blocks[+i].replace(/\n$/, ""))}</code></pre>`,
     );
     text = text.replace(
       /\x00I(\d+)\x00/g,

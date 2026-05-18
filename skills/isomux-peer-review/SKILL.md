@@ -14,5 +14,5 @@ Review another agent's ongoing conversation and send feedback directly to that a
    - Any bugs or mistakes in what it's produced so far?
    - Red flags like going in circles or ignoring boss feedback?
    - Concrete suggestions for course-correction if needed.
-   Frame the message clearly as peer-review feedback so the reviewed agent knows it's an outside perspective, not boss authority.
+     Frame the message clearly as peer-review feedback so the reviewed agent knows it's an outside perspective, not boss authority.
 6. Briefly confirm to your boss which agent you reviewed and the gist of what you sent. Do not paste the full feedback back into your own chat — it already lives in the other agent's inbox.
