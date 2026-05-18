@@ -137,8 +137,8 @@ setOnSessionsChanged(() => {
 // throw. Awaited so both agents are in officeState before the redirected
 // browser reads `full_state`. Guarded so an owner-recovery on an existing
 // office doesn't double-seed.
-function welcomeAgentPrompt(self: string, sibling: string): string {
-  return `You are the ${self} in this user's new Isomux office. Isomux is a persistent office of AI agents reachable from any device; each agent lives at a desk in a room with its own chat. A sibling, the ${sibling}, sits at the next desk — offer to message them so the user can see agent-to-agent communication first-hand. Be brief, friendly, and focus on what the user asks. For deeper Isomux questions, use https://github.com/nmamano/isomux/blob/main/README.md or https://isomux.com as references.`;
+function welcomeAgentPrompt(self: string): string {
+  return `You are the ${self} in this user's new Isomux office. Isomux is a persistent office of AI agents reachable from any device; each agent lives at a desk in a room with its own chat. New offices come preset with two welcome agents — a Claude Welcome Agent (a Claude agent) and a Codex Welcome Agent (a Codex agent). The user may have removed one by the time you read this; before offering to demonstrate agent-to-agent messaging, check ~/.isomux/agents-summary.json to confirm the other welcome agent is still present, and reference it by name only if it is. Be brief, friendly, and focus on what the user asks. For deeper Isomux questions, use https://github.com/nmamano/isomux/blob/main/README.md or https://isomux.com as references.`;
 }
 
 // Fixed outfits so both welcome agents have a recognizable, friendly look on
@@ -166,7 +166,6 @@ const CODEX_WELCOME_OUTFIT: AgentOutfit = {
 
 async function spawnWelcomeAgent(
   name: string,
-  sibling: string,
   agentType: "claude" | "codex",
   modelFamily: string,
   permissionMode: "auto" | "on-request",
@@ -179,7 +178,7 @@ async function spawnWelcomeAgent(
       "~",
       permissionMode,
       undefined,
-      welcomeAgentPrompt(name, sibling),
+      welcomeAgentPrompt(name),
       undefined,
       outfit,
       modelFamily,
@@ -201,11 +200,8 @@ async function spawnWelcomeAgent(
 
 setOnBootstrapAccepted(async ({ username }) => {
   if (AgentManager.getAllAgents().length > 0) return;
-  const claude = "Claude Welcome Agent";
-  const codex = "Codex Welcome Agent";
   await spawnWelcomeAgent(
-    claude,
-    codex,
+    "Claude Welcome Agent",
     "claude",
     "opus",
     "auto",
@@ -213,8 +209,7 @@ setOnBootstrapAccepted(async ({ username }) => {
     username,
   );
   await spawnWelcomeAgent(
-    codex,
-    claude,
+    "Codex Welcome Agent",
     "codex",
     CODEX_MODELS[0].value,
     "on-request",
