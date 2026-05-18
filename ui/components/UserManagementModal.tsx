@@ -687,8 +687,8 @@ function UserEditPanel({
       <label style={subLabelStyle}>
         Avatar{" "}
         <span style={hintStyle}>
-          (your ghost in the office scene; other users see it next to the
-          agent you&apos;re viewing)
+          (your ghost in the office scene; other users see it next to the agent
+          you&apos;re viewing)
         </span>
       </label>
       <AvatarPicker
@@ -993,9 +993,7 @@ function AvatarPicker({
               onClick={() => onVariantChange(v)}
               title={v}
               style={{
-                background: selected
-                  ? "var(--bg-input)"
-                  : "transparent",
+                background: selected ? "var(--bg-input)" : "transparent",
                 border: `1px solid ${
                   selected ? "var(--accent)" : "var(--border)"
                 }`,
@@ -1031,8 +1029,7 @@ function AvatarPicker({
       >
         {GHOST_COLOR_PALETTE.map((c) => {
           const selected =
-            isHexColor(color) &&
-            normalizeHexColor(color) === c.toLowerCase();
+            isHexColor(color) && normalizeHexColor(color) === c.toLowerCase();
           return (
             <button
               key={c}

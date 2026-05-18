@@ -80,8 +80,7 @@ function computeGhostPlacements(
 ): GhostPlacement[] {
   // First pass: filter to visible-here-and-not-self.
   const visible = presences.filter(
-    (p) =>
-      p.currentRoom === currentRoom && p.connectionId !== ownConnectionId,
+    (p) => p.currentRoom === currentRoom && p.connectionId !== ownConnectionId,
   );
   // Second pass: group only to compute per-anchor rank. Index within
   // the group becomes the stack offset multiplier (i * DX, i * DY).

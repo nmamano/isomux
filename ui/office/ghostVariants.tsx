@@ -32,11 +32,7 @@ const BOB_DUR_S: Record<GhostVariant, number> = {
   "glow-halo": 2.8,
 };
 
-export function GhostGraphic({
-  variant,
-  color,
-  size = 40,
-}: GhostGraphicProps) {
+export function GhostGraphic({ variant, color, size = 40 }: GhostGraphicProps) {
   // Body sits in a 100x100 box (head at y=0, waves at y=100); the
   // viewBox extends -15..115 horizontally and -30..140 vertically to
   // accommodate the nightcap above and the wisp-tail / glow halo below

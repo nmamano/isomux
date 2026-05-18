@@ -192,12 +192,7 @@ export function App() {
       // and refires this effect with the fresh value.
       device: getDevice(),
     });
-  }, [
-    sessionContext,
-    presenceRoom,
-    focusedAgentId,
-    viewMode,
-  ]);
+  }, [sessionContext, presenceRoom, focusedAgentId, viewMode]);
 
   // Browser back button: navigate to office view instead of leaving the page.
   // Model: office = home, any other view = one level deep. Only one history

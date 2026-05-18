@@ -115,79 +115,80 @@ export function DeskUnit({
 
   return (
     <>
-    <div
-      ref={containerRef}
-      draggable
-      data-no-pan
-      onDragStart={(e) => {
-        e.dataTransfer.setData("text/plain", String(agent.desk));
-        e.dataTransfer.effectAllowed = "move";
-      }}
-      onDragOver={(e) => {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = "move";
-      }}
-      onDragEnter={() => setDragOver(true)}
-      onDragLeave={() => setDragOver(false)}
-      onDrop={(e) => {
-        e.preventDefault();
-        setDragOver(false);
-        const src = parseInt(e.dataTransfer.getData("text/plain"), 10);
-        if (!isNaN(src) && src !== agent.desk) onSwap?.(src, agent.desk);
-      }}
-      onDragEnd={() => setDragOver(false)}
-      onClick={() => {
-        if (!longPressTriggered.current) onClick();
-      }}
-      onContextMenu={(e) => {
-        e.preventDefault();
-        onContextMenu(e);
-      }}
-      onMouseEnter={() => setHov(true)}
-      onMouseLeave={() => setHov(false)}
-      style={{
-        position: "absolute",
-        left: pxLeft,
-        top: pxTop,
-        width: 180,
-        cursor: "pointer",
-        zIndex: z,
-        transition: "filter 0.25s, transform 0.25s",
-        filter: dragOver
-          ? "brightness(1.3) drop-shadow(0 0 40px rgba(126,184,255,0.3))"
-          : hov
-            ? "brightness(1.2) drop-shadow(0 0 30px rgba(126,184,255,0.15))"
-            : "brightness(1)",
-        transform: hov ? "translateY(-5px)" : "translateY(0)",
-        outline: dragOver ? "2px solid rgba(126,184,255,0.4)" : "none",
-        outlineOffset: 4,
-        borderRadius: 8,
-        userSelect: "none",
-        WebkitUserSelect: "none",
-      }}
-    >
-      {/* Character behind desk — idle agents sit back a bit */}
       <div
+        ref={containerRef}
+        draggable
+        data-no-pan
+        onDragStart={(e) => {
+          e.dataTransfer.setData("text/plain", String(agent.desk));
+          e.dataTransfer.effectAllowed = "move";
+        }}
+        onDragOver={(e) => {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = "move";
+        }}
+        onDragEnter={() => setDragOver(true)}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          const src = parseInt(e.dataTransfer.getData("text/plain"), 10);
+          if (!isNaN(src) && src !== agent.desk) onSwap?.(src, agent.desk);
+        }}
+        onDragEnd={() => setDragOver(false)}
+        onClick={() => {
+          if (!longPressTriggered.current) onClick();
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          onContextMenu(e);
+        }}
+        onMouseEnter={() => setHov(true)}
+        onMouseLeave={() => setHov(false)}
         style={{
           position: "absolute",
-          left: agent.state === "idle" || agent.state === "stopped" ? 84 : 78,
-          top: agent.state === "idle" || agent.state === "stopped" ? -16 : -20,
-          zIndex: 1,
+          left: pxLeft,
+          top: pxTop,
+          width: 180,
+          cursor: "pointer",
+          zIndex: z,
+          transition: "filter 0.25s, transform 0.25s",
+          filter: dragOver
+            ? "brightness(1.3) drop-shadow(0 0 40px rgba(126,184,255,0.3))"
+            : hov
+              ? "brightness(1.2) drop-shadow(0 0 30px rgba(126,184,255,0.15))"
+              : "brightness(1)",
+          transform: hov ? "translateY(-5px)" : "translateY(0)",
+          outline: dragOver ? "2px solid rgba(126,184,255,0.4)" : "none",
+          outlineOffset: 4,
+          borderRadius: 8,
+          userSelect: "none",
+          WebkitUserSelect: "none",
         }}
       >
-        <Character state={agent.state} outfit={agent.outfit} />
-      </div>
+        {/* Character behind desk — idle agents sit back a bit */}
+        <div
+          style={{
+            position: "absolute",
+            left: agent.state === "idle" || agent.state === "stopped" ? 84 : 78,
+            top:
+              agent.state === "idle" || agent.state === "stopped" ? -16 : -20,
+            zIndex: 1,
+          }}
+        >
+          <Character state={agent.state} outfit={agent.outfit} />
+        </div>
 
-      {/* Desk */}
-      <div style={{ position: "relative", zIndex: 2 }}>
-        <DeskSprite
-          state={agent.state}
-          deskIndex={agent.desk}
-          cwd={agent.cwd}
-          modelFamily={agent.modelFamily}
-        />
+        {/* Desk */}
+        <div style={{ position: "relative", zIndex: 2 }}>
+          <DeskSprite
+            state={agent.state}
+            deskIndex={agent.desk}
+            cwd={agent.cwd}
+            modelFamily={agent.modelFamily}
+          />
+        </div>
       </div>
-    </div>
 
       {/* Floating nametag — hoisted out of the DeskUnit container to a
           scene-level sibling at high z so it always renders above

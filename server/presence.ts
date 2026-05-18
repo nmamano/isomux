@@ -69,9 +69,7 @@ export function removePresence(connectionId: string): boolean {
   return presences.delete(connectionId);
 }
 
-export function getPresence(
-  connectionId: string,
-): PresenceState | undefined {
+export function getPresence(connectionId: string): PresenceState | undefined {
   return presences.get(connectionId);
 }
 
