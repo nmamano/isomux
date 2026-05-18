@@ -142,10 +142,10 @@ function welcomeAgentPrompt(self: string, sibling: string): string {
 }
 
 // Fixed outfits so both welcome agents have a recognizable, friendly look on
-// every fresh install instead of the random palette new spawns get. Opus =
+// every fresh install instead of the random palette new spawns get. Claude =
 // blue/glasses, Codex = pink/tie — visually distinct so the user can tell
 // them apart at a glance from the desk view.
-const OPUS_WELCOME_OUTFIT: AgentOutfit = {
+const CLAUDE_WELCOME_OUTFIT: AgentOutfit = {
   hat: "bow",
   color: "#45B7D1",
   hair: "#6C5CE7",
@@ -201,20 +201,20 @@ async function spawnWelcomeAgent(
 
 setOnBootstrapAccepted(async ({ username }) => {
   if (AgentManager.getAllAgents().length > 0) return;
-  const opus = "Opus Welcome Agent";
+  const claude = "Claude Welcome Agent";
   const codex = "Codex Welcome Agent";
   await spawnWelcomeAgent(
-    opus,
+    claude,
     codex,
     "claude",
     "opus",
     "auto",
-    OPUS_WELCOME_OUTFIT,
+    CLAUDE_WELCOME_OUTFIT,
     username,
   );
   await spawnWelcomeAgent(
     codex,
-    opus,
+    claude,
     "codex",
     CODEX_MODELS[0].value,
     "on-request",
