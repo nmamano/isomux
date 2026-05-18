@@ -497,7 +497,7 @@ export function DiffCard({ payload }: { payload: DiffPayload }) {
         >
           {headerLine}
         </span>
-        {(payload.branch || payload.head) && (
+        {(payload.branch || payload.head || payload.subject) && (
           <span
             style={{
               fontFamily: "'JetBrains Mono',monospace",
@@ -505,9 +505,13 @@ export function DiffCard({ payload }: { payload: DiffPayload }) {
               color: "var(--text-muted)",
             }}
           >
-            {payload.branch
-              ? `${payload.branch} · ${payload.head ?? "—"}`
-              : payload.head}
+            {payload.subject
+              ? payload.head
+                ? `${payload.subject} · ${payload.head}`
+                : payload.subject
+              : payload.branch
+                ? `${payload.branch} · ${payload.head ?? "—"}`
+                : payload.head}
           </span>
         )}
         <span style={{ flex: 1 }} />

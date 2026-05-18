@@ -8,11 +8,22 @@ export type ComputeDiffResult =
   | { kind: "ok"; cwd: string; summary: string; payload: DiffPayload }
   | { kind: "clean"; cwd: string }
   | { kind: "not_repo"; cwd: string }
-  | { kind: "git_error"; cwd: string; message: string };
+  | { kind: "git_error"; cwd: string; message: string }
+  | { kind: "bad_commit"; cwd: string; attempted: string; message: string };
 
 export type ResolveDirResult =
   | { kind: "ok"; cwd: string }
   | { kind: "bad_dir"; attempted: string };
+
+// Parsed shape of an optional `commit` argument. `single` means show the
+// changes introduced by one commit (rendered as <sha>^..<sha>, with --root
+// fallback for the initial commit). `range` is passed straight to `git diff`
+// — `..` (two-dot, cumulative A..B) and `...` (three-dot, merge-base..B) are
+// both accepted because git itself supports them and they have distinct
+// semantics for reviewers.
+type CommitSpec =
+  | { kind: "single"; ref: string }
+  | { kind: "range"; raw: string };
 
 // Resolve an optional user-supplied directory against the agent's cwd.
 // `~` expands to the user's home; relative paths resolve against `agentCwd`;
@@ -36,11 +47,65 @@ export function resolveDiffCwd(
   return { kind: "ok", cwd: abs };
 }
 
-// Run `git diff` (HEAD vs working tree, plus untracked) at `cwd` and return a
-// rich payload. Shells out to git but doesn't touch agent state, log cache,
-// or broadcasts — callers format the result themselves. Both /isomux-diff
-// and the HTTP endpoint share this so the on-screen rendering stays identical.
-export function computeIsomuxDiff(cwd: string): ComputeDiffResult {
+// Allowlist for ref characters: alnum + the punctuation that legitimately
+// appears in branch names, tags, and commit SHAs. Forbids whitespace,
+// shell metas (`;`, backticks, `$`, `|`, `&`, quotes, redirects), parens,
+// braces — anything that would let an injected ref turn into an extra
+// shell argument once it hits `git diff ${refArgs}` below. The two-dot /
+// three-dot range operators are matched separately.
+const REF_CHARS = /^[A-Za-z0-9._\-/~^@:]+$/;
+
+// Parse a user-supplied commit/range string into an opaque CommitSpec.
+// Pure syntactic — does NOT confirm the ref exists; that's done with
+// `git rev-parse --verify` inside computeIsomuxDiff once we have a cwd.
+export function parseCommitArg(
+  raw: string,
+): { ok: true; spec: CommitSpec } | { ok: false; reason: string } {
+  const trimmed = raw.trim();
+  if (!trimmed) return { ok: false, reason: "empty commit string" };
+  // Find the first run of 2-or-3 dots; reject if there are multiple runs
+  // (`a..b..c` is ambiguous) or a run of 4+ dots (`a....b` is invalid).
+  let runStart = -1;
+  let runLen = 0;
+  for (let i = 0; i < trimmed.length; i++) {
+    if (trimmed[i] !== ".") continue;
+    let j = i;
+    while (j < trimmed.length && trimmed[j] === ".") j++;
+    const len = j - i;
+    if (len >= 2) {
+      if (len > 3) return { ok: false, reason: "too many dots in range" };
+      if (runStart !== -1)
+        return { ok: false, reason: "multiple range operators" };
+      runStart = i;
+      runLen = len;
+    }
+    i = j - 1;
+  }
+  if (runStart === -1) {
+    if (!REF_CHARS.test(trimmed))
+      return { ok: false, reason: "invalid characters in ref" };
+    return { ok: true, spec: { kind: "single", ref: trimmed } };
+  }
+  const left = trimmed.slice(0, runStart);
+  const right = trimmed.slice(runStart + runLen);
+  if (!left || !right)
+    return { ok: false, reason: "range operator requires both sides" };
+  if (!REF_CHARS.test(left) || !REF_CHARS.test(right))
+    return { ok: false, reason: "invalid characters in range" };
+  return { ok: true, spec: { kind: "range", raw: trimmed } };
+}
+
+// Run `git diff` and return a rich payload. With no `commit` option,
+// diffs working tree vs HEAD plus untracked synthesis. With `commit`, diffs
+// a specific revision or range — untracked synthesis is skipped because it
+// only makes sense for the working tree. Shells out to git but doesn't
+// touch agent state, log cache, or broadcasts — callers format the result
+// themselves. Both /isomux-diff and the HTTP endpoint share this so the
+// on-screen rendering stays identical.
+export function computeIsomuxDiff(
+  cwd: string,
+  opts?: { commit?: string },
+): ComputeDiffResult {
   const runGit = (args: string, maxBuffer = 10 * 1024 * 1024) =>
     execSync(`git -c core.quotePath=false ${args}`, {
       cwd,
@@ -62,22 +127,104 @@ export function computeIsomuxDiff(cwd: string): ComputeDiffResult {
     return { kind: "not_repo", cwd };
   }
 
+  // Resolve the commit argument up front so we can choose the right diff
+  // strategy (working tree vs history) and reject bad refs before doing any
+  // expensive work.
+  let commitSpec: CommitSpec | null = null;
+  let subject: string | null = null;
+  let refArgs: string | null = null;
+  if (opts?.commit && opts.commit.trim()) {
+    const parsed = parseCommitArg(opts.commit);
+    if (!parsed.ok) {
+      return {
+        kind: "bad_commit",
+        cwd,
+        attempted: opts.commit,
+        message: parsed.reason,
+      };
+    }
+    commitSpec = parsed.spec;
+    // Each ref in the spec must resolve to a real commit. rev-parse exits
+    // non-zero for unknown refs and for ambiguous ones with --verify; we
+    // catch both via runGitOrNull. The `^{commit}` peels through tags.
+    const verifyRef = (ref: string): boolean =>
+      runGitOrNull(`rev-parse --verify --quiet ${ref}^{commit}`, 1024) !== null;
+    if (commitSpec.kind === "single") {
+      if (!verifyRef(commitSpec.ref)) {
+        return {
+          kind: "bad_commit",
+          cwd,
+          attempted: opts.commit,
+          message: `unknown ref: ${commitSpec.ref}`,
+        };
+      }
+      // Initial-commit fallback: `<sha>^` doesn't exist for the first commit,
+      // so we use `--root` to diff against the empty tree.
+      const hasParent = verifyRef(`${commitSpec.ref}^`);
+      refArgs = hasParent
+        ? `${commitSpec.ref}^ ${commitSpec.ref}`
+        : `--root ${commitSpec.ref}`;
+      subject =
+        runGitOrNull(
+          `show -s --format=%s ${commitSpec.ref}`,
+          16 * 1024,
+        )?.trim() || null;
+    } else {
+      // Range form: validate both sides individually, then pass the literal
+      // string to git so `..` vs `...` semantics are preserved exactly.
+      const dotsIdx = commitSpec.raw.indexOf("..");
+      const dotsLen = commitSpec.raw.startsWith("...", dotsIdx) ? 3 : 2;
+      const left = commitSpec.raw.slice(0, dotsIdx);
+      const right = commitSpec.raw.slice(dotsIdx + dotsLen);
+      if (!verifyRef(left)) {
+        return {
+          kind: "bad_commit",
+          cwd,
+          attempted: opts.commit,
+          message: `unknown ref: ${left}`,
+        };
+      }
+      if (!verifyRef(right)) {
+        return {
+          kind: "bad_commit",
+          cwd,
+          attempted: opts.commit,
+          message: `unknown ref: ${right}`,
+        };
+      }
+      refArgs = commitSpec.raw;
+      subject = commitSpec.raw;
+    }
+  }
+
   const branchRaw =
     runGitOrNull("rev-parse --abbrev-ref HEAD", 1024)?.trim() ?? null;
-  const branch = branchRaw && branchRaw !== "HEAD" ? branchRaw : null;
-  const head = runGitOrNull("rev-parse --short HEAD", 1024)?.trim() || null;
+  const branch =
+    commitSpec === null && branchRaw && branchRaw !== "HEAD" ? branchRaw : null;
+  // For a single commit, the displayed `head` is that commit's short SHA so
+  // the UI heading reads `<subject> · <sha>`. For ranges, leave it null and
+  // rely on `subject` for context.
+  let head: string | null = null;
+  if (commitSpec === null) {
+    head = runGitOrNull("rev-parse --short HEAD", 1024)?.trim() || null;
+  } else if (commitSpec.kind === "single") {
+    head =
+      runGitOrNull(`rev-parse --short ${commitSpec.ref}`, 1024)?.trim() || null;
+  }
 
-  const gather = (refArgs: string) => ({
-    diff: runGit(`diff ${refArgs}`.trim(), 50 * 1024 * 1024),
-    numstat: runGit(`diff ${refArgs} --numstat`.trim()).trim(),
-    nameStatus: runGit(`diff ${refArgs} --name-status`.trim()).trim(),
+  const gather = (refs: string) => ({
+    diff: runGit(`diff ${refs}`.trim(), 50 * 1024 * 1024),
+    numstat: runGit(`diff ${refs} --numstat`.trim()).trim(),
+    nameStatus: runGit(`diff ${refs} --name-status`.trim()).trim(),
   });
   let diff = "";
   let numstat = "";
   let nameStatus = "";
   let untracked: string[] = [];
   try {
-    if (head !== null) {
+    if (refArgs !== null) {
+      ({ diff, numstat, nameStatus } = gather(refArgs));
+    } else if (head !== null) {
       ({ diff, numstat, nameStatus } = gather("HEAD"));
     } else {
       const cached = gather("--cached");
@@ -88,8 +235,13 @@ export function computeIsomuxDiff(cwd: string): ComputeDiffResult {
         .filter(Boolean)
         .join("\n");
     }
-    const untrackedOut = runGit("ls-files --others --exclude-standard").trim();
-    if (untrackedOut) untracked = untrackedOut.split("\n");
+    // Untracked-file synthesis only makes sense for the working tree.
+    if (commitSpec === null) {
+      const untrackedOut = runGit(
+        "ls-files --others --exclude-standard",
+      ).trim();
+      if (untrackedOut) untracked = untrackedOut.split("\n");
+    }
   } catch (err) {
     return {
       kind: "git_error",
@@ -316,6 +468,7 @@ export function computeIsomuxDiff(cwd: string): ComputeDiffResult {
     cwd,
     branch,
     head,
+    subject,
     stats,
     files,
     patchText,

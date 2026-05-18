@@ -47,6 +47,7 @@ import {
   type PersistedUsage,
 } from "./persistence.ts";
 import { resolveEditorPath } from "./file-editor.ts";
+import { computeIsomuxDiff, resolveDiffCwd } from "./isomux-diff.ts";
 import { mimeTypeForFilename } from "./mime-types.ts";
 import { existsSync, statSync, readFileSync } from "fs";
 import { basename } from "path";
@@ -453,6 +454,10 @@ How to use the task board (localhost:4000/tasks): only touch it if your prompt d
 How to surface a file in the run transcript (images render inline; other files render as a clickable file chip): call POST localhost:4000/cronjobs/${cronjob.id}/runs/${runIdForUrl}/read-file with body {"path":"..."}. The path can be relative to your cwd, absolute, or \`~/...\`. Use this when you've produced or want to surface a file (a plot, screenshot, generated PDF, log snippet) for whoever reviews the run.
   curl -s -X POST localhost:4000/cronjobs/${cronjob.id}/runs/${runIdForUrl}/read-file -H 'Content-Type: application/json' -d '{"path":"plot.png"}'
 
+How to show a styled code diff in the run transcript: call POST localhost:4000/cronjobs/${cronjob.id}/runs/${runIdForUrl}/diff. Optional body fields: {"dir":"..."} targets a different directory (defaults to your cwd); {"commit":"..."} shows a specific commit (\`08dbbe2\`), tag/branch, or range (\`main..feature\`, \`HEAD~3..HEAD\`, \`a...b\` for merge-base diff) instead of uncommitted changes.
+  curl -s -X POST localhost:4000/cronjobs/${cronjob.id}/runs/${runIdForUrl}/diff -d '{}'                                                # uncommitted in your cwd
+  curl -s -X POST localhost:4000/cronjobs/${cronjob.id}/runs/${runIdForUrl}/diff -H 'Content-Type: application/json' -d '{"commit":"08dbbe2"}'   # a specific commit
+
 How to inspect cronjobs (~/.isomux/cronjobs/): cronjobs are scheduled SDK sessions, not agents — they fire daily/weekly/at an interval, run a fresh session with a configured prompt, and save the transcript as a "run". They have no desk or persistent identity. Only touch them when the boss asks.
   ~/.isomux/cronjobs/cronjobs.json                              # all cronjob configs
   ~/.isomux/cronjobs/<jobId>/runs.json                          # run history for one cronjob (newest last)
@@ -673,6 +678,7 @@ function writeLog(
   content: string,
   metadata?: Record<string, unknown>,
   attachments?: Attachment[],
+  extra?: Partial<Pick<LogEntry, "diff" | "file" | "terminal">>,
 ) {
   const entry: LogEntry = {
     id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -682,6 +688,7 @@ function writeLog(
     content,
     ...(metadata ? { metadata } : {}),
     ...(attachments && attachments.length > 0 ? { attachments } : {}),
+    ...(extra ?? {}),
   };
   if (active.sessionId) {
     appendRunLog(active.jobId, active.runId, active.sessionId, entry);
@@ -1084,6 +1091,72 @@ export function emitCronjobRunReadFile(
     return { ok: true };
   }
   writeLog(active, "file-view", originalName, undefined, [att]);
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Git diff — cronjob equivalent of POST /agents/:id/diff
+// ---------------------------------------------------------------------------
+
+// Emit a styled diff card into the run transcript. Same shape as
+// emitAgentDiff but writes through the cronjob log path. Optional `dir`
+// targets a different directory (defaults to the run's cwd snapshot);
+// optional `commit` shows a specific ref or range instead of uncommitted
+// changes. See computeIsomuxDiff for the supported commit syntax.
+export function emitCronjobRunDiff(
+  jobId: string,
+  runId: string,
+  dir?: string,
+  commit?: string,
+): { ok: true } | { ok: false; status: number; error: string } {
+  const active = activeRuns.get(runId);
+  if (!active || active.jobId !== jobId) {
+    return { ok: false, status: 404, error: "active run not found" };
+  }
+  const run = findRun(jobId, runId);
+  if (!run) return { ok: false, status: 404, error: "run not found" };
+  const resolved = resolveDiffCwd(dir, run.cwdSnapshot);
+  if (resolved.kind === "bad_dir") {
+    return {
+      ok: false,
+      status: 400,
+      error: `\`${resolved.attempted}\` is not a directory`,
+    };
+  }
+  const result = computeIsomuxDiff(resolved.cwd, { commit });
+  switch (result.kind) {
+    case "not_repo":
+      writeLog(active, "system", `\`${result.cwd}\` is not a git repository.`);
+      break;
+    case "git_error":
+      writeLog(
+        active,
+        "system",
+        `Failed to run git diff in \`${result.cwd}\`:\n\n\`\`\`\n${result.message}\n\`\`\``,
+      );
+      break;
+    case "bad_commit":
+      writeLog(
+        active,
+        "system",
+        `Cannot diff \`${result.attempted}\`: ${result.message}.`,
+      );
+      break;
+    case "clean":
+      writeLog(
+        active,
+        "system",
+        commit
+          ? `\`${commit}\` introduced no file changes (empty commit?).`
+          : `Working tree clean in \`${result.cwd}\` — no uncommitted changes.`,
+      );
+      break;
+    case "ok":
+      writeLog(active, "diff", result.summary, undefined, undefined, {
+        diff: result.payload,
+      });
+      break;
+  }
   return { ok: true };
 }
 

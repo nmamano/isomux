@@ -2442,6 +2442,40 @@ const server = Bun.serve<WsData>({
           headers: corsHeaders,
         });
       }
+      // POST /cronjobs/:jobId/runs/:runId/diff — emit a styled diff card
+      // into the run transcript. Mirrors POST /agents/:id/diff. Optional
+      // body fields: { dir, commit } — see the agent endpoint for the
+      // accepted commit syntax.
+      if (
+        req.method === "POST" &&
+        parts.length === 5 &&
+        parts[2] === "runs" &&
+        parts[4] === "diff"
+      ) {
+        const jobId = parts[1];
+        const runId = parts[3];
+        let dir: string | undefined;
+        let commit: string | undefined;
+        try {
+          const body = (await req.json()) as Record<string, unknown> | null;
+          if (body && typeof body.dir === "string") dir = body.dir;
+          if (body && typeof body.commit === "string") commit = body.commit;
+        } catch {}
+        const result = CronjobManager.emitCronjobRunDiff(
+          jobId,
+          runId,
+          dir,
+          commit,
+        );
+        if (!result.ok)
+          return new Response(JSON.stringify({ error: result.error }), {
+            status: result.status,
+            headers: corsHeaders,
+          });
+        return new Response(JSON.stringify({ ok: true }), {
+          headers: corsHeaders,
+        });
+      }
       if (req.method !== "GET") {
         return new Response(JSON.stringify({ error: "method not allowed" }), {
           status: 405,
@@ -2690,7 +2724,12 @@ const server = Bun.serve<WsData>({
 
     // POST /agents/:id/diff — emit a styled diff card into the agent's chat,
     // matching the /isomux-diff slash command. Lets an agent surface a diff
-    // when the boss asks "show me your changes". Optional body: { dir }.
+    // when the boss asks "show me your changes". Optional body fields:
+    //   { dir } — target a different directory (defaults to agent cwd)
+    //   { commit } — a single ref (SHA, branch, tag) or a range using `..` /
+    //                `...` (e.g. "08dbbe2", "main..feature", "HEAD~3..HEAD").
+    //                When set, the diff shows that commit/range's changes
+    //                instead of the working tree.
     if (url.pathname.startsWith("/agents/") && req.method === "POST") {
       const parts = url.pathname.split("/").filter(Boolean);
       if (parts.length === 3 && parts[2] === "diff") {
@@ -2700,11 +2739,13 @@ const server = Bun.serve<WsData>({
         };
         const agentId = parts[1];
         let dir: string | undefined;
+        let commit: string | undefined;
         try {
           const body = (await req.json()) as Record<string, unknown> | null;
           if (body && typeof body.dir === "string") dir = body.dir;
+          if (body && typeof body.commit === "string") commit = body.commit;
         } catch {}
-        const result = AgentManager.emitAgentDiff(agentId, dir);
+        const result = AgentManager.emitAgentDiff(agentId, dir, commit);
         if (!result.ok)
           return new Response(JSON.stringify({ error: result.error }), {
             status: result.status,

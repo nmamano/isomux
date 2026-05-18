@@ -1117,6 +1117,7 @@ export function emitAgentReadFile(
 export function emitAgentDiff(
   agentId: string,
   dir?: string,
+  commit?: string,
 ): { ok: true } | { ok: false; status: number; error: string } {
   const managed = agents.get(agentId);
   if (!managed) return { ok: false, status: 404, error: "agent not found" };
@@ -1128,7 +1129,7 @@ export function emitAgentDiff(
       error: `\`${resolved.attempted}\` is not a directory`,
     };
   }
-  const result = computeIsomuxDiff(resolved.cwd);
+  const result = computeIsomuxDiff(resolved.cwd, { commit });
   switch (result.kind) {
     case "not_repo":
       addLogEntry(
@@ -1144,11 +1145,20 @@ export function emitAgentDiff(
         `Failed to run git diff in \`${result.cwd}\`:\n\n\`\`\`\n${result.message}\n\`\`\``,
       );
       break;
+    case "bad_commit":
+      addLogEntry(
+        agentId,
+        "system",
+        `Cannot diff \`${result.attempted}\`: ${result.message}.`,
+      );
+      break;
     case "clean":
       addLogEntry(
         agentId,
         "system",
-        `Working tree clean in \`${result.cwd}\` — no uncommitted changes.`,
+        commit
+          ? `\`${commit}\` introduced no file changes (empty commit?).`
+          : `Working tree clean in \`${result.cwd}\` — no uncommitted changes.`,
       );
       break;
     case "ok":

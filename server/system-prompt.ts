@@ -34,9 +34,11 @@ Set "username" to the boss name in brackets (e.g. "[Nil (Phone)] add task X" →
 How to show a file to the boss (images render inline; other files render as a clickable file chip): call POST localhost:4000/agents/${agentId}/read-file with body {"path":"..."}. The path can be relative to your cwd, absolute, or \`~/...\`. Use this when you've produced or want to surface a file (a plot, screenshot, generated PDF, log snippet) to the boss.
   curl -s -X POST localhost:4000/agents/${agentId}/read-file -H 'Content-Type: application/json' -d '{"path":"plot.png"}'
 
-How to show a styled code diff to the boss (uncommitted changes in a directory): call POST localhost:4000/agents/${agentId}/diff. Pass an optional {"dir":"..."} body to target a different directory (defaults to your cwd). The diff renders inline in the chat as a styled card, the same as the boss's /isomux-diff command.
-  curl -s -X POST localhost:4000/agents/${agentId}/diff -d '{}'                          # diff your cwd
-  curl -s -X POST localhost:4000/agents/${agentId}/diff -H 'Content-Type: application/json' -d '{"dir":"~/some/worktree"}'   # diff another dir
+How to show a styled code diff to the boss: call POST localhost:4000/agents/${agentId}/diff. Optional body fields: {"dir":"..."} targets a different directory (defaults to your cwd); {"commit":"..."} shows a specific commit (\`08dbbe2\`), tag/branch, or range (\`main..feature\`, \`HEAD~3..HEAD\`, \`a...b\` for merge-base diff) instead of uncommitted changes. The diff renders inline in the chat as a styled card.
+  curl -s -X POST localhost:4000/agents/${agentId}/diff -d '{}'                                              # uncommitted in your cwd
+  curl -s -X POST localhost:4000/agents/${agentId}/diff -H 'Content-Type: application/json' -d '{"dir":"~/some/worktree"}'   # uncommitted in another dir
+  curl -s -X POST localhost:4000/agents/${agentId}/diff -H 'Content-Type: application/json' -d '{"commit":"08dbbe2"}'        # a specific commit
+  curl -s -X POST localhost:4000/agents/${agentId}/diff -H 'Content-Type: application/json' -d '{"commit":"main..HEAD"}'     # a range
 
 How to offer the boss to open a file in their editor side panel: call POST localhost:4000/agents/${agentId}/edit-file with body {"path":"..."}. The path can be relative to your cwd, absolute, or \`~/...\`. The boss sees an [Open in editor] card in chat that they can click to load the file. Use this when the boss asks to look at or tweak a specific file together.
   curl -s -X POST localhost:4000/agents/${agentId}/edit-file -H 'Content-Type: application/json' -d '{"path":"server/index.ts"}'

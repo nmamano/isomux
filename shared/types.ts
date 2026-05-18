@@ -285,6 +285,12 @@ export interface DiffPayload {
   cwd: string;
   branch: string | null; // null on detached HEAD or fresh repo
   head: string | null; // short SHA, null on fresh repo with no commits
+  // Present when the diff targets a specific commit/range rather than the
+  // working tree. UI renders this under the headerLine for context (commit
+  // subject for single commits, or the literal range string for ranges).
+  // Optional so that diff log entries persisted before this field existed
+  // still type-check on reload (the UI's null-coalescing handles undefined).
+  subject?: string | null;
   stats: { additions: number; deletions: number; filesChanged: number };
   files: DiffFileSummary[];
   patchText: string | null; // null when over 2MB safety rail
