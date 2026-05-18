@@ -1,3 +1,7 @@
+---
+navTitle: Security audit
+---
+
 # Isomux authorization-system security audit
 
 ## Preface

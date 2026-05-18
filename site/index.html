@@ -51,6 +51,7 @@
       href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;500;600&display=swap"
       rel="stylesheet"
     />
+    <link rel="stylesheet" href="/chatbot.css" />
     <style>
       * {
         margin: 0;
@@ -297,6 +298,31 @@
         flex-shrink: 0;
       }
 
+      .btn-docs {
+        height: 36px;
+        background: var(--bg-surface);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0 14px;
+        gap: 8px;
+        font-size: 0.9rem;
+        color: var(--text);
+      }
+      .btn-docs:hover {
+        background: var(--bg-card);
+        text-decoration: none;
+      }
+      .btn-docs svg {
+        width: 18px;
+        height: 18px;
+        fill: none;
+        stroke: var(--text);
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        flex-shrink: 0;
+      }
+
       /* ---- Section shared ---- */
       section {
         max-width: var(--max-width);
@@ -367,51 +393,6 @@
       }
       .feature-highlights a:hover {
         text-decoration-thickness: 2px;
-      }
-
-      .feature-details summary {
-        font-family:
-          "Space Grotesk",
-          -apple-system,
-          sans-serif;
-        font-size: 1rem;
-        font-weight: 600;
-        color: var(--text-dim);
-        cursor: pointer;
-        padding: 8px 0;
-        margin-bottom: 8px;
-      }
-
-      .feature-details summary:hover {
-        color: var(--text);
-      }
-
-      .section-collapse summary {
-        cursor: pointer;
-        padding: 0;
-        list-style: none;
-      }
-
-      .section-collapse summary::-webkit-details-marker {
-        display: none;
-      }
-
-      .section-collapse summary h2::before,
-      .section-collapse summary h3::before {
-        content: "\25B6";
-        font-size: 0.7em;
-        margin-right: 10px;
-        display: inline-block;
-        transition: transform 0.15s;
-      }
-
-      .section-collapse[open] > summary h2::before,
-      .section-collapse[open] > summary h3::before {
-        transform: rotate(90deg);
-      }
-
-      .section-collapse > :not(summary) {
-        margin-top: 16px;
       }
 
       .feature-group {
@@ -520,245 +501,6 @@
         gap: 24px;
       }
 
-      /* ---- Chat widget ---- */
-      .chat-btn {
-        position: fixed;
-        bottom: 24px;
-        right: 24px;
-        z-index: 100;
-        width: 52px;
-        height: 52px;
-        border-radius: 50%;
-        border: none;
-        background: var(--accent);
-        color: #fff;
-        cursor: pointer;
-        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
-        transition:
-          transform 0.15s,
-          background 0.15s;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-      }
-      .chat-btn:hover {
-        transform: scale(1.08);
-        background: var(--accent-hover);
-      }
-
-      .chat-panel {
-        position: fixed;
-        bottom: 24px;
-        right: 24px;
-        z-index: 100;
-        width: min(400px, calc(100vw - 3rem));
-        height: min(500px, calc(100vh - 6rem));
-        background: var(--bg-surface);
-        border: 1px solid var(--border);
-        border-radius: 12px;
-        display: flex;
-        flex-direction: column;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-      }
-
-      .chat-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 12px 16px;
-        border-bottom: 1px solid var(--border);
-      }
-      .chat-header-left {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        font-family: "Space Grotesk", sans-serif;
-        font-weight: 600;
-        font-size: 0.95rem;
-      }
-      .chat-close {
-        background: none;
-        border: none;
-        color: var(--text-dim);
-        cursor: pointer;
-        padding: 4px;
-        border-radius: 4px;
-        display: flex;
-      }
-      .chat-close:hover {
-        background: var(--bg-card);
-        color: var(--text);
-      }
-
-      .chat-messages {
-        flex: 1;
-        overflow-y: auto;
-        padding: 12px 16px;
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-      }
-
-      .chat-msg {
-        max-width: 85%;
-        padding: 8px 12px;
-        border-radius: 10px;
-        font-size: 0.9rem;
-        line-height: 1.5;
-        white-space: pre-wrap;
-        word-wrap: break-word;
-      }
-      .chat-msg-user {
-        align-self: flex-end;
-        background: var(--accent);
-        color: #fff;
-      }
-      .chat-msg-bot {
-        align-self: flex-start;
-        background: var(--bg-card);
-        color: var(--text);
-      }
-      .chat-msg-bot a {
-        color: var(--accent);
-        text-decoration: underline;
-      }
-      .chat-msg-bot code {
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-        font-size: 0.85em;
-        background: rgba(127, 127, 127, 0.18);
-        padding: 1px 5px;
-        border-radius: 4px;
-      }
-      .chat-msg-bot pre {
-        background: rgba(127, 127, 127, 0.12);
-        border-radius: 6px;
-        padding: 8px 10px;
-        margin: 6px 0;
-        overflow-x: auto;
-        white-space: pre;
-      }
-      .chat-msg-bot pre code {
-        background: transparent;
-        padding: 0;
-        font-size: 0.82em;
-        line-height: 1.45;
-      }
-
-      .chat-starters {
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-      }
-      .chat-starters p {
-        font-size: 0.85rem;
-        color: var(--text-dim);
-        margin-bottom: 4px;
-      }
-      .chat-starter-btn {
-        background: var(--bg-card);
-        border: 1px solid var(--border);
-        border-radius: 8px;
-        color: var(--text);
-        font-size: 0.85rem;
-        padding: 8px 12px;
-        cursor: pointer;
-        text-align: left;
-        transition: background 0.15s;
-      }
-      .chat-starter-btn:hover {
-        background: var(--bg);
-      }
-
-      .chat-loading {
-        align-self: flex-start;
-        background: var(--bg-card);
-        padding: 8px 12px;
-        border-radius: 10px;
-        display: flex;
-        gap: 4px;
-      }
-      .chat-loading span {
-        width: 6px;
-        height: 6px;
-        background: var(--text-dim);
-        border-radius: 50%;
-        animation: chat-dot 1.2s ease-in-out infinite;
-      }
-      .chat-loading span:nth-child(2) {
-        animation-delay: 0.2s;
-      }
-      .chat-loading span:nth-child(3) {
-        animation-delay: 0.4s;
-      }
-      @keyframes chat-dot {
-        0%,
-        80%,
-        100% {
-          transform: scale(0.6);
-          opacity: 0.4;
-        }
-        40% {
-          transform: scale(1);
-          opacity: 1;
-        }
-      }
-
-      .chat-error {
-        font-size: 0.8rem;
-        color: #f85149;
-        padding: 4px 0;
-      }
-
-      .chat-footer {
-        border-top: 1px solid var(--border);
-        padding: 10px 16px;
-      }
-      .chat-form {
-        display: flex;
-        gap: 8px;
-      }
-      .chat-input {
-        flex: 1;
-        background: var(--bg);
-        border: 1px solid var(--border);
-        border-radius: 6px;
-        padding: 8px 12px;
-        color: var(--text);
-        font-size: 0.9rem;
-        font-family: inherit;
-        outline: none;
-      }
-      .chat-input:focus {
-        border-color: var(--accent);
-      }
-      .chat-input::placeholder {
-        color: var(--text-dim);
-      }
-      .chat-send {
-        background: var(--accent);
-        border: none;
-        border-radius: 6px;
-        color: #fff;
-        cursor: pointer;
-        padding: 0 12px;
-        display: flex;
-        align-items: center;
-        transition: background 0.15s;
-      }
-      .chat-send:hover {
-        background: var(--accent-hover);
-      }
-      .chat-send:disabled {
-        opacity: 0.4;
-        cursor: not-allowed;
-      }
-      .chat-powered {
-        text-align: center;
-        font-size: 10px;
-        color: var(--text-dim);
-        margin-top: 6px;
-      }
-
       /* ---- Responsive ---- */
       @media (max-width: 640px) {
         .hero {
@@ -816,6 +558,13 @@
       </div>
       <div class="cta-row">
         <a href="#setup" class="btn btn-primary">Get Started &darr;</a>
+        <a href="/docs" class="btn btn-docs">
+          <svg viewBox="0 0 24 24">
+            <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
+            <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
+          </svg>
+          Docs
+        </a>
         <a
           href="https://github.com/nmamano/isomux"
           target="_blank"
@@ -881,7 +630,14 @@
           works in your terminal, isomux works in your browser
         </li>
         <li>
-          <strong>Multi-provider</strong>: mix Claude agents and
+          <strong>Multi-provider</strong>: mix
+          <a
+            href="https://github.com/anthropics/claude-code"
+            target="_blank"
+            rel="noopener"
+            >Claude</a
+          >
+          agents and
           <a
             href="https://github.com/openai/codex"
             target="_blank"
@@ -896,31 +652,13 @@
           <ul>
             <li>
               Run at home, access <strong>from any device</strong> (see
-              <a
-                href="https://github.com/nmamano/isomux/blob/main/docs/access-and-invites.md"
-                target="_blank"
-                rel="noopener"
-                >how</a
-              >)
+              <a href="/docs/self-hosted">how</a>)
             </li>
             <li>
               <strong>Invite-link access</strong>: owner mints a URL per device,
               sends it out-of-band, the invitee clicks and is signed in. No
               accounts, no passwords (see
-              <a
-                href="https://github.com/nmamano/isomux/blob/main/docs/access-and-invites.md"
-                target="_blank"
-                rel="noopener"
-                ><code
-                  style="
-                    background: var(--bg);
-                    padding: 1px 6px;
-                    border-radius: 4px;
-                    font-size: 0.85em;
-                  "
-                  >docs/access-and-invites.md</code
-                ></a
-              >)
+              <a href="/docs/access-and-invites">docs/access-and-invites</a>)
             </li>
             <li>
               No syncing headaches: same conversations, same filesystem, every
@@ -1105,447 +843,68 @@
       </ul>
 
       <p style="color: var(--text-dim); font-size: 0.95rem">
-        See the
-        <a
-          href="https://github.com/nmamano/isomux#full-feature-list"
-          target="_blank"
-          rel="noopener"
-          >full feature list</a
-        >
-        on GitHub.
+        See the <a href="/docs">full feature list</a>.
       </p>
     </section>
 
-    <!-- Setup -->
+    <!-- Get Started -->
     <section id="setup">
-      <details class="section-collapse">
-        <summary>
-          <h2 style="display: inline">
-            Get Started
-            <em
-              style="
-                font-weight: 400;
-                font-size: 0.85em;
-                color: var(--text-dim);
-              "
-              >(run it locally)</em
-            >
-          </h2>
-        </summary>
-        <div class="setup-card">
-          <h3>1. Prerequisites</h3>
-          <p>
-            You need
-            <a href="https://bun.sh/" target="_blank" rel="noopener">Bun</a>
-            (v1.2+) and at least one of: the
-            <a href="https://claude.ai/code" target="_blank" rel="noopener"
-              >Claude Code</a
-            >
-            CLI (Claude subscription) or the
-            <a
-              href="https://github.com/openai/codex"
-              target="_blank"
-              rel="noopener"
-              >Codex</a
-            >
-            CLI (ChatGPT subscription).
-          </p>
-          <pre><span class="comment"># Install Bun</span>
+      <h2>Get Started</h2>
+      <div class="setup-card">
+        <h3>1. Prerequisites</h3>
+        <p>
+          You need
+          <a href="https://bun.sh/" target="_blank" rel="noopener">Bun</a>
+          (v1.2+) and at least one of: the
+          <a href="https://claude.ai/code" target="_blank" rel="noopener"
+            >Claude Code</a
+          >
+          CLI with a Claude subscription, or the
+          <a
+            href="https://github.com/openai/codex"
+            target="_blank"
+            rel="noopener"
+            >Codex</a
+          >
+          CLI with a ChatGPT subscription.
+        </p>
+        <pre><span class="comment"># Install Bun</span>
 curl -fsSL https://bun.sh/install | bash
 
 <span class="comment"># Install at least one agent CLI</span>
 npm install -g @anthropic-ai/claude-code && claude  <span class="comment"># then /login</span>
 npm install -g @openai/codex && codex login</pre>
 
-          <h3>2. Install &amp; Run</h3>
-          <pre>
+        <h3>2. Install &amp; Run</h3>
+        <pre>
 git clone https://github.com/nmamano/isomux.git
 cd isomux
 bun install
 bun run dev</pre
-          >
-          <p style="margin-top: 8px; color: var(--text-dim); font-size: 0.9rem">
-            That's it; nothing to build or deploy.
-          </p>
+        >
+        <p style="margin-top: 8px; color: var(--text-dim); font-size: 0.9rem">
+          That's it; nothing to build or deploy.
+        </p>
 
-          <h3>3. Open</h3>
-          <p>
-            Visit <strong>http://localhost:4000</strong> in your browser. Click
-            an empty desk to spawn your first agent.
-          </p>
-        </div>
-      </details>
+        <h3>3. Open</h3>
+        <p>
+          Visit <strong>http://localhost:4000</strong> in your browser.
+        </p>
+
+        <p style="margin-top: 20px">
+          Want to run it on an always-on box, access from every device, and
+          invite other users to your office? See
+          <a href="/docs/self-hosted">self-hosted setup</a>.
+        </p>
+      </div>
     </section>
 
-    <!-- Persistent Server Setup -->
-    <section id="persistent-server">
-      <details class="section-collapse">
-        <summary>
-          <h2 style="display: inline">
-            Self-hosted Server Setup
-            <em
-              style="
-                font-weight: 400;
-                font-size: 0.85em;
-                color: var(--text-dim);
-              "
-              >(Mac Mini style)</em
-            >
-          </h2>
-        </summary>
-        <div class="setup-card">
-          <p>
-            Isomux shines when you run it on your own always-on box/server (like
-            a Mac Mini), and then access it from all your devices.
-          </p>
-          <p style="margin-top: 12px">
-            Same office for all your devices. Agents keep running even if you
-            close the browser.
-          </p>
-          <p style="margin-top: 12px">
-            The easiest way is to use
-            <a href="https://tailscale.com/" target="_blank" rel="noopener"
-              ><strong>Tailscale</strong></a
-            >
-            (free, zero-config): your server serves Isomux on
-            <code
-              style="
-                background: var(--bg);
-                padding: 1px 6px;
-                border-radius: 4px;
-                font-size: 0.85em;
-              "
-              >localhost:4000</code
-            >, and every other device reaches it at
-            <code
-              style="
-                background: var(--bg);
-                padding: 1px 6px;
-                border-radius: 4px;
-                font-size: 0.85em;
-              "
-              >&lt;TAILSCALE_SERVER_IP&gt;:4000</code
-            >.
-          </p>
-          <h3>1. Install Tailscale</h3>
-          <p>Install Tailscale on the server, your laptop, and your phone.</p>
-          <pre>curl -fsSL https://tailscale.com/install.sh | sh
-sudo tailscale up
-
-<span class="comment"># Find your Tailscale IP</span>
-tailscale ip -4</pre>
-
-          <p style="margin-top: 20px; margin-bottom: 8px">
-            <strong>Bonus:</strong> Instead of remembering an IP, rename your
-            machine in the
-            <a
-              href="https://login.tailscale.com/admin/machines"
-              target="_blank"
-              rel="noopener"
-              >Tailscale admin console</a
-            >
-            to something friendly, like
-            <code
-              style="
-                background: var(--bg);
-                padding: 1px 6px;
-                border-radius: 4px;
-                font-size: 0.85em;
-              "
-              >my-mac-mini</code
-            >.
-          </p>
-
-          <h3>2. Access from laptop or phone</h3>
-          <p>Open from any connected device:</p>
-          <pre>http://my-mac-mini:4000</pre>
-          <p
-            style="margin-top: 12px; color: var(--text-dim); font-size: 0.85rem"
-          >
-            <strong>Tip:</strong> Install Isomux as an app for a native feel. On
-            iPhone, use Safari's &ldquo;Add to Home Screen&rdquo;. On Android,
-            Chrome will prompt you to install on first visit.
-          </p>
-          <img
-            src="/add-to-home-screen.jpeg"
-            alt="iOS Safari share menu with the &ldquo;Add to Home Screen&rdquo; option highlighted"
-            style="
-              display: block;
-              max-width: 240px;
-              width: 100%;
-              margin: 12px auto 0;
-              border-radius: 8px;
-              border: 1px solid var(--border);
-            "
-          />
-
-          <h3>3. Make it persistent</h3>
-          <p>Give this prompt to one of your Isomux agents:</p>
-          <pre>
-Set up Isomux as an always-on server. Create a systemd user service
-that auto-rebuilds the UI on start and restarts on failure. Enable
-lingering so it survives logout.
-
-If you run into any issues with this setup, ask in the Isomux
-Discord: https://discord.gg/FrjEYyNvYs</pre
-          >
-
-          <h3>4. Expose it to the public internet (optional)</h3>
-          <p>
-            By default the office is reachable only from devices on your
-            tailnet. To let people use invite links from anywhere on the
-            internet, expose it via
-            <a
-              href="https://tailscale.com/kb/1223/funnel"
-              target="_blank"
-              rel="noopener"
-              >Tailscale Funnel</a
-            >. No domain to buy, no router port-forwarding. Tailscale's relay
-            forwards an encrypted TCP tunnel to your box, where the local
-            Tailscale daemon terminates TLS — the relay never sees plaintext.
-            Your existing
-            <code
-              style="
-                background: var(--bg);
-                padding: 1px 6px;
-                border-radius: 4px;
-                font-size: 0.85em;
-              "
-              >*.ts.net</code
-            >
-            hostname becomes publicly resolvable.
-          </p>
-          <p style="margin-top: 12px">
-            Give this prompt to one of your Isomux agents:
-          </p>
-          <pre>
-Set up Tailscale Funnel so my isomux office is publicly reachable
-from the internet.
-
-Steps:
-
-1. If tailscale isn't installed, install it and pause to ask me to
-   authenticate.
-
-2. Confirm my tailnet has MagicDNS + HTTPS certs enabled in the
-   admin console. Walk me through if needed.
-
-3. Confirm the tailnet policy has a `funnel` nodeAttr covering
-   this device. Ask me to add it if not.
-
-4. Run `tailscale serve status` and `tailscale funnel status` to
-   see what's currently configured. Enabling Funnel on port 443
-   will either make every other path/mapping on port 443
-   publicly reachable, or replace them entirely (Tailscale's
-   docs: a port is either all-private Serve or all-public
-   Funnel, never mixed). If port 443 has any mappings beyond the
-   one pointing at isomux (default localhost:4000), list each by
-   name and target. Stop and ask before continuing. For each
-   extra mapping I need to choose one of: (a) confirm it's safe
-   to expose publicly, (b) move it to a different port and
-   update the Serve config, or (c) remove it. If moving to a
-   different port, prefer a port outside Tailscale's
-   Funnel-eligible list (avoid 443, 8443, 10000) so a future
-   Funnel command can't accidentally expose it.
-
-5. Once port 443 carries only the isomux mapping, run:
-   `tailscale funnel --bg http://localhost:4000`
-
-6. Capture the public URL from `tailscale funnel status --json`.
-
-7. Update ~/.config/systemd/user/isomux.service.d/override.conf
-   so it sets `Environment="ISOMUX_PUBLIC_ORIGIN=&lt;url&gt;"`. Create
-   the directory if needed; preserve any other lines in the
-   file. If the value already matches, skip the write.
-
-8. Run `systemctl --user daemon-reload`.
-
-9. Ask me before restarting isomux (interrupts active agents).
-   Skip the restart if the running service already has the right
-   `ISOMUX_PUBLIC_ORIGIN` (check with
-   `systemctl --user show isomux -p Environment`).
-
-10. Verify the public URL responds. Ask me to test from a device
-    not on the tailnet (phone on cellular, or any non-tailnet
-    machine). A curl from the box itself goes over the tailnet
-    path and isn't a true public-reachability check.
-
-If you run into any issues with this setup, ask in the Isomux
-Discord: https://discord.gg/FrjEYyNvYs</pre
-          >
-          <p
-            style="margin-top: 8px; color: var(--text-dim); font-size: 0.85rem"
-          >
-            Funnel is currently in beta and has non-configurable bandwidth
-            limits, but those limits accommodate isomux's WebSocket traffic at
-            typical personal and small-team scale. Cloudflare Tunnel, Caddy, and
-            other reverse-proxy setups are documented as alternatives in
-            <a
-              href="https://github.com/nmamano/isomux/blob/main/docs/access-and-invites.md"
-              target="_blank"
-              rel="noopener"
-              >docs/access-and-invites.md</a
-            >.
-          </p>
-
-          <details class="section-collapse" style="margin-top: 24px">
-            <summary>
-              <h3 style="display: inline">
-                HTTPS Features
-                <em
-                  style="
-                    font-weight: 400;
-                    font-size: 0.85em;
-                    color: var(--text-dim);
-                  "
-                  >(optional)</em
-                >
-              </h3>
-            </summary>
-            <p style="margin-top: 12px; margin-bottom: 16px">
-              Some features require a <strong>secure context</strong> (HTTPS or
-              localhost). Over plain HTTP on a remote host, the app works
-              normally but the following won't be available:
-            </p>
-            <ul style="margin: 0 0 16px 20px; color: var(--text-dim)">
-              <li>
-                <strong>Voice input</strong>: browser microphone access requires
-                HTTPS
-              </li>
-              <li>
-                <strong>PWA install</strong>: "Add to Home Screen" on
-                Chrome/Android requires a service worker, which requires HTTPS
-              </li>
-            </ul>
-            <p style="margin-bottom: 16px">
-              These work out-of-the-box on
-              <code
-                style="
-                  background: var(--bg);
-                  padding: 1px 6px;
-                  border-radius: 4px;
-                  font-size: 0.85em;
-                "
-                >localhost</code
-              >. To enable them over Tailscale, follow these steps.
-            </p>
-            <h4>1. Enable HTTPS in Tailscale</h4>
-            <p>
-              Open the
-              <a
-                href="https://login.tailscale.com/admin/dns"
-                target="_blank"
-                rel="noopener"
-                >DNS page</a
-              >
-              of your Tailscale admin console. Enable
-              <strong>MagicDNS</strong> if not already on, then enable
-              <strong>HTTPS Certificates</strong>.
-            </p>
-
-            <h4>2. Allow Tailscale without sudo</h4>
-            <pre>sudo tailscale set --operator=$USER</pre>
-
-            <h4>3. Start the HTTPS proxy</h4>
-            <p>
-              Run this on the server (you can use the built-in terminal in
-              Isomux):
-            </p>
-            <pre>tailscale serve --bg http://localhost:4000</pre>
-            <p
-              style="
-                margin-top: 8px;
-                color: var(--text-dim);
-                font-size: 0.85rem;
-              "
-            >
-              <code
-                style="
-                  background: var(--bg);
-                  padding: 1px 6px;
-                  border-radius: 4px;
-                  font-size: 0.85em;
-                "
-                >--bg</code
-              >
-              persists the proxy across reboots. Visit the HTTPS URL it prints
-              (e.g.
-              <code
-                style="
-                  background: var(--bg);
-                  padding: 1px 6px;
-                  border-radius: 4px;
-                  font-size: 0.85em;
-                "
-                >https://my-mac-mini.&lt;tailnet&gt;.ts.net</code
-              >) for voice input and PWA install.
-            </p>
-          </details>
-        </div>
-      </details>
-    </section>
-
-    <!-- How It Works -->
-    <section id="how-it-works">
-      <details class="section-collapse">
-        <summary><h2 style="display: inline">How It Works</h2></summary>
-        <div class="setup-card">
-          <p>
-            Isomux runs as a <strong>single Bun process</strong> on your
-            machine. It uses the
-            <a
-              href="https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk"
-              target="_blank"
-              rel="noopener"
-              >Claude Agent SDK</a
-            >
-            to create and manage agent sessions &mdash; one per desk &mdash;
-            with no subprocess juggling.
-          </p>
-          <p style="margin-top: 12px">
-            A <strong>WebSocket layer</strong> keeps every connected device in
-            sync in real time. Open the same URL on your laptop and phone
-            &mdash; both see the same office, same conversations.
-          </p>
-          <p style="margin-top: 12px">
-            <strong>Agent sessions persist</strong> across server restarts. Your
-            agents pick up right where they left off.
-          </p>
-          <p style="margin-top: 12px">
-            There's
-            <strong>no database, no cloud dependency, no API key</strong>.
-            Isomux piggybacks on your existing Claude CLI authentication and
-            inherits your global Claude skills.
-          </p>
-          <p style="margin-top: 12px">
-            For a deeper dive, see the
-            <a
-              href="https://nilmamano.com/blog/isomux"
-              target="_blank"
-              rel="noopener"
-              ><strong>Design and Architecture blog post</strong></a
-            >.
-          </p>
-          <img
-            src="/architecture.png"
-            alt="Isomux system design: browser clients connect over WebSocket to the Bun service, which runs persistent agents backed by Claude Code SDK sessions and persists state to the local file system"
-            style="width: 100%; margin-top: 16px; border-radius: 6px"
-          />
-        </div>
-      </details>
-    </section>
-
-    <!-- CTA -->
-    <section
-      style="text-align: center; padding-top: 32px; padding-bottom: 32px"
-    >
-      <a
-        href="#setup"
-        class="btn btn-primary"
-        style="font-size: 1rem; height: 44px; padding: 0 28px"
-        onclick="document.querySelector('#setup details').open = true"
-        >Try it now &uarr;</a
-      >
+    <!-- How It Works (link) -->
+    <section id="how-it-works" style="text-align: center">
+      <p style="color: var(--text-dim)">
+        Curious about the internals?
+        <a href="/docs/how-it-works"><strong>Read how it works</strong></a>.
+      </p>
     </section>
 
     <!-- Footer -->
@@ -1586,202 +945,6 @@ Discord: https://discord.gg/FrjEYyNvYs</pre
 
     <!-- Chat widget -->
     <div id="chat-widget"></div>
-    <script>
-      (function () {
-        const chatSvg = `<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`;
-        const closeSvg = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`;
-        const sendSvg = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>`;
-
-        const starters = [
-          "What is Isomux?",
-          "How do I get started?",
-          "What features does it have?",
-          "Does it work on mobile?",
-        ];
-
-        let messages = [];
-        let isOpen = false;
-        let isLoading = false;
-
-        const container = document.getElementById("chat-widget");
-
-        function formatText(text) {
-          // Extract code first so other transforms don't mangle its contents.
-          // Restore at the end with HTML-escaped bodies.
-          const blocks = [];
-          const inlines = [];
-          text = text.replace(
-            /```[^\n`]*\n?([\s\S]*?)```/g,
-            (_, code) => `\x00B${blocks.push(code) - 1}\x00`,
-          );
-          text = text.replace(
-            /`([^`\n]+)`/g,
-            (_, code) => `\x00I${inlines.push(code) - 1}\x00`,
-          );
-          text = text
-            .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-            .replace(/\*([^*]+)\*/g, "<em>$1</em>")
-            .replace(
-              /\[([^\]]+)\]\(([^)]+)\)/g,
-              '<a href="$2" target="_blank" rel="noopener">$1</a>',
-            )
-            .replace(
-              /(^|[^"'>])(https?:\/\/[^\s<)]+)/g,
-              '$1<a href="$2" target="_blank" rel="noopener">$2</a>',
-            );
-          text = text.replace(
-            /\x00B(\d+)\x00/g,
-            (_, i) =>
-              `<pre><code>${esc(blocks[+i].replace(/\n$/, ""))}</code></pre>`,
-          );
-          text = text.replace(
-            /\x00I(\d+)\x00/g,
-            (_, i) => `<code>${esc(inlines[+i])}</code>`,
-          );
-          return text;
-        }
-
-        function render() {
-          if (!isOpen) {
-            container.innerHTML = `<button class="chat-btn" onclick="window.__chatOpen()">${chatSvg}</button>`;
-            return;
-          }
-
-          let msgsHtml = "";
-          if (messages.length === 0) {
-            msgsHtml = `<div class="chat-starters">
-          <p>Ask me anything about Isomux!</p>
-          ${starters.map((q) => `<button class="chat-starter-btn" onclick="window.__chatSend('${q.replace(/'/g, "\\'")}')">${q}</button>`).join("")}
-        </div>`;
-          } else {
-            msgsHtml = messages
-              .map(
-                (m) =>
-                  `<div class="chat-msg chat-msg-${m.role === "user" ? "user" : "bot"}">${m.role === "user" ? esc(m.content) : formatText(m.content)}</div>`,
-              )
-              .join("");
-            if (isLoading && messages[messages.length - 1]?.role === "user") {
-              msgsHtml += `<div class="chat-loading"><span></span><span></span><span></span></div>`;
-            }
-          }
-
-          container.innerHTML = `
-        <div class="chat-panel">
-          <div class="chat-header">
-            <div class="chat-header-left">${chatSvg} Ask about Isomux</div>
-            <button class="chat-close" onclick="window.__chatClose()">${closeSvg}</button>
-          </div>
-          <div class="chat-messages" id="chat-msgs">${msgsHtml}</div>
-          <div class="chat-footer">
-            <form class="chat-form" onsubmit="event.preventDefault(); window.__chatSubmit()">
-              <input class="chat-input" id="chat-input" placeholder="Type a message..." ${isLoading ? "disabled" : ""} autocomplete="off" />
-              <button class="chat-send" type="submit" ${isLoading ? "disabled" : ""}>${sendSvg}</button>
-            </form>
-            <div class="chat-powered">Powered by Claude</div>
-          </div>
-        </div>`;
-
-          const msgsEl = document.getElementById("chat-msgs");
-          if (msgsEl) msgsEl.scrollTop = msgsEl.scrollHeight;
-          const inputEl = document.getElementById("chat-input");
-          if (inputEl && !isLoading) inputEl.focus();
-        }
-
-        function esc(s) {
-          const d = document.createElement("div");
-          d.textContent = s;
-          return d.innerHTML;
-        }
-
-        async function sendMessage(text) {
-          if (!text.trim() || isLoading) return;
-          messages.push({ role: "user", content: text });
-          isLoading = true;
-          render();
-
-          try {
-            const res = await fetch("/api/chat", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                messages: messages.map((m) => ({
-                  role: m.role,
-                  content: m.content,
-                })),
-              }),
-            });
-
-            if (!res.ok) {
-              const err = await res.json().catch(() => ({}));
-              throw new Error(err.error || "Request failed");
-            }
-
-            const reader = res.body.getReader();
-            const decoder = new TextDecoder();
-            let botMsg = { role: "assistant", content: "" };
-            messages.push(botMsg);
-            isLoading = false;
-
-            let buffer = "";
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              buffer += decoder.decode(value, { stream: true });
-              const lines = buffer.split("\n");
-              buffer = lines.pop() || "";
-              for (const line of lines) {
-                if (!line.startsWith("data: ")) continue;
-                const data = line.slice(6);
-                if (data === "[DONE]") break;
-                try {
-                  const parsed = JSON.parse(data);
-                  if (parsed.error) throw new Error(parsed.error);
-                  if (parsed.text) {
-                    botMsg.content += parsed.text;
-                    render();
-                  }
-                } catch (e) {
-                  if (e.message && !e.message.includes("JSON")) throw e;
-                }
-              }
-            }
-            render();
-          } catch (err) {
-            isLoading = false;
-            const errorText =
-              err.message?.includes("credit") ||
-              err.message?.includes("balance")
-                ? "The chatbot has run out of credits. Please try again later!"
-                : "Something went wrong. Please try again.";
-            messages.push({
-              role: "assistant",
-              content: errorText,
-              error: true,
-            });
-            render();
-          }
-        }
-
-        window.__chatOpen = () => {
-          isOpen = true;
-          render();
-        };
-        window.__chatClose = () => {
-          isOpen = false;
-          render();
-        };
-        window.__chatSubmit = () => {
-          const input = document.getElementById("chat-input");
-          if (input) {
-            sendMessage(input.value);
-          }
-        };
-        window.__chatSend = (text) => {
-          sendMessage(text);
-        };
-
-        render();
-      })();
-    </script>
+    <script defer src="/chatbot.js"></script>
   </body>
 </html>

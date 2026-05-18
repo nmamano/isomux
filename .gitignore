@@ -3,6 +3,7 @@ ui/dist/
 site/demo/demo-entry.js
 site/demo/index.html
 site/demo/xterm.css
+site/docs/
 *.log
 .vercel
 .claude/

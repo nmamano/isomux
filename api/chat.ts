@@ -46,6 +46,7 @@ The core thesis: **by anthropomorphizing agents, we reduce cognitive load** — 
 - Works with your existing Claude or ChatGPT subscription — if \`claude\` or \`codex\` works in your terminal, Isomux works in your browser. No API key needed — it piggybacks on the underlying CLI's auth.
 - Built with Bun, React, TypeScript. Runs as a single Bun process. No bundler, no database, minimal deps.
 - GitHub: github.com/nmamano/isomux
+- Docs: isomux.com/docs (full feature list, self-hosted setup, access and invites, backup/restore, security audit)
 - Created by Nil Mamano (nilmamano.com)
 - Blog post with architecture deep dive: nilmamano.com/blog/isomux
 
@@ -65,7 +66,7 @@ Setup:
 3. For persistence, set up a systemd user service that auto-rebuilds the UI on start and restarts on failure, with lingering enabled so it survives logout.
 4. Install Isomux as an app for a full-screen experience: on iPhone, use Safari's "Add to Home Screen"; on Android, Chrome will prompt you to install on first visit.
 5. For voice input over Tailscale, enable HTTPS certificates in the Tailscale admin console and run \`tailscale serve --bg http://localhost:4000\`.
-6. To let people use the office from outside your Tailscale network — friends, collaborators on a different VPN, anyone — expose it via Tailscale Funnel. Free, no domain needed, no router work. There's an agent prompt in \`docs/access-and-invites.md\` that walks an Isomux agent through the setup end-to-end. Cloudflare Tunnel and Caddy are documented as alternatives in the same file.
+6. To let people use the office from outside your Tailscale network — friends, collaborators on a different VPN, anyone — expose it via Tailscale Funnel. Free, no domain needed, no router work. The docs at isomux.com/docs/access-and-invites have an agent prompt that walks an Isomux agent through the setup end-to-end. Cloudflare Tunnel and Caddy are documented as alternatives on the same page.
 
 ## Full Feature List
 
@@ -162,7 +163,7 @@ Setup:
 - Two roles: owner (can invite users, revoke sessions, and set per-user room access) and member (can act in the rooms the owner allowed, can't invite or revoke). Members aren't necessarily given the run of the office — owners pick which rooms each member sees.
 - The owner can revoke any active session or unconsumed invite from the Access pane; revocation force-closes the affected WebSocket within ~1s.
 - Sessions roll for 30 days on activity, capped at 1 year from creation. They survive server restarts.
-- To make the office reachable from outside your Tailscale network — friends, collaborators on a different VPN — the recommended path is Tailscale Funnel. The agent prompt in \`docs/access-and-invites.md\` walks an Isomux agent through the whole setup. Cloudflare Tunnel and Caddy are documented as alternatives.
+- To make the office reachable from outside your Tailscale network — friends, collaborators on a different VPN — the recommended path is Tailscale Funnel. The agent prompt at isomux.com/docs/access-and-invites walks an Isomux agent through the whole setup. Cloudflare Tunnel and Caddy are documented as alternatives.
 
 ### Safety
 - All agents can run in bypassPermissions mode with safety hooks as guardrails
@@ -244,7 +245,18 @@ export default async function handler(req: Request) {
     );
   }
 
-  const { messages } = await req.json();
+  const { messages, pageContext } = (await req.json()) as {
+    messages: { role: string; content: string }[];
+    pageContext?: string;
+  };
+
+  // Per-page context: docs pages embed their markdown and pass it through.
+  // Cap at 20k chars so a runaway page can't blow the system-prompt budget.
+  let system = SYSTEM_PROMPT;
+  if (typeof pageContext === "string" && pageContext.trim()) {
+    const trimmed = pageContext.slice(0, 20_000);
+    system += `\n\n---\n## Current docs page\n\nThe user is reading this specific docs page. Use it as authoritative context when they ask about its contents. Quote it directly when answering specifics.\n\n<page-content>\n${trimmed}\n</page-content>`;
+  }
 
   const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
   const userAgent = req.headers.get("user-agent") || "unknown";
@@ -279,7 +291,7 @@ export default async function handler(req: Request) {
     body: JSON.stringify({
       model: "claude-sonnet-4-6",
       max_tokens: 1000,
-      system: SYSTEM_PROMPT,
+      system,
       stream: true,
       messages: messages.map((m: { role: string; content: string }) => ({
         role: m.role,
