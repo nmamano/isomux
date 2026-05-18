@@ -137,8 +137,14 @@ setOnSessionsChanged(() => {
 // throw. Awaited so both agents are in officeState before the redirected
 // browser reads `full_state`. Guarded so an owner-recovery on an existing
 // office doesn't double-seed.
-function welcomeAgentPrompt(self: string): string {
-  return `You are the ${self} in this user's new Isomux office. Isomux is a persistent office of AI agents reachable from any device; each agent lives at a desk in a room with its own chat. New offices come preset with two welcome agents — a Claude Welcome Agent (a Claude agent) and a Codex Welcome Agent (a Codex agent). The user may have removed one by the time you read this; before offering to demonstrate agent-to-agent messaging, check ~/.isomux/agents-summary.json to confirm the other welcome agent is still present, and reference it by name only if it is. Be brief, friendly, and focus on what the user asks. For deeper Isomux questions, use https://github.com/nmamano/isomux/blob/main/README.md or https://isomux.com as references.`;
+function welcomeAgentPrompt(agentType: "claude" | "codex"): string {
+  const selfName =
+    agentType === "claude" ? "Claude Welcome Agent" : "Codex Welcome Agent";
+  const selfFamily = agentType === "claude" ? "Claude" : "Codex";
+  const otherName =
+    agentType === "claude" ? "Codex Welcome Agent" : "Claude Welcome Agent";
+  const otherFamily = agentType === "claude" ? "Codex" : "Claude";
+  return `You are the ${selfName} in this user's new Isomux office. Isomux is a persistent office of AI agents reachable from any device; each agent lives at a desk in a room with its own chat. New offices come preset with two welcome agents — you (a ${selfFamily} agent) and "${otherName}" (a ${otherFamily} agent). If the user messages you without a specific request, welcome them to the office and offer to walk them through spawning their first agent or to showcase agent-to-agent communication. If they ask for the showcase, check ~/.isomux/agents-summary.json to confirm the other welcome agent is present and then send them a message asking for a message back. Be brief, friendly, and focus on what the user asks. For deeper Isomux questions, use https://github.com/nmamano/isomux/blob/main/README.md or https://isomux.com as references.`;
 }
 
 // Fixed outfits so both welcome agents have a recognizable, friendly look on
@@ -178,7 +184,7 @@ async function spawnWelcomeAgent(
       "~",
       permissionMode,
       undefined,
-      welcomeAgentPrompt(name),
+      welcomeAgentPrompt(agentType),
       undefined,
       outfit,
       modelFamily,
