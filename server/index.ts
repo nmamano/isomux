@@ -383,11 +383,24 @@ function buildPresenceListFor(session: SessionLookup): PresenceInfo[] {
   return out;
 }
 
+// Count distinct online userIds across the WHOLE presence map (not the
+// per-recipient filtered `entries`). Off-scene sessions (viewMode
+// "away" / currentRoomId === null) are included — "online" here means
+// "has a live WS that has sent at least one presence_update", which is
+// independent of whether the session is currently visible in a scene.
+// Same value broadcast to every recipient.
+function countTotalOnlineUsers(): number {
+  const seen = new Set<string>();
+  for (const p of listAllPresence()) seen.add(p.userId);
+  return seen.size;
+}
+
 function sendPresenceListTo(ws: ServerWebSocket<WsData>) {
   ws.send(
     JSON.stringify({
       type: "presence_list",
       entries: buildPresenceListFor(ws.data.session),
+      totalOnlineUsers: countTotalOnlineUsers(),
     }),
   );
 }

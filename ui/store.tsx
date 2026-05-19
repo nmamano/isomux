@@ -125,6 +125,11 @@ export interface AppState {
   // remain visible as their own ghosts (each with its own
   // connectionId).
   presences: PresenceInfo[];
+  // Distinct online userIds across the WHOLE office (server counts ALL
+  // presence entries including off-scene sessions). Same value for
+  // every recipient — answers "who is online anywhere", not "who is in
+  // a room I can see". Renders as the total chip in RoomTabBar.
+  totalOnlineUsers: number;
 }
 
 type Action =
@@ -179,7 +184,11 @@ type Action =
   | { type: "users_list"; users: UserRecord[] }
   | { type: "user_updated"; user: UserRecord; prevName?: string }
   | { type: "session_context"; context: SessionContext }
-  | { type: "presence_list"; entries: PresenceInfo[] }
+  | {
+      type: "presence_list";
+      entries: PresenceInfo[];
+      totalOnlineUsers: number;
+    }
   | { type: "all_rooms_list"; rooms: RoomWire[] }
   | { type: "invites_list"; invites: InviteWire[] }
   | { type: "sessions_active_list"; sessions: SessionWire[] }
@@ -455,7 +464,11 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, users };
     }
     case "presence_list":
-      return { ...state, presences: action.entries };
+      return {
+        ...state,
+        presences: action.entries,
+        totalOnlineUsers: action.totalOnlineUsers,
+      };
     case "session_context":
       // session_context arrives as the first message on every WS open,
       // including reconnects. Reset the owner-only loaded flags so the
@@ -624,6 +637,7 @@ const initialState: AppState = {
   sessionExpired: false,
   hasReceivedInitialState: false,
   presences: [],
+  totalOnlineUsers: 0,
 };
 
 const StateCtx = createContext<AppState>(initialState);

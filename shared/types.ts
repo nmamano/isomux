@@ -844,7 +844,16 @@ export type ServerMessage =
   | { type: "users_list"; users: UserRecord[] }
   | { type: "user_updated"; user: UserRecord; prevName?: string }
   | { type: "session_context"; context: SessionContext }
-  | { type: "presence_list"; entries: PresenceInfo[] }
+  // totalOnlineUsers counts distinct userIds across ALL live presence
+  // entries (including off-scene viewMode="away" sessions whose
+  // entries are otherwise filtered from `entries` for the in-scene
+  // ghost wire). Same value for every recipient — it answers "who is
+  // online anywhere in the office", not "who is in rooms I can see".
+  | {
+      type: "presence_list";
+      entries: PresenceInfo[];
+      totalOnlineUsers: number;
+    }
   // Owner-only: unfiltered global rooms list. Owners with an explicit
   // allowedRooms list still see only their subset in the main UI, but
   // need every room here to manage other users' room access. Members

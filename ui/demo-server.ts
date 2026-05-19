@@ -276,7 +276,9 @@ function emitStephenPresence() {
     focusedAgentId: agent.id,
     viewMode: "log",
   };
-  shimEmit({ type: "presence_list", entries: [entry] });
+  // Demo only ever has the one Stephen ghost online, so the total
+  // matches the entries length. The shim mirrors the real wire shape.
+  shimEmit({ type: "presence_list", entries: [entry], totalOnlineUsers: 1 });
 }
 
 function startStephenGhostCycle() {

@@ -17,6 +17,15 @@ interface GhostGraphicProps {
   // the body box, so the rendered footprint is slightly taller and
   // wider than the body alone.
   size?: number;
+  // When false, drops the SMIL bob animation. Used by mini-ghost
+  // surfaces (RoomTabBar clusters) where the small size makes the
+  // bob read as jitter rather than personality. Default true.
+  animated?: boolean;
+  // When false, drops the drop-shadow filter. In the scene the shadow
+  // grounds the ghost; in a chip-context (RoomTabBar clusters) the
+  // shadow adds visual mass below the body that throws off vertical
+  // centering against text. Default true.
+  shadow?: boolean;
 }
 
 // Per-variant bob period. A handful of small differences keep multiple
@@ -32,7 +41,13 @@ const BOB_DUR_S: Record<GhostVariant, number> = {
   "glow-halo": 2.8,
 };
 
-export function GhostGraphic({ variant, color, size = 40 }: GhostGraphicProps) {
+export function GhostGraphic({
+  variant,
+  color,
+  size = 40,
+  animated = true,
+  shadow = true,
+}: GhostGraphicProps) {
   // Body sits in a 100x100 box (head at y=0, waves at y=100); the
   // viewBox extends -15..115 horizontally and -30..140 vertically to
   // accommodate the nightcap above and the wisp-tail / glow halo below
@@ -46,16 +61,22 @@ export function GhostGraphic({ variant, color, size = 40 }: GhostGraphicProps) {
       height={height}
       viewBox="-15 -30 130 170"
       overflow="visible"
-      style={{ filter: "drop-shadow(0 3px 4px rgba(0,0,0,0.35))" }}
+      style={
+        shadow
+          ? { filter: "drop-shadow(0 3px 4px rgba(0,0,0,0.35))" }
+          : undefined
+      }
     >
       <g>
-        <animateTransform
-          attributeName="transform"
-          type="translate"
-          values="0,0; 0,-4; 0,0"
-          dur={`${BOB_DUR_S[variant]}s`}
-          repeatCount="indefinite"
-        />
+        {animated && (
+          <animateTransform
+            attributeName="transform"
+            type="translate"
+            values="0,0; 0,-4; 0,0"
+            dur={`${BOB_DUR_S[variant]}s`}
+            repeatCount="indefinite"
+          />
+        )}
         {renderVariant(variant, color)}
       </g>
     </svg>
