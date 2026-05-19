@@ -20,7 +20,7 @@ Free · open source · no cloud · no account
   - **Invite-link access**: owner mints a URL per device, sends it out-of-band, the invitee clicks and is signed in. No accounts, no passwords (see [access and invites](https://isomux.com/docs/access-and-invites))
   - No syncing headaches: same conversations, same filesystem, every device updates **in real time**
   - [**Conversation-level collaboration**](https://x.com/Nil053/status/2050141843741081928): anyone you've invited can chime in
-- Visual office metaphor: see what every agent is doing at a glance
+- Visual [office metaphor](https://x.com/mom_agency_/status/2054909371071582501?s=20): see what every agent is doing at a glance
   - **Animated characters**: sleeping when idle, typing when working, waving when waiting for you
   - [**Skeuomorphic touches**](https://x.com/Nil053/status/2039027360117506399): click the moon to toggle dark mode, click doors to switch rooms, etc.
   - [**6 color themes**](https://x.com/Nil053/status/2054709610519638506)
