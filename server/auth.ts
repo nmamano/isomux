@@ -554,7 +554,9 @@ export interface InvitePeek {
 }
 export function peekInvite(
   rawToken: string,
-): InvitePeek | { error: "not_found" | "consumed" | "expired" } {
+):
+  | InvitePeek
+  | { error: "not_found" | "consumed" | "expired" | "owner_exists" } {
   ensureLoaded();
   if (!rawToken) return { error: "not_found" };
   const hash = hashOf(rawToken);
@@ -563,6 +565,10 @@ export function peekInvite(
   if (!safeHashEq(invite.tokenHash, hash)) return { error: "not_found" };
   if (invite.consumed) return { error: "consumed" };
   if (invite.expiresAt < Date.now()) return { error: "expired" };
+  // Render the same stale-invite error the accept path would. peekInvite
+  // doesn't take the mutex; acceptInvite is the authoritative gate. This
+  // check is for UX, not safety.
+  if (invite.bootstrap && hasOwner()) return { error: "owner_exists" };
   return {
     needsName: invite.username === null,
     username: invite.username,
@@ -589,7 +595,38 @@ export interface AcceptErr {
     | "expired"
     | "needs_name"
     | "invalid_name"
-    | "role_mismatch";
+    | "role_mismatch"
+    | "owner_exists";
+}
+
+// Mark every still-unconsumed bootstrap invite as consumed. Called after a
+// successful bootstrap accept (siblings are now stale) and when an accept is
+// refused because an owner exists (the invite itself is stale). Best-effort:
+// a persist failure is logged but doesn't abort the caller, since the
+// hasOwner() recheck in acceptInvite still catches any survivor.
+function markAllUnconsumedBootstrapInvitesConsumed(): void {
+  const stale: StoredInvite[] = [];
+  for (const inv of invites!.values()) {
+    if (inv.bootstrap && !inv.consumed) stale.push(inv);
+  }
+  if (stale.length === 0) return;
+  const now = Date.now();
+  for (const inv of stale) {
+    inv.consumed = true;
+    inv.consumedAt = now;
+  }
+  try {
+    persistInvites();
+  } catch (err) {
+    for (const inv of stale) {
+      inv.consumed = false;
+      inv.consumedAt = null;
+    }
+    console.error(
+      `[auth] failed to sweep ${stale.length} stale bootstrap invite(s); they will be retried on the next owner-creating accept`,
+      err,
+    );
+  }
 }
 
 // Accept an invite token. If the invite has a pre-set username, that username
@@ -611,6 +648,16 @@ export async function acceptInvite(
       return { ok: false, error: "not_found" };
     if (invite.consumed) return { ok: false, error: "consumed" };
     if (invite.expiresAt < Date.now()) return { ok: false, error: "expired" };
+
+    // Bootstrap invites are stale the moment an owner exists. Rechecked
+    // under the mutex so concurrent acceptances serialize: if a sibling
+    // bootstrap accept just minted an owner, this one fails closed. Sweep
+    // all unconsumed bootstrap invites in the same mutation so the next
+    // attempt sees them as `consumed` rather than retracing this check.
+    if (invite.bootstrap && hasOwner()) {
+      markAllUnconsumedBootstrapInvitesConsumed();
+      return { ok: false, error: "owner_exists" };
+    }
 
     // Bootstrap path: invitee picks the display name on this request.
     let chosenName: string | null = invite.username;
@@ -776,6 +823,11 @@ export async function acceptInvite(
       onInviteConsumedHook();
     } catch (err) {
       console.error("[auth] onInviteConsumedHook threw:", err);
+    }
+
+    // Sweep any sibling bootstrap invites now that this office has an owner.
+    if (invite.bootstrap) {
+      markAllUnconsumedBootstrapInvitesConsumed();
     }
 
     return {

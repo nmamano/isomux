@@ -597,7 +597,9 @@ function renderInviteError(kind: string, officeName: string | null): Response {
         ? "This invite has expired."
         : kind === "role_mismatch"
           ? "This invite can't be accepted because the existing user has a different role. Ask the owner to mint a new invite."
-          : "This invite is no longer valid.";
+          : kind === "owner_exists"
+            ? "This office already has an owner. Bootstrap invites stop working once the office has been claimed."
+            : "This invite is no longer valid.";
   const body = baseHtml(
     authPageTitle(officeName, "invite"),
     `<h1>Invite unavailable</h1><p>${escapeHtml(msg)}</p>`,
