@@ -1140,7 +1140,9 @@ function extractToolSummary(toolName: string, input: unknown): string {
       return typeof obj.file_path === "string" ? obj.file_path : "";
     case "Write":
     case "Edit":
-      return typeof obj.file_path === "string" ? obj.file_path : "";
+      return typeof obj.file_path === "string"
+        ? obj.file_path
+        : extractChangePaths(obj.changes);
     case "Glob":
       return typeof obj.pattern === "string" ? obj.pattern : "";
     case "Grep":
@@ -1152,4 +1154,18 @@ function extractToolSummary(toolName: string, input: unknown): string {
         ? obj.description.slice(0, 60)
         : "";
   }
+}
+
+function extractChangePaths(changes: unknown): string {
+  if (!Array.isArray(changes)) return "";
+  const paths = changes
+    .map((change) => {
+      if (!change || typeof change !== "object") return "";
+      const path = (change as { path?: unknown }).path;
+      return typeof path === "string" ? path : "";
+    })
+    .filter(Boolean);
+  if (paths.length === 0) return "";
+  const first = paths[0];
+  return paths.length === 1 ? first : `${first} +${paths.length - 1} more`;
 }
