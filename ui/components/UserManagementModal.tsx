@@ -67,6 +67,19 @@ export function UserManagementModal({
     }
     return null;
   });
+  // Filled by the currently-mounted UserEditPanel. Lets us route every
+  // close path (row-level Edit/Close, modal Close button, ESC, click-
+  // outside) through the panel's dirty-check, so we surface the
+  // "Discard unsaved changes?" prompt instead of silently dropping
+  // the user's in-progress edits.
+  const editCloseRef = useRef<((after?: () => void) => void) | null>(null);
+  function leaveEdit(after?: () => void) {
+    if (editingKey && editCloseRef.current) {
+      editCloseRef.current(after);
+    } else {
+      after?.();
+    }
+  }
   // Holds the server's lockout-prevention reason if Sign out is refused.
   // Shown inline near the button until dismissed.
   const [logoutBlockedReason, setLogoutBlockedReason] = useState<string | null>(
@@ -92,19 +105,26 @@ export function UserManagementModal({
     function handleKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
         e.stopPropagation();
-        onClose?.();
+        // Inline the dirty-check route so the handler always sees the
+        // latest editingKey without re-running the effect on every
+        // unrelated re-render.
+        if (editingKey && editCloseRef.current) {
+          editCloseRef.current(() => onClose?.());
+        } else {
+          onClose?.();
+        }
       }
     }
     window.addEventListener("keydown", handleKey, true);
     return () => window.removeEventListener("keydown", handleKey, true);
-  }, [dismissable, onClose]);
+  }, [dismissable, onClose, editingKey]);
 
   return (
     <div
       onMouseDown={
         dismissable
           ? (e) => {
-              if (e.target === e.currentTarget) onClose?.();
+              if (e.target === e.currentTarget) leaveEdit(() => onClose?.());
             }
           : undefined
       }
@@ -199,16 +219,24 @@ export function UserManagementModal({
                             gap: 6,
                           }}
                         >
-                          <span>
-                            {u.name}
-                            {isMe ? " (you)" : ""}
-                          </span>
+                          <span>{u.name}</span>
+                          {isMe && (
+                            <span
+                              style={{
+                                fontSize: 11,
+                                fontWeight: 400,
+                                color: "var(--text-muted)",
+                              }}
+                            >
+                              (you)
+                            </span>
+                          )}
                           <RoleBadge role={u.role} />
                         </div>
                         <div
                           style={{
                             fontSize: 10,
-                            color: "var(--text-hint)",
+                            color: "var(--text-muted)",
                             fontFamily: "'JetBrains Mono',monospace",
                             marginTop: 2,
                           }}
@@ -218,11 +246,21 @@ export function UserManagementModal({
                       </div>
                       {(isMe || isOwner) && (
                         <button
-                          onClick={() =>
-                            setEditingKey(
-                              isEditing ? null : u.name.toLowerCase(),
-                            )
-                          }
+                          onClick={() => {
+                            const targetKey = u.name.toLowerCase();
+                            if (isEditing) {
+                              // Close the currently-open panel; the panel
+                              // will gate on its own dirty check.
+                              leaveEdit();
+                            } else if (editingKey) {
+                              // Switch from a different open editor to this
+                              // row. Route through the open editor's
+                              // dirty-check first, then expand the new row.
+                              leaveEdit(() => setEditingKey(targetKey));
+                            } else {
+                              setEditingKey(targetKey);
+                            }
+                          }}
                           style={smallBtnStyle}
                         >
                           {isEditing ? "Close" : "Edit"}
@@ -232,6 +270,7 @@ export function UserManagementModal({
                     {isEditing && (
                       <UserEditPanel
                         user={u}
+                        closeRef={editCloseRef}
                         onClose={() => setEditingKey(null)}
                         onRenamed={(newName) => {
                           // If the edited user is the current device's user
@@ -321,7 +360,10 @@ export function UserManagementModal({
               marginTop: 20,
             }}
           >
-            <button onClick={onClose} style={cancelBtnStyle}>
+            <button
+              onClick={() => leaveEdit(() => onClose?.())}
+              style={cancelBtnStyle}
+            >
               Close
             </button>
           </div>
@@ -329,6 +371,13 @@ export function UserManagementModal({
       </div>
     </div>
   );
+}
+
+function sameRoomSet(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const setB = new Set(b);
+  for (const id of a) if (!setB.has(id)) return false;
+  return true;
 }
 
 function summarizeUser(
@@ -339,10 +388,7 @@ function summarizeUser(
   const room = rooms.find((r) => r.id === u.defaultRoomId);
   parts.push(`default: ${room?.name ?? "first room"}`);
   parts.push(
-    `notify: ${u.notifRooms.length} room${u.notifRooms.length === 1 ? "" : "s"}`,
-  );
-  parts.push(
-    `access: ${u.allowedRooms.length} room${u.allowedRooms.length === 1 ? "" : "s"}`,
+    `${u.allowedRooms.length} room${u.allowedRooms.length === 1 ? "" : "s"} (${u.notifRooms.length} notification${u.notifRooms.length === 1 ? "" : "s"})`,
   );
   if (u.envFile) parts.push("env: configured");
   if (u.memberPrompt) parts.push("profile: set");
@@ -354,11 +400,20 @@ function UserEditPanel({
   onClose,
   onRenamed,
   onDeleted,
+  closeRef,
 }: {
   user: UserRecord;
   onClose: () => void;
   onRenamed?: (newName: string) => void;
   onDeleted?: () => void;
+  // Parent (UserManagementModal) calls `closeRef.current(after?)` when it
+  // wants to navigate away from the currently-edited user (switch to
+  // another user, close the modal, ESC, click-outside). The panel decides
+  // whether to gate on a "Discard unsaved changes?" confirmation. The
+  // optional `after` runs once the close is committed — used by the
+  // parent to chain "discard then switch to user Y" / "discard then
+  // close the modal". Same pattern as TaskView's closeRef.
+  closeRef?: React.MutableRefObject<((after?: () => void) => void) | null>;
 }) {
   const { rooms, allRooms, sessionContext } = useAppState();
   // Owner-only fields (currently: allowedRooms). The server rejects
@@ -401,6 +456,13 @@ function UserEditPanel({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // Discard-unsaved-changes confirmation. Set true by requestClose when
+  // the form is dirty; cleared by either commit (Discard) or cancel.
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  // Holds the parent-supplied "after" callback while the discard prompt
+  // is visible — e.g. "switch to user Y" or "close the modal". Runs once
+  // the user clicks Discard; cleared on Cancel.
+  const pendingDiscardActionRef = useRef<(() => void) | null>(null);
   // Holds the server's lockout-prevention reason if delete_user is refused.
   // Same shape as the logout_blocked / revoke_blocked surfaces elsewhere —
   // shown inline next to Delete so the boss sees why the row didn't go.
@@ -522,10 +584,11 @@ function UserEditPanel({
     );
   }
 
-  // When a room is removed from access, also prune notifSetting
-  // locally so the checkboxes never sit in an inconsistent state
-  // mid-edit — the server applies the same prune on save, but the
-  // client-side mirror keeps the UI honest immediately.
+  // When a room is removed from access, prune notifSetting and clear
+  // defaultRoomId if it pointed at the removed room. The server applies
+  // the same prune on save, but the client-side mirror keeps the form
+  // state consistent mid-edit and avoids surfacing a default the user
+  // can't reach in the merged Rooms section.
   function toggleRoomAllowed(roomId: string) {
     const has = allowedSetting.includes(roomId);
     const newAllowed = has
@@ -533,11 +596,69 @@ function UserEditPanel({
       : [...allowedSetting, roomId];
     setAllowedSetting(newAllowed);
     setNotifSetting(notifSetting.filter((id) => newAllowed.includes(id)));
+    if (has && defaultRoomId === roomId) setDefaultRoomId(null);
   }
+
+  function isDirty(): boolean {
+    // Name is trim-saved (see handleSave), so compare trimmed to avoid
+    // false-positive dirtiness on trailing whitespace the user can't see.
+    if (name.trim() !== user.name) return true;
+    if (defaultRoomId !== user.defaultRoomId) return true;
+    if ((envFile.trim() || null) !== (user.envFile ?? null)) return true;
+    if ((memberPrompt.trim() || null) !== (user.memberPrompt ?? null))
+      return true;
+    if (avatarColor !== user.avatarColor) return true;
+    if (avatarVariant !== user.avatarVariant) return true;
+    if (!sameRoomSet(notifSetting, user.notifRooms)) return true;
+    if (!sameRoomSet(allowedSetting, user.allowedRooms)) return true;
+    return false;
+  }
+
+  // Parent-driven close path. If the form is clean, runs onClose + after
+  // immediately; if dirty, surfaces the "Discard unsaved changes?" prompt
+  // and stashes `after` for the Discard handler to run on commit.
+  function requestClose(after?: () => void) {
+    if (isDirty()) {
+      pendingDiscardActionRef.current = after ?? null;
+      setConfirmDiscard(true);
+    } else {
+      onClose();
+      after?.();
+    }
+  }
+
+  function commitDiscard() {
+    const next = pendingDiscardActionRef.current;
+    pendingDiscardActionRef.current = null;
+    setConfirmDiscard(false);
+    onClose();
+    next?.();
+  }
+
+  function cancelDiscard() {
+    pendingDiscardActionRef.current = null;
+    setConfirmDiscard(false);
+  }
+
+  // Mirror requestClose into the parent's ref every render so the captured
+  // closure always sees fresh form state — same no-deps pattern TaskView
+  // uses for its own dirty-check ref.
+  useEffect(() => {
+    if (closeRef) closeRef.current = requestClose;
+    return () => {
+      if (closeRef) closeRef.current = null;
+    };
+  });
 
   function handleSave() {
     const trimmed = name.trim();
     if (!trimmed) return;
+    // Save supersedes any in-flight discard prompt: the user picked Save
+    // over Discard. Without this, a save failure leaves the prompt up
+    // with a stale pending action (e.g. "close modal") that a later
+    // Discard click would execute against the user's expectations.
+    pendingDiscardActionRef.current = null;
+    setConfirmDiscard(false);
     const reqId = `user-save-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     setSaving(true);
     setError(null);
@@ -597,20 +718,6 @@ function UserEditPanel({
       />
 
       <label style={subLabelStyle}>
-        Avatar{" "}
-        <span style={hintStyle}>
-          (your ghost in the office scene; other users see it next to the agent
-          you&apos;re viewing)
-        </span>
-      </label>
-      <AvatarPicker
-        color={avatarColor}
-        variant={avatarVariant}
-        onColorChange={setAvatarColor}
-        onVariantChange={setAvatarVariant}
-      />
-
-      <label style={subLabelStyle}>
         Default Room <span style={hintStyle}>(opens when you load Isomux)</span>
       </label>
       <select
@@ -619,89 +726,23 @@ function UserEditPanel({
         style={inputStyle}
       >
         <option value="">Whichever is first</option>
-        {editorRooms.map((r) => (
-          <option key={r.id} value={r.id}>
-            {r.name}
-          </option>
-        ))}
+        {editorRooms
+          .filter((r) => allowedSetting.includes(r.id))
+          .map((r) => (
+            <option key={r.id} value={r.id}>
+              {r.name}
+            </option>
+          ))}
       </select>
 
-      <label style={subLabelStyle}>
-        Notifications{" "}
-        <span style={hintStyle}>
-          (sound when an agent in these rooms finishes)
-        </span>
-      </label>
-      <div
-        style={{
-          border: "1px solid var(--border)",
-          borderRadius: 8,
-          background: "var(--bg-base)",
-          padding: "4px 0",
-          maxHeight: 140,
-          overflowY: "auto",
-        }}
-      >
-        {(() => {
-          // Show notif checkboxes only for rooms the target user can
-          // actually see — listing rooms outside their allowedRooms
-          // would let an owner check Notif for a room the user can't
-          // reach, an immediately-pruned state. Owner view: filtered
-          // by the in-progress allowedSetting; member self-view:
-          // `rooms` is already projected so the filter is a no-op.
-          // Notif checkboxes show only rooms the target user can
-          // actually reach (i.e., rooms in allowedSetting). Owner
-          // editing themselves with restricted allowed: notif row
-          // shrinks too. Owner editing a member: same.
-          const notifRoomsToShow = editorRooms.filter((r) =>
-            allowedSetting.includes(r.id),
-          );
-          if (notifRoomsToShow.length === 0) {
-            return (
-              <div
-                style={{
-                  padding: "8px 12px",
-                  fontSize: 12,
-                  color: "var(--text-ghost)",
-                }}
-              >
-                No rooms yet.
-              </div>
-            );
-          }
-          return notifRoomsToShow.map((r) => {
-            const checked = notifSetting.includes(r.id);
-            return (
-              <label
-                key={r.id}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  padding: "6px 12px",
-                  fontSize: 12,
-                  color: "var(--text-primary)",
-                  cursor: "pointer",
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  onChange={() => toggleRoomNotif(r.id)}
-                  style={{ accentColor: "var(--accent)", cursor: "pointer" }}
-                />
-                <span>{r.name}</span>
-              </label>
-            );
-          });
-        })()}
-      </div>
-
-      {isOwner && (
+      {isOwner ? (
         <>
           <label style={subLabelStyle}>
-            Allowed Rooms{" "}
-            <span style={hintStyle}>(rooms this user can see and act in)</span>
+            Rooms{" "}
+            <span style={hintStyle}>
+              (Access: rooms this user can see and act in. Notifications: sound
+              when an agent in that room finishes.)
+            </span>
           </label>
           <div
             style={{
@@ -709,10 +750,25 @@ function UserEditPanel({
               borderRadius: 8,
               background: "var(--bg-base)",
               padding: "4px 0",
-              maxHeight: 140,
-              overflowY: "auto",
             }}
           >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                padding: "4px 12px 6px",
+                borderBottom: "1px solid var(--border-subtle)",
+                fontSize: 10,
+                fontWeight: 600,
+                color: "var(--text-ghost)",
+              }}
+            >
+              <span style={{ flex: 1, minWidth: 0 }}>Room</span>
+              <span style={{ width: 90, textAlign: "center" }}>Access</span>
+              <span style={{ width: 90, textAlign: "center" }}>
+                Notifications
+              </span>
+            </div>
             {editorRooms.length === 0 ? (
               <div
                 style={{
@@ -725,7 +781,120 @@ function UserEditPanel({
               </div>
             ) : (
               editorRooms.map((r) => {
-                const checked = allowedSetting.includes(r.id);
+                const hasAccess = allowedSetting.includes(r.id);
+                const wantsNotif = hasAccess && notifSetting.includes(r.id);
+                return (
+                  <div
+                    key={r.id}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      padding: "6px 12px",
+                      fontSize: 12,
+                    }}
+                  >
+                    <span
+                      style={{
+                        flex: 1,
+                        minWidth: 0,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        color: hasAccess
+                          ? "var(--text-primary)"
+                          : "var(--text-ghost)",
+                      }}
+                    >
+                      {r.name}
+                    </span>
+                    <span
+                      style={{
+                        width: 90,
+                        display: "flex",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={hasAccess}
+                        onChange={() => toggleRoomAllowed(r.id)}
+                        aria-label={`Access to ${r.name}`}
+                        style={{
+                          accentColor: "var(--accent)",
+                          cursor: "pointer",
+                        }}
+                      />
+                    </span>
+                    <span
+                      style={{
+                        width: 90,
+                        display: "flex",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={wantsNotif}
+                        disabled={!hasAccess}
+                        onChange={() => {
+                          // Defensive: also gate at the handler, not just
+                          // via `disabled`, so a future refactor or stale
+                          // click can't add notif for an inaccessible room.
+                          if (!hasAccess) return;
+                          toggleRoomNotif(r.id);
+                        }}
+                        aria-label={`Notifications for ${r.name}`}
+                        style={{
+                          accentColor: "var(--accent)",
+                          cursor: hasAccess ? "pointer" : "default",
+                          opacity: hasAccess ? 1 : 0.35,
+                        }}
+                      />
+                    </span>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </>
+      ) : (
+        <>
+          <label style={subLabelStyle}>
+            Notifications{" "}
+            <span style={hintStyle}>
+              (sound when an agent in these rooms finishes)
+            </span>
+          </label>
+          <div
+            style={{
+              border: "1px solid var(--border)",
+              borderRadius: 8,
+              background: "var(--bg-base)",
+              padding: "4px 0",
+            }}
+          >
+            {(() => {
+              // Members only see rooms they can already reach. `editorRooms`
+              // is the projected `rooms` slice for non-owner WSes, so the
+              // filter is effectively a no-op but kept defensive.
+              const notifRoomsToShow = editorRooms.filter((r) =>
+                allowedSetting.includes(r.id),
+              );
+              if (notifRoomsToShow.length === 0) {
+                return (
+                  <div
+                    style={{
+                      padding: "8px 12px",
+                      fontSize: 12,
+                      color: "var(--text-ghost)",
+                    }}
+                  >
+                    No rooms yet.
+                  </div>
+                );
+              }
+              return notifRoomsToShow.map((r) => {
+                const checked = notifSetting.includes(r.id);
                 return (
                   <label
                     key={r.id}
@@ -742,7 +911,7 @@ function UserEditPanel({
                     <input
                       type="checkbox"
                       checked={checked}
-                      onChange={() => toggleRoomAllowed(r.id)}
+                      onChange={() => toggleRoomNotif(r.id)}
                       style={{
                         accentColor: "var(--accent)",
                         cursor: "pointer",
@@ -751,8 +920,8 @@ function UserEditPanel({
                     <span>{r.name}</span>
                   </label>
                 );
-              })
-            )}
+              });
+            })()}
           </div>
         </>
       )}
@@ -796,6 +965,20 @@ function UserEditPanel({
         }}
       />
 
+      <label style={subLabelStyle}>
+        Avatar{" "}
+        <span style={hintStyle}>
+          (your ghost in the office scene; other users see it next to the agent
+          you&apos;re viewing)
+        </span>
+      </label>
+      <AvatarPicker
+        color={avatarColor}
+        variant={avatarVariant}
+        onColorChange={setAvatarColor}
+        onVariantChange={setAvatarVariant}
+      />
+
       {error && (
         <p style={{ fontSize: 10, color: "#ff6b6b", margin: "6px 0 0" }}>
           {error}
@@ -816,6 +999,55 @@ function UserEditPanel({
         >
           {deleteBlockedReason}
         </p>
+      )}
+
+      {confirmDiscard && (
+        <div
+          style={{
+            display: "flex",
+            gap: 8,
+            alignItems: "center",
+            marginTop: 12,
+            padding: "8px 10px",
+            border: "1px solid var(--border)",
+            borderRadius: 6,
+            background: "var(--bg-base)",
+          }}
+        >
+          <span style={{ fontSize: 11, color: "var(--text-muted)", flex: 1 }}>
+            Discard unsaved changes?
+          </span>
+          <button
+            onClick={commitDiscard}
+            style={{
+              padding: "6px 12px",
+              borderRadius: 6,
+              border: "1px solid var(--red)",
+              background: "var(--red)",
+              color: "var(--bg-base)",
+              fontSize: 11,
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            Discard
+          </button>
+          <button
+            onClick={cancelDiscard}
+            style={{
+              padding: "6px 12px",
+              borderRadius: 6,
+              border: "1px solid var(--border)",
+              background: "transparent",
+              color: "var(--text-primary)",
+              fontSize: 11,
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            Cancel
+          </button>
+        </div>
       )}
 
       <div
@@ -845,7 +1077,11 @@ function UserEditPanel({
           {confirmDelete ? "Confirm?" : "Delete"}
         </button>
         <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={onClose} style={cancelBtnStyle} disabled={saving}>
+          <button
+            onClick={() => requestClose()}
+            style={cancelBtnStyle}
+            disabled={saving}
+          >
             Cancel
           </button>
           <button
@@ -910,23 +1146,14 @@ function AvatarPicker({
                   selected ? "var(--accent)" : "var(--border)"
                 }`,
                 borderRadius: 6,
-                padding: "8px 0 4px",
+                padding: 6,
                 cursor: "pointer",
                 display: "flex",
-                flexDirection: "column",
                 alignItems: "center",
+                justifyContent: "center",
               }}
             >
               <GhostGraphic variant={v} color={color} size={44} />
-              <span
-                style={{
-                  fontSize: 9,
-                  color: selected ? "var(--accent)" : "var(--text-ghost)",
-                  marginTop: 2,
-                }}
-              >
-                {v}
-              </span>
             </button>
           );
         })}
