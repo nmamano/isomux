@@ -883,8 +883,8 @@ class CodexSession implements BackendSession {
       case "fileChange": {
         const toolUseId = item.id as string;
         const changes = Array.isArray(item.changes) ? item.changes : [];
-        const summary = (changes as { path?: string; kind?: string }[])
-          .map((c) => `${c.path ?? "?"} (${c.kind ?? "modified"})`)
+        const summary = (changes as { path?: string; kind?: unknown }[])
+          .map((c) => `${c.path ?? "?"} (${formatPatchChangeKind(c.kind)})`)
           .join("\n");
         const status = item.status as string | undefined;
         this.enqueue({
@@ -897,7 +897,8 @@ class CodexSession implements BackendSession {
           kind: "tool_result",
           toolUseId,
           content: `${summary}\n\nstatus: ${status ?? "unknown"}`,
-          isError: status != null && status !== "applied",
+          isError:
+            status != null && status !== "completed" && status !== "applied",
         });
         break;
       }
@@ -939,6 +940,7 @@ class CodexSession implements BackendSession {
           kind: "tool_result",
           toolUseId,
           content: JSON.stringify(item.action ?? {}),
+          isError: false,
         });
         break;
       }
@@ -1140,6 +1142,18 @@ function mapTurnStatus(
     default:
       return "failed";
   }
+}
+
+function formatPatchChangeKind(kind: unknown): string {
+  if (typeof kind === "string") return kind;
+  if (!kind || typeof kind !== "object") return "modified";
+  const type = (kind as { type?: unknown }).type;
+  if (typeof type !== "string") return "modified";
+  if (type !== "update") return type;
+  const movePath = (kind as { move_path?: unknown }).move_path;
+  return typeof movePath === "string" && movePath.length > 0
+    ? `update -> ${movePath}`
+    : "update";
 }
 
 // The approval response enums differ by method:

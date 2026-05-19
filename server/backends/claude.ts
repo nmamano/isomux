@@ -538,6 +538,7 @@ function* translateSDKMessage(
           toolUseId: block.tool_use_id,
           content: resultText,
           attachments,
+          isError: block.is_error === true,
         };
       }
       break;

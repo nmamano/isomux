@@ -19,7 +19,11 @@ import { StatusLight } from "../office/StatusLight.tsx";
 import { Character } from "../office/Character.tsx";
 import { send } from "../ws.ts";
 import { useAppState, useDispatch, useFeatures, useTheme } from "../store.tsx";
-import { LogEntryCard, serializeEntries } from "./LogEntryCard.tsx";
+import {
+  LogEntryCard,
+  serializeEntries,
+  isFoldedToolResult,
+} from "./LogEntryCard.tsx";
 import { SunIcon, MoonIcon } from "../components/ThemeIcons.tsx";
 import { ThemePicker } from "../components/ThemePicker.tsx";
 import { NavActions, type NavAction } from "../components/NavActions.tsx";
@@ -998,10 +1002,19 @@ export function LogView({
         });
         continue;
       }
+      // Find the last entry that will actually render. Folded tool_results
+      // are hidden, so the turn-level copy button needs to land on the
+      // preceding visible entry (usually the matching tool_call).
+      let lastVisibleIdx = -1;
+      for (let i = turn.entries.length - 1; i >= 0; i--) {
+        if (!isFoldedToolResult(turn.entries[i], turn.entries)) {
+          lastVisibleIdx = i;
+          break;
+        }
+      }
       for (let i = 0; i < turn.entries.length; i++) {
-        const isLast = i === turn.entries.length - 1;
         entryMap.set(turn.entries[i].id, {
-          isLastInTurn: isLast,
+          isLastInTurn: i === lastVisibleIdx,
           turnEntries: turn.entries,
         });
       }

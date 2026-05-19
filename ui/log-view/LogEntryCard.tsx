@@ -35,6 +35,38 @@ function EditIcon() {
   );
 }
 
+/**
+ * True when this tool_result is paired with a tool_call in the same turn and
+ * has nothing the user needs to see in its own row (no attachments, no error).
+ * Folded results are hidden — the tool_call's expand panel renders their text.
+ * Shared between LogEntryCard (skips rendering folded rows) and LogView
+ * (recomputes isLastInTurn against visible entries).
+ */
+export function isFoldedToolResult(
+  entry: LogEntry,
+  turnEntries: LogEntry[] | undefined,
+): boolean {
+  if (entry.kind !== "tool_result") return false;
+  if ((entry.attachments?.length ?? 0) > 0) return false;
+  if (entry.metadata?.isError === true) return false;
+  const toolUseId = entry.metadata?.toolUseId;
+  if (!toolUseId || !turnEntries) return false;
+  return turnEntries.some(
+    (e) => e.kind === "tool_call" && e.metadata?.toolId === toolUseId,
+  );
+}
+
+function findMatchingToolResult(
+  toolCallEntry: LogEntry,
+  turnEntries: LogEntry[] | undefined,
+): LogEntry | undefined {
+  const toolId = toolCallEntry.metadata?.toolId;
+  if (!toolId || !turnEntries) return undefined;
+  return turnEntries.find(
+    (e) => e.kind === "tool_result" && e.metadata?.toolUseId === toolId,
+  );
+}
+
 /** Serialize entries for clipboard (text + tool_call only) */
 export function serializeEntries(entries: LogEntry[]): string {
   const parts: string[] = [];
@@ -334,18 +366,18 @@ export const LogEntryCard = memo(function LogEntryCard({
       );
     }
     case "tool_call": {
-      // Find matching tool_result to get duration
-      const toolId = entry.metadata?.toolId;
-      const matchingResult = turnEntries?.find(
-        (e) => e.kind === "tool_result" && e.metadata?.toolUseId === toolId,
-      );
+      const matchingResult = findMatchingToolResult(entry, turnEntries);
       const durationMs = matchingResult?.metadata?.duration_ms as
         | number
         | undefined;
+      const resultIsError = matchingResult?.metadata?.isError === true;
       return (
         <ToolCall
           name={entry.content}
           input={entry.metadata?.input}
+          hasResult={matchingResult != null}
+          resultContent={matchingResult?.content}
+          resultIsError={resultIsError}
           durationMs={durationMs}
           isLastInTurn={isLastInTurn}
           turnEntries={turnEntries}
@@ -353,7 +385,8 @@ export const LogEntryCard = memo(function LogEntryCard({
         />
       );
     }
-    case "tool_result":
+    case "tool_result": {
+      if (isFoldedToolResult(entry, turnEntries)) return null;
       return (
         <ToolResult
           entry={entry}
@@ -362,6 +395,7 @@ export const LogEntryCard = memo(function LogEntryCard({
           isMobile={isMobile}
         />
       );
+    }
     case "error":
       return (
         <ErrorBlock
@@ -795,6 +829,9 @@ function ThinkingBlock({
 function ToolCall({
   name,
   input,
+  hasResult,
+  resultContent,
+  resultIsError,
   durationMs,
   isLastInTurn,
   turnEntries,
@@ -802,6 +839,9 @@ function ToolCall({
 }: {
   name: string;
   input: unknown;
+  hasResult?: boolean;
+  resultContent?: string;
+  resultIsError?: boolean;
   durationMs?: number;
   isLastInTurn?: boolean;
   turnEntries?: LogEntry[];
@@ -811,21 +851,24 @@ function ToolCall({
   const inputStr =
     typeof input === "string" ? input : JSON.stringify(input, null, 2);
   const summary = extractToolSummary(name, input);
+  const borderColor = resultIsError ? "var(--red)" : "var(--green-border)";
+  const bgColor = resultIsError ? "var(--red-bg)" : "var(--tool-call-bg)";
+  const textColor = resultIsError ? "var(--red)" : "var(--green)";
 
   return (
-    <div style={{ margin: "4px 0", position: "relative" }}>
+    <div style={{ margin: "2px 0", position: "relative" }}>
       <button
         onClick={() => setOpen(!open)}
         style={{
           display: "flex",
           alignItems: "center",
           gap: 6,
-          padding: "5px 10px",
+          padding: "3px 10px",
           paddingRight: isLastInTurn ? 40 : 10,
-          border: "1px solid var(--green-border)",
+          border: `1px solid ${borderColor}`,
           borderRadius: 6,
-          background: "var(--tool-call-bg)",
-          color: "var(--green)",
+          background: bgColor,
+          color: textColor,
           fontSize: isMobile ? 14 : 12,
           cursor: "pointer",
           fontFamily: "'JetBrains Mono',monospace",
@@ -874,17 +917,64 @@ function ToolCall({
             fontFamily: "'JetBrains Mono',monospace",
             color: "var(--text-dim)",
             lineHeight: 1.5,
-            whiteSpace: "pre-wrap",
-            maxHeight: 200,
+            maxHeight: 300,
             overflowY: "auto",
             overflowX: "auto",
             maxWidth: "100%",
           }}
         >
-          {inputStr}
+          <SectionLabel text="Input" isMobile={isMobile} />
+          <div style={{ whiteSpace: "pre-wrap" }}>{inputStr}</div>
+          {hasResult && (
+            <>
+              <SectionLabel
+                text="Output"
+                isMobile={isMobile}
+                isError={resultIsError}
+                marginTop={10}
+              />
+              {resultContent && resultContent.length > 0 ? (
+                <div style={{ whiteSpace: "pre-wrap" }}>{resultContent}</div>
+              ) : (
+                <div
+                  style={{ color: "var(--text-ghost)", fontStyle: "italic" }}
+                >
+                  (no output)
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
       {isLastInTurn && <TurnCopyButton turnEntries={turnEntries} />}
+    </div>
+  );
+}
+
+function SectionLabel({
+  text,
+  isMobile,
+  isError,
+  marginTop,
+}: {
+  text: string;
+  isMobile?: boolean;
+  isError?: boolean;
+  marginTop?: number;
+}) {
+  return (
+    <div
+      style={{
+        fontSize: isMobile ? 11 : 9,
+        fontWeight: 600,
+        textTransform: "uppercase",
+        letterSpacing: "0.05em",
+        color: isError ? "var(--red)" : "var(--text-faint)",
+        marginBottom: 4,
+        marginTop: marginTop ?? 0,
+      }}
+    >
+      {text}
     </div>
   );
 }
@@ -905,6 +995,21 @@ function ToolResult({
   const content = entry.content;
   const isLong = content.length > 200;
   const preview = isLong ? content.slice(0, 150) + "..." : content;
+  const isError = entry.metadata?.isError === true;
+  // We only reach this branch when isFoldedToolResult returned false — i.e.
+  // the row has attachments, has no matching call, or is an error. In the
+  // attachments-only-paired-success case the text is already in the tool_call
+  // expander, so don't duplicate it here.
+  const hasMatchingToolCall =
+    entry.metadata?.toolUseId != null &&
+    !!turnEntries?.some(
+      (e) =>
+        e.kind === "tool_call" &&
+        e.metadata?.toolId === entry.metadata?.toolUseId,
+    );
+  const showText = !hasMatchingToolCall || isError;
+  const borderColor = isError ? "var(--red)" : "var(--green-border)";
+  const textColor = isError ? "var(--red)" : "var(--text-dim)";
 
   return (
     <div
@@ -913,15 +1018,15 @@ function ToolResult({
         padding: "6px 10px",
         borderRadius: 6,
         background: "var(--tool-result-bg)",
-        borderLeft: "2px solid var(--green-border)",
+        borderLeft: `2px solid ${borderColor}`,
         fontSize: isMobile ? 13 : 11,
         fontFamily: "'JetBrains Mono',monospace",
-        color: "var(--text-dim)",
+        color: textColor,
         lineHeight: 1.5,
         position: "relative",
       }}
     >
-      {content && (
+      {showText && content && (
         <div
           style={{
             whiteSpace: "pre-wrap",
@@ -932,7 +1037,7 @@ function ToolResult({
           {open ? content : preview}
         </div>
       )}
-      {isLong && (
+      {showText && isLong && (
         <button
           onClick={() => setOpen(!open)}
           style={{
@@ -956,7 +1061,7 @@ function ToolResult({
           isMobile={isMobile}
           lightboxSrc={lightboxSrc}
           setLightboxSrc={setLightboxSrc}
-          hasContent={!!content}
+          hasContent={showText && !!content}
         />
       )}
       {isLastInTurn && <TurnCopyButton turnEntries={turnEntries} />}

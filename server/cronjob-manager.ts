@@ -563,6 +563,7 @@ function processNormalizedEvent(active: ActiveRun, ev: NormalizedEvent) {
         {
           toolUseId: ev.toolUseId,
           ...(duration_ms != null ? { duration_ms } : {}),
+          ...(ev.isError != null ? { isError: ev.isError } : {}),
         },
         ev.attachments,
       );
