@@ -348,6 +348,9 @@ export function createCommandHandling(deps: HandlerDeps) {
       lines.push(
         "  • Use `/isomux-pair-programming <agent> <feature>` to drive a feature end-to-end with another agent reviewing your design and code.",
       );
+      lines.push(
+        "  • Use `/isomux-soft-handoff <agent>` when your context is getting full: brief another agent on the task, then stay around to answer their follow-ups.",
+      );
 
       deps.addLogEntry(agentId, "system", lines.join("\n"));
       deps.updateState(agentId, "waiting_for_response");
