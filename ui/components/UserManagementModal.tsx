@@ -30,18 +30,11 @@ type ValidationStatus =
   | { kind: "ok"; keyCount?: number }
   | { kind: "error"; message: string };
 
-// Single modal that handles user selection, creation, and per-user setting
-// edits. Auto-opens (modal-locked) on first connect when localStorage has no
-// isomux-username; also opens from the top-bar User Settings button.
 export function UserManagementModal({
-  currentUsername,
-  forceCreate,
   initialUserId,
   onSwitchUser,
   onClose,
 }: {
-  currentUsername: string | null;
-  forceCreate: boolean;
   // Live-avatars: when set, the modal opens with this user's edit
   // panel expanded (used by ghost click → settings shortcut). Read
   // once on mount; updates to this prop while the modal is mounted
@@ -64,8 +57,6 @@ export function UserManagementModal({
     () => [...users.values()].sort((a, b) => a.name.localeCompare(b.name)),
     [users],
   );
-  const [creatingName, setCreatingName] = useState("");
-  const [creatingError, setCreatingError] = useState<string | null>(null);
   const [editingKey, setEditingKey] = useState<string | null>(() => {
     if (!initialUserId) return null;
     // Resolve userId → display name → lowercased map key. If the user
@@ -94,10 +85,7 @@ export function UserManagementModal({
     return () => removeRawListener(fn);
   }, []);
 
-  // The modal is dismissable only when the user has a known name. On first
-  // connect (forceCreate=true) the user MUST pick or create someone before
-  // they can use Isomux.
-  const dismissable = !forceCreate && !!onClose;
+  const dismissable = !!onClose;
 
   useEffect(() => {
     if (!dismissable) return;
@@ -110,30 +98,6 @@ export function UserManagementModal({
     window.addEventListener("keydown", handleKey, true);
     return () => window.removeEventListener("keydown", handleKey, true);
   }, [dismissable, onClose]);
-
-  function handleCreate() {
-    const trimmed = creatingName.trim();
-    if (!trimmed) return;
-    const lowered = trimmed.toLowerCase();
-    if (users.has(lowered)) {
-      setCreatingError(
-        `User '${trimmed}' already exists — pick them above instead.`,
-      );
-      return;
-    }
-    send({ type: "claim_user", username: trimmed });
-    saveLocalUsername(trimmed);
-    onSwitchUser(trimmed);
-    setCreatingName("");
-    setCreatingError(null);
-    if (dismissable) onClose?.();
-  }
-
-  function handleSwitchTo(record: UserRecord) {
-    saveLocalUsername(record.name);
-    onSwitchUser(record.name);
-    if (dismissable) onClose?.();
-  }
 
   return (
     <div
@@ -181,7 +145,7 @@ export function UserManagementModal({
             color: "var(--text-primary)",
           }}
         >
-          {forceCreate ? "Welcome — pick or create a user" : "User Settings"}
+          User Settings
         </h3>
         <p
           style={{
@@ -206,13 +170,7 @@ export function UserManagementModal({
               }}
             >
               {userList.map((u) => {
-                // Post-auth, identity comes from session_context (the cookie's
-                // userId is authoritative). Pre-auth (picker before invite
-                // accept) has no sessionContext; fall back to the localStorage
-                // name so the picker can still highlight the last-used row.
-                const isMe = sessionContext
-                  ? sessionContext.userId === u.id
-                  : currentUsername?.toLowerCase() === u.name.toLowerCase();
+                const isMe = sessionContext?.userId === u.id;
                 const isEditing = editingKey === u.name.toLowerCase();
                 return (
                   <div
@@ -258,15 +216,7 @@ export function UserManagementModal({
                           {summarizeUser(u, editorRooms)}
                         </div>
                       </div>
-                      {!isMe && !sessionContext && (
-                        <button
-                          onClick={() => handleSwitchTo(u)}
-                          style={smallBtnStyle}
-                        >
-                          Use
-                        </button>
-                      )}
-                      {(isMe || isOwner || !sessionContext) && (
+                      {(isMe || isOwner) && (
                         <button
                           onClick={() =>
                             setEditingKey(
@@ -313,44 +263,6 @@ export function UserManagementModal({
                 );
               })}
             </div>
-          </>
-        )}
-
-        {!sessionContext && (
-          <>
-            <div style={labelStyle}>Create New User</div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input
-                autoFocus={forceCreate || userList.length === 0}
-                value={creatingName}
-                onChange={(e) => {
-                  setCreatingName(e.target.value.slice(0, 32));
-                  setCreatingError(null);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleCreate();
-                }}
-                maxLength={32}
-                placeholder="Your name"
-                style={{ ...inputStyle, flex: 1 }}
-              />
-              <button
-                onClick={handleCreate}
-                disabled={!creatingName.trim()}
-                style={{
-                  ...saveBtnStyle,
-                  opacity: creatingName.trim() ? 1 : 0.5,
-                  cursor: creatingName.trim() ? "pointer" : "default",
-                }}
-              >
-                Create
-              </button>
-            </div>
-            {creatingError && (
-              <p style={{ fontSize: 10, color: "#ff6b6b", margin: "6px 0 0" }}>
-                {creatingError}
-              </p>
-            )}
           </>
         )}
 

@@ -105,11 +105,6 @@ export function App() {
   const [cronjobsOpen, setCronjobsOpen] = useState(false);
   const [updateOpen, setUpdateOpen] = useState(false);
 
-  // Pre-auth this auto-opened the picker. Post-auth, identity comes from the
-  // session cookie, so we never force the picker to open — but we still keep
-  // username-display flow alive (for the chat-prefix etc.) via session_context.
-  const needsInitialUser = false;
-
   const viewportControlsRef = useRef<ViewportControls | null>(null);
   const focusedAgent = focusedAgentId
     ? agents.find((a) => a.id === focusedAgentId)
@@ -343,20 +338,14 @@ export function App() {
     <>
       <style>{CSS}</style>
       <ConnectionBanner />
-      {(needsInitialUser || editingUserSettings) && (
+      {editingUserSettings && (
         <UserManagementModal
-          currentUsername={username}
-          forceCreate={needsInitialUser}
           initialUserId={editingUserId}
           onSwitchUser={(name) => setUsername(name)}
-          onClose={
-            editingUserSettings && !needsInitialUser
-              ? () => {
-                  setEditingUserSettings(false);
-                  setEditingUserId(null);
-                }
-              : undefined
-          }
+          onClose={() => {
+            setEditingUserSettings(false);
+            setEditingUserId(null);
+          }}
         />
       )}
       {editingDeviceSettings && (
