@@ -321,7 +321,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         "  • The built-in side-panel terminal is useful for one-off situations where you need to run something manually, like auth flows.",
       );
       lines.push(
-        "  • Isomux comes with safety pre-tool-call hooks to prevent destructive commands, like `rm -rf /`.",
+        "  • Isomux ships safety pre-tool-call hooks for Claude agents to prevent destructive commands, like `rm -rf /`. Codex agents don't have equivalent hooks.",
       );
       lines.push(
         "  • Isomux agents can check what other agents are up to in real time. Just ask naturally.",

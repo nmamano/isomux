@@ -180,7 +180,7 @@ You own the stack end-to-end. Trade-offs: your home IP is publicly visible, you 
 The server resolves the public origin at startup with this precedence:
 
 1. `ISOMUX_PUBLIC_ORIGIN` env var. This is what the Tailscale Funnel agent prompt above writes (into `~/.config/systemd/user/isomux.service.d/override.conf`), and also what you'd set in your shell rc or another systemd `Environment=` directive.
-2. `publicOrigin` in `~/.isomux/office-config.json`. A manual fallback you'd reach for if you're running isomux outside systemd (or otherwise can't set the env var). Edit the file directly — the agent safety hook blocks isomux agents from writing into `~/.isomux/`.
+2. `publicOrigin` in `~/.isomux/office-config.json`. A manual fallback you'd reach for if you're running isomux outside systemd (or otherwise can't set the env var). Edit the file directly — the agent safety hook prevents Claude agents from writing into `~/.isomux/`. (Codex agents don't have equivalent hooks.)
 3. Fallback to `http://localhost:${PORT}` (default `http://localhost:4000`).
 
 The resolved value drives:

@@ -98,6 +98,6 @@ navTitle: Full feature list
 - **Multi-user real-time collaboration** — multiple authenticated users can chime in to the same conversation simultaneously
 - **Single Bun process** — no bundler, no database, minimal deps
 - **Reuses CLI auth from the underlying provider** — your Claude or ChatGPT subscription works out of the box; no separate API key needed
-- **Built-in safety hooks** — blocks `rm -rf`, `git reset --hard`, and other footguns out of the box
+- **Built-in safety hooks (Claude agents)** — blocks `rm -rf`, `git reset --hard`, and other footguns out of the box. Codex agents don't have equivalent hooks (Codex doesn't expose a programmatic hook surface).
 - **Works on a headless server** — run on a Mac Mini or Linux box, access from your tailnet or publicly via Tailscale Funnel / reverse proxy
 - **Daily local backup and restore**: `~/.isomux/` (agents, conversations, settings, cron history, every agent's session logs) is snapshotted once a day to `~/isomux-backups/isomux-YYYY-MM-DD.tar.gz` (override path with `ISOMUX_BACKUP_DIR`). Last seven tarballs kept; older ones pruned. Snapshots are live and atomic so they can't capture half-written state. Restore is manual: stop the service, move `~/.isomux` aside, `tar -xzf` the chosen tarball into `~`, restart. Current backup state is at `GET /backup/status`. SDK session transcripts (`~/.claude/projects/`) are not in scope — prefer starting fresh sessions after a restore rather than resuming.

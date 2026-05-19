@@ -166,8 +166,8 @@ Setup:
 - To make the office reachable from outside your Tailscale network — friends, collaborators on a different VPN — the recommended path is Tailscale Funnel. The agent prompt at isomux.com/docs/access-and-invites walks an Isomux agent through the whole setup. Cloudflare Tunnel and Caddy are documented as alternatives.
 
 ### Safety
-- All agents can run in bypassPermissions mode with safety hooks as guardrails
-- Built-in pre-tool-use hooks block dangerous commands before they execute:
+- Claude agents can run in bypassPermissions mode with safety hooks as guardrails; Codex agents have no equivalent (Codex 0.130 doesn't expose a programmatic hook surface).
+- Built-in pre-tool-use hooks block dangerous commands before they execute (Claude only):
   - Git safety: blocks destructive git commands (\`git reset --hard\`, force push, etc.)
   - Filesystem safety: blocks \`rm -rf\` on root/home paths (allows it on temp directories)
   - Config protection: blocks writes to ~/.isomux/ (managed by the server)

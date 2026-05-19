@@ -37,7 +37,7 @@ Free · open source · no cloud · no account
 - **Image/PDF attachments**: agents understand images and PDFs and can show images inline
 - **Conversation branching**: edit any past message to fork the conversation
 - **Notifications**: get pinged (and waved at) when an agent finishes
-- [**Pre-tool-call safety hooks**](https://x.com/Nil053/status/2039497314826666469)
+- [**Pre-tool-call safety hooks**](https://x.com/Nil053/status/2039497314826666469) (Claude agents)
 
 See the [full feature list](docs/features.md).
 
