@@ -238,6 +238,12 @@ export function RoomTabBar() {
               alignItems: "center",
               gap: 4,
               position: "relative",
+              // Don't let a narrow viewport (mobile) squeeze the tab —
+              // without this, the flex parent's overflowX:auto wouldn't
+              // stop browsers from shrinking the tab and wrapping the
+              // room name across two lines, which makes the active
+              // border render around a taller pill than other tabs.
+              flexShrink: 0,
               opacity: isDragging ? 0.4 : 1,
               borderLeft:
                 isDropTarget && dragFrom !== null && dragFrom > i
@@ -286,6 +292,12 @@ export function RoomTabBar() {
                 WebkitTouchCallout: "none",
                 display: "inline-flex",
                 alignItems: "center",
+                // Keep multi-word room names on a single line so the
+                // active border surrounds a fixed-height pill regardless
+                // of name length. Without this, names that didn't fit
+                // wrapped to two lines and the selected-tab border
+                // looked taller than on tabs whose names fit.
+                whiteSpace: "nowrap",
               }}
               title="Double-click for room settings"
             >
