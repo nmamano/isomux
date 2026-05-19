@@ -742,11 +742,17 @@ export function createCommandHandling(deps: HandlerDeps) {
     async usage(agentId, _managed, _args, rawText, username, device) {
       const userMeta = buildMeta(username, device);
       deps.addLogEntry(agentId, "user_message", rawText, userMeta);
-      deps.addLogEntry(
-        agentId,
-        "system",
-        "Subscription plan limits aren't shown here. Open the embedded terminal, launch `claude` and type `/usage`, or launch `codex` and type `/status`. See also `/isomux-usage` for office-level token spend.",
-      );
+      const usageLines = [
+        "**Subscription plan limits aren't shown here.**",
+        "",
+        "To check your Claude or ChatGPT subscription quota, open the embedded terminal and:",
+        "",
+        "- launch `claude`, then type `/usage`",
+        "- launch `codex`, then type `/status`",
+        "",
+        "For office-level token spend (per-agent / per-room / per-cron-job), see `/isomux-usage`.",
+      ];
+      deps.addLogEntry(agentId, "system", usageLines.join("\n"));
       deps.addLogEntry(
         agentId,
         "terminal-command",
