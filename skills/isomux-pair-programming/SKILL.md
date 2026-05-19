@@ -1,5 +1,6 @@
 ---
 name: isomux-pair-programming
+alias: pair-programming
 description: Pair-program a feature with another agent in the office. You drive (scope, design, implement); they review at design and code stages. Optionally takes the peer's name and a feature prompt as arguments.
 ---
 

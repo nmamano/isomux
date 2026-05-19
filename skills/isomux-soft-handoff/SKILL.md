@@ -1,5 +1,6 @@
 ---
 name: isomux-soft-handoff
+alias: soft-handoff
 description: Hand off your current task to a peer agent. You write a thorough brief, message it to them directly, then stay around as a reference for follow-up questions. Optionally takes the peer's name as an argument.
 ---
 

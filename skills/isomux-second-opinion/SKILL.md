@@ -1,5 +1,6 @@
 ---
 name: isomux-second-opinion
+alias: second-opinion
 description: Ask another agent for an opinion on a specific question. They reply once with their take; you keep driving. Optionally takes the peer's name and the question as arguments.
 ---
 

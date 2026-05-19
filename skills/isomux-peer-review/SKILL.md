@@ -1,5 +1,6 @@
 ---
 name: isomux-peer-review
+alias: peer-review
 description: Read another agent's current conversation and send them feedback directly. Optionally takes an agent name as a parameter.
 ---
 

@@ -24,6 +24,27 @@ function extractSkillDescription(filePath: string): string | undefined {
   }
 }
 
+// Extract description + optional alias from SKILL.md frontmatter. Only
+// bundled skills honor `alias:`; user/project/plugin skills don't.
+function extractBundledSkillFrontmatter(filePath: string): {
+  description?: string;
+  alias?: string;
+} {
+  try {
+    const content = readFileSync(filePath, "utf-8");
+    const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+    if (!fmMatch) return {};
+    const descMatch = fmMatch[1].match(/description:\s*(.+)/);
+    const aliasMatch = fmMatch[1].match(/alias:\s*(.+)/);
+    return {
+      description: descMatch ? descMatch[1].trim() : undefined,
+      alias: aliasMatch ? aliasMatch[1].trim() : undefined,
+    };
+  } catch {
+    return {};
+  }
+}
+
 // Scan disk for user-defined skills and commands that the SDK doesn't report.
 // Backend-agnostic dirs (.isomux) come first so they win on name collisions
 // against Claude-specific dirs (.claude); both are still scanned so existing
@@ -75,7 +96,9 @@ export function discoverUserSkills(): SkillInfo[] {
   return skills;
 }
 
-// Scan skills bundled with isomux
+// Scan skills bundled with isomux. If a SKILL.md declares `alias: <name>`
+// in its frontmatter, the alias is surfaced as an additional entry pointing
+// to the same prompt.
 export function discoverBundledSkills(): SkillInfo[] {
   const skills: SkillInfo[] = [];
   if (existsSync(BUNDLED_SKILLS_DIR)) {
@@ -84,10 +107,13 @@ export function discoverBundledSkills(): SkillInfo[] {
         withFileTypes: true,
       })) {
         if (entry.isDirectory()) {
-          const description = extractSkillDescription(
+          const { description, alias } = extractBundledSkillFrontmatter(
             join(BUNDLED_SKILLS_DIR, entry.name, "SKILL.md"),
           );
           skills.push({ name: entry.name, origin: "isomux", description });
+          if (alias && alias !== entry.name) {
+            skills.push({ name: alias, origin: "isomux", description });
+          }
         }
       }
     } catch {}
@@ -278,6 +304,20 @@ export function resolveSkillPrompt(name: string, cwd: string): string | null {
   for (const path of candidates) {
     const prompt = readSkillFile(path);
     if (prompt !== null) return prompt;
+  }
+
+  // Bundled-skill alias fallback: scan SKILL.md frontmatter for `alias: <name>`.
+  if (existsSync(BUNDLED_SKILLS_DIR)) {
+    try {
+      for (const entry of readdirSync(BUNDLED_SKILLS_DIR, {
+        withFileTypes: true,
+      })) {
+        if (!entry.isDirectory()) continue;
+        const skillMd = join(BUNDLED_SKILLS_DIR, entry.name, "SKILL.md");
+        const { alias } = extractBundledSkillFrontmatter(skillMd);
+        if (alias === name) return readSkillFile(skillMd);
+      }
+    } catch {}
   }
   return null;
 }
