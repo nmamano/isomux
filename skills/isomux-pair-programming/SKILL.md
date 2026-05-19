@@ -1,13 +1,13 @@
 ---
 name: isomux-pair-programming
-description: Pair-program a feature with another agent in the office. You drive (scope, design, implement); they review at design and code stages. Takes the peer's name and a feature prompt as arguments.
+description: Pair-program a feature with another agent in the office. You drive (scope, design, implement); they review at design and code stages. Optionally takes the peer's name and a feature prompt as arguments.
 ---
 
 Pair-program a feature with another agent. You drive, they review.
 
 Syntax: `/isomux-pair-programming {peer-agent-name} {feature prompt}`
 
-Setup: if a peer name was supplied, look up their agent ID in `~/.isomux/agents-summary.json` (match name case-insensitively). Otherwise list candidates (everyone except yourself; prefer agents whose `cwd` matches yours) and ask the boss to pick. You need the peer's agent ID to POST messages to them. Work in the current cwd unless the boss explicitly asks for a worktree.
+Setup: if a peer name was supplied, look up their agent ID in `~/.isomux/agents-summary.json` (match name case-insensitively). Otherwise try to infer the peer from context — e.g., an agent the boss and you have already paired or consulted with in this session. If there's a clear inference, use it (and briefly confirm who you picked). Otherwise, list candidates (prefer agents whose `cwd` matches yours) and ask the boss to pick. You need the peer's agent ID to POST messages to them. Work in the current cwd unless the boss explicitly asks for a worktree.
 
 **Every time you message the peer, include an explicit instruction telling them they must reply by POSTing back to your agent endpoint, not just by writing in their own chat.** Replies that only appear in their own chat never reach you, so the iteration stalls.
 

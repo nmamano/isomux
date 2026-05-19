@@ -9,7 +9,7 @@ Syntax: `/isomux-soft-handoff {peer-agent-name}` (or omit the name to be prompte
 
 ### 1. Pick the peer
 
-Read `~/.isomux/agents-summary.json`. If a name was supplied, match it case-insensitively to find the peer's agent ID. Otherwise list candidates (everyone except yourself; prefer agents whose `cwd` matches yours) and ask the boss to pick.
+If a peer name was supplied, look up their agent ID in `~/.isomux/agents-summary.json` (match name case-insensitively). Otherwise try to infer the peer from context — e.g., an agent the boss and you have already paired or consulted with in this session. If there's a clear inference, use it (and briefly confirm who you picked). Otherwise, list candidates (prefer agents whose `cwd` matches yours) and ask the boss to pick. You need the peer's agent ID to POST messages to them.
 
 Flag to the boss before proceeding if:
 

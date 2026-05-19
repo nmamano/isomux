@@ -1,6 +1,6 @@
 ---
 name: isomux-second-opinion
-description: Ask another agent for an opinion on a specific question. They reply once with their take; you keep driving. Takes the peer's name and optionally the question as arguments.
+description: Ask another agent for an opinion on a specific question. They reply once with their take; you keep driving. Optionally takes the peer's name and the question as arguments.
 ---
 
 Ask a peer agent for a second opinion on a specific question — a design decision, an approach, a fork in the road. The peer replies once with their take and you keep driving.
@@ -9,7 +9,7 @@ Syntax: `/isomux-second-opinion {peer-agent-name} {optional question}`
 
 ### 1. Pick the peer
 
-Read `~/.isomux/agents-summary.json`. If a name was supplied, match it case-insensitively to find the peer's agent ID. Otherwise list candidates (everyone except yourself; prefer agents whose `cwd` matches yours) and ask the boss to pick.
+If a peer name was supplied, look up their agent ID in `~/.isomux/agents-summary.json` (match name case-insensitively). Otherwise try to infer the peer from context — e.g., an agent the boss and you have already paired or consulted with in this session. If there's a clear inference, use it (and briefly confirm who you picked). Otherwise, list candidates (prefer agents whose `cwd` matches yours) and ask the boss to pick. You need the peer's agent ID to POST messages to them.
 
 ### 2. Frame the question
 
