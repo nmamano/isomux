@@ -77,7 +77,7 @@ interface HandlerDeps {
     content: string,
     metadata?: Record<string, unknown>,
     attachments?: Attachment[],
-    extra?: Partial<Pick<LogEntry, "diff" | "file">>,
+    extra?: Partial<Pick<LogEntry, "diff" | "file" | "terminal">>,
   ) => void;
   emitEphemeralLog: (
     agentId: string,
@@ -745,7 +745,23 @@ export function createCommandHandling(deps: HandlerDeps) {
       deps.addLogEntry(
         agentId,
         "system",
-        "Subscription plan limits aren't shown here. Open the embedded terminal and run `claude` + `/usage` or `codex` + `/status`. See also `/isomux-usage`.",
+        "Subscription plan limits aren't shown here. Open the embedded terminal, launch `claude` and type `/usage`, or launch `codex` and type `/status`. See also `/isomux-usage` for office-level token spend.",
+      );
+      deps.addLogEntry(
+        agentId,
+        "terminal-command",
+        "claude",
+        undefined,
+        undefined,
+        { terminal: { command: "claude" } },
+      );
+      deps.addLogEntry(
+        agentId,
+        "terminal-command",
+        "codex",
+        undefined,
+        undefined,
+        { terminal: { command: "codex" } },
       );
       deps.updateState(agentId, "waiting_for_response");
       return true;
