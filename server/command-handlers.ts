@@ -28,7 +28,7 @@ import { buildSystemPrompt } from "./system-prompt.ts";
 import { getUserByName } from "./users.ts";
 import { listCronjobs, buildCronjobSystemPrompt } from "./cronjob-manager.ts";
 import { resolveSkillPrompt } from "./skills.ts";
-import { renderUsageReport, formatRelativeTime } from "./usage-report.ts";
+import { renderUsageReport } from "./usage-report.ts";
 import { computeIsomuxDiff, resolveDiffCwd } from "./isomux-diff.ts";
 import {
   resolveEditorPath,
@@ -312,7 +312,7 @@ export function createCommandHandling(deps: HandlerDeps) {
       // Tips
       lines.push("\n**Tips:**");
       lines.push(
-        "  • Isomux also works on your phone. The easiest way is to connect it to the same tailscale network as the machine running it (it's free).",
+        "  • Isomux also works on your phone. The easiest way is to connect it to the same VPN (e.g., Tailscale - free) as the machine running it.",
       );
       lines.push(
         "  • Once the office is reachable from outside your tailnet (e.g. via Tailscale Funnel — see `docs/access-and-invites.md`), the owner can open `User Settings` → `Access` and mint one-time invite URLs. Recipients click and are signed in — no accounts, no passwords.",
@@ -333,26 +333,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         '  • Type ahead while an agent is busy: messages queue and flush when it\'s idle. Hit "Send now" to interrupt and flush immediately.',
       );
       lines.push(
-        "  • Use `/isomux-edit <path>` to open a file in the side-panel editor; agents can offer the same affordance from chat.",
-      );
-      lines.push(
         "  • Use voice-to-text for faster prompting. The shortcut is ctrl+space.",
-      );
-      lines.push(
-        "  • Use `/isomux-all-hands` to check what every agent is up to.",
-      );
-      lines.push("  • Use `/isomux-report-bug` if you find any issues.");
-      lines.push(
-        "  • Use `/isomux-grill-me` to make your feature designs more robust.",
-      );
-      lines.push(
-        "  • Use `/isomux-pair-programming <agent> <feature>` to drive a feature end-to-end with another agent reviewing your design and code.",
-      );
-      lines.push(
-        "  • Use `/isomux-soft-handoff <agent>` when your context is getting full: brief another agent on the task, then stay around to answer their follow-ups.",
-      );
-      lines.push(
-        "  • Use `/isomux-second-opinion <agent> <question>` to ask another agent for a take on a specific question without handing off the work.",
       );
 
       deps.addLogEntry(agentId, "system", lines.join("\n"));
@@ -479,21 +460,16 @@ export function createCommandHandling(deps: HandlerDeps) {
         for (const a of roomAgents) {
           const selfTag = a.info.id === agentId ? "  **(me)**" : "";
           const modelLabel = familyDisplayLabel(a.info.modelFamily);
-          lines.push(
-            `**${a.info.name}** (desk ${a.info.desk + 1})${selfTag} — ${modelLabel} — \`${a.info.cwd}\``,
-          );
-
-          const sessions = listAgentSessions(a.info.id);
-          if (sessions.length === 0) {
-            lines.push("  (no conversations)");
+          const topic = a.info.topic;
+          const hasTopic = topic && topic !== "...";
+          const header = `**${a.info.name}** (desk ${a.info.desk + 1})${selfTag} — ${modelLabel} — \`${a.info.cwd}\``;
+          if (hasTopic) {
+            lines.push(header);
+            lines.push(`  Topic: ${topic}`);
           } else {
-            let num = 1;
-            for (const s of sessions) {
-              const label = s.topic || s.sessionId.slice(0, 8) + "...";
-              const ago = formatRelativeTime(s.lastModified);
-              lines.push(`  ${num}. ${label}  (${ago})`);
-              num++;
-            }
+            lines.push(
+              `<span style="color: var(--text-dim)">${header}</span>`,
+            );
           }
           lines.push("");
         }
