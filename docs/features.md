@@ -48,7 +48,7 @@ navTitle: Full feature list
 
 - Built-in commands: `/clear`, `/help`, `/context`, `/resume`, `/model`, `/effort` (thinking effort), `/usage` (per-agent / per-room / per-cron-job token spend)
 - Isomux additions: `/isomux-all-hands`, `/isomux-system-prompt`, `/isomux-cronjob-system-prompt`, `/isomux-diff` (rich-rendered uncommitted changes; agents can also choose to show a diff card on their own), `/isomux-edit` (open a file in the side-panel editor; agents can offer this on their own too)
-- **Bundled skills** like `/isomux-grill-me` (based on the original `/grill-me` by Matt Pocock), `/isomux-peer-review`, `/isomux-pair-programming`, `/isomux-soft-handoff`, `/isomux-subagent-review`, `/isomux-report-bug` — available to every agent out of the box
+- **Bundled skills** like `/isomux-grill-me` (based on the original `/grill-me` by Matt Pocock), `/isomux-peer-review`, `/isomux-pair-programming`, `/isomux-soft-handoff`, `/isomux-second-opinion`, `/isomux-subagent-review`, `/isomux-report-bug` — available to every agent out of the box
 - User skills from `~/.claude/skills/` and project commands
 - **Autocomplete dropdown** with keyboard navigation
 

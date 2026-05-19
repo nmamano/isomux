@@ -351,6 +351,9 @@ export function createCommandHandling(deps: HandlerDeps) {
       lines.push(
         "  • Use `/isomux-soft-handoff <agent>` when your context is getting full: brief another agent on the task, then stay around to answer their follow-ups.",
       );
+      lines.push(
+        "  • Use `/isomux-second-opinion <agent> <question>` to ask another agent for a take on a specific question without handing off the work.",
+      );
 
       deps.addLogEntry(agentId, "system", lines.join("\n"));
       deps.updateState(agentId, "waiting_for_response");
