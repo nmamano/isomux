@@ -306,7 +306,7 @@ export function addCronjob(input: AddCronjobInput): Cronjob {
   };
   cronjobs.push(cronjob);
   saveCronjobs(cronjobs);
-  // Update history with the latest name so /usage attribution survives delete.
+  // Update history with the latest name so /isomux-usage attribution survives delete.
   const history = loadCronjobHistory();
   history[cronjob.id] = { lastName: cronjob.name };
   saveCronjobHistory(history);
@@ -1748,7 +1748,7 @@ export function startCronjobScheduler() {
 }
 
 // ---------------------------------------------------------------------------
-// Per-cronjob lifetime usage helpers (used by /usage)
+// Per-cronjob lifetime usage helpers (used by /isomux-usage)
 // ---------------------------------------------------------------------------
 
 export function readCronjobLifetimeUsage(jobId: string): {

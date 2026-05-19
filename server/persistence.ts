@@ -140,7 +140,7 @@ export function loadLogWithAncestors(
 // - `priorRunsUsage` accumulates completed process-runs' final values.
 //   Session lifetime = priorRunsUsage + usage.
 // - `usageSnapshots` records cumulative usage after each turn, anchored to the
-//   id of the last log entry written at that moment. /usage walks the parent's
+//   id of the last log entry written at that moment. /isomux-usage walks the parent's
 //   log to find the snapshot at-or-before a fork point and subtracts it from
 //   the fork's own cumulative — exact fork accounting with no double-count.
 // - `forkBaseUsage` is the parent's cumulative-at-the-fork-point captured at
@@ -359,7 +359,7 @@ export function listAgentSessions(agentId: string): {
 }
 
 // List every agent id that has a log directory on disk. Killed agents stay
-// here even though they're gone from agents.json, so /usage can still account
+// here even though they're gone from agents.json, so /isomux-usage can still account
 // for their historical token spend.
 export function listAllAgentIdsOnDisk(): string[] {
   try {
@@ -826,7 +826,7 @@ export function readEnvFile(path: string): Record<string, string> {
 }
 
 // Agent history: per-agent last-known name + last-known room (id + name).
-// Used by /usage to attribute killed agents to the room they were in, and to
+// Used by /isomux-usage to attribute killed agents to the room they were in, and to
 // label the room as "(deleted)" if it no longer exists. Entries are never
 // removed — killed agents keep contributing to lifetime spend forever.
 export interface AgentHistoryEntry {

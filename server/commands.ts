@@ -132,6 +132,14 @@ export const commands: Record<string, CommandConfig> = {
     description:
       "Open a file in the editor side panel (relative to cwd, absolute, or ~/...)",
   },
+  "isomux-usage": {
+    type: "hardcoded",
+    supported: true,
+    autocomplete: true,
+    overridable: false,
+    handler: "isomuxUsage",
+    description: "Per-agent / per-room / per-cron-job token spend",
+  },
 
   // =========================================================================
   // Unsupported hardcoded commands (non-overridable)
@@ -211,7 +219,7 @@ export const commands: Record<string, CommandConfig> = {
     autocomplete: true,
     overridable: false,
     handler: "usage",
-    description: "Per-agent token usage",
+    description: "Where to check subscription and office usage",
   },
   stats: { ...UNSUPPORTED_HARDCODED, description: "Usage patterns over time" },
   "extra-usage": {

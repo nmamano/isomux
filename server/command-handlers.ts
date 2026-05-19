@@ -745,6 +745,18 @@ export function createCommandHandling(deps: HandlerDeps) {
       deps.addLogEntry(
         agentId,
         "system",
+        "Subscription plan limits aren't shown here. Open the embedded terminal and run `claude` + `/usage` or `codex` + `/status`. See also `/isomux-usage`.",
+      );
+      deps.updateState(agentId, "waiting_for_response");
+      return true;
+    },
+
+    async isomuxUsage(agentId, _managed, _args, rawText, username, device) {
+      const userMeta = buildMeta(username, device);
+      deps.addLogEntry(agentId, "user_message", rawText, userMeta);
+      deps.addLogEntry(
+        agentId,
+        "system",
         renderUsageReport(deps.agents, deps.getRooms()),
       );
       deps.updateState(agentId, "waiting_for_response");

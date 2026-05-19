@@ -705,7 +705,7 @@ function persistAll() {
   updateAgentHistory();
 }
 
-// Track each live agent's current name + room so /usage can attribute killed
+// Track each live agent's current name + room so /isomux-usage can attribute killed
 // agents (and agents whose rooms were later deleted) to the right bucket.
 // Entries are never removed; they just stop getting refreshed once the agent
 // is killed, which is exactly the behavior we want.
@@ -1249,7 +1249,7 @@ function addLogEntry(
   if (managed?.sessionId) {
     appendLog(agentId, managed.sessionId, entry);
     // Track the last entry actually written to this session's JSONL so that
-    // /usage's per-turn snapshots have a stable anchor inside the log.
+    // /isomux-usage's per-turn snapshots have a stable anchor inside the log.
     managed.lastWrittenEntryId = entry.id;
   }
 
@@ -1600,7 +1600,7 @@ function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
     case "turn_completed": {
       // Backends report token totals per turn. We accumulate cumulative
       // totals into sessions.json (`usage`) and append a snapshot anchored
-      // to the most recently written log entry. The snapshots let /usage's
+      // to the most recently written log entry. The snapshots let /isomux-usage's
       // fork accounting subtract the parent's cumulative-at-the-fork-point
       // exactly, instead of double-counting the resumed prefix.
       const managed = agents.get(agentId);

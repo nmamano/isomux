@@ -71,9 +71,9 @@ export interface ManagedAgent {
   // Terminal PTY sidecar (spawned on demand via Node.js)
   ptySidecar: import("bun").Subprocess | null;
   ptyBuffer: string; // buffered output for reconnecting browsers
-  // /usage tracking. The SDK's `result` reports session-cumulative totals,
+  // /isomux-usage tracking. The SDK's `result` reports session-cumulative totals,
   // which are written to sessions.json on every turn (`usage` field) along
-  // with a per-turn snapshot (`usageSnapshots`). /usage reads those entries
+  // with a per-turn snapshot (`usageSnapshots`). /isomux-usage reads those entries
   // and aggregates per agent. Forked sessions subtract the parent's
   // cumulative-at-the-fork-point so shared turns aren't double-counted.
   lastWrittenEntryId: string | null;

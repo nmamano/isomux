@@ -236,7 +236,7 @@ export function findRun(jobId: string, runId: string): CronjobRun | null {
 }
 
 // List every cronjobId that has a directory on disk, even if its config is
-// gone. Used by /usage and reconciliation. Filtered to 8-char hex (the
+// gone. Used by /isomux-usage and reconciliation. Filtered to 8-char hex (the
 // generateHexId format) so stray dirs (editor swap files, future siblings
 // like `tmp/`) aren't mistaken for cronjob ids.
 const HEX8 = /^[a-f0-9]{8}$/;
