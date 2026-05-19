@@ -2,10 +2,6 @@
 navTitle: Full feature list
 ---
 
-# Full feature list
-
-A comprehensive inventory of what Isomux can do.
-
 ## Office View
 
 - **Isometric office with 8 desks** — see all your agents at a glance
