@@ -99,6 +99,9 @@ export type NormalizedEvent =
   | { kind: "assistant_text"; text: string }
   // Reasoning / thinking text. `durationMs` set on the final chunk if known.
   | { kind: "thinking"; text: string; durationMs?: number }
+  // Backend-originated file display. The orchestrator persists the attachment
+  // row using the existing file-view log card.
+  | { kind: "file_view"; title: string; attachments: AttachmentSpec[] }
   // Tool call. Pairs with a tool_result by `toolUseId`.
   | {
       kind: "tool_call";

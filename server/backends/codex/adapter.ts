@@ -28,8 +28,10 @@
 //      re-verify against InitializeResponse.userAgent.
 
 import { readFileSync, statSync } from "fs";
+import { basename } from "path";
 
-import { getFilePath } from "../../persistence.ts";
+import { getFilePath, saveFile } from "../../persistence.ts";
+import { mimeTypeForFilename } from "../../mime-types.ts";
 import { errMessage } from "../../../shared/errors.ts";
 import { BackendNotConfiguredError } from "../../internal-types.ts";
 
@@ -161,6 +163,54 @@ const INLINE_TEXT_MEDIA_PREFIXES = [
 function isInlinableTextMedia(mediaType: string): boolean {
   return INLINE_TEXT_MEDIA_PREFIXES.some((prefix) =>
     mediaType.startsWith(prefix),
+  );
+}
+
+function formatWebSearchAction(action: unknown): string {
+  if (!action || typeof action !== "object") return "";
+  const a = action as Record<string, unknown>;
+  switch (a.type) {
+    case "search": {
+      const queries = Array.isArray(a.queries)
+        ? a.queries.filter((q): q is string => typeof q === "string")
+        : [];
+      const query = queries.length
+        ? queries.join(" | ")
+        : typeof a.query === "string"
+          ? a.query
+          : "";
+      return query ? `search: ${query}` : "search";
+    }
+    case "openPage": {
+      const url = typeof a.url === "string" ? a.url : "";
+      return url ? `openPage: ${url}` : "openPage";
+    }
+    case "findInPage": {
+      const pattern = typeof a.pattern === "string" ? a.pattern : "";
+      const url = typeof a.url === "string" ? a.url : "";
+      if (pattern && url) return `findInPage: ${pattern} @ ${url}`;
+      return pattern || url ? `findInPage: ${pattern || url}` : "findInPage";
+    }
+    case "other":
+      return "other";
+    default:
+      return "";
+  }
+}
+
+function compactRecord(
+  record: Record<string, unknown>,
+): Record<string, unknown> {
+  // Display-only cleanup for approval context; downstream logic never
+  // introspects this object.
+  return Object.fromEntries(
+    Object.entries(record).filter(([, value]) => {
+      if (value == null) return false;
+      if (typeof value === "string") return value.trim().length > 0;
+      if (Array.isArray(value)) return value.length > 0;
+      if (typeof value === "object") return Object.keys(value).length > 0;
+      return true;
+    }),
   );
 }
 
@@ -629,6 +679,22 @@ class CodexSession implements BackendSession {
     this.wake();
   }
 
+  private attachmentFromPath(rawPath: unknown): AttachmentSpec | null {
+    if (typeof rawPath !== "string" || rawPath.length === 0) return null;
+    try {
+      const st = statSync(rawPath);
+      if (!st.isFile()) return null;
+      return saveFile(
+        this.opts.agentId,
+        readFileSync(rawPath),
+        mimeTypeForFilename(rawPath),
+        basename(rawPath),
+      );
+    } catch {
+      return null;
+    }
+  }
+
   private wake(): void {
     if (this.resolveWake) {
       const r = this.resolveWake;
@@ -816,10 +882,10 @@ class CodexSession implements BackendSession {
         break;
       }
 
-      // ---- Plan stream (collapse to system_text at v1) ----
+      // ---- Plan stream ----
       case "item/plan/delta": {
-        const text = params?.delta as string | undefined;
-        if (text) this.enqueue({ kind: "system_text", text });
+        // Deltas arrive at token granularity; the completed plan item below is
+        // the durable card we want in the log.
         break;
       }
 
@@ -930,6 +996,7 @@ class CodexSession implements BackendSession {
       case "webSearch": {
         const toolUseId = item.id as string;
         const query = item.query as string | undefined;
+        const actionSummary = formatWebSearchAction(item.action);
         this.enqueue({
           kind: "tool_call",
           toolUseId,
@@ -939,22 +1006,65 @@ class CodexSession implements BackendSession {
         this.enqueue({
           kind: "tool_result",
           toolUseId,
-          content: JSON.stringify(item.action ?? {}),
+          content: actionSummary,
           isError: false,
         });
         break;
       }
       case "plan": {
         const text = item.text as string | undefined;
-        if (text) this.enqueue({ kind: "system_text", text });
+        if (text) this.enqueue({ kind: "thinking", text });
+        break;
+      }
+      case "imageView": {
+        const att = this.attachmentFromPath(item.path);
+        if (att) {
+          this.enqueue({
+            kind: "file_view",
+            title: att.originalName,
+            attachments: [att],
+          });
+        } else {
+          this.enqueue({
+            kind: "system_text",
+            text: `Codex viewed an image, but Isomux could not display it.`,
+          });
+        }
+        break;
+      }
+      case "imageGeneration": {
+        const att = this.attachmentFromPath(item.savedPath);
+        if (att) {
+          const title =
+            typeof item.revisedPrompt === "string" && item.revisedPrompt.trim()
+              ? item.revisedPrompt
+              : att.originalName;
+          this.enqueue({
+            kind: "file_view",
+            title,
+            attachments: [att],
+          });
+        } else if (item.status === "failed") {
+          const result = typeof item.result === "string" ? item.result : "";
+          this.enqueue({
+            kind: "system_text",
+            text: result
+              ? `Codex image generation failed: ${result}`
+              : `Codex image generation failed.`,
+          });
+        } else {
+          this.enqueue({
+            kind: "system_text",
+            text: `Codex generated an image, but Isomux could not display it.`,
+          });
+        }
         break;
       }
       case "contextCompaction":
         this.enqueue({ kind: "compacted" });
         break;
       // userMessage, hookPrompt, dynamicToolCall, collabAgentToolCall,
-      // imageView, imageGeneration, enteredReviewMode, exitedReviewMode:
-      // ignored at v1.
+      // enteredReviewMode, exitedReviewMode: ignored at v1.
       default:
         break;
     }
@@ -1211,7 +1321,7 @@ function inferToolNameFromApproval(method: string, _params: unknown): string {
 function inferApprovalTitle(method: string, rawParams: unknown): string {
   const params = rawParams as
     | {
-        command?: string;
+        command?: string | string[];
         commandActions?: { command?: string }[];
       }
     | null
@@ -1222,7 +1332,10 @@ function inferApprovalTitle(method: string, rawParams: unknown): string {
       return `Codex wants to apply a patch`;
     case "execCommandApproval":
     case "item/commandExecution/requestApproval": {
-      const cmd = params?.command ?? params?.commandActions?.[0]?.command ?? "";
+      const rawCommand = params?.command;
+      const cmd = Array.isArray(rawCommand)
+        ? rawCommand.join(" ")
+        : (rawCommand ?? params?.commandActions?.[0]?.command ?? "");
       return cmd
         ? `Codex wants to run: \`${cmd.slice(0, 80)}\``
         : `Codex wants to run a command`;
@@ -1244,14 +1357,44 @@ function inferApprovalDescription(
 }
 
 function extractApprovalInput(
-  _method: string,
+  method: string,
   params: unknown,
 ): Record<string, unknown> {
-  // The orchestrator displays this for context; just hand back the params
-  // verbatim, copied as a plain object.
-  if (params && typeof params === "object") {
-    return { ...(params as Record<string, unknown>) };
+  if (!params || typeof params !== "object") return {};
+  const p = params as Record<string, unknown>;
+
+  if (
+    method === "execCommandApproval" ||
+    method === "item/commandExecution/requestApproval"
+  ) {
+    const command = Array.isArray(p.command)
+      ? p.command.filter((part): part is string => typeof part === "string")
+      : p.command;
+    return compactRecord({
+      command: Array.isArray(command) ? command.join(" ") : command,
+      cwd: p.cwd,
+      reason: p.reason,
+      networkApprovalContext: p.networkApprovalContext,
+      additionalPermissions: p.additionalPermissions,
+    });
   }
+
+  if (method === "applyPatchApproval") {
+    return compactRecord({
+      fileChanges: p.fileChanges,
+      grantRoot: p.grantRoot,
+      reason: p.reason,
+    });
+  }
+
+  if (method === "item/fileChange/requestApproval") {
+    return compactRecord({
+      itemId: p.itemId,
+      grantRoot: p.grantRoot,
+      reason: p.reason,
+    });
+  }
+
   return {};
 }
 

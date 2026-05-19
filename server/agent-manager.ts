@@ -1691,6 +1691,9 @@ function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
         ev.summary ? `Context compacted: ${ev.summary}` : "Context compacted.",
       );
       break;
+    case "file_view":
+      addLogEntry(agentId, "file-view", ev.title, undefined, ev.attachments);
+      break;
     case "error": {
       const managed = agents.get(agentId);
       addLogEntry(agentId, "error", ev.message);
