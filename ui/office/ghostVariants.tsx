@@ -131,7 +131,7 @@ function renderVariant(variant: GhostVariant, color: string) {
     case "nightcap":
       return (
         <>
-          <Nightcap color={color} />
+          <Nightcap />
           <BodyClassic color={color} />
           <FaceBigEyes />
         </>
@@ -162,7 +162,7 @@ function BodyClassic({ color }: { color: string }) {
 function BodyWispTail({ color }: { color: string }) {
   return (
     <path
-      d="M50,0 C26,0 14,20 14,44 L14,80 Q14,94 26,96 Q38,98 44,112 Q47,124 50,134 Q53,124 56,112 Q62,98 74,96 Q86,94 86,80 L86,44 C86,20 74,0 50,0 Z"
+      d="M50,0 C26,0 14,20 14,44 L14,88 Q22,100 30,88 Q38,100 46,88 Q54,100 62,88 Q70,98 80,94 Q88,82 100,92 Q116,108 124,76 Q116,88 108,76 C100,68 94,80 94,76 L94,44 C94,20 74,0 50,0 Z"
       fill={color}
       opacity={0.84}
     />
@@ -298,12 +298,12 @@ function StubbyArms({ color }: { color: string }) {
   );
 }
 
-function Nightcap({ color }: { color: string }) {
+function Nightcap() {
   return (
     <>
       <path
         d="M30,12 L70,12 L60,-22 Q56,-28 52,-22 Z"
-        fill={color}
+        fill="#c8423a"
         opacity={0.92}
       />
       <rect
