@@ -33,7 +33,7 @@ A successful claim mid-process doesn't change the cookie attributes for the rest
 
 **Remote-server first-time setup** (e.g. auntie):
 1. SSH in. Install. Run the server.
-2. From your laptop, run `ssh -L 4000:localhost:4000 <user>@<box>`. The server's startup banner prints the exact command.
+2. From your laptop, run `ssh -L 4000:localhost:4000 <user>@<box>`. The server's startup banner prints this command as a template plus a parenthetical hint with the detected `<user>@<hostname>` of the box (the operator substitutes whichever SSH target they actually use).
 3. Open http://localhost:4000 in your laptop browser. Pick a name. Done.
 
 **Enable external access** (e.g. expose via Tailscale Funnel post-claim):
