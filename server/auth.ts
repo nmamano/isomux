@@ -372,6 +372,13 @@ export interface MintOptions {
   // each member only ever has one active self-invite. Atomic with the new
   // mint so a concurrent caller can't see both the old and new at once.
   replacePriorForUsername?: boolean;
+  // Override the default TTL. Used by the admin-socket recovery handler
+  // (shell access + immediate hand-off to a browser, so a 15min window is
+  // both tight enough to be safe and loose enough for the device switch).
+  // Not exposed on the WS wire; the WS paths stick to INVITE_TTL_MS /
+  // SELF_INVITE_TTL_MS so a misbehaving client can't shorten or lengthen
+  // tokens it issues to third parties.
+  ttlMsOverride?: number;
 }
 
 export interface MintResult {
@@ -451,14 +458,18 @@ export async function mintInvite(
       role: opts.role,
       createdBy: opts.createdBy,
       createdAt: now,
-      // Self-invite path picks the tighter TTL. The marker is
-      // replacePriorForUsername — that flag is set only by
-      // mint_self_invite (server-driven; the wire shape doesn't
-      // accept it from clients of mint_invite), so it's a reliable
-      // proxy without adding a separate "selfInvite" field.
+      // TTL selection. ttlMsOverride wins (admin-socket recovery path
+      // uses this for a 15min window). Otherwise the self-invite marker
+      // (replacePriorForUsername — set only by mint_self_invite, which
+      // doesn't accept the override field on the wire) picks the
+      // tighter 1h TTL; everything else uses the standard 24h.
       expiresAt:
         now +
-        (opts.replacePriorForUsername ? SELF_INVITE_TTL_MS : INVITE_TTL_MS),
+        (opts.ttlMsOverride !== undefined
+          ? opts.ttlMsOverride
+          : opts.replacePriorForUsername
+            ? SELF_INVITE_TTL_MS
+            : INVITE_TTL_MS),
       consumed: false,
       consumedAt: null,
       bootstrap: !!opts.bootstrap,

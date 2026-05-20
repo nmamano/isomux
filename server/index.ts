@@ -99,6 +99,21 @@ import {
   type SessionLookup,
 } from "./auth.ts";
 import { lowercaseKey } from "../shared/identity.ts";
+import { startAdminSocket } from "./admin-socket.ts";
+
+// CLI sub-command fast-path. The operator invokes
+//   `bun run server/index.ts owner-login --name X`
+// to mint a recovery URL for an existing owner. We dynamic-import the CLI
+// module (which has no auth-state side effects of its own) and exit before
+// the heavy boot side effects below — backup, freeze, listener, etc. The
+// CLI just opens an HTTP-over-unix-socket request to the running server's
+// admin endpoint, so the running server's mutex is the only auth-state
+// touchpoint.
+if (process.argv[2] === "owner-login") {
+  const { runAdminCli } = await import("./admin-cli.ts");
+  await runAdminCli(process.argv.slice(2));
+  process.exit(0);
+}
 
 // Pre-userid backup must run before any user/session/agent/cronjob state
 // touches disk. The state modules above lazy-load (no top-level disk
@@ -3664,3 +3679,9 @@ startBackupScheduler();
 void logCodexVersionAtBoot();
 
 console.log(`Isomux running at http://localhost:${server.port}`);
+
+// Admin Unix socket — lets the `owner-login` CLI mint a recovery URL for
+// an existing owner. Starts after the HTTP listener so the CLI's printed
+// URL is immediately openable. Optional surface; a startup failure logs
+// but doesn't block the server.
+startAdminSocket();
