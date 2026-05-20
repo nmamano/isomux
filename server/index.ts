@@ -122,26 +122,71 @@ if (process.argv[2] === "owner-login") {
 // and audit if any imported module starts loading eagerly.
 runPreUseridBackupIfNeeded();
 
-// Register the office-config.json `publicOrigin` fallback before any
-// auth/origin code runs. Order matters: the local-only-mode log below and
-// the bootstrap invite URL both read buildPublicOrigin(); without this
-// call, a config-file-written publicOrigin would be ignored on first boot.
+// Resolve access settings from office-config.json + the deprecated
+// ISOMUX_PUBLIC_ORIGIN env var, write any migration / backfill back to disk,
+// then lock the boot-time state. Cookie attributes and origin policy are
+// frozen from this point, so the bind decision can't disagree with the
+// minted cookies if a claim flips hasOwner() mid-process.
 {
-  const cfg = loadServerConfig();
+  let cfg = loadServerConfig();
+  const envRaw = process.env.ISOMUX_PUBLIC_ORIGIN?.trim();
+  const envOrigin = envRaw ? normalizePublicOrigin(envRaw) : null;
+
+  // Env-var migration. ISOMUX_PUBLIC_ORIGIN is deprecated; copy its value
+  // into office-config.json (only when JSON's slot is empty, never clobber
+  // an explicit JSON value) and warn the operator. The env var still wins
+  // for THIS boot via buildPublicOrigin's precedence chain — the message
+  // tells the operator that removing the env var will silently start
+  // using the JSON value, which matches what we wrote.
+  let configDirty = false;
+  if (envOrigin) {
+    if (cfg.publicOrigin === null) {
+      console.log(
+        `[auth] ISOMUX_PUBLIC_ORIGIN is deprecated. Migrating "${envOrigin}" into office-config.json so it survives without the env var. Remove ISOMUX_PUBLIC_ORIGIN from your env on your next deploy.`,
+      );
+      cfg = { ...cfg, publicOrigin: envOrigin };
+      configDirty = true;
+    } else if (cfg.publicOrigin === envOrigin) {
+      console.log(
+        `[auth] ISOMUX_PUBLIC_ORIGIN env var is redundant with office-config.json#publicOrigin (${cfg.publicOrigin}) and is deprecated. Remove it from your env on your next deploy.`,
+      );
+    } else {
+      console.error(
+        `[auth] ISOMUX_PUBLIC_ORIGIN ("${envOrigin}") differs from office-config.json#publicOrigin ("${cfg.publicOrigin}"). The env var is deprecated; isomux uses the env value for THIS boot but will use the JSON value once the env var is removed. Reconcile by editing one and removing the other.`,
+      );
+    }
+  } else if (envRaw) {
+    // Env set but invalid. evaluateEnvOrigin (and normalizePublicOrigin
+    // here) already logged the rejection; nothing to migrate.
+  }
+
+  // External-access backfill. When the field is absent from JSON
+  // (pre-redesign install), default to true if any publicOrigin source
+  // exists so the office stays reachable at its old address after the
+  // upgrade. Write the resolved value back so subsequent boots don't
+  // re-run this inference.
+  let externalAccess: boolean;
+  if (cfg.externalAccess !== null) {
+    externalAccess = cfg.externalAccess;
+  } else {
+    externalAccess = cfg.publicOrigin !== null || envOrigin !== null;
+    configDirty = true;
+  }
+
+  if (configDirty) {
+    try {
+      saveServerConfig({
+        publicOrigin: cfg.publicOrigin,
+        externalAccess,
+      });
+    } catch (err) {
+      console.error(
+        `[auth] failed to backfill office-config.json (${(err as Error).message}); will re-attempt next boot`,
+      );
+    }
+  }
+
   setPublicOriginFallback(cfg.publicOrigin);
-  // Freeze the boot-time bind decision. The bind widens only on the next
-  // boot, so cookie attributes / origin policy stay stable across the
-  // lifetime of this process even if a claim flips hasOwner() mid-run.
-  //
-  // Migration: when externalAccess hasn't been written to office-config.json
-  // yet (pre-redesign install), default to true if any publicOrigin source
-  // was already configured (env var or JSON value). That keeps pre-redesign
-  // networked installs reachable on the same address after the upgrade.
-  // Step 5 backfills the field explicitly so this inference only runs once.
-  const externalAccess =
-    cfg.externalAccess !== null
-      ? cfg.externalAccess
-      : cfg.publicOrigin !== null || !!process.env.ISOMUX_PUBLIC_ORIGIN;
   freezeBootState({ externalAccess });
 }
 

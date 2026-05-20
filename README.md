@@ -76,7 +76,7 @@ bun run dev
 
 ### 3. Open
 
-Visit **http://localhost:4000** in your browser. The first time you start the server, no owner exists yet, so the server prints a one-time bootstrap invite URL to stdout — open it in your browser, pick a display name, and you're in.
+Visit **http://localhost:4000** in your browser. The first time you start the server, no owner exists yet, so the page asks you to pick a display name to claim ownership. Submit and you're in.
 
 Want to run it on an always-on box, access from every device, and invite other users to your office? See [self-hosted setup](docs/self-hosted.md).
 

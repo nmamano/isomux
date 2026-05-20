@@ -70,28 +70,15 @@ The original audit pass also flagged **missing HSTS** and **invite-URL referrer 
 
 ### Finding 1 — Bootstrap invite token is printed to stdout/systemd journal during the bootstrap window
 
-**Severity:** Medium.
+**Status: closed by the auth redesign.** Original finding preserved below for historical context.
 
-**Description.** On first boot with no owner, the server writes the bootstrap invite URL — containing the raw, unconsumed one-time bearer token — to stdout. Under systemd this lands in the user journal. Anyone with `journalctl --user -u isomux` read access during the bootstrap window (default 24 hours; `server/auth.ts:344`) can open the URL, choose any display name, and become the office owner. The bootstrap path self-disables once an owner exists (`server/auth.ts:351`), so the window is narrow but high-stakes: any party who claims ownership during it controls every future invite, can revoke any session, and can edit office-wide settings.
+**How it was closed.** The auto-printed bootstrap URL no longer exists. On first boot with no owner, the server binds `127.0.0.1` only and serves a tokenless name-picker form at `/`. There is no URL to print to stdout, journal, or terminal scrollback — the only path to claim ownership is opening the form on a loopback browser, either from the host machine directly or via `ssh -L 4000:localhost:4000 <user>@<host>` from another machine. See `docs/access-and-invites.md` "First boot — owner claim" for the operator flow.
 
-On a single-user box this is the operator only. On a shared dev box, a container with a logging sidecar, or a hosted environment with broader log access, the audience is larger than the deploying operator.
+The residual gap, documented in `docs/access-and-invites.md` "Bootstrap-window exposure," is the same-host proxy case: a reverse proxy on the box (Tailscale Funnel, Caddy → localhost, etc.) configured *before* the operator claims can forward external traffic to `localhost:4000`, and from Isomux's point of view that connection looks loopback. This is an inherent topology limit; the mitigation is operator discipline (claim first, expose later via the Access pane toggle).
 
-**Affected files & lines.**
+**Original description (closed).** On first boot with no owner, the server wrote the bootstrap invite URL — containing the raw, unconsumed one-time bearer token — to stdout. Under systemd this landed in the user journal. Anyone with `journalctl --user -u isomux` read access during the bootstrap window (default 24 hours) could open the URL, choose any display name, and become the office owner. The bootstrap path self-disabled once an owner existed, so the window was narrow but high-stakes: any party who claimed ownership during it controlled every future invite, could revoke any session, and could edit office-wide settings.
 
-- `server/index.ts:3001-3017` — bootstrap URL logged via `console.log`.
-- `server/auth.ts:347-393` — `ensureBootstrapInvite`. TTL hardcoded at 24h.
-- `server/index.ts:2988-2989` — `--regenerate-bootstrap` re-opens the window if the operator restarts the server with the flag while no owner exists.
-
-**Exploit preconditions.**
-
-- The box has no owner yet (fresh install, or `--regenerate-bootstrap` was just run).
-- The attacker has read access to either the process's stdout or the systemd user journal.
-
-**Impact.** Full ownership of the office.
-
-**Mitigation in place.** This audit added an explicit "Bootstrap-window exposure" section to `docs/access-and-invites.md` calling out the journal-access trust boundary. The bootstrap path self-disables once any owner exists, so the window is bounded to the first boot.
-
-**Remaining follow-up.** An alternative delivery path (e.g. `ISOMUX_BOOTSTRAP_TOKEN_FILE=/path` → write the URL to that file with mode 0600 instead of logging) would close the residual exposure for deployments where journal access is broader than the deploying operator. Not implemented in this audit pass; left as a documented follow-up.
+On a single-user box this was the operator only. On a shared dev box, a container with a logging sidecar, or a hosted environment with broader log access, the audience was larger than the deploying operator.
 
 ---
 
@@ -185,7 +172,7 @@ Invite acceptance persists the invite-consumed flag **before** the session (`ser
 
 ### 5.7 Origin allowlist construction
 
-`buildPublicOrigin` (`server/auth.ts:1301-1323`) resolves precedence env → office-config → localhost. The server **never** infers the origin from `Host` or `X-Forwarded-Host` headers, defeating DNS rebinding and Host-header confusion. Malformed values are logged and ignored rather than poisoning the allowlist.
+`buildPublicOrigin` resolves the public origin from the boot-frozen bind decision: when the process started loopback-only (pre-claim or with external access disabled), it forces the `http://localhost:${PORT}` fallback regardless of any configured value, so cookie attributes and origin checks match the actual bind. Otherwise precedence is env → office-config → localhost. The server **never** infers the origin from `Host` or `X-Forwarded-Host` headers, defeating DNS rebinding and Host-header confusion. Malformed values are logged and ignored rather than poisoning the allowlist. The `ISOMUX_PUBLIC_ORIGIN` env var is deprecated — values are migrated into `office-config.json#publicOrigin` on first observation (see "External access and public origin" in `docs/access-and-invites.md`).
 
 ### 5.8 WebSocket upgrade gating
 
@@ -199,9 +186,9 @@ Invite acceptance persists the invite-consumed flag **before** the session (`ser
 
 `POST /auth/accept` and `POST /auth/logout` use `originValidForAuthPost`: Origin must match the resolved public origin, except when the Origin header is absent or the literal string `"null"` — in that case the request is accepted only if `Sec-Fetch-Site: same-origin` is present, a browser-attested Fetch Metadata signal that page JavaScript cannot forge or override. Empty-string Origin fails closed. The `null`-Origin fallback is needed because Chrome sends `Origin: null` on top-level form POSTs originating from a page that carries `Referrer-Policy: no-referrer` (the hardening landed in §6 item 2), which would otherwise lock every fresh-install bootstrap accept out of its own form. A cross-origin attacker submitting a credentialed form to /auth/accept gets `Sec-Fetch-Site: cross-site` or `same-site`, never `same-origin`, so the CSRF defense holds.
 
-### 5.11 Bootstrap self-disable
+### 5.11 Bootstrap surface gated by bind and `hasOwner()`
 
-`ensureBootstrapInvite` returns null when an owner already exists. `--regenerate-bootstrap` only acts while no owner exists.
+The pre-claim tokenless form (GET /) only renders when `!hasOwner()`. The `POST /auth/claim` handler re-checks `hasOwner()` under the auth mutex via `claimOwnership` — a concurrent successful claim makes the second attempt fail closed with `owner_exists`. The server binds `127.0.0.1` only when `!hasOwner()`, so the form is physically unreachable to off-box clients. Stale legacy bootstrap invites in `invites.json` (pre-redesign installs) are swept on the first owner-creating claim and rejected by `acceptInvite`'s mutex-held `hasOwner()` recheck regardless.
 
 ### 5.12 Atomic disk writes
 
@@ -223,9 +210,9 @@ The command dispatcher uses `session.username` server-side rather than trusting 
 
 `Referrer-Policy: no-referrer` on every HTML response (`server/auth-middleware.ts:securityHeaders()`); `Strict-Transport-Security: max-age=31536000` added when the resolved public origin is HTTPS. `includeSubDomains` deliberately not set — the operator may not own siblings of the office origin (Tailscale Funnel, Cloudflare, Caddy under various parent domains); operators wanting subdomain-wide HSTS can layer it at their reverse proxy.
 
-### 5.17 Bootstrap-URL-not-recoverable
+### 5.17 Owner-login CLI is gated by Unix-socket file permissions
 
-Raw tokens never persist (Section 5.2). Once the bootstrap URL has scrolled off stdout/journal retention, no on-disk path recovers it.
+`bun run server/index.ts owner-login --name "<owner>"` mints a 15-minute one-time login URL for an existing owner via a Unix-domain admin socket at `~/.isomux/admin.sock` (mode 0600). Filesystem permissions are the auth boundary — any UID that can already read the auth files in `~/.isomux/` can connect to the socket, so the CLI adds no new authority, just a clean RPC instead of editing JSON by hand. On a multi-user box where `~/.isomux/` is mode 0700 only the Isomux service user can mint recovery URLs. The mintInvite `ttlMsOverride` option is private to the admin socket; the WS wire intentionally doesn't accept it.
 
 ---
 
@@ -290,7 +277,9 @@ Neither endpoint has rate limiting. With 256-bit token entropy this is not an ac
 
 ### 8.2 The localhost fallback is plaintext
 
-When neither `ISOMUX_PUBLIC_ORIGIN` nor `office-config.json.publicOrigin` is set, the resolved origin is `http://localhost:${PORT}` and cookies are issued without `Secure`. The documentation states the localhost fallback is appropriate only for single-user laptop setups, but the implementation does not enforce that — a deployment that's accidentally bound to a non-loopback interface while still on the localhost fallback issues plaintext cookies that any LAN attacker can capture. Hardening recommendation: refuse to bind to a non-loopback interface when in localhost-fallback mode, or at least log a strong warning.
+**Closed by the auth redesign.** The bind decision is now coupled to the boot-frozen external-access state: a process serving the localhost fallback is also binding `127.0.0.1`, so plaintext cookies never leave the host. Conversely, a process that needs a public HTTPS origin is also bound to all interfaces. The "accidentally bound externally while on the localhost fallback" mismatch from the original audit is no longer reachable.
+
+Operators who set the env var or JSON `publicOrigin` but disable the *External access* toggle still get the localhost fallback at runtime (the toggle is the gate) — `buildPublicOrigin` returns localhost when the bind is loopback, matching reality.
 
 ### 8.3 Log hygiene
 

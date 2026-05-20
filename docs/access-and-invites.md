@@ -9,34 +9,35 @@ For an audit-level treatment of the same system — threat model, findings, veri
 - Isomux gives shell-equivalent access to authenticated users. Only invite people you trust.
 - The server gates every browser request (HTTP + WebSocket) by a session cookie.
 - Sessions are created when an invitee opens an invite URL the office owner generated.
-- The very first owner is bootstrapped via a one-time URL printed to stdout on the first server boot when no owner exists yet.
-- Two roles exist: `owner` (can mint invites, revoke sessions) and `member` (can use the office). Both have full operational access — the role split exists to control who expands the trust boundary.
+- The very first owner claims the office through a tokenless name-picker form served only on loopback — the server binds `127.0.0.1` pre-claim, so the form is physically unreachable from off-box.
+- Two roles exist: `owner` (can mint invites, revoke sessions, toggle external access) and `member` (can use the office). Both have full operational access — the role split exists to control who expands the trust boundary.
 
 ## End-to-end flow
 
-### 1. First boot — owner bootstrap
+### 1. First boot — owner claim
 
-On startup, the server checks `~/.isomux/users.json`. If no user has `role: "owner"`, it generates a one-time owner-tagged invite token and prints the URL to stdout and the systemd journal:
+On startup, the server checks `~/.isomux/users.json`. If no user has `role: "owner"`, it binds the listener to `127.0.0.1` only (no LAN/tailnet reachability), serves a tokenless name-picker form at `/`, and prints a banner spelling out both ways to reach it:
 
 ```
 ================================================================
-  Isomux: no owner exists yet. Bootstrap invite (one-time):
-  http://localhost:4000/i/9X2K7m...
-  Valid for ~24h. Open this URL in your browser to claim
-  ownership. This URL is printed once; if you lose it, restart
-  the server with --regenerate-bootstrap.
+  Isomux: no owner has been set up for this office yet.
+
+  TO CLAIM OWNERSHIP from THIS machine:
+    Open http://localhost:4000 in your browser.
+
+  TO CLAIM OWNERSHIP from another machine:
+    1. On that machine, open a tunnel to this box:
+         ssh -L 4000:localhost:4000 <user>@<host>
+    2. Open http://localhost:4000 in that browser.
+
+  After you claim, the Access pane lets you enable external
+  access so everyday use doesn't need the SSH tunnel.
 ================================================================
 ```
 
-Open the URL in a browser. The accept page asks you to pick a display name (the only flow where invitees name themselves, because there's no prior owner to have named them). Submit → cookie set → redirect to `/` → you're in.
+Pick a display name on the form (the only flow where claimants name themselves, because there's no prior owner to have named them). Submit → cookie set → redirect to `/` → you're in.
 
-If you lose the URL before claiming it, restart the server with `--regenerate-bootstrap`:
-
-```
-bun run server/index.ts --regenerate-bootstrap
-```
-
-The flag invalidates the prior unconsumed bootstrap and mints a fresh one. It only mints when no owner exists; once an owner exists, the flag is a no-op.
+There's no URL to lose: the form re-appears on any subsequent boot until ownership is claimed. The POST is rejected from non-loopback peers and from any cross-origin source as defense-in-depth, but the primary locality boundary is the bind itself.
 
 ### 2. Inviting members
 
@@ -175,24 +176,36 @@ ISOMUX_PUBLIC_ORIGIN=https://office.example.com
 
 You own the stack end-to-end. Trade-offs: your home IP is publicly visible, you carry any DDoS surface, and this path fails entirely if your ISP puts you behind CG-NAT (so you can't port-forward in the first place).
 
-## ISOMUX_PUBLIC_ORIGIN
+## External access and public origin
 
-The server resolves the public origin at startup with this precedence:
+Post-claim, the **Access pane** in User Settings has an *External access* section with:
 
-1. `ISOMUX_PUBLIC_ORIGIN` env var. This is what the Tailscale Funnel agent prompt above writes (into `~/.config/systemd/user/isomux.service.d/override.conf`), and also what you'd set in your shell rc or another systemd `Environment=` directive.
-2. `publicOrigin` in `~/.isomux/office-config.json`. A manual fallback you'd reach for if you're running isomux outside systemd (or otherwise can't set the env var). Edit the file directly — the agent safety hook prevents Claude agents from writing into `~/.isomux/`. (Codex agents don't have equivalent hooks.)
-3. Fallback to `http://localhost:${PORT}` (default `http://localhost:4000`).
+- **Enable external access** toggle. Off by default; the server keeps binding `127.0.0.1` only and the office is reachable from the host machine (or via an SSH tunnel) but not from your LAN/tailnet.
+- **Public URL** text field. Where browsers on other machines will reach this office (e.g. `https://auntie.<your-tailnet>.ts.net`).
+
+Saving persists both fields to `~/.isomux/office-config.json` and mints an owner self-invite bound to the new URL so you can sign in on the new origin immediately. The toggle takes effect on the next isomux restart (the pane spells out the exact `systemctl --user restart isomux` command). Restart is intentional: changing the bind interface and cookie/origin policy mid-process is brittle, and the toggle is rare enough that "save then restart" is the right trade.
+
+The Tailscale Funnel agent prompt above writes the Public URL into `office-config.json` automatically.
 
 The resolved value drives:
 
+- The bind interface (`0.0.0.0` when external access is on; `127.0.0.1` otherwise).
 - The Origin allowlist for WebSocket upgrades.
 - The Origin allowlist for state-changing HTTP requests.
 - Whether the session cookie's `Secure` attribute is set (set on `https://`, omitted on `http://localhost`).
 - The base URL for invite URLs.
 
-Both the env var and the config key are **operator-authored configuration**. The server never infers the origin from `Host` or `X-Forwarded-Host` headers, since that's how WebSocket-hijacking bugs happen. An invalid `publicOrigin` in `office-config.json` is logged and ignored at boot; the server degrades to the localhost fallback unless the env var supplies a valid value.
+The Public URL is **operator-authored configuration**. The server never infers the origin from `Host` or `X-Forwarded-Host` headers, since that's how WebSocket-hijacking bugs happen. An invalid value in `office-config.json` is logged and ignored at boot; the server degrades to the localhost fallback.
 
-The localhost fallback only makes sense for single-user laptop setups. For any networked use, set one of the two paths explicitly. The Tailscale Funnel agent prompt above is the easiest way to get a valid HTTPS origin without touching DNS or routers by hand.
+### Deprecated: `ISOMUX_PUBLIC_ORIGIN` env var
+
+Pre-redesign, the public origin was set via the `ISOMUX_PUBLIC_ORIGIN` env var (typically through a systemd drop-in). The env var is still honored at boot, but on the next boot after the redesign:
+
+- If `office-config.json#publicOrigin` is empty, the env value is migrated into it and external access is set to `true`. A deprecation message tells you the env var is no longer needed.
+- If the JSON value already matches, the env var is just redundant — the deprecation message asks you to remove it.
+- If the JSON value differs, the env var wins for that boot (preserving the pre-redesign precedence) and a louder warning prints; reconcile by editing one and removing the other.
+
+Remove the env var when convenient — `office-config.json` plus the Access pane is the canonical config path going forward.
 
 ## State files
 
@@ -208,7 +221,7 @@ All three files are written atomically (temp + rename) and serialized under a si
 
 - Name: `isomux_session`
 - Attributes: `HttpOnly; Path=/; SameSite=Lax`
-- `Secure` set when `ISOMUX_PUBLIC_ORIGIN` is `https://`, omitted when `http://localhost*`.
+- `Secure` set when the configured Public URL is `https://`, omitted when the server is on `http://localhost*` (pre-claim, or post-claim with external access off).
 - Rolling expiry: 30 days, refreshed on activity.
 - Absolute cap: 1 year from creation.
 
@@ -230,14 +243,25 @@ explicitly) rather than relying on session expiry.
 
 ## Bootstrap-window exposure
 
-The one-time bootstrap invite URL is printed to stdout on first boot and lands in the user's systemd journal. **Anyone with read access to that journal during the bootstrap window (24h) can claim ownership** by opening the URL before the operator does. On a single-user box this is just the operator. On a multi-user box, a shared dev server, a container with a logging sidecar, or any host that ships journal entries to a centralized collector, the audience may be larger than the deploying operator.
+The pre-claim form is served only on `127.0.0.1`, so the OS bind rules out off-box clients regardless of LAN/tailnet topology — Isomux is not reachable to an outside attacker before an owner claims.
 
-If your deployment matches one of those broader-audience patterns, treat the bootstrap window as the highest-stakes window in the office's lifecycle. Best practice: boot the server, open the URL immediately to claim ownership, and confirm `journalctl --user -u isomux` no longer shows an unclaimed invite. Once an owner exists, the bootstrap path self-disables — `--regenerate-bootstrap` is the only way to reopen it, and it requires shell access plus no-owner state.
+The residual gap: a same-host reverse proxy or tunnel (Tailscale Funnel, Caddy → localhost, Cloudflare Tunnel daemon, etc.) configured **before** an owner claims can forward external traffic to `localhost:4000`, and from Isomux's point of view that connection looks loopback. Anyone who can reach the proxy from outside could claim ownership through it. This is an inherent limit of the proxy-on-same-host topology; isomux can't tell the proxy is there.
+
+The mitigation is operator discipline: **claim first, expose later**. The Access pane's *External access* toggle is the supported sequence — boot the server, open it locally (or via `ssh -L`), claim, then flip the toggle to enable external listening and configure the proxy.
+
+If you somehow lose your only owner session (cleared cookies, hit the 1-year absolute cap, etc.), recover with the owner-login CLI from a shell on the box:
+
+```
+bun run server/index.ts owner-login --name "<your-display-name>"
+```
+
+That prints a one-time login URL valid for 15 minutes. The CLI talks to the running server over a Unix-domain socket at `~/.isomux/admin.sock` (mode 0600 — only the Isomux service user can connect), so on a multi-user box only the UID running isomux can mint recovery URLs. The server has to be running for the CLI to work.
 
 ## Operating notes
 
 - **Members lose access at server restart? No.** Sessions persist to disk; restarts pick up the in-memory map from `sessions.json`.
-- **Lost the bootstrap URL?** Restart with `--regenerate-bootstrap`. Only works while no owner exists.
+- **Lost the bootstrap URL?** There's no bootstrap URL to lose — open `http://localhost:4000` (locally) or via `ssh -L 4000:localhost:4000 <user>@<host>` and the name-picker form appears until the office is claimed.
+- **Lost your owner session?** Run `bun run server/index.ts owner-login --name "<your-name>"` from a shell on the box. See *Bootstrap-window exposure* above.
 - **Revoking a live session?** The Access pane revoke button: the corresponding WebSocket force-closes within ~1s (per-message session recheck catches it). HTTP requests with the revoked cookie return 401 immediately.
 - **Member tries to mint an invite?** Rejected at the wire level. The Access pane is hidden in the UI for non-owners; the server-side check is the actual gate.
 - **CSRF / CSWSH?** Origin is checked on WS upgrade and on state-changing HTTP methods. Browsers always send Origin; non-browser callers (agents on the same host) don't, and are allowed via the loopback bypass for the agent-API paths only.
