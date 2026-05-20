@@ -55,6 +55,7 @@ import {
   deleteUser,
   wouldDeleteLeaveNoOwner,
 } from "./users.ts";
+import { hostname as osHostname, userInfo } from "os";
 import { watchFile, stopWatch, type FileWatcher } from "./file-editor.ts";
 import { mimeTypeForFilename } from "./mime-types.ts";
 import { join } from "path";
@@ -67,9 +68,9 @@ import {
 } from "./auth-middleware.ts";
 import {
   buildPublicOrigin,
-  ensureBootstrapInvite,
   evictSessionsForUserId,
-  hasUnconsumedBootstrapInvite,
+  freezeBootClaimState,
+  isProcessPreClaim,
   listActiveSessions,
   listActiveSessionsForUserId,
   listInvites,
@@ -108,6 +109,13 @@ runPreUseridBackupIfNeeded();
 // the bootstrap invite URL both read buildPublicOrigin(); without this
 // call, a config-file-written publicOrigin would be ignored on first boot.
 setPublicOriginFallback(loadServerConfig().publicOrigin);
+
+// Freeze the "did this process start with no owner?" decision now, before
+// any request handlers run. The bind interface is chosen from this value
+// (loopback-only when pre-claim), and we want cookie attributes and
+// origin checks to keep matching the bind even after a successful claim
+// flips hasOwner() mid-process — the bind can't widen without a restart.
+freezeBootClaimState();
 
 // Inject the room snapshot provider auth.ts uses when seeding a new
 // owner's allowedRooms at invite-acceptance time. The provider closes
@@ -2514,8 +2522,16 @@ async function serveIndexHtml(): Promise<Response> {
 
 const PORT = parseInt(process.env.PORT || "4000");
 
+// Pre-claim, bind loopback only. The tokenless first-time-setup form at GET /
+// is the only auth surface that exists before an owner has claimed the
+// office, and we want it physically unreachable from off-box. Once an owner
+// exists, default to listening on all interfaces (preserved pre-redesign
+// behavior); the external-access toggle in step 3 narrows this further.
+const BIND_LOOPBACK_ONLY = isProcessPreClaim();
+
 const server = Bun.serve<WsData>({
   port: PORT,
+  ...(BIND_LOOPBACK_ONLY ? { hostname: "127.0.0.1" } : {}),
   async fetch(req, server) {
     const url = new URL(req.url);
 
@@ -2543,7 +2559,7 @@ const server = Bun.serve<WsData>({
     // them. Pass the office name so pre-auth pages render the same tab
     // title format (`<name> | Isomux — ...`) the SPA shell uses.
     const officeName = AgentManager.getOfficeSettings().name;
-    const authResponse = await tryHandleAuthRoute(req, url, officeName);
+    const authResponse = await tryHandleAuthRoute(req, url, officeName, server);
     if (authResponse) return authResponse;
 
     // PWA manifest + app icons: iOS Safari fetches these out-of-band when
@@ -3375,12 +3391,16 @@ const server = Bun.serve<WsData>({
 // The public origin is the canonical URL the server expects browsers to hit.
 // We compare it against the Origin header on WS upgrades and unsafe HTTP
 // requests, and bake it into invite URLs. Resolution precedence is env >
-// office-config.json `publicOrigin` > localhost fallback. Log one
-// informational line so the operator knows which mode they're in; localhost
-// is a valid configuration for single-user setups, not a mistake.
+// office-config.json `publicOrigin` > localhost fallback. Pre-claim we
+// force the localhost fallback so the cookie attributes match the bind;
+// any configured value re-engages once an owner exists.
 {
   const resolved = buildPublicOrigin();
-  if (resolved.source === "env") {
+  if (isProcessPreClaim()) {
+    console.log(
+      `[auth] pre-claim: serving loopback-only at ${resolved.origin}. Any configured ISOMUX_PUBLIC_ORIGIN / office-config.json publicOrigin re-engages once an owner is set.`,
+    );
+  } else if (resolved.source === "env") {
     console.log(
       `[auth] using ISOMUX_PUBLIC_ORIGIN from env: ${resolved.origin}`,
     );
@@ -3395,59 +3415,48 @@ const server = Bun.serve<WsData>({
   }
 }
 
-// Bootstrap invite. If no owner exists in users.json we print an owner-tagged
-// invite URL once (or reuse an existing unconsumed one); the owner clicks it,
-// chooses a display name, and lands in the office. The CLI flag
-// --regenerate-bootstrap invalidates a prior unconsumed bootstrap invite and
-// mints a fresh one, for the case where the owner lost the original URL.
-const REGENERATE_BOOTSTRAP = process.argv.includes("--regenerate-bootstrap");
-
-void (async () => {
+// First-time-setup banner. When no owner exists, the SPA shell is replaced
+// by a tokenless name-picker form at http://localhost:PORT/. The form is
+// served only over the loopback bind, so it's reachable only from the same
+// machine (or via SSH port-forward from another). Print a banner that spells
+// out both paths so an operator who's never used `ssh -L` can copy-paste.
+if (isProcessPreClaim()) {
+  let user: string;
   try {
-    const minted = await ensureBootstrapInvite({
-      regenerate: REGENERATE_BOOTSTRAP,
-    });
-    if (minted) {
-      const { origin } = buildPublicOrigin();
-      const url = `${origin}/i/${minted.rawToken}`;
-      const expiresIn = Math.round((minted.expiresAt - Date.now()) / 3600_000);
-      console.log("");
-      console.log(
-        "================================================================",
-      );
-      console.log(
-        "  Isomux: no owner exists yet. Bootstrap invite (one-time):",
-      );
-      console.log("  " + url);
-      console.log(
-        `  Valid for ~${expiresIn}h. Open this URL in your browser to`,
-      );
-      console.log(
-        "  claim ownership. This URL is printed once; if you lose it,",
-      );
-      console.log("  restart the server with --regenerate-bootstrap.");
-      console.log(
-        "================================================================",
-      );
-      console.log("");
-    } else if (hasUnconsumedBootstrapInvite()) {
-      console.log(
-        "Isomux: an unconsumed bootstrap invite already exists, but the raw URL " +
-          "is only printed once. Run with --regenerate-bootstrap to mint a fresh one.",
-      );
-    }
-  } catch (err) {
-    // Bootstrap mint failed (disk write error, etc.). Log loudly; server
-    // keeps running so the operator can fix permissions/disk and retry
-    // with --regenerate-bootstrap. Crashing here would mask the cause.
-    console.error(
-      "[auth] failed to mint bootstrap invite; the server is up but " +
-        "no one can sign in. Resolve the disk/permissions issue and " +
-        "restart with --regenerate-bootstrap:",
-      err,
-    );
+    user = userInfo().username;
+  } catch {
+    user = "<user>";
   }
-})();
+  let host: string;
+  try {
+    host = osHostname();
+  } catch {
+    host = "<host>";
+  }
+  const sshLine = `ssh -L ${PORT}:localhost:${PORT} ${user}@${host}`;
+  console.log("");
+  console.log(
+    "================================================================",
+  );
+  console.log("  Isomux: no owner has been set up for this office yet.");
+  console.log("");
+  console.log("  TO CLAIM OWNERSHIP from THIS machine:");
+  console.log(`    Open http://localhost:${PORT} in your browser.`);
+  console.log("");
+  console.log("  TO CLAIM OWNERSHIP from another machine:");
+  console.log("    1. On that machine, open a tunnel to this box:");
+  console.log(`         ${sshLine}`);
+  console.log(`    2. Open http://localhost:${PORT} in that browser.`);
+  console.log("");
+  console.log(
+    "  After you claim, the Access pane lets you enable external",
+  );
+  console.log("  access so everyday use doesn't need the SSH tunnel.");
+  console.log(
+    "================================================================",
+  );
+  console.log("");
+}
 
 // Start update checker
 onUpdateChange((status) => {

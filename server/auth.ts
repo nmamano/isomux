@@ -350,10 +350,6 @@ function forceExpireSocketsForSession(sessionIdHash: string) {
 // per-username `replacePriorForUsername` flow already covers (the
 // operator can mint a fresh invite if the first one expires).
 export const INVITE_TTL_MS = 24 * 60 * 60 * 1000;
-// Kept for the bootstrap call site; the value is identical to
-// INVITE_TTL_MS but the alias keeps the bootstrap-specific comment
-// cluster readable.
-const BOOTSTRAP_TTL_MS = INVITE_TTL_MS;
 // Member self-invite (mint_self_invite) is deliberately tighter than
 // the standard 24h. The use case is "I'm at my laptop, I want to add
 // my phone right now" — both devices are physically with the member
@@ -361,66 +357,6 @@ const BOOTSTRAP_TTL_MS = INVITE_TTL_MS;
 // is more than enough for the legitimate flow and shrinks the
 // bearer-URL exposure window by 24x compared to the standard TTL.
 const SELF_INVITE_TTL_MS = 60 * 60 * 1000;
-
-// Returns null when an owner already exists (no bootstrap needed) or when the
-// flag-set forbids regeneration. The caller (server boot) logs the URL.
-export async function ensureBootstrapInvite(opts: {
-  regenerate: boolean;
-}): Promise<{ rawToken: string; expiresAt: number } | null> {
-  return mutate(() => {
-    ensureLoaded();
-    if (hasOwner()) return null;
-    // Drop any prior unconsumed bootstrap invites if asked; otherwise reuse a
-    // still-valid one so a stdout/journal scrape works on a restart.
-    const now = Date.now();
-    if (opts.regenerate) {
-      for (const [k, v] of invites!) {
-        if (v.bootstrap && !v.consumed) invites!.delete(k);
-      }
-    } else {
-      for (const v of invites!.values()) {
-        if (v.bootstrap && !v.consumed && v.expiresAt > now) {
-          // Already have a valid bootstrap invite. Caller has no way to recover
-          // the raw token from disk (only the hash is stored), so we return null
-          // and the caller logs a hint pointing at --regenerate-bootstrap.
-          return null;
-        }
-      }
-    }
-    const { raw, hash, prefix } = randomToken();
-    const invite: StoredInvite = {
-      tokenHash: hash,
-      tokenPrefix: prefix,
-      username: null,
-      role: "owner",
-      createdBy: null,
-      createdAt: now,
-      expiresAt: now + BOOTSTRAP_TTL_MS,
-      consumed: false,
-      consumedAt: null,
-      bootstrap: true,
-    };
-    invites!.set(hash, invite);
-    try {
-      persistInvites();
-    } catch (err) {
-      invites!.delete(hash);
-      throw err;
-    }
-    return { rawToken: raw, expiresAt: invite.expiresAt };
-  });
-}
-
-// True if there's still an unconsumed bootstrap invite outstanding (used by
-// the regeneration command to decide whether to skip regenerate work).
-export function hasUnconsumedBootstrapInvite(): boolean {
-  ensureLoaded();
-  const now = Date.now();
-  for (const v of invites!.values()) {
-    if (v.bootstrap && !v.consumed && v.expiresAt > now) return true;
-  }
-  return false;
-}
 
 // ---------------------------------------------------------------------------
 // Mint / accept / revoke invites
@@ -839,6 +775,110 @@ export async function acceptInvite(
       role: userRecord.role,
       isBootstrap: invite.bootstrap,
       inviteNeedsName: invite.username === null,
+    };
+  });
+}
+
+export interface ClaimOk {
+  ok: true;
+  rawSessionId: string;
+  expiresAt: number;
+  absoluteExpiresAt: number;
+  username: string;
+}
+export interface ClaimErr {
+  ok: false;
+  error: "owner_exists" | "needs_name" | "invalid_name";
+}
+
+// Tokenless owner-claim used by the pre-claim form at GET /. The caller is
+// responsible for the locality guarantee (the server binds 127.0.0.1
+// pre-claim, plus a peer-IP loopback check and a strict same-origin check
+// on the POST); this function is only the auth-state mutation under the
+// mutex. hasOwner() is rechecked inside the mutex so concurrent claim
+// attempts serialize and the second one fails closed with owner_exists.
+export async function claimOwnership(
+  rawChosenName: string,
+  ctx: { userAgent: string | null },
+): Promise<ClaimOk | ClaimErr> {
+  return mutate(() => {
+    ensureLoaded();
+    if (hasOwner()) {
+      // Clear any pre-redesign bootstrap invite rows that might still
+      // sit in invites.json; the office is claimed so they're stale.
+      markAllUnconsumedBootstrapInvitesConsumed();
+      return { ok: false, error: "owner_exists" };
+    }
+    const chosenName = rawChosenName.trim();
+    if (!chosenName) return { ok: false, error: "needs_name" };
+    if (chosenName.length > 64) return { ok: false, error: "invalid_name" };
+    if (!/^[\p{L}\p{N} ._'-]+$/u.test(chosenName))
+      return { ok: false, error: "invalid_name" };
+
+    // Idempotent upsert. A pre-auth user record with the same display
+    // name (legacy installs migrating in) is promoted to owner with a
+    // fresh allowedRooms snapshot; otherwise we create a new record.
+    // Mirrors the bootstrap branch of acceptInvite — kept separate
+    // rather than refactored to keep each path locally readable.
+    let userRecord = getUserByName(chosenName);
+    if (!userRecord) {
+      userRecord = claimUser(chosenName, {
+        role: "owner",
+        allowedRooms: snapshotRoomIds(),
+      });
+    } else {
+      const snapshot = snapshotRoomIds();
+      try {
+        const r = updateUserById(userRecord.id, { allowedRooms: snapshot });
+        if (!r.ok) {
+          console.warn(
+            `[auth] claim allowedRooms update for ${userRecord.name} returned not-ok: ${r.error}`,
+          );
+        }
+      } catch (err) {
+        console.warn(
+          `[auth] claim allowedRooms persist for ${userRecord.name} threw: ${(err as Error).message}`,
+        );
+        throw err;
+      }
+      if (userRecord.role !== "owner") {
+        setUserRoleById(userRecord.id, "owner");
+      }
+      userRecord = getUserById(userRecord.id)!;
+    }
+
+    const { raw: rawSessionId, hash: sessionHash, prefix } = randomToken();
+    const now = Date.now();
+    const rollingTtlMs = 30 * 24 * 60 * 60 * 1000;
+    const absoluteTtlMs = 365 * 24 * 60 * 60 * 1000;
+    const session: StoredSession = {
+      sessionIdHash: sessionHash,
+      sessionPrefix: prefix,
+      userId: userRecord.id,
+      createdAt: now,
+      lastSeenAt: now,
+      expiresAt: now + rollingTtlMs,
+      absoluteExpiresAt: now + absoluteTtlMs,
+      userAgent: ctx.userAgent,
+    };
+    sessions!.set(sessionHash, session);
+    try {
+      persistSessions();
+    } catch (err) {
+      sessions!.delete(sessionHash);
+      throw err;
+    }
+
+    // Sweep any leftover unconsumed bootstrap invites from prior versions
+    // now that this office has an owner. Best-effort.
+    markAllUnconsumedBootstrapInvitesConsumed();
+
+    return {
+      ok: true,
+      rawSessionId,
+      expiresAt: session.expiresAt,
+      absoluteExpiresAt: session.absoluteExpiresAt,
+      username: userRecord.name,
     };
   });
 }
@@ -1277,8 +1317,8 @@ export function sessionContextFor(
 // The invariant: the office must always retain at least one owner-role
 // user with at least one active session, so an operator can recover
 // from inside the browser. Without this, revoking the last owner's last
-// session locks the office out (hasOwner() stays true, so
-// --regenerate-bootstrap is a no-op; only shell access can restore).
+// session locks the office out (hasOwner() stays true, so the pre-claim
+// form never reappears; only shell access can restore).
 //
 // Centralized here because both revoke_session and the WS/HTTP logout
 // paths need to enforce it.
@@ -1377,11 +1417,45 @@ function evaluateEnvOrigin(): string | null {
   return normalized;
 }
 
+// Captured once at boot via freezeBootClaimState(). The bind interface is
+// chosen at boot from this value (loopback-only when pre-claim, otherwise
+// the configured public origin's bind). Cookie attributes and origin
+// allowlists are tied to the bind, so we lock the boot-time decision and
+// keep using it for the lifetime of the process — even if a successful
+// claim flips hasOwner() during this process's run, the bind doesn't
+// change until a restart, so the cookie/origin policy shouldn't either.
+let processStartedPreClaim: boolean | null = null;
+
+export function freezeBootClaimState(): void {
+  processStartedPreClaim = !hasOwner();
+}
+
+// True if this process booted with no owner. Auto-captures on first read
+// as a safety net for callers that may run before the explicit freeze.
+export function isProcessPreClaim(): boolean {
+  if (processStartedPreClaim === null) {
+    processStartedPreClaim = !hasOwner();
+  }
+  return processStartedPreClaim;
+}
+
 export function buildPublicOrigin(): {
   origin: string;
   isHttps: boolean;
   source: "env" | "config" | "localhost";
 } {
+  // Pre-claim, the server binds 127.0.0.1 only. Whatever public origin the
+  // operator configured ahead of time can't be reached anyway, and using it
+  // here would mismatch the bind: the cookie's Secure flag would be set
+  // (configured origin is HTTPS) and the browser would reject the cookie
+  // on the actual HTTP loopback connection. Force the localhost fallback
+  // so cookie attributes, allowed-origin checks, and minted URLs all match
+  // the bind. The env/JSON value re-engages on the next process boot
+  // (which is when the bind can widen).
+  if (isProcessPreClaim()) {
+    const fallback = `http://localhost:${process.env.PORT || "4000"}`;
+    return { origin: fallback, isHttps: false, source: "localhost" };
+  }
   const envOrigin = evaluateEnvOrigin();
   if (envOrigin) {
     return {

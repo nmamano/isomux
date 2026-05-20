@@ -7,6 +7,7 @@ import type { Server } from "bun";
 import {
   acceptInvite,
   buildPublicOrigin,
+  claimOwnership,
   clearCookieHeader,
   logoutBySessionHash,
   peekInvite,
@@ -355,11 +356,22 @@ function originValidForAuthPost(req: Request): boolean {
 
 // Top-level router used by index.ts: returns null when the path isn't an
 // /auth/* path, so the caller falls through to its normal dispatch.
-export async function tryHandleAuthRoute(
+export async function tryHandleAuthRoute<T>(
   req: Request,
   url: URL,
   officeName: string | null,
+  server: Server<T>,
 ): Promise<Response | null> {
+  // Pre-claim tokenless flow. The server binds 127.0.0.1 pre-claim, so this
+  // surface is unreachable from off-box; we still layer a strict same-origin
+  // + loopback-peer-IP check on the POST as defense-in-depth in case the
+  // bind is widened by operator override.
+  if (req.method === "GET" && url.pathname === "/" && !hasOwner()) {
+    return handleClaimForm(officeName);
+  }
+  if (req.method === "POST" && url.pathname === "/auth/claim") {
+    return handleClaim(req, server, officeName);
+  }
   // GET /i/<token> — peek + render accept page (NEVER consumes).
   if (req.method === "GET" && url.pathname.startsWith("/i/")) {
     const token = url.pathname.slice(3);
@@ -381,6 +393,83 @@ export async function tryHandleAuthRoute(
     return handleLoginBackdrop();
   }
   return null;
+}
+
+// GET / when !hasOwner(): render the tokenless name-picker form. Routes
+// here BEFORE the cookie gate, since pre-claim there's no cookie surface
+// yet. After claim, hasOwner() flips and this branch goes dead; the SPA
+// shell + login page resume normal dispatch.
+function handleClaimForm(officeName: string | null): Response {
+  return new Response(renderClaimPage(null, officeName), {
+    status: 200,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      ...securityHeaders(),
+    },
+  });
+}
+
+// POST /auth/claim — consume the tokenless form, create the owner record,
+// set the cookie. Locality is enforced at three layers:
+//   1. The server bind (127.0.0.1 pre-claim) keeps off-box clients off the
+//      TCP socket entirely;
+//   2. requestIsLoopback rejects non-loopback peers if the bind has been
+//      widened by operator override;
+//   3. A strict same-origin check rejects forged-Origin curl over a
+//      same-host proxy. No null-Origin fallback (the form doesn't carry
+//      Referrer-Policy: no-referrer, so browsers always send Origin on
+//      top-level form POSTs).
+async function handleClaim<T>(
+  req: Request,
+  server: Server<T>,
+  officeName: string | null,
+): Promise<Response> {
+  if (!requestIsLoopback(req, server)) {
+    return new Response("forbidden", { status: 403 });
+  }
+  const origin = req.headers.get("origin");
+  if (!origin || !isLoopbackOrigin(origin)) {
+    return new Response("bad origin", { status: 403 });
+  }
+  const form = await req.formData().catch(() => null);
+  const nameField = form?.get("name");
+  const name = typeof nameField === "string" ? nameField : "";
+  const ua = req.headers.get("user-agent");
+  const result = await claimOwnership(name, { userAgent: ua });
+  if (!result.ok) {
+    const errorMsg =
+      result.error === "owner_exists"
+        ? "This office already has an owner. Refresh and sign in with an invite link instead."
+        : "Please pick a display name (letters, numbers, spaces, periods, hyphens, apostrophes, or underscores).";
+    return new Response(renderClaimPage(errorMsg, officeName), {
+      status: 400,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        ...securityHeaders(),
+      },
+    });
+  }
+  return new Response(null, {
+    status: 302,
+    headers: {
+      Location: "/",
+      "Set-Cookie": setCookieHeader(
+        result.rawSessionId,
+        result.absoluteExpiresAt,
+      ),
+      ...securityHeaders(),
+    },
+  });
+}
+
+// Accept either http://localhost:<port> or http://127.0.0.1:<port> as the
+// claim-form Origin. The browser sends whichever the operator typed.
+function isLoopbackOrigin(origin: string): boolean {
+  const port = process.env.PORT || "4000";
+  return (
+    origin === `http://localhost:${port}` ||
+    origin === `http://127.0.0.1:${port}`
+  );
 }
 
 async function handleLoginBackdrop(): Promise<Response> {
@@ -432,9 +521,9 @@ function renderLoginPage(officeName: string | null): string {
           ? `<p>This office requires an invite link.</p>
       <p>If the owner sent you a URL, open it. Each invite link signs you in on the device that opens it.</p>
       <p class="muted">If you don't have one, ask the office owner to issue one from the Access pane.</p>`
-          : `<p>No owner exists for this office yet.</p>
-      <p>The server printed a one-time bootstrap URL to its log on startup. Open that URL to claim ownership.</p>
-      <p class="muted">For the systemd service, check <code>journalctl --user -u isomux</code>. If the URL was lost, restart with <code>--regenerate-bootstrap</code>.</p>`
+          : `<p>No owner has been set up for this office yet.</p>
+      <p>Open <a href="/">this office's home page</a> to claim ownership.</p>
+      <p class="muted">If you're trying to reach this office from another machine, you'll need to SSH-tunnel first (the claim form is only reachable from loopback). The server's startup log spells out the exact <code>ssh -L</code> command.</p>`
       }
     </main>
   `;
@@ -442,6 +531,40 @@ function renderLoginPage(officeName: string | null): string {
     authPageTitle(officeName, "sign in"),
     body,
     undefined,
+    PREAUTH_EXTRA_CSS,
+  );
+}
+
+// Tokenless first-time-setup form for the pre-claim flow. Shape mirrors
+// renderAcceptPage's bootstrap branch (same display-name constraints, same
+// "form must be submitted to take effect" anti-preview property) but without
+// a token field since locality is the gate.
+function renderClaimPage(
+  errorMsg: string | null,
+  officeName: string | null,
+): string {
+  const err = errorMsg ? `<p class="err">${escapeHtml(errorMsg)}</p>` : "";
+  // Match the open-graph treatment from renderAcceptPage; no image, generic
+  // copy that reveals nothing about the deployment.
+  const og = {
+    title: "Isomux — first-time setup",
+    description: "Claim ownership of a new Isomux office.",
+  };
+  return baseHtml(
+    authPageTitle(officeName, "first-time setup"),
+    `
+    <div class="login-bg" aria-hidden="true"></div>
+    <main class="card">
+      <h1>Welcome to your new Isomux office</h1>
+      <p>You're the first person to claim this office. Pick a display name; it'll appear next to anything you say.</p>
+      <form method="POST" action="/auth/claim">
+        <label>Display name <input name="name" type="text" autofocus maxlength="64" required pattern="[\\p{L}\\p{N} ._'\\-]+" /></label>
+        ${err}
+        <button type="submit">Continue</button>
+      </form>
+    </main>
+    `,
+    og,
     PREAUTH_EXTRA_CSS,
   );
 }
