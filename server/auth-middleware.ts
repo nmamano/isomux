@@ -72,9 +72,15 @@ export function checkOrigin(req: Request): boolean {
 //   Referrer-Policy: no-referrer
 //     The invite URL contains a bearer token. Without this header, a
 //     future outbound link or subresource on the invite-accept page
-//     could leak the token via the Referer header. Setting this
-//     unconditionally also covers back-button-to-bookmark navigations
-//     from a still-live token.
+//     could leak the token via the Referer header. Setting this also
+//     covers back-button-to-bookmark navigations from a still-live
+//     token. Suppressed for tokenless pages (claim form, etc) via the
+//     `tokenInUrl: false` option — Chrome couples `Referrer-Policy:
+//     no-referrer` to a privacy mode where top-level form POSTs send
+//     `Origin: null` instead of the page origin, which breaks strict
+//     same-origin checks on the form's POST handler. Tokenless URLs
+//     have nothing to leak through Referer, so the trade-off is wrong
+//     for them.
 //
 //   Strict-Transport-Security (HTTPS only)
 //     HSTS protects later requests that start over HTTP (stale
@@ -87,11 +93,15 @@ export function checkOrigin(req: Request): boolean {
 //     doesn't own all of `*.example.com`) should not pin siblings to
 //     HTTPS. Operators who want subdomain-wide HSTS can layer it at
 //     their reverse proxy.
-export function securityHeaders(): Record<string, string> {
+export function securityHeaders(opts?: {
+  tokenInUrl?: boolean;
+}): Record<string, string> {
+  const tokenInUrl = opts?.tokenInUrl ?? true;
   const { isHttps } = buildPublicOrigin();
-  const h: Record<string, string> = {
-    "Referrer-Policy": "no-referrer",
-  };
+  const h: Record<string, string> = {};
+  if (tokenInUrl) {
+    h["Referrer-Policy"] = "no-referrer";
+  }
   if (isHttps) {
     h["Strict-Transport-Security"] = "max-age=31536000";
   }
@@ -399,26 +409,39 @@ export async function tryHandleAuthRoute<T>(
 // here BEFORE the cookie gate, since pre-claim there's no cookie surface
 // yet. After claim, hasOwner() flips and this branch goes dead; the SPA
 // shell + login page resume normal dispatch.
+//
+// The claim page uses `tokenInUrl: false` so `Referrer-Policy: no-referrer`
+// is omitted: there's no token in the URL to leak, and Chrome's coupling
+// between that header and `Origin: null` on top-level form POSTs would
+// otherwise make the form's strict same-origin check reject the real
+// browser submit with 403.
 function handleClaimForm(officeName: string | null): Response {
   return new Response(renderClaimPage(null, officeName), {
     status: 200,
     headers: {
       "Content-Type": "text/html; charset=utf-8",
-      ...securityHeaders(),
+      ...securityHeaders({ tokenInUrl: false }),
     },
   });
 }
 
 // POST /auth/claim — consume the tokenless form, create the owner record,
-// set the cookie. Locality is enforced at three layers:
+// set the cookie. Locality is enforced at multiple layers:
 //   1. The server bind (127.0.0.1 pre-claim) keeps off-box clients off the
 //      TCP socket entirely;
 //   2. requestIsLoopback rejects non-loopback peers if the bind has been
 //      widened by operator override;
-//   3. A strict same-origin check rejects forged-Origin curl over a
-//      same-host proxy. No null-Origin fallback (the form doesn't carry
-//      Referrer-Policy: no-referrer, so browsers always send Origin on
-//      top-level form POSTs).
+//   3. A strict same-origin check rejects ordinary browser POSTs from
+//      pages on other origins (CSRF defense).
+//
+// The strict-Origin check does NOT close the "non-browser client forges
+// Origin over a same-host proxy" case — curl can set Origin to anything,
+// including the exact loopback value. A reverse proxy or tunnel running
+// on the same box that forwards external traffic to localhost:4000 is
+// indistinguishable from a real local browser at the peer-IP level. This
+// is an inherent topology limit; the documented mitigation is operator
+// discipline (claim first, expose later — see docs/access-and-invites.md
+// "Bootstrap-window exposure").
 async function handleClaim<T>(
   req: Request,
   server: Server<T>,
@@ -445,7 +468,7 @@ async function handleClaim<T>(
       status: 400,
       headers: {
         "Content-Type": "text/html; charset=utf-8",
-        ...securityHeaders(),
+        ...securityHeaders({ tokenInUrl: false }),
       },
     });
   }
@@ -457,7 +480,7 @@ async function handleClaim<T>(
         result.rawSessionId,
         result.absoluteExpiresAt,
       ),
-      ...securityHeaders(),
+      ...securityHeaders({ tokenInUrl: false }),
     },
   });
 }

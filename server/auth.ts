@@ -13,6 +13,7 @@ import { existsSync, readFileSync } from "fs";
 import { randomBytes, createHash, timingSafeEqual } from "crypto";
 import type {
   UserRole,
+  UserRecord,
   InviteWire,
   SessionWire,
   SessionContext,
@@ -22,6 +23,7 @@ import { normalizePublicOrigin } from "../shared/public-origin.ts";
 import { lowercaseKey } from "../shared/identity.ts";
 import {
   claimUser,
+  deleteUserById,
   getUserById,
   getUserByName,
   hasOwner,
@@ -576,6 +578,117 @@ function markAllUnconsumedBootstrapInvitesConsumed(): void {
   }
 }
 
+// Owner-creation core used by both the tokenless claim form (claimOwnership)
+// and the legacy bootstrap-invite acceptance path (acceptInvite bootstrap
+// branch). Mutates user state so the named user becomes an owner with full
+// allowedRooms, then returns the resulting user record alongside a
+// `rollback` closure that restores the prior state.
+//
+// The caller MUST invoke rollback if any subsequent persistence step
+// (invite-consumed write, session create+persist) throws. Without rollback,
+// a partial failure can leave the office with an owner record but no
+// session: hasOwner() returns true, the claim form disappears, and
+// acceptInvite's mutex-held owner_exists guard refuses a retry. Rollback
+// closes that stranded-office state.
+//
+// For a new user, rollback deletes the just-created record. For an
+// existing user being promoted, rollback restores the prior role and
+// allowedRooms. If rollback's own disk writes fail, the helper logs a
+// catastrophic-state message and propagates nothing further (the original
+// error is what the caller is already rethrowing).
+function commitBootstrapOwnerUser(chosenName: string): {
+  user: UserRecord;
+  rollback: () => void;
+} {
+  const existing = getUserByName(chosenName);
+  if (!existing) {
+    const created = claimUser(chosenName, {
+      role: "owner",
+      allowedRooms: snapshotRoomIds(),
+    });
+    const createdId = created.id;
+    return {
+      user: created,
+      rollback: () => {
+        try {
+          deleteUserById(createdId);
+        } catch (err) {
+          console.error(
+            `[auth] catastrophic: bootstrap rollback could not delete just-created user ${createdId}; the office is now stranded with an owner record but no session. Hand-edit users.json to remove ${createdId}, then re-open the claim form.`,
+            err,
+          );
+        }
+      },
+    };
+  }
+  // Existing user — snapshot, mutate, restore on rollback.
+  const prevRole = existing.role;
+  const prevAllowedRooms = [...existing.allowedRooms];
+  const snapshot = snapshotRoomIds();
+  // allowedRooms first (idempotent), role second. If allowedRooms write
+  // returns not-ok or throws, the user is unchanged on disk so we propagate
+  // the failure directly without a rollback closure.
+  const r = updateUserById(existing.id, { allowedRooms: snapshot });
+  if (!r.ok) {
+    throw new Error(
+      `bootstrap owner promotion: allowedRooms write failed for ${existing.name}: ${r.error}`,
+    );
+  }
+  if (existing.role !== "owner") {
+    try {
+      setUserRoleById(existing.id, "owner");
+    } catch (err) {
+      // Inner rollback: undo the allowedRooms write before propagating.
+      // If the revert fails, log catastrophic but still throw the original.
+      try {
+        const r2 = updateUserById(existing.id, {
+          allowedRooms: prevAllowedRooms,
+        });
+        if (!r2.ok) {
+          console.error(
+            `[auth] bootstrap promotion: allowedRooms revert returned not-ok after setUserRoleById failure: ${r2.error}`,
+          );
+        }
+      } catch (revertErr) {
+        console.error(
+          `[auth] bootstrap promotion: allowedRooms revert threw after setUserRoleById failure`,
+          revertErr,
+        );
+      }
+      throw err;
+    }
+  }
+  const updated = getUserById(existing.id);
+  if (!updated) {
+    throw new Error(
+      `bootstrap owner promotion: user ${existing.id} vanished mid-flow`,
+    );
+  }
+  return {
+    user: updated,
+    rollback: () => {
+      try {
+        if (updated.role !== prevRole) {
+          setUserRoleById(updated.id, prevRole);
+        }
+        const r3 = updateUserById(updated.id, {
+          allowedRooms: prevAllowedRooms,
+        });
+        if (!r3.ok) {
+          console.error(
+            `[auth] bootstrap rollback: allowedRooms restore returned not-ok: ${r3.error}`,
+          );
+        }
+      } catch (err) {
+        console.error(
+          `[auth] bootstrap rollback: error restoring user ${updated.id}:`,
+          err,
+        );
+      }
+    },
+  };
+}
+
 // Accept an invite token. If the invite has a pre-set username, that username
 // is bound to the new session. If the invite is a bootstrap invite, the
 // caller must supply `chosenName` (the only path where invitees pick their
@@ -630,52 +743,18 @@ export async function acceptInvite(
     // recovery / pre-auth-migration path. If no owner exists and a
     // bootstrap invite is being accepted, promote the chosen user (creating
     // them if needed, or promoting an existing pre-auth member record).
+    //
+    // For the bootstrap branch we capture a rollback closure from
+    // commitBootstrapOwnerUser. Without it, a downstream persist failure
+    // (invite-consumed write or session create+persist) would leave the
+    // office with an owner record but no session, and the Step-1
+    // owner_exists guard would block recovery on retry.
     let userRecord = getUserByName(chosenName);
+    let bootstrapRollback: (() => void) | null = null;
     if (invite.bootstrap) {
-      if (!userRecord) {
-        // Bootstrap owner gets a snapshot of every current room so the
-        // "owners see all" intent survives the no-"all"-sentinel model.
-        userRecord = claimUser(chosenName, {
-          role: "owner",
-          allowedRooms: snapshotRoomIds(),
-        });
-      } else {
-        // Existing user becoming the bootstrap owner. Three states to
-        // handle: (a) member being promoted, (b) already-owner that
-        // came from a partial-failure recovery, (c) ill-formed
-        // pre-state. Materialize allowedRooms FIRST (idempotent),
-        // then promote the role. If allowedRooms persistence throws,
-        // the role stays where it was — a retry of the bootstrap
-        // accept starts fresh from the same branch. If role
-        // persistence throws after a successful allowedRooms write,
-        // the retry sees an owner with correct allowedRooms and the
-        // setUserRoleById branch becomes a no-op. Ordering matters:
-        // doing role first would let a partial failure leave the
-        // user as an owner without room access, and the next attempt
-        // would skip materialization (the old buggy shape).
-        const snapshot = snapshotRoomIds();
-        try {
-          const r = updateUserById(userRecord.id, {
-            allowedRooms: snapshot,
-          });
-          if (!r.ok) {
-            console.warn(
-              `[auth] bootstrap allowedRooms update for ${userRecord.name} returned not-ok: ${r.error}`,
-            );
-          }
-        } catch (err) {
-          console.warn(
-            `[auth] bootstrap allowedRooms persist for ${userRecord.name} threw: ${(err as Error).message}`,
-          );
-          // Don't promote the role if allowedRooms didn't land — the
-          // next bootstrap accept will re-attempt both.
-          throw err;
-        }
-        if (userRecord.role !== "owner") {
-          setUserRoleById(userRecord.id, "owner");
-        }
-        userRecord = getUserById(userRecord.id)!;
-      }
+      const committed = commitBootstrapOwnerUser(chosenName);
+      userRecord = committed.user;
+      bootstrapRollback = committed.rollback;
     } else if (!userRecord) {
       // Owner invites seed the new owner with every current room id;
       // member invites land on the [] default, leaving the new member
@@ -731,6 +810,10 @@ export async function acceptInvite(
     } catch (err) {
       invite.consumed = prevConsumed;
       invite.consumedAt = null;
+      // Roll back the bootstrap user mutation too (created owner or
+      // promoted member). Without this, a persist failure here would
+      // strand the office with an owner on disk and no session.
+      if (bootstrapRollback) bootstrapRollback();
       throw err;
     }
     sessions!.set(sessionHash, session);
@@ -757,6 +840,10 @@ export async function acceptInvite(
           revertErr,
         );
       }
+      // Bootstrap owner rollback fires regardless of the invite-revert
+      // outcome — the office state on disk must not be left with an
+      // owner record but no session.
+      if (bootstrapRollback) bootstrapRollback();
       throw err;
     }
 
@@ -826,37 +913,13 @@ export async function claimOwnership(
     if (!/^[\p{L}\p{N} ._'-]+$/u.test(chosenName))
       return { ok: false, error: "invalid_name" };
 
-    // Idempotent upsert. A pre-auth user record with the same display
-    // name (legacy installs migrating in) is promoted to owner with a
-    // fresh allowedRooms snapshot; otherwise we create a new record.
-    // Mirrors the bootstrap branch of acceptInvite — kept separate
-    // rather than refactored to keep each path locally readable.
-    let userRecord = getUserByName(chosenName);
-    if (!userRecord) {
-      userRecord = claimUser(chosenName, {
-        role: "owner",
-        allowedRooms: snapshotRoomIds(),
-      });
-    } else {
-      const snapshot = snapshotRoomIds();
-      try {
-        const r = updateUserById(userRecord.id, { allowedRooms: snapshot });
-        if (!r.ok) {
-          console.warn(
-            `[auth] claim allowedRooms update for ${userRecord.name} returned not-ok: ${r.error}`,
-          );
-        }
-      } catch (err) {
-        console.warn(
-          `[auth] claim allowedRooms persist for ${userRecord.name} threw: ${(err as Error).message}`,
-        );
-        throw err;
-      }
-      if (userRecord.role !== "owner") {
-        setUserRoleById(userRecord.id, "owner");
-      }
-      userRecord = getUserById(userRecord.id)!;
-    }
+    // Owner-creation via the shared helper. Returns a rollback closure
+    // that's invoked if the session create+persist below throws — without
+    // it, a session-persist failure would leave the office with an owner
+    // record but no session, and the mutex-held owner_exists guard would
+    // block recovery on retry.
+    const { user: userRecord, rollback } =
+      commitBootstrapOwnerUser(chosenName);
 
     const { raw: rawSessionId, hash: sessionHash, prefix } = randomToken();
     const now = Date.now();
@@ -877,6 +940,7 @@ export async function claimOwnership(
       persistSessions();
     } catch (err) {
       sessions!.delete(sessionHash);
+      rollback();
       throw err;
     }
 
