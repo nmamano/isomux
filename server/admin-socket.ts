@@ -56,6 +56,13 @@ export function startAdminSocket(): void {
       return;
     }
   }
+  // Tighten umask around the bind so the socket is created with mode 0600
+  // from the start. Bun.serve creates the inode before any chmod can run;
+  // under a permissive umask (e.g. 0002) the brief pre-chmod window would
+  // otherwise leave the socket group-connectable. The chmodSync below
+  // stays as defense-in-depth in case Bun's underlying syscall ignores
+  // umask entirely.
+  const prevUmask = process.umask(0o077);
   try {
     Bun.serve({ unix: SOCKET_PATH, fetch: handleAdmin });
   } catch (err) {
@@ -63,10 +70,12 @@ export function startAdminSocket(): void {
       `[admin-socket] failed to bind ${SOCKET_PATH}: ${(err as Error).message}; admin CLI will be unavailable`,
     );
     return;
+  } finally {
+    process.umask(prevUmask);
   }
-  // Bun.serve may or may not honor the process umask when creating the
-  // socket. Force mode 0600 explicitly so a permissive umask can't leak
-  // the socket to other local UIDs.
+  // Force mode 0600 explicitly as defense-in-depth even after the umask
+  // tightening above — if Bun's bind path bypasses umask on this platform,
+  // chmod still closes the gap.
   try {
     chmodSync(SOCKET_PATH, 0o600);
   } catch (err) {

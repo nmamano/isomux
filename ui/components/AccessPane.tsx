@@ -12,6 +12,7 @@ import type {
   UserRole,
 } from "../../shared/types.ts";
 import { lowercaseKey } from "../../shared/identity.ts";
+import { normalizePublicOrigin } from "../../shared/public-origin.ts";
 import {
   dialogLabel,
   dialogInput,
@@ -151,6 +152,10 @@ function ExternalAccessSection() {
   const [enabled, setEnabled] = useState(false);
   const [urlInput, setUrlInput] = useState("");
   const [envOriginSet, setEnvOriginSet] = useState(false);
+  // The normalized env value, or null when the env var is absent OR set but
+  // invalid (in which case envOriginSet is true while envOrigin is null —
+  // the UI uses that combination to flag the invalid case).
+  const [envOrigin, setEnvOrigin] = useState<string | null>(null);
   const [boundLoopback, setBoundLoopback] = useState(true);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -177,6 +182,7 @@ function ExternalAccessSection() {
           setEnabled(nextEnabled);
           setUrlInput(nextUrl);
           setEnvOriginSet(!!m.envOriginSet);
+          setEnvOrigin(typeof m.envOrigin === "string" ? m.envOrigin : null);
           setBoundLoopback(!!m.boundLoopback);
           setSavedSnapshot({ enabled: nextEnabled, urlInput: nextUrl });
           setLoaded(true);
@@ -239,6 +245,13 @@ function ExternalAccessSection() {
     enabled !== savedSnapshot.enabled ||
     urlInput.trim() !== savedSnapshot.urlInput;
 
+  // Apply the same normalization the server uses, so the env-conflict /
+  // env-match notes don't flash a false warning when the operator types
+  // an equivalent-but-unnormalized URL (e.g. with a trailing slash).
+  // Returns null when the input doesn't parse as a valid public origin,
+  // in which case neither the match nor the conflict note renders.
+  const normalizedInput = normalizePublicOrigin(urlInput);
+
   if (!loaded) {
     return (
       <div style={cardStyle}>
@@ -280,16 +293,44 @@ function ExternalAccessSection() {
           />
           <p style={hint}>
             Pattern: https://&lt;host&gt; (the address you'll open from your
-            laptop / phone). Saving doesn't change the running server's bind
-            on its own — restart isomux to apply.
+            laptop / phone). Saving doesn't change the running server's bind on
+            its own — restart isomux to apply.
           </p>
         </>
       )}
-      {envOriginSet && (
+      {envOriginSet && !envOrigin && (
         <p style={{ ...hint, marginTop: 6, color: "var(--text-hint)" }}>
-          Note: <code>ISOMUX_PUBLIC_ORIGIN</code> is set in the environment.
-          That value will keep overriding office-config.json after restart
-          until you remove it from your env file.
+          Note: <code>ISOMUX_PUBLIC_ORIGIN</code> is set in the environment but
+          not a valid public origin, so the server ignores it. Remove it from
+          your env file or set it to <code>https://&lt;host&gt;</code>
+          or <code>http://localhost</code>.
+        </p>
+      )}
+      {envOrigin && enabled && normalizedInput === envOrigin && (
+        <p style={{ ...hint, marginTop: 6, color: "var(--text-hint)" }}>
+          Note: <code>ISOMUX_PUBLIC_ORIGIN={envOrigin}</code> is set in the
+          environment and matches this Public URL. The env var is deprecated —
+          remove it from your env file once this office-config value is saved.
+        </p>
+      )}
+      {envOrigin &&
+        enabled &&
+        normalizedInput &&
+        normalizedInput !== envOrigin && (
+          <p style={{ ...hint, marginTop: 6, color: "var(--text-hint)" }}>
+            Note: <code>ISOMUX_PUBLIC_ORIGIN={envOrigin}</code> is set in the
+            environment. After restart it would override any different value
+            saved here, so the save will be refused until you either match this
+            URL to the env value or remove the env var from your service
+            environment.
+          </p>
+        )}
+      {envOrigin && !enabled && (
+        <p style={{ ...hint, marginTop: 6, color: "var(--text-hint)" }}>
+          Note: <code>ISOMUX_PUBLIC_ORIGIN={envOrigin}</code> is set in the
+          environment but the office is bound loopback-only, so the value is
+          ignored at runtime. The env var is deprecated — remove it from your
+          env file.
         </p>
       )}
       {error && (
@@ -318,9 +359,8 @@ function ExternalAccessSection() {
           {signInUrl && (
             <>
               <p style={{ ...hint, marginTop: 10 }}>
-                After the restart, open this URL on whichever device you want
-                to use from the public address. (It expires 1 hour after
-                minting.)
+                After the restart, open this URL on whichever device you want to
+                use from the public address. (It expires 1 hour after minting.)
               </p>
               <MintedUrlBox url={signInUrl} />
             </>

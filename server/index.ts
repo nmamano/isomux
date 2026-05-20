@@ -2432,13 +2432,21 @@ async function dispatchCommand(
         break;
       }
       const cfg = loadServerConfig();
-      const envOriginSet = !!process.env.ISOMUX_PUBLIC_ORIGIN;
+      // Same normalization as the boot block: an invalid env value should
+      // not count as an effective override anywhere. envOriginSet stays a
+      // bool flag for "operator has the env var defined at all" so the UI
+      // can distinguish "set but invalid" from "unset".
+      const envRaw = process.env.ISOMUX_PUBLIC_ORIGIN?.trim() ?? "";
+      const envOriginSet = envRaw.length > 0;
+      const envOrigin = envRaw ? normalizePublicOrigin(envRaw) : null;
       // Match the boot-time migration default so the UI reflects the same
-      // effective state the running process is using.
+      // effective state the running process is using. Only a *valid* env
+      // value implies external access; an invalid env value is ignored
+      // by the boot inference, so the UI must agree.
       const effectiveExternal =
         cfg.externalAccess !== null
           ? cfg.externalAccess
-          : cfg.publicOrigin !== null || envOriginSet;
+          : cfg.publicOrigin !== null || envOrigin !== null;
       ws.send(
         JSON.stringify({
           type: "access_settings",
@@ -2446,6 +2454,7 @@ async function dispatchCommand(
           externalAccess: effectiveExternal,
           publicOrigin: cfg.publicOrigin,
           envOriginSet,
+          envOrigin,
           boundLoopback: isProcessBoundLoopback(),
         }),
       );
@@ -2497,6 +2506,38 @@ async function dispatchCommand(
             requestId: cmd.requestId,
             ok: false,
             error: "Enabling external access requires a public URL.",
+          }),
+        );
+        break;
+      }
+      // Refuse the save when *enabling* external access against a valid
+      // ISOMUX_PUBLIC_ORIGIN env override that differs from the typed
+      // URL. After restart the env var would win, so the freshly minted
+      // signInUrl we'd otherwise return points at an origin the running
+      // server would 403 on (Origin check mismatch). Better to block now
+      // with a clear remediation than to hand the operator a dud URL.
+      //
+      // Only the *enable* path is gated: when wantsExternal is false the
+      // server boot pins isProcessBoundLoopback=true regardless of env,
+      // and buildPublicOrigin short-circuits to localhost before env
+      // precedence — so disabling is safe even with env set. The match
+      // case (env === typed URL) is allowed; the response surfaces the
+      // env metadata so the UI can label it as redundant/deprecated.
+      const envRaw = process.env.ISOMUX_PUBLIC_ORIGIN?.trim() ?? "";
+      const envOrigin = envRaw ? normalizePublicOrigin(envRaw) : null;
+      if (
+        wantsExternal &&
+        envOrigin &&
+        publicOrigin &&
+        envOrigin !== publicOrigin
+      ) {
+        ws.send(
+          JSON.stringify({
+            type: "access_settings_updated",
+            requestId: cmd.requestId,
+            ok: false,
+            error: `ISOMUX_PUBLIC_ORIGIN is still set to ${envOrigin}. Remove it from the service environment or set the Public URL to the same value, then save again.`,
+            envOrigin,
           }),
         );
         break;
@@ -2553,6 +2594,9 @@ async function dispatchCommand(
           publicOrigin,
           signInUrl,
           restartRequired: true,
+          // Surface envOrigin so the UI can render a "redundant env"
+          // nag when the env value equals the just-saved publicOrigin.
+          envOrigin,
         }),
       );
       break;
@@ -3678,13 +3722,13 @@ if (isProcessPreClaim()) {
   console.log(`    Open http://localhost:${PORT} in your browser.`);
   console.log("");
   console.log("  TO CLAIM OWNERSHIP from another machine:");
-  console.log(`    1. On that machine, open a tunnel to this box${detectedHint}:`);
+  console.log(
+    `    1. On that machine, open a tunnel to this box${detectedHint}:`,
+  );
   console.log(`         ssh -L ${PORT}:localhost:${PORT} <user>@<host>`);
   console.log(`    2. Open http://localhost:${PORT} in that browser.`);
   console.log("");
-  console.log(
-    "  After you claim, the Access pane lets you enable external",
-  );
+  console.log("  After you claim, the Access pane lets you enable external");
   console.log("  access so everyday use doesn't need the SSH tunnel.");
   console.log(
     "================================================================",
