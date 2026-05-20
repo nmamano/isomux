@@ -78,7 +78,8 @@ function printUsageAndExit(errorMsg: string | null): void {
       `  Mints a one-time login URL for an existing owner. The URL points\n` +
       `  at the running server's configured public origin and is valid for\n` +
       `  15 minutes. Run this from a shell on the box hosting isomux; the\n` +
-      `  admin socket only accepts loopback (Unix socket, mode 0600).\n`,
+      `  admin endpoint is a Unix socket (mode 0600) so only the user\n` +
+      `  running isomux can connect.\n`,
   );
   process.exit(errorMsg ? 1 : 0);
 }

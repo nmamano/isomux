@@ -95,7 +95,7 @@ On a single-user box this was the operator only. On a shared dev box, a containe
 **Mitigations in place after this audit.**
 
 - **Tight TTL.** Owner-issued invite links expire 24 hours after issuing (`INVITE_TTL_MS` in `server/auth.ts`). Self-device invite links expire 1 hour after issuing (`SELF_INVITE_TTL_MS`). Neither TTL is configurable — the previous configurable-up-to-1-year knob was removed in this audit pass.
-- **`Referrer-Policy: no-referrer`** on `/i/<token>`, the accept page, the SPA shell, and all auth pages. See `server/auth-middleware.ts:securityHeaders()`.
+- **`Referrer-Policy: no-referrer`** on `/i/<token>`, the accept page, the SPA shell, and all auth pages that may carry a bearer token in the URL. See `server/auth-middleware.ts:securityHeaders()`. The tokenless claim form (added by the auth redesign) intentionally omits this header so Chrome doesn't downgrade its form-POST Origin to `null`; the claim URL has no token to leak via Referer.
 - **One-time use.** Once the legitimate recipient clicks accept, the invite is permanently consumed (`server/auth.ts:712-721`). Any subsequent leak is inert.
 - **Mutex-serialized acceptance.** Two concurrent clicks on the same URL cannot both succeed (`server/auth.ts:95-100`); whichever runs second sees `consumed=true` and is rejected.
 
@@ -208,7 +208,7 @@ The command dispatcher uses `session.username` server-side rather than trusting 
 
 ### 5.16 Security headers on every HTML surface
 
-`Referrer-Policy: no-referrer` on every HTML response (`server/auth-middleware.ts:securityHeaders()`); `Strict-Transport-Security: max-age=31536000` added when the resolved public origin is HTTPS. `includeSubDomains` deliberately not set — the operator may not own siblings of the office origin (Tailscale Funnel, Cloudflare, Caddy under various parent domains); operators wanting subdomain-wide HSTS can layer it at their reverse proxy.
+`Referrer-Policy: no-referrer` on every HTML response that may carry a bearer token in the URL (`server/auth-middleware.ts:securityHeaders()`); explicitly omitted on the tokenless claim form responses (added by the auth redesign) so Chrome's privacy coupling doesn't downgrade form-POST Origin to `null`. `Strict-Transport-Security: max-age=31536000` added when the resolved public origin is HTTPS. `includeSubDomains` deliberately not set — the operator may not own siblings of the office origin (Tailscale Funnel, Cloudflare, Caddy under various parent domains); operators wanting subdomain-wide HSTS can layer it at their reverse proxy.
 
 ### 5.17 Owner-login CLI is gated by Unix-socket file permissions
 
@@ -225,10 +225,10 @@ These are the changes implemented in the same pass that produced this document, 
    - `ttlSeconds` removed from `MintOptions`, the `mint_invite` wire shape (`shared/types.ts`), the WS handler (`server/index.ts`), and the `IssueInviteForm` UI (`ui/components/AccessPane.tsx`).
    - Closes the "owner-issued invite is a 1-year bearer credential" sub-finding from the original audit.
 
-2. **`Referrer-Policy: no-referrer` on every HTML response.**
-   - `securityHeaders()` helper in `server/auth-middleware.ts`. Spread into every `Response` from the auth pages, the invite-error page, the redirect on accept/logout, and the SPA shell (`serveIndexHtml` in `server/index.ts`).
+2. **`Referrer-Policy: no-referrer` on every HTML response that may carry a bearer token in the URL.**
+   - `securityHeaders()` helper in `server/auth-middleware.ts`. Spread into every `Response` from the token-bearing auth pages, the invite-error page, the redirect on accept/logout, and the SPA shell (`serveIndexHtml` in `server/index.ts`). Explicitly opted out (via `securityHeaders({ tokenInUrl: false })`) for the tokenless claim form added by the auth redesign — see the "Known interaction" note below.
    - Closes the "future outbound link from accept page leaks token via Referer" sub-finding.
-   - **Known interaction.** Chrome's behavior on a top-level form POST from a page carrying `Referrer-Policy: no-referrer` is to send `Origin: null` instead of the page origin (privacy headers coupled in Chrome's implementation). This broke the original strict-equality check in `originValidForAuthPost` for every fresh-install bootstrap accept on Chrome; the gate now falls back to `Sec-Fetch-Site: same-origin` when Origin is absent or `"null"`, preserving the CSRF defense (see §5.10). Discovered during welcome-agent laptop testing post-audit.
+   - **Known interaction.** Chrome's behavior on a top-level form POST from a page carrying `Referrer-Policy: no-referrer` is to send `Origin: null` instead of the page origin (privacy headers coupled in Chrome's implementation). The original `originValidForAuthPost` accepts that case via a `Sec-Fetch-Site: same-origin` browser-attested fallback. The post-redesign tokenless claim form takes the inverse approach: the page has no token in its URL, so omitting `Referrer-Policy: no-referrer` costs nothing, lets Chrome send a concrete same-origin `Origin` header, and keeps the claim POST gate at strict equality with no null fallback.
 
 3. **`Strict-Transport-Security: max-age=31536000` on HTML responses when origin is HTTPS.**
    - Same helper. `includeSubDomains` deliberately omitted (see Section 5.16).
