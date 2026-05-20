@@ -23,9 +23,7 @@ interface OwnerLoginErr {
   error: string;
 }
 
-function isOwnerLoginResponse(
-  x: unknown,
-): x is OwnerLoginOk | OwnerLoginErr {
+function isOwnerLoginResponse(x: unknown): x is OwnerLoginOk | OwnerLoginErr {
   if (!x || typeof x !== "object") return false;
   const obj = x as Record<string, unknown>;
   return typeof obj.ok === "boolean";
@@ -84,9 +82,7 @@ function printUsageAndExit(errorMsg: string | null): void {
   process.exit(errorMsg ? 1 : 0);
 }
 
-function sendOwnerLogin(
-  name: string,
-): Promise<OwnerLoginOk | OwnerLoginErr> {
+function sendOwnerLogin(name: string): Promise<OwnerLoginOk | OwnerLoginErr> {
   const body = JSON.stringify({ name });
   return new Promise((resolve) => {
     const req = request(

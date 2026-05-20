@@ -922,8 +922,7 @@ export async function claimOwnership(
     // it, a session-persist failure would leave the office with an owner
     // record but no session, and the mutex-held owner_exists guard would
     // block recovery on retry.
-    const { user: userRecord, rollback } =
-      commitBootstrapOwnerUser(chosenName);
+    const { user: userRecord, rollback } = commitBootstrapOwnerUser(chosenName);
 
     const { raw: rawSessionId, hash: sessionHash, prefix } = randomToken();
     const now = Date.now();

@@ -467,9 +467,7 @@ export function createCommandHandling(deps: HandlerDeps) {
             lines.push(header);
             lines.push(`  Topic: ${topic}`);
           } else {
-            lines.push(
-              `<span style="color: var(--text-dim)">${header}</span>`,
-            );
+            lines.push(`<span style="color: var(--text-dim)">${header}</span>`);
           }
           lines.push("");
         }

@@ -82,7 +82,7 @@ const LOGIN_INSTRUCTIONS = `To sign in to Codex:
 2. Run \`codex login\`
 3. Follow the auth prompts
 
-Once complete, it takes effect immediately for all Isomux agents. Alternatively, set \`OPENAI_API_KEY\` in your env.`;
+Then \`/clear\` this conversation to apply the new auth. Other codex agents apply it on their next \`/clear\`. Alternatively, set \`OPENAI_API_KEY\` in your env (also requires \`/clear\`).`;
 
 const LOGIN_COMMAND = `codex login`;
 
