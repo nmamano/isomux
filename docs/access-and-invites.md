@@ -74,7 +74,7 @@ Trade-offs:
 - **Non-configurable bandwidth limits.** Tailscale doesn't publish the cap, but it's generous enough that the WebSocket traffic isomux generates doesn't realistically hit it at personal or small-team scale.
 - **Public DNS visibility.** Your `*.ts.net` hostname (and therefore your tailnet name) becomes resolvable from the public internet and appears in Certificate Transparency logs once Tailscale provisions a Let's Encrypt cert.
 
-To set this up, paste the following prompt into one of your isomux agents. The agent will install Tailscale if needed, walk you through enabling Funnel in the admin console, detect any existing services sharing port 443, and finish by capturing the public URL into your server config.
+To set this up, claim ownership of your office first (open the form on the host or via `ssh -L`), then paste the following prompt into one of your isomux agents. The agent will install Tailscale if needed, walk you through enabling Funnel in the admin console, detect any existing services sharing port 443, and finish by reporting the public URL back to you. The final step (turning external access on inside the office) is a manual paste into the Access pane so the office's auth-state mutation goes through the documented config surface, not a systemd drop-in.
 
 ```
 Set up Tailscale Funnel so my isomux office is publicly reachable
@@ -109,24 +109,21 @@ Steps:
 5. Once port 443 carries only the isomux mapping, run:
    `tailscale funnel --bg http://localhost:4000`
 
-6. Capture the public URL from `tailscale funnel status --json`.
+6. Capture the public URL from `tailscale funnel status --json`
+   and report it back to me with these exact instructions:
 
-7. Update ~/.config/systemd/user/isomux.service.d/override.conf
-   so it sets `Environment="ISOMUX_PUBLIC_ORIGIN=<url>"`. Create
-   the directory if needed; preserve any other lines in the
-   file. If the value already matches, skip the write.
+     "Funnel is up at <URL>. To finish, in your isomux office
+      open User Settings → Access → External access, enable the
+      toggle, paste this URL into the Public URL field, click
+      Save, then restart isomux:
+        systemctl --user restart isomux
+      Sign in on the public URL using the link the Access pane
+      shows you after Save."
 
-8. Run `systemctl --user daemon-reload`.
-
-9. Ask me before restarting isomux (interrupts active agents).
-   Skip the restart if the running service already has the right
-   `ISOMUX_PUBLIC_ORIGIN` (check with
-   `systemctl --user show isomux -p Environment`).
-
-10. Verify the public URL responds. Ask me to test from a device
-    not on the tailnet (phone on cellular, or any non-tailnet
-    machine). A curl from the box itself goes over the tailnet
-    path and isn't a true public-reachability check.
+7. Verify the public URL responds. Ask me to test from a device
+   not on the tailnet (phone on cellular, or any non-tailnet
+   machine). A curl from the box itself goes over the tailnet
+   path and isn't a true public-reachability check.
 
 If you run into any issues with this setup, ask in the Isomux
 Discord: https://discord.gg/FrjEYyNvYs
@@ -134,17 +131,7 @@ Discord: https://discord.gg/FrjEYyNvYs
 
 ### Alternative: Tailscale, tailnet-only (no public URL)
 
-If you don't want a public URL at all, run isomux on your tailnet and only invite people who are willing to join. Tailscale Serve gives you HTTPS at `https://auntie.<your-tailnet>.ts.net`. Tell isomux about it:
-
-```
-ISOMUX_PUBLIC_ORIGIN=https://auntie.<your-tailnet>.ts.net
-```
-
-or for plain HTTP over the tailnet:
-
-```
-ISOMUX_PUBLIC_ORIGIN=http://auntie:4000
-```
+If you don't want a public URL at all, run isomux on your tailnet and only invite people who are willing to join. Tailscale Serve gives you HTTPS at `https://auntie.<your-tailnet>.ts.net`. After claiming, open the Access pane, enable *External access*, paste that URL into the Public URL field, save, and restart isomux. (Or `http://auntie:4000` if you want plain HTTP over the tailnet rather than Serve's HTTPS terminator.)
 
 Invite links still work over the tailnet, but invitees have to install Tailscale and join your tailnet first.
 
@@ -152,11 +139,7 @@ Invite links still work over the tailnet, but invitees have to install Tailscale
 
 Same outbound-tunnel shape as Funnel, but with Cloudflare's edge instead of Tailscale's. Requires a domain on a Cloudflare-managed zone (the auto-generated `<uuid>.cfargotunnel.com` URL is only a CNAME target, not directly browsable, and `trycloudflare.com` quick tunnels do not support the WebSocket traffic isomux relies on). The trade-off is a domain you have to buy and manage, plus Cloudflare's edge can technically see plaintext between its proxy and your origin.
 
-To set up by hand: install `cloudflared`, run `cloudflared tunnel login`, create a named tunnel, route your hostname to `localhost:4000`, then set:
-
-```
-ISOMUX_PUBLIC_ORIGIN=https://your-tunnel-hostname.example.com
-```
+To set up by hand: install `cloudflared`, run `cloudflared tunnel login`, create a named tunnel, route your hostname to `localhost:4000`. Then in your already-claimed office, open the Access pane, enable *External access*, paste `https://your-tunnel-hostname.example.com` into the Public URL field, save, and restart isomux.
 
 ### Alternative: Caddy + your own DNS
 
@@ -168,11 +151,7 @@ office.example.com {
 }
 ```
 
-Caddy auto-provisions a Let's Encrypt cert. Set:
-
-```
-ISOMUX_PUBLIC_ORIGIN=https://office.example.com
-```
+Caddy auto-provisions a Let's Encrypt cert. Then in your already-claimed office, open the Access pane, enable *External access*, paste `https://office.example.com` into the Public URL field, save, and restart isomux.
 
 You own the stack end-to-end. Trade-offs: your home IP is publicly visible, you carry any DDoS surface, and this path fails entirely if your ISP puts you behind CG-NAT (so you can't port-forward in the first place).
 
@@ -185,7 +164,7 @@ Post-claim, the **Access pane** in User Settings has an *External access* sectio
 
 Saving persists both fields to `~/.isomux/office-config.json` and mints an owner self-invite bound to the new URL so you can sign in on the new origin immediately. The toggle takes effect on the next isomux restart (the pane spells out the exact `systemctl --user restart isomux` command). Restart is intentional: changing the bind interface and cookie/origin policy mid-process is brittle, and the toggle is rare enough that "save then restart" is the right trade.
 
-The Tailscale Funnel agent prompt above writes the Public URL into `office-config.json` automatically.
+The tunnel-setup agent prompts above end at "report the public URL." The final step — telling the running office about that URL — is a paste into the Access pane rather than a write into `office-config.json` from outside the office, so the office's auth-state mutation goes through the same in-process mutex as everything else.
 
 The resolved value drives:
 

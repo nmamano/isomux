@@ -65,7 +65,7 @@ import {
   authenticate,
   checkOrigin,
   securityHeaders,
-  setOnBootstrapAccepted,
+  setOnOwnerCreated,
   tryHandleAuthRoute,
 } from "./auth-middleware.ts";
 import {
@@ -292,7 +292,13 @@ async function spawnWelcomeAgent(
   }
 }
 
-setOnBootstrapAccepted(async ({ username }) => {
+// Seed welcome agents on the first owner of a fresh office. Fires for
+// both the tokenless claim form (handleClaim) and the legacy bootstrap-
+// invite accept (handleAccept where isBootstrap is true). The hook only
+// fires on first-claim flows by design; the agent-count guard below is
+// defensive in case a future call path fires it against an already-
+// populated office.
+setOnOwnerCreated(async ({ username }) => {
   if (AgentManager.getAllAgents().length > 0) return;
   await spawnWelcomeAgent(
     "Claude Welcome Agent",
@@ -3641,20 +3647,27 @@ const server = Bun.serve<WsData>({
 // served only over the loopback bind, so it's reachable only from the same
 // machine (or via SSH port-forward from another). Print a banner that spells
 // out both paths so an operator who's never used `ssh -L` can copy-paste.
+//
+// The SSH target is printed as a template (<user>@<host>) rather than auto-
+// detecting via os.userInfo()/os.hostname(): the local username on the
+// server box is often not the SSH login name (think `nil` vs `root`, or
+// hosting-provider-assigned users), and os.hostname() returns the box's
+// internal hostname rather than a network-routable address. We do show the
+// detected values as a hint, but the operator is supposed to replace them
+// with whatever SSH target they normally use for this machine.
 if (isProcessPreClaim()) {
-  let user: string;
+  let detectedUser = "";
   try {
-    user = userInfo().username;
-  } catch {
-    user = "<user>";
-  }
-  let host: string;
+    detectedUser = userInfo().username;
+  } catch {}
+  let detectedHost = "";
   try {
-    host = osHostname();
-  } catch {
-    host = "<host>";
-  }
-  const sshLine = `ssh -L ${PORT}:localhost:${PORT} ${user}@${host}`;
+    detectedHost = osHostname();
+  } catch {}
+  const detectedHint =
+    detectedUser && detectedHost
+      ? ` (this machine reports ${detectedUser}@${detectedHost}; use whatever you actually SSH as)`
+      : "";
   console.log("");
   console.log(
     "================================================================",
@@ -3665,8 +3678,8 @@ if (isProcessPreClaim()) {
   console.log(`    Open http://localhost:${PORT} in your browser.`);
   console.log("");
   console.log("  TO CLAIM OWNERSHIP from another machine:");
-  console.log("    1. On that machine, open a tunnel to this box:");
-  console.log(`         ${sshLine}`);
+  console.log(`    1. On that machine, open a tunnel to this box${detectedHint}:`);
+  console.log(`         ssh -L ${PORT}:localhost:${PORT} <user>@<host>`);
   console.log(`    2. Open http://localhost:${PORT} in that browser.`);
   console.log("");
   console.log(

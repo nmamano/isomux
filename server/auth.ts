@@ -614,21 +614,55 @@ function commitBootstrapOwnerUser(chosenName: string): {
           deleteUserById(createdId);
         } catch (err) {
           console.error(
-            `[auth] catastrophic: bootstrap rollback could not delete just-created user ${createdId}; the office is now stranded with an owner record but no session. Hand-edit users.json to remove ${createdId}, then re-open the claim form.`,
+            `[auth] catastrophic: bootstrap rollback could not delete just-created user ${createdId}; the office is now stranded with an owner record but no session. Once the underlying disk issue is fixed, try the owner-login recovery CLI ('bun run server/index.ts owner-login --name <chosen-name>') against the running server; if the partial record is malformed (e.g. missing fields after a half-write), remove ${createdId} from users.json by hand and re-open the claim form.`,
             err,
           );
         }
       },
     };
   }
-  // Existing user — snapshot, mutate, restore on rollback.
+  // Existing user — snapshot the prior state and build a single rollback
+  // closure BEFORE any mutation. Every post-allowedRooms failure path
+  // (setUserRoleById throws, the getUserById sanity check finds the row
+  // gone, or the caller hits a downstream persist failure and invokes
+  // rollback explicitly) reuses the same closure. Unconditional restore
+  // is idempotent: setUserRoleById back to prevRole is a no-op if role
+  // never changed; updateUserById allowedRooms back to prevAllowedRooms
+  // is a no-op if the snapshot equals the prior. If a rollback's own
+  // disk writes fail we log catastrophic and let the original error
+  // propagate.
   const prevRole = existing.role;
   const prevAllowedRooms = [...existing.allowedRooms];
+  const userId = existing.id;
+  const restorePriorState = () => {
+    try {
+      setUserRoleById(userId, prevRole);
+    } catch (err) {
+      console.error(
+        `[auth] bootstrap rollback: setUserRoleById restore to ${prevRole} threw for ${userId}`,
+        err,
+      );
+    }
+    try {
+      const rr = updateUserById(userId, { allowedRooms: prevAllowedRooms });
+      if (!rr.ok) {
+        console.error(
+          `[auth] bootstrap rollback: allowedRooms restore returned not-ok for ${userId}: ${rr.error}`,
+        );
+      }
+    } catch (err) {
+      console.error(
+        `[auth] bootstrap rollback: allowedRooms restore threw for ${userId}`,
+        err,
+      );
+    }
+  };
+
+  // allowedRooms first (idempotent on identical input), role second. If
+  // the allowedRooms write returns not-ok or throws, the user is unchanged
+  // on disk so we propagate without invoking rollback.
   const snapshot = snapshotRoomIds();
-  // allowedRooms first (idempotent), role second. If allowedRooms write
-  // returns not-ok or throws, the user is unchanged on disk so we propagate
-  // the failure directly without a rollback closure.
-  const r = updateUserById(existing.id, { allowedRooms: snapshot });
+  const r = updateUserById(userId, { allowedRooms: snapshot });
   if (!r.ok) {
     throw new Error(
       `bootstrap owner promotion: allowedRooms write failed for ${existing.name}: ${r.error}`,
@@ -636,56 +670,26 @@ function commitBootstrapOwnerUser(chosenName: string): {
   }
   if (existing.role !== "owner") {
     try {
-      setUserRoleById(existing.id, "owner");
+      setUserRoleById(userId, "owner");
     } catch (err) {
-      // Inner rollback: undo the allowedRooms write before propagating.
-      // If the revert fails, log catastrophic but still throw the original.
-      try {
-        const r2 = updateUserById(existing.id, {
-          allowedRooms: prevAllowedRooms,
-        });
-        if (!r2.ok) {
-          console.error(
-            `[auth] bootstrap promotion: allowedRooms revert returned not-ok after setUserRoleById failure: ${r2.error}`,
-          );
-        }
-      } catch (revertErr) {
-        console.error(
-          `[auth] bootstrap promotion: allowedRooms revert threw after setUserRoleById failure`,
-          revertErr,
-        );
-      }
+      restorePriorState();
       throw err;
     }
   }
-  const updated = getUserById(existing.id);
+  const updated = getUserById(userId);
   if (!updated) {
+    // Unreachable today (the auth mutex serializes everything that could
+    // delete this record), but if the mutex contract ever loosens, this
+    // is where a stranded role/allowedRooms write would land. Roll the
+    // mutation back before throwing.
+    restorePriorState();
     throw new Error(
-      `bootstrap owner promotion: user ${existing.id} vanished mid-flow`,
+      `bootstrap owner promotion: user ${userId} vanished mid-flow; rolled allowedRooms/role back to prior state`,
     );
   }
   return {
     user: updated,
-    rollback: () => {
-      try {
-        if (updated.role !== prevRole) {
-          setUserRoleById(updated.id, prevRole);
-        }
-        const r3 = updateUserById(updated.id, {
-          allowedRooms: prevAllowedRooms,
-        });
-        if (!r3.ok) {
-          console.error(
-            `[auth] bootstrap rollback: allowedRooms restore returned not-ok: ${r3.error}`,
-          );
-        }
-      } catch (err) {
-        console.error(
-          `[auth] bootstrap rollback: error restoring user ${updated.id}:`,
-          err,
-        );
-      }
-    },
+    rollback: restorePriorState,
   };
 }
 

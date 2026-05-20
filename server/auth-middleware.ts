@@ -21,12 +21,17 @@ import { hasOwner } from "./users.ts";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
-// Fires after a successful bootstrap accept; awaited best-effort by
-// handleAccept. `null` resets for repeated test boots.
-type BootstrapAcceptedCb = (opts: { username: string }) => Promise<void> | void;
-let onBootstrapAccepted: BootstrapAcceptedCb | null = null;
-export function setOnBootstrapAccepted(cb: BootstrapAcceptedCb | null): void {
-  onBootstrapAccepted = cb;
+// Fires after the office gets its first owner — either through the tokenless
+// claim form (handleClaim → claimOwnership) or the legacy bootstrap-invite
+// accept path (handleAccept where isBootstrap is true). Awaited best-effort
+// after the session has persisted but before the redirect response is
+// returned; the hook MUST NOT roll auth state back on its own failure, and
+// the caller must log + swallow any throw. `null` resets for repeated test
+// boots.
+type OwnerCreatedCb = (opts: { username: string }) => Promise<void> | void;
+let onOwnerCreated: OwnerCreatedCb | null = null;
+export function setOnOwnerCreated(cb: OwnerCreatedCb | null): void {
+  onOwnerCreated = cb;
 }
 
 // ---------------------------------------------------------------------------
@@ -141,7 +146,10 @@ function unauthorized(req: Request, officeName: string | null): Response {
     status: 401,
     headers: {
       "Content-Type": "text/html; charset=utf-8",
-      ...securityHeaders(),
+      // Login page has no bearer token in its URL; skip Referrer-Policy:
+      // no-referrer so any future form on this page wouldn't trip Chrome's
+      // Origin: null behavior.
+      ...securityHeaders({ tokenInUrl: false }),
     },
   });
 }
@@ -267,12 +275,12 @@ export async function handleAccept(
     }
     return renderInviteError(result.error, officeName);
   }
-  if (result.isBootstrap && onBootstrapAccepted) {
+  if (result.isBootstrap && onOwnerCreated) {
     // Best-effort: never roll back the accept on hook failure.
     try {
-      await onBootstrapAccepted({ username: result.username });
+      await onOwnerCreated({ username: result.username });
     } catch (err) {
-      console.error("[auth] onBootstrapAccepted threw:", err);
+      console.error("[auth] onOwnerCreated threw:", err);
     }
   }
   return new Response(null, {
@@ -314,7 +322,9 @@ export async function handleLogout(
         status: 409,
         headers: {
           "Content-Type": "text/html; charset=utf-8",
-          ...securityHeaders(),
+          // Lockout-blocked page is tokenless — same rationale as the
+          // login page above.
+          ...securityHeaders({ tokenInUrl: false }),
         },
       },
     );
@@ -471,6 +481,17 @@ async function handleClaim<T>(
         ...securityHeaders({ tokenInUrl: false }),
       },
     });
+  }
+  if (onOwnerCreated) {
+    // Best-effort, same contract as the bootstrap-invite path: hook
+    // failure must not roll the claim back. Runs after the session has
+    // persisted (claimOwnership returned ok) and before the redirect
+    // response is returned to the browser.
+    try {
+      await onOwnerCreated({ username: result.username });
+    } catch (err) {
+      console.error("[auth] onOwnerCreated threw:", err);
+    }
   }
   return new Response(null, {
     status: 302,
