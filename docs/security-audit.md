@@ -104,7 +104,7 @@ On a single-user box this was the operator only. On a shared dev box, a containe
 **Affected files & lines.**
 
 - `server/auth.ts:441-450` — `INVITE_TTL_MS` and `SELF_INVITE_TTL_MS` constants.
-- `server/auth-middleware.ts` — `securityHeaders()` helper, spread into every HTML response.
+- `server/auth-middleware.ts` — `securityHeaders()` helper, spread into token-bearing auth/invite HTML responses and the SPA shell; tokenless claim responses opt out via `securityHeaders({ tokenInUrl: false })`.
 - `server/auth.ts:712-721` — one-time consumption.
 
 **Operator guidance.** Send invites over channels you trust, and ask invitees to click promptly. The TTL is short enough that a leaked link generally expires before a casual leaker (a shared device's next user, a forgotten-to-log-out chat archive) can act on it.
