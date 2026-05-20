@@ -1417,26 +1417,46 @@ function evaluateEnvOrigin(): string | null {
   return normalized;
 }
 
-// Captured once at boot via freezeBootClaimState(). The bind interface is
-// chosen at boot from this value (loopback-only when pre-claim, otherwise
-// the configured public origin's bind). Cookie attributes and origin
-// allowlists are tied to the bind, so we lock the boot-time decision and
-// keep using it for the lifetime of the process — even if a successful
-// claim flips hasOwner() during this process's run, the bind doesn't
-// change until a restart, so the cookie/origin policy shouldn't either.
-let processStartedPreClaim: boolean | null = null;
+// Captured once at boot via freezeBootState(). Two predicates derive from
+// the captured values:
+//   isProcessPreClaim()     — true if this process started before any owner
+//                             existed. Drives the SSH -L banner and the
+//                             tokenless name-picker form.
+//   isProcessBoundLoopback() — true if the OS bind is loopback-only (the
+//                             pre-claim case OR the post-claim
+//                             external-access-disabled case). Drives the
+//                             public-origin policy: when bound loopback,
+//                             buildPublicOrigin returns the localhost
+//                             fallback regardless of env/JSON config so
+//                             cookie attributes match the connection.
+// The bind decision is locked at boot; widening the bind requires a
+// restart, so the policy that follows it stays stable for the lifetime
+// of the process even if hasOwner() flips after a successful claim.
+let bootHadOwner: boolean | null = null;
+let bootExternalAccess: boolean | null = null;
 
-export function freezeBootClaimState(): void {
-  processStartedPreClaim = !hasOwner();
+export function freezeBootState(opts: { externalAccess: boolean }): void {
+  bootHadOwner = hasOwner();
+  bootExternalAccess = opts.externalAccess;
 }
 
-// True if this process booted with no owner. Auto-captures on first read
-// as a safety net for callers that may run before the explicit freeze.
+// Auto-init safety net: if freezeBootState() wasn't called (e.g. tests
+// importing auth.ts standalone), default to the strictest interpretation
+// — pre-claim, loopback-only — so callers can't accidentally mint a
+// Secure-flagged cookie over an HTTP connection.
+function ensureBootCaptured(): void {
+  if (bootHadOwner === null) bootHadOwner = hasOwner();
+  if (bootExternalAccess === null) bootExternalAccess = false;
+}
+
 export function isProcessPreClaim(): boolean {
-  if (processStartedPreClaim === null) {
-    processStartedPreClaim = !hasOwner();
-  }
-  return processStartedPreClaim;
+  ensureBootCaptured();
+  return bootHadOwner === false;
+}
+
+export function isProcessBoundLoopback(): boolean {
+  ensureBootCaptured();
+  return bootHadOwner === false || bootExternalAccess !== true;
 }
 
 export function buildPublicOrigin(): {
@@ -1444,15 +1464,15 @@ export function buildPublicOrigin(): {
   isHttps: boolean;
   source: "env" | "config" | "localhost";
 } {
-  // Pre-claim, the server binds 127.0.0.1 only. Whatever public origin the
-  // operator configured ahead of time can't be reached anyway, and using it
-  // here would mismatch the bind: the cookie's Secure flag would be set
-  // (configured origin is HTTPS) and the browser would reject the cookie
-  // on the actual HTTP loopback connection. Force the localhost fallback
-  // so cookie attributes, allowed-origin checks, and minted URLs all match
+  // Loopback-only bind (pre-claim, or post-claim with external access off):
+  // the configured public origin can't be reached anyway, and using it here
+  // would mismatch the bind: the cookie's Secure flag would be set
+  // (configured origin is HTTPS) and the browser would reject the cookie on
+  // the actual HTTP loopback connection. Force the localhost fallback so
+  // cookie attributes, allowed-origin checks, and minted URLs all match
   // the bind. The env/JSON value re-engages on the next process boot
-  // (which is when the bind can widen).
-  if (isProcessPreClaim()) {
+  // (which is when external access can be turned on and the bind widens).
+  if (isProcessBoundLoopback()) {
     const fallback = `http://localhost:${process.env.PORT || "4000"}`;
     return { origin: fallback, isHttps: false, source: "localhost" };
   }

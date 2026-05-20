@@ -1152,6 +1152,18 @@ export type ClientCommand =
   | { type: "list_active_sessions" }
   | { type: "revoke_session"; sessionPrefix: string }
   | { type: "logout" }
+  // Access-settings: external-access toggle + public-origin URL. Owner-only.
+  // get_access_settings reads the current effective state (including a
+  // resolution of the unset-and-migrating case); update_access_settings
+  // persists the new state, mints a self-invite for the new URL, and
+  // returns restartRequired so the UI can prompt the operator.
+  | { type: "get_access_settings" }
+  | {
+      type: "update_access_settings";
+      requestId: string;
+      externalAccess: boolean;
+      publicOrigin: string | null;
+    }
   | {
       // Live-avatars feature: client tells the server where its ghost
       // should appear. Sent on initial WS open (after session_context

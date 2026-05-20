@@ -26,7 +26,9 @@ import {
   getFilePath,
   saveFile,
   loadServerConfig,
+  saveServerConfig,
 } from "./persistence.ts";
+import { normalizePublicOrigin } from "../shared/public-origin.ts";
 import type { Attachment } from "../shared/types.ts";
 import {
   startUpdateChecker,
@@ -69,7 +71,8 @@ import {
 import {
   buildPublicOrigin,
   evictSessionsForUserId,
-  freezeBootClaimState,
+  freezeBootState,
+  isProcessBoundLoopback,
   isProcessPreClaim,
   listActiveSessions,
   listActiveSessionsForUserId,
@@ -108,14 +111,24 @@ runPreUseridBackupIfNeeded();
 // auth/origin code runs. Order matters: the local-only-mode log below and
 // the bootstrap invite URL both read buildPublicOrigin(); without this
 // call, a config-file-written publicOrigin would be ignored on first boot.
-setPublicOriginFallback(loadServerConfig().publicOrigin);
-
-// Freeze the "did this process start with no owner?" decision now, before
-// any request handlers run. The bind interface is chosen from this value
-// (loopback-only when pre-claim), and we want cookie attributes and
-// origin checks to keep matching the bind even after a successful claim
-// flips hasOwner() mid-process — the bind can't widen without a restart.
-freezeBootClaimState();
+{
+  const cfg = loadServerConfig();
+  setPublicOriginFallback(cfg.publicOrigin);
+  // Freeze the boot-time bind decision. The bind widens only on the next
+  // boot, so cookie attributes / origin policy stay stable across the
+  // lifetime of this process even if a claim flips hasOwner() mid-run.
+  //
+  // Migration: when externalAccess hasn't been written to office-config.json
+  // yet (pre-redesign install), default to true if any publicOrigin source
+  // was already configured (env var or JSON value). That keeps pre-redesign
+  // networked installs reachable on the same address after the upgrade.
+  // Step 5 backfills the field explicitly so this inference only runs once.
+  const externalAccess =
+    cfg.externalAccess !== null
+      ? cfg.externalAccess
+      : cfg.publicOrigin !== null || !!process.env.ISOMUX_PUBLIC_ORIGIN;
+  freezeBootState({ externalAccess });
+}
 
 // Inject the room snapshot provider auth.ts uses when seeding a new
 // owner's allowedRooms at invite-acceptance time. The provider closes
@@ -789,6 +802,16 @@ function surfaceCommandError(
       ws.send(
         JSON.stringify({
           type: "invite_minted",
+          requestId: cmd.requestId,
+          ok: false,
+          error: errorMsg,
+        }),
+      );
+      return;
+    case "update_access_settings":
+      ws.send(
+        JSON.stringify({
+          type: "access_settings_updated",
           requestId: cmd.requestId,
           ok: false,
           error: errorMsg,
@@ -2329,6 +2352,145 @@ async function dispatchCommand(
       pushInvitesListToEachWs();
       break;
     }
+    case "get_access_settings": {
+      // Owners read the current bind/origin policy. Members would see
+      // nothing actionable, so we don't bother with a scoped version.
+      if (session.role !== "owner") {
+        ws.send(
+          JSON.stringify({
+            type: "access_settings",
+            ok: false,
+            error: "Only owners can view access settings.",
+          }),
+        );
+        break;
+      }
+      const cfg = loadServerConfig();
+      const envOriginSet = !!process.env.ISOMUX_PUBLIC_ORIGIN;
+      // Match the boot-time migration default so the UI reflects the same
+      // effective state the running process is using.
+      const effectiveExternal =
+        cfg.externalAccess !== null
+          ? cfg.externalAccess
+          : cfg.publicOrigin !== null || envOriginSet;
+      ws.send(
+        JSON.stringify({
+          type: "access_settings",
+          ok: true,
+          externalAccess: effectiveExternal,
+          publicOrigin: cfg.publicOrigin,
+          envOriginSet,
+          boundLoopback: isProcessBoundLoopback(),
+        }),
+      );
+      break;
+    }
+    case "update_access_settings": {
+      // Owners flip the toggle. The change persists to office-config.json
+      // immediately, but the running process keeps its boot-frozen bind
+      // and origin policy until the operator restarts isomux. We respond
+      // with restartRequired:true so the UI can spell that out, plus a
+      // freshly-minted owner self-invite URL bound to the NEW public
+      // origin so the operator has a sign-in link ready for the
+      // post-restart address.
+      if (session.role !== "owner") {
+        ws.send(
+          JSON.stringify({
+            type: "access_settings_updated",
+            requestId: cmd.requestId,
+            ok: false,
+            error: "Only owners can change access settings.",
+          }),
+        );
+        break;
+      }
+      const wantsExternal = !!cmd.externalAccess;
+      const rawOrigin =
+        typeof cmd.publicOrigin === "string" ? cmd.publicOrigin.trim() : "";
+      let publicOrigin: string | null = null;
+      if (rawOrigin) {
+        const normalized = normalizePublicOrigin(rawOrigin);
+        if (!normalized) {
+          ws.send(
+            JSON.stringify({
+              type: "access_settings_updated",
+              requestId: cmd.requestId,
+              ok: false,
+              error:
+                "Public URL must be https://<host> or http://localhost (no path, query, or fragment).",
+            }),
+          );
+          break;
+        }
+        publicOrigin = normalized;
+      }
+      if (wantsExternal && !publicOrigin) {
+        ws.send(
+          JSON.stringify({
+            type: "access_settings_updated",
+            requestId: cmd.requestId,
+            ok: false,
+            error: "Enabling external access requires a public URL.",
+          }),
+        );
+        break;
+      }
+      try {
+        saveServerConfig({
+          publicOrigin,
+          externalAccess: wantsExternal,
+        });
+      } catch (err) {
+        ws.send(
+          JSON.stringify({
+            type: "access_settings_updated",
+            requestId: cmd.requestId,
+            ok: false,
+            error: errMessage(err),
+          }),
+        );
+        break;
+      }
+      // Mint a fresh owner self-invite bound to the calling user, using the
+      // NEW public origin (not buildPublicOrigin(), which is boot-frozen).
+      // replacePriorForUsername=true keeps the 1-outstanding-per-user
+      // invariant so a previous toggle attempt's invite doesn't linger.
+      // Skip the mint when external access is being turned OFF — the user
+      // doesn't need a public sign-in URL for a localhost-only office.
+      let signInUrl: string | null = null;
+      if (wantsExternal && publicOrigin) {
+        const me = getUserById(session.userId);
+        if (me) {
+          const minted = await mintInvite({
+            username: me.name,
+            role: me.role,
+            createdBy: session.username,
+            allowExisting: true,
+            replacePriorForUsername: true,
+          });
+          if (minted.ok) {
+            signInUrl = `${publicOrigin}/i/${minted.rawToken}`;
+            pushInvitesListToEachWs();
+          } else {
+            console.warn(
+              `[auth] update_access_settings: self-invite mint failed: ${minted.error}`,
+            );
+          }
+        }
+      }
+      ws.send(
+        JSON.stringify({
+          type: "access_settings_updated",
+          requestId: cmd.requestId,
+          ok: true,
+          externalAccess: wantsExternal,
+          publicOrigin,
+          signInUrl,
+          restartRequired: true,
+        }),
+      );
+      break;
+    }
     case "list_invites": {
       if (session.role === "owner") {
         ws.send(
@@ -2522,12 +2684,11 @@ async function serveIndexHtml(): Promise<Response> {
 
 const PORT = parseInt(process.env.PORT || "4000");
 
-// Pre-claim, bind loopback only. The tokenless first-time-setup form at GET /
-// is the only auth surface that exists before an owner has claimed the
-// office, and we want it physically unreachable from off-box. Once an owner
-// exists, default to listening on all interfaces (preserved pre-redesign
-// behavior); the external-access toggle in step 3 narrows this further.
-const BIND_LOOPBACK_ONLY = isProcessPreClaim();
+// Pre-claim OR post-claim-with-external-access-off, bind loopback only.
+// External clients can't reach the server at all in either case; the
+// Access pane's external-access toggle, paired with a restart, opens the
+// bind to all interfaces.
+const BIND_LOOPBACK_ONLY = isProcessBoundLoopback();
 
 const server = Bun.serve<WsData>({
   port: PORT,

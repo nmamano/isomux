@@ -67,9 +67,9 @@ export function AccessPane() {
     <div style={{ marginTop: 24 }}>
       <h4 style={sectionHeader}>Access</h4>
       <p style={hint}>
-        The first owner is bootstrapped via the URL the server prints on
-        startup. After that, you add owners and members here by issuing invite
-        URLs and sending them to the recipient.
+        Add owners and members here by issuing invite URLs and sending them to
+        the recipient. Toggle external access if you want this office reachable
+        from outside the host machine.
       </p>
 
       {blockedNote && (
@@ -105,6 +105,8 @@ export function AccessPane() {
         </div>
       )}
 
+      <ExternalAccessSection />
+
       <IssueInviteForm />
 
       <h5 style={subsectionHeader}>Outstanding invites</h5>
@@ -133,6 +135,219 @@ export function renderListSection<T>(
   if (!loaded) return <p style={hint}>Loading…</p>;
   return <p style={hint}>None.</p>;
 }
+
+// Owner-only "where can people reach this office from?" controls. Pre-claim
+// or with external access disabled, isomux binds 127.0.0.1 only and the
+// office is reachable only from the host machine (or via an SSH tunnel).
+// Flipping the toggle and saving stores the new state plus the public URL,
+// mints an owner self-invite bound to the NEW origin (the running process
+// still has the old bind in place, so this URL won't resolve until restart),
+// and prompts the operator to restart isomux. The restart is intentional:
+// changing the bind interface and cookie/origin policy mid-process is
+// brittle, and the toggle is rare enough that "save then restart" is the
+// right trade.
+function ExternalAccessSection() {
+  const [loaded, setLoaded] = useState(false);
+  const [enabled, setEnabled] = useState(false);
+  const [urlInput, setUrlInput] = useState("");
+  const [envOriginSet, setEnvOriginSet] = useState(false);
+  const [boundLoopback, setBoundLoopback] = useState(true);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [signInUrl, setSignInUrl] = useState<string | null>(null);
+  const [restartRequired, setRestartRequired] = useState(false);
+  const pendingListenerRef = useRef<((data: string) => void) | null>(null);
+
+  // Snapshot of the last-saved state. Compared against the form during
+  // render to drive the Save-button enabled/disabled state, so kept as
+  // state rather than a ref.
+  const [savedSnapshot, setSavedSnapshot] = useState<{
+    enabled: boolean;
+    urlInput: string;
+  }>({ enabled: false, urlInput: "" });
+
+  useEffect(() => {
+    const fn = (data: string) => {
+      try {
+        const m = JSON.parse(data);
+        if (m.type === "access_settings" && m.ok) {
+          const nextEnabled = !!m.externalAccess;
+          const nextUrl =
+            typeof m.publicOrigin === "string" ? m.publicOrigin : "";
+          setEnabled(nextEnabled);
+          setUrlInput(nextUrl);
+          setEnvOriginSet(!!m.envOriginSet);
+          setBoundLoopback(!!m.boundLoopback);
+          setSavedSnapshot({ enabled: nextEnabled, urlInput: nextUrl });
+          setLoaded(true);
+        }
+      } catch {}
+    };
+    addRawListener(fn);
+    send({ type: "get_access_settings" });
+    return () => removeRawListener(fn);
+  }, []);
+
+  // Clean up the in-flight save listener if the pane unmounts mid-request.
+  useEffect(() => {
+    return () => {
+      const fn = pendingListenerRef.current;
+      if (fn) removeRawListener(fn);
+    };
+  }, []);
+
+  function submit() {
+    const reqId = `access-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const trimmed = urlInput.trim();
+    setPending(true);
+    setError(null);
+    setSignInUrl(null);
+    setRestartRequired(false);
+    const listener = (data: string) => {
+      try {
+        const m = JSON.parse(data);
+        if (m.type === "access_settings_updated" && m.requestId === reqId) {
+          setPending(false);
+          removeRawListener(listener);
+          pendingListenerRef.current = null;
+          if (m.ok) {
+            const nextEnabled = !!m.externalAccess;
+            const nextUrl =
+              typeof m.publicOrigin === "string" ? m.publicOrigin : "";
+            setEnabled(nextEnabled);
+            setUrlInput(nextUrl);
+            setSavedSnapshot({ enabled: nextEnabled, urlInput: nextUrl });
+            setSignInUrl(typeof m.signInUrl === "string" ? m.signInUrl : null);
+            setRestartRequired(!!m.restartRequired);
+          } else {
+            setError(m.error || "Failed to update settings");
+          }
+        }
+      } catch {}
+    };
+    pendingListenerRef.current = listener;
+    addRawListener(listener);
+    send({
+      type: "update_access_settings",
+      requestId: reqId,
+      externalAccess: enabled,
+      publicOrigin: enabled ? trimmed : null,
+    });
+  }
+
+  const dirty =
+    enabled !== savedSnapshot.enabled ||
+    urlInput.trim() !== savedSnapshot.urlInput;
+
+  if (!loaded) {
+    return (
+      <div style={cardStyle}>
+        <h5 style={{ ...subsectionHeader, margin: "0 0 6px" }}>
+          External access
+        </h5>
+        <p style={hint}>Loading…</p>
+      </div>
+    );
+  }
+
+  return (
+    <div style={cardStyle}>
+      <h5 style={{ ...subsectionHeader, margin: "0 0 6px" }}>
+        External access
+      </h5>
+      <p style={hint}>
+        Currently {boundLoopback ? "loopback-only" : "listening externally"}.
+        {boundLoopback
+          ? " The office is reachable from this machine, or from other machines via an SSH tunnel."
+          : " The office is reachable from anywhere the public URL resolves."}
+      </p>
+      <label style={{ display: "flex", gap: 6, marginTop: 8, fontSize: 12 }}>
+        <input
+          type="checkbox"
+          checked={enabled}
+          onChange={(e) => setEnabled(e.target.checked)}
+        />
+        <span>Enable external access</span>
+      </label>
+      {enabled && (
+        <>
+          <div style={subLabel}>Public URL</div>
+          <input
+            value={urlInput}
+            onChange={(e) => setUrlInput(e.target.value)}
+            placeholder="https://auntie.tailnet.ts.net"
+            style={dialogInput}
+          />
+          <p style={hint}>
+            Pattern: https://&lt;host&gt; (the address you'll open from your
+            laptop / phone). Saving doesn't change the running server's bind
+            on its own — restart isomux to apply.
+          </p>
+        </>
+      )}
+      {envOriginSet && (
+        <p style={{ ...hint, marginTop: 6, color: "var(--text-hint)" }}>
+          Note: <code>ISOMUX_PUBLIC_ORIGIN</code> is set in the environment.
+          That value will keep overriding office-config.json after restart
+          until you remove it from your env file.
+        </p>
+      )}
+      {error && (
+        <p style={{ fontSize: 11, color: "#ff6b6b", margin: "6px 0 0" }}>
+          {error}
+        </p>
+      )}
+      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+        <button
+          onClick={submit}
+          disabled={pending || !dirty}
+          style={{
+            ...dialogSaveBtn,
+            opacity: pending || !dirty ? 0.5 : 1,
+          }}
+        >
+          {pending ? "Saving…" : dirty ? "Save" : "Saved"}
+        </button>
+      </div>
+      {restartRequired && (
+        <div style={restartBoxStyle}>
+          <p style={{ ...hint, marginTop: 0 }}>
+            Saved. Restart isomux so the new bind takes effect:
+          </p>
+          <code style={codeBlockStyle}>systemctl --user restart isomux</code>
+          {signInUrl && (
+            <>
+              <p style={{ ...hint, marginTop: 10 }}>
+                After the restart, open this URL on whichever device you want
+                to use from the public address. (It expires 1 hour after
+                minting.)
+              </p>
+              <MintedUrlBox url={signInUrl} />
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const restartBoxStyle: React.CSSProperties = {
+  marginTop: 12,
+  padding: 10,
+  border: "1px solid var(--accent)",
+  borderRadius: 6,
+  background: "var(--bg-hover)",
+};
+const codeBlockStyle: React.CSSProperties = {
+  display: "block",
+  fontFamily: "'JetBrains Mono', monospace",
+  fontSize: 11,
+  padding: "4px 6px",
+  borderRadius: 4,
+  background: "var(--bg-code)",
+  color: "var(--text-primary)",
+  margin: "4px 0",
+};
 
 function IssueInviteForm() {
   const { users } = useAppState();

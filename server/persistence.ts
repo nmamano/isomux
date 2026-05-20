@@ -687,6 +687,11 @@ export function saveOfficeConfig(config: OfficeSettings) {
 
 export interface ServerConfig {
   publicOrigin: string | null;
+  // `null` means the JSON didn't carry the field at all (legacy / unset).
+  // Callers decide the migration default: a present `publicOrigin` or
+  // `ISOMUX_PUBLIC_ORIGIN` env var implies the operator was on a networked
+  // install pre-redesign, so externalAccess should effectively be true.
+  externalAccess: boolean | null;
 }
 
 // Re-read the raw JSON object so save paths can do a read-modify-write that
@@ -705,40 +710,56 @@ function readOfficeConfigRaw(): Record<string, unknown> {
   }
 }
 
-// Read `publicOrigin` from office-config.json. Invalid values (path, query,
-// non-localhost http, malformed URL) are logged and ignored, returning null
-// so server boot degrades to the localhost fallback rather than throwing.
+// Read `publicOrigin` + `externalAccess` from office-config.json. Invalid
+// values are logged and ignored. publicOrigin must validate as a public
+// origin (https://<host> or http://localhost); externalAccess must be a
+// boolean. Both fields surface as null when absent so the caller can apply
+// migration defaults.
 export function loadServerConfig(): ServerConfig {
   const raw = readOfficeConfigRaw();
-  if (!("publicOrigin" in raw)) return { publicOrigin: null };
-  const candidate = raw.publicOrigin;
-  if (candidate === null) return { publicOrigin: null };
-  if (typeof candidate !== "string") {
-    console.error(
-      "[server-config] publicOrigin in office-config.json is not a string; ignoring",
-    );
-    return { publicOrigin: null };
+  let publicOrigin: string | null = null;
+  if ("publicOrigin" in raw) {
+    const candidate = raw.publicOrigin;
+    if (candidate === null) {
+      publicOrigin = null;
+    } else if (typeof candidate !== "string") {
+      console.error(
+        "[server-config] publicOrigin in office-config.json is not a string; ignoring",
+      );
+    } else {
+      const normalized = normalizePublicOrigin(candidate);
+      if (!normalized) {
+        console.error(
+          `[server-config] publicOrigin "${candidate}" in office-config.json is not a valid public origin (need https://<host> or http://localhost); ignoring`,
+        );
+      } else {
+        publicOrigin = normalized;
+      }
+    }
   }
-  const normalized = normalizePublicOrigin(candidate);
-  if (!normalized) {
-    console.error(
-      `[server-config] publicOrigin "${candidate}" in office-config.json is not a valid public origin (need https://<host> or http://localhost); ignoring`,
-    );
-    return { publicOrigin: null };
+  let externalAccess: boolean | null = null;
+  if ("externalAccess" in raw) {
+    const candidate = raw.externalAccess;
+    if (typeof candidate === "boolean") {
+      externalAccess = candidate;
+    } else if (candidate !== null) {
+      console.error(
+        "[server-config] externalAccess in office-config.json is not a boolean; ignoring",
+      );
+    }
   }
-  return { publicOrigin: normalized };
+  return { publicOrigin, externalAccess };
 }
 
-// Persist `publicOrigin` to office-config.json, preserving all other keys.
-// Validated here as defense in depth — callers should fail loudly rather
-// than persist a value the server would later silently drop. Not currently
-// reached from the running server; exposed for tooling that writes the
-// fallback from outside the agent safety hook (which blocks writes into
-// ~/.isomux/ from agent sessions).
+// Persist `publicOrigin` and `externalAccess` to office-config.json,
+// preserving all other keys. Validates publicOrigin so callers fail loudly
+// rather than write a value the server would silently drop. externalAccess
+// is plain boolean storage; null means "remove the field" so loadServerConfig
+// returns to the unset state.
 export function saveServerConfig(config: ServerConfig) {
-  let nextValue: string | null;
+  let nextOrigin: string | null;
   if (config.publicOrigin === null) {
-    nextValue = null;
+    nextOrigin = null;
   } else {
     const normalized = normalizePublicOrigin(config.publicOrigin);
     if (!normalized) {
@@ -746,9 +767,17 @@ export function saveServerConfig(config: ServerConfig) {
         `invalid publicOrigin: ${config.publicOrigin} (need https://<host> or http://localhost)`,
       );
     }
-    nextValue = normalized;
+    nextOrigin = normalized;
   }
-  const merged = { ...readOfficeConfigRaw(), publicOrigin: nextValue };
+  const merged: Record<string, unknown> = {
+    ...readOfficeConfigRaw(),
+    publicOrigin: nextOrigin,
+  };
+  if (config.externalAccess === null) {
+    delete merged.externalAccess;
+  } else {
+    merged.externalAccess = config.externalAccess;
+  }
   atomicWriteFileSync(OFFICE_CONFIG_FILE, JSON.stringify(merged, null, 2));
 }
 
