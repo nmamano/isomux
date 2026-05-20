@@ -324,6 +324,25 @@ class CodexSession implements BackendSession {
   // Tracks whether we've yielded turn_completed for the current turn so we
   // can synthesize a failed one on subprocess exit if not.
   private turnInFlight = false;
+  // Auth-error coalescing for codex stderr. Codex CLI internally retries the
+  // OpenAI websocket 5+ times on 401 with exponential backoff, emitting one
+  // `ERROR ... 401 Unauthorized` stderr line per retry. Forwarding each one
+  // as system_text triggers the auth-detect path in agent-manager on every
+  // line and pastes the sign-in card repeatedly — what task 5811bae6
+  // described as the "infinite loop" UX. Symmetric with the Claude SDK,
+  // which emits at most one auth signal per send: gate auth-shaped stderr
+  // to one signal per user-initiated turn (`authSignalsAllowedThisTurn`
+  // opens before turn/start in send(), closes on turn/completed or send
+  // failure; `authSignalEmittedThisTurn` is the once-per-turn latch).
+  // Pre-turn stderr (codex's startup websocket pre-warm) is silenced.
+  private authSignalsAllowedThisTurn = false;
+  private authSignalEmittedThisTurn = false;
+  // Set when we ourselves issue turn/interrupt to short-circuit codex's
+  // ~12s websocket retry budget on a doomed-by-auth turn. The natural
+  // turn/completed from codex will land with status="interrupted"; the
+  // turn/completed handler maps it back to status="failed" + the standard
+  // auth summary so the user sees a clear failure, not a vague "interrupted".
+  private selfInterruptedForAuth = false;
   // jsonRpcId-keyed map of in-flight server-initiated approval requests. The
   // orchestrator references these by approvalId == jsonRpcId.
   private pendingApprovals = new Map<string, PendingApproval>();
@@ -540,14 +559,42 @@ class CodexSession implements BackendSession {
     }
 
     const input = buildCodexUserInput(text, attachments, this.opts.agentId);
+    // Open the auth-stderr gate before turn/start. The gate must be open
+    // during turn/start's await window because codex's websocket retry burst
+    // can land on stderr before the RPC returns. If turn/start itself throws,
+    // close the gate so subsequent unsolicited codex stderr stays silent.
+    this.authSignalsAllowedThisTurn = true;
+    this.authSignalEmittedThisTurn = false;
     // Only flip turnInFlight after turn/start succeeds. If the request throws
     // (e.g. wire error) we don't want handleSubprocessExit to later synthesize
     // a phantom failed turn_completed for a turn that never actually started
     // — the orchestrator would surface a bogus mid-turn failure.
-    await this.client.request("turn/start", {
-      threadId: this.threadId,
-      input,
-    });
+    try {
+      await this.client.request("turn/start", {
+        threadId: this.threadId,
+        input,
+      });
+    } catch (err) {
+      // If turn/start itself rejects with an auth-shaped error (a future
+      // codex revision could pre-check auth before accepting the turn),
+      // emit the same single auth signal we'd emit from stderr so the
+      // user still gets the sign-in card. Without this, flushQueue's
+      // generic catch logs "Error flushing queue: ..." with no auth
+      // detection and the login card is lost on this code path. The
+      // helper enforces the once-per-turn latch; the post-throw clears
+      // also close the gate so any remaining auth-shaped notification
+      // for this dead turn stays silent.
+      const message = errMessage(err);
+      if (AUTH_ERROR_PATTERNS.test(message)) {
+        this.enqueueAuthAwareSystemText(
+          `Codex auth error during turn start: ${message}`,
+        );
+      }
+      this.authSignalsAllowedThisTurn = false;
+      this.authSignalEmittedThisTurn = false;
+      this.selfInterruptedForAuth = false;
+      throw err;
+    }
     this.turnInFlight = true;
   }
 
@@ -679,6 +726,42 @@ class CodexSession implements BackendSession {
     this.wake();
   }
 
+  // Funnel for system_text emissions whose payload may carry codex-sourced
+  // text (stderr, advisory notifications, error messages). Applies the
+  // per-turn auth-coalescing gate so any auth-shaped string — regardless of
+  // which codex path produced it — counts as the one allowed signal per
+  // user-initiated turn. Hardcoded system_text (image notices, model-not-
+  // supported, auto-declined cards, etc.) bypasses this helper because we
+  // know its content is safe.
+  private enqueueAuthAwareSystemText(text: string): void {
+    if (AUTH_ERROR_PATTERNS.test(text)) {
+      if (!this.authSignalsAllowedThisTurn) return;
+      if (this.authSignalEmittedThisTurn) return;
+      this.authSignalEmittedThisTurn = true;
+      // Short-circuit codex's websocket retry budget. The retries are doomed,
+      // and without an interrupt the agent sits in "thinking" for ~12s
+      // before turn/completed lands — misleading UX (the model never ran).
+      this.requestSelfInterruptForAuth();
+    }
+    this.enqueue({ kind: "system_text", text });
+  }
+
+  // Fire-and-forget turn/interrupt when an auth signal latches. Best-effort:
+  // if activeTurnId hasn't been observed yet (turn/started notification
+  // hasn't arrived) or codex doesn't honor the interrupt, we fall back to
+  // the natural ~12s retry-exhaustion timer.
+  private requestSelfInterruptForAuth(): void {
+    if (this.selfInterruptedForAuth) return;
+    if (!this.threadId || !this.activeTurnId) return;
+    this.selfInterruptedForAuth = true;
+    this.client
+      .request("turn/interrupt", {
+        threadId: this.threadId,
+        turnId: this.activeTurnId,
+      })
+      .catch(() => {});
+  }
+
   private attachmentFromPath(rawPath: unknown): AttachmentSpec | null {
     if (typeof rawPath !== "string" || rawPath.length === 0) return null;
     try {
@@ -739,20 +822,48 @@ class CodexSession implements BackendSession {
               error?: { message?: string } | null;
             }
           | undefined;
-        const status = mapTurnStatus(turn?.status);
-        const error = turn?.error?.message ?? undefined;
+        const rawStatus = mapTurnStatus(turn?.status);
+        const rawError = turn?.error?.message ?? undefined;
+        const wasSelfInterruptForAuth = this.selfInterruptedForAuth;
         this.activeTurnId = null;
         this.turnInFlight = false;
         // "Model not supported" safety net. The spawn / edit dialog now
         // fetches model/list per-auth, so this branch should be rare —
         // most commonly it'll fire when the user's auth tier changed since
         // the agent was created. Re-opening settings reloads the list.
-        if (error && /model.*not supported|not supported.*model/i.test(error)) {
+        if (
+          rawError &&
+          /model.*not supported|not supported.*model/i.test(rawError)
+        ) {
           this.enqueue({
             kind: "system_text",
             text: "This Codex model isn't available on your current login. Open the agent's settings to refresh the model list and pick one that is.",
           });
         }
+        // If we self-interrupted to short-circuit a doomed-by-auth turn,
+        // remap status="interrupted" → "failed" so the user sees a clear
+        // failure (not a misleading "interrupted" — which the UI treats as
+        // a user-initiated stop). Substitute the error to the same auth
+        // summary used for the stderr-driven path; the codex-emitted error
+        // on a client-interrupt is usually empty or unhelpful.
+        const status = wasSelfInterruptForAuth ? "failed" : rawStatus;
+        // Substitute the turn-level error to a non-auth-shaped summary so
+        // agent-manager's auth-detect path doesn't re-fire on the same root
+        // cause. The user still has the concrete 401 detail from the earlier
+        // [codex stderr] system_text. Whole-string substitution (not
+        // keyword-stripping) keeps the rewritten message readable.
+        const turnLevelAuthShaped =
+          !!rawError && AUTH_ERROR_PATTERNS.test(rawError);
+        const error =
+          this.authSignalEmittedThisTurn &&
+          (wasSelfInterruptForAuth || turnLevelAuthShaped)
+            ? "Codex turn failed after an auth error; see the prior Codex auth notice."
+            : rawError;
+        // Close the per-turn auth-coalescing gate now that the turn has
+        // settled. Next user send opens it again in send().
+        this.authSignalsAllowedThisTurn = false;
+        this.authSignalEmittedThisTurn = false;
+        this.selfInterruptedForAuth = false;
         this.enqueue({
           kind: "turn_completed",
           status,
@@ -877,8 +988,7 @@ class CodexSession implements BackendSession {
       case "configWarning":
       case "model/rerouted": {
         const text = params?.message as string | undefined;
-        if (text)
-          this.enqueue({ kind: "system_text", text: `[${n.method}] ${text}` });
+        if (text) this.enqueueAuthAwareSystemText(`[${n.method}] ${text}`);
         break;
       }
 
@@ -1208,7 +1318,9 @@ class CodexSession implements BackendSession {
     ) {
       return;
     }
-    this.enqueue({ kind: "system_text", text: `[codex stderr] ${text}` });
+    // Route through the auth-aware gate so codex's websocket retry burst
+    // produces at most one user-visible signal per turn (Claude-SDK parity).
+    this.enqueueAuthAwareSystemText(`[codex stderr] ${text}`);
   }
 
   private handleSubprocessExit(
@@ -1216,6 +1328,12 @@ class CodexSession implements BackendSession {
     signal: NodeJS.Signals | null,
   ): void {
     if (this.closed) return;
+    // The per-turn auth-coalescing gate must close on subprocess death so an
+    // unlikely-but-possible later stderr (e.g. drained late) doesn't sneak
+    // through with a stale-open gate.
+    this.authSignalsAllowedThisTurn = false;
+    this.authSignalEmittedThisTurn = false;
+    this.selfInterruptedForAuth = false;
     // If a turn was in flight when codex died, synthesize a failed
     // turn_completed so the orchestrator's pendingTurn unblocks.
     if (this.turnInFlight) {
