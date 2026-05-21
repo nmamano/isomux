@@ -233,8 +233,13 @@ export const commands: Record<string, CommandConfig> = {
 
   // --- Code & file operations ---
   diff: {
-    ...UNSUPPORTED_HARDCODED,
-    description: "Interactive diff of all changes",
+    type: "hardcoded",
+    supported: true,
+    autocomplete: true,
+    overridable: false,
+    handler: "isomuxDiff",
+    description:
+      "Peek uncommitted changes in the agent's cwd (or pass a directory)",
   },
   rewind: {
     ...UNSUPPORTED_HARDCODED,
