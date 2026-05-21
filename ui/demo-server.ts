@@ -284,14 +284,14 @@ function emitStephenPresence() {
 function startStephenGhostCycle() {
   if (cycleTimer) return;
   // Initial emission so the ghost appears immediately at agent 0 rather
-  // than 6 seconds later.
+  // than 4 seconds later.
   emitStephenPresence();
   cycleTimer = setInterval(() => {
     const total = state.getState().agents.filter((a) => a.room === 0).length;
     if (total === 0) return;
     cycleIndex = (cycleIndex + 1) % total;
     emitStephenPresence();
-  }, 6000);
+  }, 4000);
 }
 
 let seeded = false;

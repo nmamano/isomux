@@ -635,7 +635,6 @@ ${sidebar}
 <main>
 <header class="doc-header">
   <h1>${escapeHtml(page.title)}</h1>
-  ${page.description ? `<p class="doc-desc">${escapeHtml(page.description)}</p>` : ""}
 </header>
 ${tocHtml}
 <article class="content">
