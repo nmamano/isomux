@@ -14,6 +14,9 @@
 // repeat callers don't re-spawn `which`.
 
 import { execSync } from "child_process";
+import { existsSync } from "fs";
+import { homedir } from "os";
+import { join } from "path";
 
 let cached: boolean | null = null;
 
@@ -26,4 +29,30 @@ export function isClaudeCodeInstalled(): boolean {
     cached = false;
   }
   return cached;
+}
+
+// Cheap probe for "user has already completed claude-code login at some
+// point". Used by the login-instructions path so an agent that hits an
+// auth-error (or the user types /login on an already-authed agent) shows
+// a "/clear to refresh" hint instead of repeating the install/login
+// walkthrough at someone who's already done their part.
+//
+// Two positive signals, either is enough:
+//   1. ANTHROPIC_API_KEY in the agent's effective env — env-var auth
+//      bypasses the credentials file entirely. Caller passes the agent's
+//      resolved env (process.env + office envFile + user envFile, in
+//      override order); defaults to process.env if no env supplied.
+//   2. `~/.claude/.credentials.json` exists — the file `claude /login`
+//      writes, and what the SDK reads to authenticate.
+//
+// Symmetric with `isCodexAuthenticated` in codex/native-bin.ts. The CLI
+// presence check (`isClaudeCodeInstalled`) is independent: the SDK can
+// be fully working off the credentials file even when `claude` itself
+// isn't on the systemd-user PATH.
+export function isClaudeCodeAuthenticated(env?: {
+  [key: string]: string | undefined;
+}): boolean {
+  const effective = env ?? process.env;
+  if (effective.ANTHROPIC_API_KEY) return true;
+  return existsSync(join(homedir(), ".claude", ".credentials.json"));
 }

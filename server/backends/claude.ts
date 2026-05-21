@@ -53,7 +53,10 @@ import type { ModelFamily, EffortLevel } from "../../shared/types.ts";
 import { getFilePath, saveFile } from "../persistence.ts";
 import { createSafetyHooks } from "../safety-hooks.ts";
 import { CLAUDE_NATIVE_BIN } from "../cwd-utils.ts";
-import { isClaudeCodeInstalled } from "./claude-install-check.ts";
+import {
+  isClaudeCodeAuthenticated,
+  isClaudeCodeInstalled,
+} from "./claude-install-check.ts";
 
 import type {
   ApprovalDecision,
@@ -85,6 +88,11 @@ const LOGIN_INSTRUCTIONS = `To authenticate Claude Code:
 4. Follow the auth flow
 
 Once complete, it takes effect immediately for all Isomux agents.`;
+
+// Surfaced when an auth-error fires (or the user types /login) but the
+// office already has a valid Claude auth (credentials.json present, or
+// ANTHROPIC_API_KEY in env). Symmetric with the Codex auto-clear hint.
+const ALREADY_AUTHED_INSTRUCTIONS = `Claude Code is signed in. Type \`/clear\` to refresh this agent's session and pick up the new auth.`;
 
 const LOGIN_COMMAND = `claude`;
 
@@ -849,20 +857,22 @@ export const claudeBackend: Backend = {
     return AUTH_ERROR_PATTERNS.test(text);
   },
 
-  getLoginInstructions(_opts?: {
+  getLoginInstructions(opts?: {
     env?: { [key: string]: string | undefined };
   }): { text: string; commands?: string[] } {
+    // Short-circuit: if the office is already signed in (credentials.json
+    // present, or ANTHROPIC_API_KEY in env), the user just needs to /clear
+    // a dead session — no walkthrough needed. Symmetric with Codex's
+    // ALREADY_AUTHED hint. The check honors the agent's merged env so
+    // envFile-set ANTHROPIC_API_KEY counts as authed.
+    if (isClaudeCodeAuthenticated(opts?.env)) {
+      return { text: ALREADY_AUTHED_INSTRUCTIONS };
+    }
     // If the user can't actually run `claude` and `/login` (binary missing
     // from PATH), surface the install command first instead of the terminal
     // walkthrough that would just produce a "command not found". The card
     // rides along so the catch site can emit a [Copy to terminal] next to
-    // the text. (Codex doesn't need an equivalent presence check — it ships
-    // bundled as an isomux runtime dep.)
-    //
-    // Claude ignores `opts.env`: the SDK is bundled and the supported auth
-    // path is `claude /login` writing to the user's claude-code credentials.
-    // ANTHROPIC_API_KEY-as-env exists upstream but isn't an isomux
-    // first-class flow yet.
+    // the text.
     return isClaudeCodeInstalled()
       ? { text: LOGIN_INSTRUCTIONS, commands: [LOGIN_COMMAND] }
       : {
