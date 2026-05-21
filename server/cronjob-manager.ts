@@ -619,7 +619,9 @@ function processNormalizedEvent(active: ActiveRun, ev: NormalizedEvent) {
           writeLog(
             active,
             "system",
-            getBackend(active.agentType).getLoginInstructions().text,
+            getBackend(active.agentType).getLoginInstructions({
+              env: bestEffortRunEnv(active),
+            }).text,
           );
         }
       }
@@ -665,11 +667,31 @@ function processNormalizedEvent(active: ActiveRun, ev: NormalizedEvent) {
         writeLog(
           active,
           "system",
-          getBackend(active.agentType).getLoginInstructions().text,
+          getBackend(active.agentType).getLoginInstructions({
+            env: bestEffortRunEnv(active),
+          }).text,
         );
       }
       break;
     }
+  }
+}
+
+// Resolve the run's spawn-env best-effort for auth-error hint generation.
+// `buildEnvForUserId` throws on a broken/missing envFile, which is correct
+// behavior for spawn/preflight but wrong here — a hint generator that fails
+// would mask the original auth error. Swallowing the error and falling back
+// to `undefined` (which the backend treats as process.env) keeps the
+// diagnostic shape intact. Symmetric with agent-manager's
+// agentLoginInstructions try/catch.
+function bestEffortRunEnv(
+  active: ActiveRun,
+): { [key: string]: string | undefined } | undefined {
+  try {
+    const job = cronjobs.find((c) => c.id === active.jobId);
+    return buildEnvForUserId(job?.userId ?? null);
+  } catch {
+    return undefined;
   }
 }
 

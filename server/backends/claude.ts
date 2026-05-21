@@ -849,13 +849,20 @@ export const claudeBackend: Backend = {
     return AUTH_ERROR_PATTERNS.test(text);
   },
 
-  getLoginInstructions(): { text: string; commands?: string[] } {
+  getLoginInstructions(_opts?: {
+    env?: { [key: string]: string | undefined };
+  }): { text: string; commands?: string[] } {
     // If the user can't actually run `claude` and `/login` (binary missing
     // from PATH), surface the install command first instead of the terminal
     // walkthrough that would just produce a "command not found". The card
     // rides along so the catch site can emit a [Copy to terminal] next to
     // the text. (Codex doesn't need an equivalent presence check — it ships
     // bundled as an isomux runtime dep.)
+    //
+    // Claude ignores `opts.env`: the SDK is bundled and the supported auth
+    // path is `claude /login` writing to the user's claude-code credentials.
+    // ANTHROPIC_API_KEY-as-env exists upstream but isn't an isomux
+    // first-class flow yet.
     return isClaudeCodeInstalled()
       ? { text: LOGIN_INSTRUCTIONS, commands: [LOGIN_COMMAND] }
       : {

@@ -61,12 +61,10 @@ See the [full feature list](docs/features.md).
 
 ### 1. Prerequisites
 
-You need [Bun](https://bun.sh/) (v1.2+) and at least one agent CLI installed and authenticated:
+You need [Bun](https://bun.sh/) (v1.2+) and a subscription for at least one provider:
 
-- [Claude Code](https://claude.ai/code) (Anthropic) — requires a Claude subscription
-- [Codex CLI](https://github.com/openai/codex) (OpenAI) — requires a ChatGPT subscription or an `OPENAI_API_KEY`
-
-Install whichever you want; Isomux can spawn agents on either backend, side-by-side.
+- **Claude** (Anthropic) — requires a Claude subscription. You'll install the [Claude Code](https://claude.ai/code) CLI locally (next step).
+- **Codex** (OpenAI) — requires a ChatGPT subscription or an `OPENAI_API_KEY`. The CLI ships bundled with isomux.
 
 ```sh
 # Install Bun

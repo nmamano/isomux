@@ -7,7 +7,6 @@ navTitle: Full feature list
 ## Multi-provider
 
 - **Choose Claude or Codex** when spawning an agent. Provider is fixed for the agent's lifetime; mix providers across desks in the same office.
-- **Reuses CLI auth from the underlying provider** — your Claude or ChatGPT subscription works out of the box; no separate API key needed.
 - **Codex ships bundled** — no separate install. The first time you message a Codex agent, isomux prompts you to sign in via a one-click terminal card. (Claude CLI is still a separate user install for now.)
 
 ## Multi-agent

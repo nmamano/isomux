@@ -28,6 +28,7 @@ import { buildSystemPrompt } from "./system-prompt.ts";
 import { getUserByName } from "./users.ts";
 import { listCronjobs, buildCronjobSystemPrompt } from "./cronjob-manager.ts";
 import { resolveSkillPrompt } from "./skills.ts";
+import { ensureCodexWrapperScript } from "./backends/codex/native-bin.ts";
 import { renderUsageReport } from "./usage-report.ts";
 import { computeIsomuxDiff, resolveDiffCwd } from "./isomux-diff.ts";
 import {
@@ -89,6 +90,11 @@ interface HandlerDeps {
   updateState: (agentId: string, state: AgentState) => void;
   updateAgent: (agentId: string, changes: Partial<AgentInfo>) => OfficeEvent[];
   beginTurn: (agentId: string, opts: { humanInput: boolean }) => void;
+
+  // Login-instructions helper. Wraps agentLoginInstructions + per-backend
+  // dispatch in agent-manager so the /login handler can render the same
+  // explanatory text + [Copy to terminal] cards an auth-error path would.
+  emitLoginInstructionsFor: (agentId: string, managed: ManagedAgent) => void;
 
   // Session ops
   createSession: (
@@ -713,6 +719,19 @@ export function createCommandHandling(deps: HandlerDeps) {
       return true;
     },
 
+    async login(agentId, managed, _args, rawText, username, device) {
+      const userMeta = buildMeta(username, device);
+      deps.emitEphemeralLog(agentId, "user_message", rawText, userMeta);
+      // Reuses the same backend-dispatched text + cards an auth-error
+      // would surface — single source of truth for "how does this agent
+      // authenticate." Codex emits the two-card pick (browser + device-auth)
+      // and the auto-clear short text when already authed; Claude emits its
+      // /login walkthrough with a `claude` terminal card.
+      deps.emitLoginInstructionsFor(agentId, managed);
+      deps.updateState(agentId, "waiting_for_response");
+      return true;
+    },
+
     async usage(agentId, _managed, _args, rawText, username, device) {
       const userMeta = buildMeta(username, device);
       deps.addLogEntry(agentId, "user_message", rawText, userMeta);
@@ -722,7 +741,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         "To check your Claude or ChatGPT subscription quota, open the embedded terminal and:",
         "",
         "- launch `claude`, then type `/usage`",
-        "- launch `codex`, then type `/status`",
+        "- launch `~/.isomux/bin/codex`, then type `/status`",
         "",
         "For office-level token spend (per-agent / per-room / per-cron-job), see `/isomux-usage`.",
       ];
@@ -735,14 +754,33 @@ export function createCommandHandling(deps: HandlerDeps) {
         undefined,
         { terminal: { command: "claude" } },
       );
-      deps.addLogEntry(
-        agentId,
-        "terminal-command",
-        "codex",
-        undefined,
-        undefined,
-        { terminal: { command: "codex" } },
-      );
+      // Materialize the codex wrapper before emitting the card; otherwise a
+      // user who hits /usage before any Codex auth-error path won't have
+      // `~/.isomux/bin/codex` on disk and the card will fail with "command
+      // not found". If materialization throws (e.g. @openai/codex missing),
+      // skip the card entirely and surface a one-line system note — a dead
+      // card is worse than no card.
+      let codexWrapperReady = false;
+      try {
+        ensureCodexWrapperScript();
+        codexWrapperReady = true;
+      } catch (err) {
+        deps.addLogEntry(
+          agentId,
+          "system",
+          "Codex `/status` card omitted: " + errMessage(err),
+        );
+      }
+      if (codexWrapperReady) {
+        deps.addLogEntry(
+          agentId,
+          "terminal-command",
+          "~/.isomux/bin/codex",
+          undefined,
+          undefined,
+          { terminal: { command: "~/.isomux/bin/codex" } },
+        );
+      }
       deps.updateState(agentId, "waiting_for_response");
       return true;
     },

@@ -130,17 +130,26 @@ export function withIsomuxCodexHome(
 // walkthrough at a user who's already done their part.
 //
 // Two positive signals, either is enough:
-//   1. OPENAI_API_KEY in process.env — env-var auth bypasses auth.json entirely.
-//   2. auth.json exists in the default ISOMUX_CODEX_HOME.
+//   1. OPENAI_API_KEY in the agent's effective env — env-var auth bypasses
+//      auth.json entirely. Caller passes the agent's resolved env
+//      (process.env + office envFile + user envFile, in override order);
+//      defaults to process.env if no env supplied.
+//   2. auth.json exists in the agent's effective CODEX_HOME (envFile
+//      override honored, otherwise the default ISOMUX_CODEX_HOME).
 //
-// Doesn't honor per-user envFile CODEX_HOME overrides (billing isolation):
-// those users would see the full walkthrough even after logging in to their
-// custom dir. Tolerable — the walkthrough still works for them, and the
-// rare-case wrong-message is the cost we pay for not threading per-agent
-// env all the way through the login-instructions path.
-export function isCodexAuthenticated(): boolean {
-  if (process.env.OPENAI_API_KEY) return true;
-  return existsSync(join(ISOMUX_CODEX_HOME, "auth.json"));
+// This used to only consult process.env, which created a footgun: a user
+// who put OPENAI_API_KEY in their envFile (the supported way to set
+// per-agent secrets — see User Settings → Env File Path) would still get
+// the full sign-in walkthrough on any auth-error, because the helper
+// couldn't see their envFile-set key. Threading the merged env in closes
+// that gap.
+export function isCodexAuthenticated(env?: {
+  [key: string]: string | undefined;
+}): boolean {
+  const effective = env ?? process.env;
+  if (effective.OPENAI_API_KEY) return true;
+  const codexHome = effective.CODEX_HOME ?? ISOMUX_CODEX_HOME;
+  return existsSync(join(codexHome, "auth.json"));
 }
 
 // Idempotently materialize the `~/.isomux/bin/codex` wrapper script that
@@ -148,7 +157,7 @@ export function isCodexAuthenticated(): boolean {
 // terminal] card. Regenerates when content drifts (e.g. bun path or
 // node_modules layout changed across a reinstall) so a stale wrapper from
 // a previous install can't outlive the right paths.
-function ensureCodexWrapperScript(): void {
+export function ensureCodexWrapperScript(): void {
   if (ensuredCodexWrapper) return;
   const expected = buildCodexWrapperScript();
   mkdirSync(ISOMUX_BIN_DIR, { recursive: true, mode: 0o700 });

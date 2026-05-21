@@ -97,7 +97,7 @@ Setup:
 
 ### Agent Backends
 - **Claude** (Anthropic): best general-purpose coding agent. Uses your existing Claude Code login.
-- **Codex** (OpenAI): GPT-5 family. Uses your Codex CLI login (ChatGPT subscription, or \`OPENAI_API_KEY\`).
+- **Codex** (OpenAI): GPT-5 family. Ships bundled. Uses a ChatGPT subscription via one-click sign-in on first use, or \`OPENAI_API_KEY\`.
 - The engine is chosen at spawn time and is fixed for the agent's lifetime — to switch, spawn a new agent. Model family and effort/reasoning can still be changed afterwards.
 - Both engines share the same office, queue, task board, inter-agent messaging, and persistence. Agents on different backends can read each other's conversations and message each other.
 

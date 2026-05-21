@@ -162,7 +162,22 @@ function agentLoginInstructions(managed: ManagedAgent | undefined): {
   commands?: string[];
 } {
   if (!managed) return { text: LOGIN_INSTRUCTIONS };
-  return getBackend(managed.info.agentType).getLoginInstructions();
+  // Resolve the merged env (process.env + office envFile + user envFile, in
+  // override order) so the backend can recognize env-var auth (e.g. Codex
+  // OPENAI_API_KEY in the user's envFile) and skip the full sign-in
+  // walkthrough at a user who's already authed. Best-effort: if the envFile
+  // is broken or missing now (e.g. user deleted it mid-session),
+  // buildEnvForUserId throws — we want the original auth-error guidance to
+  // still surface, not have the hint generator itself fail. Fall back to
+  // undefined so the backend uses process.env. Mirrors the envForHints
+  // pattern elsewhere in this file.
+  let env: { [key: string]: string | undefined } | undefined;
+  try {
+    env = buildEnvForUserId(managed.info.userId);
+  } catch {
+    env = undefined;
+  }
+  return getBackend(managed.info.agentType).getLoginInstructions({ env });
 }
 
 // Emit a system log entry with the login/install text, plus an adjacent
@@ -2280,6 +2295,8 @@ const { handleSlashCommand } = createCommandHandling({
   updateState,
   updateAgent: (agentId, changes) => officeState.updateAgent(agentId, changes),
   beginTurn,
+  emitLoginInstructionsFor: (agentId, managed) =>
+    emitLoginInstructions(agentId, agentLoginInstructions(managed)),
   createSession,
   replaceSession,
   persistAll,

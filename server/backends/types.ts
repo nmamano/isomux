@@ -345,5 +345,12 @@ export interface Backend {
   // render as a stack of cards in the order returned — backends that surface
   // alternatives (e.g. Codex browser OAuth vs `--device-auth` for remote
   // hosts) use this to give the user a side-by-side pick.
-  getLoginInstructions(): { text: string; commands?: string[] };
+  //
+  // `opts.env` carries the agent's resolved spawn env (process.env + office
+  // envFile + user envFile, in that override order). Backends that detect
+  // env-var auth (e.g. Codex's OPENAI_API_KEY) check it to avoid telling a
+  // user to "sign in" when their envFile already authenticates them.
+  getLoginInstructions(opts?: {
+    env?: { [key: string]: string | undefined };
+  }): { text: string; commands?: string[] };
 }
