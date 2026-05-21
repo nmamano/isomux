@@ -2,7 +2,7 @@
 
 **Give your agents a cute office.** Multi-device, multi-user, multi-agent collaboration.
 
-Free · open source · no cloud · no account
+free · open source · no account needed
 
 - [isomux.com](https://isomux.com): setup instructions and a live demo
 - [isomux.com/docs](https://isomux.com/docs): full feature list, self-hosted setup, security audit, more
@@ -13,31 +13,47 @@ Free · open source · no cloud · no account
 
 ## Feature Highlights
 
-- **Works with your Claude or ChatGPT subscriptions**: if `claude` or `codex` works in your terminal, isomux works in your browser
-- **Multi-provider**: mix [Claude](https://github.com/anthropics/claude-code) agents and [Codex](https://github.com/openai/codex) agents in the same office
-- Works locally (run the server on localhost:4000, access it through your browser) or as a **self-hosted persistent server**:
-  - Run at home, access **from any device** (see [self-hosted setup](https://isomux.com/docs/self-hosted))
-  - **Invite-link access**: owner mints a URL per device, sends it out-of-band, the invitee clicks and is signed in. No accounts, no passwords (see [access and invites](https://isomux.com/docs/access-and-invites))
-  - No syncing headaches: same conversations, same filesystem, every device updates **in real time**
-  - [**Conversation-level collaboration**](https://x.com/Nil053/status/2050141843741081928): anyone you've invited can chime in
-- Visual [office metaphor](https://x.com/mom_agency_/status/2054909371071582501?s=20): see what every agent is doing at a glance
-  - **Animated characters**: sleeping when idle, typing when working, waving when waiting for you
-  - [**Skeuomorphic touches**](https://x.com/Nil053/status/2039027360117506399): click the moon to toggle dark mode, click doors to switch rooms, etc.
-  - [**6 color themes**](https://x.com/Nil053/status/2054709610519638506)
-  - **Auto-generated topic** below each nametag, so you remember what each agent is working on
+### Multi-provider
+
+- Mix Claude agents and Codex agents in the same office
+- **Works with your subscriptions**: if `claude` or `codex` works in your terminal, isomux works in your browser
+
+### Multi-agent
+
+- Agents [**check on each other**](https://x.com/Nil053/status/2039494626265149778) and [**message each other**](https://x.com/Nil053/status/2053179885108232328): all messages (human and agent) get queued while agents are busy
+- [**Shared task board**](https://x.com/Nil053/status/2040871759529025617): humans and agents can create, assign, claim, and close tasks
+- [**Hierarchical system prompts**](https://x.com/Nil053/status/2050130563915534346): office-wide, per-room, and per-agent prompts
+- [**Custom commands**](https://x.com/Nil053/status/2057153876332331507) in addition to your own: `/pair-programming`, `/peer-review`, etc.
+
+### Multi-user
+
+- [**Collaborate in agent conversations**](https://x.com/Nil053/status/2050141843741081928): anyone you've invited to your office can chime in
 - [**Live user presence**](https://x.com/Nil053/status/2056256446862704838): other users (and your other devices) appear as small ghosts next to the agent they're talking to
-- [**Mobile UI**](https://x.com/Nil053/status/2039996579965542516): continue conversations on your phone with a touch-optimized UI
-- Agents can [**check on each other**](https://x.com/Nil053/status/2039494626265149778) and [**message each other**](https://x.com/Nil053/status/2053179885108232328): all messages (human and agent) get queued while agents are busy.
+- [**Invite-link access**](https://isomux.com/docs/access-and-invites): owner mints a URL per device, sends it out-of-band, the invitee clicks and is signed in. No accounts, no passwords
+
+### Multi-device
+
+- Run on `localhost:4000` for local use, or as a **self-hosted persistent server** reachable **from any device** (see [how](https://isomux.com/docs/self-hosted))
+- [**Mobile UI**](https://x.com/Nil053/status/2039996579965542516): continue on your phone with a touch-optimized UI
+- **Real-time updates**: same conversations, same filesystem, no syncing headaches between devices
+
+### Cute in a useful way
+
+- Visual office: see what every agent is doing at a glance
+- **Animated characters**: sleeping when idle, typing when working, waving when waiting for you
+- [**Skeuomorphic touches**](https://x.com/Nil053/status/2039027360117506399): click the moon to toggle dark mode, click doors to switch rooms, etc.
+- [**6 color themes**](https://x.com/Nil053/status/2054709610519638506)
+- **Auto-generated topic** below each nametag, so you remember what each agent is working on
+
+### QoL
+
 - Built-in [**terminal**](https://x.com/Nil053/status/2039504957184090281), [**editor**](site/built-in-editor.jpeg), and [**diff tool**](https://x.com/Nil053/status/2047917731874557983)
 - **Voice-to-text** prompting and **text-to-speech** responses
-- [**Custom commands**](https://x.com/Nil053/status/2040018957453918431) in addition to your own: `/isomux-peer-review`, `/isomux-all-hands`, etc. (see `/help`)
-- [**Hierarchical system prompts**](https://x.com/Nil053/status/2050130563915534346): office-wide, per-room, and per-agent prompts
-- [**Shared task board**](https://x.com/Nil053/status/2040871759529025617): humans and agents can create, assign, claim, and close tasks
-- [**Cron jobs**](https://x.com/Nil053/status/2048308972072079753): schedule recurring agent runs; each run is a fresh chat (that can be continued)
+- [**Cron jobs**](https://x.com/Nil053/status/2048308972072079753): schedule recurring agent runs; each run is a fresh chat (that can be resumed)
 - **Image/PDF attachments**: agents understand images and PDFs and can show images inline
 - **Conversation branching**: edit any past message to fork the conversation
 - **Notifications**: get pinged (and waved at) when an agent finishes
-- [**Pre-tool-call safety hooks**](https://x.com/Nil053/status/2039497314826666469) (Claude agents)
+- [**Pre-tool-call safety hooks**](https://x.com/Nil053/status/2039497314826666469)
 
 See the [full feature list](docs/features.md).
 

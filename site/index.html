@@ -410,9 +410,6 @@
 
       .feature-group ul {
         list-style: none;
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 6px 24px;
       }
 
       .feature-group li {
@@ -420,6 +417,7 @@
         font-size: 0.9rem;
         padding-left: 16px;
         position: relative;
+        margin-bottom: 4px;
       }
 
       .feature-group li::before {
@@ -430,8 +428,15 @@
         font-weight: bold;
       }
 
-      .feature-group li strong {
-        color: var(--text);
+      /* Match the subtle underline from .feature-highlights so accent-colored
+         bolded link text reads as a link, not just emphasis. */
+      .feature-group a {
+        text-decoration: underline;
+        text-decoration-thickness: 1px;
+        text-underline-offset: 3px;
+      }
+      .feature-group a:hover {
+        text-decoration-thickness: 2px;
       }
 
       /* ---- Setup card ---- */
@@ -601,253 +606,260 @@
       <h2>Feature Highlights</h2>
       <div style="text-align: center; margin-bottom: 16px">
         <div class="free-badge">
-          free &middot; open source &middot; no cloud &middot; no account
+          free &middot; open source &middot; no account needed
         </div>
       </div>
 
-      <ul class="feature-highlights">
-        <li>
-          <strong>Works with your Claude or ChatGPT subscriptions</strong>: if
-          <code
-            style="
-              background: var(--bg);
-              padding: 1px 6px;
-              border-radius: 4px;
-              font-size: 0.85em;
-            "
-            >claude</code
-          >
-          or
-          <code
-            style="
-              background: var(--bg);
-              padding: 1px 6px;
-              border-radius: 4px;
-              font-size: 0.85em;
-            "
-            >codex</code
-          >
-          works in your terminal, isomux works in your browser
-        </li>
-        <li>
-          <strong>Multi-provider</strong>: mix
-          <a
-            href="https://github.com/anthropics/claude-code"
-            target="_blank"
-            rel="noopener"
-            >Claude</a
-          >
-          agents and
-          <a
-            href="https://github.com/openai/codex"
-            target="_blank"
-            rel="noopener"
-            >Codex</a
-          >
-          agents in the same office
-        </li>
-        <li>
-          Works locally (run the server on localhost:4000, access it through
-          your browser) or as a <strong>self-hosted persistent server</strong>:
-          <ul>
-            <li>
-              Run at home, access <strong>from any device</strong> (see
-              <a href="/docs/self-hosted">how</a>)
-            </li>
-            <li>
-              <strong>Invite-link access</strong>: owner mints a URL per device,
-              sends it out-of-band, the invitee clicks and is signed in. No
-              accounts, no passwords (see
-              <a href="/docs/access-and-invites">docs/access-and-invites</a>)
-            </li>
-            <li>
-              No syncing headaches: same conversations, same filesystem, every
-              device updates <strong>in real time</strong>
-            </li>
-            <li>
-              <a
-                href="https://x.com/Nil053/status/2050141843741081928"
-                target="_blank"
-                rel="noopener"
-                ><strong>Conversation-level collaboration</strong></a
-              >: anyone you've invited can chime in
-            </li>
-          </ul>
-        </li>
-        <li>
-          Visual
-          <a
-            href="https://x.com/mom_agency_/status/2054909371071582501?s=20"
-            target="_blank"
-            rel="noopener"
-            >office metaphor</a
-          >: see what every agent is doing at a glance
-          <ul>
-            <li>
-              <strong>Animated characters</strong>: sleeping when idle, typing
-              when working, waving when waiting for you
-            </li>
-            <li>
-              <a
-                href="https://x.com/Nil053/status/2039027360117506399"
-                target="_blank"
-                rel="noopener"
-                ><strong>Skeuomorphic touches</strong></a
-              >: click the moon to toggle dark mode, click doors to switch
-              rooms, etc.
-            </li>
-            <li>
-              <a
-                href="https://x.com/Nil053/status/2054709610519638506"
-                target="_blank"
-                rel="noopener"
-                ><strong>6 color themes</strong></a
-              >
-            </li>
-            <li>
-              <strong>Auto-generated topic</strong> below each nametag, so you
-              remember what each agent is working on
-            </li>
-          </ul>
-        </li>
-        <li>
-          <a
-            href="https://x.com/Nil053/status/2056256446862704838"
-            target="_blank"
-            rel="noopener"
-            ><strong>Live user presence</strong></a
-          >: other users (and your other devices) appear as small ghosts next to
-          the agent they're talking to
-        </li>
-        <li>
-          <a
-            href="https://x.com/Nil053/status/2039996579965542516"
-            target="_blank"
-            rel="noopener"
-            ><strong>Mobile UI</strong></a
-          >: continue conversations on your phone with a touch-optimized UI
-        </li>
-        <li>
-          Agents can
-          <a
-            href="https://x.com/Nil053/status/2039494626265149778"
-            target="_blank"
-            rel="noopener"
-            ><strong>check on each other</strong></a
-          >
-          and
-          <a
-            href="https://x.com/Nil053/status/2053179885108232328"
-            target="_blank"
-            rel="noopener"
-            ><strong>message each other</strong></a
-          >: all messages (human and agent) get queued while agents are busy.
-        </li>
-        <li>
-          Built-in
-          <a
-            href="https://x.com/Nil053/status/2039504957184090281"
-            target="_blank"
-            rel="noopener"
-            ><strong>terminal</strong></a
-          >,
-          <a href="/built-in-editor.jpeg" target="_blank" rel="noopener"
-            ><strong>editor</strong></a
-          >, and
-          <a
-            href="https://x.com/Nil053/status/2047917731874557983"
-            target="_blank"
-            rel="noopener"
-            ><strong>diff tool</strong></a
-          >
-        </li>
-        <li>
-          <strong>Voice-to-text</strong> prompting and
-          <strong>text-to-speech</strong> responses
-        </li>
-        <li>
-          <a
-            href="https://x.com/Nil053/status/2040018957453918431"
-            target="_blank"
-            rel="noopener"
-            ><strong>Custom commands</strong></a
-          >
-          in addition to your own:
-          <code
-            style="
-              background: var(--bg);
-              padding: 1px 6px;
-              border-radius: 4px;
-              font-size: 0.85em;
-            "
-            >/isomux-peer-review</code
-          >,
-          <code
-            style="
-              background: var(--bg);
-              padding: 1px 6px;
-              border-radius: 4px;
-              font-size: 0.85em;
-            "
-            >/isomux-all-hands</code
-          >, etc. (see
-          <code
-            style="
-              background: var(--bg);
-              padding: 1px 6px;
-              border-radius: 4px;
-              font-size: 0.85em;
-            "
-            >/help</code
-          >)
-        </li>
-        <li>
-          <a
-            href="https://x.com/Nil053/status/2050130563915534346"
-            target="_blank"
-            rel="noopener"
-            ><strong>Hierarchical system prompts</strong></a
-          >: office-wide, per-room, and per-agent prompts
-        </li>
-        <li>
-          <a
-            href="https://x.com/Nil053/status/2040871759529025617"
-            target="_blank"
-            rel="noopener"
-            ><strong>Shared task board</strong></a
-          >: humans and agents can create, assign, claim, and close tasks
-        </li>
-        <li>
-          <a
-            href="https://x.com/Nil053/status/2048308972072079753"
-            target="_blank"
-            rel="noopener"
-            ><strong>Cron jobs</strong></a
-          >: schedule recurring agent runs; each run is a fresh chat (that can
-          be continued)
-        </li>
-        <li>
-          <strong>Image/PDF attachments</strong>: agents understand images and
-          PDFs and can show images inline
-        </li>
-        <li>
-          <strong>Conversation branching</strong>: edit any past message to fork
-          the conversation
-        </li>
-        <li>
-          <strong>Notifications</strong>: get pinged (and waved at) when an
-          agent finishes
-        </li>
-        <li>
-          <a
-            href="https://x.com/Nil053/status/2039497314826666469"
-            target="_blank"
-            rel="noopener"
-            ><strong>Pre-tool-call safety hooks</strong></a
-          >
-          (Claude agents)
-        </li>
-      </ul>
+      <div class="feature-group">
+        <h3>Multi-provider</h3>
+        <ul>
+          <li>
+            Mix Claude agents and Codex agents in the same office
+          </li>
+          <li>
+            <strong>Works with your subscriptions</strong>: if
+            <code
+              style="
+                background: var(--bg);
+                padding: 1px 6px;
+                border-radius: 4px;
+                font-size: 0.85em;
+              "
+              >claude</code
+            >
+            or
+            <code
+              style="
+                background: var(--bg);
+                padding: 1px 6px;
+                border-radius: 4px;
+                font-size: 0.85em;
+              "
+              >codex</code
+            >
+            works in your terminal, isomux works in your browser
+          </li>
+        </ul>
+      </div>
+
+      <div class="feature-group">
+        <h3>Multi-agent</h3>
+        <ul>
+          <li>
+            Agents
+            <a
+              href="https://x.com/Nil053/status/2039494626265149778"
+              target="_blank"
+              rel="noopener"
+              ><strong>check on each other</strong></a
+            >
+            and
+            <a
+              href="https://x.com/Nil053/status/2053179885108232328"
+              target="_blank"
+              rel="noopener"
+              ><strong>message each other</strong></a
+            >: all messages (human and agent) get queued while agents are busy
+          </li>
+          <li>
+            <a
+              href="https://x.com/Nil053/status/2040871759529025617"
+              target="_blank"
+              rel="noopener"
+              ><strong>Shared task board</strong></a
+            >: humans and agents can create, assign, claim, and close tasks
+          </li>
+          <li>
+            <a
+              href="https://x.com/Nil053/status/2050130563915534346"
+              target="_blank"
+              rel="noopener"
+              ><strong>Hierarchical system prompts</strong></a
+            >: office-wide, per-room, and per-agent prompts
+          </li>
+          <li>
+            <a
+              href="https://x.com/Nil053/status/2057153876332331507"
+              target="_blank"
+              rel="noopener"
+              ><strong>Custom commands</strong></a
+            >
+            in addition to your own:
+            <code
+              style="
+                background: var(--bg);
+                padding: 1px 6px;
+                border-radius: 4px;
+                font-size: 0.85em;
+              "
+              >/pair-programming</code
+            >,
+            <code
+              style="
+                background: var(--bg);
+                padding: 1px 6px;
+                border-radius: 4px;
+                font-size: 0.85em;
+              "
+              >/peer-review</code
+            >, etc.
+          </li>
+        </ul>
+      </div>
+
+      <div class="feature-group">
+        <h3>Multi-user</h3>
+        <ul>
+          <li>
+            <a
+              href="https://x.com/Nil053/status/2050141843741081928"
+              target="_blank"
+              rel="noopener"
+              ><strong>Collaborate in agent conversations</strong></a
+            >: anyone you've invited to your office can chime in
+          </li>
+          <li>
+            <a
+              href="https://x.com/Nil053/status/2056256446862704838"
+              target="_blank"
+              rel="noopener"
+              ><strong>Live user presence</strong></a
+            >: other users (and your other devices) appear as small ghosts next
+            to the agent they're talking to
+          </li>
+          <li>
+            <a href="/docs/access-and-invites"
+              ><strong>Invite-link access</strong></a
+            >: owner mints a URL per device, sends it out-of-band, the invitee
+            clicks and is signed in. No accounts, no passwords
+          </li>
+        </ul>
+      </div>
+
+      <div class="feature-group">
+        <h3>Multi-device</h3>
+        <ul>
+          <li>
+            Run on
+            <code
+              style="
+                background: var(--bg);
+                padding: 1px 6px;
+                border-radius: 4px;
+                font-size: 0.85em;
+              "
+              >localhost:4000</code
+            >
+            for local use, or as a
+            <strong>self-hosted persistent server</strong> reachable
+            <strong>from any device</strong> (see
+            <a href="/docs/self-hosted">how</a>)
+          </li>
+          <li>
+            <a
+              href="https://x.com/Nil053/status/2039996579965542516"
+              target="_blank"
+              rel="noopener"
+              ><strong>Mobile UI</strong></a
+            >: continue on your phone with a touch-optimized UI
+          </li>
+          <li>
+            <strong>Real-time updates</strong>: same conversations, same
+            filesystem, no syncing headaches between devices
+          </li>
+        </ul>
+      </div>
+
+      <div class="feature-group">
+        <h3>Cute in a useful way</h3>
+        <ul>
+          <li>
+            Visual office: see what every agent is doing at a glance
+          </li>
+          <li>
+            <strong>Animated characters</strong>: sleeping when idle, typing
+            when working, waving when waiting for you
+          </li>
+          <li>
+            <a
+              href="https://x.com/Nil053/status/2039027360117506399"
+              target="_blank"
+              rel="noopener"
+              ><strong>Skeuomorphic touches</strong></a
+            >: click the moon to toggle dark mode, click doors to switch rooms,
+            etc.
+          </li>
+          <li>
+            <a
+              href="https://x.com/Nil053/status/2054709610519638506"
+              target="_blank"
+              rel="noopener"
+              ><strong>6 color themes</strong></a
+            >
+          </li>
+          <li>
+            <strong>Auto-generated topic</strong> below each nametag, so you
+            remember what each agent is working on
+          </li>
+        </ul>
+      </div>
+
+      <div class="feature-group">
+        <h3>QoL</h3>
+        <ul>
+          <li>
+            Built-in
+            <a
+              href="https://x.com/Nil053/status/2039504957184090281"
+              target="_blank"
+              rel="noopener"
+              ><strong>terminal</strong></a
+            >,
+            <a href="/built-in-editor.jpeg" target="_blank" rel="noopener"
+              ><strong>editor</strong></a
+            >, and
+            <a
+              href="https://x.com/Nil053/status/2047917731874557983"
+              target="_blank"
+              rel="noopener"
+              ><strong>diff tool</strong></a
+            >
+          </li>
+          <li>
+            <strong>Voice-to-text</strong> prompting and
+            <strong>text-to-speech</strong> responses
+          </li>
+          <li>
+            <a
+              href="https://x.com/Nil053/status/2048308972072079753"
+              target="_blank"
+              rel="noopener"
+              ><strong>Cron jobs</strong></a
+            >: schedule recurring agent runs; each run is a fresh chat (that
+            can be resumed)
+          </li>
+          <li>
+            <strong>Image/PDF attachments</strong>: agents understand images
+            and PDFs and can show images inline
+          </li>
+          <li>
+            <strong>Conversation branching</strong>: edit any past message to
+            fork the conversation
+          </li>
+          <li>
+            <strong>Notifications</strong>: get pinged (and waved at) when an
+            agent finishes
+          </li>
+          <li>
+            <a
+              href="https://x.com/Nil053/status/2039497314826666469"
+              target="_blank"
+              rel="noopener"
+              ><strong>Pre-tool-call safety hooks</strong></a
+            >
+          </li>
+        </ul>
+      </div>
 
       <p style="color: var(--text-dim); font-size: 0.95rem">
         See the <a href="/docs">full feature list</a>.
