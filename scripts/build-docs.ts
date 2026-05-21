@@ -45,8 +45,8 @@ type DocPage = {
 const NAV_ORDER = [
   "features",
   "self-hosted",
-  "access-and-invites",
   "how-it-works",
+  "access-and-invites",
   "security-audit",
 ];
 
@@ -178,9 +178,9 @@ function loadPage(filename: string): DocPage {
   const title = fm.title || deriveTitle(body, slug);
   const navTitle = fm.navTitle || title;
   const description = fm.description || deriveDescription(body);
-  // Strip the first H1 — the doc-header already shows the page title.
-  const bodyWithoutH1 = body.replace(/^#\s+[^\n]*\n+/, "");
-  const { html, toc } = renderMarkdown(bodyWithoutH1);
+  // Render the body as-is; the markdown H1 becomes the visible page title.
+  // The derived `title` is still used for the <title> tag and meta tags.
+  const { html, toc } = renderMarkdown(body);
   const navIdx = NAV_ORDER.indexOf(slug);
   const order = fm.order ?? (navIdx >= 0 ? navIdx : NAV_ORDER.length + 100);
   return { slug, title, navTitle, description, order, html, toc, raw: body };
@@ -311,19 +311,6 @@ a.topbar-crumb:hover { color: var(--accent); text-decoration: none; }
   border-left-color: var(--accent);
 }
 
-/* ---- Page header ---- */
-.doc-header { margin-bottom: 28px; padding-bottom: 20px; border-bottom: 1px solid var(--border); }
-.doc-header h1 {
-  font-size: 2.1rem;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  margin-bottom: 8px;
-}
-.doc-header .doc-desc {
-  color: var(--text-dim);
-  font-size: 1rem;
-}
-
 /* ---- TOC ---- */
 .toc {
   background: var(--bg-surface);
@@ -348,6 +335,14 @@ a.topbar-crumb:hover { color: var(--accent); text-decoration: none; }
 .toc a:hover { color: var(--accent); text-decoration: none; }
 
 /* ---- Content ---- */
+.content h1 {
+  font-size: 2.1rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 0 0 20px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
 .content h2 {
   font-size: 1.4rem;
   font-weight: 700;
@@ -504,7 +499,7 @@ footer.site-footer .footer-links { display: flex; gap: 18px; }
   }
   .topbar-inner { padding: 10px 16px; gap: 12px; }
   .topbar-links { gap: 12px; }
-  .doc-header h1 { font-size: 1.6rem; }
+  .content h1 { font-size: 1.6rem; }
   .content h2 { font-size: 1.2rem; }
   .doc-nav { grid-template-columns: 1fr; }
   .doc-nav-card.next { text-align: left; }
@@ -623,6 +618,15 @@ function renderDocPage(
   next: DocPage | null,
 ): string {
   const tocHtml = renderTocHtml(page.toc);
+  // Insert TOC just after the page's H1 so it reads "title → on this page → body".
+  // Fall back to TOC-first if there's no H1 in the body.
+  const articleHtml = (() => {
+    if (!tocHtml) return page.html;
+    const h1Close = page.html.indexOf("</h1>");
+    if (h1Close === -1) return `${tocHtml}\n${page.html}`;
+    const insertAt = h1Close + "</h1>".length;
+    return `${page.html.slice(0, insertAt)}\n${tocHtml}\n${page.html.slice(insertAt)}`;
+  })();
   const prevCard = prev
     ? `<a class="doc-nav-card prev" href="${pageUrl(prev)}"><div class="doc-nav-dir">&larr; Previous</div><div class="doc-nav-title">${escapeHtml(prev.title)}</div></a>`
     : `<div></div>`;
@@ -633,12 +637,8 @@ function renderDocPage(
   const body = `<div class="docs-layout">
 ${sidebar}
 <main>
-<header class="doc-header">
-  <h1>${escapeHtml(page.title)}</h1>
-</header>
-${tocHtml}
 <article class="content">
-${page.html}
+${articleHtml}
 </article>
 <nav class="doc-nav">
   ${prevCard}

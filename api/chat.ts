@@ -149,7 +149,7 @@ Setup:
 - Kill removes agent and frees desk
 
 ### Mobile Support
-- Open from your phone — same server URL (whether tailnet-only or public via Funnel / reverse proxy), touch-optimized UI
+- Open from your phone — same server URL (whether VPN-only or public via Funnel / reverse proxy), touch-optimized UI
 - Instant sync — laptop and phone see the same state in real time over WebSocket
 - The isometric office works on mobile; there's also an agent list view as an alternative
 - Full conversation view with readable font sizes and two-row header

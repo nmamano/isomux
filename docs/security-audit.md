@@ -77,16 +77,16 @@ A separate **shared-device** risk applies to anyone who opens Isomux on a comput
 
 - **Tight TTL.** Owner-issued invite links expire 24 hours after issuing (`INVITE_TTL_MS` in `server/auth.ts`). Self-device invite links expire 1 hour after issuing (`SELF_INVITE_TTL_MS`). Neither TTL is configurable.
 - **`Referrer-Policy: no-referrer`** on `/i/<token>`, the accept page, the SPA shell, and all auth pages that may carry a bearer token in the URL (`server/auth-middleware.ts:securityHeaders()`), so the token cannot leak via the Referer header on outbound navigations from the accept page. The first-owner claim form intentionally omits this header so Chrome doesn't downgrade its form-POST Origin to `null`; the claim URL has no token to leak.
-- **One-time use.** Once the legitimate recipient clicks accept, the invite is permanently consumed (`server/auth.ts:712-721`). Any subsequent leak is inert.
-- **Mutex-serialized acceptance.** Two concurrent clicks on the same URL cannot both succeed (`server/auth.ts:95-100`); whichever runs second sees `consumed=true` and is rejected.
+- **One-time use.** Once the legitimate recipient clicks accept, the invite is permanently consumed (`server/auth.ts`). Any subsequent leak is inert.
+- **Mutex-serialized acceptance.** Two concurrent clicks on the same URL cannot both succeed (`server/auth.ts`); whichever runs second sees `consumed=true` and is rejected.
 
 **Residual risk.** Anything that obtains the URL before the recipient clicks — primarily someone with access to the recipient's browser history during the 24h (or 1h) window, or anyone who compromises the delivery channel during that same window — can claim the invite first. The legitimate recipient sees a 410 Gone page on their later attempt.
 
 **Affected files & lines.**
 
-- `server/auth.ts:441-450` — `INVITE_TTL_MS` and `SELF_INVITE_TTL_MS` constants.
+- `server/auth.ts` — `INVITE_TTL_MS` and `SELF_INVITE_TTL_MS` constants.
 - `server/auth-middleware.ts` — `securityHeaders()` helper, spread into token-bearing auth/invite HTML responses and the SPA shell; first-owner claim responses omit `Referrer-Policy` because their URL contains no bearer token (`securityHeaders({ tokenInUrl: false })`).
-- `server/auth.ts:712-721` — one-time consumption.
+- `server/auth.ts` — one-time consumption.
 
 **Operator guidance.** Send invites over channels you trust, and ask invitees to click promptly. The TTL is short enough that a leaked link generally expires before a casual leaker (a shared device's next user, a forgotten-to-log-out chat archive) can act on it.
 
@@ -96,18 +96,18 @@ A separate **shared-device** risk applies to anyone who opens Isomux on a comput
 
 **Severity:** Low (the lifetime is a deliberate product choice).
 
-**Description.** After acceptance, the session cookie persists for 30 days of rolling activity with a 1-year absolute cap (`server/auth.ts:712-723`). There is no client-side idle timeout. A member who opens isomux on a shared device (kiosk, family computer, work laptop they later return to IT, library terminal) and forgets to sign out leaves an authenticated session viable for up to 1 year. The next user of the device — who may not be an intended invitee — has full access in the original user's role and identity without ever needing the invite URL or the cookie value.
+**Description.** After acceptance, the session cookie persists for 30 days of rolling activity with a 1-year absolute cap (`server/auth.ts`). There is no client-side idle timeout. A member who opens isomux on a shared device (kiosk, family computer, work laptop they later return to IT, library terminal) and forgets to sign out leaves an authenticated session viable for up to 1 year. The next user of the device — who may not be an intended invitee — has full access in the original user's role and identity without ever needing the invite URL or the cookie value.
 
-The cookie's `SameSite=Lax`, `HttpOnly`, `Secure`-on-HTTPS, and host-only attributes (`server/auth.ts:1328-1346`) defend against every cross-site attack; they do not defend against the next user of the same physical browser.
+The cookie's `SameSite=Lax`, `HttpOnly`, `Secure`-on-HTTPS, and host-only attributes (`server/auth.ts`) defend against every cross-site attack; they do not defend against the next user of the same physical browser.
 
 **Affected files & lines.**
 
-- `server/auth.ts:712-723` — `rollingTtlMs = 30 days`, `absoluteTtlMs = 365 days`.
+- `server/auth.ts` — `rollingTtlMs = 30 days`, `absoluteTtlMs = 365 days`.
 
 **Mitigation in place.**
 
-- **Per-device revocation.** The Access pane lists every active session with its device user-agent, last-seen timestamp, and an 8-character device prefix. A member who realizes they left a session open on a shared device can revoke it from any other authenticated device. Revocation propagates over the active WebSocket within ~1 second (`server/auth.ts:327-339`: send `session_expired` then close), so the revoked browser tab lands on the login page rather than continuing to run.
-- **Lockout prevention.** Revoking the office's last active owner session is refused server-side (`server/auth.ts:1146-1184`), so an operator cannot accidentally lock the office out of in-browser recovery while trying to clean up sessions.
+- **Per-device revocation.** The Access pane lists every active session with its device user-agent, last-seen timestamp, and an 8-character device prefix. A member who realizes they left a session open on a shared device can revoke it from any other authenticated device. Revocation propagates over the active WebSocket within ~1 second (`server/auth.ts`: send `session_expired` then close), so the revoked browser tab lands on the login page rather than continuing to run.
+- **Lockout prevention.** Revoking the office's last active owner session is refused server-side (`server/auth.ts`), so an operator cannot accidentally lock the office out of in-browser recovery while trying to clean up sessions.
 
 **Operator guidance.** Do not stay signed in on devices you don't control. Use private/incognito windows on shared computers, or revoke from the Access pane after the fact. A shorter rolling-TTL operator override and an optional idle timeout would help deployments where shared-device use is common; neither is implemented today.
 
@@ -117,7 +117,7 @@ The cookie's `SameSite=Lax`, `HttpOnly`, `Secure`-on-HTTPS, and host-only attrib
 
 **Severity:** Informational.
 
-**Description.** `peekInvite` (`server/auth.ts:546-563`) returns one of three distinct errors — `not_found`, `consumed`, `expired` — and the HTTP handler `renderInviteError` renders a different message for each. An attacker who somehow obtained a _partial_ token (e.g. the 8-character display prefix from a log entry) could in principle distinguish "this prefix maps to a real token that's been used" from "this prefix doesn't map to anything." With 256 bits of token entropy this is not an actionable brute-force channel.
+**Description.** `peekInvite` (`server/auth.ts`) returns one of three distinct errors — `not_found`, `consumed`, `expired` — and the HTTP handler `renderInviteError` renders a different message for each. An attacker who somehow obtained a _partial_ token (e.g. the 8-character display prefix from a log entry) could in principle distinguish "this prefix maps to a real token that's been used" from "this prefix doesn't map to anything." With 256 bits of token entropy this is not an actionable brute-force channel.
 
 **Recommendation (optional).** Collapse all three error codes into a single "This invite is no longer valid" response. The legitimate user loses a small UX nicety (they don't learn whether their invite specifically expired vs was already consumed); the response carries no signal about the token's lifecycle state. Not currently implemented.
 
@@ -129,27 +129,27 @@ These are observed-and-confirmed-correct implementation details that defend agai
 
 ### 5.1 Token entropy
 
-Both invite tokens and session ids are 32 bytes (256 bits) of `randomBytes`, base64url-encoded (`server/auth.ts:273-278`). Forgery by brute force is infeasible.
+Both invite tokens and session ids are 32 bytes (256 bits) of `randomBytes`, base64url-encoded (`server/auth.ts`). Forgery by brute force is infeasible.
 
 ### 5.2 Hash-only on-disk storage
 
-Only `sha256(rawToken)` and an 8-character display prefix are persisted (`server/auth.ts:55-82`). A read of `~/.isomux/invites.json` or `~/.isomux/sessions.json` does not yield usable bearer tokens.
+Only `sha256(rawToken)` and an 8-character display prefix are persisted (`server/auth.ts`). A read of `~/.isomux/invites.json` or `~/.isomux/sessions.json` does not yield usable bearer tokens.
 
 ### 5.3 Constant-time comparison
 
-`safeHashEq` (`server/auth.ts:287-290`) compares hex strings via `timingSafeEqual` after a length check, used on every invite peek, accept, and session validate.
+`safeHashEq` (`server/auth.ts`) compares hex strings via `timingSafeEqual` after a length check, used on every invite peek, accept, and session validate.
 
 ### 5.4 Mutex-serialized state mutations
 
-A single in-process promise chain (`server/auth.ts:95-100`) serializes every mutation. Two concurrent attempts to consume the same invite cannot both succeed.
+A single in-process promise chain (`server/auth.ts`) serializes every mutation. Two concurrent attempts to consume the same invite cannot both succeed.
 
 ### 5.5 Fail-closed persist ordering
 
-Invite acceptance persists the invite-consumed flag **before** the session (`server/auth.ts:705-721`). A mid-flow disk failure leaves the invite consumed without a session, the safer failure mode.
+Invite acceptance persists the invite-consumed flag **before** the session (`acceptInvite` in `server/auth.ts`). For a process crash between the two writes, the invite stays consumed without a session: the safer failure mode. For a handled session-persist failure, the in-memory session is deleted and the invite-consumed flag is reverted, so the invite stays usable for a retry.
 
 ### 5.6 Cookie attribute set
 
-`setCookieHeader` (`server/auth.ts:1328-1346`) emits `HttpOnly; Path=/; SameSite=Lax`, with `Secure` when the resolved public origin is HTTPS, and no `Domain` attribute (host-only).
+`setCookieHeader` (`server/auth.ts`) emits `HttpOnly; Path=/; SameSite=Lax`, with `Secure` when the resolved public origin is HTTPS, and no `Domain` attribute (host-only).
 
 ### 5.7 Origin allowlist construction
 
@@ -157,7 +157,7 @@ Invite acceptance persists the invite-consumed flag **before** the session (`ser
 
 ### 5.8 WebSocket upgrade gating
 
-`/ws` (`server/index.ts:2209-2223`) requires both a valid cookie **and** an Origin header matching the resolved public origin. No loopback bypass on `/ws`. A cross-origin website cannot upgrade to the office WebSocket.
+`/ws` (`server/index.ts`) requires both a valid cookie **and** an Origin header matching the resolved public origin. No loopback bypass on `/ws`. A cross-origin website cannot upgrade to the office WebSocket.
 
 ### 5.9 State-changing HTTP Origin gate
 
@@ -177,7 +177,7 @@ The first-owner claim form (GET /) only renders when `!hasOwner()`. The `POST /a
 
 ### 5.13 Notify-then-close revoke contract
 
-`forceExpireSocketsForSession` (`server/auth.ts:327-339`) sends `{type: "session_expired"}` _before_ closing the socket. A revoked tab lands on the login page within ~1 second rather than looping reconnect against a 401.
+`forceExpireSocketsForSession` (`server/auth.ts`) sends `{type: "session_expired"}` _before_ closing the socket. A revoked tab lands on the login page within ~1 second rather than looping reconnect against a 401.
 
 ### 5.14 Per-message session recheck
 
@@ -185,7 +185,7 @@ WS messages re-validate via `revalidateByHash`. Revocation takes effect on the n
 
 ### 5.15 Wire-trust override
 
-The command dispatcher uses `session.username` server-side rather than trusting `cmd.username` (`server/index.ts:636-638`). A captured cookie cannot be used to spoof a different user's display name on chat messages.
+The command dispatcher uses `session.username` server-side rather than trusting `cmd.username` (`server/index.ts`). A captured cookie cannot be used to spoof a different user's display name on chat messages.
 
 ### 5.16 Security headers on every HTML surface
 
@@ -239,7 +239,7 @@ If an operator configures `publicOrigin` but disables the _External access_ togg
 
 ### 7.3 Log hygiene
 
-Raw tokens are never logged. `safePrefix` (`server/auth.ts:1382-1384`) is used for the few diagnostic log lines that need to reference an invite/session. No token leakage was found in error paths or `console.error` calls.
+Raw tokens are never logged. `safePrefix` (`server/auth.ts`) is used for the few diagnostic log lines that need to reference an invite/session. No token leakage was found in error paths or `console.error` calls.
 
 ### 7.4 Cookie revocation latency
 
@@ -278,17 +278,17 @@ Known **post-acceptance** authorization gaps fall outside this report's external
 
 ### C.1 Cronjobs and cronjob run transcripts are office-wide-readable and globally mutable
 
-- `server/index.ts:2887-2894` — every WebSocket open broadcasts the full cronjob list to the connecting session.
-- `server/index.ts:1488-1637` — `add_cronjob`, `update_cronjob`, `delete_cronjob`, `run_cronjob_now`, `update_cronjobs_prompt`, `list_cronjob_runs`, `list_all_cronjob_runs`, `load_cronjob_run`, `send_cronjob_run_message`, `edit_cronjob_run_message` — none verify the calling session owns the cronjob.
-- `server/index.ts:2296-2348` — HTTP `GET /cronjobs/*` is loopback-bypassable and unscoped.
+- `server/index.ts` — every WebSocket open broadcasts the full cronjob list to the connecting session.
+- `server/index.ts` — `add_cronjob`, `update_cronjob`, `delete_cronjob`, `run_cronjob_now`, `update_cronjobs_prompt`, `list_cronjob_runs`, `list_all_cronjob_runs`, `load_cronjob_run`, `send_cronjob_run_message`, `edit_cronjob_run_message` — none verify the calling session owns the cronjob.
+- `server/index.ts` — HTTP `GET /cronjobs/*` is loopback-bypassable and unscoped.
 - The `userId`/`username` fields are stored on each cronjob but no policy currently consumes them.
 
 **If tightening is desired:** decide per-user vs office-wide-read + owner-only-write; gate the WS commands and HTTP routes accordingly.
 
 ### C.2 File serving and uploads bypass the room/agent ACL
 
-- `server/index.ts:2733-2806` — `POST /api/upload/:agentId` checks the agent exists but does not check `agentVisibleForSession`.
-- `server/index.ts:2808-2829` — `GET /api/files/:agentId/:filename` and `GET /api/images/:agentId/:filename` do not check visibility.
+- `server/index.ts` — `POST /api/upload/:agentId` checks the agent exists but does not check `agentVisibleForSession`.
+- `server/index.ts` — `GET /api/files/:agentId/:filename` and `GET /api/images/:agentId/:filename` do not check visibility.
 - `saveFile` (`server/persistence.ts`) preserves sanitized original filenames with numeric suffixes on collision, so common filenames are guessable.
 - A member who previously had access to a room retains the ability to fetch any files whose URLs they remembered.
 
@@ -296,28 +296,28 @@ Known **post-acceptance** authorization gaps fall outside this report's external
 
 ### C.3 Uploaded HTML executes as same-origin active content
 
-- `server/mime-types.ts:7-21` maps `html`/`css`/`xml`/`json` to their renderable MIME types; the comment at lines 2-5 acknowledges nosniff is absent.
-- `server/index.ts:2823-2828` — `/api/files/...` is served at the office's own origin with the declared MIME type.
+- `server/mime-types.ts` maps `html`/`css`/`xml`/`json` to their renderable MIME types; the comment at lines 2-5 acknowledges nosniff is absent.
+- `server/index.ts` — `/api/files/...` is served at the office's own origin with the declared MIME type.
 - Combined with C.2, any authenticated member can upload `payload.html` into any agent and deliver the URL to a victim; opening it in the victim's browser (top-level navigation under `SameSite=Lax` attaches the cookie) yields stored XSS in the office's origin with full WebSocket-command capability.
 
 **If tightening is desired:** demote active-content extensions (`html`/`htm`/`xml`/`xhtml`/`svg`/`css`/`js`) on `/api/files` to `application/octet-stream` with `Content-Disposition: attachment`; add `X-Content-Type-Options: nosniff`; consider serving attachments from a separate origin.
 
 ### C.4 Loopback agent-API trusts any same-host process as an agent
 
-- `server/index.ts:2548-2729` — `POST /agents/:id/diff|edit-file|read-file|terminal-command|message` are loopback-bypassable; the handlers validate `senderAgentId` exists but do not authenticate that the calling process _is_ that agent.
+- `server/index.ts` — `POST /agents/:id/diff|edit-file|read-file|terminal-command|message` are loopback-bypassable; the handlers validate `senderAgentId` exists but do not authenticate that the calling process _is_ that agent.
 - A same-host process can post messages and surface UI cards purporting to come from any other agent.
 
 **Status:** documented in `docs/access-and-invites.md` as "Not protection against rogue agents." Tightening requires per-agent auth tokens on `/agents/:id/*` calls.
 
 ### C.5 HTTP `POST /tasks` accepts client-controlled attribution
 
-- `server/index.ts:2403-2441` — HTTP `POST /tasks` trusts `body.createdBy` and `body.username`; the WS path uses `session.username`.
+- `server/index.ts` — HTTP `POST /tasks` trusts `body.createdBy` and `body.username`; the WS path uses `session.username`.
 
 **If tightening is desired:** force `createdBy = session.username` on the authenticated browser path; keep body-driven attribution for the loopback path.
 
 ### C.6 Room creation/close/rename gates use only room-visibility
 
-- `server/index.ts:1366-1460` — `create_room` is unrestricted; `close_room` and `rename_room` gate on `roomAllowedForSession` only.
+- `server/index.ts` — `create_room` is unrestricted; `close_room` and `rename_room` gate on `roomAllowedForSession` only.
 
 **If tightening is desired:** decide ownership semantics for rooms — closing/renaming requires creator-or-owner.
 

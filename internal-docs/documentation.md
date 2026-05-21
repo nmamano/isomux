@@ -39,8 +39,8 @@ These documents are written in my voice, so I need to approve any copy changes b
 - **Audience:** Anyone who needs more than the README/landing highlights — operators, security reviewers, would-be contributors.
 - **Pages (in sidebar/nav order):**
   - `features.md` — canonical long-form feature inventory. Built as the docs **landing page** at `/docs` (not `/docs/features`). Also contains the Backup and Restore section (no separate page).
-  - `self-hosted.md` — three-part always-on-server walkthrough: keep it running (systemd), make it reachable (tailnet vs public URL), authorize users (links to access-and-invites).
-  - `access-and-invites.md` — canonical reachability/auth deep dive: invite-link flow, Tailscale Funnel agent prompt, Cloudflare Tunnel, Caddy, `ISOMUX_PUBLIC_ORIGIN`, cookie semantics. The Funnel prompt lives here, nowhere else.
+  - `self-hosted.md` — three-part always-on-server walkthrough: keep it running (systemd), make it reachable (VPN vs public URL), authorize users (links to access-and-invites).
+  - `access-and-invites.md` — canonical reachability/auth deep dive: invite-link flow, Tailscale Funnel agent prompt, Caddy, `ISOMUX_PUBLIC_ORIGIN`, cookie semantics. The Funnel prompt lives here, nowhere else.
   - `how-it-works.md` — short multi-provider technical overview (Bun process, Claude SDK + Codex app-server, WebSocket sync, persistence).
   - `security-audit.md` — authorization-system threat model and findings.
 - **Frontmatter:** `title`, `description`, `navTitle` (override the sidebar label when the H1 is too long), and `order` (override nav position).

@@ -96,7 +96,7 @@ Visit **http://localhost:4000** in your browser. The first time you start the se
 
 Want to run it on an always-on box, access from every device, and invite other users to your office? See [self-hosted setup](docs/self-hosted.md).
 
-> **Note:** Isomux gives shell-equivalent access to authenticated users. Only invite people you trust.
+> **Note:** Isomux agents can run shell commands, so authenticated users effectively have shell access to the host. Only invite people you trust.
 
 ## How it works
 

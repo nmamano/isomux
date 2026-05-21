@@ -42,11 +42,11 @@ This works fine for _your_ devices and for collaborators you trust enough to inv
 
 The recommended path is **Tailscale Funnel**: it exposes your existing tailnet hostname (`*.ts.net`) to the public internet without buying a domain or opening router ports. TLS terminates on your box, not at the Tailscale relay.
 
-The [access-and-invites doc](access-and-invites.md#recommended-tailscale-funnel) has the full agent prompt that walks you through Funnel setup — including the safety checks for existing port-443 services and the hand-off to the Access pane to enable external access. Cloudflare Tunnel and Caddy alternatives are documented in the same file.
+The [access-and-invites doc](access-and-invites.md#recommended-tailscale-funnel) has the full agent prompt that walks you through Funnel setup — including the safety checks for existing port-443 services and the hand-off to the Access pane to enable external access. A Caddy alternative is documented in the same file.
 
 ### Install on mobile (PWA)
 
-Once the office is reachable from your phone (over the tailnet or a public URL), install it as a PWA for a native-app feel:
+Once the office is reachable from your phone (over your VPN or a public URL), install it as a PWA for a native-app feel:
 
 - **iPhone:** Safari → Share → "Add to Home Screen".
 - **Android:** Chrome prompts you to install on first visit. Requires HTTPS — see the next subsection.
@@ -84,4 +84,4 @@ To claim the office as the first owner, open `http://localhost:4000` on the host
 
 For the full flow — invite TTLs, multi-device users, sign-out, owner recovery, threat model — see [access and invites](access-and-invites.md).
 
-> **Note:** Isomux gives shell-equivalent access to authenticated users. Only invite people you trust.
+> **Note:** Isomux agents can run shell commands, so authenticated users effectively have shell access to the host. Only invite people you trust.

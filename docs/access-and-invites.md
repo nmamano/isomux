@@ -6,17 +6,17 @@ For an audit-level treatment of the same system — threat model, findings, veri
 
 ## TL;DR
 
-- Isomux gives shell-equivalent access to authenticated users. Only invite people you trust.
+- Isomux agents can run shell commands, so authenticated users effectively have shell access to the host. Only invite people you trust.
 - The server gates every browser request (HTTP + WebSocket) by a session cookie.
 - Sessions are created when an invitee opens an invite URL the office owner generated.
-- The first owner claims the office through a name-picker form at `http://localhost:4000` on the host machine. Until that claim happens the server listens on the loopback interface only, so the form is only reachable from the host (or via an SSH tunnel from another machine).
+- The first owner claims the office at `http://localhost:4000` on the host machine. Until that claim happens the server listens on the loopback interface only, so the form is only reachable from the host (or via an SSH tunnel from another machine).
 - Two roles exist: `owner` (can mint invites, revoke sessions, toggle external access) and `member` (can use the office). Both have full operational access — the role split exists to control who expands the trust boundary.
 
 ## End-to-end flow
 
 ### 1. First boot — owner claim
 
-On startup, the server checks `~/.isomux/users.json`. When no user has `role: "owner"`, the server listens on the loopback interface only (so the office isn't reachable from your LAN or tailnet yet), serves a name-picker form at `/`, and prints a banner with the two ways to reach it:
+On startup, the server checks `~/.isomux/users.json`. When no user has `role: "owner"`, the server listens on the loopback interface only (so the office isn't reachable from your LAN or VPN yet), serves a name-picker form at `/`, and prints a banner with the two ways to reach it:
 
 ```
 ================================================================
@@ -53,7 +53,7 @@ Owner-issued invite links expire 24h after issuing if unused; self-device links 
 
 ### 3. Multi-device users
 
-Inviting a user who already exists requires the `Issue an additional invite` confirmation in the modal (or `--allow-existing` in the CLI). The framing is "additional invite for that identity" — it does not revoke their existing sessions, does not mutate their role. One user can have many simultaneous sessions (laptop + phone + tablet).
+Inviting a user who already exists requires the `Issue an additional invite` confirmation in the modal. The framing is "additional invite for that identity" — it does not revoke their existing sessions, does not mutate their role. One user can have many simultaneous sessions (laptop + phone + tablet).
 
 ### 4. Sign out
 
@@ -70,8 +70,6 @@ Funnel exposes a single port on a Tailscale machine to the public internet over 
 Trade-offs:
 
 - **Dependency on Tailscale's relay and control plane.** Your reachability is contingent on Tailscale's infrastructure being up and on Tailscale not changing the free tier in adverse ways.
-- **Beta status.** Funnel is in beta and requires Tailscale v1.38.3 or later. No SLA, behavior can change.
-- **Non-configurable bandwidth limits.** Tailscale doesn't publish the cap, but it's generous enough that the WebSocket traffic isomux generates doesn't realistically hit it at personal or small-team scale.
 - **Public DNS visibility.** Your `*.ts.net` hostname (and therefore your tailnet name) becomes resolvable from the public internet and appears in Certificate Transparency logs once Tailscale provisions a Let's Encrypt cert.
 
 To set this up, claim ownership of your office first (open the form on the host or via `ssh -L`), then paste the following prompt into one of your isomux agents. The agent will install Tailscale if needed, walk you through enabling Funnel in the admin console, detect any existing services sharing port 443, and finish by reporting the public URL back to you. The final step (turning external access on inside the office) is a manual paste into the Access pane so the office's auth-state mutation goes through the documented configuration surface.
@@ -135,31 +133,17 @@ If you don't want a public URL at all, run isomux on your tailnet and only invit
 
 Invite links still work over the tailnet, but invitees have to install Tailscale and join your tailnet first.
 
-### Alternative: Cloudflare Tunnel
-
-Same outbound-tunnel shape as Funnel, but with Cloudflare's edge instead of Tailscale's. Requires a domain on a Cloudflare-managed zone (the auto-generated `<uuid>.cfargotunnel.com` URL is only a CNAME target, not directly browsable, and `trycloudflare.com` quick tunnels do not support the WebSocket traffic isomux relies on). The trade-off is a domain you have to buy and manage, plus Cloudflare's edge can technically see plaintext between its proxy and your origin.
-
-To set up by hand: install `cloudflared`, run `cloudflared tunnel login`, create a named tunnel, route your hostname to `localhost:4000`. Then in your already-claimed office, open the Access pane, enable _External access_, paste `https://your-tunnel-hostname.example.com` into the Public URL field, save, and restart isomux.
-
 ### Alternative: Caddy + your own DNS
 
-No third-party hop in the data path. You open port 443 on your router, point a DNS A record at your home IP (or use DDNS for a dynamic IP), and run Caddy in front of isomux:
+No third-party hop in the data path. Open port 443 on your router, point a DNS A record at your home IP (or use DDNS), run Caddy in front of isomux with `reverse_proxy localhost:4000` (Caddy auto-provisions a Let's Encrypt cert), then enable _External access_ in the Access pane with your `https://` URL and restart. Trade-offs: your home IP is publicly visible, you carry any DDoS surface, and the path fails if your ISP puts you behind CG-NAT.
 
-```
-office.example.com {
-  reverse_proxy localhost:4000
-}
-```
-
-Caddy auto-provisions a Let's Encrypt cert. Then in your already-claimed office, open the Access pane, enable _External access_, paste `https://office.example.com` into the Public URL field, save, and restart isomux.
-
-You own the stack end-to-end. Trade-offs: your home IP is publicly visible, you carry any DDoS surface, and this path fails entirely if your ISP puts you behind CG-NAT (so you can't port-forward in the first place).
+Cloudflare Tunnel is another outbound-tunnel option (same shape as Funnel using Cloudflare's edge; requires a domain on a Cloudflare-managed zone).
 
 ## External access and public origin
 
 Post-claim, the **Access pane** in User Settings has an _External access_ section with:
 
-- **Enable external access** toggle. Off by default; the server keeps binding `127.0.0.1` only and the office is reachable from the host machine (or via an SSH tunnel) but not from your LAN/tailnet.
+- **Enable external access** toggle. Off by default; the server keeps binding `127.0.0.1` only and the office is reachable from the host machine (or via an SSH tunnel) but not from your LAN/VPN.
 - **Public URL** text field. Where browsers on other machines will reach this office (e.g. `https://auntie.<your-tailnet>.ts.net`).
 
 Saving persists both fields to `~/.isomux/office-config.json` and mints an owner self-invite bound to the new URL so you can sign in on the new origin immediately. The toggle takes effect on the next isomux restart (the pane spells out the exact `systemctl --user restart isomux` command). Restart is intentional: changing the bind interface and cookie/origin policy mid-process is brittle, and the toggle is rare enough that "save then restart" is the right trade.
@@ -212,11 +196,13 @@ explicitly) rather than relying on session expiry.
 
 ## Bootstrap-window exposure
 
-Before an owner exists, the first-owner form is served only on `127.0.0.1`, so the OS bind rules out off-box clients regardless of LAN/tailnet topology — Isomux is not reachable to an outside attacker.
+Before an owner exists, the first-owner form is served only on `127.0.0.1`, so the OS bind rules out off-box clients regardless of LAN/VPN topology — Isomux is not reachable to an outside attacker.
 
-The residual gap: a same-host reverse proxy or tunnel (Tailscale Funnel, Caddy → localhost, Cloudflare Tunnel daemon, etc.) configured **before** an owner claims can forward external traffic to `localhost:4000`, and from Isomux's point of view that connection looks loopback. Anyone who can reach the proxy from outside could claim ownership through it. This is an inherent limit of the proxy-on-same-host topology; isomux can't tell the proxy is there.
+The residual gap: a same-host reverse proxy or tunnel (Tailscale Funnel, Caddy → localhost, etc.) configured **before** an owner claims can forward external traffic to `localhost:4000`, and from Isomux's point of view that connection looks loopback. Anyone who can reach the proxy from outside could claim ownership through it. This is an inherent limit of the proxy-on-same-host topology; isomux can't tell the proxy is there.
 
 The mitigation is operator discipline: **claim first, expose later**. The Access pane's _External access_ toggle is the supported sequence — boot the server, open it locally (or via `ssh -L`), claim, then flip the toggle to enable external listening and configure the proxy.
+
+## Locked out as owner
 
 If you somehow lose your only owner session (cleared cookies, hit the 1-year absolute cap, etc.), recover with the owner-login CLI from a shell on the box:
 
@@ -229,7 +215,6 @@ That prints a one-time login URL valid for 15 minutes. The CLI talks to the runn
 ## Operating notes
 
 - **Members lose access at server restart? No.** Sessions persist to disk; restarts pick up the in-memory map from `sessions.json`.
-- **Lost your owner session?** Run `bun run server/index.ts owner-login --name "<your-name>"` from a shell on the box. See _Bootstrap-window exposure_ above.
 - **Revoking a live session?** The Access pane revoke button: the corresponding WebSocket force-closes within ~1s (per-message session recheck catches it). HTTP requests with the revoked cookie return 401 immediately.
-- **Member tries to mint an invite?** Rejected at the wire level. The Access pane is hidden in the UI for non-owners; the server-side check is the actual gate.
+- **Member tries to mint an invite for a new user?** Rejected at the wire level. Members can mint self-invites for their own additional devices (1h TTL, max 1 active) but can't invite new identities. The Access pane is scoped per role; the server-side check is the actual gate.
 - **CSRF / CSWSH?** Origin is checked on WS upgrade and on state-changing HTTP methods. Browsers always send Origin; non-browser callers (agents on the same host) don't, and are allowed via the loopback bypass for the agent-API paths only.
