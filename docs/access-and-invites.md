@@ -164,7 +164,7 @@ The Public URL is **operator-authored configuration**. The server never infers t
 
 Stored in `~/.isomux/`:
 
-- `users.json` — boss profiles. Each record carries `role: "owner" | "member"`.
+- `users.json` — user profiles. Each record carries `role: "owner" | "member"`.
 - `invites.json` — outstanding invites, keyed by sha256(token). Raw tokens never persist; only the hash and an 8-char display prefix.
 - `sessions.json` — active sessions, keyed by sha256(session-id). Raw IDs never persist.
 

@@ -29,7 +29,7 @@ const ENGINE_OPTIONS: Array<{
     agentType: "codex",
     label: "Codex",
     blurb:
-      "OpenAI — GPT-5 family. Uses your codex CLI login (ChatGPT subscription or OPENAI_API_KEY).",
+      "OpenAI — GPT-5 family. Uses your codex CLI login (ChatGPT subscription or OPENAI_API_KEY). If the codex CLI isn't installed yet, the agent will print install steps on first message.",
     accent: "rgba(120,220,160,0.85)",
   },
 ];

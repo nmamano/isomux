@@ -25,6 +25,8 @@ The prompt is Linux/systemd-centric. The macOS equivalent is launchd, the Window
 
 The server runs on `localhost:4000`. To use it from another device or share it with another user, you need to expose it. Two paths, depending on who needs access.
 
+> **Before any of this works from another device, claim the office locally first.** Pre-claim, the server binds 127.0.0.1 only — so `http://my-mac-mini:4000` will return connection refused until you (a) claim ownership from the host (or via `ssh -L`, see section 3), and (b) enable _External access_ in User Settings → Access and restart the service. The [access-and-invites doc](access-and-invites.md) has the full sequence.
+
 ### Your devices (and anyone willing to install Tailscale)
 
 [Tailscale](https://tailscale.com/) (free) gives every device on your tailnet a private hostname and stitches them into an encrypted mesh. Install on the server, your laptop, and your phone:
@@ -34,7 +36,7 @@ curl -fsSL https://tailscale.com/install.sh | sh
 sudo tailscale up
 ```
 
-Rename your machine in the [Tailscale admin console](https://login.tailscale.com/admin/machines) to something friendly (e.g. `my-mac-mini`), then open from any tailnet device at `http://my-mac-mini:4000`.
+Rename your machine in the [Tailscale admin console](https://login.tailscale.com/admin/machines) to something friendly (e.g. `my-mac-mini`). Once the office is claimed and External access is on, open from any tailnet device at `http://my-mac-mini:4000`.
 
 This works fine for _your_ devices and for collaborators you trust enough to invite onto your tailnet. Most people, though, will not want to install Tailscale just to drop into your office — for them you need a public URL.
 

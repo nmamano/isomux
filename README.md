@@ -72,12 +72,16 @@ Install whichever you want; Isomux can spawn agents on either backend, side-by-s
 # Install Bun
 curl -fsSL https://bun.sh/install | bash
 
+# After `bun.sh/install` finishes, open a new shell (or source your shell
+# rc) so the next commands can find `bun` on PATH.
+
 # Install Claude Code (skip if you only want Codex agents)
 npm install -g @anthropic-ai/claude-code
 claude  # then type /login to authenticate
 
-# Install Codex (skip if you only want Claude agents)
-npm install -g @openai/codex
+# Install Codex (skip if you only want Claude agents). Pinned to the
+# version isomux's generated schemas target — newer CLIs may drift.
+npm install -g @openai/codex@0.130.0
 codex login
 ```
 

@@ -39,9 +39,9 @@ import { CODEX_CLI_PINNED_VERSION } from "./version-check.ts";
 const CODEX_NOT_INSTALLED_MESSAGE = `To install Codex CLI:
 1. Open the built-in terminal
 2. Run \`sudo npm install -g @openai/codex@${CODEX_CLI_PINNED_VERSION}\`
-3. Restart isomux
+3. Type \`/clear\` here to reload this agent's session (or restart isomux if that doesn't work)
 
-Once complete, it takes effect immediately for all Isomux agents.`;
+Once installed, new Codex agents will use it immediately. Other existing Codex agents that hit this same install message will each need their own \`/clear\` to recover.`;
 
 // Companion shell command for the [Copy to terminal] card adapter.ts emits
 // next to the install message. Exported so the adapter can carry it through
