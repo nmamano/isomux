@@ -410,8 +410,11 @@ export interface PersistedAgent {
   topic: string | null;
   customInstructions: string | null;
   // Identity reference for per-user env at spawn/resume time. `userId` is
-  // authoritative for env lookup (via buildEnvForUserId); `username` is a
-  // display snapshot kept for UI/wire compatibility and audit purposes.
+  // authoritative for env lookup (via buildEnvForUserId) and identifies
+  // the agent's manager — the spawning user, shown in the system prompt
+  // user section. Set at spawn and immutable. `username` is the matching
+  // display snapshot kept for UI/wire compatibility and audit purposes;
+  // not authoritative for any behavior, can go stale across renames.
   // Both null on legacy unowned agents.
   userId?: string | null;
   username?: string | null;

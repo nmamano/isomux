@@ -237,10 +237,13 @@ export interface AgentInfo {
   codexSandbox?: CodexSandboxMode;
   // The user who spawned this agent. `userId` is the stable identity
   // reference used for per-user env lookup (drives buildEnvFor at spawn /
-  // resume / cronjob-fire time). `username` is a display snapshot taken at
-  // spawn; it can go stale across renames but isn't authoritative for any
-  // behavior. Both are null on legacy unowned agents that pre-date the
-  // user/device split.
+  // resume / cronjob-fire time) and identifies the agent's manager — the
+  // user shown in the system prompt user section and whose envFile loads
+  // on session recreate. Set at spawn and immutable: reassignment is not
+  // exposed; the spawning user remains the manager for the agent's
+  // lifetime. `username` is the matching display snapshot; goes stale
+  // across renames but isn't authoritative for any behavior. Both null
+  // on legacy unowned agents that pre-date the user/device split.
   userId: string | null;
   username: string | null;
   // In-memory only; never persisted. Empty after server restart.
@@ -722,6 +725,12 @@ export interface AgentSaveResponse {
   requestId: string;
   ok: boolean;
   error?: string;
+  // Optional hint for the UI on which form field the error belongs to,
+  // so the message can render inline next to that field (e.g., a
+  // name-conflict error renders under the Name input, not under cwd).
+  // Absent for errors that don't map to a single field — the UI falls
+  // back to its general save-error location.
+  field?: "name" | "cwd";
 }
 
 // Response to request_cwd_validation (sent only to the requesting client)

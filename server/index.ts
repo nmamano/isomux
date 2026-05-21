@@ -1089,13 +1089,21 @@ async function dispatchCommand(
             // spawn() returns null on duplicate name or full room — neither
             // throws, so without this branch we'd report ok:true on logical
             // failure and the UI would close the dialog as if it worked.
+            // Disambiguate post-hoc so the UI can render the error under
+            // the right field rather than under cwd by default.
+            const trimmedName = cmd.name.trim();
+            const dupName = AgentManager.getAllAgents().some(
+              (a) => a.name.toLowerCase() === trimmedName.toLowerCase(),
+            );
             ws.send(
               JSON.stringify({
                 type: "agent_save_response",
                 requestId: cmd.requestId,
                 ok: false,
-                error:
-                  "Cannot create agent: name may be taken or the target room has no free desks.",
+                error: dupName
+                  ? `Name "${trimmedName}" is already taken.`
+                  : "The target room has no free desks.",
+                field: dupName ? "name" : undefined,
               }),
             );
           }

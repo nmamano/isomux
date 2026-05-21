@@ -146,6 +146,11 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     AgentInfo["permissionMode"]
   >(initialPermissionMode);
   const [saving, setSaving] = useState(false);
+  // Save-time errors route to either the Name input or the Cwd input
+  // based on `agent_save_response.field`. Errors that don't map to a
+  // specific field (the common case, e.g. cwd validation) fall back to
+  // cwdError, where the inline render lives.
+  const [nameError, setNameError] = useState<string | null>(null);
   const [cwdError, setCwdError] = useState<string | null>(null);
   const pendingListener = useRef<((data: string) => void) | null>(null);
   const recentCwds = allRecentCwds.filter((c) => c !== cwd);
@@ -272,7 +277,15 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
           if (msg.ok) {
             onClose();
           } else {
-            setCwdError(msg.error || "Save failed");
+            // Route the error inline next to the offending field so the
+            // user doesn't read "name already taken" under cwd.
+            if (msg.field === "name") {
+              setNameError(msg.error || "Save failed");
+              setCwdError(null);
+            } else {
+              setCwdError(msg.error || "Save failed");
+              setNameError(null);
+            }
           }
         }
       } catch {}
@@ -420,11 +433,21 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
           <label style={labelStyle}>Name</label>
           <input
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => {
+              setName(e.target.value);
+              if (nameError) setNameError(null);
+            }}
             placeholder={isSpawn ? `Agent ${props.deskIndex + 1}` : undefined}
             autoFocus={isSpawn}
-            style={inputStyle}
+            style={
+              nameError ? { ...inputStyle, borderColor: "#ff6b6b" } : inputStyle
+            }
           />
+          {nameError && (
+            <p style={{ fontSize: 10, color: "#ff6b6b", margin: "4px 0 0" }}>
+              {nameError}
+            </p>
+          )}
 
           <label style={{ ...labelStyle, marginTop: 12 }}>
             Working Directory
@@ -478,6 +501,43 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
               Changes take effect on next conversation.
             </p>
           )}
+
+          {/* Manager — set at spawn, immutable. Rendered as a read-only
+              badge in both spawn and edit modes so there's no UX
+              divergence on which user the agent is bound to. Style
+              matches the Engine badge (also locked at spawn). On spawn
+              the value comes from the device's bound username; on edit
+              it comes from the agent's persisted user record. */}
+          <label style={{ ...labelStyle, marginTop: 12 }}>Manager</label>
+          <div
+            title="Set at spawn — manager cannot be changed after the agent is created."
+            style={{
+              ...inputStyle,
+              display: "flex",
+              alignItems: "center",
+              color: "var(--text-muted)",
+              fontFamily: "'JetBrains Mono',monospace",
+              textTransform: "uppercase",
+              letterSpacing: 0.5,
+              fontWeight: 600,
+              cursor: "not-allowed",
+              background: "var(--bg-elevated)",
+            }}
+          >
+            {isSpawn
+              ? (getUsername() ?? "(no user assigned)")
+              : (agent!.username ?? agent!.userId ?? "(unowned)")}
+          </div>
+          <p
+            style={{
+              fontSize: 10,
+              color: "var(--text-ghost)",
+              margin: "3px 0 0",
+            }}
+          >
+            Locked to the spawning user. Controls which <code>envFile</code>{" "}
+            loads on each session (see User Settings).
+          </p>
 
           {/* Engine badge — agentType is fixed at spawn (Round 3) and shown here
             for clarity in edit mode. Spawn flow already locked it via the
