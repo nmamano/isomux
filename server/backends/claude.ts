@@ -849,16 +849,19 @@ export const claudeBackend: Backend = {
     return AUTH_ERROR_PATTERNS.test(text);
   },
 
-  getLoginInstructions(): { text: string; command?: string } {
+  getLoginInstructions(): { text: string; commands?: string[] } {
     // If the user can't actually run `claude` and `/login` (binary missing
     // from PATH), surface the install command first instead of the terminal
-    // walkthrough that would just produce a "command not found". `command`
-    // rides along so the catch site can emit a [Copy to terminal] card next
-    // to the text. (Codex doesn't need an equivalent presence check — it
-    // ships bundled as an isomux runtime dep.)
+    // walkthrough that would just produce a "command not found". The card
+    // rides along so the catch site can emit a [Copy to terminal] next to
+    // the text. (Codex doesn't need an equivalent presence check — it ships
+    // bundled as an isomux runtime dep.)
     return isClaudeCodeInstalled()
-      ? { text: LOGIN_INSTRUCTIONS, command: LOGIN_COMMAND }
-      : { text: CLAUDE_CODE_NOT_INSTALLED_MESSAGE, command: INSTALL_COMMAND };
+      ? { text: LOGIN_INSTRUCTIONS, commands: [LOGIN_COMMAND] }
+      : {
+          text: CLAUDE_CODE_NOT_INSTALLED_MESSAGE,
+          commands: [INSTALL_COMMAND],
+        };
   },
 };
 

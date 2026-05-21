@@ -58,7 +58,7 @@ import {
   type JsonRpcNotification,
   type JsonRpcRequest,
 } from "./client.ts";
-import { getCodexLoginCommand } from "./native-bin.ts";
+import { getCodexLoginCommands, isCodexAuthenticated } from "./native-bin.ts";
 
 import type { InitializeParams } from "./_generated/InitializeParams.ts";
 import type { Model as CodexProtocolModel } from "./_generated/v2/Model.ts";
@@ -77,17 +77,25 @@ import type { ThreadTokenUsageUpdatedNotification } from "./_generated/v2/Thread
 // the user needs a one-time `codex login` against isomux's CODEX_HOME — the
 // [Copy to terminal] card alongside this message has the exact command.
 //
-// The card targets the default `~/.isomux/codex-home/`. Users with a
-// per-user envFile `CODEX_HOME` (e.g. `~/.isomux-users/<name>/.codex` for
-// billing isolation, see internal-docs/isolation-design.md) need to swap
-// CODEX_HOME in the pasted command to match their envFile path before
-// pressing Enter.
-const LOGIN_INSTRUCTIONS = `To sign in to Codex:
-1. Click [Copy to terminal] on the card below to paste the command into your terminal
-2. Press Enter to run it (envFile users: edit CODEX_HOME to match your envFile path first)
-3. Follow the auth prompts
+// Two [Copy to terminal] cards follow: browser OAuth (default) and
+// `--device-auth` (remote / headless). Both target the default
+// `~/.isomux/codex-home/`. Users with a per-user envFile `CODEX_HOME`
+// (e.g. `~/.isomux-users/<name>/.codex` for billing isolation, see
+// internal-docs/isolation-design.md) need to prefix the pasted command
+// with their own `CODEX_HOME=<path>` before pressing Enter — the wrapper's
+// default only kicks in when CODEX_HOME is unset.
+const LOGIN_INSTRUCTIONS = `To sign in to Codex, click [Copy to terminal] on one of the cards below:
 
-Then \`/clear\` this conversation to apply the new auth. Other codex agents apply it on their next \`/clear\`. Alternatively, set \`OPENAI_API_KEY\` in your env (also requires \`/clear\`).`;
+- \`~/.isomux/bin/codex login\`: if running isomux locally
+- \`~/.isomux/bin/codex login --device-auth\`: for remote or headless hosts (e.g. a Mac mini or Linux box you reach over a VPN)
+
+Press Enter to run, follow the prompts, then \`/clear\` this conversation to apply the new auth. Other codex agents apply on their next \`/clear\`. Or set \`OPENAI_API_KEY\` in your env (also requires \`/clear\`). envFile users: prefix the command with \`CODEX_HOME=<your custom Codex home>\` first.`;
+
+// Surfaced when an auth-error fires but the office already has a valid
+// codex auth (auth.json present, or OPENAI_API_KEY in env). The user's
+// signed in; their session just predates the login, so a /clear is all
+// they need.
+const ALREADY_AUTHED_INSTRUCTIONS = `Codex is signed in. Type \`/clear\` to refresh this agent's session and pick up the new auth.`;
 
 const AUTH_ERROR_PATTERNS =
   /unauthori[zs]ed|not authenticated|authentication|auth.*expired|invalid.*token|login.*required|chatgpt.*login|openai_api_key|403|401/i;
@@ -1909,7 +1917,10 @@ export const codexBackend: Backend = {
     return AUTH_ERROR_PATTERNS.test(text);
   },
 
-  getLoginInstructions(): { text: string; command?: string } {
-    return { text: LOGIN_INSTRUCTIONS, command: getCodexLoginCommand() };
+  getLoginInstructions(): { text: string; commands?: string[] } {
+    if (isCodexAuthenticated()) {
+      return { text: ALREADY_AUTHED_INSTRUCTIONS };
+    }
+    return { text: LOGIN_INSTRUCTIONS, commands: getCodexLoginCommands() };
   },
 };

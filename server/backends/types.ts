@@ -339,9 +339,11 @@ export interface Backend {
   detectAuthError(text: string): boolean;
 
   // User-facing instructions for re-authenticating. `text` is surfaced as a
-  // system log entry after an auth-error is detected; `command`, when present,
-  // is emitted as an adjacent terminal-command card the user can click to
-  // copy into the built-in terminal (single-line shell command — open the
-  // REPL, run the login subcommand, etc.).
-  getLoginInstructions(): { text: string; command?: string };
+  // system log entry after an auth-error is detected; each entry in
+  // `commands`, when present, is emitted as an adjacent terminal-command card
+  // the user can click to copy into the built-in terminal. Multiple commands
+  // render as a stack of cards in the order returned — backends that surface
+  // alternatives (e.g. Codex browser OAuth vs `--device-auth` for remote
+  // hosts) use this to give the user a side-by-side pick.
+  getLoginInstructions(): { text: string; commands?: string[] };
 }

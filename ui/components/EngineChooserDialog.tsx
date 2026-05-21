@@ -21,15 +21,14 @@ const ENGINE_OPTIONS: Array<{
   {
     agentType: "claude",
     label: "Claude",
-    blurb:
-      "Anthropic — best for most coding work. Uses your existing Claude Code login.",
+    blurb: "Anthropic. Uses your Claude Code login.",
     accent: "rgba(100,160,255,0.85)",
   },
   {
     agentType: "codex",
     label: "Codex",
     blurb:
-      "OpenAI — GPT-5 family. Codex ships bundled; on first message the agent prints a one-click sign-in card (uses a ChatGPT subscription or OPENAI_API_KEY).",
+      "OpenAI — GPT-5 family. Uses your ChatGPT subscription or OPENAI_API_KEY.",
     accent: "rgba(120,220,160,0.85)",
   },
 ];
@@ -81,8 +80,7 @@ export function EngineChooserDialog({ onPick, onCancel }: Props) {
             color: "var(--text-muted)",
           }}
         >
-          Pick the engine. This is fixed for the agent's lifetime — to switch
-          later, spawn a new one.
+          Pick the engine. Fixed for the agent's lifetime.
         </p>
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {ENGINE_OPTIONS.map((opt) => (

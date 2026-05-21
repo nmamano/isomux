@@ -159,24 +159,26 @@ function detectAgentAuthError(
 }
 function agentLoginInstructions(managed: ManagedAgent | undefined): {
   text: string;
-  command?: string;
+  commands?: string[];
 } {
   if (!managed) return { text: LOGIN_INSTRUCTIONS };
   return getBackend(managed.info.agentType).getLoginInstructions();
 }
 
 // Emit a system log entry with the login/install text, plus an adjacent
-// terminal-command card when the backend supplies a companion shell command.
+// terminal-command card per companion shell command the backend supplies.
 // Centralizes the dual-emission pattern so the four detectAgentAuthError
 // callsites and the BackendNotConfiguredError catch all render the same
-// shape: explanatory text first, then a clickable card the user can copy.
+// shape: explanatory text first, then one or more clickable cards in the
+// order returned (e.g. Codex emits browser-OAuth + device-auth so the user
+// can pick based on whether the host has a usable browser).
 function emitLoginInstructions(
   agentId: string,
-  instructions: { text: string; command?: string },
+  instructions: { text: string; commands?: string[] },
 ): void {
   addLogEntry(agentId, "system", instructions.text);
-  if (instructions.command) {
-    emitAgentTerminalCommand(agentId, instructions.command);
+  for (const command of instructions.commands ?? []) {
+    emitAgentTerminalCommand(agentId, command);
   }
 }
 
@@ -201,7 +203,10 @@ function surfaceBackendNotConfigured(
   managed: ManagedAgent,
   err: BackendNotConfiguredError,
 ): void {
-  emitLoginInstructions(agentId, { text: err.message, command: err.command });
+  emitLoginInstructions(agentId, {
+    text: err.message,
+    commands: err.command ? [err.command] : undefined,
+  });
   const queuedCount = managed.messageQueue.length;
   if (queuedCount > 0) {
     managed.messageQueue.length = 0;
