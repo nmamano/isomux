@@ -340,7 +340,7 @@ Closing these gaps is the job of the process layer.
 
 ## Process layer: Linux namespaces (scoped)
 
-> Status: scoped, not implemented. This section evaluates the design space and recommends a smallest-useful first slice.
+> Status: scoped, not implemented. This section evaluates the design space and recommends a smallest-useful first slice. **A specific composed design that uses namespaces as one of several layers is in `internal-docs/per-user-isolation-design.md`** (per-user isolation in a shared office: bwrap + per-agent visibility ACL + dual envFile + private/shared disk layout). That doc supersedes the recommendation below for the in-shared-office case; the analysis below remains useful for the office-layer namespace question when paired with the hub.
 
 Process-layer isolation puts each agent spawn into Linux namespaces so the OS enforces what the application layer cannot: filesystem visibility, PID visibility, user identity, and (optionally) network reach.
 
