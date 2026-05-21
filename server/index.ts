@@ -36,7 +36,6 @@ import {
   onUpdateChange,
 } from "./update-checker.ts";
 import { startBackupScheduler, getBackupStatus } from "./backup.ts";
-import { logCodexVersionAtBoot } from "./backends/codex/version-check.ts";
 import { resolveCwd } from "./cwd-utils.ts";
 import type { TaskItem } from "../shared/types.ts";
 import {
@@ -3782,11 +3781,6 @@ CronjobManager.startCronjobScheduler();
 
 // Daily ~/.isomux/ backup tarball with N=7 retention. See server/backup.ts.
 startBackupScheduler();
-
-// Codex CLI version check. Logs ok/mismatch/not-installed to the server log.
-// Doesn't block startup — Claude agents are independent. Codex agent spawn
-// (step 8) will refuse if this check failed.
-void logCodexVersionAtBoot();
 
 console.log(`Isomux running at http://localhost:${server.port}`);
 

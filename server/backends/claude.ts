@@ -850,11 +850,12 @@ export const claudeBackend: Backend = {
   },
 
   getLoginInstructions(): { text: string; command?: string } {
-    // Symmetric with Codex's "CLI not installed" install hint: if the user
-    // can't actually run `claude` and `/login` (binary missing from PATH),
-    // surface the install command first instead of the terminal walkthrough
-    // that would just produce a "command not found". `command` rides along
-    // so the catch site can emit a [Copy to terminal] card next to the text.
+    // If the user can't actually run `claude` and `/login` (binary missing
+    // from PATH), surface the install command first instead of the terminal
+    // walkthrough that would just produce a "command not found". `command`
+    // rides along so the catch site can emit a [Copy to terminal] card next
+    // to the text. (Codex doesn't need an equivalent presence check — it
+    // ships bundled as an isomux runtime dep.)
     return isClaudeCodeInstalled()
       ? { text: LOGIN_INSTRUCTIONS, command: LOGIN_COMMAND }
       : { text: CLAUDE_CODE_NOT_INSTALLED_MESSAGE, command: INSTALL_COMMAND };

@@ -656,7 +656,7 @@ export function CronjobDialog({
             >
               {modelsError.message}
               {modelsError.authError
-                ? " — run `codex login` in a terminal."
+                ? " — sign in via the card a Codex agent emits."
                 : ""}
             </p>
           )}

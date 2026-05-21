@@ -43,7 +43,7 @@ Free · open source · no cloud · no account.
 The core thesis: **by anthropomorphizing agents, we reduce cognitive load** — we're more used to coordinating humans than terminals.
 
 - **Multi-provider**: spawn Claude Code agents (Anthropic) and Codex agents (OpenAI's GPT-5 family) in the same office, side-by-side.
-- Works with your existing Claude or ChatGPT subscription — if \`claude\` or \`codex\` works in your terminal, Isomux works in your browser. No API key needed — it piggybacks on the underlying CLI's auth.
+- Works with your existing Claude or ChatGPT subscription — if \`claude\` works in your terminal, Claude agents work in your browser; Codex ships bundled and authenticates on first use. No API key needed — it piggybacks on the underlying CLI's auth.
 - Built with Bun, React, TypeScript. Runs as a single Bun process. No bundler, no database, minimal deps.
 - GitHub: github.com/nmamano/isomux
 - Docs: isomux.com/docs (full feature list, self-hosted setup, access and invites, backup/restore, security audit)
@@ -51,7 +51,7 @@ The core thesis: **by anthropomorphizing agents, we reduce cognitive load** — 
 - Blog post with architecture deep dive: nilmamano.com/blog/isomux
 
 ## Getting Started
-1. Install Bun (v1.2+) and at least one agent CLI: the Claude Code CLI (with a Claude subscription) and/or the Codex CLI (with a ChatGPT subscription or \`OPENAI_API_KEY\`). Install both if you want to mix engines. After installing Bun, open a new shell so \`bun\` lands on PATH before the next step. The Codex install command is pinned: \`sudo npm install -g @openai/codex@0.130.0\`.
+1. Install Bun (v1.2+). For Claude agents, also install the Claude Code CLI (\`npm install -g @anthropic-ai/claude-code\`, then \`claude\` and \`/login\`). The Codex CLI ships bundled with isomux — no separate install — and prompts for sign-in via a one-click terminal card the first time you message a Codex agent. After installing Bun, open a new shell so \`bun\` lands on PATH before the next step.
 2. \`git clone https://github.com/nmamano/isomux.git && cd isomux && bun install && bun run dev\`
 3. Open http://localhost:4000. The first time you start the server, no owner exists yet, so the page asks you to pick a display name to claim ownership. Submit, then click an empty desk to pick an engine and spawn your first agent.
 

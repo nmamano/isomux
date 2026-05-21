@@ -81,10 +81,19 @@ export function claudeSessionFileExists(
 // app-server reads from here when servicing thread/resume. The archived
 // counterpart at `${CODEX_HOME}/archived_sessions/` is NOT searched — once
 // a thread is archived, the user has to go through an explicit picker.
+//
+// CODEX_HOME resolution: honor env.CODEX_HOME if the caller supplied it (per-
+// user envFile billing isolation, per internal-docs/isolation-design.md),
+// otherwise fall back to isomux's isolated home `~/.isomux/codex-home/`.
+// Callers pass the same env they pass to the spawn (typically from
+// `buildEnvFor(...)`, which already merges process.env), so this resolves to
+// the same dir the subprocess writes to. Unlike `withIsomuxCodexHome`, this
+// does NOT independently consult `process.env` — it only needs CODEX_HOME,
+// not the rest of the env, so there's nothing to inherit wholesale.
 export function codexSessionsDir(env?: {
   [key: string]: string | undefined;
 }): string {
-  const codexHome = env?.CODEX_HOME || join(homedir(), ".codex");
+  const codexHome = env?.CODEX_HOME || join(homedir(), ".isomux", "codex-home");
   return join(codexHome, "sessions");
 }
 

@@ -715,7 +715,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
               }}
             >
               {modelsError.authError
-                ? "Codex is not signed in. Run `codex login` in a terminal (or set OPENAI_API_KEY), then re-open this dialog."
+                ? "Codex is not signed in. Open a Codex agent and click the sign-in card it emits, then re-open this dialog. (Or set OPENAI_API_KEY in your env.)"
                 : `Could not load model list (${modelsError.message}). Showing fallback list — some options may not work on your account.`}
             </p>
           )}

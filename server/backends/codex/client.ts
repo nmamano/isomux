@@ -31,31 +31,13 @@
 
 import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
 import { errMessage } from "../../../shared/errors.ts";
-import { CODEX_CLI_PINNED_VERSION } from "./version-check.ts";
+import { resolveCodexLauncherPath, withIsomuxCodexHome } from "./native-bin.ts";
 
-// Used by both ENOENT detection paths (sync write-guard check on child.pid
-// and async child.on('error')) so they can't drift out of sync. Surfaced
-// verbatim into chat by sendMessage's BackendNotConfiguredError handling.
-const CODEX_NOT_INSTALLED_MESSAGE = `To install Codex CLI:
-1. Open the built-in terminal
-2. Run \`sudo npm install -g @openai/codex@${CODEX_CLI_PINNED_VERSION}\`
-3. Type \`/clear\` here to reload this agent's session (or restart isomux if that doesn't work)
-
-Once installed, new Codex agents will use it immediately. Other existing Codex agents that hit this same install message will each need their own \`/clear\` to recover.`;
-
-// Companion shell command for the [Copy to terminal] card adapter.ts emits
-// next to the install message. Exported so the adapter can carry it through
-// BackendNotConfiguredError without re-deriving it from the text.
-export const CODEX_INSTALL_COMMAND = `sudo npm install -g @openai/codex@${CODEX_CLI_PINNED_VERSION}`;
-
-// Tags the thrown Error with the install command so adapter.ts can forward
-// it into BackendNotConfiguredError → terminal-command card without coupling
-// to the message string. Read with `(err as { command?: string }).command`.
-function makeNotInstalledError(message: string): Error & { command?: string } {
-  const e = new Error(message) as Error & { command?: string };
-  e.command = CODEX_INSTALL_COMMAND;
-  return e;
-}
+// Surfaced verbatim into chat by sendMessage's BackendNotConfiguredError
+// handling when the bundled launcher can't be spawned. Since codex now ships
+// as an isomux runtime dep, ENOENT here means the install is corrupt, not
+// that the user forgot to install something.
+const CODEX_LAUNCH_FAILED_MESSAGE = `Isomux's bundled Codex CLI failed to launch. Run \`bun install\` in the isomux checkout, then \`/clear\` this conversation to retry.`;
 
 import type { InitializeParams } from "./_generated/InitializeParams.ts";
 import type { InitializeResponse } from "./_generated/InitializeResponse.ts";
@@ -101,9 +83,12 @@ export const JSONRPC_INTERNAL_ERROR = -32603;
 export interface JsonRpcLiteClientOptions {
   cwd?: string;
   env?: { [key: string]: string | undefined };
-  // Override the binary path for tests. Defaults to `codex` on PATH.
+  // Override the spawn binary for tests. Defaults to spawning the bundled
+  // @openai/codex launcher under process.execPath (Bun). Tests can point
+  // this at any executable and bypass the launcher resolution entirely.
   codexBin?: string;
-  // Override the args. Defaults to ["app-server", "--listen", "stdio://"].
+  // Override the args. Defaults to ["app-server", "--listen", "stdio://"]
+  // (the launcher path is prepended automatically when codexBin is not set).
   args?: string[];
 }
 
@@ -163,11 +148,29 @@ export class JsonRpcLiteClient {
     if (this.closed) {
       throw new Error("JsonRpcLiteClient is closed");
     }
-    const bin = this.opts.codexBin ?? "codex";
-    const args = this.opts.args ?? ["app-server", "--listen", "stdio://"];
-    this.child = spawn(bin, args, {
+    const codexArgs = this.opts.args ?? ["app-server", "--listen", "stdio://"];
+    let bin: string;
+    let spawnArgs: string[];
+    if (this.opts.codexBin) {
+      bin = this.opts.codexBin;
+      spawnArgs = codexArgs;
+    } else {
+      // Default: bundled launcher under process.execPath (Bun runs the JS
+      // launcher fine — we don't depend on `node` being on PATH). Resolution
+      // throws here are translated to a chat-actionable hint via the catch
+      // in CodexSession.bootstrap.
+      const launcher = resolveCodexLauncherPath();
+      bin = process.execPath;
+      spawnArgs = [launcher, ...codexArgs];
+    }
+    // Apply the isomux CODEX_HOME default here (not at every adapter
+    // callsite) so model/list, fork, read, one-shot, and the session bootstrap
+    // all spawn with the same effective env. withIsomuxCodexHome honors a
+    // caller-set CODEX_HOME verbatim (per-user envFile billing isolation, see
+    // server/backends/codex/native-bin.ts).
+    this.child = spawn(bin, spawnArgs, {
       cwd: this.opts.cwd,
-      env: this.opts.env,
+      env: withIsomuxCodexHome(this.opts.env),
       stdio: ["pipe", "pipe", "pipe"],
     });
 
@@ -183,16 +186,14 @@ export class JsonRpcLiteClient {
       }
     });
     this.child.on("error", (err: NodeJS.ErrnoException) => {
-      // Spawn failure. Translate ENOENT to a user-actionable install hint so
-      // the chat-visible error is meaningful rather than just the raw errno;
-      // every other failure falls through to the underlying message. Mark the
-      // client closed so any subsequent request short-circuits on the
+      // Spawn failure. Translate ENOENT to a user-actionable reinstall hint
+      // (bundled binary missing or corrupt) rather than just the raw errno;
+      // every other failure falls through to the underlying message. Mark
+      // the client closed so any subsequent request short-circuits on the
       // `this.closed` guard in request() instead of writing to a dead process.
-      // Tag ENOENT with the install command so adapter.ts can forward it into
-      // BackendNotConfiguredError → terminal-command card.
       this.closed = true;
       if (err.code === "ENOENT") {
-        this.failAllPending(makeNotInstalledError(CODEX_NOT_INSTALLED_MESSAGE));
+        this.failAllPending(new Error(CODEX_LAUNCH_FAILED_MESSAGE));
       } else {
         this.failAllPending(`codex subprocess error: ${err.message}`);
       }
@@ -396,13 +397,13 @@ export class JsonRpcLiteClient {
     if (!this.child) throw new Error("client not started");
     const line = JSON.stringify(frame) + "\n";
     // child.pid is undefined when spawn() failed synchronously (e.g. ENOENT
-    // from a missing codex binary). Translating here wins the race against
+    // on a corrupt bundled launcher). Translating here wins the race against
     // the async child.on('error') ENOENT handler so the user-visible chat
-    // error is the actionable install hint, not the technical
+    // error is the actionable reinstall hint, not the technical
     // "stdin is not writable" message that fires when the dead child's
     // stdin stream is already closed.
     if (this.child.pid === undefined) {
-      throw makeNotInstalledError(CODEX_NOT_INSTALLED_MESSAGE);
+      throw new Error(CODEX_LAUNCH_FAILED_MESSAGE);
     }
     if (!this.child.stdin.writable) {
       throw new Error("codex stdin is not writable");

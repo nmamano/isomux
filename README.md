@@ -78,12 +78,9 @@ curl -fsSL https://bun.sh/install | bash
 # Install Claude Code (skip if you only want Codex agents)
 npm install -g @anthropic-ai/claude-code
 claude  # then type /login to authenticate
-
-# Install Codex (skip if you only want Claude agents). Pinned to the
-# version isomux's generated schemas target — newer CLIs may drift.
-npm install -g @openai/codex@0.130.0
-codex login
 ```
+
+Codex ships bundled with isomux — no separate install. The first time you message a Codex agent, isomux prompts you to sign in via a one-click terminal card.
 
 ### 2. Install & Run
 

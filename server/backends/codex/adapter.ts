@@ -21,11 +21,6 @@
 //   3. experimentalApi: true at initialize. We generated schemas with
 //      --experimental, so missing this flag would silently strip experimental
 //      fields on the wire.
-//
-//   4. userAgent cross-check at handshake. The version-check at boot reads
-//      `codex --version` from PATH, which may resolve to a different binary
-//      than the one we spawn here (PATH changes, version managers). We
-//      re-verify against InitializeResponse.userAgent.
 
 import { readFileSync, statSync } from "fs";
 import { basename } from "path";
@@ -63,7 +58,7 @@ import {
   type JsonRpcNotification,
   type JsonRpcRequest,
 } from "./client.ts";
-import { CODEX_CLI_PINNED_VERSION } from "./version-check.ts";
+import { getCodexLoginCommand } from "./native-bin.ts";
 
 import type { InitializeParams } from "./_generated/InitializeParams.ts";
 import type { Model as CodexProtocolModel } from "./_generated/v2/Model.ts";
@@ -77,14 +72,22 @@ import type { ThreadTokenUsageUpdatedNotification } from "./_generated/v2/Thread
 // Constants
 // ---------------------------------------------------------------------------
 
+// Isomux runs codex against its own isolated CODEX_HOME (~/.isomux/codex-home/
+// by default), separate from the user's interactive `~/.codex/`. That means
+// the user needs a one-time `codex login` against isomux's CODEX_HOME — the
+// [Copy to terminal] card alongside this message has the exact command.
+//
+// The card targets the default `~/.isomux/codex-home/`. Users with a
+// per-user envFile `CODEX_HOME` (e.g. `~/.isomux-users/<name>/.codex` for
+// billing isolation, see internal-docs/isolation-design.md) need to swap
+// CODEX_HOME in the pasted command to match their envFile path before
+// pressing Enter.
 const LOGIN_INSTRUCTIONS = `To sign in to Codex:
-1. Open the built-in terminal
-2. Run \`codex login\`
+1. Click [Copy to terminal] on the card below to paste the command into your terminal
+2. Press Enter to run it (envFile users: edit CODEX_HOME to match your envFile path first)
 3. Follow the auth prompts
 
 Then \`/clear\` this conversation to apply the new auth. Other codex agents apply it on their next \`/clear\`. Alternatively, set \`OPENAI_API_KEY\` in your env (also requires \`/clear\`).`;
-
-const LOGIN_COMMAND = `codex login`;
 
 const AUTH_ERROR_PATTERNS =
   /unauthori[zs]ed|not authenticated|authentication|auth.*expired|invalid.*token|login.*required|chatgpt.*login|openai_api_key|403|401/i;
@@ -383,6 +386,11 @@ class CodexSession implements BackendSession {
   private bootstrapError: Error | null = null;
 
   constructor(private readonly opts: CodexSessionInitOpts) {
+    // JsonRpcLiteClient.start() applies the isomux CODEX_HOME default so
+    // every codex subprocess (session bootstrap + listModels + oneShot +
+    // fork + read) spawns under the same effective env. Per-user envFile
+    // CODEX_HOME (see internal-docs/isolation-design.md) is honored
+    // verbatim by withIsomuxCodexHome.
     const clientOpts: JsonRpcLiteClientOptions = {
       cwd: opts.cwd,
       env: opts.env,
@@ -415,8 +423,7 @@ class CodexSession implements BackendSession {
           optOutNotificationMethods: null,
         },
       };
-      const initResp = await this.client.initialize(initParams);
-      this.verifyUserAgent(initResp.userAgent);
+      await this.client.initialize(initParams);
 
       if (this.opts.resumeThreadId) {
         // Resume an existing thread. Pass current settings as overrides so
@@ -496,25 +503,6 @@ class CodexSession implements BackendSession {
     return params;
   }
 
-  private verifyUserAgent(userAgent: string): void {
-    // userAgent format example:
-    //   "isomux/1.0.0 (Ubuntu 24.4.0; x86_64) unknown (isomux; 1.0.0)"
-    //                          ^ that's the codex server's UA composite
-    // The codex CLI version is embedded after the server slug — but the
-    // format is enough of a moving target that we just look for the pinned
-    // version substring anywhere in the string. Mismatch is a warning, not
-    // a hard fail (we still try to operate).
-    if (!userAgent.includes(CODEX_CLI_PINNED_VERSION)) {
-      this.enqueue({
-        kind: "system_text",
-        text:
-          `Note: connected codex server reports user agent "${userAgent}" ` +
-          `which does not contain pinned version ${CODEX_CLI_PINNED_VERSION}. ` +
-          `Generated TS schemas may not match the running CLI; regenerate via \`bun run gen:codex-schemas\` if issues arise.`,
-      });
-    }
-  }
-
   // -------------------------------------------------------------------------
   // BackendSession surface
   // -------------------------------------------------------------------------
@@ -544,17 +532,11 @@ class CodexSession implements BackendSession {
       // Bootstrap failed — wrap the captured error in BackendNotConfiguredError
       // so sendMessage / flushQueue / editMessage know to surface this calmly
       // (system log entry, agent stays idle) rather than as a real turn error
-      // that flips the agent to error state. The actionable text (install
-      // hint, login prompt, etc.) is already in bootstrapError.message and
-      // gets surfaced verbatim — no "Error:" wrapping. If the bootstrap error
-      // tagged a companion shell command (ENOENT → install command; see
-      // makeNotInstalledError in client.ts), forward it so the catch site
-      // can emit a [Copy to terminal] card next to the system message.
-      const command = (this.bootstrapError as { command?: string } | null)
-        ?.command;
+      // that flips the agent to error state. The actionable text (auth prompt,
+      // bundled-binary missing hint, etc.) is already in bootstrapError.message
+      // and gets surfaced verbatim — no "Error:" wrapping.
       throw new BackendNotConfiguredError(
         this.bootstrapError?.message ?? "Codex bootstrap failed; cannot send",
-        command,
       );
     }
 
@@ -1928,6 +1910,6 @@ export const codexBackend: Backend = {
   },
 
   getLoginInstructions(): { text: string; command?: string } {
-    return { text: LOGIN_INSTRUCTIONS, command: LOGIN_COMMAND };
+    return { text: LOGIN_INSTRUCTIONS, command: getCodexLoginCommand() };
   },
 };

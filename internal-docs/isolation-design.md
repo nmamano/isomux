@@ -298,7 +298,9 @@ mkdir -p ~/.isomux-users/marc/.claude && chmod 700 ~/.isomux-users/marc/.claude
 CLAUDE_CONFIG_DIR=~/.isomux-users/marc/.claude claude auth login
 
 mkdir -p ~/.isomux-users/marc/.codex && chmod 700 ~/.isomux-users/marc/.codex
-CODEX_HOME=~/.isomux-users/marc/.codex codex login
+# Codex now ships bundled with isomux — invoke the bundled launcher from the
+# isomux checkout (cd into it first if your terminal panel is elsewhere).
+CODEX_HOME=~/.isomux-users/marc/.codex bun node_modules/@openai/codex/bin/codex.js login
 ```
 
 The CLI prints an OAuth URL; the user opens it in their own browser, signs in with their own Anthropic / OpenAI account, the token lands in the per-user dir. The user then appends the env-var lines above to their envFile, using **absolute paths** — isomux's dotenv parser does not expand `~` or `$VAR`.
@@ -318,6 +320,8 @@ Direct SSH as the host user is an alternative path for users with their pubkey a
 ```
 
 Isomux's own session-file preflights (`server/cwd-utils.ts:claudeProjectDir`, `claudeSessionFileExists`, `moveClaudeSessionFiles`, `diagnoseProcessExit`, plus Codex's `codexSessionsDir`) honor the same env vars, so resume preflights resolve against the same directories the spawned subprocesses use.
+
+When no user envFile sets `CODEX_HOME`, isomux defaults to its own isolated `~/.isomux/codex-home/` (see `server/backends/codex/native-bin.ts`), separate from the host user's interactive `~/.codex/`. This keeps the bundled `@openai/codex` runtime dep from sharing auth/sessions/plugins with whatever version the user has installed globally. Single-user deployments thus need a one-time isomux-scoped `codex login` (emitted as a [Copy to terminal] card on the first Codex agent spawn). Multi-user envFile setups override this default per-user as documented above.
 
 #### What this enables and what it does not
 

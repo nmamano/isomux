@@ -8,9 +8,10 @@
 // login instructions — it lets us swap "open terminal, run claude, /login"
 // (no-op if the binary isn't there) for an install hint first.
 //
-// Symmetric with the Codex version check in ./codex/version-check.ts in
-// shape, but simpler: we only care about presence, not version (no schema
-// pinning for claude). Memoized so repeat callers don't re-spawn `which`.
+// Codex doesn't have an equivalent presence check: codex now ships bundled as
+// an isomux runtime dep (see server/backends/codex/native-bin.ts), so its
+// availability is guaranteed by a successful `bun install`. Memoized so
+// repeat callers don't re-spawn `which`.
 
 import { execSync } from "child_process";
 
