@@ -107,7 +107,7 @@ const CLAUDE_CODE_NOT_INSTALLED_MESSAGE = `To install Claude Code, click [Copy t
 
 macOS users with Homebrew can alternatively run \`brew install --cask claude-code\`.
 
-After install, open a new shell and run \`claude\` to sign in. If \`claude\` is not found, make sure \`~/.local/bin\` is on your PATH. Then \`/clear\` this conversation to apply. Or add \`ANTHROPIC_API_KEY\` to your envFile (User Settings → Env File Path, then \`/clear\`).`;
+After install, open a new shell and run \`claude\` to sign in. If \`claude\` is not found, make sure \`~/.local/bin\` is on your PATH (\`echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc\`). Then \`/clear\` this conversation to apply. Or add \`ANTHROPIC_API_KEY\` to your envFile (User Settings → Env File Path, then \`/clear\`).`;
 
 const INSTALL_COMMAND = `curl -fsSL https://claude.ai/install.sh | bash`;
 
