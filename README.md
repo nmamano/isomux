@@ -61,7 +61,7 @@ See the [full feature list](docs/features.md).
 
 ### 1. Prerequisites
 
-You need [Bun](https://bun.sh/) (v1.2+) and a subscription for at least one provider:
+You need [Bun](https://bun.sh/) (v1.2+) and a subscription for at least one provider.
 
 ```sh
 # Install Bun
@@ -69,13 +69,7 @@ curl -fsSL https://bun.sh/install | bash
 
 # After `bun.sh/install` finishes, open a new shell (or source your shell
 # rc) so the next commands can find `bun` on PATH.
-
-# Install Claude Code (skip if you only want Codex agents)
-npm install -g @anthropic-ai/claude-code
-claude  # then type /login to authenticate
 ```
-
-Codex ships bundled with isomux — no separate install. The first time you message a Codex agent, isomux prompts you to sign in via a one-click terminal card.
 
 ### 2. Install & Run
 
@@ -89,6 +83,9 @@ bun run dev
 ### 3. Open
 
 Visit **http://localhost:4000** in your browser. The first time you start the server, no owner exists yet, so the page asks you to pick a display name to claim ownership. Submit and you're in.
+
+- If Claude isn't set up, you'll be prompted to install it and log in the first time you talk to a Claude agent.
+- Codex is bundled with isomux. You'll be prompted to log in the first time you talk to a Codex agent.
 
 Want to run it on an always-on box, access from every device, and invite other users to your office? See [self-hosted setup](docs/self-hosted.md).
 

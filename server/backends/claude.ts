@@ -96,16 +96,20 @@ const ALREADY_AUTHED_INSTRUCTIONS = `Claude Code is signed in. Type \`/clear\` t
 
 const LOGIN_COMMAND = `claude`;
 
-const CLAUDE_CODE_NOT_INSTALLED_MESSAGE = `To install Claude Code:
-1. Open the built-in terminal
-2. Run \`npm install -g @anthropic-ai/claude-code\`
-3. Run \`claude\`
-4. Type \`/login\`
-5. Follow the auth flow
+// Native installer is Anthropic's recommended Claude Code install path
+// (see https://github.com/anthropics/claude-code and
+// https://code.claude.com/docs/en/setup): user-owned location, auto-update
+// in the background, no sudo. npm install -g is now an Advanced /
+// deprecated fallback in their docs.
+const CLAUDE_CODE_NOT_INSTALLED_MESSAGE = `To install Claude Code, click [Copy to terminal] on the card below:
 
-Once complete, it takes effect immediately for all Isomux agents. Alternatively, set \`ANTHROPIC_API_KEY\` in your env.`;
+\`curl -fsSL https://claude.ai/install.sh | bash\`
 
-const INSTALL_COMMAND = `npm install -g @anthropic-ai/claude-code`;
+macOS users with Homebrew can alternatively run \`brew install --cask claude-code\`.
+
+After install, open a new shell and run \`claude\` to sign in. If \`claude\` is not found, make sure \`~/.local/bin\` is on your PATH. Then \`/clear\` this conversation to apply. Or add \`ANTHROPIC_API_KEY\` to your envFile (User Settings → Env File Path, then \`/clear\`).`;
+
+const INSTALL_COMMAND = `curl -fsSL https://claude.ai/install.sh | bash`;
 
 const AUTH_ERROR_PATTERNS =
   /unauthori[zs]ed|not authenticated|authentication|auth.*expired|invalid.*token|login.*required|not logged in|run \/login|403|401/i;
