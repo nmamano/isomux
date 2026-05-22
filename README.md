@@ -15,7 +15,7 @@ free · open source · no account needed
 
 ### Multi-provider
 
-- Mix Claude agents and Codex agents in the same office
+- Mix Claude and Codex agents in the same office
 - **Works with your subscriptions**: if `claude` or `codex` works in your terminal, isomux works in your browser
 
 ### Multi-agent
@@ -62,9 +62,6 @@ See the [full feature list](docs/features.md).
 ### 1. Prerequisites
 
 You need [Bun](https://bun.sh/) (v1.2+) and a subscription for at least one provider:
-
-- **Claude** (Anthropic) — requires a Claude subscription. You'll install the [Claude Code](https://claude.ai/code) CLI locally (next step).
-- **Codex** (OpenAI) — requires a ChatGPT subscription or an `OPENAI_API_KEY`. The CLI ships bundled with isomux.
 
 ```sh
 # Install Bun

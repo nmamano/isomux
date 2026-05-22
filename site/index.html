@@ -613,7 +613,7 @@
       <div class="feature-group">
         <h3>Multi-provider</h3>
         <ul>
-          <li>Mix Claude agents and Codex agents in the same office</li>
+          <li>Mix Claude and Codex agents in the same office</li>
           <li>
             <strong>Works with your subscriptions</strong>: if
             <code
@@ -872,35 +872,16 @@
           <a href="https://bun.sh/" target="_blank" rel="noopener">Bun</a>
           (v1.2+) and a subscription for at least one provider:
         </p>
-        <ul>
-          <li>
-            <strong>Claude</strong> (Anthropic) — requires a Claude
-            subscription. You'll install the
-            <a href="https://claude.ai/code" target="_blank" rel="noopener"
-              >Claude Code</a
-            >
-            CLI locally (next step).
-          </li>
-          <li>
-            <strong>Codex</strong> (OpenAI) — requires a ChatGPT subscription or
-            an
-            <code
-              style="
-                background: var(--bg);
-                padding: 1px 6px;
-                border-radius: 4px;
-                font-size: 0.85em;
-              "
-              >OPENAI_API_KEY</code
-            >. The CLI ships bundled with isomux.
-          </li>
-        </ul>
         <pre><span class="comment"># Install Bun (open a new shell after this so `bun` lands on PATH)</span>
 curl -fsSL https://bun.sh/install | bash
 
 <span class="comment"># Install Claude Code (skip if you only want Codex agents)</span>
-npm install -g @anthropic-ai/claude-code && claude  <span class="comment"># then /login</span>
-<span class="comment"># Codex ships bundled with isomux — sign in via the prompt on first message.</span></pre>
+npm install -g @anthropic-ai/claude-code && claude  <span class="comment"># then /login</span></pre>
+        <p style="margin-top: 8px; color: var(--text-dim); font-size: 0.9rem">
+          Codex ships bundled with isomux — no separate install. The first time
+          you message a Codex agent, isomux prompts you to sign in via a
+          one-click terminal card.
+        </p>
 
         <h3>2. Install &amp; Run</h3>
         <pre>
