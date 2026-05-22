@@ -3674,22 +3674,20 @@ const server = Bun.serve<WsData>({
 // any configured value re-engages once an owner exists.
 {
   const resolved = buildPublicOrigin();
-  if (isProcessPreClaim()) {
-    console.log(
-      `[auth] pre-claim: serving loopback-only at ${resolved.origin}. Any configured ISOMUX_PUBLIC_ORIGIN / office-config.json publicOrigin re-engages once an owner is set.`,
-    );
-  } else if (resolved.source === "env") {
-    console.log(
-      `[auth] using ISOMUX_PUBLIC_ORIGIN from env: ${resolved.origin}`,
-    );
-  } else if (resolved.source === "config") {
-    console.log(
-      `[auth] using publicOrigin from office-config.json: ${resolved.origin}`,
-    );
-  } else {
-    console.log(
-      `[auth] local-only mode: no public origin configured, using ${resolved.origin}. See docs/access-and-invites.md for the Tailscale Funnel agent prompt or other remote-access options.`,
-    );
+  // Pre-claim: the banner below covers everything, no need for a separate
+  // log line. Env-var source: the ISOMUX_PUBLIC_ORIGIN deprecation warning
+  // (emitted earlier when the env is set) is the only signal needed; no
+  // additional log here, since the var itself is deprecated.
+  if (!isProcessPreClaim()) {
+    if (resolved.source === "config") {
+      console.log(
+        `[auth] using publicOrigin from office-config.json: ${resolved.origin}`,
+      );
+    } else if (resolved.source === "localhost") {
+      console.log(
+        `[auth] local-only mode: no public origin configured, using ${resolved.origin}. See docs/access-and-invites.md for the Tailscale Funnel agent prompt or other remote-access options.`,
+      );
+    }
   }
 }
 
@@ -3735,8 +3733,10 @@ if (isProcessPreClaim()) {
   console.log(`         ssh -L ${PORT}:localhost:${PORT} <user>@<host>`);
   console.log(`    2. Open http://localhost:${PORT} in that browser.`);
   console.log("");
-  console.log("  After you claim, the Access pane lets you enable external");
-  console.log("  access so everyday use doesn't need the SSH tunnel.");
+  console.log(
+    "  After you claim, the Access pane (User Settings) lets you enable",
+  );
+  console.log("  external access so everyday use doesn't need the SSH tunnel.");
   console.log(
     "================================================================",
   );

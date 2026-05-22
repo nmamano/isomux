@@ -16,7 +16,7 @@ if [[ "${ISOMUX_BUILD_VERBOSE:-}" == "1" ]]; then
   bun build ui/index.tsx --outdir ui/dist --production --splitting
 else
   bun build ui/index.tsx --outdir ui/dist --production --splitting 2>&1 \
-    | awk '!/^[[:space:]]+[^[:space:]]+\.(js|css)[[:space:]]+[0-9.]+[[:space:]]+(KB|MB|bytes)[[:space:]]+\(chunk\)[[:space:]]*$/'
+    | awk '!/^[[:space:]]+[^[:space:]]+\.(js|css)[[:space:]]+[0-9.]+[[:space:]]+(KB|MB|bytes)[[:space:]]+\((chunk|entry point)\)[[:space:]]*$/ && !/^[[:space:]]*$/'
 fi
 cp ui/index.html ui/dist/index.html
 cp node_modules/@xterm/xterm/css/xterm.css ui/dist/xterm.css

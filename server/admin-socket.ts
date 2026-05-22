@@ -83,7 +83,9 @@ export function startAdminSocket(): void {
       `[admin-socket] chmod 0600 ${SOCKET_PATH} failed: ${(err as Error).message}; admin CLI may be reachable by other local users`,
     );
   }
-  console.log(`[admin-socket] listening on ${SOCKET_PATH} (mode 0600)`);
+  // Happy-path bind is silent — only failures log. The socket is a quiet
+  // affordance for the `owner-login` CLI; users don't need a per-boot
+  // confirmation that it's working.
 }
 
 async function handleAdmin(req: Request): Promise<Response> {

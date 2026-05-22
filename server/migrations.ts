@@ -66,9 +66,24 @@ export function runPreUseridBackupIfNeeded(): void {
   } catch {}
   // If nothing relevant is on disk yet (fresh install), still write the
   // sentinel so we don't keep re-attempting empty backups on every boot.
-  const hasAnyRelevant = BACKUP_FILES.some((name) =>
-    existsSync(join(ISOMUX_DIR, name)),
-  );
+  // "Relevant" means: a file with content, or a directory with at least
+  // one entry. We deliberately treat 0-byte files and empty directories
+  // as "not relevant" because other modules (e.g. cronjob-persistence)
+  // run mkdirSync at module-load time, which would otherwise trip a
+  // false positive here and produce a useless empty backup on every
+  // fresh install.
+  const hasAnyRelevant = BACKUP_FILES.some((name) => {
+    const p = join(ISOMUX_DIR, name);
+    if (!existsSync(p)) return false;
+    try {
+      const s = statSync(p);
+      if (s.isDirectory()) return readdirSync(p).length > 0;
+      if (s.isFile()) return s.size > 0;
+      return false;
+    } catch {
+      return false;
+    }
+  });
   if (!hasAnyRelevant) {
     writeSentinel("(no pre-migration state on disk)");
     return;
