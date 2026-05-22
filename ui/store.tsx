@@ -162,7 +162,7 @@ type Action =
   | {
       type: "slash_commands";
       agentId: string;
-      commands: { name: string; description?: string }[];
+      commands: { name: string; description?: string; aliasFor?: string }[];
       skills: SkillInfo[];
     }
   | { type: "clear_logs"; agentId: string }

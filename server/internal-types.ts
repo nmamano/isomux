@@ -97,7 +97,7 @@ export type AgentEvent =
   | {
       type: "slash_commands";
       agentId: string;
-      commands: { name: string; description?: string }[];
+      commands: { name: string; description?: string; aliasFor?: string }[];
       skills: SkillInfo[];
     }
   | { type: "terminal_output"; agentId: string; data: string }
