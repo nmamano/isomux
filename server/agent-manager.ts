@@ -1731,7 +1731,8 @@ function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
         );
         if (hints) addLogEntry(agentId, "system", hints);
       }
-      if (detectAgentAuthError(managed, ev.message)) {
+      const isAuthError = detectAgentAuthError(managed, ev.message);
+      if (isAuthError) {
         emitLoginInstructions(agentId, agentLoginInstructions(managed));
       }
       // Reject any in-flight turn so sendMessage / executeSkill don't hang.
@@ -1742,7 +1743,13 @@ function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
           turn.reject(new Error(ev.message));
         } catch {}
       }
-      updateState(agentId, "error");
+      // Auth errors aren't agent failures — the agent is fine, the user just
+      // needs to sign in. waiting_for_response matches what
+      // surfaceBackendNotConfigured already does (e.g. on the rare bundled-
+      // codex-binary-doesn't-resolve case) and avoids the red-desk indicator
+      // that would imply something crashed. Non-auth errors still flip to
+      // error so the desk surfaces the real failure.
+      updateState(agentId, isAuthError ? "waiting_for_response" : "error");
       break;
     }
     case "approval_request": {
@@ -1895,10 +1902,15 @@ async function runConsumer(
       );
       if (hints) addLogEntry(agentId, "system", hints);
     }
-    if (detectAgentAuthError(managed, errorText)) {
+    const isAuthError = detectAgentAuthError(managed, errorText);
+    if (isAuthError) {
       emitLoginInstructions(agentId, agentLoginInstructions(managed));
     }
-    updateState(agentId, "error");
+    // Same rationale as the "error"-event path above: auth errors aren't
+    // agent failures, surface them as waiting_for_response to match the
+    // (rare) bundled-codex-binary-doesn't-resolve case in
+    // surfaceBackendNotConfigured, and avoid an erroneous red-desk signal.
+    updateState(agentId, isAuthError ? "waiting_for_response" : "error");
   }
 }
 
