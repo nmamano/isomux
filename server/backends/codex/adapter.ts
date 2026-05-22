@@ -844,11 +844,12 @@ class CodexSession implements BackendSession {
         // keyword-stripping) keeps the rewritten message readable.
         const turnLevelAuthShaped =
           !!rawError && AUTH_ERROR_PATTERNS.test(rawError);
-        const error =
+        const causedByAuth =
           this.authSignalEmittedThisTurn &&
-          (wasSelfInterruptForAuth || turnLevelAuthShaped)
-            ? "Codex turn failed after an auth error; see the prior Codex auth notice."
-            : rawError;
+          (wasSelfInterruptForAuth || turnLevelAuthShaped);
+        const error = causedByAuth
+          ? "Codex turn failed after an auth error; see the prior Codex auth notice."
+          : rawError;
         // Close the per-turn auth-coalescing gate now that the turn has
         // settled. Next user send opens it again in send().
         this.authSignalsAllowedThisTurn = false;
@@ -858,6 +859,13 @@ class CodexSession implements BackendSession {
           kind: "turn_completed",
           status,
           error,
+          // Signal causedByAuth so agent-manager keeps the agent in
+          // waiting_for_response (auth issue → user needs to sign in)
+          // instead of "error" (which would imply something crashed).
+          // The error string itself is rewritten to a non-auth-shaped
+          // summary above, so the orchestrator's auth-detect regex
+          // wouldn't catch it.
+          ...(causedByAuth ? { causedByAuth: true } : {}),
         });
         break;
       }

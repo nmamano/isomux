@@ -138,6 +138,14 @@ export type NormalizedEvent =
       usage?: TokenUsage;
       cost?: number;
       error?: string;
+      // Set by backends that know the turn failed due to an auth issue but
+      // have already coalesced/rewritten `error` so it no longer matches
+      // AUTH_ERROR_PATTERNS (Codex does this to prevent the orchestrator
+      // from re-emitting the login card after the stderr-driven path
+      // already did). Orchestrator uses this for state decisions (auth-
+      // failed turns leave the agent in waiting_for_response, not error)
+      // without re-running the auth-detect regex on the rewritten string.
+      causedByAuth?: boolean;
     }
   // Running token totals between turns (Codex-only at v1). `tokenUsage` is
   // the *delta* since the prior usage event — the orchestrator's accumulator

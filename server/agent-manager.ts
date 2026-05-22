@@ -1670,10 +1670,27 @@ function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
               : "Codex exited during interrupt — installing a fresh session."
             : (ev.error ?? `Agent stopped: ${ev.status}.`);
           addLogEntry(agentId, "error", errorText);
-          if (detectAgentAuthError(managed, errorText)) {
+          // Auth detection: trust the backend's `causedByAuth` flag when set
+          // (Codex sets it after rewriting the error string to avoid double-
+          // emission of the login card). Fall back to regex on the raw error
+          // text for backends that don't set the flag.
+          const isAuthError =
+            ev.causedByAuth === true ||
+            detectAgentAuthError(managed, errorText);
+          if (
+            isAuthError &&
+            ev.causedByAuth !== true &&
+            detectAgentAuthError(managed, errorText)
+          ) {
+            // Only emit when the raw text caught it — if the backend already
+            // coalesced (causedByAuth=true), the login card was emitted
+            // earlier in the turn and re-emitting here would duplicate it.
             emitLoginInstructions(agentId, agentLoginInstructions(managed));
           }
-          updateState(agentId, "error");
+          // Auth-failed turns: leave the agent in waiting_for_response so the
+          // desk reads "user needs to sign in," not "agent crashed." Non-auth
+          // failures still flip to "error" so genuine failures surface.
+          updateState(agentId, isAuthError ? "waiting_for_response" : "error");
         }
       }
       // Resolve the per-turn deferred. Pre-refactor this lived in runConsumer
