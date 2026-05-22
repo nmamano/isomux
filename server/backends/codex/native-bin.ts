@@ -75,14 +75,17 @@ export function resolveCodexLauncherPath(): string {
     );
   }
   cachedLauncherPath = resolved;
-  // One-shot breadcrumb to make it easy to confirm from logs that the
-  // bundled launcher is being used (rather than a stray global codex). Fires
-  // once per server process — subsequent calls hit the cache and don't log.
-  try {
-    console.log(
-      `[codex] using bundled launcher: ${resolved} (pinned ${getCodexPinnedVersion()})`,
-    );
-  } catch {}
+  // Happy-path resolve is silent — users don't need a per-boot
+  // confirmation that the bundled launcher resolved. Set
+  // ISOMUX_CODEX_LAUNCHER_LOG=1 to emit the one-shot breadcrumb when
+  // debugging whether a stray global codex is shadowing the bundled one.
+  if (process.env.ISOMUX_CODEX_LAUNCHER_LOG === "1") {
+    try {
+      console.log(
+        `[codex] using bundled launcher: ${resolved} (pinned ${getCodexPinnedVersion()})`,
+      );
+    } catch {}
+  }
   return resolved;
 }
 

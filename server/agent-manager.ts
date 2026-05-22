@@ -1432,7 +1432,14 @@ async function generateTopic(agentId: string) {
       }
     }
   } catch (err) {
-    console.error(`Topic generation failed for ${agentId}:`, errMessage(err));
+    const text = errMessage(err);
+    // Auth-error topic-gen failures are expected when the agent is in the
+    // not-yet-signed-in state — the user already sees the auth card in
+    // chat, so the server-side log is just noise. Suppress those
+    // specifically; keep other failures visible for debugging.
+    if (!detectAgentAuthError(managed, text)) {
+      console.error(`Topic generation failed for ${agentId}:`, text);
+    }
     // Silently fail — clear the "..." placeholder, but only if it's still ours
     if (agents.has(agentId) && managed.topicGenToken === startToken) {
       for (const event of officeState.updateAgent(agentId, { topic: null }))

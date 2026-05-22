@@ -3685,7 +3685,7 @@ const server = Bun.serve<WsData>({
       );
     } else if (resolved.source === "localhost") {
       console.log(
-        `[auth] local-only mode: no public origin configured, using ${resolved.origin}. See docs/access-and-invites.md for the Tailscale Funnel agent prompt or other remote-access options.`,
+        `[auth] local-only mode: no public origin configured, using ${resolved.origin}. See https://isomux.com/docs/access-and-invites for remote-access setups.`,
       );
     }
   }
