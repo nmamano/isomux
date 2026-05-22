@@ -51,9 +51,9 @@ These documents are written in my voice, so I need to approve any copy changes b
 
 ## 5. `/help` slash command
 
-- **File:** `server/command-handlers.ts` — the `help` handler (around line 136).
+- **File:** `server/command-handlers.ts` — the `help` handler (around line 298).
 - **Audience:** Agents/users inside Isomux who type `/help` in a conversation.
-- **Content:** agent info, usage tips, and a list of available commands/skills with short descriptions.
+- **Content:** a docs link, usage tips, and a list of available commands/skills with short descriptions.
 - **Related:** `server/commands.ts` holds the command registry with a `description` field on every bundled command — keep those in sync.
 - **Update when:** a new slash command or skill is added, or existing command behavior changes.
 

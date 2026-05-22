@@ -301,9 +301,11 @@ export function createCommandHandling(deps: HandlerDeps) {
 
       const lines: string[] = [];
 
+      lines.push("**Docs:** https://isomux.com/docs");
+
       // Tips — surfaced first so a new user reading top-down hits the
       // actionable stuff before the command/skill inventory.
-      lines.push("**Tips:**");
+      lines.push("\n**Tips:**");
       lines.push(
         "  • Agents can check on each other and message each other. Just ask naturally or use skills like `/second-opinion`, `/pair-programming`, etc.",
       );
