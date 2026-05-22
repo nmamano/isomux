@@ -59,6 +59,8 @@ See the [full feature list](docs/features.md).
 
 ## Get Started
 
+> Isomux is in alpha. [Bug reports welcome](https://github.com/nmamano/isomux/issues).
+
 ### 1. Prerequisites
 
 You need [Bun](https://bun.sh/) (v1.2+) and a subscription for at least one provider.
@@ -86,8 +88,6 @@ Visit **http://localhost:4000** in your browser.
 - Codex is bundled with isomux. You'll be prompted to log in when you talk to a Codex agent.
 
 Want to run it on an always-on box, access from every device, and invite other users to your office? See [self-hosted setup](docs/self-hosted.md).
-
-> **Note:** Isomux agents can run shell commands, so authenticated users effectively have shell access to the host. Only invite people you trust.
 
 ## How it works
 
