@@ -1677,14 +1677,10 @@ function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
           const isAuthError =
             ev.causedByAuth === true ||
             detectAgentAuthError(managed, errorText);
-          if (
-            isAuthError &&
-            ev.causedByAuth !== true &&
-            detectAgentAuthError(managed, errorText)
-          ) {
-            // Only emit when the raw text caught it — if the backend already
-            // coalesced (causedByAuth=true), the login card was emitted
-            // earlier in the turn and re-emitting here would duplicate it.
+          // Only emit when the regex path caught it — if the backend already
+          // coalesced (causedByAuth=true), the login card was emitted earlier
+          // in the turn and re-emitting here would duplicate it.
+          if (ev.causedByAuth !== true && isAuthError) {
             emitLoginInstructions(agentId, agentLoginInstructions(managed));
           }
           // Auth-failed turns: leave the agent in waiting_for_response so the
