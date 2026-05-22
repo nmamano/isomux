@@ -64,12 +64,10 @@ See the [full feature list](docs/features.md).
 You need [Bun](https://bun.sh/) (v1.2+) and a subscription for at least one provider.
 
 ```sh
-# Install Bun
 curl -fsSL https://bun.sh/install | bash
-
-# After `bun.sh/install` finishes, open a new shell (or source your shell
-# rc) so the next commands can find `bun` on PATH.
 ```
+
+Open a new shell (or `source ~/.bashrc`) after this so `bun` lands on `PATH`.
 
 ### 2. Install & Run
 

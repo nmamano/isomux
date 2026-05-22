@@ -5,7 +5,19 @@ set -euo pipefail
 # the mermaid renderer loaded only when a chat message contains a mermaid
 # block) are pulled into separate chunks instead of being inlined into the
 # main bundle.
-bun build ui/index.tsx --outdir ui/dist --production --splitting
+#
+# Bun's bundler lists every produced chunk by default — useful for size
+# debugging, noise the rest of the time. Filter out the per-chunk lines
+# (`  name.js   12.34 KB  (chunk)`) so a clean build shows just the
+# "Bundled N modules" summary and the entry-point line. Anything that
+# doesn't match the chunk shape (errors, warnings, blank lines) passes
+# through. Set ISOMUX_BUILD_VERBOSE=1 to skip the filter when debugging.
+if [[ "${ISOMUX_BUILD_VERBOSE:-}" == "1" ]]; then
+  bun build ui/index.tsx --outdir ui/dist --production --splitting
+else
+  bun build ui/index.tsx --outdir ui/dist --production --splitting 2>&1 \
+    | awk '!/^[[:space:]]+[^[:space:]]+\.(js|css)[[:space:]]+[0-9.]+[[:space:]]+(KB|MB|bytes)[[:space:]]+\(chunk\)[[:space:]]*$/'
+fi
 cp ui/index.html ui/dist/index.html
 cp node_modules/@xterm/xterm/css/xterm.css ui/dist/xterm.css
 cp node_modules/diff2html/bundles/css/diff2html.min.css ui/dist/diff2html.css
