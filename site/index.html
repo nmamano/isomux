@@ -482,6 +482,27 @@
         margin-bottom: 4px;
       }
 
+      .setup-card ul {
+        list-style: none;
+        margin-top: 8px;
+      }
+
+      .setup-card li {
+        color: var(--text-dim);
+        font-size: 0.9rem;
+        padding-left: 16px;
+        position: relative;
+        margin-bottom: 6px;
+      }
+
+      .setup-card li::before {
+        content: "\b7";
+        position: absolute;
+        left: 0;
+        color: var(--accent);
+        font-weight: bold;
+      }
+
       .section-intro {
         color: var(--text-dim);
         margin-bottom: 16px;
@@ -887,19 +908,15 @@ bun run dev</pre
         </p>
 
         <h3>3. Open</h3>
-        <p>
-          Visit <strong>http://localhost:4000</strong> in your browser. The
-          first time you start the server, no owner exists yet, so the page asks
-          you to pick a display name to claim ownership. Submit and you're in.
-        </p>
+        <p>Visit <strong>http://localhost:4000</strong> in your browser.</p>
         <ul>
           <li>
             If Claude isn't set up, you'll be prompted to install it and log in
-            the first time you talk to a Claude agent.
+            when you talk to a Claude agent.
           </li>
           <li>
-            Codex is bundled with isomux. You'll be prompted to log in the first
-            time you talk to a Codex agent.
+            Codex is bundled with isomux. You'll be prompted to log in when you
+            talk to a Codex agent.
           </li>
         </ul>
 
