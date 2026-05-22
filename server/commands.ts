@@ -20,6 +20,13 @@ export type CommandConfig = {
   description?: string;
   /** Custom ephemeral message for unsupported commands (default is type-aware) */
   message?: string;
+  /**
+   * Marks this entry as an alias of another command. The other command is
+   * the canonical name; this one is a friendlier shorthand. /help groups
+   * canonicals + their aliases so the user sees a single line per command
+   * rather than one per name.
+   */
+  aliasFor?: string;
 };
 
 // Shorthand for the common unsupported-hardcoded pattern
@@ -242,6 +249,7 @@ export const commands: Record<string, CommandConfig> = {
     handler: "isomuxDiff",
     description:
       "Peek uncommitted changes in the agent's cwd (or pass a directory)",
+    aliasFor: "isomux-diff",
   },
   rewind: {
     ...UNSUPPORTED_HARDCODED,
@@ -453,10 +461,15 @@ export const commands: Record<string, CommandConfig> = {
 export function autocompleteCommands(): {
   name: string;
   description?: string;
+  aliasFor?: string;
 }[] {
   return Object.entries(commands)
     .filter(([, cfg]) => cfg.autocomplete)
-    .map(([name, cfg]) => ({ name, description: cfg.description }));
+    .map(([name, cfg]) => ({
+      name,
+      description: cfg.description,
+      ...(cfg.aliasFor ? { aliasFor: cfg.aliasFor } : {}),
+    }));
 }
 
 /** Unsupported message for a command, with type-aware defaults. */

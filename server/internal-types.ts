@@ -34,7 +34,7 @@ export interface ManagedAgent {
   // callers (newConversation/resume/editAgent/editMessage/`/clear`) can race and
   // orphan the loser's session. See task 154e2c14. Don't remove without replacing.
   abortPromise: Promise<void> | null;
-  slashCommands: { name: string; description?: string }[];
+  slashCommands: { name: string; description?: string; aliasFor?: string }[];
   skills: SkillInfo[];
   sdkReportedCommands: string[]; // commands reported by SDK in system:init
   // Timing: track when phases start for duration_ms computation

@@ -112,7 +112,12 @@ export function discoverBundledSkills(): SkillInfo[] {
           );
           skills.push({ name: entry.name, origin: "isomux", description });
           if (alias && alias !== entry.name) {
-            skills.push({ name: alias, origin: "isomux", description });
+            skills.push({
+              name: alias,
+              origin: "isomux",
+              description,
+              aliasFor: entry.name,
+            });
           }
         }
       }

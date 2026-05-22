@@ -89,7 +89,9 @@ const LOGIN_INSTRUCTIONS = `To sign in to Codex, click [Copy to terminal] on one
 - \`~/.isomux/bin/codex login\`: if running isomux locally
 - \`~/.isomux/bin/codex login --device-auth\`: for remote or headless hosts (e.g. a Mac mini or Linux box you reach over a VPN)
 
-Press Enter to run, follow the prompts, then \`/clear\` this conversation to apply the new auth. Other codex agents apply on their next \`/clear\`. Or add \`OPENAI_API_KEY\` to your envFile (User Settings → Env File Path, then \`/clear\`). envFile users: prefix the command with \`CODEX_HOME=<your custom Codex home>\` first.`;
+Press Enter to run, follow the prompts, then \`/clear\` this conversation to apply the new auth. Other codex agents apply on their next \`/clear\`.
+
+Alternative: add \`OPENAI_API_KEY\` to your envFile (User Settings → Env File Path, then \`/clear\`). For envFile users with a custom CODEX_HOME: prefix the login commands above with \`CODEX_HOME=<your value>\` first.`;
 
 // Surfaced when an auth-error fires but the office already has a valid
 // codex auth (auth.json present, or OPENAI_API_KEY in env). The user's

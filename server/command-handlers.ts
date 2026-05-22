@@ -63,6 +63,51 @@ function buildMeta(
   return meta;
 }
 
+// Collapse alias entries into their canonical for display. Each output
+// group carries the full name list (canonical + aliases) and a shared
+// description. Used by /help to render e.g. `/diff (or /isomux-diff)`
+// instead of two separate lines for the same handler.
+type AliasItem = { name: string; description?: string; aliasFor?: string };
+type AliasGroup = { names: string[]; description?: string };
+function groupByAlias(items: AliasItem[]): AliasGroup[] {
+  const canonicalIndex = new Map<string, AliasGroup>();
+  // First pass: canonical entries (no aliasFor). Preserves source order.
+  for (const it of items) {
+    if (it.aliasFor) continue;
+    canonicalIndex.set(it.name, {
+      names: [it.name],
+      description: it.description,
+    });
+  }
+  // Second pass: alias entries attach to their canonical group. An alias
+  // pointing at an unknown canonical falls back to standing alone (defensive
+  // — better than dropping the entry silently).
+  for (const it of items) {
+    if (!it.aliasFor) continue;
+    const target = canonicalIndex.get(it.aliasFor);
+    if (target) {
+      target.names.push(it.name);
+    } else {
+      canonicalIndex.set(it.name, {
+        names: [it.name],
+        description: it.description,
+      });
+    }
+  }
+  return Array.from(canonicalIndex.values());
+}
+
+// Render one alias group as a single bullet line. Shortest name leads
+// (friendlier shorthand reads first); the rest go in parens.
+function formatAliasGroup(names: string[], description?: string): string {
+  const sorted = [...names].sort((a, b) => a.length - b.length);
+  const primary = `\`/${sorted[0]}\``;
+  const others = sorted.slice(1).map((n) => `\`/${n}\``);
+  const head =
+    others.length > 0 ? `${primary} (or ${others.join(", ")})` : primary;
+  return description ? `  ${head} — ${description}` : `  ${head}`;
+}
+
 interface HandlerDeps {
   // State accessors (live references — read at call time)
   agents: Map<string, ManagedAgent>;
@@ -256,32 +301,47 @@ export function createCommandHandling(deps: HandlerDeps) {
 
       const lines: string[] = [];
 
-      // Agent metadata
-      const topicLine = managed.info.topic
-        ? `  Topic: ${managed.info.topic}`
-        : "";
+      // Tips — surfaced first so a new user reading top-down hits the
+      // actionable stuff before the command/skill inventory.
+      lines.push("**Tips:**");
       lines.push(
-        `**${managed.info.name}** — Room ${managed.info.room + 1}, Desk ${managed.info.desk + 1}`,
+        "  • Agents can check on each other and message each other. Just ask naturally or use skills like `/second-opinion`, `/pair-programming`, etc.",
       );
-      lines.push(`  cwd: \`${managed.info.cwd}\``);
-      if (topicLine) lines.push(topicLine);
-      lines.push("");
-
-      // Isomux description
       lines.push(
-        "Isomux gives your agents a cute office. Multi-device, multi-user, multi-agent collaboration. Learn more at https://isomux.com",
+        '  • Type ahead while an agent is busy: messages queue and flush when it\'s idle. Hit "Send now" to interrupt and flush immediately.',
       );
-      lines.push("");
+      lines.push(
+        "  • Use voice-to-text for faster prompting. The shortcut is ctrl+space.",
+      );
+      lines.push(
+        "  • Isomux works on your phone. The easiest way is to connect it to the same VPN (e.g., Tailscale - free) as the machine running it.",
+      );
+      lines.push(
+        "  • Once the office is reachable from outside your VPN (e.g. via Tailscale Funnel — see https://isomux.com/docs/access-and-invites), the owner can open User Settings → Access and mint one-time invite URLs. Recipients click and are signed in — no accounts, no passwords.",
+      );
+      lines.push(
+        "  • The built-in side-panel terminal is useful for one-off situations where you need to run something manually, like auth flows.",
+      );
+      lines.push(
+        "  • Isomux ships safety pre-tool-call hooks for Claude agents to prevent destructive commands. Codex agents don't have equivalent hooks.",
+      );
 
-      // Commands
-      const cmdList = managed.slashCommands
-        .map((c) =>
-          c.description
-            ? `  \`/${c.name}\`  — ${c.description}`
-            : `  \`/${c.name}\``,
-        )
+      // Commands — collapse aliased entries (e.g. `/diff` aliasFor
+      // `/isomux-diff`) into a single line so the user doesn't see two
+      // lines for the same handler. Display order: shortest name first,
+      // others in parens (per boss preference — friendlier-looking
+      // shorthand reads first).
+      const cmdGroups = groupByAlias(
+        managed.slashCommands.map((c) => ({
+          name: c.name,
+          description: c.description,
+          aliasFor: c.aliasFor,
+        })),
+      );
+      const cmdList = cmdGroups
+        .map((g) => formatAliasGroup(g.names, g.description))
         .join("\n");
-      lines.push(`**Commands:**\n${cmdList}`);
+      lines.push(`\n**Commands:**\n${cmdList}`);
 
       // Skills grouped by origin
       const originLabel: Record<SkillOrigin, string> = {
@@ -298,49 +358,26 @@ export function createCommandHandling(deps: HandlerDeps) {
         "plugin",
         "claude",
       ];
-      const grouped = new Map<SkillOrigin, SkillInfo[]>();
+      const groupedByOrigin = new Map<SkillOrigin, SkillInfo[]>();
       for (const s of managed.skills) {
-        if (!grouped.has(s.origin)) grouped.set(s.origin, []);
-        grouped.get(s.origin)!.push(s);
+        if (!groupedByOrigin.has(s.origin)) groupedByOrigin.set(s.origin, []);
+        groupedByOrigin.get(s.origin)!.push(s);
       }
       for (const origin of originOrder) {
-        const skills = grouped.get(origin);
+        const skills = groupedByOrigin.get(origin);
         if (!skills || skills.length === 0) continue;
-        const skillLines = skills
-          .map((s) => {
-            const desc = s.description ? ` — ${s.description}` : "";
-            return `  \`/${s.name}\`${desc}`;
-          })
+        const skillGroups = groupByAlias(
+          skills.map((s) => ({
+            name: s.name,
+            description: s.description,
+            aliasFor: s.aliasFor,
+          })),
+        );
+        const skillLines = skillGroups
+          .map((g) => formatAliasGroup(g.names, g.description))
           .join("\n");
         lines.push(`\n**${originLabel[origin]}:**\n${skillLines}`);
       }
-
-      // Tips
-      lines.push("\n**Tips:**");
-      lines.push(
-        "  • Isomux also works on your phone. The easiest way is to connect it to the same VPN (e.g., Tailscale - free) as the machine running it.",
-      );
-      lines.push(
-        "  • Once the office is reachable from outside your VPN (e.g. via Tailscale Funnel — see `docs/access-and-invites.md`), the owner can open `User Settings` → `Access` and mint one-time invite URLs. Recipients click and are signed in — no accounts, no passwords.",
-      );
-      lines.push(
-        "  • The built-in side-panel terminal is useful for one-off situations where you need to run something manually, like auth flows.",
-      );
-      lines.push(
-        "  • Isomux ships safety pre-tool-call hooks for Claude agents to prevent destructive commands, like `rm -rf /`. Codex agents don't have equivalent hooks.",
-      );
-      lines.push(
-        "  • Isomux agents can check what other agents are up to in real time. Just ask naturally.",
-      );
-      lines.push(
-        "  • Agents can also message each other directly — ask one agent to ask another, or to relay a message.",
-      );
-      lines.push(
-        '  • Type ahead while an agent is busy: messages queue and flush when it\'s idle. Hit "Send now" to interrupt and flush immediately.',
-      );
-      lines.push(
-        "  • Use voice-to-text for faster prompting. The shortcut is ctrl+space.",
-      );
 
       deps.addLogEntry(agentId, "system", lines.join("\n"));
       deps.updateState(agentId, "waiting_for_response");

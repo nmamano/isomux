@@ -540,6 +540,13 @@ export interface SkillInfo {
   name: string;
   origin: SkillOrigin;
   description?: string;
+  /**
+   * Marks this entry as an alias of another skill. The other skill is the
+   * canonical name (typically the on-disk directory name); this one is a
+   * friendlier alias declared via SKILL.md frontmatter. /help groups
+   * canonicals + aliases so the user sees a single line per skill.
+   */
+  aliasFor?: string;
 }
 
 // Office-level settings (prompt + optional env file path + optional display name)
@@ -793,7 +800,7 @@ export type ServerMessage =
   | {
       type: "slash_commands";
       agentId: string;
-      commands: { name: string; description?: string }[];
+      commands: { name: string; description?: string; aliasFor?: string }[];
       skills: SkillInfo[];
     }
   | { type: "clear_logs"; agentId: string }
