@@ -2469,7 +2469,7 @@ export function LogView({
                         lineHeight: 1.6,
                       }}
                     >
-                      {`sudo tailscale set --operator=$USER\ntailscale serve --bg http://localhost:4000`}
+                      {`sudo tailscale set --operator=$USER\ntailscale serve --bg http://localhost:${window.location.port || "4000"}`}
                     </code>
                     <div
                       style={{

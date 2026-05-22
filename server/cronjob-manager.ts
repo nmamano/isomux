@@ -424,6 +424,10 @@ export function getRunTranscript(
 // System prompt for cronjobs
 // ---------------------------------------------------------------------------
 
+// Same rationale as system-prompt.ts: hoist PORT once so a non-default isomux
+// (e.g. betatest2 on 4001) tells its cronjobs to POST to the right port.
+const PORT = process.env.PORT || "4000";
+
 export function buildCronjobSystemPrompt(
   cronjob: Cronjob,
   runId?: string,
@@ -444,19 +448,19 @@ The Isomux office consists of agents that have persistent identity and sit at de
 
 How to discover other office agents and their conversation logs: read ~/.isomux/agents-summary.json.
 
-How to use the task board (localhost:4000/tasks): only touch it if your prompt directs you to. When you do:
-  curl -s localhost:4000/tasks                                          # list active tasks (excludes done and backlog)
-  curl -s localhost:4000/tasks?status=all                               # include done and backlog
-  curl -s -X POST localhost:4000/tasks -H 'Content-Type: application/json' \\
+How to use the task board (localhost:${PORT}/tasks): only touch it if your prompt directs you to. When you do:
+  curl -s localhost:${PORT}/tasks                                          # list active tasks (excludes done and backlog)
+  curl -s localhost:${PORT}/tasks?status=all                               # include done and backlog
+  curl -s -X POST localhost:${PORT}/tasks -H 'Content-Type: application/json' \\
     -d '{"title":"...","createdBy":"${cronjob.name}"}'                  # create
-  curl -s -X POST localhost:4000/tasks/ID/done -d '{}'                  # mark done
+  curl -s -X POST localhost:${PORT}/tasks/ID/done -d '{}'                  # mark done
 
-How to surface a file in the run transcript (images render inline; other files render as a clickable file chip): call POST localhost:4000/cronjobs/${cronjob.id}/runs/${runIdForUrl}/read-file with body {"path":"..."}. The path can be relative to your cwd, absolute, or \`~/...\`. Use this when you've produced or want to surface a file (a plot, screenshot, generated PDF, log snippet) for whoever reviews the run.
-  curl -s -X POST localhost:4000/cronjobs/${cronjob.id}/runs/${runIdForUrl}/read-file -H 'Content-Type: application/json' -d '{"path":"plot.png"}'
+How to surface a file in the run transcript (images render inline; other files render as a clickable file chip): call POST localhost:${PORT}/cronjobs/${cronjob.id}/runs/${runIdForUrl}/read-file with body {"path":"..."}. The path can be relative to your cwd, absolute, or \`~/...\`. Use this when you've produced or want to surface a file (a plot, screenshot, generated PDF, log snippet) for whoever reviews the run.
+  curl -s -X POST localhost:${PORT}/cronjobs/${cronjob.id}/runs/${runIdForUrl}/read-file -H 'Content-Type: application/json' -d '{"path":"plot.png"}'
 
-How to show a styled code diff in the run transcript: call POST localhost:4000/cronjobs/${cronjob.id}/runs/${runIdForUrl}/diff. Optional body fields: {"dir":"..."} targets a different directory (defaults to your cwd); {"commit":"..."} shows a specific commit (\`08dbbe2\`), tag/branch, or range (\`main..feature\`, \`HEAD~3..HEAD\`, \`a...b\` for merge-base diff) instead of uncommitted changes.
-  curl -s -X POST localhost:4000/cronjobs/${cronjob.id}/runs/${runIdForUrl}/diff -d '{}'                                                # uncommitted in your cwd
-  curl -s -X POST localhost:4000/cronjobs/${cronjob.id}/runs/${runIdForUrl}/diff -H 'Content-Type: application/json' -d '{"commit":"08dbbe2"}'   # a specific commit
+How to show a styled code diff in the run transcript: call POST localhost:${PORT}/cronjobs/${cronjob.id}/runs/${runIdForUrl}/diff. Optional body fields: {"dir":"..."} targets a different directory (defaults to your cwd); {"commit":"..."} shows a specific commit (\`08dbbe2\`), tag/branch, or range (\`main..feature\`, \`HEAD~3..HEAD\`, \`a...b\` for merge-base diff) instead of uncommitted changes.
+  curl -s -X POST localhost:${PORT}/cronjobs/${cronjob.id}/runs/${runIdForUrl}/diff -d '{}'                                                # uncommitted in your cwd
+  curl -s -X POST localhost:${PORT}/cronjobs/${cronjob.id}/runs/${runIdForUrl}/diff -H 'Content-Type: application/json' -d '{"commit":"08dbbe2"}'   # a specific commit
 
 How to inspect cronjobs (~/.isomux/cronjobs/): cronjobs are scheduled SDK sessions, not agents — they fire daily/weekly/at an interval, run a fresh session with a configured prompt, and save the transcript as a "run". They have no desk or persistent identity. Only touch them when the boss asks.
   ~/.isomux/cronjobs/cronjobs.json                              # all cronjob configs
