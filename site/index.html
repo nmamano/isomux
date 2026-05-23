@@ -150,16 +150,15 @@
         color-scheme: light;
       }
 
-      /* Theme toggle button (mounted by site/theme-toggle.js). Floats top-
-         right on the landing; the docs site mounts it inline in the topbar
-         (`.theme-toggle--inline` removes the fixed positioning).
-         The top offset uses safe-area-inset so the button doesn't slip
-         under the iPhone notch / status bar on tall phones, where the
-         viewport extends past the safe area. */
+      /* Theme toggle button (mounted by site/theme-toggle.js). Sits in the
+         top-right of the page on the landing — `position: absolute` rather
+         than `fixed`, so it scrolls out of view as the user moves down the
+         page instead of following along. The docs site mounts it inline in
+         the topbar (`.theme-toggle--inline` overrides). */
       .theme-toggle {
-        position: fixed;
-        top: max(16px, env(safe-area-inset-top, 16px));
-        right: max(16px, env(safe-area-inset-right, 16px));
+        position: absolute;
+        top: 16px;
+        right: 16px;
         z-index: 90;
         width: 38px;
         height: 38px;
