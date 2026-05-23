@@ -206,8 +206,98 @@ const STYLES = `
   --accent: #50b86c;
   --accent-hover: #3da85a;
   --border: #30363d;
+  --topbar-bg: rgba(10, 14, 22, 0.92);
   --layout-max: 1180px;
   --sidebar-width: 220px;
+  color-scheme: dark;
+}
+
+/* Light mode — honored when the OS / browser asks for it. Same variable
+   shape as the dark default; accent green is darkened so links and headings
+   hit AA contrast on white. Mirrors the landing palette in site/index.html. */
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f4f6f9;
+    --bg-surface: #ffffff;
+    --bg-card: #eef1f5;
+    --text: #1a2030;
+    --text-dim: #5a6a80;
+    --accent: #1f9550;
+    --accent-hover: #16803f;
+    --border: #d8dde6;
+    --topbar-bg: rgba(244, 246, 249, 0.92);
+    color-scheme: light;
+  }
+}
+
+/* Explicit user override via the theme toggle (site/theme-toggle.js) or
+   the wall moon/sun inside the app — both write the same localStorage key
+   and the early script in <head> sets data-theme-mode before paint. The
+   data-theme-mode blocks beat :root inside @media on specificity, so the
+   user pick wins regardless of OS preference. */
+:root[data-theme-mode="dark"] {
+  --bg: #0a0e16;
+  --bg-surface: #161b22;
+  --bg-card: #1c2128;
+  --text: #f0f3f6;
+  --text-dim: #bcc5d0;
+  --accent: #50b86c;
+  --accent-hover: #3da85a;
+  --border: #30363d;
+  --topbar-bg: rgba(10, 14, 22, 0.92);
+  color-scheme: dark;
+}
+:root[data-theme-mode="light"] {
+  --bg: #f4f6f9;
+  --bg-surface: #ffffff;
+  --bg-card: #eef1f5;
+  --text: #1a2030;
+  --text-dim: #5a6a80;
+  --accent: #1f9550;
+  --accent-hover: #16803f;
+  --border: #d8dde6;
+  --topbar-bg: rgba(244, 246, 249, 0.92);
+  color-scheme: light;
+}
+
+/* Theme toggle button. Mounted by site/theme-toggle.js inside .topbar-inner
+   on docs pages (gets .theme-toggle--inline). The base style is also used
+   on the landing where the script mounts the button fixed top-right. */
+.theme-toggle {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 90;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-dim);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: color 0.15s, background 0.15s, border-color 0.15s, transform 0.15s;
+}
+.theme-toggle:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  transform: scale(1.06);
+}
+.theme-toggle svg {
+  width: 18px;
+  height: 18px;
+}
+.theme-toggle--inline {
+  position: static;
+  width: 32px;
+  height: 32px;
+}
+.theme-toggle--inline svg {
+  width: 16px;
+  height: 16px;
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
@@ -225,7 +315,7 @@ h1, h2, h3, h4 { font-family: "Space Grotesk", -apple-system, sans-serif; }
   position: sticky;
   top: 0;
   z-index: 50;
-  background: rgba(10, 14, 22, 0.92);
+  background: var(--topbar-bg);
   backdrop-filter: blur(8px);
   border-bottom: 1px solid var(--border);
 }
@@ -552,12 +642,32 @@ function htmlShell(opts: {
 <meta name="twitter:card" content="summary" />
 <meta name="twitter:title" content="${title} · Isomux docs" />
 <meta name="twitter:description" content="${desc}" />
-<meta name="theme-color" content="#0a0e16" />
+<meta name="theme-color" content="#0a0e16" media="(prefers-color-scheme: dark)" />
+<meta name="theme-color" content="#f4f6f9" media="(prefers-color-scheme: light)" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="/docs/_styles.css" />
 <link rel="stylesheet" href="/chatbot.css" />
+<!-- Pre-paint theme resolution. If the user picked a theme (here, on the
+     landing, or inside the app), apply it before paint so the page doesn't
+     flash the wrong palette. With no saved pick, the @media block in the
+     stylesheet takes over. Mirrors site/theme-toggle.js. -->
+<script>
+(function () {
+  try {
+    var saved = localStorage.getItem("isomux-theme");
+    if (saved) {
+      document.documentElement.setAttribute("data-theme", saved);
+      var lightIds = ["light", "solarized-light"];
+      document.documentElement.setAttribute(
+        "data-theme-mode",
+        lightIds.indexOf(saved) >= 0 ? "light" : "dark",
+      );
+    }
+  } catch (e) {}
+})();
+</script>
 </head>
 <body>
 <div class="topbar">
@@ -594,6 +704,7 @@ ${opts.body}
 </footer>
 <div id="chat-widget"></div>
 ${contextScript}
+<script defer src="/theme-toggle.js"></script>
 <script defer src="/chatbot.js"></script>
 </body>
 </html>

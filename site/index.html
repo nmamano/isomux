@@ -42,8 +42,17 @@
     />
     <meta name="twitter:image" content="https://isomux.com/screenshot.png" />
 
-    <!-- Theme color for mobile browsers -->
-    <meta name="theme-color" content="#0d1117" />
+    <!-- Theme color for mobile browsers (per system color scheme) -->
+    <meta
+      name="theme-color"
+      content="#0d1117"
+      media="(prefers-color-scheme: dark)"
+    />
+    <meta
+      name="theme-color"
+      content="#f4f6f9"
+      media="(prefers-color-scheme: light)"
+    />
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -52,6 +61,27 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/chatbot.css" />
+    <!-- Pre-paint theme resolution: if the user has picked a theme (either
+         here on the landing or inside the embedded /demo iframe — both share
+         the same localStorage origin), apply it as a data-theme attr before
+         first paint so the page doesn't flash the wrong palette. With no
+         saved pick, the @media block below takes over. Mirrors the logic in
+         site/theme-toggle.js. -->
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem("isomux-theme");
+          if (saved) {
+            document.documentElement.setAttribute("data-theme", saved);
+            var lightIds = ["light", "solarized-light"];
+            document.documentElement.setAttribute(
+              "data-theme-mode",
+              lightIds.indexOf(saved) >= 0 ? "light" : "dark",
+            );
+          }
+        } catch (e) {}
+      })();
+    </script>
     <style>
       * {
         margin: 0;
@@ -69,6 +99,99 @@
         --accent-hover: #3da85a;
         --border: #30363d;
         --max-width: 960px;
+        color-scheme: dark;
+      }
+
+      /* Light mode — honored when the OS / browser asks for it.
+         Same variable shape as the dark default above; the accent green is
+         darkened so links and the primary CTA hit AA contrast on white. */
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg: #f4f6f9;
+          --bg-surface: #ffffff;
+          --bg-card: #eef1f5;
+          --text: #1a2030;
+          --text-dim: #5a6a80;
+          --accent: #1f9550;
+          --accent-hover: #16803f;
+          --border: #d8dde6;
+          color-scheme: light;
+        }
+      }
+
+      /* Explicit user override (toggle button in site/theme-toggle.js or
+         the moon/sun inside the embedded demo iframe — both write the same
+         localStorage key, and site/theme-toggle.js sets data-theme-mode
+         based on the saved theme id). The data-theme-mode blocks have
+         higher specificity than :root inside @media, so they win regardless
+         of OS preference. Matching on `data-theme-mode` rather than the
+         specific theme id means any of the app's 6 themes (Nord, Dracula,
+         Solarized…) resolves to the landing's dark or light palette. */
+      :root[data-theme-mode="dark"] {
+        --bg: #0a0e16;
+        --bg-surface: #161b22;
+        --bg-card: #1c2128;
+        --text: #f0f3f6;
+        --text-dim: #bcc5d0;
+        --accent: #50b86c;
+        --accent-hover: #3da85a;
+        --border: #30363d;
+        color-scheme: dark;
+      }
+      :root[data-theme-mode="light"] {
+        --bg: #f4f6f9;
+        --bg-surface: #ffffff;
+        --bg-card: #eef1f5;
+        --text: #1a2030;
+        --text-dim: #5a6a80;
+        --accent: #1f9550;
+        --accent-hover: #16803f;
+        --border: #d8dde6;
+        color-scheme: light;
+      }
+
+      /* Theme toggle button (mounted by site/theme-toggle.js). Floats top-
+         right on the landing; the docs site mounts it inline in the topbar
+         (`.theme-toggle--inline` removes the fixed positioning). */
+      .theme-toggle {
+        position: fixed;
+        top: 16px;
+        right: 16px;
+        z-index: 90;
+        width: 38px;
+        height: 38px;
+        border-radius: 50%;
+        border: 1px solid var(--border);
+        background: var(--bg-surface);
+        color: var(--text-dim);
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        transition:
+          color 0.15s,
+          background 0.15s,
+          border-color 0.15s,
+          transform 0.15s;
+      }
+      .theme-toggle:hover {
+        color: var(--accent);
+        border-color: var(--accent);
+        transform: scale(1.06);
+      }
+      .theme-toggle svg {
+        width: 18px;
+        height: 18px;
+      }
+      .theme-toggle--inline {
+        position: static;
+        width: 32px;
+        height: 32px;
+      }
+      .theme-toggle--inline svg {
+        width: 16px;
+        height: 16px;
       }
 
       body {
@@ -1014,6 +1137,11 @@ bun run dev</pre
         .catch(() => {});
     </script>
     <script defer src="/_vercel/insights/script.js"></script>
+
+    <!-- Theme toggle (mounts a fixed top-right button on the landing). Also
+         keeps the page in sync with theme changes from the embedded /demo
+         iframe via the cross-window `storage` event. -->
+    <script defer src="/theme-toggle.js"></script>
 
     <!-- Chat widget -->
     <div id="chat-widget"></div>

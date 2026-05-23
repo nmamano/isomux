@@ -41,8 +41,37 @@
       rel="icon"
       href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><polygon points='2,10 16,18 16,30 2,22' fill='%23209050'/><polygon points='30,10 16,18 16,30 30,22' fill='%23186840'/><polygon points='16,8 24,12.5 16,17 8,12.5' fill='%230d1117'/><text x='16' y='14.5' text-anchor='middle' font-size='6' font-family='monospace' font-weight='bold' fill='%23E6F5EC'>%3E_</text><polygon points='16,2 2,10 8,12.5 16,8' fill='%233AC874'/><polygon points='16,2 30,10 24,12.5 16,8' fill='%234BE88A'/><polygon points='2,10 16,18 16,17 8,12.5' fill='%2330B76A'/><polygon points='30,10 16,18 16,17 24,12.5' fill='%2341D57E'/></svg>"
     />
+    <!-- Pre-paint theme resolution so the demo iframe doesn't flash the
+         wrong mode before the JS bundle and ThemeProvider mount. Mirrors
+         the logic in ui/store.tsx (getInitialThemeId + ThemeProvider). -->
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem("isomux-theme");
+          var theme =
+            saved ||
+            (window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: light)").matches
+              ? "light"
+              : "dark");
+          var lightThemes = ["light", "solarized-light"];
+          var mode = lightThemes.indexOf(theme) >= 0 ? "light" : "dark";
+          document.documentElement.setAttribute("data-theme", theme);
+          document.documentElement.setAttribute("data-theme-mode", mode);
+        } catch (e) {}
+      })();
+    </script>
+    <style>
+      body {
+        margin: 0;
+        background: #0a0e16;
+      }
+      [data-theme-mode="light"] body {
+        background: #f0f2f6;
+      }
+    </style>
   </head>
-  <body style="margin: 0; background: #0a0e16">
+  <body>
     <div id="root"></div>
     <script type="module" src="/demo/demo-entry.js"></script>
   </body>

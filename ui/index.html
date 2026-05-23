@@ -19,6 +19,37 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-title" content="Isomux" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+    <!-- Pre-paint theme resolution so the app doesn't flash the wrong mode
+         before the JS bundle and ThemeProvider mount. Mirrors the logic in
+         ui/store.tsx (getInitialThemeId + ThemeProvider): saved pick wins,
+         otherwise follow the OS color-scheme preference. Sets only the
+         coarse data-theme-mode + a body background here; ThemeProvider then
+         refines to the exact theme (e.g. Nord, Dracula). -->
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem("isomux-theme");
+          var theme =
+            saved ||
+            (window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: light)").matches
+              ? "light"
+              : "dark");
+          var lightThemes = ["light", "solarized-light"];
+          var mode = lightThemes.indexOf(theme) >= 0 ? "light" : "dark";
+          document.documentElement.setAttribute("data-theme", theme);
+          document.documentElement.setAttribute("data-theme-mode", mode);
+        } catch (e) {}
+      })();
+    </script>
+    <style>
+      body {
+        background: #0a0e16;
+      }
+      [data-theme-mode="light"] body {
+        background: #f0f2f6;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
