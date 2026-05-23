@@ -2,15 +2,13 @@
 
 How Isomux gates who can use an office, and how the invite-link flow works end-to-end.
 
-For an audit-level treatment of the same system — threat model, findings, verified controls, CSRF/CSWSH analysis — see [docs/security-audit.md](./security-audit.md).
-
 ## TL;DR
 
 - Isomux agents can run shell commands, so authenticated users effectively have shell access to the host. Only invite people you trust.
 - The server gates every browser request (HTTP + WebSocket) by a session cookie.
-- Sessions are created when an invitee opens an invite URL the office owner generated.
-- The first owner claims the office at `http://localhost:4000` on the host machine. Until that claim happens the server listens on the loopback interface only, so the form is only reachable from the host (or via an SSH tunnel from another machine).
-- Two roles exist: `owner` (can mint invites, revoke sessions, toggle external access) and `member` (can use the office). Both have full operational access — the role split exists to control who expands the trust boundary.
+- Two roles: `owner` (can toggle external access and mint invites for new members) and `member` (can mint invites for their other devices). Both have full operational access.
+- Sessions are created when someone opens an invite URL (issued by an owner, or by a member for one of their own devices).
+- The first owner claims the office at `http://localhost:4000` on the host machine. Until that claim happens the server is only reachable from the host (or via an SSH tunnel).
 
 ## End-to-end flow
 
@@ -55,7 +53,15 @@ Owner-issued invite links expire 24h after issuing if unused; self-device links 
 
 Inviting a user who already exists requires the `Issue an additional invite` confirmation in the modal. The framing is "additional invite for that identity" — it does not revoke their existing sessions, does not mutate their role. One user can have many simultaneous sessions (laptop + phone + tablet).
 
-### 4. Sign out
+### 4. Member self-invites
+
+Members can add more of their own devices without involving the owner. In `User Settings`, the `My devices` pane (which replaces the `Access` pane for non-owner roles) has a `Generate device link` button with no other knobs. Click it; the URL appears once. Copy it, open it on the other device, you're in as the same identity.
+
+Self-device links are tighter than owner-issued invites by design: **1h TTL** and **at most one outstanding at a time** (generating a new one replaces the previous). The 1h window matches the legitimate flow ("both my devices are right here, click it now"). The role, target user, and TTL are all fixed server-side from the caller's session, so a tampered client can't extend the window, change the role, or mint for a different identity. The wire-level check rejects any such attempt.
+
+The `My devices` pane also lists the member's outstanding invites and active sessions, scoped to themselves — same tables as the owner's `Access` pane, filtered to one identity.
+
+### 5. Sign out
 
 `User Settings` → `Sign out` revokes the current device's session and reloads. Other devices for the same user stay signed in.
 
@@ -190,7 +196,7 @@ explicitly) rather than relying on session expiry.
 
 ## Trust model boundaries
 
-- **Inside the office, authenticated users have shell-equivalent access.** Members can use the terminal panel to read any file the isomux process can read, including other users' env files. The owner/member split controls who **expands the trust boundary** (mints invites, revokes sessions), not what they can do once inside. OS-level isolation between members is a separate concern (tracked as a follow-up task).
+- **Inside the office, authenticated users have shell-equivalent access.** Members can use the terminal panel to read any file the isomux process can read, including other users' env files. The owner/member split controls who **expands the trust boundary** (mints invites for new identities, revokes sessions), not what they can do once inside. OS-level isolation between members is a separate concern (tracked as a follow-up task).
 - **Agents run with the host Linux user's permissions.** The cookie auth doesn't constrain what an agent does once it's spawned in the office.
 - **Session revocation stops future use of a session but doesn't undo past actions.** Anything the leaked session already wrote stays written.
 
