@@ -41,6 +41,8 @@ import { EditorPanel } from "./EditorPanel.tsx";
 import { PanelResizer } from "./PanelResizer.tsx";
 import { useSwipeLeftRight } from "../hooks/useSwipeLeftRight.ts";
 import { getDevice } from "../device-settings.ts";
+import { useSelectionCite } from "./useSelectionCite.ts";
+import { CiteSelectionButton } from "./CiteSelectionButton.tsx";
 
 const STATE_LABELS: Partial<Record<AgentState, string>> = {
   thinking: "Thinking",
@@ -875,11 +877,29 @@ export function LogView({
     return () => window.removeEventListener("keydown", handleEditorShortcut);
   }, [isMobile, features.editor, setEditorOpen]);
 
+  // Cite-from-selection: when the boss highlights text in the chat log, show
+  // a floating "Cite" pill that inserts the selection into the draft as a
+  // triple-quoted block. Gated to pointer-fine devices for v1 — Nil flagged
+  // mobile scroll as already finicky and asked us to never regress it. The
+  // hook is a pure observer (no scroll/focus side-effects); the click handler
+  // below (handleCite) is the only place we mutate draft / focus / selection.
+  // Scroll-hide lives in handleScroll below — keeping the hook
+  // selection-only, with the chat's existing scroll path owning geometry
+  // invalidation.
+  const citeEnabled = !isTouchPrimary && !editingLogEntryId;
+  const { cite, clearCite } = useSelectionCite(scrollRef, citeEnabled);
+
   function handleScroll() {
     if (!scrollRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
     setAutoScroll(scrollHeight - scrollTop - clientHeight < 50);
     recomputePinned();
+    // Hide cite pill when the chat scrolls — its cached viewport rect goes
+    // stale and `selectionchange` won't fire for a pure scroll. The hook
+    // could listen at document level, but routing through this existing
+    // handler avoids a second DOM listener and keeps the hook focused on
+    // selection. Guard avoids a redundant render on every scroll event.
+    if (cite) clearCite();
   }
 
   const isBusy = agent.state === "thinking" || agent.state === "tool_executing";
@@ -1365,6 +1385,61 @@ export function LogView({
       handleFileSelect(dt.files);
     }
     // If no files, let default text paste through
+  }
+
+  function handleCite(text: string) {
+    const ta = textareaRef.current;
+    const current = inputRef.current;
+    const block = `Cited text:\n"""\n${text}\n"""\n`;
+
+    let newDraft: string;
+    let caretPos: number;
+
+    if (ta && document.activeElement === ta) {
+      // Insert at the textarea caret, replacing any active selection in the
+      // textarea. selectionStart/End are always defined for a focused
+      // textarea — fall back to end-of-draft just to be safe with edge
+      // browser quirks.
+      const start = ta.selectionStart ?? current.length;
+      const end = ta.selectionEnd ?? current.length;
+      const before = current.slice(0, start);
+      const after = current.slice(end);
+      const leadSep = before === "" || before.endsWith("\n") ? "" : "\n";
+      const trailSep = after === "" || after.startsWith("\n") ? "" : "\n";
+      const insertion = leadSep + block + trailSep;
+      newDraft = before + insertion + after;
+      caretPos = before.length + insertion.length;
+    } else {
+      // Append. Separate from any existing draft with a blank line so a
+      // half-written prompt and the citation don't smush together.
+      if (current === "") {
+        newDraft = block;
+      } else {
+        const sep = current.endsWith("\n\n")
+          ? ""
+          : current.endsWith("\n")
+            ? "\n"
+            : "\n\n";
+        newDraft = current + sep + block;
+      }
+      caretPos = newDraft.length;
+    }
+
+    setInput(newDraft);
+    // Collapse the chat selection so the pill goes away. selectionchange will
+    // null out the hook state too, but clearCite first for snappy feedback.
+    clearCite();
+    window.getSelection()?.removeAllRanges();
+    // The textarea is controlled — wait one frame for React to flush the new
+    // value into the DOM, then focus + position caret + resize. preventScroll
+    // keeps the chat from jumping when the textarea grabs focus.
+    requestAnimationFrame(() => {
+      const ta2 = textareaRef.current;
+      if (!ta2) return;
+      ta2.focus({ preventScroll: true });
+      ta2.setSelectionRange(caretPos, caretPos);
+      autoResize(ta2);
+    });
   }
 
   function handleSend() {
@@ -2689,6 +2764,13 @@ export function LogView({
         open={themePickerOpen}
         onClose={() => setThemePickerOpen(false)}
       />
+      {cite && scrollRef.current && (
+        <CiteSelectionButton
+          cite={cite}
+          containerRect={scrollRef.current.getBoundingClientRect()}
+          onClick={() => handleCite(cite.text)}
+        />
+      )}
     </div>
   );
 }
