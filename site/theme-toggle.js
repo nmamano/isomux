@@ -49,10 +49,7 @@
     const root = document.documentElement;
     if (saved) {
       root.setAttribute("data-theme", saved);
-      root.setAttribute(
-        "data-theme-mode",
-        isLightId(saved) ? "light" : "dark",
-      );
+      root.setAttribute("data-theme-mode", isLightId(saved) ? "light" : "dark");
     } else {
       root.removeAttribute("data-theme");
       root.removeAttribute("data-theme-mode");
