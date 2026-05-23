@@ -1,0 +1,755 @@
+import { describe, expect, it } from "bun:test";
+import type {
+  SDKMessage,
+  SDKUserMessage,
+  SessionMessage,
+  CanUseTool,
+  PermissionResult,
+  PermissionUpdate,
+} from "@anthropic-ai/claude-agent-sdk";
+import {
+  ClaudeSession,
+  createClaudeBackend,
+  type SdkClient,
+  type SdkConversation,
+  type SdkOneShotOptions,
+} from "./claude";
+import type { ContextUsage } from "./types";
+
+// ---------------------------------------------------------------------------
+// FakeSdkConversation — test double for SdkConversation
+// ---------------------------------------------------------------------------
+// Pushable async iterable for messages; tracks sends and close calls; lets
+// the test simulate SDK-side errors mid-stream.
+
+class FakeSdkConversation implements SdkConversation {
+  sends: (string | SDKUserMessage)[] = [];
+  closeCount = 0;
+  contextUsage: ContextUsage | null = null;
+
+  private queue: SDKMessage[] = [];
+  private waiter: (() => void) | null = null;
+  private done = false;
+  private thrown: Error | null = null;
+
+  async *messages(): AsyncIterable<SDKMessage> {
+    while (true) {
+      while (this.queue.length > 0) {
+        yield this.queue.shift()!;
+      }
+      if (this.thrown) {
+        const err = this.thrown;
+        this.thrown = null;
+        throw err;
+      }
+      if (this.done) return;
+      await new Promise<void>((resolve) => {
+        this.waiter = resolve;
+      });
+    }
+  }
+
+  send(msg: string | SDKUserMessage): Promise<void> {
+    this.sends.push(msg);
+    return Promise.resolve();
+  }
+
+  close(): void {
+    this.closeCount++;
+    this.done = true;
+    this.wake();
+  }
+
+  async getContextUsage(): Promise<ContextUsage | null> {
+    return this.contextUsage;
+  }
+
+  // ----- Test driver helpers -----
+  emit(msg: unknown): void {
+    this.queue.push(msg as SDKMessage);
+    this.wake();
+  }
+
+  finish(): void {
+    this.done = true;
+    this.wake();
+  }
+
+  throwNext(err: Error): void {
+    this.thrown = err;
+    this.wake();
+  }
+
+  private wake() {
+    if (this.waiter) {
+      const w = this.waiter;
+      this.waiter = null;
+      w();
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// FakeSdkClient — test double for SdkClient
+// ---------------------------------------------------------------------------
+
+class FakeSdkClient implements SdkClient {
+  conversations: FakeSdkConversation[] = [];
+  createCalls: { opts: Parameters<SdkClient["createSession"]>[0] }[] = [];
+  resumeCalls: {
+    sessionId: string;
+    opts: Parameters<SdkClient["resumeSession"]>[1];
+  }[] = [];
+  oneShotCalls: SdkOneShotOptions[] = [];
+  forkCalls: { sessionId: string; opts: { upToMessageId: string } }[] = [];
+  getMessagesCalls: string[] = [];
+
+  oneShotResult = "default-topic";
+  forkResult: { sessionId: string } = { sessionId: "forked-1" };
+  sessionMessagesResult: SessionMessage[] = [];
+
+  createSession(
+    opts: Parameters<SdkClient["createSession"]>[0],
+  ): SdkConversation {
+    this.createCalls.push({ opts });
+    const conv = new FakeSdkConversation();
+    this.conversations.push(conv);
+    return conv;
+  }
+
+  resumeSession(
+    sessionId: string,
+    opts: Parameters<SdkClient["resumeSession"]>[1],
+  ): SdkConversation {
+    this.resumeCalls.push({ sessionId, opts });
+    const conv = new FakeSdkConversation();
+    this.conversations.push(conv);
+    return conv;
+  }
+
+  oneShotPrompt(opts: SdkOneShotOptions): Promise<string> {
+    this.oneShotCalls.push(opts);
+    return Promise.resolve(this.oneShotResult);
+  }
+
+  forkSession(
+    sessionId: string,
+    opts: { upToMessageId: string },
+  ): Promise<{ sessionId: string }> {
+    this.forkCalls.push({ sessionId, opts });
+    return Promise.resolve(this.forkResult);
+  }
+
+  getSessionMessages(sessionId: string): Promise<SessionMessage[]> {
+    this.getMessagesCalls.push(sessionId);
+    return Promise.resolve(this.sessionMessagesResult);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Small helpers
+// ---------------------------------------------------------------------------
+
+function minimalSdkOpts() {
+  return {
+    model: "claude-opus-4-7",
+    pathToClaudeCodeExecutable: "/bin/echo",
+    cwd: "/tmp",
+    permissionMode: "default" as const,
+  };
+}
+
+function makeSession(
+  fake: FakeSdkClient,
+  resumeSessionId?: string,
+): {
+  session: ClaudeSession;
+  conv: FakeSdkConversation;
+  canUseTool: CanUseTool;
+} {
+  const session = new ClaudeSession(
+    "test-agent",
+    fake,
+    minimalSdkOpts(),
+    resumeSessionId,
+  );
+  const conv = fake.conversations.at(-1)!;
+  const opts = resumeSessionId
+    ? fake.resumeCalls.at(-1)!.opts
+    : fake.createCalls.at(-1)!.opts;
+  const canUseTool = opts.canUseTool!;
+  return { session, conv, canUseTool };
+}
+
+function nextEvent<T extends { kind: string }>(
+  it: AsyncIterator<T>,
+): Promise<T | undefined> {
+  return it.next().then((r) => (r.done ? undefined : r.value));
+}
+
+// Bun's `expect(promise).rejects.toThrow(...)` is typed as returning `void`
+// (bun-types gap) so `await` on it trips @typescript-eslint/await-thenable
+// even though the runtime returns a thenable. This helper makes the assertion
+// portable and lint-clean: it awaits the promise, fails if it resolved, and
+// matches the rejection's message against the supplied pattern.
+async function expectRejection(
+  p: Promise<unknown>,
+  pattern: RegExp,
+): Promise<void> {
+  try {
+    await p;
+  } catch (err) {
+    expect((err as Error).message).toMatch(pattern);
+    return;
+  }
+  throw new Error("expected promise to reject, but it resolved");
+}
+
+function fakeCallOpts(
+  toolUseID: string,
+  extras: {
+    suggestions?: PermissionUpdate[];
+    title?: string;
+    description?: string;
+    decisionReason?: string;
+    signal?: AbortSignal;
+  } = {},
+): Parameters<CanUseTool>[2] {
+  return {
+    toolUseID,
+    signal: extras.signal ?? new AbortController().signal,
+    suggestions: extras.suggestions,
+    title: extras.title,
+    description: extras.description,
+    decisionReason: extras.decisionReason,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// ClaudeSession — construction
+// ---------------------------------------------------------------------------
+
+describe("ClaudeSession construction", () => {
+  it("fresh session calls sdkClient.createSession with canUseTool wired", () => {
+    const fake = new FakeSdkClient();
+    new ClaudeSession("agent-x", fake, minimalSdkOpts());
+    expect(fake.createCalls).toHaveLength(1);
+    expect(fake.resumeCalls).toHaveLength(0);
+    expect(fake.createCalls[0].opts.canUseTool).toBeDefined();
+    expect(fake.createCalls[0].opts.model).toBe("claude-opus-4-7");
+  });
+
+  it("resume session calls sdkClient.resumeSession with session id", () => {
+    const fake = new FakeSdkClient();
+    new ClaudeSession("agent-x", fake, minimalSdkOpts(), "s-99");
+    expect(fake.resumeCalls).toHaveLength(1);
+    expect(fake.createCalls).toHaveLength(0);
+    expect(fake.resumeCalls[0].sessionId).toBe("s-99");
+    expect(fake.resumeCalls[0].opts.canUseTool).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ClaudeSession — stream pumping
+// ---------------------------------------------------------------------------
+
+describe("ClaudeSession stream", () => {
+  it("yields translated events as the conversation emits SDK messages", async () => {
+    const fake = new FakeSdkClient();
+    const { session, conv } = makeSession(fake);
+    const it = session.stream()[Symbol.asyncIterator]();
+
+    conv.emit({
+      type: "system",
+      subtype: "init",
+      session_id: "s-1",
+      slash_commands: ["help"],
+      model: "claude-opus-4-7",
+    });
+    expect(await nextEvent(it)).toEqual({
+      kind: "system_init",
+      sessionId: "s-1",
+      slashCommands: ["help"],
+      model: "claude-opus-4-7",
+    });
+
+    conv.emit({
+      type: "assistant",
+      message: { content: [{ type: "text", text: "hello" }] },
+    });
+    expect(await nextEvent(it)).toEqual({
+      kind: "assistant_text",
+      text: "hello",
+    });
+
+    conv.emit({
+      type: "result",
+      subtype: "success",
+      usage: {
+        input_tokens: 1,
+        output_tokens: 2,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 0,
+      },
+      total_cost_usd: 0.01,
+    });
+    expect(await nextEvent(it)).toMatchObject({
+      kind: "turn_completed",
+      status: "completed",
+      cost: 0.01,
+    });
+  });
+
+  it("ends iteration when the conversation iterable returns", async () => {
+    const fake = new FakeSdkClient();
+    const { session, conv } = makeSession(fake);
+    const it = session.stream()[Symbol.asyncIterator]();
+    conv.emit({
+      type: "assistant",
+      message: { content: [{ type: "text", text: "x" }] },
+    });
+    expect(await nextEvent(it)).toMatchObject({ kind: "assistant_text" });
+    conv.finish();
+    const final = await it.next();
+    expect(final.done).toBe(true);
+  });
+
+  it("emits a normalized error event when the conversation throws mid-stream", async () => {
+    const fake = new FakeSdkClient();
+    const { session, conv } = makeSession(fake);
+    const it = session.stream()[Symbol.asyncIterator]();
+    conv.throwNext(new Error("transport boom"));
+    const ev = await nextEvent(it);
+    expect(ev).toEqual({ kind: "error", message: "transport boom" });
+    const done = await it.next();
+    expect(done.done).toBe(true);
+  });
+
+  it("swallows mid-stream throw when the session was closed", async () => {
+    const fake = new FakeSdkClient();
+    const { session, conv } = makeSession(fake);
+    const it = session.stream()[Symbol.asyncIterator]();
+    // close BEFORE the throw — feedSDKMessages sees this.closed=true and
+    // refrains from enqueueing an error event.
+    session.close();
+    conv.throwNext(new Error("closing race"));
+    const done = await it.next();
+    expect(done.done).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ClaudeSession — send
+// ---------------------------------------------------------------------------
+
+describe("ClaudeSession send", () => {
+  it("forwards plain text directly to the conversation", async () => {
+    const fake = new FakeSdkClient();
+    const { session, conv } = makeSession(fake);
+    await session.send("hello");
+    expect(conv.sends).toEqual(["hello"]);
+  });
+
+  it("wraps text+attachments into an SDKUserMessage before sending", async () => {
+    const fake = new FakeSdkClient();
+    const { session, conv } = makeSession(fake);
+    await session.send("see attached", [
+      {
+        filename: "missing.png",
+        originalName: "missing.png",
+        mediaType: "image/png",
+        size: 0,
+      },
+    ]);
+    expect(conv.sends).toHaveLength(1);
+    const sent = conv.sends[0];
+    expect(typeof sent).toBe("object");
+    expect((sent as SDKUserMessage).type).toBe("user");
+    const content = (sent as SDKUserMessage).message.content as {
+      type?: string;
+      text?: string;
+    }[];
+    // missing file is silently skipped → only the text block remains
+    expect(content).toEqual([{ type: "text", text: "see attached" }]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ClaudeSession — canUseTool / approve roundtrip
+// ---------------------------------------------------------------------------
+
+describe("ClaudeSession approval flow", () => {
+  it("canUseTool emits approval_request and parks until approve()", async () => {
+    const fake = new FakeSdkClient();
+    const { session, canUseTool } = makeSession(fake);
+    const it = session.stream()[Symbol.asyncIterator]();
+
+    const decision = canUseTool(
+      "Bash",
+      { cmd: "ls" },
+      fakeCallOpts("u1", { title: "Bash ls", description: "list dir" }),
+    );
+
+    const ev = await nextEvent(it);
+    expect(ev).toEqual({
+      kind: "approval_request",
+      approvalId: "u1",
+      toolName: "Bash",
+      input: { cmd: "ls" },
+      title: "Bash ls",
+      description: "list dir",
+    });
+
+    await session.approve("u1", { kind: "allow_once" });
+    const result = await decision;
+    expect(result).toEqual({ behavior: "allow", updatedInput: { cmd: "ls" } });
+  });
+
+  it("approval_request defaults title/description when not provided", async () => {
+    const fake = new FakeSdkClient();
+    const { session, canUseTool } = makeSession(fake);
+    const it = session.stream()[Symbol.asyncIterator]();
+
+    void canUseTool(
+      "Read",
+      { path: "/x" },
+      fakeCallOpts("u2", { decisionReason: "outside allow list" }),
+    );
+    expect(await nextEvent(it)).toMatchObject({
+      title: "Claude wants to use Read",
+      description: "outside allow list",
+    });
+  });
+
+  it("allow_persistent scopes suggested permissions to the session", async () => {
+    const fake = new FakeSdkClient();
+    const { session, canUseTool } = makeSession(fake);
+    const it = session.stream()[Symbol.asyncIterator]();
+
+    const suggestions: PermissionUpdate[] = [
+      {
+        type: "addRules",
+        rules: [{ toolName: "Bash", ruleContent: "ls" }],
+        behavior: "allow",
+        destination: "userSettings",
+      },
+    ];
+    const decision = canUseTool(
+      "Bash",
+      { cmd: "ls" },
+      fakeCallOpts("u3", { suggestions }),
+    );
+    await nextEvent(it);
+    await session.approve("u3", { kind: "allow_persistent" });
+    const result = (await decision) as Extract<
+      PermissionResult,
+      { behavior: "allow" }
+    >;
+    expect(result.behavior).toBe("allow");
+    expect(result.updatedInput).toEqual({ cmd: "ls" });
+    expect(result.updatedPermissions).toEqual([
+      {
+        type: "addRules",
+        rules: [{ toolName: "Bash", ruleContent: "ls" }],
+        behavior: "allow",
+        destination: "session",
+      },
+    ]);
+  });
+
+  it("allow_persistent with no suggestions yields undefined updatedPermissions", async () => {
+    const fake = new FakeSdkClient();
+    const { session, canUseTool } = makeSession(fake);
+    const it = session.stream()[Symbol.asyncIterator]();
+    const decision = canUseTool("X", {}, fakeCallOpts("u4"));
+    await nextEvent(it);
+    await session.approve("u4", { kind: "allow_persistent" });
+    const result = (await decision) as Extract<
+      PermissionResult,
+      { behavior: "allow" }
+    >;
+    expect(result.updatedPermissions).toBeUndefined();
+  });
+
+  it("deny resolves the SDK promise with behavior:deny and reason", async () => {
+    const fake = new FakeSdkClient();
+    const { session, canUseTool } = makeSession(fake);
+    const it = session.stream()[Symbol.asyncIterator]();
+    const decision = canUseTool("Bash", { cmd: "rm" }, fakeCallOpts("u5"));
+    await nextEvent(it);
+    await session.approve("u5", { kind: "deny", reason: "too risky" });
+    const result = await decision;
+    expect(result).toEqual({ behavior: "deny", message: "too risky" });
+  });
+
+  it("deny without reason uses a default message", async () => {
+    const fake = new FakeSdkClient();
+    const { session, canUseTool } = makeSession(fake);
+    const it = session.stream()[Symbol.asyncIterator]();
+    const decision = canUseTool("X", {}, fakeCallOpts("u6"));
+    await nextEvent(it);
+    await session.approve("u6", { kind: "deny" });
+    expect(await decision).toEqual({
+      behavior: "deny",
+      message: "User denied.",
+    });
+  });
+
+  it("approve() with an unknown approvalId is a no-op", async () => {
+    const fake = new FakeSdkClient();
+    const { session } = makeSession(fake);
+    // Doesn't throw, doesn't affect anything observable
+    await session.approve("never-asked", { kind: "allow_once" });
+  });
+
+  it("aborting the SDK signal denies the approval", async () => {
+    const fake = new FakeSdkClient();
+    const { session, canUseTool } = makeSession(fake);
+    const it = session.stream()[Symbol.asyncIterator]();
+    const ctrl = new AbortController();
+    const decision = canUseTool(
+      "X",
+      {},
+      fakeCallOpts("u7", { signal: ctrl.signal }),
+    );
+    await nextEvent(it);
+    ctrl.abort();
+    const result = await decision;
+    expect(result).toEqual({
+      behavior: "deny",
+      message: "Request aborted.",
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ClaudeSession — close
+// ---------------------------------------------------------------------------
+
+describe("ClaudeSession close", () => {
+  it("denies pending approvals and closes the conversation", async () => {
+    const fake = new FakeSdkClient();
+    const { session, conv, canUseTool } = makeSession(fake);
+    const it = session.stream()[Symbol.asyncIterator]();
+    const decision = canUseTool("X", {}, fakeCallOpts("u-pending"));
+    await nextEvent(it);
+    session.close();
+    expect(await decision).toEqual({
+      behavior: "deny",
+      message: "Session closed.",
+    });
+    expect(conv.closeCount).toBe(1);
+  });
+
+  it("is idempotent — second close() does not double-call conversation.close", async () => {
+    const fake = new FakeSdkClient();
+    const { session, conv } = makeSession(fake);
+    session.close();
+    session.close();
+    expect(conv.closeCount).toBe(1);
+  });
+
+  it("unblocks a parked stream() iterator", async () => {
+    const fake = new FakeSdkClient();
+    const { session } = makeSession(fake);
+    const it = session.stream()[Symbol.asyncIterator]();
+    // it.next() parks because buffer is empty and nothing was emitted.
+    const next = it.next();
+    session.close();
+    const final = await next;
+    expect(final.done).toBe(true);
+  });
+
+  it("close before send is benign", async () => {
+    const fake = new FakeSdkClient();
+    const { session, conv } = makeSession(fake);
+    session.close();
+    await session.send("late");
+    // send still forwards (close doesn't blacklist further sends in current
+    // contract); the conversation.send call is what matters.
+    expect(conv.sends).toEqual(["late"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ClaudeSession — abort / canAbortInPlace
+// ---------------------------------------------------------------------------
+
+describe("ClaudeSession abort", () => {
+  it("abort() rejects — Claude has no in-place interrupt RPC", async () => {
+    const fake = new FakeSdkClient();
+    const { session } = makeSession(fake);
+    await expectRejection(session.abort(), /unsupported/);
+  });
+
+  it("canAbortInPlace() returns false", () => {
+    const fake = new FakeSdkClient();
+    const { session } = makeSession(fake);
+    expect(session.canAbortInPlace()).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ClaudeSession — context usage
+// ---------------------------------------------------------------------------
+
+describe("ClaudeSession getContextUsage", () => {
+  it("delegates to conversation.getContextUsage", async () => {
+    const fake = new FakeSdkClient();
+    const { session, conv } = makeSession(fake);
+    conv.contextUsage = {
+      model: "m",
+      totalTokens: 100,
+      maxTokens: 200000,
+      percentage: 0.05,
+    };
+    expect(await session.getContextUsage()).toEqual({
+      model: "m",
+      totalTokens: 100,
+      maxTokens: 200000,
+      percentage: 0.05,
+    });
+  });
+
+  it("returns null when conversation has no usage data", async () => {
+    const fake = new FakeSdkClient();
+    const { session } = makeSession(fake);
+    expect(await session.getContextUsage()).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createClaudeBackend — module-level backend functions
+// ---------------------------------------------------------------------------
+
+describe("createClaudeBackend.forkSessionBeforeMessage", () => {
+  // forkSessionBeforeMessage walks the transcript by sdkClient.getSessionMessages
+  // and decides between a real fork (predecessor uuid) and a fresh session
+  // when the target is the first user message.
+
+  function withMessages(
+    fake: FakeSdkClient,
+    messages: Array<{ uuid: string; type: string }>,
+  ) {
+    fake.sessionMessagesResult = messages as unknown as SessionMessage[];
+  }
+
+  it("returns fresh when target is the first user message", async () => {
+    const fake = new FakeSdkClient();
+    withMessages(fake, [
+      { uuid: "u-target", type: "user" },
+      { uuid: "a-1", type: "assistant" },
+    ]);
+    const backend = createClaudeBackend(fake);
+    const result = await backend.forkSessionBeforeMessage("s-1", "u-target");
+    expect(result).toEqual({ kind: "fresh" });
+    expect(fake.forkCalls).toHaveLength(0);
+  });
+
+  it("returns fresh even when target is at index 0", async () => {
+    // Defends the firstUserIdx-before-target-match ordering invariant.
+    const fake = new FakeSdkClient();
+    withMessages(fake, [{ uuid: "u-target", type: "user" }]);
+    const backend = createClaudeBackend(fake);
+    const result = await backend.forkSessionBeforeMessage("s-1", "u-target");
+    expect(result).toEqual({ kind: "fresh" });
+  });
+
+  it("forks at the predecessor message when target is mid-conversation", async () => {
+    const fake = new FakeSdkClient();
+    withMessages(fake, [
+      { uuid: "u-0", type: "user" },
+      { uuid: "a-0", type: "assistant" },
+      { uuid: "u-target", type: "user" },
+    ]);
+    fake.forkResult = { sessionId: "forked-99" };
+    const backend = createClaudeBackend(fake);
+    const result = await backend.forkSessionBeforeMessage("s-1", "u-target");
+    expect(fake.forkCalls).toEqual([
+      { sessionId: "s-1", opts: { upToMessageId: "a-0" } },
+    ]);
+    expect(result).toEqual({
+      kind: "fork",
+      sessionId: "forked-99",
+      forkedFromSessionId: "s-1",
+    });
+  });
+
+  it("throws when target message is not in the transcript", async () => {
+    const fake = new FakeSdkClient();
+    withMessages(fake, [{ uuid: "u-0", type: "user" }]);
+    const backend = createClaudeBackend(fake);
+    await expectRejection(
+      backend.forkSessionBeforeMessage("s-1", "u-missing"),
+      /not found/,
+    );
+  });
+});
+
+describe("createClaudeBackend.getSessionMessages", () => {
+  it("normalizes user/assistant/system messages and skips other types", async () => {
+    const fake = new FakeSdkClient();
+    fake.sessionMessagesResult = [
+      { uuid: "u-1", type: "user", message: { content: "hi" } },
+      {
+        uuid: "a-1",
+        type: "assistant",
+        message: { content: [{ type: "text", text: "hello" }] },
+      },
+      { uuid: "s-1", type: "system", message: { content: "init" } },
+      { uuid: "r-1", type: "result", message: { content: "n/a" } },
+    ] as unknown as SessionMessage[];
+    const backend = createClaudeBackend(fake);
+    const out = await backend.getSessionMessages("s-1", "/tmp");
+    expect(out).toEqual([
+      { uuid: "u-1", role: "user", text: "hi" },
+      { uuid: "a-1", role: "assistant", text: "hello" },
+      { uuid: "s-1", role: "system", text: "init" },
+    ]);
+  });
+});
+
+describe("createClaudeBackend.oneShotPrompt", () => {
+  it("resolves modelFamily before delegating to sdkClient.oneShotPrompt", async () => {
+    const fake = new FakeSdkClient();
+    fake.oneShotResult = "topic-A";
+    const backend = createClaudeBackend(fake);
+    const result = await backend.oneShotPrompt("Summarize", {
+      modelFamily: "haiku",
+      cwd: "/tmp",
+      systemPrompt: "sys",
+      env: { FOO: "bar" },
+    });
+    expect(result).toBe("topic-A");
+    expect(fake.oneShotCalls).toHaveLength(1);
+    const call = fake.oneShotCalls[0];
+    expect(call.prompt).toBe("Summarize");
+    expect(call.systemPrompt).toBe("sys");
+    expect(call.env).toEqual({ FOO: "bar" });
+    // Family-to-model translation occurred (haiku → its concrete model id)
+    expect(call.model).not.toBe("haiku");
+    expect(call.model.length).toBeGreaterThan(0);
+    expect(call.pathToClaudeCodeExecutable.length).toBeGreaterThan(0);
+  });
+
+  it("propagates errors from sdkClient.oneShotPrompt", async () => {
+    const fake = new FakeSdkClient();
+    fake.oneShotPrompt = () => Promise.reject(new Error("oneShot failed"));
+    const backend = createClaudeBackend(fake);
+    await expectRejection(
+      backend.oneShotPrompt("x", { modelFamily: "opus" }),
+      /oneShot failed/,
+    );
+  });
+});
+
+describe("createClaudeBackend default instance", () => {
+  it("module export `claudeBackend` is constructed from the production V1 SDK client", async () => {
+    // We can't make real SDK calls here, but we can verify capabilities are
+    // set. The real exercise of the V1 adapter happens at runtime against
+    // the SDK's `query()` (covered by the dev-server integration path).
+    const { claudeBackend } = await import("./claude");
+    expect(claudeBackend.capabilities.canUseTool).toBe(true);
+    expect(claudeBackend.capabilities.fork).toBe(true);
+  });
+});

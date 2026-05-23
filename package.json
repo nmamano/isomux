@@ -11,7 +11,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint . --concurrency=auto",
-    "lint:fix": "eslint . --fix --concurrency=auto"
+    "lint:fix": "eslint . --fix --concurrency=auto",
+    "test": "bun test"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.132",

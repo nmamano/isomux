@@ -1833,7 +1833,7 @@ export const codexBackend: Backend = {
   async oneShotPrompt(prompt: string, opts: OneShotOptions): Promise<string> {
     // Per the spec: thread/start ephemeral:true → turn/start → consume one
     // agentMessage → thread/archive. Costs one turn but mirrors Claude's
-    // unstable_v2_prompt flow.
+    // one-shot prompt flow.
     const client = new JsonRpcLiteClient({ cwd: opts.cwd, env: opts.env });
     try {
       client.start();

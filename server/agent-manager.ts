@@ -2294,7 +2294,7 @@ export async function spawn(
   });
   persistAll();
 
-  // Create V2 session
+  // Create session
   try {
     installSession(id, managed, createSession(managed));
     addLogEntry(

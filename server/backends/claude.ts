@@ -23,22 +23,39 @@
 // only at v1 (per Round 3 decisions).
 
 import {
-  unstable_v2_createSession,
-  unstable_v2_resumeSession,
-  unstable_v2_prompt,
+  query,
   forkSession as sdkForkSession,
   getSessionMessages as sdkGetSessionMessages,
   type SDKMessage,
-  type SDKSession,
+  type SDKResultMessage,
   type SDKUserMessage,
   type SessionMessage,
   type CanUseTool,
+  type HookEvent,
+  type HookCallbackMatcher,
+  type Options,
   type PermissionMode,
   type PermissionResult,
   type PermissionUpdate,
 } from "@anthropic-ai/claude-agent-sdk";
 
-type SdkSessionOptions = Parameters<typeof unstable_v2_createSession>[0];
+// Internal session-options shape — the boundary between the orchestrator-
+// facing `buildSdkOpts` and the SDK adapters. Defined here (not aliased to an
+// SDK type) so adapter changes don't ripple into every caller, and so the
+// `executableArgs` field can carry the V2-style `--flag value` pairs isomux
+// has historically produced. The V1 adapter parses those into V1's typed
+// `extraArgs` via `translateExecutableArgs` below.
+export interface SdkSessionOptions {
+  model: string;
+  pathToClaudeCodeExecutable: string;
+  executableArgs?: string[];
+  env?: { [key: string]: string | undefined };
+  cwd: string;
+  permissionMode: PermissionMode;
+  hooks?: Partial<Record<HookEvent, HookCallbackMatcher[]>>;
+  disallowedTools?: string[];
+  canUseTool?: CanUseTool;
+}
 import type { ContentBlockParam } from "@anthropic-ai/sdk/resources/messages/messages.mjs";
 import { readFileSync, statSync } from "fs";
 
@@ -173,6 +190,287 @@ const IMAGE_MEDIA_TYPES = new Set([
 ]);
 
 // ---------------------------------------------------------------------------
+// SDK boundary (SdkConversation / SdkClient)
+// ---------------------------------------------------------------------------
+// ClaudeSession and the backend module-level functions depend on these
+// abstract interfaces, not on the raw SDK exports. Production wiring uses
+// `realV1SdkClient` (backed by V1 `query()`); tests inject a `FakeSdkClient`
+// via `createClaudeBackend(fakeClient)`.
+//
+// `SdkConversation.messages()` is a single AsyncIterable covering ALL turns of
+// the conversation. V1's `query()` returns exactly that shape, so the adapter
+// is a thin wrap.
+
+export interface SdkConversation {
+  /** One stream of SDK messages spanning every turn of the conversation. */
+  messages(): AsyncIterable<SDKMessage>;
+  /** Push a user message into the conversation. */
+  send(msg: string | SDKUserMessage): Promise<void>;
+  /** Tear down the conversation. Idempotent; never throws. */
+  close(): void;
+  /** Per-session context-usage breakdown for /context, or null when unavailable. */
+  getContextUsage(): Promise<ContextUsage | null>;
+}
+
+export interface SdkOneShotOptions {
+  prompt: string;
+  model: string;
+  pathToClaudeCodeExecutable: string;
+  systemPrompt?: string;
+  env?: { [key: string]: string | undefined };
+}
+
+export interface SdkClient {
+  createSession(opts: SdkSessionOptions): SdkConversation;
+  resumeSession(sessionId: string, opts: SdkSessionOptions): SdkConversation;
+  oneShotPrompt(opts: SdkOneShotOptions): Promise<string>;
+  forkSession(
+    sessionId: string,
+    opts: { upToMessageId: string },
+  ): Promise<{ sessionId: string }>;
+  getSessionMessages(sessionId: string): Promise<SessionMessage[]>;
+}
+
+// ---------------------------------------------------------------------------
+// V1 SDK adapter — production
+// ---------------------------------------------------------------------------
+// V1's `query()` consumes an AsyncIterable<SDKUserMessage> as its prompt and
+// returns a single `Query` generator that spans all turns. `send()` pushes
+// into the input iterable; `close()` ends the iterable + best-effort
+// `interrupt()`s the query.
+
+// V2 used `executableArgs: ["--append-system-prompt", X, "--effort", Y]` to
+// prepend Claude CLI flags. V1's `executableArgs` is for the JS runtime
+// (node/bun/deno), not the Claude CLI — forwarding our pairs would be a
+// behavioral bug. Translate to V1's typed `extraArgs`.
+//
+// Deliberately narrow: only the pairs `buildSdkOpts` actually produces are
+// recognized. Anything else throws — adding a new flag through this path
+// without updating this translator would silently drop it.
+export function translateExecutableArgs(
+  executableArgs: string[],
+): Record<string, string> {
+  const extraArgs: Record<string, string> = {};
+  for (let i = 0; i < executableArgs.length; i++) {
+    const flag = executableArgs[i];
+    const value = executableArgs[i + 1];
+    if (flag === "--append-system-prompt") {
+      if (typeof value !== "string") {
+        throw new Error(
+          "translateExecutableArgs: --append-system-prompt requires a string value",
+        );
+      }
+      extraArgs["append-system-prompt"] = value;
+      i++;
+    } else if (flag === "--effort") {
+      if (typeof value !== "string") {
+        throw new Error(
+          "translateExecutableArgs: --effort requires a string value",
+        );
+      }
+      extraArgs.effort = value;
+      i++;
+    } else {
+      throw new Error(
+        `translateExecutableArgs: unrecognized arg ${JSON.stringify(flag)} ` +
+          `(V1's executableArgs is for the JS runtime, not the Claude CLI — ` +
+          `add a case here only if the flag is one we own)`,
+      );
+    }
+  }
+  return extraArgs;
+}
+
+// Exported for test coverage of the executableArgs→extraArgs swap and the
+// optional `resume` add-on. Internal otherwise.
+export function sessionOptsToV1(
+  opts: SdkSessionOptions,
+  resumeSessionId?: string,
+): Options {
+  const { executableArgs, ...rest } = opts;
+  const extraArgs =
+    executableArgs && executableArgs.length > 0
+      ? translateExecutableArgs(executableArgs)
+      : undefined;
+  return {
+    ...rest,
+    ...(extraArgs ? { extraArgs } : {}),
+    ...(resumeSessionId ? { resume: resumeSessionId } : {}),
+  };
+}
+
+// Minimal pushable async iterable. Used as the `prompt` argument to
+// `query()` so we can drive multi-turn conversations imperatively (each
+// `send()` pushes a user message into the iterable; the SDK reads it on the
+// next turn boundary).
+export interface PushableInput<T> {
+  iterable: AsyncIterable<T>;
+  push(item: T): void;
+  end(): void;
+}
+
+export function makePushableInput<T>(): PushableInput<T> {
+  const queue: T[] = [];
+  const waiters: Array<(v: IteratorResult<T>) => void> = [];
+  let ended = false;
+  return {
+    iterable: {
+      [Symbol.asyncIterator]() {
+        return {
+          next(): Promise<IteratorResult<T>> {
+            if (queue.length > 0) {
+              return Promise.resolve({ value: queue.shift()!, done: false });
+            }
+            if (ended) {
+              return Promise.resolve({ value: undefined as never, done: true });
+            }
+            return new Promise((resolve) => {
+              waiters.push(resolve);
+            });
+          },
+        };
+      },
+    },
+    push(item) {
+      if (ended) return;
+      if (waiters.length > 0) {
+        const w = waiters.shift()!;
+        w({ value: item, done: false });
+      } else {
+        queue.push(item);
+      }
+    },
+    end() {
+      if (ended) return;
+      ended = true;
+      while (waiters.length > 0) {
+        const w = waiters.shift()!;
+        w({ value: undefined as never, done: true });
+      }
+    },
+  };
+}
+
+// Anything that satisfies our use of V1's `Query` interface. Lets tests stub
+// `query()` without depending on the full SDK shape.
+export interface V1QueryLike extends AsyncIterable<SDKMessage> {
+  interrupt(): Promise<void>;
+  getContextUsage(): Promise<unknown>;
+}
+
+export function wrapV1Query(
+  q: V1QueryLike,
+  input: PushableInput<SDKUserMessage>,
+): SdkConversation {
+  let closed = false;
+  return {
+    messages(): AsyncIterable<SDKMessage> {
+      return q;
+    },
+    async send(msg) {
+      if (closed) return;
+      const userMsg: SDKUserMessage =
+        typeof msg === "string"
+          ? {
+              type: "user",
+              message: { role: "user", content: msg },
+              parent_tool_use_id: null,
+            }
+          : msg;
+      input.push(userMsg);
+    },
+    close() {
+      if (closed) return;
+      closed = true;
+      // End the input iterable first so `query()` sees no-more-input via the
+      // normal exit path; then best-effort interrupt to abort any in-flight
+      // tool execution. Both must be swallowed — `SdkConversation.close` is
+      // documented "never throws", and feedSDKMessages relies on that. The
+      // outer try guards a sync throw from `interrupt()` (SDK types say it
+      // returns Promise<void>, but the contract here is stronger than the SDK
+      // contract); the inner `.catch` handles a promise rejection.
+      try {
+        input.end();
+      } catch {}
+      try {
+        q.interrupt().catch(() => {});
+      } catch {}
+    },
+    async getContextUsage(): Promise<ContextUsage | null> {
+      try {
+        const ctx = await q.getContextUsage();
+        return ctx as ContextUsage;
+      } catch {
+        return null;
+      }
+    },
+  };
+}
+
+export const realV1SdkClient: SdkClient = {
+  createSession(opts) {
+    const input = makePushableInput<SDKUserMessage>();
+    const q = query({
+      prompt: input.iterable,
+      options: sessionOptsToV1(opts),
+    });
+    return wrapV1Query(q, input);
+  },
+  resumeSession(sessionId, opts) {
+    const input = makePushableInput<SDKUserMessage>();
+    const q = query({
+      prompt: input.iterable,
+      options: sessionOptsToV1(opts, sessionId),
+    });
+    return wrapV1Query(q, input);
+  },
+  async oneShotPrompt({
+    prompt,
+    model,
+    pathToClaudeCodeExecutable,
+    systemPrompt,
+    env,
+  }) {
+    // One-shot text completion: no tools, no thinking, no filesystem context.
+    // V1's typed Options means no more `as any` cast for tools/thinking/
+    // settingSources/systemPrompt.
+    const q = query({
+      prompt,
+      options: {
+        model,
+        pathToClaudeCodeExecutable,
+        tools: [],
+        thinking: { type: "disabled" },
+        settingSources: [],
+        cwd: "/tmp",
+        ...(systemPrompt ? { systemPrompt } : {}),
+        ...(env ? { env } : {}),
+      },
+    });
+    let result: SDKResultMessage | null = null;
+    for await (const msg of q) {
+      if (msg.type === "result") {
+        result = msg;
+        break;
+      }
+    }
+    if (!result) {
+      throw new Error("oneShotPrompt: stream ended without a result message");
+    }
+    if (result.subtype !== "success") {
+      throw new Error(`oneShotPrompt failed: ${result.subtype}`);
+    }
+    return result.result;
+  },
+  forkSession(sessionId, opts) {
+    return sdkForkSession(sessionId, opts);
+  },
+  getSessionMessages(sessionId) {
+    return sdkGetSessionMessages(sessionId);
+  },
+};
+
+// ---------------------------------------------------------------------------
 // ClaudeSession — BackendSession implementation
 // ---------------------------------------------------------------------------
 // Concurrency notes:
@@ -185,12 +483,15 @@ const IMAGE_MEDIA_TYPES = new Set([
 //   - close() resolves any in-flight approvals with deny so the SDK and any
 //     orchestrator-side awaiter both unblock.
 
-class ClaudeSession implements BackendSession {
-  private sdkSession: SDKSession;
+// Exported for test injection; non-test consumers should go through
+// `claudeBackend.createSession` / `claudeBackend.resumeSession`.
+export class ClaudeSession implements BackendSession {
+  private conversation: SdkConversation;
   private buffer: NormalizedEvent[] = [];
   private resolveWake: (() => void) | null = null;
   private ended = false;
   private closed = false;
+  private readonly imageSink: ImageSink;
   private pendingApprovals = new Map<
     string,
     {
@@ -202,55 +503,45 @@ class ClaudeSession implements BackendSession {
 
   constructor(
     private readonly agentId: string,
-    sdkOpts: Parameters<typeof unstable_v2_createSession>[0],
+    sdkClient: SdkClient,
+    sdkOpts: SdkSessionOptions,
     resumeSessionId?: string,
   ) {
-    const optsWithApproval = {
+    this.imageSink = ({ data, mediaType, suggestedName }) =>
+      saveFile(this.agentId, data, mediaType, suggestedName);
+    const optsWithApproval: SdkSessionOptions = {
       ...sdkOpts,
-      canUseTool: ((toolName, input, callOpts) =>
-        this.handleCanUseTool(toolName, input, callOpts)) as CanUseTool,
+      canUseTool: (toolName, input, callOpts) =>
+        this.handleCanUseTool(toolName, input, callOpts),
     };
-    this.sdkSession = resumeSessionId
-      ? unstable_v2_resumeSession(resumeSessionId, optsWithApproval)
-      : unstable_v2_createSession(optsWithApproval);
+    this.conversation = resumeSessionId
+      ? sdkClient.resumeSession(resumeSessionId, optsWithApproval)
+      : sdkClient.createSession(optsWithApproval);
     void this.feedSDKMessages();
   }
 
   private async feedSDKMessages() {
     try {
-      // SDK's stream() returns per turn (each `result` message ends the
-      // generator; the underlying queryIterator is cached, so the NEXT
-      // stream() call resumes it). Call it in a loop so subsequent turns and
-      // between-turn events keep flowing. Break when the SDK iterator is
-      // truly exhausted — detected by stream() returning without having
-      // yielded a `result` (process exit / close()).
-      while (!this.closed) {
-        let lastWasResult = false;
-        try {
-          for await (const msg of this.sdkSession.stream()) {
-            if (msg.type === "result") lastWasResult = true;
-            for (const ev of translateSDKMessage(msg, this.agentId)) {
-              this.enqueue(ev);
-            }
-          }
-        } catch (err) {
-          // SDK threw — typically subprocess exit, mid-stream abort, or
-          // transport failure. If we initiated the close (this.closed=true),
-          // it's expected and we exit quietly. Otherwise surface as a
-          // normalized `error` event so the orchestrator can log + update
-          // state. Either way stop looping: queryIterator is unusable past
-          // this point. We MUST swallow here — feedSDKMessages runs as
-          // `void this.feedSDKMessages()`, so an uncaught rejection becomes
-          // unhandled and crashes the whole Bun process.
-          if (!this.closed) {
-            this.enqueue({
-              kind: "error",
-              message: errMessage(err),
-            });
-          }
-          break;
+      // The conversation iterable is a single stream across all turns; the
+      // SDK adapter (V2 or V1) handles turn boundaries internally. We just
+      // translate each message into NormalizedEvents and enqueue them. On
+      // throw — typically subprocess exit, mid-stream abort, or transport
+      // failure — if we initiated the close, exit quietly; otherwise emit a
+      // normalized `error` event so the orchestrator can log + update state.
+      // We MUST swallow here: feedSDKMessages runs as
+      // `void this.feedSDKMessages()`, so an uncaught rejection becomes
+      // unhandled and crashes the whole Bun process.
+      for await (const msg of this.conversation.messages()) {
+        for (const ev of translateSDKMessage(msg, this.imageSink)) {
+          this.enqueue(ev);
         }
-        if (!lastWasResult) break;
+      }
+    } catch (err) {
+      if (!this.closed) {
+        this.enqueue({
+          kind: "error",
+          message: errMessage(err),
+        });
       }
     } finally {
       this.ended = true;
@@ -331,9 +622,9 @@ class ClaudeSession implements BackendSession {
   async send(text: string, attachments?: AttachmentSpec[]): Promise<void> {
     if (attachments && attachments.length > 0) {
       const message = buildClaudeUserMessage(this.agentId, text, attachments);
-      await this.sdkSession.send(message);
+      await this.conversation.send(message);
     } else {
-      await this.sdkSession.send(text);
+      await this.conversation.send(text);
     }
   }
 
@@ -388,38 +679,23 @@ class ClaudeSession implements BackendSession {
   }
 
   async getContextUsage(): Promise<ContextUsage | null> {
-    // The SDKSession runtime carries a `.query` property holding the
-    // underlying V1 Query instance — it's not in the public type, but it's
-    // how /context worked pre-refactor. We delegate to its getContextUsage
-    // method when present. Returns null if the SDK shape changes or the
-    // session hasn't reached a state where it can answer.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- runtime escape hatch
-    const query = (this.sdkSession as any).query;
-    if (!query || typeof query.getContextUsage !== "function") return null;
-    try {
-      const ctx = await query.getContextUsage();
-      // SDKControlGetContextUsageResponse is a superset of our ContextUsage
-      // shape; pass through with a structural cast.
-      return ctx;
-    } catch {
-      return null;
-    }
+    return this.conversation.getContextUsage();
   }
 
   close(): void {
     if (this.closed) return;
     this.closed = true;
-    try {
-      this.sdkSession.close();
-    } catch {}
-    // Resolve any in-flight approvals with deny so the SDK's tool execution
-    // unblocks and orchestrator-side awaiters don't hang.
+    // Resolve pending approvals with deny FIRST so any in-flight canUseTool
+    // callback unblocks the SDK side — denying after close() would race the
+    // already-tearing-down query and the resolves may become no-ops. Then
+    // close the conversation so the message stream terminates cleanly.
     for (const [, pending] of this.pendingApprovals) {
       try {
         pending.resolve({ behavior: "deny", message: "Session closed." });
       } catch {}
     }
     this.pendingApprovals.clear();
+    this.conversation.close();
   }
 }
 
@@ -427,9 +703,18 @@ class ClaudeSession implements BackendSession {
 // SDK message → NormalizedEvent translation
 // ---------------------------------------------------------------------------
 
-function* translateSDKMessage(
+// Callback for persisting inline image blocks extracted from tool_result
+// content. Bound to a specific agentId at the call site; injected so the
+// translator stays pure-modulo-the-sink (testable without filesystem state).
+export type ImageSink = (args: {
+  data: Buffer;
+  mediaType: string;
+  suggestedName: string;
+}) => Attachment | null;
+
+export function* translateSDKMessage(
   msg: SDKMessage,
-  agentId: string,
+  imageSink: ImageSink,
 ): Generator<NormalizedEvent, void> {
   switch (msg.type) {
     case "system": {
@@ -536,12 +821,11 @@ function* translateSDKMessage(
             if (isImageBlock(c)) {
               const decoded = Buffer.from(c.source.data, "base64");
               const ext = c.source.media_type.split("/")[1] ?? "png";
-              const att = saveFile(
-                agentId,
-                decoded,
-                c.source.media_type,
-                `image.${ext}`,
-              );
+              const att = imageSink({
+                data: decoded,
+                mediaType: c.source.media_type,
+                suggestedName: `image.${ext}`,
+              });
               if (att) atts.push(att);
             }
           }
@@ -606,7 +890,7 @@ function* translateSDKMessage(
 // for PDFs). The orchestrator hands the backend plain text + AttachmentSpec[]
 // and the backend builds whatever wire shape the engine wants.
 
-function buildClaudeUserMessage(
+export function buildClaudeUserMessage(
   agentId: string,
   text: string,
   attachments: AttachmentSpec[],
@@ -721,177 +1005,172 @@ function buildSdkOpts(opts: CreateSessionOptions): SdkSessionOptions {
 // Backend implementation
 // ---------------------------------------------------------------------------
 
-export const claudeBackend: Backend = {
-  capabilities: CAPABILITIES,
+export function createClaudeBackend(
+  sdkClient: SdkClient = realV1SdkClient,
+): Backend {
+  return {
+    capabilities: CAPABILITIES,
 
-  getModelOptions(): ModelOption[] {
-    return MODEL_FAMILIES.map((m) => ({ value: m.family, label: m.label }));
-  },
+    getModelOptions(): ModelOption[] {
+      return MODEL_FAMILIES.map((m) => ({ value: m.family, label: m.label }));
+    },
 
-  getPermissionModes(): PermissionModeOption[] {
-    return PERMISSION_MODES;
-  },
+    getPermissionModes(): PermissionModeOption[] {
+      return PERMISSION_MODES;
+    },
 
-  async listModels(_opts: ListModelsOptions): Promise<BackendModel[]> {
-    // Claude has no runtime model-discovery API: the family list is static
-    // and identical across auth tiers. Promote MODEL_FAMILIES to the
-    // BackendModel shape so the UI can render Claude through the same
-    // fetched-list path it uses for Codex. Effort filtering remains a
-    // family-level concern (opus-only "max", etc.) handled UI-side.
-    return MODEL_FAMILIES.map((m, i) => ({
-      id: m.family,
-      label: m.label,
-      isDefault: i === 0,
-      hidden: false,
-      supportedEfforts: EFFORT_LEVELS.filter((e) => {
-        if (e.level === "max") return m.family === "opus";
-        if (e.level === "minimal") return false;
-        return true;
-      }).map((e) => ({ level: e.level })),
-    }));
-  },
+    async listModels(_opts: ListModelsOptions): Promise<BackendModel[]> {
+      // Claude has no runtime model-discovery API: the family list is static
+      // and identical across auth tiers. Promote MODEL_FAMILIES to the
+      // BackendModel shape so the UI can render Claude through the same
+      // fetched-list path it uses for Codex. Effort filtering remains a
+      // family-level concern (opus-only "max", etc.) handled UI-side.
+      return MODEL_FAMILIES.map((m, i) => ({
+        id: m.family,
+        label: m.label,
+        isDefault: i === 0,
+        hidden: false,
+        supportedEfforts: EFFORT_LEVELS.filter((e) => {
+          if (e.level === "max") return m.family === "opus";
+          if (e.level === "minimal") return false;
+          return true;
+        }).map((e) => ({ level: e.level })),
+      }));
+    },
 
-  createSession(opts: CreateSessionOptions): BackendSession {
-    return new ClaudeSession(opts.agentId, buildSdkOpts(opts));
-  },
+    createSession(opts: CreateSessionOptions): BackendSession {
+      return new ClaudeSession(opts.agentId, sdkClient, buildSdkOpts(opts));
+    },
 
-  resumeSession(sessionId: string, opts: CreateSessionOptions): BackendSession {
-    return new ClaudeSession(opts.agentId, buildSdkOpts(opts), sessionId);
-  },
-
-  async forkSessionBeforeMessage(
-    sessionId: string,
-    targetMessageId: string,
-  ): Promise<ForkSessionBeforeMessageResult> {
-    // Find target's position in the transcript so we can decide between
-    // fresh-session (target is the first user message) and a real fork at
-    // the predecessor uuid. The SDK call is cheap and side-effect-free.
-    //
-    // firstUserIdx update MUST run before the target-match break, otherwise
-    // when target itself is the first user message (especially target at
-    // index 0) firstUserIdx stays -1 and the fresh-vs-fork decision below
-    // misroutes to fork (with a -1 predecessor index).
-    const messages = await sdkGetSessionMessages(sessionId);
-    let targetIdx = -1;
-    let firstUserIdx = -1;
-    for (let i = 0; i < messages.length; i++) {
-      const m = messages[i];
-      if (firstUserIdx === -1 && m.type === "user") firstUserIdx = i;
-      if (m.uuid === targetMessageId) {
-        targetIdx = i;
-        break;
-      }
-    }
-    if (targetIdx === -1) {
-      throw new Error(
-        "forkSessionBeforeMessage: target message not found in session",
+    resumeSession(
+      sessionId: string,
+      opts: CreateSessionOptions,
+    ): BackendSession {
+      return new ClaudeSession(
+        opts.agentId,
+        sdkClient,
+        buildSdkOpts(opts),
+        sessionId,
       );
-    }
-    if (targetIdx === firstUserIdx) {
-      // First user message: no predecessor to fork at. Return fresh — the
-      // orchestrator will create a brand-new session, semantically unrelated
-      // to the old one.
-      return { kind: "fresh" };
-    }
-    const predecessorUuid = messages[targetIdx - 1].uuid;
-    const result = await sdkForkSession(sessionId, {
-      upToMessageId: predecessorUuid,
-    });
-    return {
-      kind: "fork",
-      sessionId: result.sessionId,
-      forkedFromSessionId: sessionId,
-    };
-  },
+    },
 
-  async getSessionMessages(sessionId: string): Promise<NormalizedMessage[]> {
-    const messages = await sdkGetSessionMessages(sessionId);
-    const out: NormalizedMessage[] = [];
-    for (const m of messages) {
-      // SessionMessage.type is user/assistant/system (no "result"); narrow to
-      // those for the orchestrator's edit-message matching.
-      if (m.type !== "user" && m.type !== "assistant" && m.type !== "system")
-        continue;
-      out.push({
-        uuid: m.uuid,
-        role: m.type,
-        text: flattenSessionMessageText(m),
+    async forkSessionBeforeMessage(
+      sessionId: string,
+      targetMessageId: string,
+    ): Promise<ForkSessionBeforeMessageResult> {
+      // Find target's position in the transcript so we can decide between
+      // fresh-session (target is the first user message) and a real fork at
+      // the predecessor uuid. The SDK call is cheap and side-effect-free.
+      //
+      // firstUserIdx update MUST run before the target-match break, otherwise
+      // when target itself is the first user message (especially target at
+      // index 0) firstUserIdx stays -1 and the fresh-vs-fork decision below
+      // misroutes to fork (with a -1 predecessor index).
+      const messages = await sdkClient.getSessionMessages(sessionId);
+      let targetIdx = -1;
+      let firstUserIdx = -1;
+      for (let i = 0; i < messages.length; i++) {
+        const m = messages[i];
+        if (firstUserIdx === -1 && m.type === "user") firstUserIdx = i;
+        if (m.uuid === targetMessageId) {
+          targetIdx = i;
+          break;
+        }
+      }
+      if (targetIdx === -1) {
+        throw new Error(
+          "forkSessionBeforeMessage: target message not found in session",
+        );
+      }
+      if (targetIdx === firstUserIdx) {
+        // First user message: no predecessor to fork at. Return fresh — the
+        // orchestrator will create a brand-new session, semantically unrelated
+        // to the old one.
+        return { kind: "fresh" };
+      }
+      const predecessorUuid = messages[targetIdx - 1].uuid;
+      const result = await sdkClient.forkSession(sessionId, {
+        upToMessageId: predecessorUuid,
       });
-    }
-    return out;
-  },
+      return {
+        kind: "fork",
+        sessionId: result.sessionId,
+        forkedFromSessionId: sessionId,
+      };
+    },
 
-  async oneShotPrompt(prompt: string, opts: OneShotOptions): Promise<string> {
-    const familyKey = opts.modelFamily as ModelFamily;
-    const model = FAMILY_TO_MODEL[familyKey] ?? opts.modelFamily;
-    // One-shot text completion: no tools, no extended thinking, no filesystem
-    // context. The earlier `permissionMode: "plan"` config added a planning
-    // system prompt + adaptive thinking, which produced 200+-token outputs,
-    // ~10s+ latency, and a 20%-ish rate of the model roleplaying as an agent
-    // attempting the conversation's task (e.g. returning "I need read access
-    // to tasks.json" as a topic). The combination below keeps it a pure
-    // single-turn label task.
-    //
-    // - tools:[] / thinking:disabled — the model can only emit text
-    // - settingSources:[] — don't auto-load CLAUDE.md from the caller's cwd
-    // - cwd:"/tmp" — even with the above, the caller's cwd leaks into the
-    //   prompt (auto-injected dir/git context) and the model occasionally
-    //   labels with an unrelated recent commit. Force a neutral cwd; the
-    //   `cwd` passed in opts is unused for Claude one-shots.
-    // TODO: SDK .d.ts (v2 surface) doesn't declare `tools` / `thinking` /
-    // `settingSources` / `systemPrompt` on SDKSessionOptions, but the bundled
-    // sdk.mjs handles them at runtime. The `as any` cast is load-bearing for
-    // those four fields — revisit when the SDK types catch up.
-    const result = await unstable_v2_prompt(prompt, {
-      model,
-      pathToClaudeCodeExecutable: CLAUDE_NATIVE_BIN,
-      tools: [],
-      thinking: { type: "disabled" },
-      settingSources: [],
-      cwd: "/tmp",
-      ...(opts.systemPrompt ? { systemPrompt: opts.systemPrompt } : {}),
-      ...(opts.env ? { env: opts.env } : {}),
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    } as any);
-    if (result.subtype !== "success") {
-      throw new Error(`oneShotPrompt failed: ${result.subtype}`);
-    }
-    return result.result;
-  },
+    async getSessionMessages(sessionId: string): Promise<NormalizedMessage[]> {
+      const messages = await sdkClient.getSessionMessages(sessionId);
+      const out: NormalizedMessage[] = [];
+      for (const m of messages) {
+        // SessionMessage.type is user/assistant/system (no "result"); narrow
+        // to those for the orchestrator's edit-message matching.
+        if (m.type !== "user" && m.type !== "assistant" && m.type !== "system")
+          continue;
+        out.push({
+          uuid: m.uuid,
+          role: m.type,
+          text: flattenSessionMessageText(m),
+        });
+      }
+      return out;
+    },
 
-  detectAuthError(text: string): boolean {
-    return AUTH_ERROR_PATTERNS.test(text);
-  },
+    async oneShotPrompt(prompt: string, opts: OneShotOptions): Promise<string> {
+      // One-shot text completion: no tools, no extended thinking, no
+      // filesystem context. The earlier `permissionMode: "plan"` config added
+      // a planning system prompt + adaptive thinking, which produced
+      // 200+-token outputs, ~10s+ latency, and a 20%-ish rate of the model
+      // roleplaying as an agent attempting the conversation's task. The
+      // adapter (V2 or V1) sets tools:[] / thinking:disabled / settingSources:
+      // [] / cwd:"/tmp" to keep this a pure single-turn label task.
+      const familyKey = opts.modelFamily as ModelFamily;
+      const model = FAMILY_TO_MODEL[familyKey] ?? opts.modelFamily;
+      return sdkClient.oneShotPrompt({
+        prompt,
+        model,
+        pathToClaudeCodeExecutable: CLAUDE_NATIVE_BIN,
+        systemPrompt: opts.systemPrompt,
+        env: opts.env,
+      });
+    },
 
-  getLoginInstructions(opts?: {
-    env?: { [key: string]: string | undefined };
-  }): { text: string; commands?: string[] } {
-    // Short-circuit: if the office is already signed in (credentials.json
-    // present, or ANTHROPIC_API_KEY in env), the user just needs to /clear
-    // a dead session — no walkthrough needed. Symmetric with Codex's
-    // ALREADY_AUTHED hint. The check honors the agent's merged env so
-    // envFile-set ANTHROPIC_API_KEY counts as authed.
-    if (isClaudeCodeAuthenticated(opts?.env)) {
-      return { text: ALREADY_AUTHED_INSTRUCTIONS };
-    }
-    // If the user can't actually run `claude` and `/login` (binary missing
-    // from PATH), surface the install command first instead of the terminal
-    // walkthrough that would just produce a "command not found". The card
-    // rides along so the catch site can emit a [Copy to terminal] next to
-    // the text.
-    return isClaudeCodeInstalled()
-      ? { text: LOGIN_INSTRUCTIONS, commands: [LOGIN_COMMAND] }
-      : {
-          text: CLAUDE_CODE_NOT_INSTALLED_MESSAGE,
-          commands: [INSTALL_COMMAND],
-        };
-  },
-};
+    detectAuthError(text: string): boolean {
+      return AUTH_ERROR_PATTERNS.test(text);
+    },
+
+    getLoginInstructions(opts?: {
+      env?: { [key: string]: string | undefined };
+    }): { text: string; commands?: string[] } {
+      // Short-circuit: if the office is already signed in (credentials.json
+      // present, or ANTHROPIC_API_KEY in env), the user just needs to /clear
+      // a dead session — no walkthrough needed. Symmetric with Codex's
+      // ALREADY_AUTHED hint. The check honors the agent's merged env so
+      // envFile-set ANTHROPIC_API_KEY counts as authed.
+      if (isClaudeCodeAuthenticated(opts?.env)) {
+        return { text: ALREADY_AUTHED_INSTRUCTIONS };
+      }
+      // If the user can't actually run `claude` and `/login` (binary missing
+      // from PATH), surface the install command first instead of the terminal
+      // walkthrough that would just produce a "command not found". The card
+      // rides along so the catch site can emit a [Copy to terminal] next to
+      // the text.
+      return isClaudeCodeInstalled()
+        ? { text: LOGIN_INSTRUCTIONS, commands: [LOGIN_COMMAND] }
+        : {
+            text: CLAUDE_CODE_NOT_INSTALLED_MESSAGE,
+            commands: [INSTALL_COMMAND],
+          };
+    },
+  };
+}
+
+export const claudeBackend: Backend = createClaudeBackend();
 
 // Flatten a session-store message's content into a plain text string. Used by
 // getSessionMessages so the orchestrator's editMessage matching can be a
 // straight content-equality check.
-function flattenSessionMessageText(m: SessionMessage): string {
+export function flattenSessionMessageText(m: SessionMessage): string {
   const msg = m.message as { content?: unknown } | null | undefined;
   const content = msg?.content;
   if (typeof content === "string") return content;

@@ -39,5 +39,8 @@ jobs:
       - name: Check types
         run: bun x tsc --noEmit
 
+      - name: Run tests
+        run: bun test
+
       - name: Build UI
         run: bun run build:ui
