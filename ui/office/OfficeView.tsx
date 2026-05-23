@@ -6,7 +6,8 @@ import { RoomTabBar } from "./RoomTabBar.tsx";
 import { DeskUnit } from "./DeskUnit.tsx";
 import { EmptySlot } from "./EmptySlot.tsx";
 import { GhostBody, GhostTag } from "./Ghost.tsx";
-import { DESK_SLOTS, SCENE_W, SCENE_H, deskPixelPos } from "./grid.ts";
+import { useGhostTransitions, type DoorCoord } from "./useGhostTransitions.ts";
+import { SCENE_W, SCENE_H } from "./grid.ts";
 import { send } from "../ws.ts";
 import { SunIcon, MoonIcon } from "../components/ThemeIcons.tsx";
 import { ThemePicker } from "../components/ThemePicker.tsx";
@@ -28,113 +29,20 @@ import {
 import { useSwipeLeftRight } from "../hooks/useSwipeLeftRight.ts";
 import { useViewport } from "./useViewport.ts";
 import { ZoomControls } from "./ZoomControls.tsx";
-import type { AgentInfo, PresenceInfo } from "../../shared/types.ts";
+import type { AgentInfo } from "../../shared/types.ts";
 
 // Pixel size of a single ghost (width). ~50% of the agent character
 // (52×68) so it reads as "small floating watcher" against the desks.
 // Height scales proportionally inside the SVG viewBox.
 const GHOST_SIZE = 40;
 
-// "Outside SE wall" lobby coordinates. Until the desk repositioning in
-// task 11384153 lands, idle ghosts can't fit anywhere on the floor;
-// they line up here, past the SE wall. Adjacent ghosts step right by
-// `GHOST_LOBBY_GAP` so the name tags don't collide.
-const GHOST_LOBBY_BASE_X = 600;
-const GHOST_LOBBY_BASE_Y = 590;
-const GHOST_LOBBY_GAP = 52;
-
-// Stack offsets for multiple bosses focused on the same agent. Small
-// diagonal step so the second/third ghost peeks out from behind the
-// first. The cap-3-visible + N-badge logic is intentionally NOT
-// implemented in v1; a count of 4+ at one desk should be vanishingly
-// rare given the office's user count.
-const GHOST_STACK_DX = 18;
-const GHOST_STACK_DY = 4;
-
-interface GhostPlacement {
-  presence: PresenceInfo;
-  left: number;
-  top: number;
-  dimmed: boolean;
-}
-
-// Compute pixel placements for every ghost that should render in the
-// current room. Output is in INPUT ORDER (which the server sorts by
-// connectionId), NOT grouped by anchor. Stable React child order
-// keyed by connectionId is the invariant that prevents browsers
-// from reorder-induced re-attach + animation restart on unrelated
-// ghosts when someone arrives at or leaves a different desk.
-// Anchor membership only determines coordinates and intra-group
-// stack rank, never iteration order.
-//
-// The recipient's own ghost is filtered out entirely — a boss never
-// sees their own avatar (only other devices / other users render).
-// If the boss is the only device connected, no ghost renders; other
-// tabs/devices of the same user appear as their own ghosts via their
-// own connectionId.
-function computeGhostPlacements(
-  presences: PresenceInfo[],
-  roomAgents: AgentInfo[],
-  currentRoom: number,
-  ownConnectionId: string | null,
-): GhostPlacement[] {
-  // First pass: filter to visible-here-and-not-self.
-  const visible = presences.filter(
-    (p) => p.currentRoom === currentRoom && p.connectionId !== ownConnectionId,
-  );
-  // Second pass: group only to compute per-anchor rank. Index within
-  // the group becomes the stack offset multiplier (i * DX, i * DY).
-  const groups = new Map<string, PresenceInfo[]>();
-  for (const p of visible) {
-    const agent =
-      p.focusedAgentId !== null
-        ? roomAgents.find((a) => a.id === p.focusedAgentId)
-        : undefined;
-    const key = agent ? `desk:${agent.desk}` : "lobby";
-    const arr = groups.get(key);
-    if (arr) arr.push(p);
-    else groups.set(key, [p]);
-  }
-  const rankByConn = new Map<string, { key: string; index: number }>();
-  for (const [key, group] of groups) {
-    group.forEach((p, index) => {
-      rankByConn.set(p.connectionId, { key, index });
-    });
-  }
-  // Third pass: emit placements in `visible` (= connectionId-sorted)
-  // order, regardless of anchor. The React key downstream is the
-  // connectionId, so this output order is the React child order.
-  const out: GhostPlacement[] = [];
-  for (const p of visible) {
-    const rank = rankByConn.get(p.connectionId);
-    if (!rank) continue;
-    const { key, index: i } = rank;
-    let left: number;
-    let top: number;
-    if (key === "lobby") {
-      left = GHOST_LOBBY_BASE_X + i * GHOST_LOBBY_GAP;
-      top = GHOST_LOBBY_BASE_Y;
-    } else {
-      const deskIndex = Number(key.slice(5));
-      const slot = DESK_SLOTS[deskIndex];
-      if (!slot) continue;
-      const { left: deskLeft, top: deskTop } = deskPixelPos(slot.row, slot.col);
-      // SE of the chair. Chair anchor is (deskLeft+90, deskTop+116);
-      // the ghost top-left sits a touch lower-right of that so the
-      // body's visual centroid hovers near the chair shoulder. Layout
-      // is intentionally cramped pre-desk-repositioning (task 11384153).
-      left = deskLeft + 130 + i * GHOST_STACK_DX;
-      top = deskTop + 90 + i * GHOST_STACK_DY;
-    }
-    out.push({
-      presence: p,
-      left,
-      top,
-      dimmed: p.viewMode === "away",
-    });
-  }
-  return out;
-}
+// Pixel coords (scene-container space) where ghosts park when sliding
+// to/from a door on a room switch. Roughly centered horizontally on the
+// DoorDropZone (left zone x ∈ [0,85]; right zone x ∈ [SCENE_W-85, SCENE_W])
+// with the ghost-box top placed so the body sits in front of the door
+// threshold. Module-level so the hook's effect deps stay stable.
+const LEFT_DOOR_COORD: DoorCoord = { left: 25, top: 270 };
+const RIGHT_DOOR_COORD: DoorCoord = { left: SCENE_W - 65, top: 270 };
 
 /** HTML drop zone positioned over an SVG door — SVG elements are unreliable drag-and-drop targets */
 function DoorDropZone({
@@ -309,6 +217,18 @@ export function OfficeView({
 
   // Filter agents to current room for rendering
   const roomAgents = agents.filter((a) => a.room === currentRoom);
+  // Final ghost placement list — natural desk / lobby positions, plus
+  // door-slide overrides for ghosts whose presence just crossed into / out
+  // of our current room. The hook owns all per-ghost coordinate state;
+  // OfficeView just renders the result.
+  const ghostPlacements = useGhostTransitions(
+    presences,
+    roomAgents,
+    currentRoom,
+    sessionContext?.connectionId ?? null,
+    LEFT_DOOR_COORD,
+    RIGHT_DOOR_COORD,
+  );
   const [leftDoorDragOver, setLeftDoorDragOver] = useState(false);
   const [rightDoorDragOver, setRightDoorDragOver] = useState(false);
   const [leftDoorReject, setLeftDoorReject] = useState(false);
@@ -745,58 +665,45 @@ export function OfficeView({
                 currentRoom matches the viewer's currentRoom. Rendered
                 last (and with high z-index) so they sit above desks,
                 walls, and props per Q20 in the design memo. */}
-            {(() => {
-              const ghostPlacements = computeGhostPlacements(
-                presences,
-                roomAgents,
-                currentRoom,
-                sessionContext?.connectionId ?? null,
-              );
-              // Two layers, two stable per-connection keys per layer.
-              // The body layer and tag layer are independent React
-              // siblings, each iterating placements in connectionId
-              // order. Body/tag never interleave in the DOM, so a
-              // new arrival's body insertion can't shift an existing
-              // ghost's tag (or vice versa). Combined with stable
-              // output order, no existing ghost's DOM node moves
-              // when an unrelated anchor changes — which is what
-              // keeps CSS transitions intact and prevents browsers
-              // from re-attach-restarting any inline animations.
-              return (
-                <>
-                  {ghostPlacements.map((p) => (
-                    <GhostBody
-                      key={p.presence.connectionId}
-                      left={p.left}
-                      top={p.top}
-                      size={GHOST_SIZE}
-                      variant={p.presence.avatarVariant}
-                      color={p.presence.avatarColor}
-                      username={p.presence.username}
-                      device={p.presence.device}
-                      userId={p.presence.userId}
-                      dimmed={p.dimmed}
-                      onClick={onOpenUserSettingsForUser}
-                    />
-                  ))}
-                  {ghostPlacements.map((p) => (
-                    <GhostTag
-                      key={p.presence.connectionId}
-                      left={p.left}
-                      top={p.top}
-                      size={GHOST_SIZE}
-                      variant={p.presence.avatarVariant}
-                      color={p.presence.avatarColor}
-                      username={p.presence.username}
-                      device={p.presence.device}
-                      userId={p.presence.userId}
-                      dimmed={p.dimmed}
-                      onClick={onOpenUserSettingsForUser}
-                    />
-                  ))}
-                </>
-              );
-            })()}
+            {/* Two layers, two stable per-connection keys per layer. The
+                body and tag layers are independent React siblings, each
+                iterating placements in connectionId order. Body/tag never
+                interleave in the DOM, so a new arrival's body insertion
+                can't shift an existing ghost's tag (or vice versa). Combined
+                with the connectionId-sorted output from useGhostTransitions,
+                no existing ghost's DOM node moves when an unrelated anchor
+                changes — which keeps CSS transitions intact and prevents
+                browsers from re-attach-restarting any inline animations. */}
+            {ghostPlacements.map((p) => (
+              <GhostBody
+                key={p.presence.connectionId}
+                left={p.left}
+                top={p.top}
+                size={GHOST_SIZE}
+                variant={p.presence.avatarVariant}
+                color={p.presence.avatarColor}
+                username={p.presence.username}
+                device={p.presence.device}
+                userId={p.presence.userId}
+                dimmed={p.dimmed}
+                onClick={onOpenUserSettingsForUser}
+              />
+            ))}
+            {ghostPlacements.map((p) => (
+              <GhostTag
+                key={p.presence.connectionId}
+                left={p.left}
+                top={p.top}
+                size={GHOST_SIZE}
+                variant={p.presence.avatarVariant}
+                color={p.presence.avatarColor}
+                username={p.presence.username}
+                device={p.presence.device}
+                userId={p.presence.userId}
+                dimmed={p.dimmed}
+                onClick={onOpenUserSettingsForUser}
+              />
+            ))}
           </div>
         </div>
 
