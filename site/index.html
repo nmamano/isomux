@@ -152,11 +152,14 @@
 
       /* Theme toggle button (mounted by site/theme-toggle.js). Floats top-
          right on the landing; the docs site mounts it inline in the topbar
-         (`.theme-toggle--inline` removes the fixed positioning). */
+         (`.theme-toggle--inline` removes the fixed positioning).
+         The top offset uses safe-area-inset so the button doesn't slip
+         under the iPhone notch / status bar on tall phones, where the
+         viewport extends past the safe area. */
       .theme-toggle {
         position: fixed;
-        top: 16px;
-        right: 16px;
+        top: max(16px, env(safe-area-inset-top, 16px));
+        right: max(16px, env(safe-area-inset-right, 16px));
         z-index: 90;
         width: 38px;
         height: 38px;
@@ -170,14 +173,11 @@
         justify-content: center;
         padding: 0;
         transition:
-          color 0.15s,
           background 0.15s,
-          border-color 0.15s,
           transform 0.15s;
       }
       .theme-toggle:hover {
-        color: var(--accent);
-        border-color: var(--accent);
+        background: var(--bg-card);
         transform: scale(1.06);
       }
       .theme-toggle svg {

@@ -677,9 +677,7 @@ function htmlShell(opts: {
     ${crumb}
     <div class="topbar-spacer"></div>
     <div class="topbar-links">
-      <a href="/">Home</a>
       <a href="https://github.com/nmamano/isomux" target="_blank" rel="noopener">GitHub</a>
-      <a href="https://discord.gg/FrjEYyNvYs" target="_blank" rel="noopener">Discord</a>
     </div>
   </div>
 </div>
