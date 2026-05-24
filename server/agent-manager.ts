@@ -109,9 +109,27 @@ import {
   setOfficeEnvFileProvider,
 } from "./env-loader.ts";
 import { getUserByName } from "./users.ts";
+import { configurePluginHooks, runAgentTurn } from "./plugin-hooks.ts";
 // Re-export so existing callers (`AgentManager.buildEnvFor` in server/index.ts)
 // keep working without rewiring imports across the file.
 export { buildEnvFor, buildEnvForUserId };
+
+// Wire the plugin-hooks module to agent-manager's module-private pieces
+// (beginTurn / createTurnDeferred / logCache / room lookup). Called once at
+// boot from server/index.ts. Lives here rather than in plugin-hooks.ts so
+// that file stays decoupled from this one — runAgentTurn is the only
+// reverse import.
+export function configurePluginHooksDeps(): void {
+  configurePluginHooks({
+    beginTurn,
+    createTurnDeferred,
+    getLogCache: (agentId) => logCache.get(agentId),
+    getRoom: (roomIdx) => {
+      const r = officeState.rooms[roomIdx];
+      return r ? { id: r.id, name: r.name } : null;
+    },
+  });
+}
 
 // Resolve the stable userId for a persisted agent. New agents carry both
 // userId and username at spawn time; legacy records had only username,
@@ -856,6 +874,8 @@ export async function restoreAgents() {
         sessionId: resumeSessionId,
         consumerPromise: null,
         pendingTurn: null,
+        afterTurnPromise: null,
+        turnCancelToken: 0,
         aborting: false,
         abortPromise: null,
         slashCommands: autocompleteCommands(),
@@ -1209,6 +1229,14 @@ function beginTurn(agentId: string, opts: { humanInput: boolean }) {
     }))
       emit(event);
   }
+  // Idempotency: runAgentTurn always calls beginTurn at the moment of send,
+  // even when the call site already did an early-echo beginTurn (sendMessage's
+  // top-of-function path that wants the UI to flip to "thinking" immediately
+  // before the ~3s abortPromise wait). Re-entering updateState with state
+  // already === "thinking" would re-emit an agent_updated event for an
+  // unchanged value; this early-return keeps the second call free of side
+  // effects.
+  if (managed.info.state === "thinking") return;
   updateState(agentId, "thinking");
 }
 
@@ -1964,6 +1992,12 @@ async function replaceSession(
   managed: ManagedAgent,
   newSession: BackendSession,
 ) {
+  // Bump the cancel token first so any concurrent runAgentTurn in its
+  // pre-send plugin-retrieval window bails on the next await checkpoint —
+  // the in-flight `pendingTurn` rejection below only covers the post-send
+  // path. /clear, /resume, /model, /effort, edit-fork, and abort's slow
+  // path all funnel through here, so this single bump covers every swap.
+  managed.turnCancelToken++;
   for (const event of officeState.updateAgent(agentId, {
     sessionSwapping: true,
   }))
@@ -2256,6 +2290,8 @@ export async function spawn(
     sessionId: null,
     consumerPromise: null,
     pendingTurn: null,
+    afterTurnPromise: null,
+    turnCancelToken: 0,
     aborting: false,
     abortPromise: null,
     slashCommands: autocompleteCommands(),
@@ -2583,6 +2619,11 @@ async function flushQueue(agentId: string): Promise<void> {
     const items = [...managed.messageQueue];
 
     const promptParts: string[] = [];
+    // unprefixedParts mirrors promptParts but without the sender prefix per
+    // item. Plugins receive the joined unprefixed version as `originalText`
+    // so memory/audit see user intent without `[Nil (Phone)]` noise that
+    // belongs to isomux's routing layer rather than the user's message.
+    const unprefixedParts: string[] = [];
     const allAttachments: Attachment[] = [];
     // If any items were queued while the agent was busy, prepend a single
     // coalesced note so the agent doesn't read them as reactions to its most
@@ -2592,71 +2633,82 @@ async function flushQueue(agentId: string): Promise<void> {
       0,
     );
     if (busyCount > 0) {
-      promptParts.push(
+      const note =
         busyCount === 1
           ? `[Note: this message was queued while you were processing your previous turn — the sender had not seen your most recent reply when they sent it.]`
-          : `[Note: these messages were queued while you were processing your previous turn — the sender had not seen your most recent reply when they sent them.]`,
-      );
+          : `[Note: these messages were queued while you were processing your previous turn — the sender had not seen your most recent reply when they sent them.]`;
+      promptParts.push(note);
+      unprefixedParts.push(note);
     }
     for (const m of items) {
       // sdkText is set for pre-expanded slash commands (e.g. an /subagent-review
       // queued while the agent was mid-turn): chat shows m.text "/subagent-review",
       // but the SDK needs the full skill prompt.
-      promptParts.push(`${senderPrefixText(m.sender)}${m.sdkText ?? m.text}`);
+      const body = m.sdkText ?? m.text;
+      promptParts.push(`${senderPrefixText(m.sender)}${body}`);
+      unprefixedParts.push(body);
       if (m.attachments) allAttachments.push(...m.attachments);
     }
     const prompt = promptParts.join("\n\n");
+    const originalText = unprefixedParts.join("\n\n");
 
-    beginTurn(agentId, {
-      humanInput: items.some((m) => m.sender.kind === "user"),
-    });
-
-    const turn = createTurnDeferred(managed);
-    const ownPending = managed.pendingTurn;
     try {
-      await managed.session!.send(
-        prompt,
-        allAttachments.length > 0 ? allAttachments : undefined,
-      );
-      // Send accepted by the backend. Now finalize: write per-message log entries
-      // (provenance) and remove the items from the live queue. Items cancelled
-      // mid-send are still in `items` (they did reach the SDK) — log them so
-      // chat history matches what the receiver actually saw.
-      for (const m of items) {
-        // Carry sdkText into the log metadata so editMessage can match this
-        // entry against the SDK session (the SDK saw the expanded prompt,
-        // not m.text). Same shape executeSkill uses on the immediate path.
-        const base = senderMeta(m.sender);
-        const meta = m.sdkText ? { ...(base ?? {}), sdkText: m.sdkText } : base;
-        addLogEntry(agentId, "user_message", m.text, meta, m.attachments);
-      }
-      // Trigger topic generation only after the user_message log entries land
-      // in logCache. generateTopic reads the first user message synchronously
-      // before its first await — running it earlier (e.g. before the send) on
-      // a fresh conversation finds an empty cache and bails out, leaving topic
-      // null. Matches the sendMessage path which also logs before triggering.
-      if (
-        (managed.info.topic === null || shouldAutoRegenerateTopic(managed)) &&
-        !managed.topicGenerating
-      ) {
-        void generateTopic(agentId);
-      }
-      const sentIds = new Set(items.map((m) => m.id));
-      managed.messageQueue = managed.messageQueue.filter(
-        (m) => !sentIds.has(m.id),
-      );
-      emitQueueUpdate(agentId, managed);
-      await turn;
+      await runAgentTurn({
+        managed,
+        // No single "user-typed" string for a coalesced flush; the prompt
+        // composition is the closest approximation, and plugins generally
+        // use originalText (sender prefixes stripped) anyway.
+        visibleText: prompt,
+        originalText,
+        sdkText: prompt,
+        attachments: allAttachments.length > 0 ? allAttachments : undefined,
+        origin: "queued",
+        humanInput: items.some((m) => m.sender.kind === "user"),
+        onSendAccepted: () => {
+          // Send accepted by the backend. Finalize: write per-message log
+          // entries (provenance) and remove the items from the live queue.
+          // Items cancelled mid-send are still in `items` (they did reach
+          // the SDK) — log them so chat history matches what the receiver
+          // actually saw. Runs synchronously inside runAgentTurn between
+          // session.send resolving and the newLogEntries snapshot, so
+          // these user_messages stay OUT of the afterTurn slice (they
+          // belong to "the prompt", not "the agent's response").
+          for (const m of items) {
+            // Carry sdkText into the log metadata so editMessage can match
+            // this entry against the SDK session (the SDK saw the expanded
+            // prompt, not m.text). Same shape executeSkill uses on the
+            // immediate path.
+            const base = senderMeta(m.sender);
+            const meta = m.sdkText
+              ? { ...(base ?? {}), sdkText: m.sdkText }
+              : base;
+            addLogEntry(agentId, "user_message", m.text, meta, m.attachments);
+          }
+          // Trigger topic generation only after the user_message log entries
+          // land in logCache. generateTopic reads the first user message
+          // synchronously before its first await — running it earlier (e.g.
+          // before the send) on a fresh conversation finds an empty cache
+          // and bails out, leaving topic null. Matches the sendMessage path
+          // which also logs before triggering.
+          if (
+            (managed.info.topic === null ||
+              shouldAutoRegenerateTopic(managed)) &&
+            !managed.topicGenerating
+          ) {
+            void generateTopic(agentId);
+          }
+          const sentIds = new Set(items.map((m) => m.id));
+          managed.messageQueue = managed.messageQueue.filter(
+            (m) => !sentIds.has(m.id),
+          );
+          emitQueueUpdate(agentId, managed);
+        },
+      });
     } catch (err) {
-      // If we still own the deferred (no session swap, no fresh turn), reject
-      // and clear it so awaiting callers don't hang. Done before the kill /
-      // SessionSwapped branches because both also benefit from the cleanup.
-      if (ownPending && managed.pendingTurn === ownPending) {
-        managed.pendingTurn = null;
-        try {
-          ownPending.reject(err);
-        } catch {}
-      }
+      // runAgentTurn re-throws whatever the underlying turn threw and has
+      // already cleaned up the pendingTurn deferred if session.send fell
+      // before await turn. Per-site error semantics remain here.
+      //
       // Agent killed mid-flush: nothing to log on a deleted agent, and any
       // log entry would leak into logCache for an id that no longer exists.
       if (!agents.has(agentId)) return;
@@ -3160,25 +3212,23 @@ export async function sendMessage(
 
   const prefix = formatPrefix({ username, device });
   const prefixedText = prefix ? `${prefix}${text}` : text;
-  const turn = createTurnDeferred(managed);
-  const ownPending = managed.pendingTurn;
   try {
-    await managed.session!.send(
-      prefixedText,
-      attachments && attachments.length > 0 ? attachments : undefined,
-    );
-    await turn;
+    await runAgentTurn({
+      managed,
+      visibleText: text,
+      // sendMessage's raw user text is `text`; the sender prefix is
+      // applied above as `prefixedText` which becomes sdkText.
+      originalText: text,
+      sdkText: prefixedText,
+      attachments,
+      origin: "user",
+      humanInput: true,
+    });
   } catch (err) {
-    // If session.send() (or anything before turn settled) threw, the deferred
-    // we just created is still parked in managed.pendingTurn — unless a
-    // session swap or a fresh turn took ownership of the slot. Reject + clear
-    // only when we still own it so awaiting callers don't hang forever.
-    if (ownPending && managed.pendingTurn === ownPending) {
-      managed.pendingTurn = null;
-      try {
-        ownPending.reject(err);
-      } catch {}
-    }
+    // runAgentTurn re-throws whatever the underlying turn threw; it also
+    // handles the deferred-cleanup invariant (rejecting managed.pendingTurn
+    // if session.send threw before await turn ran). The per-call-site catch
+    // remains responsible for the distinct error semantics each path needs.
     if (err instanceof SessionSwappedError) return;
     if (err instanceof BackendNotConfiguredError) {
       // Backend isn't usable (CLI missing, auth missing, etc.).
@@ -3215,20 +3265,24 @@ const HOT_ABORT_TIMEOUT_MS = 7000;
 export async function abort(agentId: string) {
   const managed = agents.get(agentId);
   if (!managed) return;
+  // Bump the cancel token unconditionally. Stop is always a cancellation
+  // event from the runAgentTurn pre-send window's perspective — whether
+  // the agent is mid-plugin-retrieval (no pendingTurn yet) or mid-real-
+  // turn (pendingTurn installed), the token bump is the signal that
+  // tells runAgentTurn to bail before session.send if it hasn't run yet.
+  // For the post-send path the existing pendingTurn rejection (below) is
+  // still the cancellation mechanism; the token bump is harmless there.
+  managed.turnCancelToken++;
   // If no turn is in flight, the SDK stream may have died (e.g. subprocess
-  // exited) while the UI still shows "thinking". Reset state so Stop is
-  // never a no-op.
+  // exited) OR runAgentTurn may be mid-plugin-retrieval. Either way reset
+  // state so Stop is never a no-op.
   if (!managed.pendingTurn) {
     if (
       managed.info.state === "thinking" ||
       managed.info.state === "tool_executing"
     ) {
       updateState(agentId, "waiting_for_response");
-      addLogEntry(
-        agentId,
-        "system",
-        "Agent interrupted (stream was already dead — state reset).",
-      );
+      addLogEntry(agentId, "system", "Agent interrupted.");
     }
     return;
   }
@@ -3369,6 +3423,10 @@ async function tryHotAbort(
 export async function kill(agentId: string) {
   const managed = agents.get(agentId);
   if (!managed) return;
+  // Bump the cancel token so any concurrent runAgentTurn that hasn't yet
+  // installed pendingTurn (pre-send plugin retrieval) bails on its next
+  // await checkpoint instead of calling session.send on a dying session.
+  managed.turnCancelToken++;
   // The backend's close() (below, via managed.session?.close()) resolves any
   // in-flight SDK approval with deny; clearing pendingPermission here just
   // drops the orchestrator's pointer so the next message path doesn't think
@@ -3603,11 +3661,6 @@ export async function editMessage(
   const oldTopic = managed.info.topic;
   const oldTopicStale = managed.info.topicStale;
 
-  // Declared up here so the Phase-9 send's catch can reach it. Assigned the
-  // moment the turn deferred is installed (Phase 9); null before then so a
-  // pre-send throw doesn't try to reject something that was never created.
-  let editOwnPending: ManagedAgent["pendingTurn"] = null;
-
   try {
     // --- Phase 1: Fallible SDK operations (no UI/cache mutations yet) ---
 
@@ -3815,8 +3868,10 @@ export async function editMessage(
     }))
       emit(event);
 
-    // 9. Send the edited message
-    beginTurn(agentId, { humanInput: true });
+    // 9. Send the edited message. The user_message log entry lands before
+    // runAgentTurn so it's part of the visible timeline; runAgentTurn's
+    // newLogEntries snapshot is taken AFTER, so the user_message is
+    // excluded from the slice plugins observe.
     addLogEntry(
       agentId,
       "user_message",
@@ -3826,24 +3881,24 @@ export async function editMessage(
 
     const editPrefix = formatPrefix({ username, device });
     const prefixedNew = editPrefix ? `${editPrefix}${newText}` : newText;
-    const turn = createTurnDeferred(managed);
-    editOwnPending = managed.pendingTurn;
-    await managed.session!.send(prefixedNew);
-    await turn;
+    await runAgentTurn({
+      managed,
+      visibleText: newText,
+      // Raw replacement text is what the user actually wants the model to
+      // see; sender prefix is isomux routing applied below.
+      originalText: newText,
+      sdkText: prefixedNew,
+      origin: "edit-fork",
+      humanInput: true,
+    });
     // Topic mutation above + system/init persistAll on first-message edits
     // already covered the persisted state; nothing further changes during
     // the turn that needs an end-of-edit snapshot.
   } catch (err) {
-    // Symmetric with sendMessage/flushQueue: if session.send() threw before
-    // `await turn` ran, the deferred we just installed is still parked in
-    // managed.pendingTurn — reject + clear it so abort/state logic doesn't
-    // observe a phantom in-flight turn during the rollback below.
-    if (editOwnPending && managed.pendingTurn === editOwnPending) {
-      managed.pendingTurn = null;
-      try {
-        editOwnPending.reject(err);
-      } catch {}
-    }
+    // runAgentTurn re-throws whatever the underlying turn threw and has
+    // already cleaned up the pendingTurn deferred if session.send fell
+    // before await turn. The rollback below still needs to restore the
+    // pre-edit fork state for non-swap errors.
     // User aborted (or another explicit session swap) after the fork was
     // installed — the fork and its partial turn are a legitimate result,
     // not a failure. The triggering swap's own persistAll covered state.

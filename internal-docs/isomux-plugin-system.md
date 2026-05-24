@@ -1,6 +1,6 @@
 # Isomux Plugin System + mem0 Reference Plugin
 
-> Status: designed, not implemented. v0 scope only; explicit non-goals listed below.
+> Status: implemented (v0). Hybrid `enabledPlugins` schema (string for bundled, `{id, path}` for external) chosen during review — see the "Discovery and loading" section.
 
 Two pieces, implemented together in one session:
 
@@ -147,25 +147,28 @@ Defaults:
 
 ### Discovery and loading
 
-Plugin search paths, in order:
+No directory scanning. `office-config.json`'s `enabledPlugins` array is the authoritative trust boundary: any directory whose code will be imported into the isomux process must be listed there explicitly. Two entry shapes:
 
-1. `<isomuxRoot>/plugins/` — bundled with isomux (empty for v0; reserved for future first-party plugins like a refactor of `safety-hooks.ts`).
-2. `~/.isomux/plugins/` — user-installed.
+1. **Bare string id** — `"safety-hooks"`. A bundled, first-party plugin. Resolved under `<isomuxRoot>/plugins/<id>/index.ts`. No path needed; the location is part of the isomux distribution.
+2. **`{id, path}` object** — `{ "id": "mem0", "path": "/home/nil/nil/isomux-mem0" }`. An external plugin at an operator-controlled location. `path` must be absolute (`/...`) or tilde-prefixed (`~/...`); relative paths are rejected because they'd resolve against the server cwd. `basename(path)` does NOT have to match `id` — the mem0 repo lives at a directory called `isomux-mem0` but exports id `"mem0"`.
 
-For each direct child directory:
+For each entry:
 
-- Validate dir name matches `^[a-z0-9_-]+$`. Skip with log on mismatch.
-- Resolve to realpath (symlinks allowed and expected — the mem0 plugin will be symlinked from a separate dir). Log the realpath on load.
-- Dynamic-import `<dir>/index.ts`. Validate the module exports `id` equal to the dir name plus at least one of `beforeTurn` / `afterTurn`.
-- Name collisions across search paths: first occurrence wins; subsequent ones log error and are skipped. No silent override.
+- Validate the entry shape (handled in `loadEnabledPlugins`, before the loader sees the list).
+- Resolve `<dir>/index.ts` (`<isomuxRoot>/plugins/<id>/` for strings, `expandPath(path)` for objects).
+- Resolve to realpath. Log realpath on load.
+- Dynamic-import `<dir>/index.ts` via `file://` URL. Validate the module exports `id` equal to the configured id plus at least one of `beforeTurn` / `afterTurn`.
+- Duplicate ids in `enabledPlugins` are caught in `loadEnabledPlugins` (first occurrence wins, error logged).
+
+Why hybrid rather than discovery + symlink (the original design): configuration should describe all non-bundled code that will execute inside the isomux process. An explicit `path` in `office-config.json` is operationally clearer and easier to audit than "some directory happened to be discoverable via symlink." String entries preserve clean UX for bundled plugins that ship with the codebase.
 
 Plugins load at boot, after persistence init, before agent spawn.
 
 ### Enable configuration
 
-Office-wide `enabledPlugins: string[]` in `office-config.json`. A plugin must be both discovered (present on disk) and enabled (listed) to register.
+Office-wide `enabledPlugins: Array<string | { id: string; path: string }>` in `office-config.json`. See the entry shapes in *Discovery and loading* above.
 
-Loading note: `OfficeSettings` currently filters unknown keys. Add a dedicated loader for `enabledPlugins` that reads `office-config.json` directly rather than threading through `OfficeSettings`.
+Loading note: `OfficeSettings` currently filters unknown keys. A dedicated loader (`loadEnabledPlugins`) reads `office-config.json` directly rather than threading through `OfficeSettings`. It validates entry shape, dedupes by id, and logs malformed entries to stderr.
 
 No UI in v0; users edit the file. Restart picks up changes.
 
@@ -256,28 +259,34 @@ One-time:
 
 1. `git clone <wherever> ~/nil/isomux-mem0` (or initialize fresh and commit there).
 2. `cd ~/nil/isomux-mem0 && bun install`.
-3. Set `MEM0_API_KEY` in the operator's env (or in isomux's env file).
-4. `ln -s ~/nil/isomux-mem0 ~/.isomux/plugins/mem0`.
-5. Edit `~/.isomux/office-config.json`: add `"enabledPlugins": ["mem0"]`.
-6. (Recommended) Set `"autoMemoryEnabled": false` in `~/.claude/settings.json` to disable Claude's parallel auto-memory.
-7. Restart isomux (`systemctl --user restart isomux`).
+3. Make `MEM0_API_KEY` available to the isomux server process (e.g. `systemctl --user set-environment MEM0_API_KEY=m0-...` for non-persistent test setup, or `Environment="MEM0_API_KEY=..."` in the systemd unit file for persistence).
+4. Edit `~/.isomux/office-config.json` to add the explicit-path entry:
+   ```json
+   "enabledPlugins": [
+     { "id": "mem0", "path": "/home/nil/nil/isomux-mem0" }
+   ]
+   ```
+5. (Recommended) Set `"autoMemoryEnabled": false` in `~/.claude/settings.json` to disable Claude's parallel auto-memory.
+6. Restart isomux (`systemctl --user restart isomux`).
 
-To disable: remove `"mem0"` from `enabledPlugins` and restart. The symlink and plugin dir can be left in place.
+To disable: remove the `"mem0"` entry from `enabledPlugins` and restart. The plugin dir can stay in place.
+
+No symlink. `office-config.json` is the single source of truth for what gets loaded; the loader reads the explicit `path` directly.
 
 ---
 
 ## Plugin placement convention (general)
 
-Two locations, two purposes:
+Two trust paths, two enable shapes:
 
-| Location | Purpose | Tracked in git? |
-|---|---|---|
-| `<isomuxRoot>/plugins/<name>/` | Bundled first-party plugins, shipped with isomux | Yes (in isomux repo) |
-| `~/.isomux/plugins/<name>/` | User-installed plugins (incl. symlinked external dirs) | No (operator manages independently) |
+| Location | Purpose | Config entry | Tracked in git? |
+|---|---|---|---|
+| `<isomuxRoot>/plugins/<id>/` | Bundled first-party plugins, shipped with isomux | `"<id>"` (bare string) | Yes (in isomux repo) |
+| Anywhere on disk | External plugins, operator-controlled | `{ "id": "...", "path": "/abs/..." }` | No (operator manages independently) |
 
-The mem0 plugin uses the second path via a symlink to `~/nil/isomux-mem0/`. This keeps the throwaway integration out of isomux's git history while still loading through the standard discovery path.
+The mem0 plugin lives at `~/nil/isomux-mem0/` and enables via the `{id, path}` shape pointing at that absolute path. No symlink; the loader imports from the path verbatim.
 
-For v0, no plugins are bundled in `<isomuxRoot>/plugins/`. The directory exists so the loader has a defined scan path and so future first-party plugins (e.g. migrating `safety-hooks.ts` to dogfood the system) have a home.
+For v0, no plugins are bundled in `<isomuxRoot>/plugins/`. The directory is reserved for future first-party plugins (e.g. migrating `safety-hooks.ts` to dogfood the system).
 
 ## Acknowledged v0 tradeoffs
 

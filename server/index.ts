@@ -27,7 +27,9 @@ import {
   saveFile,
   loadServerConfig,
   saveServerConfig,
+  loadEnabledPlugins,
 } from "./persistence.ts";
+import { loadPlugins } from "./plugins.ts";
 import { normalizePublicOrigin } from "../shared/public-origin.ts";
 import type { Attachment } from "../shared/types.ts";
 import {
@@ -3754,8 +3756,42 @@ onUpdateChange((status) => {
 });
 startUpdateChecker();
 
-// Restore persisted agents on startup
-void AgentManager.restoreAgents().then((restored) => {
+// Wire plugin-hooks to agent-manager internals (beginTurn / createTurnDeferred /
+// logCache / room lookup) BEFORE loading plugins, so the loader has a usable
+// runtime when discovery completes. Plugins themselves are discovered + imported
+// in loadPlugins below. See server/plugin-hooks.ts for the contract.
+AgentManager.configurePluginHooksDeps();
+
+// Plugin load + agent restore are sequenced inside the same async boot so
+// RESTORED agents come up with the full plugin set already in place. A
+// fire-and-forget plugin load would race with restoreAgents — a slow
+// plugin import could let restored-agent turns dispatch with
+// getEnabledPlugins() empty.
+//
+// Caveat: `Bun.serve` above already bound the HTTP listener BEFORE this
+// IIFE started. A user who spawns a brand-new agent during the small
+// plugin-load window (typically <100ms; longer if a plugin's transitive
+// deps need fetching) and immediately sends them a message will see that
+// agent's first turn run without plugin hooks. We accept this for v0:
+// gating HTTP on plugin load would let a single broken local plugin
+// stall the whole UI, which is a worse failure mode than one
+// plugin-less first turn. If it bites, the right fix is a `pluginsReady`
+// flag checked at turn-dispatch time, not at HTTP-accept time.
+//
+// Plugin load failures land in ~/.isomux/logs/plugins.jsonl + stderr and
+// don't block startup; we still proceed to restoreAgents on the catch path
+// so a broken plugin doesn't kill the server.
+void (async () => {
+  try {
+    // import.meta.dir points at server/, so go up one to get the repo root.
+    const isomuxRoot = join(import.meta.dir, "..");
+    const enabledPlugins = loadEnabledPlugins();
+    await loadPlugins({ isomuxRoot, enabledPlugins });
+  } catch (err) {
+    console.error("[plugins] unexpected error during plugin load:", err);
+  }
+
+  const restored = await AgentManager.restoreAgents();
   if (restored.length > 0) {
     console.log(
       `Restored ${restored.length} agent(s): ${restored.map((a) => a.name).join(", ")}`,
@@ -3774,7 +3810,7 @@ void AgentManager.restoreAgents().then((restored) => {
     );
     broadcast({ type: "users_list", users: listUsers() });
   }
-});
+})();
 
 // Boot cronjob scheduler (loads configs, reconciles stale "running" rows, starts tick).
 CronjobManager.startCronjobScheduler();

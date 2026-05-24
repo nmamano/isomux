@@ -25,6 +25,24 @@ export interface ManagedAgent {
   // Per-turn deferred. sendMessage/executeSkill await this; the consumer
   // resolves it when the turn's `stream()` iterator ends at `result`.
   pendingTurn: { resolve: () => void; reject: (err: unknown) => void } | null;
+  // The aggregate `afterTurn` promise for the most recent turn — all plugins'
+  // afterTurn hooks raced against their per-plugin timeout, joined here.
+  // runAgentTurn awaits this before starting the next turn so memory writes
+  // / audit writes / etc. land before the next retrieval. Self-clears on
+  // settle (set to null inside runAfterTurn's .finally) so a timed-out
+  // afterTurn doesn't poison every subsequent turn with a 10s wait.
+  afterTurnPromise: Promise<void> | null;
+  // Monotonic counter bumped by every control-plane action that cancels an
+  // in-flight turn (abort, kill, replaceSession). runAgentTurn snapshots it
+  // at entry — AFTER beginTurn flips state to thinking — and re-checks
+  // after each await during plugin retrieval. Any change means a Stop or
+  // session swap fired while plugin work was running, so the pre-send turn
+  // bails with SessionSwappedError instead of sending the stale prompt
+  // into the (possibly swapped) session. The pre-send window between
+  // beginTurn and createTurnDeferred is the only place plain `pendingTurn`
+  // rejection can't cover, because pendingTurn isn't installed yet — this
+  // counter fills that gap.
+  turnCancelToken: number;
   aborting: boolean;
   // Set while abort() is mid-flight (between session.close() and installSession of the
   // replacement). sendMessage awaits this so a follow-up message arriving in the gap

@@ -42,6 +42,7 @@ import {
   type AgentEvent,
   type EnqueueResult,
 } from "./internal-types.ts";
+import { runAgentTurn } from "./plugin-hooks.ts";
 
 type HandlerFn = (
   agentId: string,
@@ -894,25 +895,25 @@ export function createCommandHandling(deps: HandlerDeps) {
     if (username) userMeta.username = username;
     if (device) userMeta.device = device;
     deps.addLogEntry(agentId, "user_message", rawText, userMeta);
-    deps.beginTurn(agentId, { humanInput: true });
     const prefix = formatPrefix({ username, device });
     const prefixedSkillPrompt = prefix ? `${prefix}${fullPrompt}` : fullPrompt;
-    const turn = deps.createTurnDeferred(managed);
-    const skillOwnPending = managed.pendingTurn;
     try {
-      await managed.session!.send(prefixedSkillPrompt);
-      await turn;
+      await runAgentTurn({
+        managed,
+        visibleText: rawText,
+        // For skills, the expanded skill prompt (with user args spliced in)
+        // is the semantic user request — what the user effectively asked
+        // the model to do. The raw `/grill` invocation is captured in
+        // visibleText for display. Sender prefix is applied as sdkText.
+        originalText: fullPrompt,
+        sdkText: prefixedSkillPrompt,
+        origin: "skill",
+        humanInput: true,
+      });
     } catch (err) {
-      // Symmetric with sendMessage/flushQueue: a session.send() throw before
-      // `await turn` runs leaves the deferred parked in managed.pendingTurn —
-      // reject + clear so abort/state logic doesn't observe a phantom in-
-      // flight turn.
-      if (skillOwnPending && managed.pendingTurn === skillOwnPending) {
-        managed.pendingTurn = null;
-        try {
-          skillOwnPending.reject(err);
-        } catch {}
-      }
+      // runAgentTurn re-throws whatever the underlying turn threw and has
+      // already cleaned up the pendingTurn deferred if session.send fell
+      // before await turn. Per-site error semantics remain here.
       if (err instanceof SessionSwappedError) return true;
       deps.addLogEntry(agentId, "error", `Skill error: ${errMessage(err)}`);
       deps.updateState(agentId, "error");
