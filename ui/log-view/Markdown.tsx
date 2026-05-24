@@ -1,4 +1,10 @@
-import { useMemo, useCallback, useEffect, useRef } from "react";
+import {
+  useMemo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+} from "react";
 import { Marked } from "marked";
 import { markedHighlight } from "marked-highlight";
 import hljs from "highlight.js/lib/core";
@@ -69,12 +75,18 @@ renderer.link = ({ href, title, text }) => {
 marked.use({ renderer });
 
 // Capture ```mermaid fenced blocks before the default fenced-code tokenizer.
-// Emits a <div class="mermaid"> whose textContent is the diagram source;
-// the React effect below lazy-loads mermaid and replaces each div with the
-// rendered SVG. Escaping is required because the source can contain HTML
-// metacharacters (e.g. <, >) that would otherwise break the wrapper.
-const escapeHtml = (s: string) =>
-  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+// Emits a <div class="mermaid-wrapper"> containing an empty <div class="mermaid">
+// whose data-mermaid-source attribute holds the diagram source. The React
+// effect below lazy-loads mermaid and replaces the inner div with the
+// rendered SVG. Carrying the source on a data attribute (rather than as the
+// div's textContent) means the effect can safely overwrite the div's
+// contents without losing the source, e.g. if the effect ever re-fires.
+const escapeHtmlAttr = (s: string) =>
+  s
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 marked.use({
   extensions: [
     {
@@ -96,7 +108,11 @@ marked.use({
       },
       renderer(token) {
         const source = (token as { source?: string }).source ?? "";
-        return `<div class="mermaid">${escapeHtml(source)}</div>\n`;
+        return (
+          `<div class="mermaid-wrapper">` +
+          `<div class="mermaid" data-mermaid-source="${escapeHtmlAttr(source)}"></div>` +
+          `</div>\n`
+        );
       },
     },
   ],
@@ -105,6 +121,12 @@ marked.use({
 // Lazy singleton: mermaid is ~1MB minified, so we only fetch it the first
 // time a message containing a mermaid block reaches the renderer.
 let mermaidPromise: Promise<typeof import("mermaid").default> | null = null;
+// Monotonically-unique per-render id. Mermaid uses the id we pass to render()
+// as a prefix for internal SVG defs/markers/clipPath etc., and same-document
+// id collisions cause url(#...) refs to resolve to the wrong element. A
+// counter (rather than Date.now() + index) keeps every render unique even if
+// many Markdown components mount on the same tick.
+let mermaidIdCounter = 0;
 function getMermaid() {
   if (!mermaidPromise) {
     mermaidPromise = import("mermaid").then((mod) => {
@@ -183,25 +205,84 @@ export function Markdown({ content }: { content: string }) {
 
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // After every render, find any unprocessed mermaid blocks and hand them to
-  // the lazy-loaded mermaid library. mermaid.run() marks each node with
-  // data-processed="true" so the selector naturally skips re-rendered ones.
+  // We manage innerHTML manually (in a layout effect keyed on html) rather
+  // than via React's dangerouslySetInnerHTML. Observed bug with the latter:
+  // when a chat re-render happened that didn't change this message's
+  // markdown source (e.g. a new message landed and isLastInTurn/turnEntries
+  // shifted on prior LogEntryCards), the SVG that mermaid had rendered into
+  // a .mermaid div was wiped back to the wrapper's original empty state.
+  // The mermaid effect below also keys on [html] so it never re-fired to
+  // repair the wipe. Driving innerHTML from a layout effect keyed on the
+  // memoized html string makes the DOM write a no-op for re-renders that
+  // don't change the markdown source — and a clean reset for ones that do
+  // (e.g. streaming chunks).
+  useLayoutEffect(() => {
+    const root = containerRef.current;
+    if (!root) return;
+    root.innerHTML = html;
+  }, [html]);
+
+  // After every html change, find any unprocessed mermaid blocks and hand
+  // them to the lazy-loaded mermaid library one at a time. We use
+  // mermaid.render() (not run()) so we pass the source explicitly from each
+  // node's data-mermaid-source attribute — no reliance on textContent, so
+  // we never accidentally feed a "Rendering…" placeholder back to mermaid
+  // if this effect ever re-fires while sources are mid-mutation.
+  //
+  // Three observable end states per node:
+  //   - SVG inside .mermaid → success
+  //   - .mermaid-wrapper[data-mermaid-error="true"] with "Mermaid error: …"
+  //     → mermaid loaded but the diagram source didn't parse
+  //   - same wrapper with "Failed to load mermaid: …" → the dynamic import
+  //     rejected (network, CSP, syntax-on-old-Safari etc.)
+  // Until any of those terminal states is reached, .mermaid is empty and
+  // CSS shows a "Rendering diagram…" placeholder via ::before.
   useEffect(() => {
     const root = containerRef.current;
     if (!root) return;
-    const nodes = root.querySelectorAll<HTMLElement>(
-      ".mermaid:not([data-processed])",
+    const nodes = Array.from(
+      root.querySelectorAll<HTMLElement>(".mermaid:not([data-processed])"),
     );
     if (nodes.length === 0) return;
+    const sources = nodes.map(
+      (n) => n.getAttribute("data-mermaid-source") ?? "",
+    );
     let cancelled = false;
-    void getMermaid().then(async (m) => {
-      if (cancelled) return;
-      try {
-        await m.run({ nodes: Array.from(nodes) });
-      } catch {
-        // mermaid.run() renders errors inline on the failing node; no need to log.
-      }
-    });
+    const markError = (
+      node: HTMLElement,
+      prefix: string,
+      msg: string,
+      src: string,
+    ) => {
+      const wrapper = node.closest<HTMLElement>(".mermaid-wrapper");
+      if (wrapper) wrapper.setAttribute("data-mermaid-error", "true");
+      node.textContent = `${prefix}: ${msg}\n\n${src}`;
+      node.setAttribute("data-processed", "true");
+    };
+    getMermaid()
+      .then(async (m) => {
+        if (cancelled) return;
+        for (let i = 0; i < nodes.length; i++) {
+          if (cancelled) return;
+          const node = nodes[i];
+          try {
+            const id = `mmd-${++mermaidIdCounter}`;
+            const { svg } = await m.render(id, sources[i]);
+            node.innerHTML = svg;
+            node.setAttribute("data-processed", "true");
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            markError(node, "Mermaid error", msg, sources[i]);
+          }
+        }
+      })
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        const msg = e instanceof Error ? e.message : String(e);
+        nodes.forEach((node, i) => {
+          markError(node, "Failed to load mermaid", msg, sources[i]);
+        });
+      });
     return () => {
       cancelled = true;
     };
@@ -212,7 +293,6 @@ export function Markdown({ content }: { content: string }) {
       ref={containerRef}
       className="md-content"
       onClick={(e) => void onClick(e)}
-      dangerouslySetInnerHTML={{ __html: html }}
     />
   );
 }

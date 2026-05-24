@@ -105,6 +105,60 @@ ${emitThemesCss()}
   }
   .md-content th { background: var(--bg-subtle); color: var(--text-primary); font-weight: 600; }
 
+  /* Mermaid diagrams: the wrapper is the responsive boundary AND a horizontal
+     scroller. body has overflow-x:hidden, so without a local scroll context
+     any diagram wider than the column would be clipped to invisibility.
+     overflow-x:auto only paints a scrollbar when the SVG actually exceeds
+     the column, so on normal-sized diagrams it stays invisible. */
+  .md-content .mermaid-wrapper {
+    position: relative;
+    margin: 8px 0;
+    max-width: 100%;
+    overflow-x: auto;
+    /* Defensive: -webkit-overflow-scrolling is a no-op on iOS 13+ but
+       keeping it preserves smooth-momentum horizontal scroll on any older
+       device where the user hits a diagram wider than the column. */
+    -webkit-overflow-scrolling: touch;
+  }
+  /* mermaid emits SVGs with width="100%" HTML attr + inline max-width:Npx
+     matching the diagram's intrinsic width. That responsive default scales
+     correctly with the column. We only center the SVG; deliberately NOT
+     overriding mermaid's max-width, so small diagrams keep their intended
+     size instead of stretching to fill the chat column. */
+  .md-content .mermaid-wrapper > .mermaid > svg {
+    display: block;
+    margin: 0 auto;
+  }
+  /* The wrapper-data-attribute carries the diagram source; .mermaid is
+     empty until the effect renders SVG or writes an error message. Empty
+     ::before shows a placeholder string so cold loads don't show a blank
+     gap. Once .mermaid has either an SVG or error text inside, :empty no
+     longer matches and the placeholder is gone. Font/color rules live here
+     (not on .mermaid itself) so they don't inherit into the rendered SVG's
+     text labels. */
+  .md-content .mermaid { display: block; }
+  .md-content .mermaid:empty::before {
+    content: "Rendering diagram…";
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  /* Visible failure state. The Markdown effect sets data-mermaid-error on
+     the wrapper when a single diagram's parse fails so the user sees what
+     failed (and we get diagnostic info from a screenshot) instead of a
+     silently-blank wrapper. */
+  .md-content .mermaid-wrapper[data-mermaid-error="true"] {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--red);
+    background: var(--red-bg);
+    border: 1px dashed var(--red);
+    border-radius: 4px;
+    padding: 6px 8px;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+  }
+
   /* Mobile: ensure code blocks don't overflow horizontally */
   @media (max-width: 767px) {
     .md-content pre { max-width: calc(100vw - 48px); }
