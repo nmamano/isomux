@@ -30,12 +30,7 @@
  * what code I'm pulling in." See internal-docs/isomux-plugin-system.md.
  */
 
-import {
-  appendFileSync,
-  existsSync,
-  mkdirSync,
-  realpathSync,
-} from "fs";
+import { appendFileSync, existsSync, mkdirSync, realpathSync } from "fs";
 import { dirname, join, resolve } from "path";
 import { homedir } from "os";
 import { pathToFileURL } from "url";

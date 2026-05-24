@@ -99,10 +99,7 @@ export interface IsomuxPlugin {
   id: string;
   beforeTurn?: (
     ctx: PluginTurnContext,
-  ) =>
-    | Promise<PluginBeforeTurnResult | void>
-    | PluginBeforeTurnResult
-    | void;
+  ) => Promise<PluginBeforeTurnResult | void> | PluginBeforeTurnResult | void;
   afterTurn?: (
     ctx: PluginTurnContext,
     input: PluginAfterTurnInput,

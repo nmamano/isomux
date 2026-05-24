@@ -140,9 +140,7 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
   const cancelTokenAtEntry = managed.turnCancelToken;
   const checkCancelled = () => {
     if (managed.turnCancelToken !== cancelTokenAtEntry) {
-      throw new SessionSwappedError(
-        "Turn cancelled during plugin retrieval.",
-      );
+      throw new SessionSwappedError("Turn cancelled during plugin retrieval.");
     }
   };
 
@@ -523,4 +521,3 @@ function assistantTextFromEntries(entries: LogEntry[]): string {
   }
   return parts.join("\n\n");
 }
-
