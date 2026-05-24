@@ -54,6 +54,7 @@ free · open source · no account needed
 - **Conversation branching**: edit any past message to fork the conversation
 - **Notifications**: get pinged (and waved at) when an agent finishes
 - [**Pre-tool-call safety hooks**](https://x.com/Nil053/status/2039497314826666469)
+- **Plugin system**: add memory, audit, or other turn-aware behavior. Reference [mem0 plugin](https://github.com/nmamano/isomux-mem0) gives agents long-term memory across sessions.
 
 See the [full feature list](docs/features.md).
 

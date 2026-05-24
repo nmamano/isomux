@@ -82,6 +82,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Built-in file editor**: syntax highlighting, file tabs, resizable alongside the chat. Open files via `/isomux-edit` (agents can offer this too via "[Open in editor]" cards).
 - `/isomux-diff` — rich-rendered uncommitted changes. Agents can also choose to emit a diff card on their own.
 - `/isomux-usage` — per-agent / per-room / per-cron-job token spend.
+- **Plugin system**: add memory, audit, or other turn-aware behavior. Reference [mem0 plugin](https://github.com/nmamano/isomux-mem0) gives agents long-term memory across sessions.
 
 ### Navigation and shortcuts
 

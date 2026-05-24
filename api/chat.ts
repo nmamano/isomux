@@ -195,6 +195,9 @@ Setup:
 - Daily local backup: your office (agents, conversations, settings) is snapshotted once a day, so you can restore from a recent snapshot if anything goes wrong
 - The entire frontend uses a Redux-like store where server WebSocket messages are dispatched directly as actions
 
+### Plugins
+- Plugin system for adding memory, audit, or other turn-aware behavior across Claude and Codex agents. Reference plugin: mem0 (https://github.com/nmamano/isomux-mem0) — long-term memory across sessions.
+
 ## Guidelines
 - NEVER make up features or capabilities that aren't listed above. If you don't know, say so and point them to the GitHub repo or blog post.
 - When answering about limits (e.g. number of agents), use only the information above — don't speculate.`;
