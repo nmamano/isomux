@@ -22,7 +22,7 @@ The triggering use case is mem0 (a memory layer). The plugin system is the long-
 - In-process TypeScript plugins loaded by the Bun runtime. No IPC, no separate runtimes.
 - Office-wide enable/disable via `office-config.json`.
 - Trust model: full-trust local code. No sandboxing claims.
-- A working mem0 plugin (cloud and OSS modes — runtime-dispatched via `MEM0_MODE`) that prepends retrieved memories on `beforeTurn` and stores new facts on `afterTurn`.
+- A working mem0 plugin (cloud and OSS modes — runtime-dispatched via a `mode` field in the plugin's config) that prepends retrieved memories on `beforeTurn` and stores new facts on `afterTurn`.
 
 ## Non-goals (v0)
 
@@ -79,7 +79,11 @@ export interface IsomuxPlugin {
 }
 ```
 
-`visibleText` and `sdkText` differ when a skill expands or otherwise transforms the user's input. Plugins generally want `sdkText` (what the model will see) for retrieval queries; `visibleText` is provided for display or auditing purposes.
+`visibleText`, `originalText`, and `sdkText` differ in what's been applied to the user's input:
+
+- `visibleText` — what the user typed verbatim (e.g. `/foo bar`). Use for chat-log display.
+- `originalText` — semantic user intent: skills expanded, but no isomux sender prefix (`[Nil (Phone)]`) and no plugin-prefix blocks. **Use this for retrieval / extraction queries** — the sender prefix is routing noise, and feeding back plugin prefixes (including the plugin's own) would teach a memory layer about its own outputs. This is what the mem0 reference plugin uses.
+- `sdkText` — pre-plugin SDK prompt: sender prefix applied, plugin prefixes not yet added. For audit/debug plugins that need to see what the backend would receive without the prefix-stripping `originalText` gives.
 
 All `beforeTurn` invocations within a single turn see the **same** pre-prefix `sdkText`. Plugins do not see each other's prefixes during `beforeTurn` (they run in parallel against the same context). This keeps plugins independent.
 
@@ -188,11 +192,11 @@ The mem0 plugin is the first consumer of the plugin system and proves the contra
 
 ### Mem0 modes
 
-The plugin ships with two backends, dispatched at runtime by the `MEM0_MODE` env var (parsed strictly: `undefined`/`""`/`cloud` → cloud, `oss` → oss, anything else throws):
+The plugin ships with two backends, dispatched at runtime by a resolved `mode` field. Mode is sourced from (highest precedence first): `MEM0_MODE` env var, then `mode` in the operator's config file at `<plugin-dir>/config.json` (overridable via `MEM0_CONFIG_FILE`; the file sits next to the plugin's code and is gitignored — local operator state, not committed), then the default `cloud`. All non-secret OSS config (Qdrant URL, collection name, providers, models, dimension, infer flag) follows the same env → file → default chain. API keys remain env-only — they're secrets, the file is intended to be inspectable.
 
-- **Cloud** (`MEM0_MODE=cloud`, default) — talks to `api.mem0.ai` via the `mem0ai` JS SDK. One env var: `MEM0_API_KEY`. Extraction, dedup, and storage all run server-side.
+- **Cloud** (`mode=cloud`, default) — talks to `api.mem0.ai` via the `mem0ai` JS SDK. One env var: `MEM0_API_KEY`. Extraction, dedup, and storage all run server-side.
 
-- **OSS** (`MEM0_MODE=oss`) — self-hosted stack using `mem0ai/oss`. Defaults: Qdrant (vector store), OpenAI `text-embedding-3-small` (embedder), Anthropic Claude Haiku (extractor LLM). All providers and the embedding dimension are env-overridable; Ollama for both embedder and extractor is the supported full-local path. The plugin runs with `disableHistory: true` because mem0-oss's only `getLastMessages`-implementing history store is `SQLiteManager`, which depends on the `better-sqlite3` native addon — that addon is not yet supported under Bun ([bun#4290](https://github.com/oven-sh/bun/issues/4290)). Consequence: the extractor sees only the current turn's exchange, not the last-K cross-turn context. Documented as a known limitation in the plugin's README; cloud mode is unaffected. A `bun:sqlite`-backed plugin-layer history store is a tracked follow-up (~2–4h).
+- **OSS** (`mode=oss`) — self-hosted stack using `mem0ai/oss`. Defaults: Qdrant (vector store), OpenAI `text-embedding-3-small` (embedder), Anthropic Claude Haiku (extractor LLM). All providers and the embedding dimension are configurable via the file (or env override); Ollama for both embedder and extractor is the supported full-local path. The plugin runs with `disableHistory: true` because mem0-oss's only `getLastMessages`-implementing history store is `SQLiteManager`, which depends on the `better-sqlite3` native addon — that addon is not yet supported under Bun ([bun#4290](https://github.com/oven-sh/bun/issues/4290)). Consequence: the extractor sees only the current turn's exchange, not the last-K cross-turn context. Documented as a known limitation in the plugin's README; cloud mode is unaffected. A `bun:sqlite`-backed plugin-layer history store is a tracked follow-up (~2–4h).
 
 Backend dispatch uses dynamic `import()` so the cloud-mode code path doesn't evaluate `mem0ai/oss` at load time (which would otherwise force the OSS bundle's provider deps to resolve even for cloud-only operators). The first hook call resolves the mode once and caches the backend promise; cached rejections prevent re-running parse-mode on every turn after a misconfig.
 
@@ -200,7 +204,9 @@ Backend dispatch uses dynamic `import()` so the cloud-mode code path doesn't eva
 
 ```
 ~/nil/isomux-mem0/
-  index.ts              # exports id, beforeTurn, afterTurn; MEM0_MODE dispatch
+  index.ts              # exports id, beforeTurn, afterTurn; mode dispatch via getConfig()
+  config.ts             # config-file + env + defaults resolution; cached
+  config.example.json   # operator-copyable starting template
   cloud.ts              # mem0ai (cloud SDK) wrapper
   oss.ts                # mem0ai/oss (self-hosted) wrapper
   identity.ts           # shared identityFromContext + IsomuxIdentity
@@ -348,14 +354,16 @@ The fixture plugin used for testing is a no-op or trivial echo plugin — **not*
 | File | Lines |
 |---|---|
 | `index.ts` | ~100 |
+| `config.ts` | ~245 |
+| `config.example.json` | ~15 |
 | `cloud.ts` | ~90 |
-| `oss.ts` | ~220 |
+| `oss.ts` | ~215 |
 | `identity.ts` | ~45 |
 | `format.ts` | ~25 |
 | `types.ts` | ~80 |
 | `scripts/smoke-test.ts` | ~120 |
 | `docker-compose.yml` | ~25 |
 | `package.json` | ~10 |
-| `README.md` | ~200 |
+| `README.md` | ~230 |
 
-Net code: ~900 lines plus deps. Larger than the original `~190` estimate because the cloud+oss backend split, the shared identity/format modules, the live smoke test, and the OSS-mode README all landed in one repo.
+Net code: ~1200 lines plus deps. Includes the cloud+oss backend split, the shared identity/format modules, the file-based config resolver (`config.ts`), the live smoke test, and the OSS-mode README.
