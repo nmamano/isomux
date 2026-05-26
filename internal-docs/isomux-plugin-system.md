@@ -22,7 +22,7 @@ The triggering use case is mem0 (a memory layer). The plugin system is the long-
 - In-process TypeScript plugins loaded by the Bun runtime. No IPC, no separate runtimes.
 - Office-wide enable/disable via `office-config.json`.
 - Trust model: full-trust local code. No sandboxing claims.
-- A working mem0 plugin (mem0 cloud mode) that prepends retrieved memories on `beforeTurn` and stores new facts on `afterTurn`.
+- A working mem0 plugin (cloud and OSS modes — runtime-dispatched via `MEM0_MODE`) that prepends retrieved memories on `beforeTurn` and stores new facts on `afterTurn`.
 
 ## Non-goals (v0)
 
@@ -37,7 +37,6 @@ For the plugin system:
 - A published `@isomux/plugin-types` package. Plugins re-declare types until the API stabilizes.
 
 For the mem0 plugin:
-- Mem0 OSS (Qdrant + embedder + extractor LLM swap). Cloud mode in v0; OSS is a later iteration when more interview substance is wanted.
 - Scope classifier (auto-deciding office/room/user/agent tier for each extracted fact). Every fact is stored under the boss's `user_id` in v0.
 - Plugin-side filtering of which turns to skip (e.g. skill expansions, queued messages). v0 runs on every turn.
 
@@ -58,7 +57,8 @@ export type PluginTurnContext = {
   username: string | null;   // null when no boss is attributed
   userId: string | null;
   visibleText: string;       // what the user typed (e.g. "/foo bar")
-  sdkText: string;           // what's about to be sent to the backend, pre-prefix (e.g. expanded skill prompt)
+  originalText: string;      // semantic user input — sender prefix and plugin-prefix blocks stripped; what a memory/retrieval plugin should query against
+  sdkText: string;           // pre-plugin SDK prompt — sender prefix applied, plugin prefixes not yet added; what audit/debug plugins want
 };
 
 export type PluginBeforeTurnResult = {
@@ -184,26 +184,33 @@ Plugins run with full process privileges: they can read env, read/write filesyst
 
 ## Part B: Reference plugin: mem0
 
-The mem0 plugin is the first consumer of the plugin system and proves the contract end-to-end. It is **not** part of isomux. It lives in `~/nil/isomux-mem0/` (sibling to `~/nil/isomux/`), symlinked into `~/.isomux/plugins/mem0/`. It is **not committed to isomux's git history** and may be discarded after the underlying integration goal is served.
+The mem0 plugin is the first consumer of the plugin system and proves the contract end-to-end. It is **not** part of isomux. It lives in `~/nil/isomux-mem0/` (sibling to `~/nil/isomux/`), referenced by absolute path from `office-config.json`'s `enabledPlugins`. It is **not committed to isomux's git history** and may be discarded after the underlying integration goal is served.
 
-### Mem0 mode: cloud
+### Mem0 modes
 
-v0 uses mem0 cloud (`api.mem0.ai`) via the `mem0ai` JS SDK. One env var:
+The plugin ships with two backends, dispatched at runtime by the `MEM0_MODE` env var (parsed strictly: `undefined`/`""`/`cloud` → cloud, `oss` → oss, anything else throws):
 
-- `MEM0_API_KEY` — read by the plugin's `client.ts`.
+- **Cloud** (`MEM0_MODE=cloud`, default) — talks to `api.mem0.ai` via the `mem0ai` JS SDK. One env var: `MEM0_API_KEY`. Extraction, dedup, and storage all run server-side.
 
-Mem0 OSS (Qdrant + embedder + extractor LLM) is a later iteration. The interview-substance value of OSS is real (custom extraction prompt, vector DB choice, embedder swap) but unnecessary to prove the integration.
+- **OSS** (`MEM0_MODE=oss`) — self-hosted stack using `mem0ai/oss`. Defaults: Qdrant (vector store), OpenAI `text-embedding-3-small` (embedder), Anthropic Claude Haiku (extractor LLM). All providers and the embedding dimension are env-overridable; Ollama for both embedder and extractor is the supported full-local path. The plugin runs with `disableHistory: true` because mem0-oss's only `getLastMessages`-implementing history store is `SQLiteManager`, which depends on the `better-sqlite3` native addon — that addon is not yet supported under Bun ([bun#4290](https://github.com/oven-sh/bun/issues/4290)). Consequence: the extractor sees only the current turn's exchange, not the last-K cross-turn context. Documented as a known limitation in the plugin's README; cloud mode is unaffected. A `bun:sqlite`-backed plugin-layer history store is a tracked follow-up (~2–4h).
+
+Backend dispatch uses dynamic `import()` so the cloud-mode code path doesn't evaluate `mem0ai/oss` at load time (which would otherwise force the OSS bundle's provider deps to resolve even for cloud-only operators). The first hook call resolves the mode once and caches the backend promise; cached rejections prevent re-running parse-mode on every turn after a misconfig.
 
 ### File layout
 
 ```
 ~/nil/isomux-mem0/
-  index.ts          # exports id, beforeTurn, afterTurn
-  client.ts         # thin wrapper over mem0ai SDK; identity translation
-  types.ts          # re-declared PluginTurnContext / PluginAfterTurnInput / etc.
-  package.json      # one dep: mem0ai
-  README.md         # operator setup (install, env var, symlink, enable)
-  .gitignore        # node_modules/
+  index.ts              # exports id, beforeTurn, afterTurn; MEM0_MODE dispatch
+  cloud.ts              # mem0ai (cloud SDK) wrapper
+  oss.ts                # mem0ai/oss (self-hosted) wrapper
+  identity.ts           # shared identityFromContext + IsomuxIdentity
+  format.ts             # shared formatRetrievedMemories + RetrievedMemory
+  types.ts              # re-declared plugin contract types + MemoryBackend
+  docker-compose.yml    # Qdrant for OSS mode
+  scripts/smoke-test.ts # opt-in live test (MEM0_OSS_SMOKE_LIVE=1)
+  package.json          # one dep: mem0ai (Bun resolves peers eagerly)
+  README.md             # operator setup for both modes
+  .gitignore            # node_modules/
 ```
 
 `bun install` is run inside the plugin dir to populate its own `node_modules/`. The plugin's deps are isolated from isomux's `bun.lock`.
@@ -214,11 +221,12 @@ mem0's flat `user_id` / `agent_id` / `run_id` tags map to isomux's hierarchy as 
 
 | mem0 | isomux source | Fallback |
 |---|---|---|
-| `user_id` | `ctx.username` | `"__unassigned__"` if null |
+| `user_id` | `ctx.userId` (stable hex id) | `ctx.username`, then `"__unassigned__"` |
 | `agent_id` | `ctx.agentId` | — |
 | `run_id` | `ctx.sessionId` | `"__pending__"` if null (rare; first turn before system_init) |
 | `metadata.room` | `ctx.roomName` | — |
 | `metadata.cwd` | `ctx.cwd` | — |
+| `metadata.username` | `ctx.username` | `null` |
 
 No scope classifier in v0: every extracted fact is stored under the boss's `user_id` regardless of whether it might better belong office-wide or room-wide. Adding a classifier later requires mem0's `custom_fact_extraction_prompt` + an extra LLM call, both out of v0 scope.
 
@@ -226,8 +234,8 @@ No scope classifier in v0: every extracted fact is stored under the boss's `user
 
 **`beforeTurn(ctx)`**:
 
-1. Build the query from `ctx.sdkText` (what the model is about to see).
-2. Call `client.search({ query, user_id, agent_id, limit: 5 })`.
+1. Build the query from `ctx.originalText` (sender-prefix-free semantic input — using `sdkText` here would conflate isomux's `[Nil (Phone)]`-style routing tags into the retrieval query).
+2. Call the active backend's `searchMemories(query, ctx, 5)` (cloud: `MemoryClient.search`; OSS: `Memory.search`). Both filter by `{ user_id, agent_id }` — agent-scoped retrieval, crossing sessions for the same agent+user.
 3. If results, format as:
    ```
    Relevant facts retrieved from memory:
@@ -240,18 +248,18 @@ No scope classifier in v0: every extracted fact is stored under the boss's `user
 
 **`afterTurn(ctx, input)`**:
 
-1. If `input.status !== "completed"`, return without writing. (v0 choice; could revisit.)
-2. Build the message list for mem0's extractor from `input.userTextSent` and `input.assistantText`:
+1. If `input.status !== "completed"` or `input.assistantText` is empty, return without writing. (v0 choice; could revisit.)
+2. Build the message list for the extractor from `ctx.originalText` and `input.assistantText`. **Not** `input.userTextSent` — that includes the sender prefix AND every plugin's prefix block (including mem0's own retrieved-memories block), which would teach the extractor about its own outputs.
    ```ts
    [
-     { role: "user", content: input.userTextSent },
+     { role: "user", content: ctx.originalText },
      { role: "assistant", content: input.assistantText },
    ]
    ```
-3. Call `client.add(messages, { user_id, agent_id, run_id, metadata })`. mem0 cloud handles extraction, dedup, and storage server-side.
+3. Call the active backend's `addExchange(userText, assistantText, ctx)` (cloud: `MemoryClient.add`; OSS: `Memory.add`). Cloud handles extraction, dedup, storage server-side; OSS does extraction locally via the configured LLM provider and writes to the configured vector store.
 4. Errors: log to the plugin failure stream, return. Don't propagate.
 
-`newLogEntries` is available but unused in v0 — the assistant's final text plus the user's sent text is sufficient for cloud-mode extraction. A future iteration could pass tool calls through mem0's extractor for richer facts.
+`newLogEntries` is available but unused in v0 — the assistant's final text plus the user's sent text is sufficient for extraction. A future iteration could pass tool calls through the extractor for richer facts.
 
 ### Operator setup
 
@@ -259,7 +267,7 @@ One-time:
 
 1. `git clone <wherever> ~/nil/isomux-mem0` (or initialize fresh and commit there).
 2. `cd ~/nil/isomux-mem0 && bun install`.
-3. Make `MEM0_API_KEY` available to the isomux server process (e.g. `systemctl --user set-environment MEM0_API_KEY=m0-...` for non-persistent test setup, or `Environment="MEM0_API_KEY=..."` in the systemd unit file for persistence).
+3. Make `MEM0_API_KEY` (cloud mode) or `MEM0_OSS_EMBEDDER_API_KEY` + `MEM0_OSS_LLM_API_KEY` (OSS mode default providers) available to the isomux server process via `Environment=` lines under `[Service]` in `~/.config/systemd/user/isomux.service`, then `systemctl --user daemon-reload`. Do **not** use `systemctl --user set-environment` for plugin credentials — that writes to the per-user manager env and leaks the value to every other user service (and, in the case of canonical names like `ANTHROPIC_API_KEY`, hijacks the Claude Agent SDK's subscription auth in spawned subprocesses).
 4. Edit `~/.isomux/office-config.json` to add the explicit-path entry:
    ```json
    "enabledPlugins": [
@@ -310,7 +318,6 @@ For the plugin system:
 - Published `@isomux/plugin-types` package once the contract stops changing.
 
 For the mem0 plugin:
-- Mem0 OSS mode (Qdrant container, custom embedder, Claude as extractor LLM via LiteLLM).
 - Scope classifier using `custom_fact_extraction_prompt` to emit `{fact, scope, confidence}` tuples; office/room/user/agent tier dispatch.
 - Reserved `user_id="__office__"` for cross-boss office-tier facts.
 - Pass `newLogEntries` (including tool calls) into mem0's extractor for richer fact capture.
@@ -340,10 +347,15 @@ The fixture plugin used for testing is a no-op or trivial echo plugin — **not*
 
 | File | Lines |
 |---|---|
-| `index.ts` | ~40 |
-| `client.ts` | ~70 |
-| `types.ts` | ~30 |
+| `index.ts` | ~100 |
+| `cloud.ts` | ~90 |
+| `oss.ts` | ~220 |
+| `identity.ts` | ~45 |
+| `format.ts` | ~25 |
+| `types.ts` | ~80 |
+| `scripts/smoke-test.ts` | ~120 |
+| `docker-compose.yml` | ~25 |
 | `package.json` | ~10 |
-| `README.md` | ~40 |
+| `README.md` | ~200 |
 
-Net code: ~190 lines plus deps.
+Net code: ~900 lines plus deps. Larger than the original `~190` estimate because the cloud+oss backend split, the shared identity/format modules, the live smoke test, and the OSS-mode README all landed in one repo.
