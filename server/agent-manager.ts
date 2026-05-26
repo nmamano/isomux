@@ -109,7 +109,11 @@ import {
   setOfficeEnvFileProvider,
 } from "./env-loader.ts";
 import { getUserByName } from "./users.ts";
-import { configurePluginHooks, runAgentTurn } from "./plugin-hooks.ts";
+import {
+  configurePluginHooks,
+  runAgentTurn,
+  stripPluginPrefix,
+} from "./plugin-hooks.ts";
 // Re-export so existing callers (`AgentManager.buildEnvFor` in server/index.ts)
 // keep working without rewiring imports across the file.
 export { buildEnvFor, buildEnvForUserId };
@@ -3697,12 +3701,18 @@ export async function editMessage(
     // Find the matching user message in the backend transcript. We pass the
     // target's uuid to forkSessionBeforeMessage; each backend handles
     // predecessor-resolution and first-message semantics internally.
+    //
+    // stripPluginPrefix recovers `sdkText` from any turn where a beforeTurn
+    // plugin (e.g. mem0) contributed a prefix block — the SDK records the
+    // wrapped `${blocks}\n\nUser message:\n${sdkText}` form, but log entries
+    // only carry `sdkText`. Without the strip, every edit on a turn that lit
+    // up a plugin would fall through to the "could not locate" branch below.
     let matchCount = 0;
     let targetIdx = -1;
     for (let i = 0; i < backendMessages.length; i++) {
       const m = backendMessages[i];
       if (m.role !== "user") continue;
-      if (m.text === prefixedContent) {
+      if (stripPluginPrefix(m.text) === prefixedContent) {
         if (matchCount === occurrenceIndex) {
           targetIdx = i;
           break;

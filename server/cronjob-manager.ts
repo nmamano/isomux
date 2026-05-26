@@ -52,6 +52,7 @@ import { mimeTypeForFilename } from "./mime-types.ts";
 import { existsSync, statSync, readFileSync } from "fs";
 import { basename } from "path";
 import { getBackend } from "./backends/index.ts";
+import { stripPluginPrefix } from "./plugin-hooks.ts";
 import type {
   BackendSession,
   CreateSessionOptions,
@@ -1552,6 +1553,11 @@ async function editRunMessageImpl(
   // run.promptSnapshot). occurrenceIndex therefore counts from the first
   // post-prompt user message — i.e. the first follow-up turn.
   const cronjobPromptIsFirstUser = sessionMessages[0]?.role === "user";
+  // stripPluginPrefix recovers `sdkText` from any turn where a beforeTurn
+  // plugin (e.g. mem0) contributed a prefix block — the SDK records the
+  // wrapped form built in plugin-hooks.ts, but log entries only carry
+  // `sdkText`. Without the strip, every edit on a turn that lit up a
+  // plugin would fall through to the "could not locate" branch below.
   let matchCount = 0;
   let targetIdx = -1;
   for (
@@ -1561,7 +1567,7 @@ async function editRunMessageImpl(
   ) {
     const m = sessionMessages[i];
     if (m.role !== "user") continue;
-    if (m.text === prefixedContent) {
+    if (stripPluginPrefix(m.text) === prefixedContent) {
       if (matchCount === occurrenceIndex) {
         targetIdx = i;
         break;

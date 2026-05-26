@@ -203,7 +203,7 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
           `--- begin plugin: ${id} ---\n${prefix}\n--- end plugin: ${id} ---`,
       )
       .join("\n\n");
-    finalText = `${blocks}\n\nUser message:\n${sdkText}`;
+    finalText = `${blocks}${USER_MESSAGE_SEPARATOR}${sdkText}`;
   }
 
   // Final pre-send cancel check. Catches a Stop/swap that fires after the
@@ -297,6 +297,50 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
     // Error subclass.
     throw thrown as Error;
   }
+}
+
+// ---------------------------------------------------------------------------
+// stripPluginPrefix — inverse of the wrap built in runAgentTurn step 5
+// ---------------------------------------------------------------------------
+
+const USER_MESSAGE_SEPARATOR = "\n\nUser message:\n";
+
+// Boundary between the final plugin block and the user payload, anchored on
+// the full `--- end plugin: <id> ---` line so we don't false-strip on a
+// `---` substring that happens to precede the separator inside a plugin
+// prefix (e.g. a stored memory that ends with `---`). Plugin ids are
+// constrained to `[a-z0-9_-]+` in persistence.ts:726.
+const END_PLUGIN_AND_SEPARATOR =
+  /(?:^|\n)--- end plugin: [a-z0-9_-]+ ---\n\nUser message:\n/;
+
+/** Recover the unwrapped `sdkText` from a backend-recorded user message.
+ *
+ *  When at least one `beforeTurn` hook returned a non-empty prefix,
+ *  `runAgentTurn` rewrites the outgoing text as
+ *  `${blocks}${USER_MESSAGE_SEPARATOR}${sdkText}` (see step 5 above). The
+ *  backend persists the wrapped form into its session transcript, but the
+ *  isomux log entry only carries the unwrapped `sdkText`. Edit-message
+ *  matching needs the two to line up, so this helper strips the wrap back
+ *  off.
+ *
+ *  Returns the input unchanged when no wrap is present (no plugins enabled,
+ *  no plugin contributed a prefix this turn, or the text isn't a user
+ *  message at all). Two guards keep regular user text safe from accidental
+ *  stripping:
+ *    1. The text must start with `--- begin plugin: ` — a user whose
+ *       message happens to contain the separator pattern but didn't open
+ *       with a begin marker is left alone.
+ *    2. The boundary regex matches the FULL `--- end plugin: <id> ---`
+ *       closing line shape (not just three dashes), so a plugin prefix
+ *       containing `---` immediately before a stray separator can't
+ *       short-circuit the split.
+ *  The FIRST match wins, which is the structural boundary — anything that
+ *  looks like the pattern in the user payload comes later in the string. */
+export function stripPluginPrefix(text: string): string {
+  if (!text.startsWith("--- begin plugin: ")) return text;
+  const m = END_PLUGIN_AND_SEPARATOR.exec(text);
+  if (!m) return text;
+  return text.slice(m.index + m[0].length);
 }
 
 // ---------------------------------------------------------------------------
