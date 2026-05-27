@@ -956,14 +956,28 @@ export function readEnvFile(path: string): Record<string, string> {
   return parseDotenv(content);
 }
 
-// Agent history: per-agent last-known name + last-known room (id + name).
-// Used by /isomux-usage to attribute killed agents to the room they were in, and to
-// label the room as "(deleted)" if it no longer exists. Entries are never
-// removed — killed agents keep contributing to lifetime spend forever.
+// Per-agent last-known snapshot. Entries are never removed.
+// Consumers: /isomux-usage (attribution) and the spawn menu's revive chips
+// (config rehydration). `killedAt: null` means currently-alive (or legacy
+// pre-revive entry); revive-payload fields are optional for backward
+// compat with the existing on-disk file.
 export interface AgentHistoryEntry {
   name: string;
   lastRoomId: string;
   lastRoomName: string;
+  killedAt?: number | null;
+  cwd?: string;
+  outfit?: AgentInfo["outfit"];
+  permissionMode?: AgentInfo["permissionMode"];
+  modelFamily?: string;
+  effort?: EffortLevel;
+  agentType?: AgentInfo["agentType"];
+  codexSandbox?: AgentInfo["codexSandbox"];
+  lastSessionId?: string | null;
+  topic?: string | null;
+  customInstructions?: string | null;
+  userId?: string | null;
+  username?: string | null;
 }
 export type AgentHistory = Record<string, AgentHistoryEntry>;
 

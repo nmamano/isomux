@@ -1,5 +1,6 @@
 import type {
   AgentInfo,
+  KilledAgentSummary,
   LogEntry,
   QueuedMessage,
   SkillInfo,
@@ -119,7 +120,15 @@ export type AgentEvent =
       skills: SkillInfo[];
     }
   | { type: "terminal_output"; agentId: string; data: string }
-  | { type: "terminal_exit"; agentId: string; exitCode: number };
+  | { type: "terminal_exit"; agentId: string; exitCode: number }
+  // Killed-agent chip lifecycle. Emitted by kill() and revive() in
+  // agent-manager. Routed through routeAgentEventToWs with per-session
+  // ACL filtering on both variants: drop the event if the agent's
+  // `lastRoomId` isn't in the session's visible set. Carrying
+  // lastRoomId on both ends keeps the route filter symmetric and
+  // closes a minor info-leak on the removed variant.
+  | { type: "killed_agent_added"; agent: KilledAgentSummary }
+  | { type: "killed_agent_removed"; agentId: string; lastRoomId: string };
 
 export type EventHandler = (event: AgentEvent) => void;
 

@@ -556,6 +556,21 @@ export interface OfficeSettings {
   name: string | null;
 }
 
+// Summary of a killed agent shown as a "revive" chip in the spawn menu.
+// Carries only what the chip needs to render + the id + lastRoomId for
+// ACL filtering on the wire (cwd/customInstructions stay server-side and
+// are loaded from agent-history at revive time). Sorted by killedAt desc
+// in the UI; the server applies per-session ACL filtering before sending.
+export interface KilledAgentSummary {
+  id: string;
+  name: string;
+  agentType: AgentBackendType;
+  lastRoomId: string;
+  lastRoomName: string;
+  topic: string | null;
+  killedAt: number; // ms timestamp
+}
+
 // A room with stable ID, display name, and per-room config.
 // Access control lives entirely in `UserRecord.allowedRooms` — the
 // create-room handler adds the new roomId to the creator's list and
@@ -786,10 +801,23 @@ export type ServerMessage =
       recentCwds: string[];
       office: OfficeSettings;
       rooms: RoomWire[];
+      // ACL-filtered list of currently-killed agents for the spawn menu's
+      // revive chips. Sorted killedAt desc, capped server-side. Empty array
+      // for sessions with no killed agents in visible rooms.
+      killedAgents: KilledAgentSummary[];
     }
   | { type: "agent_added"; agent: AgentInfo }
   | { type: "agent_removed"; agentId: string }
   | { type: "agent_updated"; agentId: string; changes: Partial<AgentInfo> }
+  // Killed-agent chip lifecycle. ACL-filtered server-side: both variants
+  // are delivered only to sessions whose visible rooms include the
+  // agent's `lastRoomId` (the room it was killed in, captured in the
+  // history snapshot). Carrying `lastRoomId` on the removed variant
+  // closes a tiny information-leak: an unfiltered removed-event would
+  // tell a session a hidden killed-agent id became alive again, even
+  // though that session never saw the corresponding added event.
+  | { type: "killed_agent_added"; agent: KilledAgentSummary }
+  | { type: "killed_agent_removed"; agentId: string; lastRoomId: string }
   | { type: "log_entry"; entry: LogEntry }
   | {
       type: "sessions_list";
@@ -944,6 +972,17 @@ export type ClientCommand =
       codexSandbox?: CodexSandboxMode;
     }
   | { type: "kill"; agentId: string }
+  | {
+      // Revive a killed agent. Restores its config from agent-history
+      // (cwd/outfit/model/etc.) at the target desk in the caller's
+      // current room. Same id as the original — log history and any
+      // resumable lastSessionId continue from where they left off.
+      type: "revive";
+      requestId?: string;
+      agentId: string;
+      desk: number;
+      roomId: string;
+    }
   | { type: "abort"; agentId: string }
   | {
       type: "send_message";

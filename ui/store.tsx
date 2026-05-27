@@ -11,6 +11,7 @@ import {
 } from "react";
 import type {
   AgentInfo,
+  KilledAgentSummary,
   LogEntry,
   SessionInfo,
   ServerMessage,
@@ -130,6 +131,12 @@ export interface AppState {
   // every recipient — answers "who is online anywhere", not "who is in
   // a room I can see". Renders as the total chip in RoomTabBar.
   totalOnlineUsers: number;
+  // ACL-filtered list of currently-killed agents available to revive
+  // from the spawn menu. Server-capped (12) and ACL-filtered per
+  // session; the UI just renders the array as chips sorted killedAt
+  // desc. Server pushes additions/removals via killed_agent_added /
+  // killed_agent_removed events as kills and revivals happen.
+  killedAgents: KilledAgentSummary[];
 }
 
 type Action =
@@ -139,10 +146,13 @@ type Action =
       recentCwds: string[];
       office: OfficeSettings;
       rooms: RoomWire[];
+      killedAgents: KilledAgentSummary[];
     }
   | { type: "agent_added"; agent: AgentInfo }
   | { type: "agent_removed"; agentId: string }
   | { type: "agent_updated"; agentId: string; changes: Partial<AgentInfo> }
+  | { type: "killed_agent_added"; agent: KilledAgentSummary }
+  | { type: "killed_agent_removed"; agentId: string; lastRoomId: string }
   | { type: "log_entry"; entry: LogEntry }
   | { type: "focus"; agentId: string | null }
   | { type: "connected" }
@@ -252,6 +262,7 @@ function reducer(state: AppState, action: Action): AppState {
         recentCwds: action.recentCwds,
         office: action.office,
         rooms: action.rooms,
+        killedAgents: action.killedAgents,
         currentRoom,
         logs: new Map(),
         logEntryIds: new Map(),
@@ -267,6 +278,25 @@ function reducer(state: AppState, action: Action): AppState {
     }
     case "agent_added":
       return { ...state, agents: [...state.agents, action.agent] };
+    case "killed_agent_added": {
+      // De-dupe in case the server re-emits (defensive) and prepend so the
+      // newest kill is left-most in the chip row. Server-side cap (12) is
+      // a soft limit; we slice here too in case multi-emit pushes past it.
+      const existing = state.killedAgents.filter(
+        (k) => k.id !== action.agent.id,
+      );
+      return {
+        ...state,
+        killedAgents: [action.agent, ...existing].slice(0, 12),
+      };
+    }
+    case "killed_agent_removed":
+      return {
+        ...state,
+        killedAgents: state.killedAgents.filter(
+          (k) => k.id !== action.agentId,
+        ),
+      };
     case "agent_removed": {
       const logs = new Map(state.logs);
       logs.delete(action.agentId);
@@ -638,6 +668,7 @@ const initialState: AppState = {
   hasReceivedInitialState: false,
   presences: [],
   totalOnlineUsers: 0,
+  killedAgents: [],
 };
 
 const StateCtx = createContext<AppState>(initialState);

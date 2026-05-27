@@ -4,6 +4,7 @@ import type {
   AgentState,
   Attachment,
   EffortLevel,
+  KilledAgentSummary,
   LogEntry,
   OfficeSettings,
   QueuedMessage,
@@ -47,6 +48,7 @@ import {
   type PersistedAgent,
   type Room,
   type AgentHistory,
+  type AgentHistoryEntry,
 } from "./persistence.ts";
 import { mimeTypeForFilename } from "./mime-types.ts";
 import { autocompleteCommands } from "./commands.ts";
@@ -65,6 +67,7 @@ import {
   diagnoseProcessExit,
 } from "./cwd-utils.ts";
 import { buildSystemPrompt } from "./system-prompt.ts";
+import { generateOutfit } from "./outfit.ts";
 import { computeIsomuxDiff, resolveDiffCwd } from "./isomux-diff.ts";
 import {
   resolveEditorPath,
@@ -747,10 +750,11 @@ function persistAll() {
   updateAgentHistory();
 }
 
-// Track each live agent's current name + room so /isomux-usage can attribute killed
-// agents (and agents whose rooms were later deleted) to the right bucket.
-// Entries are never removed; they just stop getting refreshed once the agent
-// is killed, which is exactly the behavior we want.
+// Snapshot live agents into history. Loop only iterates the live `agents`
+// map, so killed entries are preserved as-is (their `killedAt` and revive
+// payload stamped by `kill()` survive). Two consumers: /isomux-usage attribution
+// for killed agents, and the spawn menu's revive chips (which read the snapshot
+// to rehydrate config).
 function updateAgentHistory() {
   const rooms = officeState.rooms;
   const history: AgentHistory = loadAgentHistory();
@@ -761,9 +765,307 @@ function updateAgentHistory() {
       name: a.info.name,
       lastRoomId: room.id,
       lastRoomName: room.name,
+      killedAt: null,
+      cwd: a.info.cwd,
+      outfit: a.info.outfit,
+      permissionMode: a.info.permissionMode,
+      modelFamily: a.info.modelFamily,
+      effort: a.info.effort,
+      agentType: a.info.agentType,
+      codexSandbox: a.info.codexSandbox,
+      lastSessionId: a.sessionId,
+      topic: a.info.topic,
+      customInstructions: a.info.customInstructions,
+      userId: a.info.userId,
+      username: a.info.username,
     };
   }
   saveAgentHistory(history);
+}
+
+// Wire-summary chip payload for a live agent at kill time.
+function buildKilledAgentSummary(
+  agentId: string,
+  a: ManagedAgent,
+): KilledAgentSummary | null {
+  const room = officeState.rooms[a.info.room];
+  if (!room) return null;
+  return {
+    id: agentId,
+    name: a.info.name,
+    agentType: a.info.agentType,
+    lastRoomId: room.id,
+    lastRoomName: room.name,
+    topic: a.info.topic,
+    killedAt: Date.now(),
+  };
+}
+
+// Wire-summary chip payload from a history entry. Legacy pre-revive entries
+// (only name + lastRoom*, no killedAt) surface as Claude chips with their
+// log-dir mtime as a proxy for the kill time — revive() defaults the
+// missing config fields and tries to surface the on-disk transcript.
+function killedAgentSummaryFromHistory(
+  agentId: string,
+  entry: AgentHistoryEntry,
+  fallbackKilledAt: number,
+): KilledAgentSummary {
+  return {
+    id: agentId,
+    name: entry.name,
+    agentType: entry.agentType ?? "claude",
+    lastRoomId: entry.lastRoomId,
+    lastRoomName: entry.lastRoomName,
+    topic: entry.topic ?? null,
+    killedAt: entry.killedAt ?? fallbackKilledAt,
+  };
+}
+
+// Cap applied AFTER ACL filtering so a session with restricted room access
+// still sees up to 12 visible chips, not fewer due to entries outside their
+// visible rooms eating the cap.
+export const KILLED_AGENT_CHIP_CAP = 12;
+
+// All currently-killed agents, sorted newest-first. Caller layers ACL
+// filtering and the cap. Legacy entries (no killedAt) get the agent's log
+// dir mtime as a proxy so they sort approximately by recency.
+export function getKilledAgentSummaries(): KilledAgentSummary[] {
+  const history = loadAgentHistory();
+  const summaries: KilledAgentSummary[] = [];
+  for (const [id, entry] of Object.entries(history)) {
+    if (agents.has(id)) continue; // revived agents have a history entry but are alive
+    const fallback = entry.killedAt ? 0 : legacyKilledAtFromDisk(id);
+    // Skip entries with no killedAt AND no on-disk log dir — there's nothing
+    // to revive and no ordering signal.
+    if (!entry.killedAt && !fallback) continue;
+    summaries.push(killedAgentSummaryFromHistory(id, entry, fallback));
+  }
+  summaries.sort((a, b) => b.killedAt - a.killedAt);
+  return summaries;
+}
+
+// For legacy entries (no kill-time stamp), use the agent's log directory
+// mtime as a "last-touched" proxy. One stat call per legacy entry; fine
+// for the ~100-entry scale this file reaches in practice.
+function legacyKilledAtFromDisk(agentId: string): number {
+  try {
+    return statSync(join(homedir(), ".isomux", "logs", agentId)).mtimeMs;
+  } catch {
+    return 0;
+  }
+}
+
+// Shared per-agent install path used by both restoreAgents() at boot and
+// revive(). Validates persisted config, builds AgentInfo + ManagedAgent,
+// loads logs, attempts session startup. Boot skips the agent_added emit
+// (full_state covers it on first connect); revive emits it after a
+// successful install (rolls back via agents.delete + officeState.kill
+// otherwise so the killed-agent chip stays retryable).
+function restoreOrReviveAgent(opts: {
+  persisted: PersistedAgent;
+  roomIdx: number;
+  // Caller-chosen desk override (revive uses this; boot falls through to persisted.desk).
+  deskOverride?: number;
+  emitAgentAdded: boolean;
+  // Revive-only: on resume failure (missing/corrupt session), retry as
+  // fresh. Boot leaves the agent in error state with an explanation log.
+  fallbackToFreshOnResumeFailure?: boolean;
+}): { sessionOk: boolean; sessionError: string | null } {
+  const p = opts.persisted;
+  const agentType = p.agentType ?? "claude";
+  const userId = resolveAgentUserId(p);
+  // Same validators as spawn/edit — canonicalizes persisted values
+  // (e.g. codex 0.130 deprecated "on-failure" → "on-request").
+  const modelFamily = validateModelFamily(agentType, p.modelFamily);
+  const permissionMode = validatePermissionMode(agentType, p.permissionMode);
+  const effort = validateEffort(agentType, modelFamily, p.effort);
+  const codexSandbox =
+    agentType === "codex" ? validateCodexSandbox(p.codexSandbox) : undefined;
+  // Codex auto-resume policy: thread must have on-disk history to resume.
+  // Claude trusts lastSessionId (createSession surfaces a missing-file error).
+  let resumeSessionId: string | null = null;
+  if (p.lastSessionId) {
+    if (agentType === "codex") {
+      try {
+        const restoreEnv = buildEnvForUserId(userId);
+        if (codexRolloutHasHistory(p.lastSessionId, restoreEnv)) {
+          resumeSessionId = p.lastSessionId;
+        }
+      } catch {
+        resumeSessionId = p.lastSessionId;
+      }
+    } else {
+      resumeSessionId = p.lastSessionId;
+    }
+  }
+  const persistedTopicCount = resumeSessionId
+    ? (listAgentSessions(p.id).find((s) => s.sessionId === resumeSessionId)
+        ?.topicMessageCount ?? 0)
+    : 0;
+  const desk = opts.deskOverride ?? p.desk;
+  const info: AgentInfo = {
+    id: p.id,
+    name: p.name,
+    desk,
+    room: opts.roomIdx,
+    cwd: p.cwd,
+    outfit: p.outfit,
+    permissionMode,
+    modelFamily,
+    effort,
+    state: resumeSessionId ? "waiting_for_response" : "idle",
+    topic: p.topic ?? null,
+    // Determined by the textCount scan below after logs load.
+    topicStale: false,
+    customInstructions: p.customInstructions ?? null,
+    agentType,
+    ...(codexSandbox ? { codexSandbox } : {}),
+    capabilities: getBackend(agentType).capabilities,
+    userId,
+    username: p.username ?? null,
+    queue: [],
+    sessionSwapping: false,
+    turnHadHumanInput: false,
+  };
+  officeState.addExistingAgent(info);
+  const managed: ManagedAgent = {
+    info,
+    session: null,
+    sessionId: resumeSessionId,
+    consumerPromise: null,
+    pendingTurn: null,
+    afterTurnPromise: null,
+    turnCancelToken: 0,
+    aborting: false,
+    abortPromise: null,
+    slashCommands: autocompleteCommands(),
+    skills: deduplicateSkills([
+      ...discoverUserSkills(),
+      ...discoverProjectSkills(p.cwd),
+      ...discoverPluginSkills(),
+      ...discoverBundledSkills(),
+    ]),
+    sdkReportedCommands: [],
+    thinkingStartedAt: 0,
+    toolCallTimestamps: new Map(),
+    topicGenerating: false,
+    topicMessageCount: persistedTopicCount,
+    topicGenToken: 0,
+    pendingResume: false,
+    pendingResumeSessions: [],
+    pendingModelPick: false,
+    pendingEffortPick: false,
+    pendingPermission: null,
+    ptySidecar: null,
+    ptyBuffer: "",
+    lastWrittenEntryId: null,
+    messageQueue: [],
+    flushInProgress: false,
+    queueDedupe: new Map(),
+  };
+  agents.set(p.id, managed);
+
+  if (resumeSessionId) {
+    const history = loadLogWithAncestors(p.id, resumeSessionId);
+    if (history.length > 0) {
+      logCache.set(p.id, [...history]);
+    }
+    if (info.topic) {
+      const textCount = history.filter(
+        (e) => e.kind === "user_message" || e.kind === "text",
+      ).length;
+      const drift = textCount - persistedTopicCount;
+      if (drift > 0) {
+        info.topicStale = true;
+      }
+      if (drift >= TOPIC_REGEN_THRESHOLD) {
+        void generateTopic(p.id);
+      }
+    }
+  }
+
+  // Decision now, write later: the marker only lands on disk after
+  // session install succeeds AND we actually resumed (not fresh-fellback).
+  // See gated addLogEntry below.
+  const shouldAddInterruptionMarker = !!(
+    resumeSessionId &&
+    (logCache.get(p.id) ?? []).at(-1)?.kind === "user_message"
+  );
+
+  // Session install: try resume, optionally fall back to fresh on failure,
+  // record state=error if both fail. agent_added is deferred to after this
+  // settles so the broadcast state reflects reality (and so a failed revive
+  // never emits an add the client will then see removed).
+  let sessionOk = false;
+  let sessionError: string | null = null;
+
+  try {
+    const session = resumeSessionId
+      ? createSession(managed, resumeSessionId)
+      : createSession(managed);
+    installSession(p.id, managed, session);
+    sessionOk = true;
+  } catch (err) {
+    sessionError = errMessage(err);
+    if (resumeSessionId && opts.fallbackToFreshOnResumeFailure) {
+      console.warn(
+        `[revive] Resume of ${p.name} failed, falling back to fresh session: ${sessionError}`,
+      );
+      managed.sessionId = null;
+      // Keep the loaded transcript in logCache so the chat view shows the
+      // historical conversation (especially important for legacy revivals
+      // where the SDK can never resume because cwd/project dir don't
+      // match). New messages start a fresh SDK session that doesn't have
+      // that context, but the boss can read the past.
+      officeState.updateAgent(p.id, { state: "idle" });
+      try {
+        const freshSession = createSession(managed);
+        installSession(p.id, managed, freshSession);
+        sessionOk = true;
+        sessionError = null;
+      } catch (err2) {
+        sessionError = errMessage(err2);
+      }
+    }
+  }
+
+  if (!sessionOk) {
+    console.error(
+      `Failed to restore session for ${p.name}:`,
+      sessionError ?? "(unknown)",
+    );
+    officeState.updateAgent(p.id, { state: "error" });
+    const entry: LogEntry = {
+      id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      agentId: p.id,
+      timestamp: Date.now(),
+      kind: "error",
+      content: `Failed to restore on startup: ${sessionError ?? "(unknown)"}\nType /clear to start fresh, or /resume to pick another session.`,
+    };
+    const cached = logCache.get(p.id) ?? [];
+    cached.push(entry);
+    logCache.set(p.id, cached);
+  }
+
+  // Marker write: only after resume actually happened (fresh fallback
+  // nulls managed.sessionId so this skips). Mirrors the SDK's own lazy
+  // placeholder for interrupted-on-resume sessions.
+  if (
+    sessionOk &&
+    shouldAddInterruptionMarker &&
+    resumeSessionId !== null &&
+    managed.sessionId === resumeSessionId
+  ) {
+    addLogEntry(p.id, "system", "Previous response was interrupted.");
+  }
+
+  // Emit only on success so a failed revive doesn't flicker an add the
+  // client will then see removed by the rollback.
+  if (opts.emitAgentAdded && sessionOk) {
+    emit({ type: "agent_added", agent: info });
+  }
+
+  return { sessionOk, sessionError };
 }
 
 // Restore agents from disk on startup. Creates sessions and loads log history.
@@ -785,196 +1087,11 @@ export async function restoreAgents() {
 
   for (let roomIdx = 0; roomIdx < loaded.length; roomIdx++) {
     for (const p of loaded[roomIdx].agents) {
-      const agentType = p.agentType ?? "claude";
-      // Resolve the stable userId once for this agent and reuse for the
-      // env-restore check below + the AgentInfo construction further
-      // down. Legacy agents with only a `username` snapshot get migrated
-      // here; the `persistAll()` at the bottom of restoreAgents bakes
-      // the new shape onto disk.
-      const userId = resolveAgentUserId(p);
-      // Run persisted values through the same validators as spawn/edit so
-      // stored data is canonicalized at load time. Notably: codex 0.130
-      // deprecated "on-failure" (warns on use) — validatePermissionMode
-      // migrates it to "on-request"; the next persistAll save bakes the
-      // corrected value back to disk so the deprecation warning stops.
-      const modelFamily = validateModelFamily(agentType, p.modelFamily);
-      const permissionMode = validatePermissionMode(
-        agentType,
-        p.permissionMode,
-      );
-      const effort = validateEffort(agentType, modelFamily, p.effort);
-      const codexSandbox =
-        agentType === "codex"
-          ? validateCodexSandbox(p.codexSandbox)
-          : undefined;
-      // Apply auto-resume policy up-front: a Codex thread that wasn't durable
-      // before the last shutdown is not resumable. Computing this here lets us
-      // set the initial AgentInfo.state and managed.sessionId honestly, avoiding
-      // a stale "waiting_for_response" placeholder and a misleading on-disk
-      // transcript loaded against what will become a fresh thread. A broken
-      // env file would fail buildEnvFor — we swallow it so the agent still
-      // restores (assuming the prior thread is durable) and the proper error
-      // surfaces later via createSession's own buildSessionEnv call.
-      let resumeSessionId: string | null = null;
-      if (p.lastSessionId) {
-        if (agentType === "codex") {
-          try {
-            const restoreEnv = buildEnvForUserId(userId);
-            if (codexRolloutHasHistory(p.lastSessionId, restoreEnv)) {
-              resumeSessionId = p.lastSessionId;
-            }
-          } catch {
-            // Env build failed — assume durable so the agent still attempts
-            // resume; the real error will surface from createSession below.
-            resumeSessionId = p.lastSessionId;
-          }
-        } else {
-          resumeSessionId = p.lastSessionId;
-        }
-      }
-      // Look up the persisted topicMessageCount baseline for the session
-      // we're about to resume. Combined with a textCount scan of the loaded
-      // history below, this lets us decide whether the persisted topic has
-      // drifted since the topic was last generated.
-      const persistedTopicCount = resumeSessionId
-        ? (listAgentSessions(p.id).find((s) => s.sessionId === resumeSessionId)
-            ?.topicMessageCount ?? 0)
-        : 0;
-      const info: AgentInfo = {
-        id: p.id,
-        name: p.name,
-        desk: p.desk,
-        room: roomIdx,
-        cwd: p.cwd,
-        outfit: p.outfit,
-        permissionMode,
-        modelFamily,
-        effort,
-        state: resumeSessionId ? "waiting_for_response" : "idle",
-        topic: p.topic ?? null,
-        // Stale-on-load is determined by the textCount scan below (after
-        // logs are loaded into the cache). Default to false here so a clean
-        // restart doesn't flash the ↻ button on agents whose topic is
-        // actually current.
-        topicStale: false,
-        customInstructions: p.customInstructions ?? null,
-        agentType,
-        ...(codexSandbox ? { codexSandbox } : {}),
-        capabilities: getBackend(agentType).capabilities,
-        // Resolved at the top of the per-agent loop. Stable across
-        // username rename; env selection from now on goes through
-        // buildEnvForUserId(info.userId), so renames don't break
-        // ownership.
-        userId,
-        username: p.username ?? null,
-        queue: [],
-        sessionSwapping: false,
-        turnHadHumanInput: false,
-      };
-      officeState.addExistingAgent(info);
-      const managed: ManagedAgent = {
-        info,
-        session: null,
-        sessionId: resumeSessionId,
-        consumerPromise: null,
-        pendingTurn: null,
-        afterTurnPromise: null,
-        turnCancelToken: 0,
-        aborting: false,
-        abortPromise: null,
-        slashCommands: autocompleteCommands(),
-        skills: deduplicateSkills([
-          ...discoverUserSkills(),
-          ...discoverProjectSkills(p.cwd),
-          ...discoverPluginSkills(),
-          ...discoverBundledSkills(),
-        ]),
-        sdkReportedCommands: [],
-        thinkingStartedAt: 0,
-        toolCallTimestamps: new Map(),
-        topicGenerating: false,
-        topicMessageCount: persistedTopicCount,
-        topicGenToken: 0,
-        pendingResume: false,
-        pendingResumeSessions: [],
-        pendingModelPick: false,
-        pendingEffortPick: false,
-        pendingPermission: null,
-        ptySidecar: null,
-        ptyBuffer: "",
-        lastWrittenEntryId: null,
-        messageQueue: [],
-        flushInProgress: false,
-        queueDedupe: new Map(),
-      };
-      agents.set(p.id, managed);
-
-      // Load log history into cache (browsers connect later, so we cache it).
-      // Uses loadLogWithAncestors to include parent entries for forked sessions.
-      // Skip when the auto-resume policy decided to fresh-start — the old log
-      // under a non-durable Codex threadId is at most ephemeral bootstrap
-      // noise, and showing it against the upcoming fresh thread would mislead.
-      if (resumeSessionId) {
-        const history = loadLogWithAncestors(p.id, resumeSessionId);
-        if (history.length > 0) {
-          logCache.set(p.id, [...history]);
-        }
-        // Detect topic drift against the persisted baseline: if the
-        // replayed history has grown past where the topic was last
-        // generated, flag stale (lights up the ↻ button) and, if past the
-        // refresh threshold, regenerate now so the agent's nametag is
-        // honest the moment the user looks at it. fire-and-forget — the
-        // call only needs logCache, which is populated above.
-        if (info.topic) {
-          const textCount = history.filter(
-            (e) => e.kind === "user_message" || e.kind === "text",
-          ).length;
-          const drift = textCount - persistedTopicCount;
-          if (drift > 0) {
-            // Mutate directly: officeState is fresh from addExistingAgent,
-            // no subscribers are listening yet (broadcast comes later).
-            info.topicStale = true;
-          }
-          if (drift >= TOPIC_REGEN_THRESHOLD) {
-            void generateTopic(p.id);
-          }
-        }
-      }
-
-      // If the prior session died owing a response (e.g. server restart while
-      // mid-stream), record the gap before auto-resume. Parity with the SDK's
-      // lazy synthetic placeholder injected into its own transcript on resume.
-      if (resumeSessionId) {
-        const tail = (logCache.get(p.id) ?? []).at(-1);
-        if (tail?.kind === "user_message") {
-          addLogEntry(p.id, "system", "Previous response was interrupted.");
-        }
-      }
-
-      // Auto-resume session
-      try {
-        const session = resumeSessionId
-          ? createSession(managed, resumeSessionId)
-          : createSession(managed);
-        installSession(p.id, managed, session);
-      } catch (err) {
-        console.error(
-          `Failed to restore session for ${p.name}:`,
-          errMessage(err),
-        );
-        officeState.updateAgent(p.id, { state: "error" });
-        // Surface to the UI so the user sees why the agent can't respond.
-        const entry: LogEntry = {
-          id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          agentId: p.id,
-          timestamp: Date.now(),
-          kind: "error",
-          content: `Failed to restore on startup: ${errMessage(err)}\nType /clear to start fresh, or /resume to pick another session.`,
-        };
-        const cached = logCache.get(p.id) ?? [];
-        cached.push(entry);
-        logCache.set(p.id, cached);
-      }
+      restoreOrReviveAgent({
+        persisted: p,
+        roomIdx,
+        emitAgentAdded: false,
+      });
     }
   }
   // Round-trip migrations back to disk in case the load step filled in new
@@ -3427,6 +3544,36 @@ async function tryHotAbort(
 export async function kill(agentId: string) {
   const managed = agents.get(agentId);
   if (!managed) return;
+  // Stamp the history entry with killedAt + final state BEFORE removing
+  // the agent from the live map. After deletion, updateAgentHistory skips
+  // this entry (loop is over live agents only), so this write is the
+  // authoritative kill-time snapshot.
+  const killedSummary = buildKilledAgentSummary(agentId, managed);
+  {
+    const room = officeState.rooms[managed.info.room];
+    if (room) {
+      const history = loadAgentHistory();
+      history[agentId] = {
+        name: managed.info.name,
+        lastRoomId: room.id,
+        lastRoomName: room.name,
+        killedAt: Date.now(),
+        cwd: managed.info.cwd,
+        outfit: managed.info.outfit,
+        permissionMode: managed.info.permissionMode,
+        modelFamily: managed.info.modelFamily,
+        effort: managed.info.effort,
+        agentType: managed.info.agentType,
+        codexSandbox: managed.info.codexSandbox,
+        lastSessionId: managed.sessionId,
+        topic: managed.info.topic,
+        customInstructions: managed.info.customInstructions,
+        userId: managed.info.userId,
+        username: managed.info.username,
+      };
+      saveAgentHistory(history);
+    }
+  }
   // Bump the cancel token so any concurrent runAgentTurn that hasn't yet
   // installed pendingTurn (pre-send plugin retrieval) bails on its next
   // await checkpoint instead of calling session.send on a dying session.
@@ -3461,6 +3608,158 @@ export async function kill(agentId: string) {
   }
   killSidecar(managed);
   emit({ type: "agent_removed", agentId });
+  if (killedSummary) {
+    emit({ type: "killed_agent_added", agent: killedSummary });
+  }
+}
+
+// Revive a previously-killed agent. Same id/outfit/config, rehydrated
+// from agent-history. Caller picks placement (target room + desk); the
+// original lastRoomId is used only as an ACL provenance check.
+//
+// Read-only validation runs first; on session failure we roll the
+// install back so the killed-agent chip stays available for retry.
+export async function revive(
+  agentId: string,
+  roomId: string,
+  desk: number,
+): Promise<
+  | { ok: true; agent: AgentInfo }
+  | { ok: false; error: string; field?: "name" | "desk" | "room" }
+> {
+  // 1. Must be currently killed (not in live map).
+  if (agents.has(agentId)) {
+    return { ok: false, error: "That agent is already alive." };
+  }
+  const history = loadAgentHistory();
+  const entry = history[agentId];
+  if (!entry) {
+    return { ok: false, error: "Killed agent not found in history." };
+  }
+  // Legacy pre-revive entries have only name + lastRoom*. Missing fields
+  // are defaulted below — agentType→claude, cwd→home, outfit→random — so
+  // the boss can recover the on-disk transcript. The fresh-fallback path
+  // in restoreOrReviveAgent kicks in when the SDK can't resume the legacy
+  // session id (different project dir), and the log cache stays loaded
+  // so the historical chat is visible against the fresh session.
+
+  // 2. Original room must still exist (don't re-key a private-room
+  // agent into an unrelated room).
+  if (!officeState.rooms.some((r) => r.id === entry.lastRoomId)) {
+    return { ok: false, error: "Agent's original room no longer exists." };
+  }
+
+  // 3. Target room must exist (ws handler ACL-gates the room id).
+  const roomIdx = officeState.rooms.findIndex((r) => r.id === roomId);
+  if (roomIdx < 0) {
+    return { ok: false, error: "Target room not found.", field: "room" };
+  }
+
+  // 4. Desk free at command time (chip list may be stale across tabs).
+  const taken = new Set(
+    officeState
+      .getAllAgents()
+      .filter((a) => a.room === roomIdx)
+      .map((a) => a.desk),
+  );
+  if (desk < 0 || desk >= 8 || taken.has(desk)) {
+    return { ok: false, error: "That desk is no longer free.", field: "desk" };
+  }
+
+  // 5. Name collision against LIVE agents only (history keeps dead names).
+  const nameLower = entry.name.trim().toLowerCase();
+  const collision = officeState
+    .getAllAgents()
+    .some((a) => a.name.toLowerCase() === nameLower);
+  if (collision) {
+    return {
+      ok: false,
+      error: `Name "${entry.name}" is already taken.`,
+      field: "name",
+    };
+  }
+
+  // 6. Resolve cwd; fall back to home if the saved path is gone or
+  // missing entirely (legacy entries).
+  let resolvedCwd: string = entry.cwd ?? homedir();
+  try {
+    validateCwd(resolvedCwd);
+  } catch {
+    console.warn(
+      `[revive] cwd "${resolvedCwd}" for ${entry.name} is invalid; falling back to ~`,
+    );
+    resolvedCwd = homedir();
+  }
+
+  // 7. Pick a resume session. Prefer the kill-time lastSessionId; for
+  // legacy entries (no stamp), use the most recent .jsonl on disk so the
+  // historical transcript can be surfaced. The fresh-fallback path in
+  // restoreOrReviveAgent handles the case where the SDK can't actually
+  // resume that session id.
+  let resumeFromSession: string | null = entry.lastSessionId ?? null;
+  if (!resumeFromSession) {
+    const sessions = listAgentSessions(agentId);
+    resumeFromSession = sessions[0]?.sessionId ?? null;
+  }
+
+  const persisted: PersistedAgent = {
+    id: agentId,
+    name: entry.name,
+    desk,
+    cwd: resolvedCwd,
+    // Legacy entries default to a fresh random outfit + Claude. Validators
+    // inside restoreOrReviveAgent canonicalize modelFamily/effort/etc.
+    outfit: entry.outfit ?? generateOutfit(),
+    permissionMode: entry.permissionMode ?? "auto",
+    modelFamily: entry.modelFamily,
+    effort: entry.effort,
+    agentType: entry.agentType ?? "claude",
+    codexSandbox: entry.codexSandbox,
+    lastSessionId: resumeFromSession,
+    topic: entry.topic ?? null,
+    customInstructions: entry.customInstructions ?? null,
+    userId: entry.userId,
+    username: entry.username,
+  };
+
+  const installResult = restoreOrReviveAgent({
+    persisted,
+    roomIdx,
+    deskOverride: desk,
+    emitAgentAdded: true,
+    fallbackToFreshOnResumeFailure: true,
+  });
+
+  if (!installResult.sessionOk) {
+    // Rollback. agent_added wasn't emitted (helper gates on sessionOk),
+    // so the agent_removed below is an idempotent no-op on clients.
+    // Manual rollback avoids re-stamping killedAt — the chip retains
+    // its original kill-time order.
+    agents.delete(agentId);
+    for (const event of officeState.kill(agentId)) emit(event);
+    logCache.delete(agentId);
+    return {
+      ok: false,
+      error: `Failed to start session: ${installResult.sessionError ?? "unknown error"}`,
+    };
+  }
+
+  const managed = agents.get(agentId);
+  if (!managed) {
+    return { ok: false, error: "Revive failed: agent did not install." };
+  }
+
+  // persistAll's live snapshot loop clears killedAt and updates lastRoom*
+  // for us; no separate history write needed here.
+  // lastRoomId on the removed event matches the add event's ACL filter.
+  emit({
+    type: "killed_agent_removed",
+    agentId,
+    lastRoomId: entry.lastRoomId,
+  });
+  persistAll();
+
+  return { ok: true, agent: managed.info };
 }
 
 export async function newConversation(agentId: string) {

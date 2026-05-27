@@ -416,8 +416,10 @@ export function App() {
           viewportControlsRef={viewportControlsRef}
         />
       )}
-      {spawnPickerDesk !== null && (
+      {spawnPickerDesk !== null && rooms[currentRoom] && (
         <EngineChooserDialog
+          deskIndex={spawnPickerDesk}
+          roomId={rooms[currentRoom].id}
           onCancel={() => setSpawnPickerDesk(null)}
           onPick={(agentType) => {
             const desk = spawnPickerDesk;

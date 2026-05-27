@@ -623,6 +623,15 @@ function sendProjectedFullState(
     const projected = projectAgentForSession(session, a, proj);
     if (projected) agents.push(projected);
   }
+  // ACL-filtered list of currently-killed agents for the spawn menu's
+  // revive chips. Drop entries whose lastRoomId isn't visible to this
+  // session — a member shouldn't be able to revive an agent from a
+  // private room they can't enter. Cap AFTER filtering so the user
+  // sees up to KILLED_AGENT_CHIP_CAP entries they can actually act on,
+  // not a smaller number trimmed by entries outside their room set.
+  const killedAgents = AgentManager.getKilledAgentSummaries()
+    .filter((k) => roomAllowedForSession(session, k.lastRoomId))
+    .slice(0, AgentManager.KILLED_AGENT_CHIP_CAP);
   ws.send(
     JSON.stringify({
       type: "full_state",
@@ -630,6 +639,7 @@ function sendProjectedFullState(
       recentCwds: loadRecentCwds(),
       office: AgentManager.getOfficeSettings(),
       rooms: proj.rooms,
+      killedAgents,
     }),
   );
   if (options?.replayLogsForVisible) {
@@ -726,6 +736,22 @@ function routeAgentEventToWs(ws: ServerWebSocket<WsData>, event: AgentEvent) {
       // Idempotent on the receiver — fine to deliver even if they never
       // saw the agent.
       ws.send(JSON.stringify(event));
+      break;
+    }
+    case "killed_agent_added": {
+      // ACL: only deliver if the session can see the lastRoomId. A
+      // member shouldn't learn a private room's agent died.
+      if (roomAllowedForSession(session, event.agent.lastRoomId)) {
+        ws.send(JSON.stringify(event));
+      }
+      break;
+    }
+    case "killed_agent_removed": {
+      // Symmetric ACL with the added variant: a session that never
+      // saw the chip shouldn't learn the id became alive again.
+      if (roomAllowedForSession(session, event.lastRoomId)) {
+        ws.send(JSON.stringify(event));
+      }
       break;
     }
     case "agent_updated": {
@@ -1127,6 +1153,92 @@ async function dispatchCommand(
       if (!agentVisibleForSession(session, cmd.agentId)) break;
       await AgentManager.kill(cmd.agentId);
       break;
+    case "revive": {
+      // ACL gate: target roomId must be visible to this session AND the
+      // killed agent's lastRoomId must also be visible (so a member
+      // can't revive an agent from a private room they can't enter).
+      // Killed agent ACL is checked via the history lookup inside
+      // AgentManager.revive — but we need to do the lookup here to
+      // enforce the read side too. The chip list the UI saw was already
+      // ACL-filtered at send time, so a well-behaved client only sends
+      // visible agent ids; this guard catches stale or hand-crafted
+      // commands.
+      if (!roomAllowedForSession(session, cmd.roomId)) {
+        if (cmd.requestId) {
+          ws.send(
+            JSON.stringify({
+              type: "agent_save_response",
+              requestId: cmd.requestId,
+              ok: false,
+              error: "You don't have access to that room.",
+            }),
+          );
+        }
+        break;
+      }
+      const summaries = AgentManager.getKilledAgentSummaries();
+      const visible = summaries.find(
+        (s) =>
+          s.id === cmd.agentId && roomAllowedForSession(session, s.lastRoomId),
+      );
+      if (!visible) {
+        if (cmd.requestId) {
+          ws.send(
+            JSON.stringify({
+              type: "agent_save_response",
+              requestId: cmd.requestId,
+              ok: false,
+              error: "That killed agent is not available to revive.",
+            }),
+          );
+        }
+        break;
+      }
+      try {
+        const result = await AgentManager.revive(
+          cmd.agentId,
+          cmd.roomId,
+          cmd.desk,
+        );
+        if (cmd.requestId) {
+          if (result.ok) {
+            ws.send(
+              JSON.stringify({
+                type: "agent_save_response",
+                requestId: cmd.requestId,
+                ok: true,
+              }),
+            );
+          } else {
+            // AgentSaveResponse.field is narrowed to "name" | "cwd";
+            // pass through only when it matches. desk/room errors land
+            // as generic toasts in the chip flow (no form field to
+            // highlight).
+            ws.send(
+              JSON.stringify({
+                type: "agent_save_response",
+                requestId: cmd.requestId,
+                ok: false,
+                error: result.error,
+                field: result.field === "name" ? "name" : undefined,
+              }),
+            );
+          }
+        }
+      } catch (err) {
+        if (cmd.requestId) {
+          ws.send(
+            JSON.stringify({
+              type: "agent_save_response",
+              requestId: cmd.requestId,
+              ok: false,
+              error: errMessage(err, "Revive failed"),
+            }),
+          );
+        }
+      }
+      break;
+    }
     case "abort":
       if (!agentVisibleForSession(session, cmd.agentId)) break;
       await AgentManager.abort(cmd.agentId);
