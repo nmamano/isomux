@@ -288,15 +288,16 @@ function reducer(state: AppState, action: Action): AppState {
       );
       return {
         ...state,
-        killedAgents: [action.agent, ...existing].slice(0, KILLED_AGENT_CHIP_CAP),
+        killedAgents: [action.agent, ...existing].slice(
+          0,
+          KILLED_AGENT_CHIP_CAP,
+        ),
       };
     }
     case "killed_agent_removed":
       return {
         ...state,
-        killedAgents: state.killedAgents.filter(
-          (k) => k.id !== action.agentId,
-        ),
+        killedAgents: state.killedAgents.filter((k) => k.id !== action.agentId),
       };
     case "agent_removed": {
       const logs = new Map(state.logs);
