@@ -332,9 +332,14 @@ Optional bridge (not v1): a config flag could enable read-only `isomux_mem0` fal
 
 ## 11. Attribution
 
-The extraction prompt adapts material from [mem0ai/mem0](https://github.com/mem0ai/mem0) under Apache-2.0. The plugin repo includes:
+The extraction prompt adapts material from [mem0ai/mem0](https://github.com/mem0ai/mem0) under Apache-2.0. The exact upstream source is pinned to the version we adapted:
 
-- `NOTICE` at the root crediting mem0ai/mem0 with the upstream commit reference.
+- Upstream file: [`mem0-ts/src/oss/src/prompts/index.ts`](https://github.com/mem0ai/mem0/blob/ts-v3.0.3/mem0-ts/src/oss/src/prompts/index.ts) at tag `ts-v3.0.3`
+- Constants we adapt: `ADDITIVE_EXTRACTION_PROMPT` (system prompt) and `generateAdditiveExtractionPrompt` (user-prompt builder); we replace `AdditiveExtractionSchema` with our four-category schema.
+
+The plugin repo includes:
+
+- `NOTICE` at the root crediting mem0ai/mem0 with this exact upstream reference.
 - A header comment in the prompt source file marking the sections lifted-as-is, lifted-and-modified, and authored-fresh.
 
 ## 12. Open questions / out of scope
