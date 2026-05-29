@@ -95,7 +95,7 @@ export type ModelFamily = "opus" | "sonnet" | "haiku";
 export type ClaudeModel = string;
 
 export const FAMILY_TO_MODEL: Record<ModelFamily, ClaudeModel> = {
-  opus: "claude-opus-4-7",
+  opus: "claude-opus-4-8",
   sonnet: "claude-sonnet-4-6",
   haiku: "claude-haiku-4-5-20251001",
 };
@@ -145,7 +145,7 @@ export const CODEX_MODELS: { value: string; label: string }[] = [
   { value: "gpt-5.2", label: "GPT-5.2" },
 ];
 
-// Extract "4.7" from "claude-opus-4-7" for display
+// Extract "4.8" from "claude-opus-4-8" for display
 export function modelVersionLabel(family: ModelFamily): string {
   const exact = FAMILY_TO_MODEL[family];
   const match = exact.match(/-(\d+)-(\d+)/);
@@ -157,7 +157,7 @@ export function isClaudeFamily(s: string): s is ModelFamily {
   return s === "opus" || s === "sonnet" || s === "haiku";
 }
 
-// "Opus 4.7" for Claude families; "GPT-5 mini" etc for Codex. Falls back to
+// "Opus 4.8" for Claude families; "GPT-5 mini" etc for Codex. Falls back to
 // the raw value for unknown strings.
 export function familyDisplayLabel(family: string): string {
   if (isClaudeFamily(family)) {

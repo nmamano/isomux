@@ -152,7 +152,7 @@ class FakeSdkClient implements SdkClient {
 
 function minimalSdkOpts() {
   return {
-    model: "claude-opus-4-7",
+    model: "claude-opus-4-8",
     pathToClaudeCodeExecutable: "/bin/echo",
     cwd: "/tmp",
     permissionMode: "default" as const,
@@ -236,7 +236,7 @@ describe("ClaudeSession construction", () => {
     expect(fake.createCalls).toHaveLength(1);
     expect(fake.resumeCalls).toHaveLength(0);
     expect(fake.createCalls[0].opts.canUseTool).toBeDefined();
-    expect(fake.createCalls[0].opts.model).toBe("claude-opus-4-7");
+    expect(fake.createCalls[0].opts.model).toBe("claude-opus-4-8");
   });
 
   it("resume session calls sdkClient.resumeSession with session id", () => {
@@ -264,13 +264,13 @@ describe("ClaudeSession stream", () => {
       subtype: "init",
       session_id: "s-1",
       slash_commands: ["help"],
-      model: "claude-opus-4-7",
+      model: "claude-opus-4-8",
     });
     expect(await nextEvent(it)).toEqual({
       kind: "system_init",
       sessionId: "s-1",
       slashCommands: ["help"],
-      model: "claude-opus-4-7",
+      model: "claude-opus-4-8",
     });
 
     conv.emit({

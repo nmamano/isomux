@@ -51,14 +51,14 @@ describe("translateSDKMessage — system", () => {
       subtype: "init",
       session_id: "s-1",
       slash_commands: ["help"],
-      model: "claude-opus-4-7",
+      model: "claude-opus-4-8",
     });
     expect(events).toEqual([
       {
         kind: "system_init",
         sessionId: "s-1",
         slashCommands: ["help"],
-        model: "claude-opus-4-7",
+        model: "claude-opus-4-8",
       },
     ]);
   });

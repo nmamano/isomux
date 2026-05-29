@@ -345,7 +345,7 @@ describe("wrapV1Query", () => {
 
 describe("sessionOptsToV1", () => {
   const base = {
-    model: "claude-opus-4-7",
+    model: "claude-opus-4-8",
     pathToClaudeCodeExecutable: "/bin/echo",
     cwd: "/tmp",
     permissionMode: "default" as const,
@@ -391,7 +391,7 @@ describe("sessionOptsToV1", () => {
       hooks: {},
       disallowedTools: ["AskUserQuestion"],
     });
-    expect(v1.model).toBe("claude-opus-4-7");
+    expect(v1.model).toBe("claude-opus-4-8");
     expect(v1.pathToClaudeCodeExecutable).toBe("/bin/echo");
     expect(v1.cwd).toBe("/tmp");
     expect(v1.permissionMode).toBe("default");
