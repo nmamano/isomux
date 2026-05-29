@@ -556,6 +556,11 @@ export interface OfficeSettings {
   name: string | null;
 }
 
+// Maximum number of revive chips offered in the spawn menu. Applied
+// server-side after ACL filtering and on the client when merging diff
+// events into state — shared so the two never drift.
+export const KILLED_AGENT_CHIP_CAP = 12;
+
 // Summary of a killed agent shown as a "revive" chip in the spawn menu.
 // Carries only what the chip needs to render + the id + lastRoomId for
 // ACL filtering on the wire (cwd/customInstructions stay server-side and

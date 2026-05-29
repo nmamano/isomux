@@ -9,6 +9,7 @@ import {
   type ReactNode,
   type Dispatch,
 } from "react";
+import { KILLED_AGENT_CHIP_CAP } from "../shared/types.ts";
 import type {
   AgentInfo,
   KilledAgentSummary,
@@ -287,7 +288,7 @@ function reducer(state: AppState, action: Action): AppState {
       );
       return {
         ...state,
-        killedAgents: [action.agent, ...existing].slice(0, 12),
+        killedAgents: [action.agent, ...existing].slice(0, KILLED_AGENT_CHIP_CAP),
       };
     }
     case "killed_agent_removed":

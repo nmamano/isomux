@@ -31,6 +31,7 @@ import {
 } from "./persistence.ts";
 import { loadPlugins } from "./plugins.ts";
 import { normalizePublicOrigin } from "../shared/public-origin.ts";
+import { KILLED_AGENT_CHIP_CAP } from "../shared/types.ts";
 import type { Attachment } from "../shared/types.ts";
 import {
   startUpdateChecker,
@@ -631,7 +632,7 @@ function sendProjectedFullState(
   // not a smaller number trimmed by entries outside their room set.
   const killedAgents = AgentManager.getKilledAgentSummaries()
     .filter((k) => roomAllowedForSession(session, k.lastRoomId))
-    .slice(0, AgentManager.KILLED_AGENT_CHIP_CAP);
+    .slice(0, KILLED_AGENT_CHIP_CAP);
   ws.send(
     JSON.stringify({
       type: "full_state",

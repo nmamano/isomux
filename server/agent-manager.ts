@@ -821,11 +821,6 @@ function killedAgentSummaryFromHistory(
   };
 }
 
-// Cap applied AFTER ACL filtering so a session with restricted room access
-// still sees up to 12 visible chips, not fewer due to entries outside their
-// visible rooms eating the cap.
-export const KILLED_AGENT_CHIP_CAP = 12;
-
 // All currently-killed agents, sorted newest-first. Caller layers ACL
 // filtering and the cap. Legacy entries (no killedAt) get the agent's log
 // dir mtime as a proxy so they sort approximately by recency.
@@ -1017,7 +1012,10 @@ function restoreOrReviveAgent(opts: {
       // where the SDK can never resume because cwd/project dir don't
       // match). New messages start a fresh SDK session that doesn't have
       // that context, but the boss can read the past.
-      officeState.updateAgent(p.id, { state: "idle" });
+      // Clear the historical topic — it was derived from the OLD session
+      // that we can no longer resume. The fresh session will regenerate
+      // its own topic from new messages.
+      officeState.updateAgent(p.id, { state: "idle", topic: null });
       try {
         const freshSession = createSession(managed);
         installSession(p.id, managed, freshSession);

@@ -830,6 +830,21 @@ export function handleCommand(cmd: ClientCommand) {
       emitEvents(state.kill(cmd.agentId));
       break;
     }
+    case "revive": {
+      // The demo never populates state.killedAgents, so no chip is ever
+      // rendered and this branch is unreachable from the UI. Stub here
+      // for type coverage on the ClientCommand union; if a hand-crafted
+      // command arrives, report a clean failure rather than crashing.
+      if (cmd.requestId) {
+        shimEmit({
+          type: "agent_save_response",
+          requestId: cmd.requestId,
+          ok: false,
+          error: "Revive is not supported in the demo.",
+        });
+      }
+      break;
+    }
     case "edit_agent": {
       emitEvents(
         state.editAgent(cmd.agentId, {
