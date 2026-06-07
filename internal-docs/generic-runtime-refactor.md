@@ -4,15 +4,7 @@ Status: design proposal. All design decisions are locked; this document is the s
 
 1. Client/server seam: a clean, testable core of command-semantic operations under thin transports. The office stays as the single client.
 2. Full, introspectable REST API: every capability reachable via REST; WS reserved for the live event stream.
-3. Testing strategy: the safety net that lets us do 1 and 2 (merged in from the former `testing-strategy.md`).
-
-## Scope
-
-The metaphor-agnostic genericization (rename rooms to groups, extract an `officeLayout`, split a standalone reference-client "skin", uncap room membership) is DEFERRED. There is no second client on the roadmap, so genericization was speculative. We keep the office metaphor everywhere ("room", "desk"), keep desk and layout server-stored as today, and get architectural clarity from clean module boundaries, the REST contract, and an extracted projection/ACL service, not from a vocabulary purge. The deferred pieces are tracked as a follow-up.
-
-Memory is also out of scope. The cascade is prompt plus env only. The existing mem0 memory plugin must keep working across every phase; that is a compatibility invariant, pinned by a test.
-
-Note on naming: earlier drafts used the labels "A1" (the centralized projection/ACL service, today implicit in the per-WebSocket fanout) and "B3" (migrating `agent.room` from a mutable array index to a stable room id). Those labels are retired in favor of "projection/ACL service" and "stable room IDs".
+3. Testing strategy: the safety net that lets us do 1 and 2.
 
 ## The architecture (the center)
 
@@ -26,12 +18,12 @@ The first implementation deliverable is the full API spec (contract-first), not 
 
 ## Decided
 
-### Scope, cascade, prompt
+### Scope, prompt, and env
 
-- Office metaphor stays; genericization, skin, and memory are deferred (see Scope).
+- Office metaphor stays; genericization and skin are deferred (Follow-up 1); memory is out of scope.
 - Hierarchy is fixed levels office (global) then room then agent, plus an orthogonal per-user ownership axis: the owning user's `memberPrompt` and a manager-identity section, keyed by user, not by the containment tree.
 - `buildSystemPrompt` stays as the current explicit concatenation (baseline, then manager-identity plus `memberPrompt`, then office, then room, then agent). No generic N-source fold: its only motivation was a group layer and a memory axis, both gone. Desk vocabulary does not appear in the prompt builder today and stays out.
-- The cascade is prompt plus env only. Env keeps its existing single fold (`buildEnvForUserId`: process.env, then office env file, then user env file, user wins). Memory is out; mem0 plugin compatibility is an invariant with a test.
+- Prompt and env are an agent's only layered, multi-source inputs: the prompt per the hierarchy above, and env via the existing single fold (`buildEnvForUserId`: process.env, then office env file, then user env file, user wins). There is no memory layer; the existing mem0 plugin must keep working (a compatibility invariant, pinned by a test).
 
 ### Identity, auth, capabilities
 
@@ -51,11 +43,11 @@ The first implementation deliverable is the full API spec (contract-first), not 
 
 ### ACL and visibility
 
-- Rule-based owner visibility (owners see all rooms, computed) plus explicit grants for member access. This removes the `create_room` owner fan-out (today every room creation appends the new roomId to every owner's `allowedRooms` and `notifRooms`).
+- Rule-based owner access (owners have access to all rooms, computed) plus explicit grants for member access. Access is the security input only, not forced visibility: owners can still hide rooms from their own view via view-preference, like anyone else. This removes the `create_room` owner fan-out (today every room creation appends the new roomId to every owner's `allowedRooms` and `notifRooms`).
 - Split "access" (rule or grant; security) from "view preference" (which accessible rooms I am showing and in what order; non-security; server-stored, syncs across devices).
 - Per-user room ORDER folds into view-preference. Reordering touches only your own preference: no global `_rooms` mutation, no agent renumbering, no `rooms_reordered` broadcast. It is always allowed (you are editing your own view), so the current `if (!sessionHasFullRoomAccess) break` gate on `reorder_rooms` is deleted. This is a deliberate behavior change (today's global, owner-only reorder becomes per-user, always allowed): characterize the old behavior, then replace it.
 - Default ordering: one canonical creation-order sequence is the default; new rooms append at the end of each user's order; a brand-new user defaults to creation order; users reorder freely.
-- `notifRooms` is a subset of shown, which is a subset of accessible. You can never be pinged by a room you cannot see or cannot access. `notifRooms` stays an editable subset of your shown rooms (preserving "visible but silent"). Revoking access or hiding a room auto-drops it from `notifRooms`. `notifRooms` stops being auto-synced on room creation (that sync only fed the materialized owner visibility being deleted).
+- `notifRooms` is a subset of shown, which is a subset of accessible. You can never be pinged by a room you cannot see or cannot access. `notifRooms` stays an editable subset of your shown rooms (preserving "visible but silent"). Revoking access or hiding a room auto-drops it from `notifRooms`. `notifRooms` stops being auto-synced on room creation (that sync only fed the materialized owner access being deleted).
 - Migration: members' `allowedRooms` migrate to access grants verbatim; owners drop `allowedRooms` as an access input (rule equals all) and seed their view-preference from their current `allowedRooms` so no view shifts on upgrade.
 - `defaultRoomId` is a view preference (the user's default landing and spawn-view room). It must be accessible and shown, and is clamped on access revoke or room hide, like `notifRooms`. All preference writes (view-preference, order, `notifRooms`, `defaultRoomId`) must not leak hidden-room existence: inaccessible or unknown room ids are ignored or rejected with a generic response, never a specific exists-but-hidden error.
 
@@ -161,8 +153,8 @@ This is the highest-value net for both the projection/ACL service and stable roo
 - A hidden-room agent emits `log_entry`/`slash_commands`/`terminal_output`/session list; the restricted user never receives it.
 - Moving an agent visible-to-hidden, hidden-to-visible, visible-to-visible triggers the right refresh/replay and no stale transcript loss.
 - Room close/reorder with restricted users: dense indices remap, visible agents stay correct, presence is rebroadcast, logs/slash commands replay where expected. (Reorder behavior is changing to per-user; characterize the old global behavior first, then replace.)
-- Owner with hidden rooms: main view respects access, owner-only `all_rooms_list` stays unfiltered. (Owner visibility becomes rule-based; this confirms the materialized-to-computed migration preserves behavior.)
-- `create_room` under the new model: the creator sees it, owners see it by rule (no fan-out), other members do not until granted.
+- Owner with hidden rooms: main view respects access, owner-only `all_rooms_list` stays unfiltered. (Owner access becomes rule-based; this confirms the materialized-to-computed migration preserves behavior.)
+- `create_room` under the new model: the creator has access, owners have access by rule (no fan-out), other members do not until granted.
 - `update_user` allowedRooms by an owner pushes a projected `full_state` to that user's existing sockets and clamps presence if access was revoked.
 - Killed-agent summaries are filtered by `lastRoomId` before the cap; revive requires access to both the target room and `lastRoomId`.
 - `list_sessions`/load logs for hidden agents do not leak ids/topics/timestamps.
@@ -239,9 +231,12 @@ The detailed ordered step-by-step plan and the full server API spec are SEPARATE
 
 Major workstreams (unordered; to be sequenced in the planning session): config-root plus cleanup guard; full DI (`ManagerDeps`) plus FakeBackend injection; in-process multi-user/multi-socket harness; flagship onboarding test; projection/ACL plus persistence/migration characterization; the API spec plus contract tests; REST transport via the typed route table (strangler per command); rule-based ACL plus view-preference (including per-user room order) plus notifRooms; stable room IDs plus id-keyed wire (one coordinated deploy); audience-declared one-stream events; centralized idempotency.
 
+Final step, after the workstreams land: extract the Testing strategy section above into a standalone, maintained testing guide (tiers, how to run them, seams, conventions, reflecting what was actually built) and register it in `internal-docs/documentation.md`. This document stays the design and decision record; the testing guide becomes the living reference going forward.
+
 ## Follow-ups (to file at the end of the planning session)
 
-1. Skin / metaphor-agnostic core (existing task f48a9d52): the room-to-group rename, `officeLayout` extraction, desk-as-skin, uncapping the 8-per-room limit, and the reference-client skin. Revisit when a second client is real.
+1. Skin / metaphor-agnostic core (existing task f48a9d52): `officeLayout` extraction, desk-as-skin, uncapping the 8-per-room limit, and the reference-client skin. Revisit when a second client is real.
 2. Capability-lattice expansion: grow the agent token's capability set additively as agent permissions broaden.
 3. Cronjob run-transcript visibility: restrict transcript reads to the owner-user plus office owners (metadata stays office-wide read). Until then it is an accepted known leak, held in check by the agent-token and no-broader-than-browser rails noted in Decided.
 4. Feature-plugin architecture: features own their REST endpoints and their agent-facing prompt snippet; the core stays agnostic; the office composes them. This removes the manual sync between feature behavior and the "How to..." prompt sections. The typed route table is its foundation; the cheap now-step is grouping routes into feature modules so prompt docs can later attach to a feature rather than to each route.
+5. Clean up accumulated test cruft: ~55 stale temp HOME fixtures in `/tmp` (over 1GB, including a 612MB CI artifact and several 50-94MB dirs) and the throwaway smoke/repro scripts. Preserve the keepers first (`cwd_verify.ts` into the T1 persistence net; `cron-test.ts` and `scripts/v1-smoke.ts` into the gated `test:live` tier). Leave `/tmp/tmp.mxGn13RFM7` (TLS certs and office state) unless confirmed disposable. The cleanup guard above stops future runs from re-accumulating.
