@@ -34,6 +34,9 @@ import {
   writeManifest,
   persistSessionTopic,
   persistSessionFork,
+  persistSessionCwd,
+  getSessionCwd,
+  ensureSessionCwd,
   accumulateSessionUsage,
   appendSessionUsageSnapshot,
   rollSessionUsageOnResume,
@@ -63,7 +66,7 @@ import {
   codexRolloutFileExists,
   codexRolloutHasHistory,
   codexSessionsDir,
-  moveClaudeSessionFiles,
+  moveClaudeSessionFile,
   diagnoseProcessExit,
 } from "./cwd-utils.ts";
 import { buildSystemPrompt } from "./system-prompt.ts";
@@ -281,6 +284,16 @@ export function buildUserMeta(
 
 const agents = new Map<string, ManagedAgent>();
 const logCache = new Map<string, LogEntry[]>(); // agentId → entries
+// Agents mid-way through a LIVE Codex cwd change. The old thread is being
+// abandoned (a resumed Codex thread can't change cwd), but managed.sessionId is
+// kept pointing at it until the fresh thread's system_init lands, so the success
+// path's "new thread id" clear-branch runs and a synchronous replace failure can
+// roll back with the old id intact. The gap this set closes: Codex bootstraps
+// ASYNChronously, so a fresh-thread bootstrap FAILURE emits system_init with an
+// empty sessionId, which bypasses that clear-branch — leaving the abandoned old
+// id + stale logCache bound to the already-committed new cwd. The system_init
+// handler consumes this marker to clear that state on the empty-init path.
+const pendingCodexCwdReset = new Set<string>(); // agentId
 let eventHandler: EventHandler = () => {};
 const initialOfficeConfig: OfficeSettings = loadOfficeConfig();
 // Read the persisted rooms+agents shape ONCE at module init. The rooms
@@ -560,31 +573,19 @@ export async function editAgent(
     );
   }
 
-  // cwd-change side effects must run BEFORE the AgentInfo mutation lands.
-  // Both throw out of editAgent on failure, leaving managed.info untouched —
-  // the officeState.editAgent call below is what commits the mutation.
-  if (validated.cwd && validated.cwd !== managed.info.cwd) {
-    if (managed.info.agentType === "claude") {
-      // Claude stores sessions under $CLAUDE_CONFIG_DIR/projects/<cwd-hash>/
-      // (default ~/.claude/projects/...); moving cwd means the .jsonl files
-      // need to follow, otherwise resume can't find them. Pass the agent's
-      // current env so the move targets the same config dir the spawn uses.
-      // Username can be renamed without affecting env (we look up by
-      // userId), so this is robust to in-flight renames.
-      moveClaudeSessionFiles(
-        agentId,
-        managed.info.cwd,
-        validated.cwd,
-        buildEnvForUserId(managed.info.userId),
-      );
-    } else {
-      // Codex stores per-cwd rollouts in ~/.codex/; the existing thread is
-      // not addressable under the new cwd. Drop the sessionId so the next
-      // conversation starts a fresh thread (matches the "applies to next
-      // conversation" UX users expect from changing cwd).
-      managed.sessionId = null;
-    }
-  }
+  // cwd is a property of the session: changing it must retarget the live
+  // backend session (a backend process's cwd is fixed at spawn), so all the
+  // cwd side effects — the Claude file move, the stored-cwd stamp, the Codex
+  // thread drop — are deferred into the replace transaction below, where they
+  // can be rolled back together with the mirror if the session install fails.
+  // Capture the pre-mutation cwd + the agent's current identity env now (env is
+  // stable across this edit — username isn't an editable field here).
+  const cwdChanging = !!validated.cwd && validated.cwd !== managed.info.cwd;
+  const oldCwd = managed.info.cwd;
+  const targetCwd = validated.cwd;
+  const cwdMoveEnv = cwdChanging
+    ? buildEnvForUserId(managed.info.userId)
+    : undefined;
 
   // Snapshot of all editable fields, captured BEFORE the mutation lands.
   // Used to roll the full edit back if session recreate fails — matches the
@@ -613,28 +614,172 @@ export async function editAgent(
   // hits onChange (persists the rollback) but not eventHandler, so the wire
   // never sees either direction. Matches the prior withAgentRollback contract.
   const updated = events[0].type === "agent_updated" ? events[0].changes : {};
-  if (
+  const settingTriggersReplace = !!(
     updated.modelFamily ||
     updated.effort ||
     updated.permissionMode ||
     updated.codexSandbox
-  ) {
-    // Apply auto-resume policy BEFORE the replace transaction. The clear is
-    // intentionally outside the try/catch: if the prior Codex thread had no
-    // durable rollout, the cleared state is correct regardless of whether
-    // the new session install succeeds.
-    const sessionId = pickAutoResumeSessionId(managed);
-    if (managed.sessionId && !sessionId)
-      clearStaleAutoResumeState(agentId, managed);
-    try {
-      await replaceSession(
-        agentId,
-        managed,
-        sessionId ? createSession(managed, sessionId) : createSession(managed),
+  );
+  const isClaude = managed.info.agentType === "claude";
+
+  const codexCwdChange = cwdChanging && !isClaude;
+  // A cwd change retargets the session. If a live backend process exists it
+  // must be replaced (a process's cwd is fixed at spawn); if not, relocating the
+  // on-disk session file + restamping its cwd is enough — the next message
+  // resumes there (createSession always resumes at managed.info.cwd). Setting
+  // changes (model/effort/permission/sandbox) replace regardless, as before.
+  const needReplace =
+    settingTriggersReplace || (cwdChanging && managed.session !== null);
+  // Claude relocates its active session's files on ANY cwd change that has a
+  // session id — live or lazily-restored (session null, sessionId set) — so a
+  // later resume finds the .jsonl under the new project dir. Matches the
+  // pre-per-session-cwd behavior, which moved files gated only on sessionId.
+  const needClaudeFileMove =
+    cwdChanging && isClaude && managed.sessionId !== null;
+
+  // Codex can't carry a cwd across a resume (thread/resume ignores cwd — see
+  // backends/codex/adapter.ts), so a cwd change abandons the thread; the next
+  // message starts a fresh one in the new cwd. Split by whether a replace runs:
+  //   - NO replace (lazy process AND cwd-only change): there's no session-install
+  //     transaction to protect, so drop the id + clear logs NOW. The next message
+  //     spawns fresh in the new cwd.
+  //   - replace WILL run (live process, OR a setting change forces one): DEFER the
+  //     drop into the replace via pendingCodexCwdReset (set below). Dropping now
+  //     would lose the still-valid old id if that replace then fails and the edit
+  //     rolls back — the lazy-cwd+setting foot-gun. Leaving sessionId set also
+  //     lets the success-path system_init clear-branch (new id !== old id) wipe
+  //     the abandoned chat.
+  if (codexCwdChange && managed.sessionId && !needReplace) {
+    clearStaleAutoResumeState(agentId, managed);
+  }
+
+  if (needReplace || needClaudeFileMove) {
+    const activeSessionId = managed.sessionId;
+    let claudeFileMoved = false;
+
+    // Claude cwd change: relocate the active session's files to the new project
+    // dir BEFORE any resume so createSession finds them there. A failed move
+    // means Claude can't locate the .jsonl, so abort the whole edit (roll the
+    // mirror back, reverse any partial move) rather than stamp the session into
+    // a cwd it can't be resumed from — keeps source-of-truth metadata honest.
+    if (needClaudeFileMove && activeSessionId && targetCwd) {
+      const moved = moveClaudeSessionFile(
+        activeSessionId,
+        oldCwd,
+        targetCwd,
+        cwdMoveEnv,
       );
-    } catch (err) {
-      officeState.updateAgent(agentId, snapshot);
-      throw err;
+      if (!moved.ok) {
+        officeState.updateAgent(agentId, snapshot);
+        // Reverse a partial move so the file ends up where the rolled-back
+        // mirror says it is. If the reverse itself fails the on-disk location no
+        // longer matches oldCwd — surface that rather than mislead the user.
+        let reversed = true;
+        if (moved.moved) {
+          reversed = moveClaudeSessionFile(
+            activeSessionId,
+            targetCwd,
+            oldCwd,
+            cwdMoveEnv,
+          ).ok;
+        }
+        throw new Error(
+          `Failed to move session files to ${targetCwd}: ${moved.error}. ` +
+            (reversed
+              ? `cwd change aborted; the session stays in ${oldCwd}.`
+              : `cwd change aborted, but the session files could not be moved ` +
+                `back and now live in ${targetCwd}; resume may fail until they ` +
+                `are restored.`),
+        );
+      }
+      // Lazy edits have no createSession preflight, so a session whose .jsonl is
+      // missing at BOTH ends would otherwise get stamped into a cwd it can't be
+      // resumed from. Proceed only if the file actually lives at the target now
+      // — either we just moved it, or it was already there. (Live edits are also
+      // covered: createSession's resume preflight would catch a missing file,
+      // but failing here is a cleaner error and skips a pointless session spawn.)
+      const fileAtTarget =
+        moved.moved ||
+        claudeSessionFileExists(targetCwd, activeSessionId, cwdMoveEnv);
+      if (!fileAtTarget) {
+        officeState.updateAgent(agentId, snapshot);
+        throw new Error(
+          `Session file for ${activeSessionId.slice(0, 8)}… was not found in ` +
+            `${oldCwd} or ${targetCwd}; cwd change aborted. Start a new ` +
+            `conversation to work in ${targetCwd}.`,
+        );
+      }
+      claudeFileMoved = moved.moved;
+    }
+
+    // Replace the live session when needed. For a live Codex cwd change this
+    // forces a fresh thread (a resumed Codex thread keeps its birth cwd); Claude
+    // passes its active session through and resumes it at the new cwd. Skipped
+    // entirely in the lazy case (no live process to retarget).
+    if (needReplace) {
+      // A Codex cwd change that reaches this replace (live, or lazy + a setting
+      // change that forced the replace) abandons the old thread for a fresh one.
+      // We intentionally do NOT drop managed.sessionId yet: leaving it set means
+      // (a) the success-path system_init clear-branch (new id !== old id) wipes
+      // the abandoned thread's chat without contaminating the fresh thread, and
+      // (b) a SYNCHRONOUS createSession/replaceSession throw rolls back with the
+      // old id intact (so a failed combined cwd+setting edit doesn't lose a
+      // still-valid session pointer). But Codex bootstraps async — a fresh-thread
+      // bootstrap failure lands later as system_init with an empty sessionId,
+      // bypassing that clear-branch. Mark the agent so the empty-init path (and
+      // the consumer's pre-init error path) knows to abandon the old id +
+      // logCache. Cleared in the catch below (replace never installed the fresh
+      // session, so the old one stands and there's nothing to abandon).
+      if (codexCwdChange) pendingCodexCwdReset.add(agentId);
+      const sessionId = codexCwdChange
+        ? null
+        : pickAutoResumeSessionId(managed);
+      if (managed.sessionId && !sessionId && !codexCwdChange)
+        clearStaleAutoResumeState(agentId, managed);
+      try {
+        await replaceSession(
+          agentId,
+          managed,
+          sessionId
+            ? createSession(managed, sessionId)
+            : createSession(managed),
+        );
+      } catch (err) {
+        // replaceSession failed before installing the fresh session: the old
+        // session still stands, so there's no abandoned thread to reconcile.
+        pendingCodexCwdReset.delete(agentId);
+        officeState.updateAgent(agentId, snapshot);
+        // Roll the Claude file move back so the on-disk session location stays
+        // consistent with the rolled-back mirror. Surface a reverse failure —
+        // otherwise the user sees only the replace error while the file sits in
+        // the target cwd.
+        if (claudeFileMoved && activeSessionId && targetCwd) {
+          const rev = moveClaudeSessionFile(
+            activeSessionId,
+            targetCwd,
+            oldCwd,
+            cwdMoveEnv,
+          );
+          if (!rev.ok) {
+            addLogEntry(
+              agentId,
+              "system",
+              `Warning: after the failed cwd change, session files could not be ` +
+                `moved back to ${oldCwd} and now live in ${targetCwd}; resume ` +
+                `may fail until they are restored.`,
+            );
+          }
+        }
+        throw err;
+      }
+    }
+
+    // Record the active session's new cwd as source of truth (after any replace
+    // succeeded). Only the Claude same-session case needs an explicit stamp;
+    // fresh sessions (Codex cwd change, or a from-scratch session) get stamped
+    // by system_init's ensureSessionCwd.
+    if (cwdChanging && isClaude && managed.sessionId && targetCwd) {
+      persistSessionCwd(agentId, managed.sessionId, targetCwd);
     }
   }
 
@@ -1648,6 +1793,10 @@ function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
       // see backends/codex/adapter.ts bootstrap catch. Slash_commands/skills
       // still land below in either case.
       if (managed && ev.sessionId) {
+        // A live Codex cwd change is committing: the fresh thread bootstrapped.
+        // The clear-branch below (new id !== old id) handles abandoning the old
+        // thread's chat, so just retire the pending-reset marker here.
+        pendingCodexCwdReset.delete(agentId);
         const sessionId = ev.sessionId;
         const hadPreviousSession = !!managed.sessionId;
         // Load prior log history if this session was seen before (walks fork ancestry)
@@ -1666,6 +1815,11 @@ function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
           addLogEntry(agentId, "system", "Conversation cleared.");
         }
         managed.sessionId = sessionId;
+        // Record the cwd this session was born in (source of truth for
+        // per-session cwd). Idempotent: a fork already stamped its cwd via
+        // persistSessionFork so this no-ops there; a plain fresh session
+        // (spawn / new conversation) gets the agent's current mirror cwd here.
+        ensureSessionCwd(agentId, sessionId, managed.info.cwd);
         // Backfill: write any cached log entries that were created before sessionId was known.
         // Skip ephemeral entries — they're UI-only by design and must not reach disk.
         if (!hadPreviousSession) {
@@ -1675,6 +1829,18 @@ function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
             appendLog(agentId, sessionId, entry);
           }
         }
+        persistAll();
+      } else if (managed && pendingCodexCwdReset.has(agentId)) {
+        // Empty-sessionId system_init while a live Codex cwd change was pending:
+        // the fresh thread failed to bootstrap (see backends/codex/adapter.ts).
+        // replaceSession already closed the old process and AgentInfo.cwd is
+        // committed to the new cwd, but managed.sessionId / logCache still point
+        // at the now-abandoned old thread. Drop them so the agent doesn't later
+        // associate the old thread with the new cwd — the next message starts a
+        // genuinely fresh conversation in the new dir. The old thread's
+        // transcript remains on disk under its own id (resumable via /resume).
+        pendingCodexCwdReset.delete(agentId);
+        clearStaleAutoResumeState(agentId, managed);
         persistAll();
       }
       // Capture available slash commands and skills from init.
@@ -2057,6 +2223,18 @@ async function runConsumer(
     const turn = managed.pendingTurn;
     managed.pendingTurn = null;
     if (turn) turn.reject(err);
+
+    // A fresh Codex session installed for a cwd change can error before it ever
+    // emits system_init (an out-of-band stream failure; the adapter normally
+    // routes bootstrap failures through an empty-sessionId system_init, which the
+    // handler reconciles). In that case neither system_init reconciliation path
+    // runs, so honor the pending-reset marker here too: abandon the old thread's
+    // id + logCache so the committed new cwd isn't left paired with the dead old
+    // thread. No-op for the common error path (marker absent).
+    if (pendingCodexCwdReset.has(agentId)) {
+      pendingCodexCwdReset.delete(agentId);
+      clearStaleAutoResumeState(agentId, managed);
+    }
 
     console.error(`Agent ${agentId} stream error:`, errMessage(err));
     const errorText = `Stream error: ${errMessage(err)}`;
@@ -3172,9 +3350,26 @@ export async function sendMessage(
       persistCurrentSessionTopic(agentId, managed);
       // Perform the resume
       try {
-        const newSession = createSession(managed, picked.sessionId);
-        await replaceSession(agentId, managed, newSession);
+        // cwd is a property of the session: restore the picked session's cwd
+        // before spawning (transactional — rolled back if the resume fails).
+        const { prevCwd, switched, storedCwdInvalid } =
+          applySessionCwdForResume(agentId, managed, picked.sessionId);
+        try {
+          const newSession = createSession(managed, picked.sessionId);
+          await replaceSession(agentId, managed, newSession);
+        } catch (err) {
+          if (switched) rollbackSessionCwd(agentId, prevCwd);
+          throw err;
+        }
         managed.sessionId = picked.sessionId;
+        // Record the cwd we resumed in: backfill legacy/missing, or repair a
+        // present-but-invalid value so it isn't sticky on future resumes.
+        recordResumedSessionCwd(
+          agentId,
+          picked.sessionId,
+          managed.info.cwd,
+          storedCwdInvalid,
+        );
         managed.topicGenerating = false;
         // Restore the textCount baseline from sessions.json so drift is
         // measured against the replayed history, not from zero (otherwise
@@ -3634,6 +3829,9 @@ export async function kill(agentId: string) {
   agents.delete(agentId);
   officeState.kill(agentId);
   logCache.delete(agentId);
+  // Drop any pending live-Codex-cwd-change marker so a kill during the
+  // sub-second replace window doesn't leave a dangling entry for a dead agent.
+  pendingCodexCwdReset.delete(agentId);
   if (oldConsumer) {
     try {
       await oldConsumer;
@@ -3733,6 +3931,21 @@ export async function revive(
   if (!resumeFromSession) {
     const sessions = listAgentSessions(agentId);
     resumeFromSession = sessions[0]?.sessionId ?? null;
+  }
+
+  // cwd is a property of the session: if the resumed session recorded its own
+  // cwd, prefer it over the killed-agent history snapshot (resolved above) so
+  // the agent revives in the directory that session actually ran in. Keep the
+  // snapshot fallback when the stored cwd is gone/invalid.
+  if (resumeFromSession) {
+    const sessionCwd = getSessionCwd(agentId, resumeFromSession);
+    if (sessionCwd) {
+      try {
+        resolvedCwd = validateCwd(sessionCwd);
+      } catch {
+        // Stored session cwd unavailable — keep the step-6 fallback.
+      }
+    }
   }
 
   const persisted: PersistedAgent = {
@@ -3837,6 +4050,68 @@ export async function newConversation(agentId: string) {
   }
 }
 
+// Switch the agent's mirror cwd to a session's stored cwd ahead of a resume, so
+// the resumed conversation runs in the directory it left off in. cwd is a
+// property of the session; the agent's cwd field is just the mirror. Validates
+// the stored cwd first and returns the previous cwd, whether a switch happened
+// (so the caller can roll back if the session fails to start), and whether the
+// stored cwd was present-but-invalid (so the caller can REPAIR the bad metadata
+// after a successful fallback resume — otherwise the invalid value is sticky and
+// every future resume repeats the same fallback). Legacy sessions with no stored
+// cwd leave the mirror untouched and the caller backfills via ensureSessionCwd.
+function applySessionCwdForResume(
+  agentId: string,
+  managed: ManagedAgent,
+  sessionId: string,
+): { prevCwd: string; switched: boolean; storedCwdInvalid: boolean } {
+  const prevCwd = managed.info.cwd;
+  const storedCwd = getSessionCwd(agentId, sessionId);
+  if (!storedCwd || storedCwd === prevCwd)
+    return { prevCwd, switched: false, storedCwdInvalid: false };
+  try {
+    const resolvedStored = validateCwd(storedCwd);
+    for (const event of officeState.updateAgent(agentId, {
+      cwd: resolvedStored,
+    }))
+      emit(event);
+    return { prevCwd, switched: true, storedCwdInvalid: false };
+  } catch (err) {
+    // Stored cwd is gone/invalid — resume in the current mirror cwd instead of
+    // failing, and tell the user. createSession's own preflight still validates
+    // cwd and (for Claude) the session file's presence.
+    addLogEntry(
+      agentId,
+      "system",
+      `Session's saved directory \`${storedCwd}\` is unavailable (${errMessage(err)}); resuming in \`${prevCwd}\`.`,
+    );
+    return { prevCwd, switched: false, storedCwdInvalid: true };
+  }
+}
+
+// Record the cwd a session actually resumed in. Repairs a present-but-invalid
+// stored cwd (overwrite) so it isn't sticky; otherwise backfills a legacy/
+// missing value without clobbering or reordering an existing valid one.
+function recordResumedSessionCwd(
+  agentId: string,
+  sessionId: string,
+  cwd: string,
+  storedCwdInvalid: boolean,
+) {
+  if (storedCwdInvalid) {
+    persistSessionCwd(agentId, sessionId, cwd);
+  } else {
+    ensureSessionCwd(agentId, sessionId, cwd);
+  }
+}
+
+// Roll the mirror cwd back after a failed resume (pairs with
+// applySessionCwdForResume) so the agent isn't left pointing at a cwd for a
+// session that didn't actually resume.
+function rollbackSessionCwd(agentId: string, prevCwd: string) {
+  for (const event of officeState.updateAgent(agentId, { cwd: prevCwd }))
+    emit(event);
+}
+
 export async function resume(agentId: string, sessionId: string) {
   const managed = agents.get(agentId);
   if (!managed) return;
@@ -3853,9 +4128,30 @@ export async function resume(agentId: string, sessionId: string) {
   persistCurrentSessionTopic(agentId, managed);
 
   try {
-    const newSession = createSession(managed, sessionId);
-    await replaceSession(agentId, managed, newSession);
+    // cwd is a property of the session: restore the cwd this session ran in
+    // before spawning (transactional — rolled back below if the resume fails).
+    const { prevCwd, switched, storedCwdInvalid } = applySessionCwdForResume(
+      agentId,
+      managed,
+      sessionId,
+    );
+    let newSession;
+    try {
+      newSession = createSession(managed, sessionId);
+      await replaceSession(agentId, managed, newSession);
+    } catch (err) {
+      if (switched) rollbackSessionCwd(agentId, prevCwd);
+      throw err;
+    }
     managed.sessionId = sessionId;
+    // Record the cwd we actually resumed in: backfill a legacy/missing value, or
+    // repair a present-but-invalid one so it isn't sticky on future resumes.
+    recordResumedSessionCwd(
+      agentId,
+      sessionId,
+      managed.info.cwd,
+      storedCwdInvalid,
+    );
     managed.topicGenerating = false;
     managed.topicGenToken++;
 
@@ -4150,6 +4446,8 @@ export async function editMessage(
         logEntryId,
         oldTopic,
         parentTopicMessageCount,
+        // Fork inherits the active session's cwd (cwd is per-session).
+        managed.info.cwd,
         parentBase,
       );
     }

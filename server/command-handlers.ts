@@ -19,6 +19,7 @@ import {
 import { formatPrefix } from "../shared/identity.ts";
 import { errMessage } from "../shared/errors.ts";
 import { listAgentSessions } from "./persistence.ts";
+import { tildifyCwd } from "./cwd-utils.ts";
 import {
   commands,
   unsupportedMessage,
@@ -410,10 +411,14 @@ export function createCommandHandling(deps: HandlerDeps) {
         const rawLabel = s.topic || s.sessionId.slice(0, 8) + "...";
         const label = s.forked ? `↳ ${rawLabel}` : rawLabel;
         const suffix = s.branched ? "  (branched)" : "";
+        // cwd is a property of the session — surface it so the user sees which
+        // directory each session will resume into (it can differ per session).
+        // Abbreviate the home prefix to `~` to save horizontal space.
+        const cwdStr = s.cwd ? `  ${tildifyCwd(s.cwd)}` : "";
         if (s.sessionId === managed.sessionId) {
-          lines.push(`  ● ${label}  ${dateStr}  (current)`);
+          lines.push(`  ● ${label}  ${dateStr}${cwdStr}  (current)`);
         } else {
-          lines.push(`  ${num}. ${label}  ${dateStr}${suffix}`);
+          lines.push(`  ${num}. ${label}  ${dateStr}${cwdStr}${suffix}`);
           pickable.push(s);
           num++;
         }

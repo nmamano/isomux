@@ -530,6 +530,11 @@ export interface SessionInfo {
   sessionId: string;
   lastModified: number;
   topic: string | null;
+  // The cwd this session runs in. Source of truth is per-session metadata
+  // (sessions.json); the agent's own cwd is just a denormalized mirror of the
+  // active session's cwd. Optional/null for legacy sessions persisted before
+  // per-session cwd existed — callers fall back to the agent cwd then.
+  cwd?: string | null;
   branched?: boolean; // true if another session was forked from this one
   forked?: boolean; // true if this session is a fork (was created by editing a message)
 }

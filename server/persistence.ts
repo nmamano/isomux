@@ -157,6 +157,12 @@ type SessionsMap = Record<
     // existed — treated as 0 (regenerate aggressively).
     topicMessageCount?: number;
     lastModified: number;
+    // The cwd this session runs in. Source of truth for per-session cwd; the
+    // agent's `cwd` field is a denormalized mirror of the *active* session's
+    // value (and the seed for the next new session). Absent on sessions
+    // persisted before this field existed — callers backfill from the agent
+    // cwd then (see getSessionCwd / ensureSessionCwd).
+    cwd?: string;
     forkedFrom?: string;
     forkMessageId?: string;
     usage?: PersistedUsage;
@@ -206,6 +212,53 @@ export function persistSessionTopic(
   saveSessionsMap(agentId, map);
 }
 
+// Persist the cwd a session runs in. Source of truth for per-session cwd; the
+// agent's mirror is updated separately by the caller. Merges into the existing
+// entry so topic/usage/fork fields aren't clobbered.
+export function persistSessionCwd(
+  agentId: string,
+  sessionId: string,
+  cwd: string,
+) {
+  const map = loadSessionsMap(agentId);
+  const existing = map[sessionId] ?? { topic: null, lastModified: 0 };
+  map[sessionId] = { ...existing, cwd, lastModified: Date.now() };
+  saveSessionsMap(agentId, map);
+}
+
+// Read a session's stored cwd. Returns null when the session has no recorded
+// cwd (legacy sessions persisted before per-session cwd, or sessions with no
+// metadata entry at all). Callers fall back to the agent's mirror cwd.
+export function getSessionCwd(
+  agentId: string,
+  sessionId: string,
+): string | null {
+  const map = loadSessionsMap(agentId);
+  return map[sessionId]?.cwd ?? null;
+}
+
+// Stamp a session's cwd only if it doesn't already have one, returning the
+// effective cwd. Backfills legacy sessions and records a fresh session's cwd at
+// birth without overwriting an existing value. `fallbackCwd` is the agent's
+// current mirror cwd. A pure backfill preserves the existing lastModified so it
+// doesn't reorder the resume picker; a brand-new entry stamps lastModified now.
+export function ensureSessionCwd(
+  agentId: string,
+  sessionId: string,
+  fallbackCwd: string,
+): string {
+  const map = loadSessionsMap(agentId);
+  const existing = map[sessionId];
+  if (existing?.cwd) return existing.cwd;
+  map[sessionId] = {
+    ...(existing ?? { topic: null, lastModified: 0 }),
+    cwd: fallbackCwd,
+    lastModified: existing?.lastModified ?? Date.now(),
+  };
+  saveSessionsMap(agentId, map);
+  return fallbackCwd;
+}
+
 export function persistSessionFork(
   agentId: string,
   sessionId: string,
@@ -213,6 +266,9 @@ export function persistSessionFork(
   forkMessageId: string,
   topic: string | null,
   topicMessageCount: number,
+  // The cwd the new (forked) session runs in — inherited from the active
+  // session's cwd at fork time, so a fork keeps working in the same directory.
+  cwd: string,
   forkBaseUsage?: PersistedUsage,
 ) {
   const map = loadSessionsMap(agentId);
@@ -221,6 +277,7 @@ export function persistSessionFork(
     ...existing,
     topic,
     topicMessageCount,
+    cwd,
     lastModified: Date.now(),
     forkedFrom,
     forkMessageId,
@@ -323,6 +380,7 @@ export function listAgentSessions(agentId: string): {
   lastModified: number;
   topic: string | null;
   topicMessageCount: number;
+  cwd: string | null;
   branched?: boolean;
   forked?: boolean;
 }[] {
@@ -348,6 +406,7 @@ export function listAgentSessions(agentId: string): {
             entry?.lastModified ?? Bun.file(join(agentDir, f)).lastModified,
           topic: entry?.topic ?? null,
           topicMessageCount: entry?.topicMessageCount ?? 0,
+          cwd: entry?.cwd ?? null,
           ...(branchedFromIds.has(sid) ? { branched: true as const } : {}),
           ...(entry?.forkedFrom ? { forked: true as const } : {}),
         };

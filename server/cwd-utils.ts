@@ -10,7 +10,6 @@ import {
   renameSync,
   statSync,
 } from "fs";
-import { listAgentSessions } from "./persistence.ts";
 import { errMessage, errCode } from "../shared/errors.ts";
 
 // Path to the Claude CLI native binary that ships with the Agent SDK.
@@ -51,6 +50,18 @@ export function resolveCwd(cwd: string): string {
   if (cwd.startsWith("~/")) return resolve(homedir(), cwd.slice(2));
   if (cwd === "~") return homedir();
   return resolve(cwd);
+}
+
+// Inverse of resolveCwd's home expansion: abbreviate the user's home dir prefix
+// back to `~` for display (e.g. the resume picker, to save horizontal space).
+// Only the exact home dir or a home-rooted path is abbreviated; unrelated paths
+// pass through untouched. Display-only — never feed the result back into a path
+// API without resolveCwd-ing it first.
+export function tildifyCwd(cwd: string): string {
+  const home = homedir();
+  if (cwd === home) return "~";
+  if (cwd.startsWith(home + "/")) return "~" + cwd.slice(home.length);
+  return cwd;
 }
 
 // Directory where Claude CLI stores per-project session JSONLs.
@@ -258,53 +269,70 @@ function rolloutFileHasNonMetaLine(path: string): boolean {
   return false;
 }
 
-// Move an agent's Claude CLI session files from one cwd's project dir to another.
-// The Claude CLI derives its session storage path from cwd, so changing an agent's cwd
-// without moving these files orphans every session on the next respawn (e.g. server restart).
+// Move a single Claude CLI session's files from one cwd's project dir to
+// another. The Claude CLI derives its session storage path from cwd, so
+// changing the cwd a session runs in without moving its files orphans it on the
+// next respawn (e.g. server restart) — resume can't find it.
 //
-// `env` selects which CLAUDE_CONFIG_DIR projects/ tree to read from and write to.
-// Callers must pass the env that corresponds to the agent's *current* identity —
-// if `username` and `cwd` ever change in the same edit, the move must run with
-// the OLD username's env, before the username mutation commits.
-export function moveClaudeSessionFiles(
-  agentId: string,
+// Scoped to ONE session by design: under per-session cwd, an agent's other
+// sessions keep their own recorded cwd and must stay where they are. (The
+// previous move-all behavior matched the old agent-level cwd model, where every
+// session implicitly shared the agent's single cwd.)
+//
+// `env` selects which CLAUDE_CONFIG_DIR projects/ tree to read from and write
+// to. Callers must pass the env that corresponds to the agent's *current*
+// identity — if `username` and `cwd` ever change in the same edit, the move must
+// run with the OLD username's env, before the username mutation commits.
+//
+// Returns a structured result so the caller can keep session metadata honest:
+//   - { ok: true, moved: false }  → nothing to move (no source, or same dir)
+//   - { ok: true, moved: true }   → moved successfully
+//   - { ok: false, moved, error } → source existed but a rename failed; `moved`
+//     says whether a partial move happened (so the caller can reverse it). A
+//     failed move must NOT be followed by stamping the session's new cwd —
+//     Claude wouldn't find the .jsonl there.
+export function moveClaudeSessionFile(
+  sessionId: string,
   oldCwd: string,
   newCwd: string,
   env?: { [key: string]: string | undefined },
-) {
+): { ok: boolean; moved: boolean; error?: string } {
   const oldDir = claudeProjectDir(oldCwd, env);
   const newDir = claudeProjectDir(newCwd, env);
-  if (oldDir === newDir || !existsSync(oldDir)) return;
-  const sessions = listAgentSessions(agentId);
-  if (sessions.length === 0) return;
+  if (oldDir === newDir || !existsSync(oldDir))
+    return { ok: true, moved: false };
+  const oldJsonl = join(oldDir, `${sessionId}.jsonl`);
+  const newJsonl = join(newDir, `${sessionId}.jsonl`);
+  // Claude CLI also writes a sibling <sessionId>/ dir (tool-results cache, etc.)
+  const oldSib = join(oldDir, sessionId);
+  const newSib = join(newDir, sessionId);
+  const moveJsonl = existsSync(oldJsonl) && !existsSync(newJsonl);
+  const moveSib = existsSync(oldSib) && !existsSync(newSib);
+  if (!moveJsonl && !moveSib) return { ok: true, moved: false };
   mkdirSync(newDir, { recursive: true });
-  for (const { sessionId } of sessions) {
-    const oldJsonl = join(oldDir, `${sessionId}.jsonl`);
-    const newJsonl = join(newDir, `${sessionId}.jsonl`);
-    if (existsSync(oldJsonl) && !existsSync(newJsonl)) {
-      try {
-        renameSync(oldJsonl, newJsonl);
-      } catch (err) {
-        console.error(
-          `[cwd-change] Failed to move ${oldJsonl} -> ${newJsonl}:`,
-          err,
-        );
-      }
-    }
-    // Claude CLI also writes a sibling <sessionId>/ dir (tool-results cache, etc.)
-    const oldSib = join(oldDir, sessionId);
-    const newSib = join(newDir, sessionId);
-    if (existsSync(oldSib) && !existsSync(newSib)) {
-      try {
-        renameSync(oldSib, newSib);
-      } catch (err) {
-        console.error(
-          `[cwd-change] Failed to move ${oldSib} -> ${newSib}:`,
-          err,
-        );
-      }
+  let moved = false;
+  if (moveJsonl) {
+    try {
+      renameSync(oldJsonl, newJsonl);
+      moved = true;
+    } catch (err) {
+      console.error(
+        `[cwd-change] Failed to move ${oldJsonl} -> ${newJsonl}:`,
+        err,
+      );
+      return { ok: false, moved, error: errMessage(err) };
     }
   }
+  if (moveSib) {
+    try {
+      renameSync(oldSib, newSib);
+      moved = true;
+    } catch (err) {
+      console.error(`[cwd-change] Failed to move ${oldSib} -> ${newSib}:`, err);
+      return { ok: false, moved, error: errMessage(err) };
+    }
+  }
+  return { ok: true, moved };
 }
 
 // Resolve and verify a cwd. Throws if the directory does not exist or is not a directory.
