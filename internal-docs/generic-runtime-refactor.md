@@ -1,6 +1,6 @@
 # Server Refactor: Master Design
 
-Status: design proposal. All design decisions are locked; this document is the single source of truth. The full server API spec (contract-first, the first implementation deliverable) is now captured below as the **Server API Spec** section. One artifact remains intentionally separate, to be produced in its own dedicated session: the ordered step-by-step implementation plan. This doc consolidates what turned out to be one architecture across three threads:
+Status: ready to implement. All design decisions are locked; this document is the single source of truth. The full server API spec (contract-first) is captured below as the **Server API Spec** section, and the ordered, phased plan that sequences it into implementation is captured in the **Implementation plan** section. This doc consolidates what turned out to be one architecture across three threads:
 
 1. Client/server seam: a clean, testable core of command-semantic operations under thin transports. The office stays as the single client.
 2. Full, introspectable REST API: every capability reachable via REST; WS reserved for the live event stream.
@@ -14,7 +14,7 @@ A tested core of command-semantic operations, each declaring `{ required capabil
 - Full REST API: a thin REST transport over the core; WS shrinks to the live event stream.
 - Testing: characterize the core first (the safety net), then TDD the new core and transports.
 
-The first implementation deliverable is the full API spec (contract-first), not endpoints.
+The first deliverable was the full API spec (contract-first), not endpoints; implementation then follows the phased **Implementation plan** below.
 
 ## Decided
 
@@ -28,7 +28,7 @@ The first implementation deliverable is the full API spec (contract-first), not 
 ### Identity, auth, capabilities
 
 - Per-agent bearer tokens, separate from user tokens, with no owner inheritance (no confused deputy). A token resolves to an identity: agent-scope tokens carry `{ agentId, userId, scope: "agent" }`; user tokens carry the user identity and role. Authorization uses that identity's capabilities. An external client is browser-equivalent for whatever identity its token carries; there is no separate narrow automation tier, because the narrowness comes from the agent identity being narrow.
-- Two capability scopes, by identity. A USER token is browser-equivalent (everything that user can do in the UI). An AGENT token is exactly today's loopback surface and no more: agent-to-agent message as itself, task create/claim/update, and the self affordances (read-file, diff, edit-file, terminal-command) on its own chat. It cannot spawn or kill, touch room/user/office settings, mint invites, or mutate cronjobs. Tokens carry an explicit capability set so it can grow additively later (capability-lattice expansion is a follow-up).
+- Three capability scopes, by identity. A USER token is browser-equivalent (everything that user can do in the UI). An AGENT token is exactly today's loopback surface and no more: agent-to-agent message as itself, task create/claim/update, and the self affordances (read-file, diff, edit-file, terminal-command) on its own chat. It cannot spawn or kill, touch room/user/office settings, mint invites, or mutate cronjobs. A RUN token is the cron-run analogue of an agent token: minted per cronjob run (rotated per run, revoked when the run ends) and carrying only the self affordances bound to its `{ cronjobId, runId }`, so a fresh cron run's in-flight read-file/diff authenticates as the run rather than relying on a loopback bypass. Tokens carry an explicit capability set so it can grow additively later (capability-lattice expansion is a follow-up).
 - Token delivery: agent tokens are delivered via env (`ISOMUX_AGENT_TOKEN`), reusing the existing per-agent env-injection path. Not prompts, not a signing helper.
 - Zero-setup local dev is non-negotiable and preserved. Humans claim owner tokenlessly and get a cookie; agents receive their token automatically via env injection (no minting). If Claude Code or Codex work locally, isomux works locally with no setup. The documented agent curl snippets gain an `Authorization: Bearer $ISOMUX_AGENT_TOKEN` header, which resolves from the agent's own shell env.
 - No loopback bypass: reads and writes both require identity (cookie or token). This closes the concrete vulnerability that `senderAgentId` on `POST /agents/:id/message` is today unauthenticated and spoofable by anything on loopback, including any agent (an agent can run curl). The message endpoint enforces `token.agentId === senderAgentId`. Server-internal calls use direct function calls, not unauthenticated localhost HTTP.
@@ -55,12 +55,12 @@ The first implementation deliverable is the full API spec (contract-first), not 
 
 - Replace the mutable `agent.room` array index with a stable room id. This removes the agent-record renumbering that `closeRoom`/`reorderRooms` do today (rewriting every agent's index).
 - Persistence: flatten so each `PersistedAgent` carries an explicit stable `roomId` (matching the in-memory and wire shape, removing the on-load derive step). Migration is small because user references (`allowedRooms`/`notifRooms`/`defaultRoomId`) are already id-based.
-- Wire: move off dense per-recipient numeric room indices to id-keyed maps. This is the one client-coordinated breaking change. Since we own the only client, ship server and UI in one coordinated deploy (a single restart), with no dual-shape compatibility shim. The coordinated UI change includes client/device-state migration: existing local/device state that references numeric `agent.room` (selected/default/notif rooms, UI references) is discarded or safely remapped, so stale numeric room values cannot produce broken or misleading UI.
+- Wire: move off dense per-recipient numeric room indices to id-keyed maps. This is the one client-coordinated breaking change. We own the clients, so ship server, the production UI, and the `demo-server`/demo client (a second consumer of the numeric room wire) in one coordinated deploy (a single restart), with no dual-shape compatibility shim. The coordinated UI change converts every `agent.room` consumer to `roomId` and resets/remaps the in-memory room selection (`currentRoom`). Durable device prefs (`defaultRoomId`/`notifRooms`) are already id-based and need no migration, so the only numeric room state to clear is the in-memory selection index; stale numeric room values cannot produce broken or misleading UI.
 
 ### Transport, contract, events
 
 - Full REST: all commands and queries become REST. WS is reserved for the live event stream (log, thinking, tool, approval, terminal IO, presence) and the interactive terminal only.
-- Contract-first, enforced by code: a single typed route table where each route declares `{ method, path, requiredCapability, resourceGuard, requestSchema, responseSchema, emits }`. Authorization is two-stage and both stages are declared, not hand-written in handlers: (1) the dispatcher checks the coarse `requiredCapability` from the token before the handler runs; (2) a declared `resourceGuard` expresses object-level authorization, subject binding, and ACL policy, enforced centrally or by the core op. Guards are named, reusable policies such as `agentParamMustEqualTokenAgent`, `requiresRoomAccess(agentId)`, `cronjobOwnerOrOfficeOwner`, and `selfOrOwner`, each backed by contract tests. This keeps both coarse and object-level authz out of handler bodies (no scattered checks like the `reorder_rooms` gate). Handlers are typed against their schemas (a mismatch fails to compile). The route table REPLACES the roughly 949-line `dispatchCommand` switch (one source of truth, no parallel switch). The API spec doc stays in lockstep with this table.
+- Contract-first, enforced by code: a single typed route table where each route declares `{ method, path, requiredCapability, resourceGuard, requestSchema, responseSchema, emits }`. Authorization is two-stage and both stages are declared, not hand-written in handlers: (1) the dispatcher checks the coarse `requiredCapability` from the token before the handler runs; (2) a declared `resourceGuard` expresses object-level authorization, subject binding, and ACL policy, enforced centrally or by the core op. Guards are named, reusable policies such as `agentParamMustEqualTokenAgent`, `requiresRoomAccess(agentId)`, `cronjobOwnerOrOfficeOwner`, and `selfOrOwner`, each backed by contract tests. This keeps both coarse and object-level authz out of handler bodies (no scattered checks like the `reorder_rooms` gate). Handlers are typed against their schemas (a mismatch fails to compile). The route table REPLACES the roughly 1,940-line `dispatchCommand` switch (one source of truth, no parallel switch). The API spec doc stays in lockstep with this table.
 - Core ops at the command-semantic level (`createRoom`/`closeRoom`/`updateUser` allowedRooms, and so on) own their compound side effects.
 - WS-command strangler: expand (the REST endpoint and the still-living WS command both delegate to ONE shared core op; the WS handler becomes a thin shim, so there is no behavior-drift window), then migrate the UI to REST, then contract (delete the WS command and its bespoke response, such as `settings_save_response`, `cwd_validation`, `agent_save_response`).
 - One wire stream, plural audiences. The wire is already one WebSocket per client. Audience is a declared, first-class attribute of each event TYPE, held in a single typed event registry (each event type declares its audience strategy, one of `all`, `owners`, `room-ACL`, `recipient-scoped`, `by-user`, `none`, plus its projection function). This is event-level, not merely route metadata, because many sensitive events have no owning HTTP route: backend stream events, terminal IO, presence, scheduler-fired cronjob events, auth expiry/revocation, and subprocess lifecycle. Route `emits` references event ids in that registry. A single emit helper is the only path to the wire, and contract tests enumerate the event union, assert each type's audience, and forbid raw `ws.send`/`broadcast` outside the dispatcher. `all` is classified as rare and explicitly reviewed (it is the easiest leak class). A single dispatcher applies the matching fan-out from the declaration; the fan-out strategies stay plural because they encode real security contracts. Concretely, `session_revoked` and `invite_revoked` carry owner-only token prefixes, usernames, expiry, and user-agent strings and must go owners-only (a plain broadcast would leak them); cronjob events are office-wide; agent and room events are room-ACL projected; invites/sessions lists are recipient-scoped (owner sees all, member sees own). This removes the former auth-events special-case (they become `audience: owners`) and folds non-observable into `audience: none`. Every externally-visible mutation declares its audience; the contract test asserts it.
@@ -75,11 +75,11 @@ The first implementation deliverable is the full API spec (contract-first), not 
 
 ### Dependency injection and module shape
 
-- Full DI for testability. Convert `agent-manager.ts` and `cronjob-manager.ts` from singleton function-modules (module-level `eventHandler`/`officeState`, exported functions) into instantiable units. Inject all three collaborators at construction via a `ManagerDeps` bundle: the backend resolver, the event sink (today the global `onEvent`/`eventHandler` setter), and the `officeState` instance. A production factory wires today's defaults; the manager instance owns its deps (do not thread deps through every function). This gives true test isolation and lets the projection/ACL harness observe emitted events deterministically without racing a module-global. The backend seam (`getBackend`, roughly 19 call sites) flows through the injected resolver, making `FakeBackend` injectable into both managers.
+- Full DI for testability. Convert `agent-manager.ts` and `cronjob-manager.ts` from singleton function-modules (module-level `eventHandler`/`officeState`, exported functions) into instantiable units whose collaborators are injected at construction (a production factory wires today's defaults; the instance owns its deps, so they are not threaded through every function). `AgentManager` takes a `ManagerDeps` bundle: the backend resolver, the event sink (today the global `onEvent`/`eventHandler` setter), and the `officeState` instance. `CronjobManager` does not own `officeState`, so it takes a smaller `CronjobManagerDeps`. That smaller bundle must still inject every collaborator it actually uses (the backend resolver, its own event sink, env/user resolution, run persistence, and a clock/scheduler seam for deterministic schedule-firing tests); a smaller bundle is not a license to keep reading users, env, or time through module globals. This gives true test isolation and lets the projection/ACL harness observe emitted events deterministically without racing a module-global. The backend seam (`getBackend`, ~16 invocations) flows through the injected resolver, making `FakeBackend` injectable into both managers.
 
 ### Infrastructure prereq: configurable state root
 
-- Persistence is homedir-hardcoded (`~/.isomux`) across roughly 20 files and 79 references with no config-root abstraction. Introduce a single config module for the state root (an `ISOMUX_HOME`-style override). Default to `~/.isomux` so production behavior is byte-for-byte unchanged; tests redirect to a temp dir. A cleanup guard refuses destructive cleanup unless the target realpath-resolves under the OS temp dir (symlink-safe) and always refuses the real `~/.isomux`. This ships as its own standalone, independently-tested commit.
+- Persistence is homedir-hardcoded (`~/.isomux`) across ~15 state-path sites in ~13 modules (each inlining its own `ISOMUX_DIR`), with no config-root abstraction. Introduce a single config module for the state root (an `ISOMUX_HOME`-style override). Default to `~/.isomux` so production behavior is byte-for-byte unchanged; tests redirect to a temp dir. A cleanup guard refuses destructive cleanup unless the target realpath-resolves under the OS temp dir (symlink-safe) and always refuses the real `~/.isomux`. This ships as its own standalone, independently-tested commit.
 
 ## Review gates
 
@@ -117,21 +117,21 @@ T3 is gated behind an env flag plus a separate `test:live` script, run manually 
 
 ### Test seams
 
-`FakeBackend` (implements the `Backend` interface, scripts `NormalizedEvent`s) is the main deterministic engine for T1, because the Backend seam is already clean and metaphor-free and the projection/stable-id work sits above it. It is injected via the `ManagerDeps` DI described in Decided. It is not the only seam; the following surfaces are not below Backend and need focused harnesses:
+`FakeBackend` (implements the `Backend` interface, scripts `NormalizedEvent`s) is the main deterministic engine for T1, because the Backend seam is already clean and metaphor-free and the projection/stable-id work sits above it. It is injected through the constructor DI described in Decided (`ManagerDeps` into `AgentManager`, `CronjobManagerDeps` into `CronjobManager`). It is not the only seam; the following surfaces are not below Backend and need focused harnesses:
 
 - Auth/session/invite/token: cookie auth, token auth, owner/member roles, origin/CSRF where practical, session revocation, the now-removed loopback bypass. Token lifecycle (generate/rotate on spawn/revive, revoke on kill/delete) and redaction (the token never appears in prompts, logs, errors, diffs, or over WS). Object-level guards (`agentParamMustEqualTokenAgent`, `requiresRoomAccess`, `cronjobOwnerOrOfficeOwner`, `selfOrOwner`). AGENT tokens cannot read cronjob transcripts.
 - Projection/fanout: multi-WebSocket tests with different users and access grants, not a single in-process client. The event registry: every event type has a declared audience and projection, a single emit helper is the only wire path, and no raw `ws.send`/`broadcast` exists outside the dispatcher. Preference writes (view-preference/order/notifRooms/defaultRoomId) never leak hidden-room existence.
 - Presence: its own `connectionId` map and recipient-specific room remapping.
 - Terminal/PTY: narrow fake/stubbed terminal-deps test for routing/ACL; real PTY only opt-in/local.
 - Editor/file/upload/read-file/diff affordances: HTTP routes plus FS helpers; test visibility/auth and path safety explicitly.
-- Cronjobs: own manager/persistence/transcript/manual-run/edit surface; `FakeBackend` injected via the same `ManagerDeps` DI.
+- Cronjobs: own manager/persistence/transcript/manual-run/edit surface; `FakeBackend` injected via `CronjobManager`'s own `CronjobManagerDeps` (backend resolver, event sink, env/user resolution, run persistence, clock/scheduler seam).
 - Safety hooks / plugin hooks / env loading: pre/post orchestration and prompt/env assembly. Includes a mem0-plugin compatibility test pinning that plugin pre/post hooks fire and their injected content reaches the prompt.
 - Codex App Server subprocess lifecycle: adapter contract plus opt-in live/subprocess smoke, not part of the main net.
 
 ### Infrastructure prerequisites
 
 1. Configurable state root, plus a cleanup guard (see Decided: Infrastructure prereq). Do this carefully or tests will mix real `~/.isomux` state with temp state.
-2. `ManagerDeps` DI so `FakeBackend`, the event sink, and `officeState` are injectable into both `AgentManager` and `CronjobManager`. The entire T1 tier depends on this.
+2. Constructor DI so `FakeBackend`, the event sink, and collaborators are injectable: `ManagerDeps` (backend resolver, event sink, `officeState`) into `AgentManager`, and `CronjobManagerDeps` (backend resolver, event sink, env/user resolution, run persistence, clock/scheduler seam; no `officeState`) into `CronjobManager`. The entire T1 tier depends on this.
 3. An in-process server harness that can connect multiple authenticated users/sockets against temp state.
 4. `package.json` scripts: `test` (no LLM) versus `test:live` (gated).
 
@@ -169,14 +169,14 @@ This is the highest-value net for both the projection/ACL service and stable roo
 
 ### API contract tests before implementation
 
-The full API spec (a separate deliverable, written first) is the contract: every resource, its method, its required capability, its request/response shape, and the audience of any event it emits. Tests are TDD'd against that spec, and the typed route table enforces it in code (validation plus types). This doubles as the refactor's contract-first deliverable.
+The full API spec (the first deliverable, captured below in the **Server API Spec** section) is the contract: every resource, its method, its required capability, its request/response shape, and the audience of any event it emits. Tests are TDD'd against that spec, and the typed route table enforces it in code (validation plus types). This doubles as the refactor's contract-first deliverable.
 
 ### Test-net build order (dependencies, not the implementation plan)
 
-These are ordering constraints for standing up the test net, not the overall implementation plan (that is a separate deliverable):
+These are ordering constraints for standing up the test net, not the overall implementation plan (that is the **Implementation plan** section below):
 
 1. Configurable state root plus cleanup guard.
-2. `ManagerDeps` DI (FakeBackend, event sink, officeState) into `AgentManager` and `CronjobManager`.
+2. Constructor DI: `ManagerDeps` (FakeBackend, event sink, officeState) into `AgentManager`, and `CronjobManagerDeps` (FakeBackend, event sink, env/user resolution, run persistence, clock/scheduler seam) into `CronjobManager`.
 3. In-process server harness with multiple authenticated users/sockets and temp state.
 4. Flagship onboarding/fresh-install test.
 5. Projection/ACL characterization (highest-value net).
@@ -224,9 +224,9 @@ Columns: README claim, risk tier, deterministic test path, live/manual coverage.
 
 ## Server API Spec
 
-The typed route table plus the event registry that together replace the ~949-line `dispatchCommand` switch and the ad-hoc HTTP handlers. Everything here is enforced in code (a route declares `{ opId, method, path, requiredCapability, resourceGuard, requestSchema, responseSchema, emits }`; an event declares `{ id, audience, projectionKey, payload }`) and pinned by contract tests. The spec and the table stay in lockstep: a route whose `emits` references an event id not in the registry, or a handler whose types do not match its schemas, fails to compile or fails a contract test.
+The typed route table plus the event registry that together replace the ~1,940-line `dispatchCommand` switch and the ad-hoc HTTP handlers. Everything here is enforced in code (a route declares `{ opId, method, path, requiredCapability, resourceGuard, requestSchema, responseSchema, emits }`; an event declares `{ id, audience, projectionKey, payload }`) and pinned by contract tests. The spec and the table stay in lockstep: a route whose `emits` references an event id not in the registry, or a handler whose types do not match its schemas, fails to compile or fails a contract test.
 
-It is a contract, not an implementation plan: it says what each surface is, who may call it, what it returns, and what it emits — not the order in which to build it (that is the separate planning deliverable).
+It is a contract, not an implementation plan: it says what each surface is, who may call it, what it returns, and what it emits — not the order in which to build it (that is the **Implementation plan** section below).
 
 ### Conventions
 
@@ -562,18 +562,70 @@ Request bodies and the reduced wire projections, aliased in code against `shared
 - `TaskCreateReq` `{ title, description?, priority?, assignee? }` (createdBy/username derived from token) · `TaskUpdateReq` `Partial<{ title, description, priority, status, assignee }>` · `TaskClaimReq` `{ assignee? }`
 - `CronCreateReq` `{ name, schedule, prompt, cwd, agentType?, modelFamily, effort, permissionMode, codexSandbox? }` (username derived from token) · `CronUpdateReq` `Partial<{ name, schedule, prompt, cwd, modelFamily, effort, permissionMode, codexSandbox, enabled }>` · `CronRunMessageReq` `{ text, device? }`
 
-## Implementation deliverables (not sequenced here)
+## Implementation plan
 
-The detailed ordered step-by-step plan is a SEPARATE deliverable, produced in its own dedicated session. The full server API spec — the first implementation deliverable — is captured above in the **Server API Spec** section. Two fixed points:
+The ordered, phased plan that sequences the locked design above into implementation. The altitude is deliberate: phases, dependencies, gates, and exit criteria, not a per-command or line-level checklist. The implementing agent owns the order of routes within a resource group and the line-level edits; this plan owns what must happen before what, and why.
 
-- Contract-first: the full API spec is the first deliverable. Write it and iron it out before transport implementation.
-- Config-root ships first as a standalone, independently-tested improvement (it unblocks the test net and has zero production behavior change).
+Two fixed points anchor the order:
 
-Major workstreams (unordered; to be sequenced in the planning session): config-root plus cleanup guard; full DI (`ManagerDeps`) plus FakeBackend injection; in-process multi-user/multi-socket harness; flagship onboarding test; projection/ACL plus persistence/migration characterization; the API spec plus contract tests; REST transport via the typed route table (strangler per command); rule-based ACL plus view-preference (including per-user room order) plus notifRooms; stable room IDs plus id-keyed wire (one coordinated deploy); audience-declared one-stream events; centralized idempotency.
+- Contract-first. The full API spec was the first deliverable and is already captured in the **Server API Spec** section; implementation is driven by it, with contract tests TDD'd against it.
+- Config-root ships first as a standalone, independently-tested commit (it unblocks the test net and has zero production behavior change).
 
-Final step, after the workstreams land: extract the Testing strategy section above into a standalone, maintained testing guide (tiers, how to run them, seams, conventions, reflecting what was actually built) and register it in `internal-docs/documentation.md`. This document stays the design and decision record; the testing guide becomes the living reference going forward.
+One shipping invariant governs the rest: every phase is independently shippable, and behavior-preserving wherever possible. P0 and P1 are pure additions (infrastructure and tests) with no runtime behavior change. The only unavoidable client-coordinated break is the P3c wire-shape change (dense indices to id-keyed maps), and it is isolated to its own deploy precisely so nothing else rides on a breaking change.
 
-## Follow-ups (to file at the end of the planning session)
+### Phase 0 — Test-infrastructure foundation
+
+Goal: make the new test tiers possible. No runtime behavior change; pure additions.
+
+- **0.1 Config-root + cleanup guard.** A single config module for the state root (an `ISOMUX_HOME`-style override) that defaults to `~/.isomux` so production is byte-for-byte unchanged; re-point the ~15 inlined `ISOMUX_DIR` sites at it. The cleanup guard refuses destructive cleanup unless the target realpath-resolves under the OS temp dir, and always refuses the real `~/.isomux`. Standalone, independently-tested commit. (Fixed first.)
+- **0.2 Constructor DI + FakeBackend.** Convert `AgentManager`/`CronjobManager` to instantiable units per the Decided "Dependency injection and module shape" bullet, with a production factory wiring today's defaults. Preserve the two init-order invariants the current modules rely on: rooms seeded synchronously at construction (the auth snapshot provider can fire before the async restore completes), and the construct-quietly-then-enable-persistence latch. `FakeBackend` is injected through the resolver.
+- **0.3 In-process harness + script split.** A harness that boots the server against temp state with multiple authenticated users and sockets. Add the `test` (no LLM) vs `test:live` (gated) package.json split.
+
+Exit: a T1 test can boot the server against a temp `ISOMUX_HOME`, connect multiple authenticated sockets, drive a `FakeBackend`, and assert on persisted files, with `bun test` making zero LLM calls.
+
+### Phase 1 — Characterization safety net
+
+Goal: freeze current observable behavior before any of it is refactored. Tests assert at public boundaries (WS messages, REST responses, persisted files) so they survive the refactor.
+
+- **1.1 Flagship onboarding / fresh-install** across the three backend-availability states. Sequenced first so config-root plus FakeBackend immediately prove the net is real.
+- **1.2 Projection/ACL characterization** (the checklist in the Testing strategy section). Highest-value net: it freezes the dense-index projection, per-recipient ACL filtering, the old global reorder behavior, the `create_room` owner fan-out, and presence projection, all of which Phase 3 rewrites. This is the before-and-after net that lets the ACL/view split (3b) proceed safely while the wire is still dense-index.
+- **1.3 Persistence/migration characterization.** Round-trip plus the existing load-time migrations, and the pre-flatten persisted shape, before stable room IDs touch it.
+- **1.4 Remaining net.** Queue/resume/fork/usage; route-level tests of the current HTTP surface (tasks, cronjobs, uploads, affordances, settings, auth policy) so the strangler has a before-picture; adapter fixtures plus opt-in live smoke.
+
+Exit: every refactor-adjacent README mechanism has a deterministic behavioral test; projection/ACL and persistence are frozen.
+
+### Phase 2 — Contract-enforcement foundation
+
+Goal: stand up the typed machinery the strangler will fill. No command migrated, no security behavior changed.
+
+- **2.1 Identity and capabilities.** Token scopes (user/agent/run), capability sets, `Authorization: Bearer` parsing alongside the existing cookie path, RUN-scope tokens for cron runs, and redaction (the token never appears in prompts, logs, errors, diffs, or over WS). Wire mint/rotate/revoke to spawn/kill/revive (agent) and to run lifecycle (cron); deliver via the existing per-agent env-injection path (`ISOMUX_AGENT_TOKEN`). Tokens are issued and accepted here additively: nothing is enforced yet, so the live loopback path keeps working.
+- **2.2 Guard catalog + two-stage dispatcher.** The named, individually contract-tested guards, and the dispatcher that checks the coarse `requiredCapability` and then the route's `resourceGuard`. No authorization logic in handler bodies.
+- **2.3 Route-table skeleton + emit helper + event registry + idempotency.** The typed route table, the single emit helper as the only path to the wire, the event registry with declared audiences, and the centralized `Idempotency-Key` middleware. Contract tests are TDD'd against the spec. The emit helper initially delegates to today's projection logic, so nothing changes on the wire yet.
+
+Gate (blocks Phase 3): a **Reviewer4 security pass** on the token/auth design and on the audience declarations (a mis-declared audience is a leak).
+
+Exit: the contract is enforced in code (types plus contract tests) for the machinery; the route table is ready to receive migrated commands.
+
+### Phase 3 — Transport migration and behavior changes
+
+Goal: move every command onto REST via the strangler (expand to one shared core op, migrate the UI, then contract away the WS command), and land the three behavior changes, ordered so policy changes are not entangled with the wire-shape change. The same fanout/UI zone is touched twice on purpose: an ACL/view-semantics failure (3b) stays decoupled from the id-keyed wire migration (3c).
+
+- **3a. Migrate the security-stable groups first.** Tasks, cronjobs (including the RUN-authed run affordances), agent self-affordances, sessions/invites, office settings, validation, backends, and uploads/file-serving move onto the unified REST surface (some routes are stranglers that replace a WS command, others are existing HTTP endpoints retained and now token-authed). These carry no ACL/view or wire-shape dependency, so they prove the new transport end-to-end on low-risk surface.
+- **Loopback-bypass removal (a discrete milestone, after 3a).** Once agent and run tokens are issued (2.1) and the documented agent curl snippets carry the `Authorization` header, flip the affordance and message endpoints from loopback-trust to token-required. A running agent has no `ISOMUX_AGENT_TOKEN` until its process env is refreshed, so legacy loopback auth and bearer auth coexist during a grace window: tests pin both paths while it is open, and the flip (which deletes the legacy path and its tests) lands on a restart/respawn boundary. This is its own milestone, not a line inside a resource-group migration.
+- **3b. Projection rewrite: rule-based ACL + view-preference split, plus audience-declared events.** Replace the materialized `create_room` owner fan-out with rule-based owner access and explicit member grants; split access (security) from view-preference (per-user order, shown set, `notifRooms ⊆ shown ⊆ accessible`, `defaultRoomId`); delete the `reorder_rooms` access gate (reorder becomes per-user and always allowed) and the `notifRooms` auto-sync; replace the implicit per-WebSocket projection with the declared registry plus emit-helper fan-out. The wire stays dense-index here: the projection/ACL service is built to emit today's shape first, so an ACL/view failure cannot be confused with the wire migration. Migration: members' `allowedRooms` become grants; owners drop `allowedRooms` as an access input and seed their view-preference from it.
+  - Gate: a **focused ACL security review** during this sub-phase (a mistake here is a security hole, not a bug).
+- **3c. Stable room IDs + id-keyed wire (the one coordinated deploy).** Flatten persistence so each `PersistedAgent` carries an explicit `roomId`; move the wire off dense per-recipient indices to id-keyed maps; convert every `agent.room` consumer to `roomId` and reset the in-memory `currentRoom` selection. Ship server, the production UI, and the demo/`demo-server` client in one coordinated deploy (a single restart), with no dual-shape shim.
+
+Exit: the `dispatchCommand` switch is deleted; the WS carries only the event stream plus the three inbound exceptions (interactive terminal IO, `presence_update`, `ping`); every command is REST.
+
+### Phase 4 — Close-out
+
+- Delete the now-dead surface, only after the strangler leaves it callerless: the ~1,940-line switch, the bespoke `*_response` messages, the `rooms_reordered` broadcast, and the materialized owner-access code.
+- Full suite plus ESLint, and a final review pass.
+- Extract the Testing strategy section into a standalone, maintained testing guide (tiers, how to run them, seams, conventions, reflecting what was actually built) and register it in `internal-docs/documentation.md` in the same change, so the doc index does not drift. This document stays the design and decision record; the testing guide becomes the living reference.
+- File the follow-ups below as tracked tasks.
+
+## Follow-ups (filed as tracked tasks during close-out)
 
 1. Skin / metaphor-agnostic core (existing task f48a9d52): `officeLayout` extraction, desk-as-skin, uncapping the 8-per-room limit, and the reference-client skin. Revisit when a second client is real.
 2. Capability-lattice expansion: grow the agent token's capability set additively as agent permissions broaden.
