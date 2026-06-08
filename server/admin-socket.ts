@@ -12,12 +12,12 @@
 // out of scope for the auth redesign.
 
 import { chmodSync, existsSync, statSync, unlinkSync } from "fs";
-import { homedir } from "os";
+import { STATE_ROOT } from "./config.ts";
 import { join } from "path";
 import { buildPublicOrigin, mintInvite } from "./auth.ts";
 import { getUserByName, hasOwner } from "./users.ts";
 
-const ISOMUX_DIR = join(homedir(), ".isomux");
+const ISOMUX_DIR = STATE_ROOT;
 const SOCKET_PATH = join(ISOMUX_DIR, "admin.sock");
 
 // 15 minutes: shell access + immediate hand-off to a browser. Tight enough

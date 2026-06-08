@@ -1,5 +1,5 @@
 import { join } from "path";
-import { homedir } from "os";
+import { STATE_ROOT } from "./config.ts";
 import {
   mkdirSync,
   appendFileSync,
@@ -22,7 +22,7 @@ import { familyFromLegacyModel, generateRoomId } from "../shared/types.ts";
 import { errMessage } from "../shared/errors.ts";
 import { normalizePublicOrigin } from "../shared/public-origin.ts";
 
-const ISOMUX_DIR = join(homedir(), ".isomux");
+const ISOMUX_DIR = STATE_ROOT;
 const LOGS_DIR = join(ISOMUX_DIR, "logs");
 const AGENTS_FILE = join(ISOMUX_DIR, "agents.json");
 const OFFICE_PROMPT_FILE = join(ISOMUX_DIR, "office-prompt.md");

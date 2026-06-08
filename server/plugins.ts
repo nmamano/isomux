@@ -31,14 +31,14 @@
  */
 
 import { appendFileSync, existsSync, mkdirSync, realpathSync } from "fs";
-import { dirname, join, resolve } from "path";
+import { dirname, join } from "path";
 import { homedir } from "os";
+import { STATE_ROOT } from "./config.ts";
 import { pathToFileURL } from "url";
 import type { IsomuxPlugin } from "../shared/plugin-types.ts";
 import type { EnabledPluginEntry } from "./persistence.ts";
 
-const ISOMUX_DIR = resolve(homedir(), ".isomux");
-const PLUGIN_LOG_PATH = join(ISOMUX_DIR, "logs", "plugins.jsonl");
+const PLUGIN_LOG_PATH = join(STATE_ROOT, "logs", "plugins.jsonl");
 
 export interface LoadedPlugin {
   plugin: IsomuxPlugin;

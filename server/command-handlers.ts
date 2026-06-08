@@ -29,7 +29,10 @@ import { buildSystemPrompt } from "./system-prompt.ts";
 import { getUserByName } from "./users.ts";
 import { listCronjobs, buildCronjobSystemPrompt } from "./cronjob-manager.ts";
 import { resolveSkillPrompt } from "./skills.ts";
-import { ensureCodexWrapperScript } from "./backends/codex/native-bin.ts";
+import {
+  ensureCodexWrapperScript,
+  codexWrapperCommandForShell,
+} from "./backends/codex/native-bin.ts";
 import { renderUsageReport } from "./usage-report.ts";
 import { computeIsomuxDiff, resolveDiffCwd } from "./isomux-diff.ts";
 import {
@@ -817,13 +820,14 @@ export function createCommandHandling(deps: HandlerDeps) {
         );
       }
       if (codexWrapperReady) {
+        const codexCmd = codexWrapperCommandForShell();
         deps.addLogEntry(
           agentId,
           "terminal-command",
-          "~/.isomux/bin/codex",
+          codexCmd,
           undefined,
           undefined,
-          { terminal: { command: "~/.isomux/bin/codex" } },
+          { terminal: { command: codexCmd } },
         );
       }
       deps.updateState(agentId, "waiting_for_response");

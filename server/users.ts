@@ -15,7 +15,7 @@
 // migrations.ts captures the original file before this rewrite.
 
 import { join } from "path";
-import { homedir } from "os";
+import { STATE_ROOT } from "./config.ts";
 import { existsSync, readFileSync } from "fs";
 import type {
   UserRecord,
@@ -33,7 +33,7 @@ import {
   type GhostVariant,
 } from "../shared/avatar.ts";
 
-const USERS_FILE = join(homedir(), ".isomux", "users.json");
+const USERS_FILE = join(STATE_ROOT, "users.json");
 
 // Internal storage: id → record. Lookup-by-name iterates and compares
 // lowercaseKey(record.name) === lowercaseKey(query). Display-case is

@@ -1,5 +1,6 @@
 import { resolve, join } from "path";
 import { homedir } from "os";
+import { STATE_ROOT } from "./config.ts";
 import {
   closeSync,
   existsSync,
@@ -104,7 +105,7 @@ export function claudeSessionFileExists(
 export function codexSessionsDir(env?: {
   [key: string]: string | undefined;
 }): string {
-  const codexHome = env?.CODEX_HOME || join(homedir(), ".isomux", "codex-home");
+  const codexHome = env?.CODEX_HOME || join(STATE_ROOT, "codex-home");
   return join(codexHome, "sessions");
 }
 

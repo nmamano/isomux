@@ -16,13 +16,18 @@
 //
 // Restore: documented in internal-docs/backup-restore.md (no automation).
 
-import { join, basename } from "path";
+import { join, basename, dirname } from "path";
 import { homedir } from "os";
 import { mkdirSync, existsSync, readdirSync, statSync, unlinkSync } from "fs";
 import { errMessage } from "../shared/errors.ts";
+import { STATE_ROOT } from "./config.ts";
 
-const ISOMUX_DIR_NAME = ".isomux";
 const HOME = homedir();
+// Back up the active state root, tarred as `-C <parent> <name>` so the archive
+// holds a single top-level dir. In production STATE_ROOT is ~/.isomux, so this
+// is byte-for-byte equivalent to the previous `-C $HOME .isomux`.
+const STATE_ROOT_PARENT = dirname(STATE_ROOT);
+const STATE_ROOT_NAME = basename(STATE_ROOT);
 const BACKUP_DIR =
   process.env.ISOMUX_BACKUP_DIR || join(HOME, "isomux-backups");
 const RETENTION = 7;
@@ -92,10 +97,13 @@ async function runBackup() {
   try {
     mkdirSync(BACKUP_DIR, { recursive: true });
     const dest = join(BACKUP_DIR, `isomux-${todayDateStr()}.tar.gz`);
-    const proc = Bun.spawn(["tar", "-czf", dest, "-C", HOME, ISOMUX_DIR_NAME], {
-      stdout: "pipe",
-      stderr: "pipe",
-    });
+    const proc = Bun.spawn(
+      ["tar", "-czf", dest, "-C", STATE_ROOT_PARENT, STATE_ROOT_NAME],
+      {
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
     const exitCode = await proc.exited;
     // GNU tar exits 1 when files changed during read (e.g. a JSONL got an
     // appended line while we were reading it). The archive is still valid;

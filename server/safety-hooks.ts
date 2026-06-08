@@ -20,8 +20,14 @@ import type {
 } from "@anthropic-ai/claude-agent-sdk";
 import { homedir } from "os";
 import { basename, resolve } from "path";
+import { STATE_ROOT } from "./config.ts";
 
-const ISOMUX_DIR = resolve(homedir(), ".isomux");
+// The write-protection root follows the active state root, so a test that
+// redirects ISOMUX_HOME protects its temp dir rather than the real one.
+// NOTE: the literal "~/.isomux" patterns in the command-text checks below are
+// deliberately NOT derived from this — they match what an agent literally
+// typed, not resolved app state. Do not replace those literals with STATE_ROOT.
+const ISOMUX_DIR = STATE_ROOT;
 
 // ---------------------------------------------------------------------------
 // Deny / Allow helpers

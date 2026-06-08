@@ -8,7 +8,7 @@
 // the security checklist in the auth-core task before declaring done.
 
 import { join } from "path";
-import { homedir } from "os";
+import { STATE_ROOT } from "./config.ts";
 import { existsSync, readFileSync } from "fs";
 import { randomBytes, createHash, timingSafeEqual } from "crypto";
 import type {
@@ -47,7 +47,7 @@ function snapshotRoomIds(): string[] {
 // ---------------------------------------------------------------------------
 // File layout
 
-const ISOMUX_DIR = join(homedir(), ".isomux");
+const ISOMUX_DIR = STATE_ROOT;
 const INVITES_FILE = join(ISOMUX_DIR, "invites.json");
 const SESSIONS_FILE = join(ISOMUX_DIR, "sessions.json");
 

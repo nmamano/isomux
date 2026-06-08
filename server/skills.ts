@@ -1,6 +1,7 @@
 import type { SkillInfo } from "../shared/types.ts";
 import { join } from "path";
 import { homedir } from "os";
+import { STATE_ROOT } from "./config.ts";
 import { existsSync, readdirSync, readFileSync } from "fs";
 
 // Shape of ~/.claude/plugins/installed_plugins.json that we care about.
@@ -90,7 +91,7 @@ function scanCommandsDir(
 export function discoverUserSkills(): SkillInfo[] {
   const skills: SkillInfo[] = [];
   const home = homedir();
-  scanSkillsDir(join(home, ".isomux", "skills"), "user", skills);
+  scanSkillsDir(join(STATE_ROOT, "skills"), "user", skills);
   scanSkillsDir(join(home, ".claude", "skills"), "user", skills);
   scanCommandsDir(join(home, ".claude", "commands"), "user", skills);
   return skills;
@@ -297,7 +298,7 @@ export function resolveSkillPrompt(name: string, cwd: string): string | null {
 
   const home = homedir();
   const candidates = [
-    join(home, ".isomux", "skills", name, "SKILL.md"),
+    join(STATE_ROOT, "skills", name, "SKILL.md"),
     join(home, ".claude", "skills", name, "SKILL.md"),
     join(home, ".claude", "commands", `${name}.md`),
     join(cwd, ".isomux", "skills", name, "SKILL.md"),

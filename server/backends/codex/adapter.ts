@@ -58,7 +58,11 @@ import {
   type JsonRpcNotification,
   type JsonRpcRequest,
 } from "./client.ts";
-import { getCodexLoginCommands, isCodexAuthenticated } from "./native-bin.ts";
+import {
+  codexWrapperCommandForShell,
+  getCodexLoginCommands,
+  isCodexAuthenticated,
+} from "./native-bin.ts";
 
 import type { InitializeParams } from "./_generated/InitializeParams.ts";
 import type { Model as CodexProtocolModel } from "./_generated/v2/Model.ts";
@@ -84,10 +88,14 @@ import type { ThreadTokenUsageUpdatedNotification } from "./_generated/v2/Thread
 // internal-docs/isolation-design.md) need to prefix the pasted command
 // with their own `CODEX_HOME=<path>` before pressing Enter — the wrapper's
 // default only kicks in when CODEX_HOME is unset.
+// Same wrapper command the [Copy to terminal] cards use, so the prose and the
+// cards never disagree — `~/.isomux/bin/codex` at the default root (byte-for-
+// byte prod), the active wrapper path under an ISOMUX_HOME override.
+const codexLoginCmd = codexWrapperCommandForShell();
 const LOGIN_INSTRUCTIONS = `To sign in to Codex, click [Copy to terminal] on one of the cards below:
 
-- \`~/.isomux/bin/codex login\`: if running isomux locally
-- \`~/.isomux/bin/codex login --device-auth\`: for remote or headless hosts (e.g. a Mac mini or Linux box you reach over a VPN)
+- \`${codexLoginCmd} login\`: if running isomux locally
+- \`${codexLoginCmd} login --device-auth\`: for remote or headless hosts (e.g. a Mac mini or Linux box you reach over a VPN)
 
 Press Enter to run, follow the prompts, then \`/clear\` this conversation to apply the new auth. Other codex agents apply on their next \`/clear\`.
 

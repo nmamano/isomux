@@ -10,7 +10,7 @@
 // stays in place forever — operator can roll back by restoring from it.
 
 import { join } from "path";
-import { homedir } from "os";
+import { STATE_ROOT } from "./config.ts";
 import {
   existsSync,
   mkdirSync,
@@ -21,7 +21,7 @@ import {
   writeFileSync,
 } from "fs";
 
-const ISOMUX_DIR = join(homedir(), ".isomux");
+const ISOMUX_DIR = STATE_ROOT;
 const BACKUPS_DIR = join(ISOMUX_DIR, "backups");
 
 // Files we copy into the backup bundle before the first rewrite. Any file

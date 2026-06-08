@@ -10,7 +10,7 @@
 //         sessions.json                fork lineage + per-session usage (same shape as agent)
 //         <sessionId>.jsonl            append-only log
 import { join } from "path";
-import { homedir } from "os";
+import { STATE_ROOT } from "./config.ts";
 import {
   mkdirSync,
   readFileSync,
@@ -21,7 +21,7 @@ import {
 import type { Cronjob, CronjobRun, LogEntry } from "../shared/types.ts";
 import { atomicWriteFileSync, type PersistedUsage } from "./persistence.ts";
 
-const ISOMUX_DIR = join(homedir(), ".isomux");
+const ISOMUX_DIR = STATE_ROOT;
 const CRONJOBS_DIR = join(ISOMUX_DIR, "cronjobs");
 const CRONJOBS_FILE = join(CRONJOBS_DIR, "cronjobs.json");
 const CRONJOB_HISTORY_FILE = join(CRONJOBS_DIR, "cronjob-history.json");

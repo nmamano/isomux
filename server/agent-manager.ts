@@ -57,6 +57,7 @@ import { mimeTypeForFilename } from "./mime-types.ts";
 import { autocompleteCommands } from "./commands.ts";
 import { join, basename } from "path";
 import { homedir } from "os";
+import { STATE_ROOT } from "./config.ts";
 import { rmSync, statSync, readFileSync, existsSync } from "fs";
 import {
   resolveCwd,
@@ -993,7 +994,7 @@ export function getKilledAgentSummaries(): KilledAgentSummary[] {
 // for the ~100-entry scale this file reaches in practice.
 function legacyKilledAtFromDisk(agentId: string): number {
   try {
-    return statSync(join(homedir(), ".isomux", "logs", agentId)).mtimeMs;
+    return statSync(join(STATE_ROOT, "logs", agentId)).mtimeMs;
   } catch {
     return 0;
   }
@@ -1220,7 +1221,7 @@ export async function restoreAgents() {
   // Clean up the pre-0.2.116 per-agent launcher scripts. Isomux now passes the
   // native Claude binary directly, so these are orphaned.
   try {
-    rmSync(join(homedir(), ".isomux", "launchers"), {
+    rmSync(join(STATE_ROOT, "launchers"), {
       recursive: true,
       force: true,
     });

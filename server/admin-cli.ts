@@ -7,10 +7,10 @@
 // HTTP-over-unix-socket from a one-shot client.
 
 import { request } from "http";
-import { homedir } from "os";
+import { STATE_ROOT } from "./config.ts";
 import { join } from "path";
 
-const SOCKET_PATH = join(homedir(), ".isomux", "admin.sock");
+const SOCKET_PATH = join(STATE_ROOT, "admin.sock");
 
 interface OwnerLoginOk {
   ok: true;
