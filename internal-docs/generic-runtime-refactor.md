@@ -1,6 +1,6 @@
 # Server Refactor: Master Design
 
-Status: design proposal. All design decisions are locked; this document is the single source of truth. Two artifacts are intentionally NOT in this document and will each be produced in a dedicated session: (1) the full server API spec (contract-first, done first), and (2) the ordered step-by-step implementation plan. This doc consolidates what turned out to be one architecture across three threads:
+Status: design proposal. All design decisions are locked; this document is the single source of truth. The full server API spec (contract-first, the first implementation deliverable) is now captured below as the **Server API Spec** section. One artifact remains intentionally separate, to be produced in its own dedicated session: the ordered step-by-step implementation plan. This doc consolidates what turned out to be one architecture across three threads:
 
 1. Client/server seam: a clean, testable core of command-semantic operations under thin transports. The office stays as the single client.
 2. Full, introspectable REST API: every capability reachable via REST; WS reserved for the live event stream.
@@ -222,9 +222,349 @@ Columns: README claim, risk tier, deterministic test path, live/manual coverage.
 | Pre-tool-call safety hooks | T0/T1 | hook blocks dangerous commands | - |
 | Plugin system (incl. mem0 memory) | T1 | plugin pre/post turn hooks; mem0 injected content reaches the prompt | - |
 
+## Server API Spec
+
+The typed route table plus the event registry that together replace the ~949-line `dispatchCommand` switch and the ad-hoc HTTP handlers. Everything here is enforced in code (a route declares `{ opId, method, path, requiredCapability, resourceGuard, requestSchema, responseSchema, emits }`; an event declares `{ id, audience, projectionKey, payload }`) and pinned by contract tests. The spec and the table stay in lockstep: a route whose `emits` references an event id not in the registry, or a handler whose types do not match its schemas, fails to compile or fails a contract test.
+
+It is a contract, not an implementation plan: it says what each surface is, who may call it, what it returns, and what it emits — not the order in which to build it (that is the separate planning deliverable).
+
+### Conventions
+
+- **Transport rule.** Persistent mutations and request/response queries are REST under `/api`. Live, interactive, or ephemeral transport messages stay on the WebSocket. This is the precise form of "full REST": the WS is not a command bus, but it is still the home of the live event stream (outbound) and of three inbound exceptions — interactive terminal IO, `presence_update` (ephemeral recipient-projected cursor telemetry), and `ping` (transport health). None of those three are durable commands with an outcome worth idempotency.
+- **No version segment.** Routes live under `/api/...` with no `/v1`. One owned client, one coordinated breaking deploy (id-keyed wire state) — a version segment would imply compatibility machinery we are explicitly not building. Versioning starts if and when a real external compatibility contract exists.
+- **Identity.** Every request resolves to an identity via a cookie (`isomux_session`, browser) or `Authorization: Bearer <token>` (user token or agent token). The resolved identity is `{ scope: "user" | "agent" | "cron-run", userId, agentId?, runId?, role: "owner" | "member", capabilities: Capability[] }`. There is no loopback bypass: reads and writes both require identity. Unauthenticated JSON requests get `401 { error: { code: "unauthenticated" } }`; browser navigation gets the login page.
+- **Two-stage authorization, both declared.** (1) The dispatcher checks the route's `requiredCapability` against the token's capability set before the handler runs. (2) The route's named `resourceGuard` enforces object-level authorization, subject binding, and ACL policy centrally. Handlers contain no authorization logic.
+- **Error envelope.** Errors are `{ error: { code, message } }` with an appropriate status (`400` validation, `401` unauthenticated, `403` forbidden, `404` not found, `409` conflict/stale, `422` semantic). Non-leak: any response touching a room/agent/session/log the caller cannot access returns a generic `403`/`404` — never an "exists-but-hidden" distinction. Preference writes referencing an inaccessible or unknown id are ignored or rejected generically.
+- **Idempotency.** A mutating POST may carry an `Idempotency-Key` header. Central middleware keys a short-TTL cache by `(identity, method, route, key)` plus a request-body hash: a repeat with the same key and body replays the cached response; the same key with a different body returns `409`. Optional per request. Subsumes today's `clientMessageId`.
+- **Double-signal.** The HTTP response is the per-caller outcome (ack, error, ids, navigation). The WS broadcast is shared state. The UI is echo-authoritative: it applies state from the broadcast and uses HTTP only for ack/error/ids/navigation. Combined with id-keyed entity state, this neutralizes the event-before-response race; the per-command `requestId` correlation machinery and its bespoke `*_response` messages are deleted (HTTP correlates natively).
+- **Connection binding.** A REST route that arms a recipient-scoped WS push (today only the editor file-watch) carries `X-Isomux-Connection-Id`, the `connectionId` the client learned from `session_context`. The server verifies that connection belongs to the authenticated session before binding the push, so a watch can only target the caller's own socket, never another user's.
+- **Schema notation.** Request/response shapes reference `shared/types.ts` types (`AgentInfo`, `RoomWire`, `TaskItem`, `Cronjob`, `CronjobRun`, `SessionInfo`, `SessionWire`, `InviteWire`, `OfficeSettings`, `LogEntry`, …). Office-wide `all` events never carry a full `UserRecord` or `OfficeSettings`; they carry the reduced wire projections defined under [Named request and wire shapes](#named-request-and-wire-shapes). Rows give the exact shape including the wrapper: `{ agent: AgentInfo }`, not bare `AgentInfo`; `TaskItem[]`; `204` for no-content. New request bodies are named there even though they become TS aliases in code.
+- **`emits` legend.** A route's `emits` is `—` (nothing observable), one event id, or several. Every id listed must exist in the [Event registry](#event-registry). `emits` is the route's declared contribution to shared state; the HTTP response is separate (the caller's outcome).
+- **Operation ids.** Every route has a stable `opId` (e.g. `agents.spawn`), independent of method and path. Contract tests, generated docs, and future feature-owned prompt snippets attach to `opId`, not to the path.
+- **Crosswalk · status.** The last column maps each route to today's surface and its strangler state: `[strangle]` new REST route; the old WS command / HTTP handler stays during migration delegating to the SAME core op, deleted after the UI moves; `[retain]` endpoint kept (now token-authed) as a stable compatibility surface; `[behavior-change]` semantics deliberately change (characterize old, then replace); `[new]` no prior equivalent; `[delete]` the old bespoke WS response/command is removed (folded into the HTTP response).
+
+### Identities and capabilities
+
+Three token scopes resolve to capability sets. Role (`owner`/`member`) is orthogonal to scope and is enforced by guards, not by the capability set.
+
+- **USER scope** (cookie or user bearer) carries the **browser set** — every capability below, gated further by guards (`officeOwner`, `selfOrOwner`, `requiresRoomAccess`). A member and an owner both hold the browser set; the owner-only routes are blocked for members by `officeOwner`, not by a missing capability.
+- **AGENT scope** (auto-injected `ISOMUX_AGENT_TOKEN`) carries exactly `{ agent:send-as-self, task:read, task:write, self:affordance }` and nothing else. Spawn, kill, room/user/office settings, invites, sessions, cronjob mutation, editor, terminal, and cronjob-transcript reads are all unreachable because the agent set omits their capability — narrowness comes from the identity being narrow, not from a separate automation tier.
+- **RUN scope** (auto-injected into a firing cronjob run's env, rotated per run, revoked when the run ends) carries exactly `{ self:affordance }`, bound to its `{ cronjobId, runId }`. It is the cron-run analogue of an agent token: a fresh cron run has no desk-agent identity, so its in-flight read-file/diff affordances authenticate as the run. This closes the loopback hole rather than relying on a bypass.
+
+| Capability | Held by USER | Held by AGENT | Gates |
+|---|---|---|---|
+| `office:read` | yes | no | read office/rooms/agents/users/sessions/logs (ACL-projected) |
+| `agent:manage` | yes | no | spawn/kill/revive/abort/edit/move agents, swap desks, topic |
+| `agent:converse` | yes | no | human↔agent chat: send/edit/cancel/resume/new-conversation |
+| `room:manage` | yes | no | create/close/rename rooms, room settings |
+| `view:manage` | yes | no | own view preferences (order, shown, notifRooms, defaultRoom) |
+| `user:self` | yes | no | edit own user record (name/env/prompt/avatar) |
+| `user:admin` | yes | no | edit/delete any user, set room-access grants (guard: `officeOwner`) |
+| `office:admin` | yes | no | office settings, access settings, env file (guard: `officeOwner`) |
+| `invite:manage` | yes | no | mint/list/revoke invites (scoped by guard) |
+| `session:manage` | yes | no | list/revoke sessions (scoped by guard) |
+| `cron:read` | yes | no | cronjob metadata + run transcripts (agents cannot read transcripts) |
+| `cron:manage` | yes | no | create/update/delete/run-now cronjobs, cronjob prompt |
+| `editor:use` | yes | no | open/save files in the editor |
+| `file:upload` | yes | no | upload message attachments |
+| `terminal:use` | yes | no | interactive terminal (WS) |
+| `task:read` | yes | yes | list/get tasks |
+| `task:write` | yes | yes | create/update/claim/done/delete tasks (attribution from token) |
+| `agent:send-as-self` | no | yes | POST an inter-agent message naming itself as sender |
+| `self:affordance` | no | yes† | read-file/diff/edit-file/terminal-command on its OWN chat |
+
+† `self:affordance` is also the sole capability of RUN scope (a firing cron run), bound to its `{ cronjobId, runId }` via `runParamMustEqualTokenRun`. RUN holds nothing else, so it gets a footnote rather than a near-empty column.
+
+The two agent-identity capabilities (`agent:send-as-self`, `self:affordance`) are deliberately absent from USER scope. A human is not an agent and has no own-chat; the human-facing equivalents (editor, message-to-agent) are separate browser routes with their own capability and guard. Impersonation is impossible by construction: a USER token cannot satisfy `agentParamMustEqualTokenAgent`/`senderMustEqualTokenAgent` (no `agentId`) and lacks the capability anyway. RUN scope holds only `self:affordance`, bound to its `{ cronjobId, runId }` via `runParamMustEqualTokenRun`, and can do nothing else.
+
+### Guard catalog
+
+Named, reusable, individually contract-tested policies. A route names one (possibly composite) guard; no authorization logic lives in handlers.
+
+| Guard | Applies to | Check | On failure |
+|---|---|---|---|
+| `public` | login/static surface | none | — |
+| `authenticated` | any identity | valid cookie or bearer | `401` |
+| `selfUser` | `/users/:username` self routes | `:username` resolves to `token.userId` | `403` |
+| `selfOrOwner` | user edit/delete | `selfUser` OR `officeOwner` | `403` |
+| `officeOwner` | owner-only routes | `token.role === "owner"` | `403` |
+| `requiresRoomAccess(ref)` | room/agent-scoped routes + data-exposing queries | caller has access to `ref` (a `roomId`, or an `agentId` resolved to its `roomId`) by owner-rule or explicit grant | generic `403`/`404` (no exists-but-hidden) |
+| `agentParamMustEqualTokenAgent` | self-affordance routes | AGENT scope ∧ `:id === token.agentId` | `403` |
+| `senderMustEqualTokenAgent` | inter-agent message | AGENT scope; sender authority is the token. `body.senderAgentId` is optional legacy input: rejected if present and ≠ `token.agentId`, ignored otherwise | `403` |
+| `messageSend` | `agents.sendMessage` (composite) | USER ⇒ `requiresRoomAccess(:id)`, sender derived from token; AGENT ⇒ `senderMustEqualTokenAgent`, cross-room delivery allowed (recipient existence checked, never an ACL leak); if a pending approval exists it must belong to `:id` before the text is interpreted as an allow/deny | `403`/`404` |
+| `cronjobOwnerOrOfficeOwner(:id)` | cronjob mutate/run | cronjob's creator `userId === token.userId` OR `officeOwner` | `403` |
+| `runParamMustEqualTokenRun` | cron-run affordances | RUN scope ∧ `token.cronjobId === :id` ∧ `token.runId === :runId` | `403` |
+
+Rule-based access (`requiresRoomAccess`) is the security input only: owners have access to all rooms by rule (no materialized `allowedRooms` fan-out), members by explicit grant. Visibility (which accessible rooms a user shows, and in what order) is a separate view-preference, never a security gate.
+
+### REST route table
+
+Grouped by resource. `Cap` = `requiredCapability`; `Guard` = `resourceGuard`. A `403` from any data-exposing query's guard is what keeps a query from becoming a leak — every row that can expose room/agent/session/log data carries a guard, not just a capability.
+
+**Agents — lifecycle**
+
+| opId | Method · Path | Cap | Guard | Request | Response | Emits | Crosswalk · status |
+|---|---|---|---|---|---|---|---|
+| `agents.spawn` | POST `/api/agents` | `agent:manage` | `requiresRoomAccess(body.roomId)` | `SpawnReq` | `{ agent: AgentInfo }` | `agent_added` | WS:spawn `[strangle]`, `[delete]` agent_save_response |
+| `agents.kill` | DELETE `/api/agents/:id` | `agent:manage` | `requiresRoomAccess(:id)` | — | `204` | `agent_removed`, `killed_agent_added` | WS:kill `[strangle]` |
+| `agents.revive` | POST `/api/agents/:id/revive` | `agent:manage` | `requiresRoomAccess(body.roomId)` ∧ `requiresRoomAccess(lastRoomId)` | `ReviveReq` | `{ agent: AgentInfo }` | `agent_added`, `killed_agent_removed` | WS:revive `[strangle]` |
+| `agents.abort` | POST `/api/agents/:id/abort` | `agent:manage` | `requiresRoomAccess(:id)` | — | `204` | — | WS:abort `[strangle]` |
+| `agents.update` | PATCH `/api/agents/:id` | `agent:manage` | `requiresRoomAccess(:id)` | `EditAgentReq` | `{ agent: AgentInfo }` | `agent_updated` | WS:edit_agent `[strangle]`, `[delete]` agent_save_response |
+| `agents.move` | POST `/api/agents/:id/move` | `agent:manage` | `requiresRoomAccess(:id)` ∧ `requiresRoomAccess(body.targetRoomId)` | `MoveAgentReq` | `{ agent: AgentInfo }` | `agent_updated` | WS:move_agent `[strangle]` |
+| `agents.setTopic` | PUT `/api/agents/:id/topic` | `agent:manage` | `requiresRoomAccess(:id)` | `TopicReq` | `204` | `agent_updated` | WS:set_topic `[strangle]` |
+| `agents.clearTopic` | DELETE `/api/agents/:id/topic` | `agent:manage` | `requiresRoomAccess(:id)` | — | `204` | `agent_updated` | WS:reset_topic `[strangle]` |
+| `rooms.swapDesks` | POST `/api/rooms/:roomId/swap-desks` | `agent:manage` | `requiresRoomAccess(:roomId)` | `SwapDesksReq` | `204` | `agent_updated` ×2 | WS:swap_desks `[strangle]` |
+
+**Agents — conversation**
+
+| opId | Method · Path | Cap | Guard | Request | Response | Emits | Crosswalk · status |
+|---|---|---|---|---|---|---|---|
+| `agents.sendMessage` | POST `/api/agents/:id/messages` | `agent:converse` \| `agent:send-as-self` | `messageSend` | `SendMessageReq` | `{ messageId }` | `log_entry`* | WS:send_message + HTTP:POST /agents/:id/message `[strangle]`. Sender authority is always the token; `senderAgentId` is optional legacy input, rejected only if present and ≠ `token.agentId` |
+| `agents.editMessage` | PATCH `/api/agents/:id/messages/:logEntryId` | `agent:converse` | `requiresRoomAccess(:id)` | `EditMessageReq` | `{ messageId }` | `log_entry`* | WS:edit_message `[strangle]` |
+| `agents.cancelQueued` | DELETE `/api/agents/:id/queue/:messageId` | `agent:converse` | `requiresRoomAccess(:id)` | — | `204` | — | WS:cancel_queued `[strangle]` |
+| `agents.sendNow` | POST `/api/agents/:id/send-now` | `agent:converse` | `requiresRoomAccess(:id)` | — | `204` | `log_entry`* | WS:send_now `[strangle]` |
+| `agents.newConversation` | POST `/api/agents/:id/new-conversation` | `agent:converse` | `requiresRoomAccess(:id)` | — | `204` | `clear_logs` | WS:new_conversation `[strangle]` |
+| `agents.resume` | POST `/api/agents/:id/resume` | `agent:converse` | `requiresRoomAccess(:id)` | `ResumeReq` | `204` | `log_entry`* | WS:resume `[strangle]` |
+| `agents.listSessions` | GET `/api/agents/:id/sessions` | `office:read` | `requiresRoomAccess(:id)` | — | `{ sessions: SessionInfo[], currentSessionId }` | — | WS:list_sessions `[strangle]`, `[delete]` sessions_list (guard replaces per-WS scoping) |
+
+\* `log_entry` (and `approval_request`, `clear_logs`) stream over the WS as the turn runs; the HTTP response only acks enqueue. Approvals: while `pendingPermission` is set for `:id`, the next `agents.sendMessage` to that agent is interpreted as the allow/deny reply (guarded by `messageSend`); no separate route.
+
+**Agents — self-affordances (AGENT scope, own chat)**
+
+| opId | Method · Path | Cap | Guard | Request | Response | Emits | Crosswalk · status |
+|---|---|---|---|---|---|---|---|
+| `agents.readFile` | POST `/api/agents/:id/read-file` | `self:affordance` | `agentParamMustEqualTokenAgent` | `AffordanceReadFileReq` | `{ ok: true }` | `log_entry` | HTTP:POST /agents/:id/read-file `[retain]` (now token-authed) |
+| `agents.diff` | POST `/api/agents/:id/diff` | `self:affordance` | `agentParamMustEqualTokenAgent` | `AffordanceDiffReq` | `{ ok: true }` | `log_entry` | HTTP:POST /agents/:id/diff `[retain]` |
+| `agents.editFile` | POST `/api/agents/:id/edit-file` | `self:affordance` | `agentParamMustEqualTokenAgent` | `AffordanceEditFileReq` | `{ ok: true }` | `log_entry` | HTTP:POST /agents/:id/edit-file `[retain]` |
+| `agents.terminalCommand` | POST `/api/agents/:id/terminal-command` | `self:affordance` | `agentParamMustEqualTokenAgent` | `AffordanceTerminalCmdReq` | `{ ok: true }` | `log_entry` | HTTP:POST /agents/:id/terminal-command `[retain]` |
+
+**Agents — editor (browser)**
+
+The editor is request/response, so it is REST (unlike the interactive terminal). `GET …/file` opens-and-registers a watch keyed by `(connectionId, agentId, path)`; the watch pushes `editor_external_change` over that session's WS; `DELETE …/file/watch` unregisters. Both `GET` and `DELETE` carry `X-Isomux-Connection-Id` (from `session_context`); the server verifies that connection belongs to the authenticated session before binding/unbinding, so the push reaches the right tab and cannot be aimed at another user's socket (see Conventions › Connection binding).
+
+| opId | Method · Path | Cap | Guard | Request | Response | Emits | Crosswalk · status |
+|---|---|---|---|---|---|---|---|
+| `agents.openFile` | GET `/api/agents/:id/file?path=` | `editor:use` | `requiresRoomAccess(:id)` | — | `{ content, mtime, language, size }` | `editor_external_change`† | WS:editor_open `[strangle]`, `[delete]` editor_content/editor_open_error |
+| `agents.saveFile` | PUT `/api/agents/:id/file` | `editor:use` | `requiresRoomAccess(:id)` | `EditorSaveReq` | `{ ok: true, mtime }` or `409 { reason:"stale", currentMtime }` | — | WS:editor_save `[strangle]`, `[delete]` editor_save_response |
+| `agents.closeFile` | DELETE `/api/agents/:id/file/watch?path=` | `editor:use` | `requiresRoomAccess(:id)` | — | `204` | — | WS:editor_close `[strangle]` |
+
+† pushed asynchronously to the watching session, not on the GET response.
+
+**Agents — uploads / file serving**
+
+| opId | Method · Path | Cap | Guard | Request | Response | Emits | Crosswalk · status |
+|---|---|---|---|---|---|---|---|
+| `agents.upload` | POST `/api/agents/:id/uploads` | `file:upload` | `requiresRoomAccess(:id)` | multipart (≤5 files, 20MB each, 40MB total) | `{ attachments: Attachment[] }` | — | HTTP:POST /api/upload/:agentId `[strangle]` |
+| `agents.getFile` | GET `/api/agents/:id/files/:filename` | `office:read` | `requiresRoomAccess(:id)` | — | file bytes | — | HTTP:GET /api/files/:agentId/:filename `[behavior-change]` now room-ACL-gated, not public-with-cookie |
+
+**Rooms**
+
+| opId | Method · Path | Cap | Guard | Request | Response | Emits | Crosswalk · status |
+|---|---|---|---|---|---|---|---|
+| `rooms.create` | POST `/api/rooms` | `room:manage` | `authenticated` | `RoomCreateReq` | `{ room: RoomWire }` | `room_created` | WS:create_room `[behavior-change]` creator gets access, owners by rule, NO allowedRooms fan-out |
+| `rooms.close` | DELETE `/api/rooms/:roomId` | `room:manage` | `requiresRoomAccess(:roomId)` | — | `204` | `room_closed` | WS:close_room `[strangle]` (cleanup trivial under rule-based access) |
+| `rooms.rename` | PATCH `/api/rooms/:roomId` | `room:manage` | `requiresRoomAccess(:roomId)` | `RoomRenameReq` | `204` | `room_renamed` | WS:rename_room `[strangle]` |
+| `rooms.setSettings` | PUT `/api/rooms/:roomId/settings` | `room:manage` | `requiresRoomAccess(:roomId)` | `RoomSettingsReq` | `204` | `room_settings_updated` | WS:update_room_settings `[strangle]`, `[delete]` settings_save_response |
+| `rooms.list` | GET `/api/rooms` | `office:read` | `authenticated` (ACL-projected) | — | `{ rooms: RoomWire[] }` (owner: all; member: accessible) | — | part of full_state today `[new]` explicit query |
+
+**View preferences (per-user; the visibility axis, never security)**
+
+| opId | Method · Path | Cap | Guard | Request | Response | Emits | Crosswalk · status |
+|---|---|---|---|---|---|---|---|
+| `view.get` | GET `/api/me/view` | `view:manage` | `authenticated` | — | `{ order, shown, notifRooms, defaultRoomId }` | — | `[new]` (was implicit in user record) |
+| `view.setOrder` | PUT `/api/me/view/order` | `view:manage` | `authenticated` | `ViewOrderReq` | `204` | `full_state` (self) | WS:reorder_rooms `[behavior-change]` per-user, always allowed; old global owner-only reorder deleted |
+| `view.setShown` | PUT `/api/me/view/shown` | `view:manage` | `authenticated` | `ShownRoomsReq` | `204` | `full_state` (self) | `[new]` (hide/show accessible rooms) |
+| `view.setNotifRooms` | PUT `/api/me/view/notif-rooms` | `view:manage` | `authenticated` | `NotifRoomsReq` | `204` | `user_updated` | WS:claim_user/update_user (notif slice) `[strangle]`; enforced ⊆ shown |
+| `view.setDefaultRoom` | PUT `/api/me/view/default-room` | `view:manage` | `authenticated` | `DefaultRoomReq` | `204` | `user_updated` | WS:claim_user/update_user (default slice) `[strangle]` |
+
+Non-leak invariant on all view writes: inaccessible or unknown room ids are ignored or generically rejected, never surfaced as exists-but-hidden. `notifRooms ⊆ shown ⊆ accessible` is enforced server-side; revoking access or hiding a room auto-drops it from `notifRooms`/`defaultRoomId`.
+
+**Users**
+
+| opId | Method · Path | Cap | Guard | Request | Response | Emits | Crosswalk · status |
+|---|---|---|---|---|---|---|---|
+| `users.list` | GET `/api/users` | `office:read` | `authenticated` | — | recipient-scoped: `{ users: UserAdminWire[] }` (owner) \| `{ users: UserPublicWire[] }` (member; own entry as `UserSelfWire`) | — | part of users_list today `[new]` explicit query |
+| `users.update` | PATCH `/api/users/:username` | `user:self` \| `user:admin` | `selfOrOwner` | `UserUpdateReq` | `{ user: UserSelfWire }` (self) \| `{ user: UserAdminWire }` (owner) | `user_updated`; `full_state` (self) when a private field changed | WS:update_user (record slice) `[strangle]`, `[delete]` settings_save_response. Name/env/prompt/avatar only. Public fields ride `user_updated` (`all`); a subject's private-field changes (env/prompt) reach only that subject's own sockets via `full_state`, never the `all` event |
+| `users.setAccess` | PUT `/api/users/:username/access` | `user:admin` | `officeOwner` | `SetAccessReq` | `{ user: UserAdminWire }` (to the owner caller) | `full_state` (target) | WS:update_user (allowedRooms slice) `[behavior-change]` access grants split from record edit; the target sees their new projection via `full_state`, not a broadcast of their grants |
+| `users.delete` | DELETE `/api/users/:username` | `user:self` \| `user:admin` | `selfOrOwner` (not last owner; owner≠self) | — | `204` | `users_list`, `session_expired` (target) | WS:delete_user `[strangle]`, `[delete]` delete_user_blocked |
+
+`users.update` no longer carries `defaultRoomId`/`notifRooms`/`allowedRooms`: the first two move to `view.*`, the third to `users.setAccess`. `claim_user` (first-login prefs) becomes `view.setDefaultRoom` + `view.setNotifRooms`.
+
+User wire projections (see [Named request and wire shapes](#named-request-and-wire-shapes)): `all` user events and the public roster carry `UserPublicWire` (id/name/role/avatar/createdAt only). A user's sensitive fields (`envFile`, `allowedRooms`, `memberPrompt`, view prefs) reach only that user (`UserSelfWire`) or an owner managing them (`UserAdminWire`), never the office-wide `all` audience. `UserRecord` is never a wire shape on an `all` channel.
+
+**Sessions, invites, access (auth surface)**
+
+The login HTML flow (`GET /`, `POST /auth/claim`, `GET /i/:token`, `POST /auth/accept`, `POST /auth/logout`, `GET /auth/login-bg.png`) is the cookie-minting browser surface and stays as-is (`public`/origin-checked, not `/api`). The management surface below becomes REST.
+
+| opId | Method · Path | Cap | Guard | Request | Response | Emits | Crosswalk · status |
+|---|---|---|---|---|---|---|---|
+| `invites.mint` | POST `/api/invites` | `invite:manage` | `officeOwner` | `InviteMintReq` | `{ url, invite: InviteWire }` | `invites_list` (recipient-scoped) | WS:mint_invite `[strangle]`, `[delete]` invite_minted |
+| `invites.mintSelf` | POST `/api/invites/self` | `invite:manage` | `authenticated` | — | `{ url, invite: InviteWire }` | `invites_list` | WS:mint_self_invite `[strangle]` |
+| `invites.list` | GET `/api/invites` | `invite:manage` | `authenticated` (recipient-scoped) | — | `{ invites: InviteWire[] }` | — | WS:list_invites `[strangle]` |
+| `invites.revoke` | DELETE `/api/invites/:tokenPrefix` | `invite:manage` | owner unrestricted; member own only | — | `204` | `invite_revoked` (owners), `invites_list` | WS:revoke_invite `[strangle]` |
+| `sessions.list` | GET `/api/sessions` | `session:manage` | `authenticated` (recipient-scoped) | — | `{ sessions: SessionWire[] }` | — | WS:list_active_sessions `[strangle]` |
+| `sessions.revoke` | DELETE `/api/sessions/:sessionPrefix` | `session:manage` | owner global / member self (not last owner) | — | `204` or `409 { reason }` | `session_revoked` (owners), `sessions_active_list`, `session_expired` (target) | WS:revoke_session `[strangle]`, `[delete]` revoke_blocked |
+| `sessions.logout` | DELETE `/api/sessions/current` | `authenticated` | not last owner session | — | `204` or `409 { reason }` | `session_expired` (self) | WS:logout + HTTP:/auth/logout `[strangle]`, `[delete]` logout_blocked |
+| `office.getAccess` | GET `/api/office/access` | `office:admin` | `officeOwner` | — | `AccessSettings` | — | WS:get_access_settings `[strangle]` |
+| `office.setAccess` | PUT `/api/office/access` | `office:admin` | `officeOwner` | `AccessSettingsReq` | `{ signInUrl, restartRequired }` | `invites_list` | WS:update_access_settings `[strangle]`, `[delete]` access_settings_updated |
+
+**Office settings, validation, backends**
+
+| opId | Method · Path | Cap | Guard | Request | Response | Emits | Crosswalk · status |
+|---|---|---|---|---|---|---|---|
+| `office.getSettings` | GET `/api/office/settings` | `office:admin` | `officeOwner` | — | `OfficeSettings` | — | `[new]` owner reads full settings incl `envFile` (the field that may not ride an `all` event) |
+| `office.setSettings` | PUT `/api/office/settings` | `office:admin` | `officeOwner` | `OfficeSettingsReq` | `204` | `office_settings_updated` | WS:update_office_settings `[strangle]`, `[delete]` settings_save_response; the `office_settings_updated` event carries public `name`/`prompt` only (`envFile` stays owner-only via `office.getSettings`) |
+| `validate.cwd` | POST `/api/validate/cwd` | `agent:manage` | `authenticated` | `ValidateCwdReq` | `{ ok, error? }` | — | WS:request_cwd_validation `[strangle]`, `[delete]` cwd_validation |
+| `validate.env` | POST `/api/validate/env` | `office:read` | office/other-user ⇒ `officeOwner`; own ⇒ `selfUser` | `ValidateEnvReq` | `{ ok, keyCount?, error? }` | — | WS:request_settings_validation `[strangle]`, `[delete]` settings_validation; the resolved env-file path is omitted from the response by design |
+| `backends.listModels` | GET `/api/backends/:agentType/models?cwd=&includeHidden=` | `agent:manage` | `authenticated` | — | `{ models: BackendModelWire[], authError? }` | — | WS:list_backend_models `[strangle]`, `[delete]` list_backend_models_response |
+
+**Tasks** (global shared board; `createdBy` + `username` derived from token, `assignee` from body)
+
+| opId | Method · Path | Cap | Guard | Request | Response | Emits | Crosswalk · status |
+|---|---|---|---|---|---|---|---|
+| `tasks.list` | GET `/api/tasks?status=&assignee=&title=` | `task:read` | `authenticated` | — | `TaskItem[]` | — | HTTP:GET /tasks `[retain]` (now token-authed) |
+| `tasks.get` | GET `/api/tasks/:id` | `task:read` | `authenticated` | — | `TaskItem` | — | HTTP:GET /tasks/:id `[retain]` |
+| `tasks.create` | POST `/api/tasks` | `task:write` | `authenticated` | `TaskCreateReq` | `TaskItem` (201) | `tasks` | HTTP:POST /tasks `[behavior-change]` createdBy/username from token, not body |
+| `tasks.update` | PATCH `/api/tasks/:id` | `task:write` | `authenticated` | `TaskUpdateReq` | `TaskItem` | `tasks` | HTTP:PATCH /tasks/:id + WS:update_task `[strangle]` |
+| `tasks.claim` | POST `/api/tasks/:id/claim` | `task:write` | `authenticated` | `TaskClaimReq` | `TaskItem` | `tasks` | HTTP:POST /tasks/:id/claim `[retain]` |
+| `tasks.done` | POST `/api/tasks/:id/done` | `task:write` | `authenticated` | — | `TaskItem` | `tasks` | HTTP:POST /tasks/:id/done `[retain]` |
+| `tasks.delete` | DELETE `/api/tasks/:id` | `task:write` | `authenticated` | — | `204` | `tasks` | WS:delete_task `[behavior-change]` HTTP DELETE was blocked; now unified |
+
+**Cronjobs** (metadata office-wide read; mutation owner-or-office-owner; transcripts `cron:read` — AGENT scope cannot read them)
+
+| opId | Method · Path | Cap | Guard | Request | Response | Emits | Crosswalk · status |
+|---|---|---|---|---|---|---|---|
+| `cron.list` | GET `/api/cronjobs` | `cron:read` | `authenticated` | — | `Cronjob[]` | — | HTTP:GET /cronjobs `[retain]` |
+| `cron.get` | GET `/api/cronjobs/:id` | `cron:read` | `authenticated` | — | `Cronjob` | — | HTTP:GET /cronjobs/:id `[retain]` |
+| `cron.create` | POST `/api/cronjobs` | `cron:manage` | `authenticated` | `CronCreateReq` | `Cronjob` | `cronjob_added` | WS:add_cronjob `[strangle]`, `[delete]` agent_save_response |
+| `cron.update` | PATCH `/api/cronjobs/:id` | `cron:manage` | `cronjobOwnerOrOfficeOwner(:id)` | `CronUpdateReq` | `Cronjob` | `cronjob_updated` | WS:update_cronjob `[strangle]` |
+| `cron.delete` | DELETE `/api/cronjobs/:id` | `cron:manage` | `cronjobOwnerOrOfficeOwner(:id)` | — | `204` | `cronjob_deleted` | WS:delete_cronjob `[strangle]` |
+| `cron.runNow` | POST `/api/cronjobs/:id/runs` | `cron:manage` | `cronjobOwnerOrOfficeOwner(:id)` | — | `{ runId }` | `cronjob_run_updated` | WS:run_cronjob_now `[strangle]` |
+| `cron.setPrompt` | PUT `/api/cron-prompt` | `cron:manage` | `officeOwner` | `{ value: string \| null }` | `204` | `cronjobs_prompt_updated` | WS:update_cronjobs_prompt `[behavior-change]` today has NO role check (any authenticated session); tightened to owner. Path off the `:id` namespace to avoid shadowing `/api/cronjobs/:id` |
+| `cron.listRuns` | GET `/api/cronjobs/:id/runs` | `cron:read` | `authenticated` | — | `{ runs: CronjobRun[] }` | — | WS:list_cronjob_runs `[strangle]` |
+| `cron.listAllRuns` | GET `/api/cron-runs` | `cron:read` | `authenticated` | — | `{ jobs: { cronjobId, runs: CronjobRun[] }[] }` | — | WS:list_all_cronjob_runs `[strangle]`, `[delete]` cronjob_runs_complete sentinel. Path off the `:id` namespace to avoid shadowing `/api/cronjobs/:id` |
+| `cron.getRun` | GET `/api/cronjobs/:id/runs/:runId` | `cron:read` | `authenticated` | — | `{ run: CronjobRun, entries: LogEntry[] }` | — | WS:load_cronjob_run `[behavior-change]` transcript returned as data, not replayed as log_entry events |
+| `cron.runMessage` | POST `/api/cronjobs/:id/runs/:runId/messages` | `cron:manage` | `cronjobOwnerOrOfficeOwner(:id)` | `CronRunMessageReq` | `{ messageId }` | `cron_run_log_entry` | WS:send_cronjob_run_message `[strangle]` |
+| `cron.editRunMessage` | PATCH `/api/cronjobs/:id/runs/:runId/messages/:logEntryId` | `cron:manage` | `cronjobOwnerOrOfficeOwner(:id)` | `EditMessageReq` | `{ messageId }` | `cron_run_log_entry` | WS:edit_cronjob_run_message `[strangle]` |
+| `cron.runReadFile` | POST `/api/cronjobs/:id/runs/:runId/read-file` | `self:affordance` | `runParamMustEqualTokenRun` | `AffordanceReadFileReq` | `{ ok: true }` | `cron_run_log_entry` | HTTP:POST /cronjobs/:jobId/runs/:runId/read-file `[strangle]` now RUN-token-authed (no loopback bypass) |
+| `cron.runDiff` | POST `/api/cronjobs/:id/runs/:runId/diff` | `self:affordance` | `runParamMustEqualTokenRun` | `AffordanceDiffReq` | `{ ok: true }` | `cron_run_log_entry` | HTTP:POST /cronjobs/:jobId/runs/:runId/diff `[strangle]` RUN-token-authed |
+
+**System**
+
+| opId | Method · Path | Cap | Guard | Request | Response | Emits | Crosswalk · status |
+|---|---|---|---|---|---|---|---|
+| `system.backupStatus` | GET `/api/backup/status` | `office:read` | `authenticated` | — | `{ lastRunAt, ok, error, retention, destDir }` | — | HTTP:GET /backup/status `[retain]` |
+
+### Event registry
+
+The single typed registry of every outbound WS event. Audience is a first-class attribute of the event TYPE (not of a route), because many sensitive events have no owning HTTP route (backend stream, terminal IO, presence, scheduler-fired cronjobs, auth expiry, subprocess lifecycle). A single emit helper is the only path to the wire; contract tests enumerate this union, assert each audience, and forbid raw `ws.send`/`broadcast` outside the dispatcher.
+
+`projectionKey` is the payload field(s) from which recipients are computed — its presence is what makes an audience auditable (an event whose audience cannot be computed from its payload is a bug the registry surfaces). Audience strategies: `all`, `owners`, `room-ACL`, `recipient-scoped`, `by-user`, `none`.
+
+Events whose mutation removes or relocates their projection source (`agent_removed`, `room_closed`, `agent_updated` on move) carry the pre-mutation room id(s) in the payload, so the audience is always computable without a post-mutation lookup. The emit helper captures that projection context before the core op mutates state; projection never depends on state the mutation just removed.
+
+**Live agent / room stream**
+
+| Event | Payload | Audience | projectionKey | Notes |
+|---|---|---|---|---|
+| `log_entry` | `{ entry: LogEntry }` | room-ACL | `agentId → roomId` | includes streamed turn output and the `approval_request` interactive prompt. Agent streams only; cron-run transcript entries use `cron_run_log_entry` |
+| `clear_logs` | `{ agentId }` | room-ACL | `agentId → roomId` | |
+| `slash_commands` | `{ agentId, commands, skills }` | room-ACL | `agentId → roomId` | server-pushed; no inbound route |
+| `agent_added` | `{ agent: AgentInfo }` | room-ACL | `agent.roomId` | room index projected per recipient; suppressed if hidden |
+| `agent_removed` | `{ agentId, roomId }` | room-ACL | `roomId` (carried; room at removal) | `[behavior-change]` today broadcast-all; scoping removes a minor id leak. `roomId` in the payload makes the audience computable after the delete |
+| `agent_updated` | `{ agentId, changes: Partial<AgentInfo> & { oldRoomId?, newRoomId? } }` (a move sets `oldRoomId`+`newRoomId`) | room-ACL | `agentId → roomId`; on move `oldRoomId ∪ newRoomId` (both carried) | a room-move triggers a recipient `full_state` refresh instead of a raw delta |
+| `killed_agent_added` | `{ agent: KilledAgentSummary }` | room-ACL | `lastRoomId` | |
+| `killed_agent_removed` | `{ agentId, lastRoomId }` | room-ACL | `lastRoomId` | |
+| `terminal_output` | `{ agentId, data }` | room-ACL | `agentId → roomId` | interactive; viewers gated by room access |
+| `terminal_exit` | `{ agentId, exitCode }` | room-ACL | `agentId → roomId` | |
+| `room_created` | `{ room: RoomWire }` | room-ACL | `room.id` | under rule-based access, owners always; members on grant |
+| `room_closed` | `{ roomId }` | room-ACL | `roomId` (pre-close access snapshot) | audience computed from who had access before cleanup; triggers recipient `full_state` refresh (index shift) |
+| `room_renamed` | `{ roomId, name }` | room-ACL | `roomId` | |
+| `room_settings_updated` | `{ roomId, prompt }` | room-ACL | `roomId` | |
+
+**State / projection (per-recipient)**
+
+| Event | Payload | Audience | projectionKey | Notes |
+|---|---|---|---|---|
+| `session_context` | `{ context }` | recipient-scoped | `connectionId` | connect handshake; the socket itself |
+| `full_state` | `{ agents, rooms, office, recentCwds, killedAgents }` | recipient-scoped | `userId` (ACL projection) | dense visible-room projection; agents filtered; killed filtered by `lastRoomId` |
+| `all_rooms_list` | `{ rooms: RoomWire[] }` | owners | owner-flag | unfiltered global rooms; owners only |
+| `presence_list` | `{ entries, totalOnlineUsers }` | recipient-scoped | `connectionId` + per-session projection | `currentRoomId` remapped to dense visible index; off-scene entries omitted |
+| `editor_external_change` | `{ agentId, path, mtime }` | recipient-scoped | `connectionId` | only the session whose watch is open |
+| `session_expired` | `{}` | recipient-scoped | `connectionId` | the socket being expired |
+
+**Office-wide (audience `all` — the leak-prone class)**
+
+These are intentionally office-wide read; each is justified (a global shared board, or office-wide metadata), and `all` is the leak-prone class. Two constraints it honors: (a) user/office payloads are reduced wire projections (`UserPublicWire`; office `name`/`prompt`), never the full `UserRecord`/`OfficeSettings`, so env paths, access grants, and profile prompts do not ride an `all` channel. (b) Cronjob events carry the full `Cronjob` (prompt, cwd, model/permission config, creator attribution, schedule), and `cron_run_log_entry` carries the live run-transcript stream: all office-wide-readable by design. Stored run-transcript bodies are deferred (Follow-up 3) and stay `cron:read`-gated, so AGENT scope can never read them.
+
+| Event | Payload | Audience | projectionKey | Notes |
+|---|---|---|---|---|
+| `users_list` | `{ users: UserPublicWire[] }` | all | none | public display metadata only (id/name/role/avatar/createdAt); env/access/prompt never broadcast |
+| `user_updated` | `{ user: UserPublicWire, prevName? }` | all | none | public fields only; a subject's private-field changes go recipient-scoped to their own sockets |
+| `tasks` | `{ tasks: TaskItem[] }` | all | none | global shared board |
+| `cronjobs_state` | `{ cronjobs, cronjobsPrompt }` | all | none | connect snapshot |
+| `cronjob_added` / `cronjob_updated` / `cronjob_deleted` | `{ cronjob }` / `{ id }` | all | none | cronjob metadata office-wide read |
+| `cronjobs_prompt_updated` | `{ value }` | all | none | |
+| `cronjob_run_updated` | `{ run: CronjobRun }` | all | none | run state; transcript reads are separately `cron:read`-gated |
+| `cron_run_log_entry` | `{ entry: LogEntry }` (`entry.agentId` = synthetic `cronrun-<runId>`) | all | none | live cron-run transcript stream: output, file/diff cards, run-message replies. Office-wide today (the accepted cron exposure); tightens to `cron:read` under Follow-up 3. Distinct from `log_entry` because a run has no room, so it broadcasts rather than projecting room-ACL |
+| `office_settings_updated` | `{ name, prompt }` | all | none | public office metadata only; `envFile` is owner-only via `office.getSettings`, never in an `all` event |
+| `update_status` | `{ updateAvailable, current, latest }` | all | none | |
+
+**Auth-sensitive**
+
+| Event | Payload | Audience | projectionKey | Notes |
+|---|---|---|---|---|
+| `session_revoked` | `{ sessionPrefix }` | owners | owner-flag | a plain broadcast would leak the prefix |
+| `invite_revoked` | `{ tokenPrefix }` | owners | owner-flag | |
+| `invites_list` | `{ invites: InviteWire[] }` | recipient-scoped | `userId` | owner sees all; member sees own (by username) |
+| `sessions_active_list` | `{ sessions: SessionWire[] }` | recipient-scoped | `userId` | owner sees all; member sees own |
+
+**Retired response messages** (deleted from the WS; each becomes the HTTP response of its `opId`)
+
+`agent_save_response`, `settings_save_response`, `cwd_validation`, `settings_validation`, `list_backend_models_response`, `editor_content`, `editor_open_error`, `editor_save_response`, `sessions_list`, `cronjob_runs`, `cronjob_runs_complete`, `invite_minted`, `access_settings`, `access_settings_updated`, `delete_user_blocked`, `revoke_blocked`, `logout_blocked`. `pong` is the one kept WS reply (transport keepalive).
+
+**Deleted broadcast:** `rooms_reordered` is removed entirely — room order is now per-user view-preference (`view.setOrder`, which emits `full_state` (self)), so there is no global reorder broadcast to retire onto an HTTP response.
+
+### WebSocket surface (post-refactor)
+
+The WS is no longer a command bus. It carries:
+
+- **Outbound:** the entire event registry above, through the single audience-applying emit helper.
+- **Connect handshake:** authenticate (cookie or bearer + origin check) on upgrade, then `session_context`, `users_list`, `full_state`, `all_rooms_list` (owners), `tasks`, `cronjobs_state`, `presence_list`, and per-visible-agent `log_entry`/`slash_commands` replay.
+- **Inbound exceptions (the only inbound messages):** interactive terminal (`terminal_open`, `terminal_input`, `terminal_resize`, `terminal_close` → `terminal_output`/`terminal_exit`); `presence_update` (ephemeral recipient-projected cursor telemetry → `presence_list`); `ping` → `pong`. These are live/interactive/ephemeral transport, not durable commands — they have no idempotency or HTTP outcome and stay on the socket.
+
+### Named request and wire shapes
+
+Request bodies and the reduced wire projections, aliased in code against `shared/types.ts`. Fields marked `?` are optional.
+
+**Wire projections (response / event shapes):**
+
+- `UserPublicWire` `Pick<UserRecord, "id"|"name"|"role"|"avatarColor"|"avatarVariant"|"createdAt">`: office-wide user display metadata; the only user shape in `all` events and the public roster.
+- `UserSelfWire` `UserRecord`: the caller's own full record (env/access/prompt/view prefs); delivered only to that user.
+- `UserAdminWire` `UserRecord`: any user's full record; delivered only to owners. Same shape as `UserSelfWire`, separated by recipient so the audience contract is explicit.
+- Existing `shared/types.ts` types used verbatim as responses: `AgentInfo`, `RoomWire`, `TaskItem`, `Cronjob`, `CronjobRun`, `SessionInfo` (per-agent conversation list item), `SessionWire`, `InviteWire`, `OfficeSettings`, `KilledAgentSummary`, `LogEntry`, `BackendModelWire`, `Attachment`.
+- `AccessSettings` (the `office.getAccess` response) `{ externalAccess: boolean, publicOrigin: string | null, envOriginSet: boolean, envOrigin: string | null, boundLoopback: boolean }`.
+
+**Request bodies:**
+
+- `SpawnReq` `{ name, cwd, roomId, desk, permissionMode?, customInstructions?, outfit?, modelFamily?, effort?, agentType?, codexSandbox? }`
+- `EditAgentReq` `Partial<Pick<AgentInfo, "name"|"cwd"|"outfit"|"customInstructions"|"modelFamily"|"effort"|"permissionMode"|"codexSandbox">>`
+- `ReviveReq` `{ roomId, desk }` · `MoveAgentReq` `{ targetRoomId }` · `SwapDesksReq` `{ deskA, deskB }`
+- `SendMessageReq` `{ text, device?, attachments?: Attachment[], senderAgentId? }` (sender authority is the token; `senderAgentId` is optional legacy input, rejected if present and mismatched, ignored otherwise)
+- `EditMessageReq` `{ newText, device? }` · `ResumeReq` `{ sessionId }` · `TopicReq` `{ topic }`
+- `AffordanceReadFileReq` `{ path }` · `AffordanceEditFileReq` `{ path }` · `AffordanceDiffReq` `{ dir?, commit? }` · `AffordanceTerminalCmdReq` `{ command }`
+- `EditorSaveReq` `{ path, content, expectedMtime, force? }`
+- `RoomCreateReq` `{ name? }` · `RoomRenameReq` `{ name }` · `RoomSettingsReq` `{ prompt: string | null }`
+- `ViewOrderReq` `{ order: string[] }` · `ShownRoomsReq` `{ shown: string[] }` · `NotifRoomsReq` `{ notifRooms: string[] }` · `DefaultRoomReq` `{ defaultRoomId: string }`
+- `UserUpdateReq` `Partial<{ name, envFile, memberPrompt, avatarColor, avatarVariant }>` · `SetAccessReq` `{ allowedRooms: string[] }`
+- `InviteMintReq` `{ username, role, allowExisting? }` · `AccessSettingsReq` `{ externalAccess, publicOrigin }`
+- `OfficeSettingsReq` `{ prompt, envFile, name? }` · `ValidateCwdReq` `{ cwd }` · `ValidateEnvReq` `{ scope: "office"|"user", username? }`
+- `TaskCreateReq` `{ title, description?, priority?, assignee? }` (createdBy/username derived from token) · `TaskUpdateReq` `Partial<{ title, description, priority, status, assignee }>` · `TaskClaimReq` `{ assignee? }`
+- `CronCreateReq` `{ name, schedule, prompt, cwd, agentType?, modelFamily, effort, permissionMode, codexSandbox? }` (username derived from token) · `CronUpdateReq` `Partial<{ name, schedule, prompt, cwd, modelFamily, effort, permissionMode, codexSandbox, enabled }>` · `CronRunMessageReq` `{ text, device? }`
+
 ## Implementation deliverables (not sequenced here)
 
-The detailed ordered step-by-step plan and the full server API spec are SEPARATE deliverables, each produced in its own dedicated session. Two fixed points:
+The detailed ordered step-by-step plan is a SEPARATE deliverable, produced in its own dedicated session. The full server API spec — the first implementation deliverable — is captured above in the **Server API Spec** section. Two fixed points:
 
 - Contract-first: the full API spec is the first deliverable. Write it and iron it out before transport implementation.
 - Config-root ships first as a standalone, independently-tested improvement (it unblocks the test net and has zero production behavior change).
