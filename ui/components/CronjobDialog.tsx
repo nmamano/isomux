@@ -173,12 +173,24 @@ export function CronjobDialog({
         setModelsLoading(false);
         if (msg.ok && Array.isArray(msg.models)) {
           setBackendModels(msg.models);
-          // On create, snap to the auth-reported default. The model select
-          // is disabled during loading so the user can't have overridden us.
+          // On create, pick the default. Invariant: prefer Isomux's canonical
+          // default (CODEX_MODELS[0], currently gpt-5.5) when this auth tier
+          // offers it; otherwise fall back to Codex's per-auth isDefault, then
+          // the first listed model. We choose from the visible (non-hidden)
+          // models so the value always matches a rendered <option>. The model
+          // select is disabled during loading so the user can't have
+          // overridden us.
           if (!isEdit) {
+            const preferredModelId = CODEX_MODELS[0].value;
+            const visibleModels = msg.models.filter(
+              (m: BackendModelWire) => !m.hidden,
+            );
             const def =
-              msg.models.find((m: BackendModelWire) => m.isDefault) ??
-              msg.models[0];
+              visibleModels.find(
+                (m: BackendModelWire) => m.id === preferredModelId,
+              ) ??
+              visibleModels.find((m: BackendModelWire) => m.isDefault) ??
+              visibleModels[0];
             if (def) {
               setModelFamily(def.id);
               if (def.defaultEffort)
