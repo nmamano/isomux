@@ -90,18 +90,20 @@ export const DEFAULT_AGENT_CAPABILITIES: AgentCapabilities = {
 
 // Model families — what users pick ("I want Opus"). Exact versions are an
 // implementation detail that the system bumps centrally in FAMILY_TO_MODEL.
-export type ModelFamily = "opus" | "sonnet" | "haiku";
+export type ModelFamily = "opus" | "fable" | "sonnet" | "haiku";
 
 export type ClaudeModel = string;
 
 export const FAMILY_TO_MODEL: Record<ModelFamily, ClaudeModel> = {
   opus: "claude-opus-4-8",
+  fable: "claude-fable-5",
   sonnet: "claude-sonnet-4-6",
   haiku: "claude-haiku-4-5-20251001",
 };
 
 export const MODEL_FAMILIES: { family: ModelFamily; label: string }[] = [
   { family: "opus", label: "Opus" },
+  { family: "fable", label: "Fable" },
   { family: "sonnet", label: "Sonnet" },
   { family: "haiku", label: "Haiku" },
 ];
@@ -123,7 +125,7 @@ export const EFFORT_LEVELS: { level: EffortLevel; label: string }[] = [
   { level: "medium", label: "Medium" },
   { level: "high", label: "High" },
   { level: "xhigh", label: "Extra high" },
-  { level: "max", label: "Max (Opus only)" },
+  { level: "max", label: "Max" },
 ];
 
 export const DEFAULT_EFFORT: EffortLevel = "xhigh";
@@ -145,16 +147,20 @@ export const CODEX_MODELS: { value: string; label: string }[] = [
   { value: "gpt-5.2", label: "GPT-5.2" },
 ];
 
-// Extract "4.8" from "claude-opus-4-8" for display
+// Extract a display version from the exact model id: "claude-opus-4-8" -> "4.8",
+// "claude-fable-5" -> "5". Matches one or two numeric components after the
+// family prefix and stops before trailing date stamps
+// ("claude-haiku-4-5-20251001" -> "4.5").
 export function modelVersionLabel(family: ModelFamily): string {
   const exact = FAMILY_TO_MODEL[family];
-  const match = exact.match(/-(\d+)-(\d+)/);
-  return match ? `${match[1]}.${match[2]}` : exact;
+  const match = exact.match(/-(\d+)(?:-(\d+))?/);
+  if (!match) return exact;
+  return match[2] ? `${match[1]}.${match[2]}` : match[1];
 }
 
-// Type guard for Claude's three families.
+// Type guard for Claude's model families.
 export function isClaudeFamily(s: string): s is ModelFamily {
-  return s === "opus" || s === "sonnet" || s === "haiku";
+  return s === "opus" || s === "fable" || s === "sonnet" || s === "haiku";
 }
 
 // "Opus 4.8" for Claude families; "GPT-5 mini" etc for Codex. Falls back to
@@ -173,10 +179,26 @@ export function familyDisplayLabel(family: string): string {
 // Migrate a legacy exact model ID (e.g. "claude-opus-4-6") to a family.
 export function familyFromLegacyModel(model: string | undefined): ModelFamily {
   if (!model) return "opus";
+  if (model.includes("fable")) return "fable";
   if (model.includes("opus")) return "opus";
   if (model.includes("sonnet")) return "sonnet";
   if (model.includes("haiku")) return "haiku";
   return "opus";
+}
+
+// Claude families that support the "max" effort level. Historically opus-only;
+// Fable 5 (the 2.1.170 flagship) also supports it, verified end-to-end through
+// the bundled binary. Single source so the UI effort filters, the backend's
+// listModels metadata, and server-side validateEffort stay aligned.
+export function claudeFamilySupportsMaxEffort(family: string): boolean {
+  return family === "opus" || family === "fable";
+}
+
+// Claude families allowed to use Isomux's "auto" permission mode (the /resolve
+// auto-classifier). Gated to top-tier models for classifier reliability:
+// opus historically, now opus + fable.
+export function claudeFamilySupportsAutoPermission(family: string): boolean {
+  return family === "opus" || family === "fable";
 }
 
 // A pending message waiting for the agent to flush it. Senders can be human

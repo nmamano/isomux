@@ -65,6 +65,7 @@ import {
   FAMILY_TO_MODEL,
   MODEL_FAMILIES,
   EFFORT_LEVELS,
+  claudeFamilySupportsMaxEffort,
 } from "../../shared/types.ts";
 import type { ModelFamily, EffortLevel } from "../../shared/types.ts";
 import { getFilePath, saveFile } from "../persistence.ts";
@@ -1024,14 +1025,14 @@ export function createClaudeBackend(
       // and identical across auth tiers. Promote MODEL_FAMILIES to the
       // BackendModel shape so the UI can render Claude through the same
       // fetched-list path it uses for Codex. Effort filtering remains a
-      // family-level concern (opus-only "max", etc.) handled UI-side.
+      // family-level concern ("max" is top-tier only, etc.) handled UI-side.
       return MODEL_FAMILIES.map((m, i) => ({
         id: m.family,
         label: m.label,
         isDefault: i === 0,
         hidden: false,
         supportedEfforts: EFFORT_LEVELS.filter((e) => {
-          if (e.level === "max") return m.family === "opus";
+          if (e.level === "max") return claudeFamilySupportsMaxEffort(m.family);
           if (e.level === "minimal") return false;
           return true;
         }).map((e) => ({ level: e.level })),

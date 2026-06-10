@@ -13,6 +13,7 @@ import {
   CODEX_MODELS,
   DEFAULT_EFFORT,
   EFFORT_LEVELS,
+  claudeFamilySupportsMaxEffort,
   isClaudeFamily,
   type AgentBackendType,
   type AgentPermissionMode,
@@ -88,9 +89,10 @@ export function validateEffort(
   }
   if (!raw || !EFFORT_LEVELS.some((e) => e.level === raw))
     return DEFAULT_EFFORT;
-  // Claude family-level rules: "minimal" is Codex-only; "max" is opus-only.
+  // Claude family-level rules: "minimal" is Codex-only; "max" is top-tier only.
   if (raw === "minimal") return DEFAULT_EFFORT;
-  if (raw === "max" && modelFamily !== "opus") return DEFAULT_EFFORT;
+  if (raw === "max" && !claudeFamilySupportsMaxEffort(modelFamily))
+    return DEFAULT_EFFORT;
   return raw;
 }
 

@@ -8,6 +8,7 @@ import {
   DEFAULT_EFFORT,
   CODEX_MODELS,
   modelVersionLabel,
+  claudeFamilySupportsMaxEffort,
   type AgentBackendType,
   type BackendModelWire,
   type CodexSandboxMode,
@@ -596,10 +597,15 @@ export function CronjobDialog({
                 onChange={(e) => {
                   const next = e.target.value;
                   setModelFamily(next);
-                  // Claude family-level interlock: "max" effort is opus-only.
-                  // (The "auto" permission mode interlock is gone now that
-                  // cron's only Claude permission option is bypassPermissions.)
-                  if (!isCodex && next !== "opus" && effort === "max")
+                  // Claude family-level interlock: "max" effort is top-tier
+                  // only. (The "auto" permission mode interlock is gone now
+                  // that cron's only Claude permission option is
+                  // bypassPermissions.)
+                  if (
+                    !isCodex &&
+                    !claudeFamilySupportsMaxEffort(next) &&
+                    effort === "max"
+                  )
                     setEffort("xhigh");
                   // Codex: snap effort to the new model's default if the
                   // current effort isn't in its supportedEfforts list.
@@ -701,7 +707,8 @@ export function CronjobDialog({
               }
             } else {
               effortOptions = EFFORT_LEVELS.filter((opt) => {
-                if (opt.level === "max") return modelFamily === "opus";
+                if (opt.level === "max")
+                  return claudeFamilySupportsMaxEffort(modelFamily);
                 if (opt.level === "minimal") return false; // Codex-only
                 return true;
               }).map((o) => ({ level: o.level, label: o.label }));

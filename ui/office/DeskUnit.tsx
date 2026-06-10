@@ -7,6 +7,7 @@ import { deskPixelPos, DESK_SLOTS } from "./grid.ts";
 
 const MODEL_TINT: Record<string, { border: string; bg: string }> = {
   opus: { border: "rgba(100,160,255,0.85)", bg: "rgba(100,160,255,0.35)" },
+  fable: { border: "rgba(170,130,255,0.85)", bg: "rgba(170,130,255,0.35)" },
   sonnet: { border: "rgba(218,165,32,0.80)", bg: "rgba(218,165,32,0.32)" },
   haiku: { border: "rgba(230,130,180,0.80)", bg: "rgba(230,130,180,0.32)" },
   "gpt-5.5": { border: "rgba(120,220,160,0.90)", bg: "rgba(120,220,160,0.36)" },

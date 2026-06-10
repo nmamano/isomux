@@ -14,6 +14,8 @@ import {
   DEFAULT_EFFORT,
   modelVersionLabel,
   CODEX_MODELS,
+  claudeFamilySupportsMaxEffort,
+  claudeFamilySupportsAutoPermission,
 } from "../../shared/types.ts";
 import {
   SHIRT_COLORS,
@@ -134,7 +136,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   );
   const claudeDefaultMode: AgentInfo["permissionMode"] =
     agent?.permissionMode === "auto" &&
-    (agent?.modelFamily ?? MODEL_FAMILIES[0].family) !== "opus"
+    !claudeFamilySupportsAutoPermission(
+      agent?.modelFamily ?? MODEL_FAMILIES[0].family,
+    )
       ? "bypassPermissions"
       : (agent?.permissionMode ?? "auto");
   const codexDefaultMode: AgentInfo["permissionMode"] =
@@ -593,7 +597,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
               </>
             ) : (
               <>
-                {modelFamily === "opus" && (
+                {claudeFamilySupportsAutoPermission(modelFamily) && (
                   <option value="auto">
                     Auto (classifier auto-approves safe actions)
                   </option>
@@ -653,9 +657,17 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 onChange={(e) => {
                   const next = e.target.value;
                   setModelFamily(next);
-                  if (!isCodex && next !== "opus" && permissionMode === "auto")
+                  if (
+                    !isCodex &&
+                    !claudeFamilySupportsAutoPermission(next) &&
+                    permissionMode === "auto"
+                  )
                     setPermissionMode("bypassPermissions");
-                  if (!isCodex && next !== "opus" && effort === "max")
+                  if (
+                    !isCodex &&
+                    !claudeFamilySupportsMaxEffort(next) &&
+                    effort === "max"
+                  )
                     setEffort("xhigh");
                   // Codex: when the model changes, snap effort to the new
                   // model's default if the current effort isn't supported.
@@ -761,7 +773,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
             } else {
               effortLevels = EFFORT_LEVELS.filter((opt) => {
                 if (opt.level === "max")
-                  return !isCodex && modelFamily === "opus";
+                  return !isCodex && claudeFamilySupportsMaxEffort(modelFamily);
                 if (opt.level === "minimal") return isCodex;
                 return true;
               }).map((o) => ({ level: o.level, label: o.label }));
