@@ -1099,7 +1099,7 @@ export function saveTasks(tasks: TaskItem[]) {
 // File storage (unified files/ directory with SHA256 dedup)
 // ---------------------------------------------------------------------------
 
-const MAX_FILE_BYTES = 20 * 1024 * 1024; // 20MB
+const MAX_FILE_BYTES = 200 * 1024 * 1024; // 200MB
 
 const EXTENSION_TO_MIME: Record<string, string> = {
   jpg: "image/jpeg",

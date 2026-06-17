@@ -1285,7 +1285,7 @@ export function LogView({
   function handleFileSelect(files: FileList | null) {
     if (!files || files.length === 0) return;
     for (const file of Array.from(files)) {
-      if (file.size > 20 * 1024 * 1024) {
+      if (file.size > 200 * 1024 * 1024) {
         const id = Math.random().toString(36).slice(2, 10);
         setStagedAttachments((prev) => [
           ...prev,
@@ -1296,7 +1296,7 @@ export function LogView({
             mediaType: file.type || "application/octet-stream",
             size: file.size,
             uploading: false,
-            error: "File too large (max 20MB)",
+            error: "File too large (max 200MB)",
           },
         ]);
         continue;
