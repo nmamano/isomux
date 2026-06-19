@@ -19,7 +19,10 @@ import type { AgentEvent } from "./internal-types.ts";
 import { runPreUseridBackupIfNeeded } from "./migrations.ts";
 import { createProductionAgentManager } from "./agent-manager.ts";
 import { getBackend } from "./backends/index.ts";
-import * as CronjobManager from "./cronjob-manager.ts";
+import {
+  createProductionCronjobManager,
+  registerProductionCronjobManagerForModuleReads,
+} from "./cronjob-manager.ts";
 import {
   loadRecentCwds,
   saveRecentCwd,
@@ -198,6 +201,13 @@ runPreUseridBackupIfNeeded();
 // env-file provider for env-loader. Tests build their own via
 // createAgentManager(deps) with a FakeBackend resolver.
 const agentManager = createProductionAgentManager();
+
+// The production CronjobManager instance. createProductionCronjobManager() wires
+// the real backend/env/user/persistence collaborators plus the system clock and
+// global timers, with no global side effects. Register it for the module-read
+// bridge that command-handlers/usage-report use (they don't hold the instance).
+const cronjobManager = createProductionCronjobManager();
+registerProductionCronjobManagerForModuleReads(cronjobManager);
 
 // Inject the room snapshot provider auth.ts uses when seeding a new
 // owner's allowedRooms at invite-acceptance time. The provider closes
@@ -872,7 +882,7 @@ agentManager.onEvent((event) => {
 });
 
 // Wire CronjobManager events to WebSocket broadcasts
-CronjobManager.onCronjobEvent((event) => {
+cronjobManager.onCronjobEvent((event) => {
   broadcast(event);
 });
 
@@ -2021,7 +2031,7 @@ async function dispatchCommand(
         break;
       }
       saveRecentCwd(cmd.cwd);
-      CronjobManager.addCronjob({
+      cronjobManager.addCronjob({
         name: cmd.name,
         schedule: cmd.schedule,
         prompt: cmd.prompt,
@@ -2064,7 +2074,7 @@ async function dispatchCommand(
         }
         saveRecentCwd(cmd.changes.cwd);
       }
-      CronjobManager.updateCronjob(cmd.id, cmd.changes);
+      cronjobManager.updateCronjob(cmd.id, cmd.changes);
       if (cmd.requestId) {
         ws.send(
           JSON.stringify({
@@ -2077,13 +2087,13 @@ async function dispatchCommand(
       break;
     }
     case "delete_cronjob":
-      CronjobManager.deleteCronjob(cmd.id);
+      cronjobManager.deleteCronjob(cmd.id);
       break;
     case "run_cronjob_now":
-      CronjobManager.runCronjobNow(cmd.id, session.username);
+      cronjobManager.runCronjobNow(cmd.id, session.username);
       break;
     case "update_cronjobs_prompt":
-      CronjobManager.setCronjobsPrompt(cmd.value);
+      cronjobManager.setCronjobsPrompt(cmd.value);
       ws.send(
         JSON.stringify({
           type: "settings_save_response",
@@ -2093,7 +2103,7 @@ async function dispatchCommand(
       );
       break;
     case "list_cronjob_runs": {
-      const runs = CronjobManager.getRunsForCronjob(cmd.cronjobId);
+      const runs = cronjobManager.getRunsForCronjob(cmd.cronjobId);
       ws.send(
         JSON.stringify({
           type: "cronjob_runs",
@@ -2106,7 +2116,7 @@ async function dispatchCommand(
     case "list_all_cronjob_runs": {
       // Returns runs for every cronjob dir on disk (including deleted ones)
       // so the Runs tab can surface historical runs after a cronjob is gone.
-      for (const { jobId, runs } of CronjobManager.getAllRunsByJob()) {
+      for (const { jobId, runs } of cronjobManager.getAllRunsByJob()) {
         ws.send(
           JSON.stringify({
             type: "cronjob_runs",
@@ -2124,7 +2134,7 @@ async function dispatchCommand(
       // Client passes jobId from the run row it just clicked, so no scan
       // needed. Works for runs from deleted cronjobs too: getRunTranscript
       // reads from disk regardless of whether the cronjob config still exists.
-      const { entries } = CronjobManager.getRunTranscript(
+      const { entries } = cronjobManager.getRunTranscript(
         cmd.cronjobId,
         cmd.runId,
       );
@@ -2135,7 +2145,7 @@ async function dispatchCommand(
     }
     case "send_cronjob_run_message":
       // Don't await — let it stream in the background (matches send_message).
-      void CronjobManager.sendRunMessage(
+      void cronjobManager.sendRunMessage(
         cmd.cronjobId,
         cmd.runId,
         cmd.text,
@@ -2145,7 +2155,7 @@ async function dispatchCommand(
       break;
     case "edit_cronjob_run_message":
       // Don't await — let it stream in the background (matches edit_message).
-      void CronjobManager.editRunMessage(
+      void cronjobManager.editRunMessage(
         cmd.cronjobId,
         cmd.runId,
         cmd.logEntryId,
@@ -3060,7 +3070,7 @@ const server = Bun.serve<WsData>({
             headers: corsHeaders,
           });
         }
-        const result = CronjobManager.emitCronjobRunReadFile(
+        const result = cronjobManager.emitCronjobRunReadFile(
           jobId,
           runId,
           path,
@@ -3093,7 +3103,7 @@ const server = Bun.serve<WsData>({
           if (body && typeof body.dir === "string") dir = body.dir;
           if (body && typeof body.commit === "string") commit = body.commit;
         } catch {}
-        const result = CronjobManager.emitCronjobRunDiff(
+        const result = cronjobManager.emitCronjobRunDiff(
           jobId,
           runId,
           dir,
@@ -3114,7 +3124,7 @@ const server = Bun.serve<WsData>({
           headers: corsHeaders,
         });
       }
-      const cronjobs = CronjobManager.listCronjobs();
+      const cronjobs = cronjobManager.listCronjobs();
       // GET /cronjobs
       if (parts.length === 1) {
         return new Response(JSON.stringify(cronjobs), { headers: corsHeaders });
@@ -3132,12 +3142,12 @@ const server = Bun.serve<WsData>({
       }
       // GET /cronjobs/:id/runs
       if (parts[2] === "runs" && parts.length === 3) {
-        const runs = CronjobManager.getRunsForCronjob(jobId);
+        const runs = cronjobManager.getRunsForCronjob(jobId);
         return new Response(JSON.stringify(runs), { headers: corsHeaders });
       }
       // GET /cronjobs/:id/runs/:runId
       if (parts[2] === "runs" && parts.length === 4) {
-        const { run, entries } = CronjobManager.getRunTranscript(
+        const { run, entries } = cronjobManager.getRunTranscript(
           jobId,
           parts[3],
         );
@@ -3707,8 +3717,8 @@ const server = Bun.serve<WsData>({
       ws.send(
         JSON.stringify({
           type: "cronjobs_state",
-          cronjobs: CronjobManager.listCronjobs(),
-          cronjobsPrompt: CronjobManager.getCronjobsPrompt(),
+          cronjobs: cronjobManager.listCronjobs(),
+          cronjobsPrompt: cronjobManager.getCronjobsPrompt(),
         }),
       );
       // Send update status
@@ -3936,7 +3946,7 @@ void (async () => {
 })();
 
 // Boot cronjob scheduler (loads configs, reconciles stale "running" rows, starts tick).
-CronjobManager.startCronjobScheduler();
+cronjobManager.startCronjobScheduler();
 
 // Daily ~/.isomux/ backup tarball with N=7 retention. See server/backup.ts.
 startBackupScheduler();

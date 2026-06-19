@@ -51,9 +51,10 @@ import { computeIsomuxDiff, resolveDiffCwd } from "./isomux-diff.ts";
 import { mimeTypeForFilename } from "./mime-types.ts";
 import { existsSync, statSync, readFileSync } from "fs";
 import { basename } from "path";
-import { getBackend } from "./backends/index.ts";
+import { getBackend as defaultResolveBackend } from "./backends/index.ts";
 import { stripPluginPrefix } from "./plugin-hooks.ts";
 import type {
+  Backend,
   BackendSession,
   CreateSessionOptions,
   NormalizedEvent,
@@ -72,32 +73,12 @@ import {
 // (not agent-manager) to keep cron decoupled from the orchestrator — the
 // `cronjob-manager → agent-manager → command-handlers → cronjob-manager`
 // cycle is what env-loader exists to break.
-import { buildEnvForUserId } from "./env-loader.ts";
-import { getUserByName } from "./users.ts";
-import {
-  loadCronjobs,
-  saveCronjobs,
-  loadCronjobHistory,
-  saveCronjobHistory,
-  loadCronjobsPrompt,
-  saveCronjobsPrompt,
-  migrateCronjobsPromptFromOfficeConfig,
-  loadRuns,
-  saveRuns,
-  appendRun,
-  updateRun,
-  findRun,
-  appendRunLog,
-  loadRunLog,
-  loadRunLogWithAncestors,
-  loadRunSessionsMap,
-  accumulateRunSessionUsage,
-  appendRunSessionUsageSnapshot,
-  persistRunSessionFork,
-  findUsageAtForkRun,
-  rollRunSessionUsageOnResume,
-  listAllCronjobIdsOnDisk,
-} from "./cronjob-persistence.ts";
+import { buildEnvForUserId as defaultResolveEnv } from "./env-loader.ts";
+import { getUserByName as defaultResolveUser } from "./users.ts";
+// The cron persistence surface is injected as a whole (see CronPersistence /
+// CronjobManagerDeps below). Imported as a namespace so the production factory
+// can pass it verbatim and the dep type can be derived from it without drift.
+import * as cronPersistence from "./cronjob-persistence.ts";
 
 // ---------------------------------------------------------------------------
 // In-memory state
@@ -132,22 +113,6 @@ interface ActiveRun {
   isResume: boolean;
 }
 
-const activeRuns = new Map<string, ActiveRun>(); // runId -> ActiveRun
-
-// Synchronously-claimed slot for runs whose resume/fork is mid-startup but
-// hasn't reached `activeRuns.set` yet. Without this gate, a second concurrent
-// send/edit call for the same runId would pass the activeRuns.has() check
-// during the awaits in editRunMessage (getSessionMessages → forkSession),
-// fork twice, and end up overwriting each other's ActiveRun entries.
-const startingRuns = new Set<string>();
-
-let cronjobs: Cronjob[] = [];
-let cronjobsPrompt: string | null = null;
-
-const HARD_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
-const TICK_INTERVAL_MS = 60 * 1000;
-const MIN_INTERVAL_MINUTES = 5;
-
 // ---------------------------------------------------------------------------
 // Event bus (server/index.ts wires this to the WebSocket broadcast)
 // ---------------------------------------------------------------------------
@@ -161,20 +126,123 @@ export type CronjobEvent =
   | { type: "log_entry"; entry: LogEntry }
   | { type: "clear_logs"; agentId: string };
 
-let eventHandler: (e: CronjobEvent) => void = () => {};
+// --- Dependency injection (Phase 0.2) ---
+//
+// CronjobManager was a singleton function-module (module-level cronjobs /
+// cronjobsPrompt / eventHandler + exported functions). It is now an
+// instantiable unit: createCronjobManager(deps) owns its collaborators;
+// createProductionCronjobManager() (bottom of file) wires today's defaults.
+// CronjobManager does NOT own officeState (rooms/agents are AgentManager's);
+// its deps are the backend resolver, an event sink, env + user resolution,
+// run/config persistence, and a clock + scheduler seam so schedule firing is
+// deterministically testable. The factory has no global side effects.
 
-export function onCronjobEvent(handler: (e: CronjobEvent) => void) {
-  eventHandler = handler;
+// The cron persistence surface, named and derived from the cronjob-persistence
+// module so it cannot drift from the real functions. (Consistent with the
+// ReturnType choice for the public surface; flagged in the handoff note.)
+export type CronPersistence = typeof cronPersistence;
+
+export interface CronClock {
+  now(): number;
 }
+
+export interface CronScheduler {
+  setTimeout: typeof setTimeout;
+  clearTimeout: typeof clearTimeout;
+  setInterval: typeof setInterval;
+  clearInterval: typeof clearInterval;
+}
+
+export interface CronjobManagerDeps {
+  // Backend resolver (production: getBackend). Run sessions flow through this,
+  // making FakeBackend injectable.
+  resolveBackend: (agentType: AgentBackendType) => Backend;
+  // Per-run env resolution (production: buildEnvForUserId from env-loader).
+  resolveEnv: typeof defaultResolveEnv;
+  // Owner lookup for env/identity (production: getUserByName).
+  resolveUser: typeof defaultResolveUser;
+  // The whole cron config/run persistence surface, injected as one unit.
+  persistence: CronPersistence;
+  // Time + scheduling seams so schedule-firing tests are deterministic.
+  clock: CronClock;
+  scheduler: CronScheduler;
+  // Event sink. Optional at construction (default noop); index.ts registers the
+  // real WS-broadcast sink via onCronjobEvent() after construction.
+  eventSink?: (e: CronjobEvent) => void;
+}
+
+// Public surface of a CronjobManager instance, derived from the explicitly
+// assembled return object below. (See handoff note re: ReturnType vs a
+// hand-written interface.)
+export type CronjobManager = ReturnType<typeof createCronjobManager>;
+
+export function createCronjobManager(deps: CronjobManagerDeps) {
+  const getBackend = deps.resolveBackend;
+  const {
+    resolveEnv: buildEnvForUserId,
+    resolveUser: getUserByName,
+    clock,
+    scheduler,
+  } = deps;
+  // Bind the injected persistence surface to the same local names the body
+  // already uses, so the run/config persistence call sites stay unchanged.
+  const {
+    loadCronjobs,
+    saveCronjobs,
+    loadCronjobHistory,
+    saveCronjobHistory,
+    loadCronjobsPrompt,
+    saveCronjobsPrompt,
+    migrateCronjobsPromptFromOfficeConfig,
+    loadRuns,
+    saveRuns,
+    appendRun,
+    updateRun,
+    findRun,
+    appendRunLog,
+    loadRunLog,
+    loadRunLogWithAncestors,
+    loadRunSessionsMap,
+    accumulateRunSessionUsage,
+    appendRunSessionUsageSnapshot,
+    persistRunSessionFork,
+    findUsageAtForkRun,
+    rollRunSessionUsageOnResume,
+    listAllCronjobIdsOnDisk,
+  } = deps.persistence;
+
+  const activeRuns = new Map<string, ActiveRun>(); // runId -> ActiveRun
+
+  // Synchronously-claimed slot for runs whose resume/fork is mid-startup but
+  // hasn't reached `activeRuns.set` yet. Without this gate, a second concurrent
+  // send/edit call for the same runId would pass the activeRuns.has() check
+  // during the awaits in editRunMessage (getSessionMessages → forkSession),
+  // fork twice, and end up overwriting each other's ActiveRun entries.
+  const startingRuns = new Set<string>();
+
+  let cronjobs: Cronjob[] = [];
+  let cronjobsPrompt: string | null = null;
+
+  const HARD_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+  const TICK_INTERVAL_MS = 60 * 1000;
+  const MIN_INTERVAL_MINUTES = 5;
+
+  // Event sink (instance-scoped). index.ts overrides via onCronjobEvent() after
+  // construction; deps.eventSink lets tests capture emitted events.
+  let eventHandler: (e: CronjobEvent) => void = deps.eventSink ?? (() => {});
+
+  function onCronjobEvent(handler: (e: CronjobEvent) => void) {
+    eventHandler = handler;
+  }
 
 // ---------------------------------------------------------------------------
 // Schedule math
 // ---------------------------------------------------------------------------
 
-export function computeNextFire(
+function computeNextFire(
   schedule: Schedule,
   anchor: number,
-  now: number = Date.now(),
+  now: number = clock.now(),
 ): number {
   if (schedule.type === "interval") {
     const intervalMs =
@@ -238,22 +306,22 @@ function clampSchedule(schedule: Schedule): Schedule {
 // CRUD
 // ---------------------------------------------------------------------------
 
-export function listCronjobs(): Cronjob[] {
+function listCronjobs(): Cronjob[] {
   return cronjobs;
 }
 
-export function getCronjobsPrompt(): string | null {
+function getCronjobsPrompt(): string | null {
   return cronjobsPrompt;
 }
 
-export function setCronjobsPrompt(value: string | null) {
+function setCronjobsPrompt(value: string | null) {
   const normalized = value && value.trim() ? value.trim() : null;
   cronjobsPrompt = normalized;
   saveCronjobsPrompt(normalized);
   eventHandler({ type: "cronjobs_prompt_updated", value: normalized });
 }
 
-export interface AddCronjobInput {
+interface AddCronjobInput {
   name: string;
   schedule: Schedule;
   prompt: string;
@@ -270,9 +338,9 @@ export interface AddCronjobInput {
   userId?: string | null;
 }
 
-export function addCronjob(input: AddCronjobInput): Cronjob {
+function addCronjob(input: AddCronjobInput): Cronjob {
   const schedule = clampSchedule(input.schedule);
-  const now = Date.now();
+  const now = clock.now();
   const agentType = input.agentType;
   const modelFamily = validateModelFamily(agentType, input.modelFamily);
   const effort = validateEffort(agentType, modelFamily, input.effort);
@@ -315,7 +383,7 @@ export function addCronjob(input: AddCronjobInput): Cronjob {
   return cronjob;
 }
 
-export function updateCronjob(
+function updateCronjob(
   id: string,
   changes: Partial<
     Pick<
@@ -368,7 +436,7 @@ export function updateCronjob(
     // anchor to createdAt for "predictable cadence", but that produces
     // immediate fires when the new period happens to align near `now`.
     const anchor = next.lastFireAt ?? next.createdAt;
-    next.nextFireAt = computeNextFire(next.schedule, anchor, Date.now());
+    next.nextFireAt = computeNextFire(next.schedule, anchor, clock.now());
   }
   cronjobs[idx] = next;
   saveCronjobs(cronjobs);
@@ -379,7 +447,7 @@ export function updateCronjob(
   return next;
 }
 
-export function deleteCronjob(id: string): boolean {
+function deleteCronjob(id: string): boolean {
   const idx = cronjobs.findIndex((c) => c.id === id);
   if (idx < 0) return false;
   const removed = cronjobs[idx];
@@ -393,21 +461,21 @@ export function deleteCronjob(id: string): boolean {
   return true;
 }
 
-export function getRunsForCronjob(jobId: string): CronjobRun[] {
+function getRunsForCronjob(jobId: string): CronjobRun[] {
   return loadRuns(jobId);
 }
 
 // Returns one entry per cronjob id that has a runs.json on disk — including
 // jobs whose configs have since been deleted. The Runs tab uses this so
 // historical runs from deleted cronjobs remain visible.
-export function getAllRunsByJob(): { jobId: string; runs: CronjobRun[] }[] {
+function getAllRunsByJob(): { jobId: string; runs: CronjobRun[] }[] {
   return listAllCronjobIdsOnDisk().map((jobId) => ({
     jobId,
     runs: loadRuns(jobId),
   }));
 }
 
-export function getRunTranscript(
+function getRunTranscript(
   jobId: string,
   runId: string,
 ): { run: CronjobRun | null; entries: LogEntry[] } {
@@ -429,7 +497,7 @@ export function getRunTranscript(
 // (e.g. betatest2 on 4001) tells its cronjobs to POST to the right port.
 const PORT = process.env.PORT || "4000";
 
-export function buildCronjobSystemPrompt(
+function buildCronjobSystemPrompt(
   cronjob: Cronjob,
   runId?: string,
 ): string {
@@ -549,7 +617,7 @@ function processNormalizedEvent(active: ActiveRun, ev: NormalizedEvent) {
       break;
     }
     case "tool_call": {
-      active.toolCallTimestamps.set(ev.toolUseId, Date.now());
+      active.toolCallTimestamps.set(ev.toolUseId, clock.now());
       writeLog(active, "tool_call", ev.name, {
         toolId: ev.toolUseId,
         input: ev.input,
@@ -559,7 +627,7 @@ function processNormalizedEvent(active: ActiveRun, ev: NormalizedEvent) {
     case "tool_result": {
       const callStart = active.toolCallTimestamps.get(ev.toolUseId);
       const duration_ms =
-        ev.durationMs ?? (callStart ? Date.now() - callStart : undefined);
+        ev.durationMs ?? (callStart ? clock.now() - callStart : undefined);
       if (callStart) active.toolCallTimestamps.delete(ev.toolUseId);
       writeLog(
         active,
@@ -709,9 +777,9 @@ function writeLog(
   extra?: Partial<Pick<LogEntry, "diff" | "file" | "terminal">>,
 ) {
   const entry: LogEntry = {
-    id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    id: `log-${clock.now()}-${Math.random().toString(36).slice(2, 6)}`,
     agentId: active.streamId,
-    timestamp: Date.now(),
+    timestamp: clock.now(),
     kind,
     content,
     ...(metadata ? { metadata } : {}),
@@ -781,7 +849,7 @@ function finalizeRun(
   if (!activeRuns.has(active.runId)) return;
   activeRuns.delete(active.runId);
   if (active.hardTimeoutTimer) {
-    clearTimeout(active.hardTimeoutTimer);
+    scheduler.clearTimeout(active.hardTimeoutTimer);
     active.hardTimeoutTimer = null;
   }
   // If init never arrived, the run row's rootSessionId is still the
@@ -808,7 +876,7 @@ function finalizeRun(
     .slice(0, 120);
   const updated = updateRun(active.jobId, active.runId, {
     status,
-    endedAt: Date.now(),
+    endedAt: clock.now(),
     errorReason: errorReason ?? null,
     previewText,
   });
@@ -837,7 +905,7 @@ function fire(
 
   const runId = generateCronjobRunId();
   const placeholderSessionId = `pending-${runId}`;
-  const now = Date.now();
+  const now = clock.now();
   const run: CronjobRun = {
     id: runId,
     cronjobId: jobId,
@@ -883,7 +951,7 @@ function fire(
   } catch (err) {
     const updated = updateRun(jobId, runId, {
       status: "failed",
-      endedAt: Date.now(),
+      endedAt: clock.now(),
       errorReason: `Failed to build env: ${errMessage(err)}`,
     });
     if (updated) eventHandler({ type: "cronjob_run_updated", run: updated });
@@ -905,7 +973,7 @@ function fire(
   } catch (err) {
     const updated = updateRun(jobId, runId, {
       status: "failed",
-      endedAt: Date.now(),
+      endedAt: clock.now(),
       errorReason: `Failed to create session: ${errMessage(err)}`,
     });
     if (updated) eventHandler({ type: "cronjob_run_updated", run: updated });
@@ -933,7 +1001,7 @@ function fire(
   };
   activeRuns.set(runId, active);
   active.consumerPromise = consumeUntilTurnCompleted(active);
-  active.hardTimeoutTimer = setTimeout(() => {
+  active.hardTimeoutTimer = scheduler.setTimeout(() => {
     if (!activeRuns.has(runId)) return;
     active.killed = true;
     try {
@@ -966,7 +1034,7 @@ function fire(
 
 function recordSkippedRun(job: Cronjob): CronjobRun {
   const runId = generateCronjobRunId();
-  const now = Date.now();
+  const now = clock.now();
   // Skipped runs never open a session, so there's deliberately no
   // <runId>/<sessionId>.jsonl on disk. The "skipped-<runId>" placeholder
   // satisfies the type; CronjobRunView shows "This run was skipped" without
@@ -1008,7 +1076,7 @@ function hasInFlightScheduledRun(jobId: string): boolean {
 }
 
 function tick() {
-  const now = Date.now();
+  const now = clock.now();
   for (const job of cronjobs) {
     if (!job.enabled) continue;
     if (now < job.nextFireAt) continue;
@@ -1035,7 +1103,7 @@ function tick() {
 // Manual trigger
 // ---------------------------------------------------------------------------
 
-export function runCronjobNow(id: string, username: string): CronjobRun | null {
+function runCronjobNow(id: string, username: string): CronjobRun | null {
   const job = cronjobs.find((c) => c.id === id);
   if (!job) return null;
   return fire(job, "manual", username);
@@ -1057,7 +1125,7 @@ const MAX_RUN_READ_FILE_BYTES = 20 * 1024 * 1024;
 // don't live in the agents Map, so they need their own lookup path. Only
 // active runs qualify: the entry has to land on a live stream so a reviewer
 // sees it in context.
-export function emitCronjobRunReadFile(
+function emitCronjobRunReadFile(
   jobId: string,
   runId: string,
   rawPath: string,
@@ -1131,7 +1199,7 @@ export function emitCronjobRunReadFile(
 // targets a different directory (defaults to the run's cwd snapshot);
 // optional `commit` shows a specific ref or range instead of uncommitted
 // changes. See computeIsomuxDiff for the supported commit syntax.
-export function emitCronjobRunDiff(
+function emitCronjobRunDiff(
   jobId: string,
   runId: string,
   dir?: string,
@@ -1200,9 +1268,9 @@ function emitRunErrorEntry(jobId: string, runId: string, message: string) {
   if (!run) return;
   const sessionId = run.currentSessionId ?? run.rootSessionId;
   const entry: LogEntry = {
-    id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    id: `log-${clock.now()}-${Math.random().toString(36).slice(2, 6)}`,
     agentId: cronjobRunStreamId(runId),
-    timestamp: Date.now(),
+    timestamp: clock.now(),
     kind: "error",
     content: message,
   };
@@ -1286,7 +1354,7 @@ function installResumedActive(
   });
   if (updated) eventHandler({ type: "cronjob_run_updated", run: updated });
   active.consumerPromise = consumeUntilTurnCompleted(active);
-  active.hardTimeoutTimer = setTimeout(() => {
+  active.hardTimeoutTimer = scheduler.setTimeout(() => {
     if (!activeRuns.has(run.id)) return;
     active.killed = true;
     try {
@@ -1301,7 +1369,7 @@ function installResumedActive(
 // Send a follow-up message into a finalized run by resuming the leaf session.
 // No-op if the run is missing, currently in flight, or has no real SDK
 // session to resume (skipped or pre-init failed).
-export async function sendRunMessage(
+async function sendRunMessage(
   jobId: string,
   runId: string,
   text: string,
@@ -1441,7 +1509,7 @@ function checkResumableSession(run: CronjobRun, leaf: string): string | null {
 // look identical to this layer. Per-backend fork mechanics
 // (Claude: SDK forkSession at predecessor; Codex: thread/fork +
 // thread/rollback) hide behind backend.forkSessionBeforeMessage.
-export async function editRunMessage(
+async function editRunMessage(
   jobId: string,
   runId: string,
   logEntryId: string,
@@ -1715,7 +1783,7 @@ async function editRunMessageImpl(
 // Startup reconciliation + scheduler boot
 // ---------------------------------------------------------------------------
 
-export function startCronjobScheduler() {
+function startCronjobScheduler() {
   // Load configs and cronjobsPrompt (with one-shot migration from the legacy
   // location in office-config.json — see migrateCronjobsPromptFromOfficeConfig).
   cronjobs = loadCronjobs();
@@ -1747,7 +1815,7 @@ export function startCronjobScheduler() {
   cronjobsPrompt = loadCronjobsPrompt();
 
   // Recompute nextFireAt for every cronjob from current time forward.
-  const now = Date.now();
+  const now = clock.now();
   let dirty = false;
   for (const job of cronjobs) {
     const schedule = clampSchedule(job.schedule);
@@ -1775,15 +1843,15 @@ export function startCronjobScheduler() {
     if (mutated) saveRuns(jobId, runs);
   }
 
-  setTimeout(() => tick(), 5_000); // initial tick after small delay
-  setInterval(() => tick(), TICK_INTERVAL_MS);
+  scheduler.setTimeout(() => tick(), 5_000); // initial tick after small delay
+  scheduler.setInterval(() => tick(), TICK_INTERVAL_MS);
 }
 
 // ---------------------------------------------------------------------------
 // Per-cronjob lifetime usage helpers (used by /isomux-usage)
 // ---------------------------------------------------------------------------
 
-export function readCronjobLifetimeUsage(jobId: string): {
+function readCronjobLifetimeUsage(jobId: string): {
   totalIn: number;
   cacheRead: number;
   cacheCreation: number;
@@ -1827,4 +1895,106 @@ export function readCronjobLifetimeUsage(jobId: string): {
     }
   }
   return totals;
+}
+
+  // Explicitly assembled public surface. The 16 symbols index.ts consumed off
+  // the old namespace import, plus buildCronjobSystemPrompt + readCronjobLifetimeUsage
+  // which the module-read bridge below forwards to for command-handlers/usage-report.
+  return {
+    onCronjobEvent,
+    listCronjobs,
+    getCronjobsPrompt,
+    setCronjobsPrompt,
+    addCronjob,
+    updateCronjob,
+    deleteCronjob,
+    getRunsForCronjob,
+    getAllRunsByJob,
+    getRunTranscript,
+    buildCronjobSystemPrompt,
+    runCronjobNow,
+    emitCronjobRunReadFile,
+    emitCronjobRunDiff,
+    sendRunMessage,
+    editRunMessage,
+    startCronjobScheduler,
+    readCronjobLifetimeUsage,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Production wiring
+// ---------------------------------------------------------------------------
+
+// Production factory: wires today's defaults (real backend resolver, env/user
+// resolution, the cronjob-persistence module, the system clock, and global
+// timers). No global side effects. index.ts calls this at boot; tests build
+// createCronjobManager(...) with fakes (FakeBackend, fake clock/scheduler,
+// in-memory persistence) instead.
+export function createProductionCronjobManager(): CronjobManager {
+  return createCronjobManager({
+    resolveBackend: defaultResolveBackend,
+    resolveEnv: defaultResolveEnv,
+    resolveUser: defaultResolveUser,
+    persistence: cronPersistence,
+    clock: { now: Date.now },
+    scheduler: { setTimeout, clearTimeout, setInterval, clearInterval },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Module-read compatibility bridge (Phase 0.2, Option B)
+// ---------------------------------------------------------------------------
+//
+// listCronjobs / readCronjobLifetimeUsage / buildCronjobSystemPrompt are read
+// by command-handlers.ts and usage-report.ts, which don't hold the manager
+// instance. Rather than thread the instance through their signatures (deferred
+// until handler/module ownership is clearer), index.ts registers the production
+// instance once at boot and these module-level functions forward to it. This
+// mirrors the existing provider-registration idiom (setRoomsSnapshotProvider,
+// setOfficeEnvFileProvider). Registration-only: no lazy construction, and it
+// throws if used before registration so a missing wire fails loudly.
+
+let productionForModuleReads: CronjobManager | null = null;
+
+// index.ts passes the production instance at boot. Tests may pass null to clear
+// the registration so a fake instance doesn't leak into a shared test process.
+export function registerProductionCronjobManagerForModuleReads(
+  manager: CronjobManager | null,
+): void {
+  productionForModuleReads = manager;
+}
+
+function requireProductionForModuleReads(): CronjobManager {
+  if (!productionForModuleReads) {
+    throw new Error(
+      "CronjobManager production instance not registered for module reads. " +
+        "index.ts must call registerProductionCronjobManagerForModuleReads() at boot.",
+    );
+  }
+  return productionForModuleReads;
+}
+
+export function listCronjobs(): Cronjob[] {
+  return requireProductionForModuleReads().listCronjobs();
+}
+
+export function readCronjobLifetimeUsage(jobId: string): {
+  totalIn: number;
+  cacheRead: number;
+  cacheCreation: number;
+  totalOut: number;
+  costUSD: number;
+} {
+  return requireProductionForModuleReads().readCronjobLifetimeUsage(jobId);
+}
+
+export function buildCronjobSystemPrompt(
+  cronjob: Cronjob,
+  runId?: string,
+): string {
+  return requireProductionForModuleReads().buildCronjobSystemPrompt(
+    cronjob,
+    runId,
+  );
 }
