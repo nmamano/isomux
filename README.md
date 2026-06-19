@@ -1,6 +1,6 @@
 # Isomux
 
-**Give your agents a cute office.** Multi-device, multi-user, multi-agent collaboration.
+**A meta-harness** for multi-device, multi-user, multi-agent collaboration in a cute office.
 
 free · open source · no account needed
 

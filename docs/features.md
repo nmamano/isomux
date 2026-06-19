@@ -4,6 +4,8 @@ navTitle: Full feature list
 
 # Full feature list
 
+Isomux is a meta-harness: it sits one level above Claude Code and Codex and manages multiple agents, adding inter-agent messaging, a shared task board, human collaboration features, a mobile UI, and more.
+
 ## Multi-provider
 
 - **Choose Claude or Codex** when spawning an agent. Provider is fixed for the agent's lifetime; mix providers across desks in the same office.

@@ -20,6 +20,7 @@ export function buildSystemPrompt(
   ownerMemberPrompt?: string | null,
 ): string {
   let systemPrompt = `You are "${agentName}", an agent in room "${roomName}" of the Isomux office.
+Isomux is a meta-harness: it runs Claude Code and Codex side by side and adds shared rooms, inter-agent messaging, a task board, file sharing, and human collaboration.
 Your goal is to help the office bosses, who talk to you in this chat.
 Messages are prefixed with the boss's name in brackets, optionally followed by a device in parentheses (e.g. \`[Nil]\` or \`[Nil (Phone)]\`).
 

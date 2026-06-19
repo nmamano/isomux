@@ -1,6 +1,8 @@
 # How it works
 
-Isomux runs as a **single Bun process** that manages persistent agent sessions — one per desk — across two backends: Claude ([Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk)) and Codex ([Codex app-server](https://github.com/openai/codex)).
+Isomux is a meta-harness: it sits one level above Claude Code and Codex and manages multiple agents, adding inter-agent messaging, a shared task board, human collaboration features, a mobile UI, and more.
+
+Under the hood, Isomux runs as a **single Bun process** that manages persistent agent sessions (one per desk) across two backends: Claude ([Claude Agent SDK](https://www.npmjs.com/package/@anthropic-ai/claude-agent-sdk)) and Codex ([Codex app-server](https://github.com/openai/codex)).
 
 A **WebSocket layer** keeps every connected device — and every connected user — in sync in real time. Open the same URL on your laptop, phone, and a friend's browser: all three see the same office, same conversations, same messages as they land.
 

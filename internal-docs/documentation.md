@@ -4,11 +4,20 @@ An index of every place that describes Isomux features to users. When a new feat
 
 These documents are written in my voice, so I need to approve any copy changes before they are applied.
 
+## Terminology
+
+- **meta-harness** is Isomux's category noun (what it is). Use it wherever a surface answers "what is Isomux?"
+- **office** is the product metaphor (the UI and experience). Keep it for the visual metaphor and the tagline.
+- **orchestration / orchestrator** stays for implementation internals (the session-management layer, provider dispatch) and general-domain discussion, not as Isomux's category label.
+
+Keep these consistent across all surfaces below.
+
 ## 1. GitHub README
 
 - **File:** `README.md`
 - **Audience:** Developers landing on the GitHub repo.
 - **Structure:**
+  - Headline tagline (the bold line under the H1): Isomux's one-line category pitch. **Must stay in lockstep with the landing's `<title>`, social meta tags, and hero (section 2), and the org profile tagline (section 11).**
   - `## Feature Highlights` — short bulleted list of the headline features. **Must stay in lockstep with the landing page's `<ul class="feature-highlights">` (see section 2)** — same bullets, same order, same wording. Any edit here needs a matching edit there, and vice versa. Ends with a one-liner linking to `docs/features.md`.
   - `## Get Started` — install & first-run instructions (basic local only). Ends with a link to `docs/self-hosted.md`.
   - `## How it works` — one-line link to `docs/how-it-works.md`. Technical overview content lives in the docs.
@@ -19,6 +28,7 @@ These documents are written in my voice, so I need to approve any copy changes b
 - **File:** `site/index.html`
 - **Audience:** Visitors to isomux.com.
 - **Structure:**
+  - `<title>`, social meta tags (og/twitter title + description), and the hero `<p class="tagline">`: Isomux's category pitch. **Must stay in lockstep with the README headline (section 1)** and the org profile tagline (section 11). The `<title>` and social titles use the short form; the description and hero use the full line.
   - `<section id="features">` with `<ul class="feature-highlights">` — **must stay in lockstep with the README's `## Feature Highlights` (section 1)**: same bullets, same order, same wording (modulo HTML markup, inline links, and code-style spans). Any edit here needs a matching edit there, and vice versa. Followed by a one-liner linking to `/docs/features`.
   - `<section id="setup">` — basic local Get Started (always open, no foldables). Ends with a link to `/docs/self-hosted` for always-on-server setups.
   - `<section id="how-it-works">` — one-line link to `/docs/how-it-works`. The actual technical overview lives in the docs.
@@ -66,19 +76,19 @@ These documents are written in my voice, so I need to approve any copy changes b
 - **Update when:** architecture-level changes land (SDK upgrades, lifecycle changes, new backends, new subsystems). Small feature tweaks usually don't need a blog update; the QoL Features section is the most likely to go stale.
 - **Deploy note:** lives in a separate Next.js repo — commit and push there, not here.
 
-## 7. Personal site — homepage hero carousel
+## 7. Personal site — homepage highlight (short blurb)
 
-- **File:** `~/nil/nilmamano.com/app/components/featured-projects-carousel.tsx` (the `projects` const, Isomux entry).
-- **Audience:** Visitors landing on nilmamano.com — one-line elevator pitch in a rotating carousel above the fold.
-- **Structure:** `title` + `tagline` (~one sentence) + `cta`. Keep the tagline tight; this is hero copy.
-- **Update when:** headline framing changes. The tagline should mirror the README's first highlight in spirit, not verbatim.
+- **File:** `~/nil/nilmamano.com/app/lib/highlights.ts` (the `HIGHLIGHTS` array, `agentic-tooling` entry's `blurb`).
+- **Audience:** Visitors landing on nilmamano.com — one-line pitch in the homepage highlights.
+- **Structure:** `statement` + `blurb` (one to two sentences) + `links`. Keep the blurb tight.
+- **Update when:** headline framing changes. Keep in lockstep with the body prose in `highlight-bodies.tsx` (section 8).
 
-## 8. Personal site — projects section
+## 8. Personal site — homepage highlight (body prose)
 
-- **File:** `~/nil/nilmamano.com/app/lib/research-projects.ts` (the `PROJECTS` array, Isomux entry).
-- **Audience:** Visitors scrolling down the personal site homepage to the Projects section.
-- **Structure:** `title` + `description` (2 short paragraphs). Slightly longer than the hero tagline; can mention one or two specific features.
-- **Update when:** headline framing changes. Keep consistent with the hero carousel.
+- **File:** `~/nil/nilmamano.com/app/lib/highlight-bodies.tsx` (the `HIGHLIGHT_BODIES` map, `agentic-tooling` entry).
+- **Audience:** Visitors on the nilmamano.com homepage — the expanded highlight prose with inline links, shared by the desktop orbit center and the mobile list.
+- **Structure:** short prose with woven links. Mirror the `highlights.ts` blurb (section 7) in spirit.
+- **Update when:** headline framing changes. Keep consistent with section 7.
 
 ## 9. Personal site — homepage chatbot system prompt
 
@@ -127,7 +137,7 @@ These aren't user-facing docs, but they do describe features and can fall out of
 5. `api/chat.ts` `SYSTEM_PROMPT` — the feature-list section and any relevant guideline.
 6. `server/command-handlers.ts` `help` handler and/or `server/commands.ts` — only if it adds a command or changes tips.
 7. `nilmamano.com/blog/isomux.mdx` — only for architecture-level changes.
-8. `nilmamano.com/app/components/featured-projects-carousel.tsx` and `nilmamano.com/app/lib/research-projects.ts` — only if the change rises to the elevator-pitch level.
+8. `nilmamano.com/app/lib/highlights.ts` and `nilmamano.com/app/lib/highlight-bodies.tsx` — only if the change rises to the elevator-pitch level.
 9. `nilmamano.com/app/lib/chat-prompts.ts` — only if the one-line summary needs to change.
 10. `nilmamano.com/_source_assets/resume_nilmamano.tex` — only for architecture/stack-level changes. Recompile the PDF (see section 10 for the command) and commit `public/resume/resume_nilmamano.pdf` alongside the .tex in the same change.
 11. `github.com/isomux/.github` `profile/README.md` — only if the headline tagline or showcase screenshot changes.

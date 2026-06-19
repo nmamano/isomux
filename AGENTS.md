@@ -1,6 +1,6 @@
 # Isomux
 
-Isomux is an agent management system. See the README.md for a full feature overview and setup instructions.
+Isomux is a meta-harness: it sits one level above Claude Code and Codex and manages multiple agents, adding inter-agent messaging, a shared task board, human collaboration, a mobile UI, and more. See the README.md for a full feature overview and setup instructions.
 
 ## How to develop
 
