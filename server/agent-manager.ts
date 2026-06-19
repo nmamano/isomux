@@ -1,4 +1,5 @@
 import type {
+  AgentBackendType,
   AgentInfo,
   AgentOutfit,
   AgentState,
@@ -107,34 +108,80 @@ import {
   type EventHandler,
   type EnqueueResult,
 } from "./internal-types.ts";
-import { getBackend } from "./backends/index.ts";
+import { getBackend as defaultResolveBackend } from "./backends/index.ts";
 import type {
   ApprovalDecision,
+  Backend,
   BackendSession,
   NormalizedEvent,
 } from "./backends/types.ts";
 import { OfficeState } from "../shared/office-state.ts";
 import {
-  buildEnvFor,
   buildEnvForUserId,
   setOfficeEnvFileProvider,
 } from "./env-loader.ts";
 import { getUserByName } from "./users.ts";
+// Backend-option validators live in agent-validators.ts so cron handlers can
+// share them. UI shouldn't send mismatched values, but a stale tab or hand-
+// crafted client could; each validator falls back to a safe default when the
+// value is outside the backend's allowlist.
+import {
+  validatePermissionMode,
+  validateModelFamily,
+  validateCodexSandbox,
+  validateEffort,
+} from "./agent-validators.ts";
 import {
   configurePluginHooks,
   runAgentTurn,
   stripPluginPrefix,
 } from "./plugin-hooks.ts";
-// Re-export so existing callers (`AgentManager.buildEnvFor` in server/index.ts)
-// keep working without rewiring imports across the file.
-export { buildEnvFor, buildEnvForUserId };
+// --- Dependency injection (Phase 0.2) ---
+//
+// AgentManager was a singleton function-module (module-level officeState /
+// eventHandler / agents map + exported functions). It is now an instantiable
+// unit: createAgentManager(deps) owns its collaborators; the production wiring
+// lives in createProductionAgentManager() at the bottom of this file. Tests
+// inject a FakeBackend resolver, a capturing event sink, and a fresh
+// OfficeState + persisted-agent snapshot for isolation. See
+// internal-docs/generic-runtime-refactor.md (Phase 0.2 / "Dependency injection
+// and module shape").
+
+export interface ManagerDeps {
+  // Backend resolver (production: getBackend). The ~16 body call sites flow
+  // through this, making FakeBackend injectable into the orchestrator.
+  resolveBackend: (agentType: AgentBackendType) => Backend;
+  // Office / rooms / tasks state. The caller seeds rooms synchronously so
+  // getRooms() returns real persisted ids before the async restoreAgents()
+  // completes (auth.ts's snapshot provider depends on this).
+  officeState: OfficeState;
+  // The persisted rooms+agents snapshot (Room[] — each room carries its agents)
+  // used by restoreAgents(). Production loads agents.json ONCE and seeds
+  // officeState rooms from this same array, so boot reads it exactly once and
+  // the auth snapshot sees what restore uses.
+  initialRooms: Room[];
+  // Event sink. Optional at construction (default noop); index.ts registers the
+  // real WS-broadcast sink via onEvent() AFTER construction, because that
+  // closure references broadcast helpers defined later in index.ts.
+  eventSink?: EventHandler;
+}
+
+// Public surface of an AgentManager instance, derived from the explicitly
+// assembled return object below. (See handoff note re: ReturnType vs a
+// hand-written interface.)
+export type AgentManager = ReturnType<typeof createAgentManager>;
+
+export function createAgentManager(deps: ManagerDeps) {
+  const getBackend = deps.resolveBackend;
+  const officeState = deps.officeState;
+  const initialLoadedAgents = deps.initialRooms;
 
 // Wire the plugin-hooks module to agent-manager's module-private pieces
 // (beginTurn / createTurnDeferred / logCache / room lookup). Called once at
 // boot from server/index.ts. Lives here rather than in plugin-hooks.ts so
 // that file stays decoupled from this one — runAgentTurn is the only
 // reverse import.
-export function configurePluginHooksDeps(): void {
+function configurePluginHooksDeps(): void {
   configurePluginHooks({
     beginTurn,
     createTurnDeferred,
@@ -272,7 +319,7 @@ function surfaceBackendNotConfigured(
 // username + device so display helpers can reconstruct `[Nil (Phone)]`. Old
 // log entries written before the device split lack the device key — readers
 // fall through to plain `[Nil]`.
-export function buildUserMeta(
+function buildUserMeta(
   username?: string,
   device?: string,
 ): Record<string, unknown> | undefined {
@@ -295,30 +342,9 @@ const logCache = new Map<string, LogEntry[]>(); // agentId → entries
 // id + stale logCache bound to the already-committed new cwd. The system_init
 // handler consumes this marker to clear that state on the empty-init path.
 const pendingCodexCwdReset = new Set<string>(); // agentId
-let eventHandler: EventHandler = () => {};
-const initialOfficeConfig: OfficeSettings = loadOfficeConfig();
-// Read the persisted rooms+agents shape ONCE at module init. The rooms
-// are seeded into OfficeState now so AgentManager.getRooms() returns
-// the real persisted ids immediately — required because auth.ts's
-// snapshot provider runs (e.g. on bootstrap invite acceptance) before
-// the async restoreAgents() finishes. restoreAgents reuses the cached
-// value for the agent-restoration pass below.
-const initialLoadedAgents = loadAgents();
-const officeState = new OfficeState({
-  rooms:
-    initialLoadedAgents.length > 0
-      ? initialLoadedAgents.map((r) => ({
-          id: r.id,
-          name: r.name,
-          prompt: r.prompt,
-        }))
-      : [{ id: generateRoomId(), name: "Room 1", prompt: null }],
-  office: {
-    prompt: initialOfficeConfig.prompt,
-    envFile: initialOfficeConfig.envFile,
-    name: initialOfficeConfig.name,
-  },
-});
+// Event sink (instance-scoped). index.ts overrides this via onEvent() after
+// construction; deps.eventSink lets tests capture emitted events.
+let eventHandler: EventHandler = deps.eventSink ?? (() => {});
 let officeStatePersistenceEnabled = false;
 // Fields on AgentInfo that aren't included in the persisted shape (see
 // persistAll below). agent_updated events that only touch these don't need
@@ -351,11 +377,11 @@ officeState.onChange((event) => {
   persistAll();
 });
 
-export function getRooms(): RoomWire[] {
+function getRooms(): RoomWire[] {
   return officeState.rooms.map((r) => ({ ...r }));
 }
 
-export function getOfficeSettings(): OfficeSettings {
+function getOfficeSettings(): OfficeSettings {
   return {
     prompt: officeState.office.prompt,
     envFile: officeState.office.envFile,
@@ -363,11 +389,11 @@ export function getOfficeSettings(): OfficeSettings {
   };
 }
 
-export function getTasks(): TaskItem[] {
+function getTasks(): TaskItem[] {
   return [...officeState.tasks];
 }
 
-export function addTask(
+function addTask(
   title: string,
   createdBy: string,
   opts?: {
@@ -382,7 +408,7 @@ export function addTask(
   return officeState.tasks[officeState.tasks.length - 1];
 }
 
-export function updateTask(
+function updateTask(
   id: string,
   changes: Partial<
     Pick<TaskItem, "title" | "description" | "priority" | "status" | "assignee">
@@ -394,7 +420,7 @@ export function updateTask(
   return officeState.tasks.find((t) => t.id === id) ?? null;
 }
 
-export function deleteTask(id: string): boolean {
+function deleteTask(id: string): boolean {
   const before = officeState.tasks.length;
   const events = officeState.deleteTask(id);
   if (officeState.tasks.length === before) return false;
@@ -403,7 +429,7 @@ export function deleteTask(id: string): boolean {
 }
 
 // Update office settings. Caller is responsible for validating envFile (see validateEnvPath).
-export function setOfficeSettings(
+function setOfficeSettings(
   prompt: string | null,
   envFile: string | null,
   name: string | null,
@@ -414,7 +440,7 @@ export function setOfficeSettings(
   for (const event of events) eventHandler(event);
 }
 
-export function setRoomSettings(
+function setRoomSettings(
   roomId: string,
   prompt: string | null,
 ): boolean {
@@ -427,21 +453,21 @@ export function setRoomSettings(
 }
 
 // Validate an env file path. Returns key count on success, throws on failure.
-export function validateEnvPath(path: string): number {
+function validateEnvPath(path: string): number {
   const parsed = readEnvFile(path);
   return Object.keys(parsed).length;
 }
 
-export function onEvent(handler: EventHandler) {
+function onEvent(handler: EventHandler) {
   eventHandler = handler;
 }
 
 // Get cached logs for an agent (used when browser connects after restore)
-export function getAgentLogs(agentId: string): LogEntry[] {
+function getAgentLogs(agentId: string): LogEntry[] {
   return logCache.get(agentId) ?? [];
 }
 
-export function getAgentCommands(agentId: string): {
+function getAgentCommands(agentId: string): {
   commands: { name: string; description?: string }[];
   skills: SkillInfo[];
 } {
@@ -452,11 +478,11 @@ export function getAgentCommands(agentId: string): {
   };
 }
 
-export function listSessions(agentId: string) {
+function listSessions(agentId: string) {
   return listAgentSessions(agentId);
 }
 
-export function getCurrentSessionId(agentId: string): string | null {
+function getCurrentSessionId(agentId: string): string | null {
   return agents.get(agentId)?.sessionId ?? null;
 }
 
@@ -464,7 +490,7 @@ export function getCurrentSessionId(agentId: string): string | null {
 // endpoint to derive the sender label instead of trusting the request body.
 // Prevents an attacker from spoofing identity or injecting prefix-delimiter
 // characters into the prompt that follows.
-export function getAgentDisplay(
+function getAgentDisplay(
   agentId: string,
 ): { name: string; roomName: string } | null {
   const managed = agents.get(agentId);
@@ -474,18 +500,9 @@ export function getAgentDisplay(
   return { name: managed.info.name, roomName: room.name };
 }
 
-export { validateCwd };
+// validateCwd is re-exposed via the returned AgentManager (imported from
+// cwd-utils.ts); the bare module re-export is gone with the singleton.
 
-// Backend-option validators live in agent-validators.ts so cron handlers can
-// share them. UI shouldn't send mismatched values, but a stale tab or hand-
-// crafted client could; each validator falls back to a safe default when the
-// value is outside the backend's allowlist.
-import {
-  validatePermissionMode,
-  validateModelFamily,
-  validateCodexSandbox,
-  validateEffort,
-} from "./agent-validators.ts";
 
 // Apply `fields` to managed.info in-place, run `fn`, and revert on throw.
 // Used by paths where a side effect (e.g. session recreate) reads AgentInfo
@@ -511,7 +528,7 @@ async function withAgentRollback(
   }
 }
 
-export async function editAgent(
+async function editAgent(
   agentId: string,
   changes: {
     name?: string;
@@ -787,12 +804,12 @@ export async function editAgent(
   for (const event of events) eventHandler(event);
 }
 
-export function swapDesks(deskA: number, deskB: number, roomId: string) {
+function swapDesks(deskA: number, deskB: number, roomId: string) {
   const events = officeState.swapDesks(deskA, deskB, roomId);
   for (const event of events) eventHandler(event);
 }
 
-export function createRoom(name?: string): string {
+function createRoom(name?: string): string {
   const events = officeState.createRoom(name);
   const created = events.find((e) => e.type === "room_created");
   if (!created) throw new Error("failed to create room");
@@ -800,14 +817,14 @@ export function createRoom(name?: string): string {
   return created.room.id;
 }
 
-export function closeRoom(roomId: string): boolean {
+function closeRoom(roomId: string): boolean {
   const events = officeState.closeRoom(roomId);
   if (events.length === 0) return false;
   for (const event of events) eventHandler(event);
   return true;
 }
 
-export function renameRoom(roomId: string, name: string): boolean {
+function renameRoom(roomId: string, name: string): boolean {
   const events = officeState.renameRoom(roomId, name);
   if (events.length === 0) return false;
   // Room name appears in the system prompt header; it's rebuilt at every
@@ -817,21 +834,21 @@ export function renameRoom(roomId: string, name: string): boolean {
   return true;
 }
 
-export function reorderRooms(order: string[]): boolean {
+function reorderRooms(order: string[]): boolean {
   const events = officeState.reorderRooms(order);
   if (events.length === 0) return false;
   for (const event of events) eventHandler(event);
   return true;
 }
 
-export function moveAgent(agentId: string, targetRoomId: string): boolean {
+function moveAgent(agentId: string, targetRoomId: string): boolean {
   const events = officeState.moveAgent(agentId, targetRoomId);
   if (events.length === 0) return false;
   for (const event of events) eventHandler(event);
   return true;
 }
 
-export function getAllAgents(): AgentInfo[] {
+function getAllAgents(): AgentInfo[] {
   // info.queue is initialized empty and never mutated; the live queue lives on
   // managed.messageQueue and reaches connected clients via incremental
   // agent_updated events. Splice it in here so full_state (sent on each new WS
@@ -974,7 +991,7 @@ function killedAgentSummaryFromHistory(
 // All currently-killed agents, sorted newest-first. Caller layers ACL
 // filtering and the cap. Legacy entries (no killedAt) get the agent's log
 // dir mtime as a proxy so they sort approximately by recency.
-export function getKilledAgentSummaries(): KilledAgentSummary[] {
+function getKilledAgentSummaries(): KilledAgentSummary[] {
   const history = loadAgentHistory();
   const summaries: KilledAgentSummary[] = [];
   for (const [id, entry] of Object.entries(history)) {
@@ -1217,7 +1234,7 @@ function restoreOrReviveAgent(opts: {
 }
 
 // Restore agents from disk on startup. Creates sessions and loads log history.
-export async function restoreAgents() {
+async function restoreAgents() {
   // Clean up the pre-0.2.116 per-agent launcher scripts. Isomux now passes the
   // native Claude binary directly, so these are orphaned.
   try {
@@ -1251,7 +1268,7 @@ export async function restoreAgents() {
   return [...agents.values()].map((a) => a.info);
 }
 
-export function getAgent(agentId: string): AgentInfo | undefined {
+function getAgent(agentId: string): AgentInfo | undefined {
   return agents.get(agentId)?.info;
 }
 
@@ -1259,7 +1276,7 @@ export function getAgent(agentId: string): AgentInfo | undefined {
 // entry so the boss can open the file in the editor side panel. Mirrors
 // emitAgentDiff. The card shows an [Open in editor] button — the panel never
 // auto-opens (matches the rejected "server auto-opens panel" decision).
-export function emitAgentEditRequest(
+function emitAgentEditRequest(
   agentId: string,
   rawPath: string,
 ): { ok: true } | { ok: false; status: number; error: string } {
@@ -1315,7 +1332,7 @@ export function emitAgentEditRequest(
 // Single-line only at first; agents that need multiple steps can join with
 // `&&` / `;` or set up a one-line wrapper.
 const TERMINAL_COMMAND_MAX_LEN = 4096;
-export function emitAgentTerminalCommand(
+function emitAgentTerminalCommand(
   agentId: string,
   rawCommand: string,
 ): { ok: true } | { ok: false; status: number; error: string } {
@@ -1356,7 +1373,7 @@ const MAX_READ_FILE_BYTES = 20 * 1024 * 1024;
 // agents to Read an image so the Claude SDK's tool_result image extraction
 // would surface it. Mirrors emitAgentEditRequest's error-surface pattern:
 // path/size/io failures become system messages, not HTTP errors.
-export function emitAgentReadFile(
+function emitAgentReadFile(
   agentId: string,
   rawPath: string,
 ): { ok: true } | { ok: false; status: number; error: string } {
@@ -1423,7 +1440,7 @@ export function emitAgentReadFile(
 // Run the same diff machinery as /isomux-diff and emit the result into the
 // agent's chat stream. Used by POST /agents/:id/diff so an agent can show
 // the boss a styled diff card without the boss invoking the slash command.
-export function emitAgentDiff(
+function emitAgentDiff(
   agentId: string,
   dir?: string,
   commit?: string,
@@ -2364,11 +2381,11 @@ function envForHints(
   }
 }
 
-// Register the office-env-file provider once, after `officeState` exists.
-// Anchored at module top-level so cronjob-manager (which also imports
-// env-loader, possibly before fully running its own module body) can call
-// buildEnvFor synchronously by the time any scheduler tick fires.
-setOfficeEnvFileProvider(() => officeState.office.envFile);
+// The office-env-file provider for env-loader is registered by the production
+// factory (createProductionAgentManager), NOT here, so DI tests that construct
+// their own AgentManager don't clobber that env-loader process-global. The
+// production factory registers it before CronjobManager's scheduler starts, so
+// buildEnvFor still resolves the office envFile by the first tick.
 
 // Returns the session id to use for an automatic resume attempt, or null if
 // the recorded `managed.sessionId` can't safely be resumed and the caller
@@ -2505,7 +2522,7 @@ function createSession(
     : backend.createSession(opts);
 }
 
-export async function spawn(
+async function spawn(
   name: string,
   cwd: string,
   permissionMode: AgentInfo["permissionMode"],
@@ -2770,7 +2787,7 @@ function recordDedupe(managed: ManagedAgent, clientMessageId: string) {
 // a programmatic HTTP caller benefits from an explicit failure so it can
 // retry, escalate, or fall back. Hiding a state-recovering side effect behind
 // an "ok, queued" response would mislead the sender.
-export function enqueueMessage(
+function enqueueMessage(
   agentId: string,
   msg: {
     sender: QueuedMessage["sender"];
@@ -3060,7 +3077,7 @@ async function flushQueue(agentId: string): Promise<void> {
   }
 }
 
-export function cancelQueued(agentId: string, messageId: string): boolean {
+function cancelQueued(agentId: string, messageId: string): boolean {
   const managed = agents.get(agentId);
   if (!managed) return false;
   const idx = managed.messageQueue.findIndex((m) => m.id === messageId);
@@ -3073,7 +3090,7 @@ export function cancelQueued(agentId: string, messageId: string): boolean {
 // Steering action: stop whatever the agent is doing and flush the queue.
 // Mapped to the UI "Send now" button. No-op when the queue is empty so users
 // who hit it accidentally don't kill an in-flight turn for no reason.
-export async function sendNow(agentId: string): Promise<void> {
+async function sendNow(agentId: string): Promise<void> {
   const managed = agents.get(agentId);
   if (!managed) return;
   if (managed.messageQueue.length === 0) return;
@@ -3091,7 +3108,7 @@ export async function sendNow(agentId: string): Promise<void> {
   }
 }
 
-export async function sendMessage(
+async function sendMessage(
   agentId: string,
   text: string,
   username?: string,
@@ -3612,7 +3629,7 @@ function persistCurrentSessionTopic(agentId: string, managed: ManagedAgent) {
 // noticed as "something's wrong" if it ever fires.
 const HOT_ABORT_TIMEOUT_MS = 7000;
 
-export async function abort(agentId: string) {
+async function abort(agentId: string) {
   const managed = agents.get(agentId);
   if (!managed) return;
   // Bump the cancel token unconditionally. Stop is always a cancellation
@@ -3770,7 +3787,7 @@ async function tryHotAbort(
   return managed.info.state === "error" ? "session_died" : "ok";
 }
 
-export async function kill(agentId: string) {
+async function kill(agentId: string) {
   const managed = agents.get(agentId);
   if (!managed) return;
   // Stamp the history entry with killedAt + final state BEFORE removing
@@ -3851,7 +3868,7 @@ export async function kill(agentId: string) {
 //
 // Read-only validation runs first; on session failure we roll the
 // install back so the killed-agent chip stays available for retry.
-export async function revive(
+async function revive(
   agentId: string,
   roomId: string,
   desk: number,
@@ -4009,7 +4026,7 @@ export async function revive(
   return { ok: true, agent: managed.info };
 }
 
-export async function newConversation(agentId: string) {
+async function newConversation(agentId: string) {
   const managed = agents.get(agentId);
   if (!managed) return;
   managed.pendingResume = false;
@@ -4113,7 +4130,7 @@ function rollbackSessionCwd(agentId: string, prevCwd: string) {
     emit(event);
 }
 
-export async function resume(agentId: string, sessionId: string) {
+async function resume(agentId: string, sessionId: string) {
   const managed = agents.get(agentId);
   if (!managed) return;
   managed.pendingResume = false;
@@ -4203,7 +4220,7 @@ export async function resume(agentId: string, sessionId: string) {
   }
 }
 
-export async function editMessage(
+async function editMessage(
   agentId: string,
   logEntryId: string,
   newText: string,
@@ -4592,7 +4609,7 @@ export async function editMessage(
   }
 }
 
-export function setTopic(agentId: string, topic: string) {
+function setTopic(agentId: string, topic: string) {
   const managed = agents.get(agentId);
   if (!managed) return;
   // Invalidate any in-flight generateTopic so its delayed LLM result doesn't
@@ -4616,7 +4633,7 @@ export function setTopic(agentId: string, topic: string) {
   updateManifest();
 }
 
-export function resetTopic(agentId: string) {
+function resetTopic(agentId: string) {
   const managed = agents.get(agentId);
   if (!managed) return;
   void generateTopic(agentId); // fire-and-forget
@@ -4629,23 +4646,23 @@ const terminalDeps: TerminalDeps = {
   emit: (event) => emit(event),
 };
 
-export function openTerminal(agentId: string): boolean {
+function openTerminal(agentId: string): boolean {
   return openTerminalImpl(agentId, terminalDeps);
 }
 
-export function getTerminalBuffer(agentId: string): string | null {
+function getTerminalBuffer(agentId: string): string | null {
   return getTerminalBufferImpl(agentId, terminalDeps);
 }
 
-export function terminalInput(agentId: string, data: string) {
+function terminalInput(agentId: string, data: string) {
   terminalInputImpl(agentId, data, terminalDeps);
 }
 
-export function terminalResize(agentId: string, cols: number, rows: number) {
+function terminalResize(agentId: string, cols: number, rows: number) {
   terminalResizeImpl(agentId, cols, rows, terminalDeps);
 }
 
-export function closeTerminal(agentId: string) {
+function closeTerminal(agentId: string) {
   closeTerminalImpl(agentId, terminalDeps);
 }
 
@@ -4655,7 +4672,7 @@ export function closeTerminal(agentId: string) {
 // just resolve paths against the agent's cwd and run the disk ops. Watch
 // lifecycle lives in server/index.ts where the WS connection is in scope.
 
-export function openEditorFile(
+function openEditorFile(
   agentId: string,
   rawPath: string,
 ):
@@ -4668,7 +4685,7 @@ export function openEditorFile(
   return { ok: true, result: openEditorFileImpl(resolved.path) };
 }
 
-export function saveEditorFile(
+function saveEditorFile(
   absPath: string,
   content: string,
   expectedMtime: number,
@@ -4677,7 +4694,7 @@ export function saveEditorFile(
   return saveEditorFileImpl(absPath, content, expectedMtime, force);
 }
 
-export function resolveEditorPathForAgent(
+function resolveEditorPathForAgent(
   agentId: string,
   rawPath: string,
 ): string | null {
@@ -4685,4 +4702,98 @@ export function resolveEditorPathForAgent(
   if (!managed) return null;
   const resolved = resolveEditorPath(rawPath, managed.info.cwd);
   return resolved.kind === "ok" ? resolved.path : null;
+}
+
+  // Explicitly assembled public surface (see AgentManager type above). Mirrors
+  // exactly the symbols server/index.ts consumed off the old namespace import.
+  return {
+    configurePluginHooksDeps,
+    getRooms,
+    getOfficeSettings,
+    getTasks,
+    addTask,
+    updateTask,
+    deleteTask,
+    setOfficeSettings,
+    setRoomSettings,
+    validateEnvPath,
+    onEvent,
+    getAgentLogs,
+    getAgentCommands,
+    listSessions,
+    getCurrentSessionId,
+    getAgentDisplay,
+    editAgent,
+    swapDesks,
+    createRoom,
+    closeRoom,
+    renameRoom,
+    reorderRooms,
+    moveAgent,
+    getAllAgents,
+    getKilledAgentSummaries,
+    restoreAgents,
+    getAgent,
+    emitAgentEditRequest,
+    emitAgentTerminalCommand,
+    emitAgentReadFile,
+    emitAgentDiff,
+    spawn,
+    enqueueMessage,
+    cancelQueued,
+    sendNow,
+    sendMessage,
+    abort,
+    kill,
+    revive,
+    newConversation,
+    resume,
+    editMessage,
+    setTopic,
+    resetTopic,
+    openTerminal,
+    getTerminalBuffer,
+    terminalInput,
+    terminalResize,
+    closeTerminal,
+    openEditorFile,
+    saveEditorFile,
+    resolveEditorPathForAgent,
+    validateCwd,
+    buildEnvForUserId,
+  };
+}
+
+// Production factory: wires today's defaults. Loads the persisted office/agents
+// snapshot ONCE, seeds OfficeState rooms from it (synchronous, so getRooms() is
+// valid before the async restoreAgents()), injects the real getBackend
+// resolver, and registers the office-env-file provider for env-loader. index.ts
+// calls this at boot; tests construct createAgentManager(...) with fakes.
+export function createProductionAgentManager(): AgentManager {
+  const initialOfficeConfig = loadOfficeConfig();
+  const initialLoadedAgents = loadAgents();
+  const officeState = new OfficeState({
+    rooms:
+      initialLoadedAgents.length > 0
+        ? initialLoadedAgents.map((r) => ({
+            id: r.id,
+            name: r.name,
+            prompt: r.prompt,
+          }))
+        : [{ id: generateRoomId(), name: "Room 1", prompt: null }],
+    office: {
+      prompt: initialOfficeConfig.prompt,
+      envFile: initialOfficeConfig.envFile,
+      name: initialOfficeConfig.name,
+    },
+  });
+  const manager = createAgentManager({
+    resolveBackend: defaultResolveBackend,
+    officeState,
+    initialRooms: initialLoadedAgents,
+  });
+  // Production-only global registration (kept out of createAgentManager so DI
+  // tests don't clobber this env-loader process-global).
+  setOfficeEnvFileProvider(() => officeState.office.envFile);
+  return manager;
 }

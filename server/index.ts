@@ -17,7 +17,7 @@ import {
 } from "./presence.ts";
 import type { AgentEvent } from "./internal-types.ts";
 import { runPreUseridBackupIfNeeded } from "./migrations.ts";
-import * as AgentManager from "./agent-manager.ts";
+import { createProductionAgentManager } from "./agent-manager.ts";
 import { getBackend } from "./backends/index.ts";
 import * as CronjobManager from "./cronjob-manager.ts";
 import {
@@ -192,11 +192,18 @@ runPreUseridBackupIfNeeded();
   freezeBootState({ externalAccess });
 }
 
+// The production AgentManager instance. createProductionAgentManager() loads
+// the persisted office/agents snapshot synchronously (so getRooms() is valid
+// immediately, before the async restore below) and registers the office
+// env-file provider for env-loader. Tests build their own via
+// createAgentManager(deps) with a FakeBackend resolver.
+const agentManager = createProductionAgentManager();
+
 // Inject the room snapshot provider auth.ts uses when seeding a new
 // owner's allowedRooms at invite-acceptance time. The provider closes
-// over AgentManager.getRooms() rather than auth.ts importing
+// over agentManager.getRooms() rather than auth.ts importing
 // agent-manager directly — keeps the dependency graph one-way.
-setRoomsSnapshotProvider(() => AgentManager.getRooms().map((r) => r.id));
+setRoomsSnapshotProvider(() => agentManager.getRooms().map((r) => r.id));
 
 // When an invite is consumed (typically via HTTP POST /auth/accept,
 // which never touches the WS dispatch loop), fan out an updated
@@ -269,7 +276,7 @@ async function spawnWelcomeAgent(
   username: string,
 ): Promise<void> {
   try {
-    const created = await AgentManager.spawn(
+    const created = await agentManager.spawn(
       name,
       "~",
       permissionMode,
@@ -301,7 +308,7 @@ async function spawnWelcomeAgent(
 // defensive in case a future call path fires it against an already-
 // populated office.
 setOnOwnerCreated(async ({ username }) => {
-  if (AgentManager.getAllAgents().length > 0) return;
+  if (agentManager.getAllAgents().length > 0) return;
   await spawnWelcomeAgent(
     "Claude Welcome Agent",
     "claude",
@@ -439,7 +446,7 @@ function broadcast(msg: ServerMessage) {
 // gate; "self hidden in LogView" is a client-local concern.
 function buildPresenceListFor(session: SessionLookup): PresenceInfo[] {
   const projection = visibleRoomProjection(session);
-  const rooms = AgentManager.getRooms();
+  const rooms = agentManager.getRooms();
   // Pre-index global roomId → global index for O(1) lookup per entry.
   const roomIdToGlobalIdx = new Map<string, number>();
   for (let i = 0; i < rooms.length; i++) {
@@ -529,7 +536,7 @@ function pushPresenceListToEachWs() {
 function sessionHasFullRoomAccess(session: SessionLookup): boolean {
   const user = getUserById(session.userId);
   if (!user) return false;
-  for (const r of AgentManager.getRooms()) {
+  for (const r of agentManager.getRooms()) {
     if (!user.allowedRooms.includes(r.id)) return false;
   }
   return true;
@@ -553,7 +560,7 @@ interface VisibleRoomProjection {
 }
 
 function visibleRoomProjection(session: SessionLookup): VisibleRoomProjection {
-  const all = AgentManager.getRooms();
+  const all = agentManager.getRooms();
   if (sessionHasFullRoomAccess(session)) {
     // Identity projection; avoid per-room allocations on the fast path.
     const identity: number[] = all.map((_, i) => i);
@@ -597,9 +604,9 @@ function agentVisibleForSession(
   agentId: string,
 ): boolean {
   if (sessionHasFullRoomAccess(session)) return true;
-  const agent = AgentManager.getAllAgents().find((a) => a.id === agentId);
+  const agent = agentManager.getAllAgents().find((a) => a.id === agentId);
   if (!agent) return false;
-  const rooms = AgentManager.getRooms();
+  const rooms = agentManager.getRooms();
   const roomId = rooms[agent.room]?.id;
   if (!roomId) return false;
   return roomAllowedForSession(session, roomId);
@@ -620,7 +627,7 @@ function sendProjectedFullState(
   const session = ws.data.session;
   const proj = visibleRoomProjection(session);
   const agents: AgentInfo[] = [];
-  for (const a of AgentManager.getAllAgents()) {
+  for (const a of agentManager.getAllAgents()) {
     const projected = projectAgentForSession(session, a, proj);
     if (projected) agents.push(projected);
   }
@@ -630,7 +637,7 @@ function sendProjectedFullState(
   // private room they can't enter. Cap AFTER filtering so the user
   // sees up to KILLED_AGENT_CHIP_CAP entries they can actually act on,
   // not a smaller number trimmed by entries outside their room set.
-  const killedAgents = AgentManager.getKilledAgentSummaries()
+  const killedAgents = agentManager.getKilledAgentSummaries()
     .filter((k) => roomAllowedForSession(session, k.lastRoomId))
     .slice(0, KILLED_AGENT_CHIP_CAP);
   ws.send(
@@ -638,18 +645,18 @@ function sendProjectedFullState(
       type: "full_state",
       agents,
       recentCwds: loadRecentCwds(),
-      office: AgentManager.getOfficeSettings(),
+      office: agentManager.getOfficeSettings(),
       rooms: proj.rooms,
       killedAgents,
     }),
   );
   if (options?.replayLogsForVisible) {
     for (const a of agents) {
-      const logs = AgentManager.getAgentLogs(a.id);
+      const logs = agentManager.getAgentLogs(a.id);
       for (const entry of logs) {
         ws.send(JSON.stringify({ type: "log_entry", entry }));
       }
-      const cmds = AgentManager.getAgentCommands(a.id);
+      const cmds = agentManager.getAgentCommands(a.id);
       if (cmds.commands.length > 0 || cmds.skills.length > 0) {
         ws.send(
           JSON.stringify({
@@ -689,7 +696,7 @@ function pushProjectedFullStateForUserId(userId: string) {
 function pushAllRoomsListToOwners() {
   const data = JSON.stringify({
     type: "all_rooms_list",
-    rooms: AgentManager.getRooms(),
+    rooms: agentManager.getRooms(),
   });
   for (const ws of browsers) {
     if (ws.data.session.role === "owner") {
@@ -834,7 +841,7 @@ function routeAgentEventToWs(ws: ServerWebSocket<WsData>, event: AgentEvent) {
 }
 
 // Wire AgentManager events to WebSocket broadcasts
-AgentManager.onEvent((event) => {
+agentManager.onEvent((event) => {
   // Task mutations carry the full list as a domain event; the wire still
   // uses the legacy `{type:"tasks", tasks}` shape so the UI doesn't change.
   if (event.type === "tasks_changed") {
@@ -970,7 +977,7 @@ async function dispatchCommand(
       const user = getUserById(session.userId);
       if (!user) break;
       const projection = visibleRoomProjection(session);
-      const rooms = AgentManager.getRooms();
+      const rooms = agentManager.getRooms();
       let roomId: string | null = null;
       if (
         cmd.currentRoom !== null &&
@@ -996,7 +1003,7 @@ async function dispatchCommand(
         cmd.focusedAgentId &&
         roomId !== null
       ) {
-        const agent = AgentManager.getAllAgents().find(
+        const agent = agentManager.getAllAgents().find(
           (a) => a.id === cmd.focusedAgentId,
         );
         const agentRoomId =
@@ -1073,7 +1080,7 @@ async function dispatchCommand(
         resolvedRoomId = visible[0].id;
       }
       try {
-        AgentManager.validateCwd(cmd.cwd);
+        agentManager.validateCwd(cmd.cwd);
       } catch (err) {
         if (cmd.requestId) {
           ws.send(
@@ -1089,7 +1096,7 @@ async function dispatchCommand(
       }
       saveRecentCwd(cmd.cwd);
       try {
-        const created = await AgentManager.spawn(
+        const created = await agentManager.spawn(
           cmd.name,
           cmd.cwd,
           cmd.permissionMode,
@@ -1120,7 +1127,7 @@ async function dispatchCommand(
             // Disambiguate post-hoc so the UI can render the error under
             // the right field rather than under cwd by default.
             const trimmedName = cmd.name.trim();
-            const dupName = AgentManager.getAllAgents().some(
+            const dupName = agentManager.getAllAgents().some(
               (a) => a.name.toLowerCase() === trimmedName.toLowerCase(),
             );
             ws.send(
@@ -1152,14 +1159,14 @@ async function dispatchCommand(
     }
     case "kill":
       if (!agentVisibleForSession(session, cmd.agentId)) break;
-      await AgentManager.kill(cmd.agentId);
+      await agentManager.kill(cmd.agentId);
       break;
     case "revive": {
       // ACL gate: target roomId must be visible to this session AND the
       // killed agent's lastRoomId must also be visible (so a member
       // can't revive an agent from a private room they can't enter).
       // Killed agent ACL is checked via the history lookup inside
-      // AgentManager.revive — but we need to do the lookup here to
+      // agentManager.revive — but we need to do the lookup here to
       // enforce the read side too. The chip list the UI saw was already
       // ACL-filtered at send time, so a well-behaved client only sends
       // visible agent ids; this guard catches stale or hand-crafted
@@ -1177,7 +1184,7 @@ async function dispatchCommand(
         }
         break;
       }
-      const summaries = AgentManager.getKilledAgentSummaries();
+      const summaries = agentManager.getKilledAgentSummaries();
       const visible = summaries.find(
         (s) =>
           s.id === cmd.agentId && roomAllowedForSession(session, s.lastRoomId),
@@ -1196,7 +1203,7 @@ async function dispatchCommand(
         break;
       }
       try {
-        const result = await AgentManager.revive(
+        const result = await agentManager.revive(
           cmd.agentId,
           cmd.roomId,
           cmd.desk,
@@ -1242,13 +1249,13 @@ async function dispatchCommand(
     }
     case "abort":
       if (!agentVisibleForSession(session, cmd.agentId)) break;
-      await AgentManager.abort(cmd.agentId);
+      await agentManager.abort(cmd.agentId);
       break;
     case "send_message":
       if (!agentVisibleForSession(session, cmd.agentId)) break;
       // Don't await — let it stream in the background. Username comes from the
       // session so a member can't spoof another member's display name in chat.
-      void AgentManager.sendMessage(
+      void agentManager.sendMessage(
         cmd.agentId,
         cmd.text,
         session.username,
@@ -1258,19 +1265,19 @@ async function dispatchCommand(
       break;
     case "cancel_queued":
       if (!agentVisibleForSession(session, cmd.agentId)) break;
-      AgentManager.cancelQueued(cmd.agentId, cmd.messageId);
+      agentManager.cancelQueued(cmd.agentId, cmd.messageId);
       break;
     case "send_now":
       if (!agentVisibleForSession(session, cmd.agentId)) break;
-      void AgentManager.sendNow(cmd.agentId);
+      void agentManager.sendNow(cmd.agentId);
       break;
     case "new_conversation":
       if (!agentVisibleForSession(session, cmd.agentId)) break;
-      await AgentManager.newConversation(cmd.agentId);
+      await agentManager.newConversation(cmd.agentId);
       break;
     case "resume":
       if (!agentVisibleForSession(session, cmd.agentId)) break;
-      await AgentManager.resume(cmd.agentId, cmd.sessionId);
+      await agentManager.resume(cmd.agentId, cmd.sessionId);
       break;
     case "edit_agent": {
       if (!agentVisibleForSession(session, cmd.agentId)) {
@@ -1288,7 +1295,7 @@ async function dispatchCommand(
       }
       if (cmd.cwd) {
         try {
-          AgentManager.validateCwd(cmd.cwd);
+          agentManager.validateCwd(cmd.cwd);
         } catch (err) {
           if (cmd.requestId) {
             ws.send(
@@ -1305,7 +1312,7 @@ async function dispatchCommand(
         saveRecentCwd(cmd.cwd);
       }
       try {
-        await AgentManager.editAgent(cmd.agentId, {
+        await agentManager.editAgent(cmd.agentId, {
           name: cmd.name,
           cwd: cmd.cwd,
           outfit: cmd.outfit,
@@ -1340,20 +1347,20 @@ async function dispatchCommand(
     }
     case "swap_desks":
       if (!roomAllowedForSession(session, cmd.roomId)) break;
-      AgentManager.swapDesks(cmd.deskA, cmd.deskB, cmd.roomId);
+      agentManager.swapDesks(cmd.deskA, cmd.deskB, cmd.roomId);
       break;
     case "set_topic":
       if (!agentVisibleForSession(session, cmd.agentId)) break;
-      AgentManager.setTopic(cmd.agentId, cmd.topic);
+      agentManager.setTopic(cmd.agentId, cmd.topic);
       break;
     case "reset_topic":
       if (!agentVisibleForSession(session, cmd.agentId)) break;
-      AgentManager.resetTopic(cmd.agentId);
+      agentManager.resetTopic(cmd.agentId);
       break;
     case "list_sessions": {
       if (!agentVisibleForSession(session, cmd.agentId)) break;
-      const sessions = AgentManager.listSessions(cmd.agentId);
-      const currentSessionId = AgentManager.getCurrentSessionId(cmd.agentId);
+      const sessions = agentManager.listSessions(cmd.agentId);
+      const currentSessionId = agentManager.getCurrentSessionId(cmd.agentId);
       // Fan out per-WS, only to sessions that can see this agent.
       // A plain broadcast() would leak session metadata (ids, topics,
       // timestamps) for a hidden agent to every restricted member —
@@ -1374,10 +1381,10 @@ async function dispatchCommand(
     }
     case "terminal_open": {
       if (!agentVisibleForSession(session, cmd.agentId)) break;
-      const opened = AgentManager.openTerminal(cmd.agentId);
+      const opened = agentManager.openTerminal(cmd.agentId);
       if (opened) {
         // Replay buffered output so the browser catches up
-        const buffer = AgentManager.getTerminalBuffer(cmd.agentId);
+        const buffer = agentManager.getTerminalBuffer(cmd.agentId);
         if (buffer) {
           broadcast({
             type: "terminal_output",
@@ -1390,15 +1397,15 @@ async function dispatchCommand(
     }
     case "terminal_input":
       if (!agentVisibleForSession(session, cmd.agentId)) break;
-      AgentManager.terminalInput(cmd.agentId, cmd.data);
+      agentManager.terminalInput(cmd.agentId, cmd.data);
       break;
     case "terminal_resize":
       if (!agentVisibleForSession(session, cmd.agentId)) break;
-      AgentManager.terminalResize(cmd.agentId, cmd.cols, cmd.rows);
+      agentManager.terminalResize(cmd.agentId, cmd.cols, cmd.rows);
       break;
     case "terminal_close":
       if (!agentVisibleForSession(session, cmd.agentId)) break;
-      AgentManager.closeTerminal(cmd.agentId);
+      agentManager.closeTerminal(cmd.agentId);
       break;
     case "editor_open": {
       if (!agentVisibleForSession(session, cmd.agentId)) {
@@ -1413,7 +1420,7 @@ async function dispatchCommand(
         );
         break;
       }
-      const probe = AgentManager.openEditorFile(cmd.agentId, cmd.path);
+      const probe = agentManager.openEditorFile(cmd.agentId, cmd.path);
       if (!probe.ok) {
         ws.send(
           JSON.stringify({
@@ -1486,7 +1493,7 @@ async function dispatchCommand(
       }
       // Resolve against the agent's cwd in case the client sent a relative
       // path (it shouldn't, but the resolution is cheap and matches open).
-      const abs = AgentManager.resolveEditorPathForAgent(cmd.agentId, cmd.path);
+      const abs = agentManager.resolveEditorPathForAgent(cmd.agentId, cmd.path);
       if (!abs) {
         ws.send(
           JSON.stringify({
@@ -1499,7 +1506,7 @@ async function dispatchCommand(
         );
         break;
       }
-      const result = AgentManager.saveEditorFile(
+      const result = agentManager.saveEditorFile(
         abs,
         cmd.content,
         cmd.expectedMtime,
@@ -1542,7 +1549,7 @@ async function dispatchCommand(
     }
     case "editor_close": {
       if (!agentVisibleForSession(session, cmd.agentId)) break;
-      const abs = AgentManager.resolveEditorPathForAgent(cmd.agentId, cmd.path);
+      const abs = agentManager.resolveEditorPathForAgent(cmd.agentId, cmd.path);
       if (!abs) break;
       const map = getWatcherMap(ws);
       const key = editorKey(cmd.agentId, abs);
@@ -1572,7 +1579,7 @@ async function dispatchCommand(
         cmd.envFile && cmd.envFile.trim() ? cmd.envFile.trim() : null;
       if (envFile) {
         try {
-          AgentManager.validateEnvPath(envFile);
+          agentManager.validateEnvPath(envFile);
         } catch (err) {
           ws.send(
             JSON.stringify({
@@ -1592,7 +1599,7 @@ async function dispatchCommand(
       // empty string still clears.
       const rawName =
         cmd.name === undefined
-          ? AgentManager.getOfficeSettings().name
+          ? agentManager.getOfficeSettings().name
           : cmd.name && cmd.name.trim()
             ? cmd.name.trim()
             : null;
@@ -1607,7 +1614,7 @@ async function dispatchCommand(
         );
         break;
       }
-      AgentManager.setOfficeSettings(cmd.prompt, envFile, rawName);
+      agentManager.setOfficeSettings(cmd.prompt, envFile, rawName);
       ws.send(
         JSON.stringify({
           type: "settings_save_response",
@@ -1629,7 +1636,7 @@ async function dispatchCommand(
         );
         break;
       }
-      const ok = AgentManager.setRoomSettings(cmd.roomId, cmd.prompt);
+      const ok = agentManager.setRoomSettings(cmd.roomId, cmd.prompt);
       if (!ok) {
         ws.send(
           JSON.stringify({
@@ -1652,7 +1659,7 @@ async function dispatchCommand(
     }
     case "request_cwd_validation": {
       try {
-        AgentManager.validateCwd(cmd.cwd);
+        agentManager.validateCwd(cmd.cwd);
         ws.send(
           JSON.stringify({
             type: "cwd_validation",
@@ -1681,11 +1688,11 @@ async function dispatchCommand(
       // it (matches what'll be used at spawn time).
       try {
         const backend = getBackend(cmd.agentType);
-        const env = AgentManager.buildEnvForUserId(session.userId);
+        const env = agentManager.buildEnvForUserId(session.userId);
         const models = await backend.listModels({
           // The codex subprocess's cwd must be a real directory or posix_spawn
           // fails with ENOENT before our error path can clean up — resolve `~`
-          // here the same way AgentManager.spawn does before persisting.
+          // here the same way agentManager.spawn does before persisting.
           cwd: resolveCwd(cmd.cwd),
           env,
           includeHidden: cmd.includeHidden,
@@ -1769,7 +1776,7 @@ async function dispatchCommand(
       }
       let envFile: string | null = null;
       if (cmd.scope === "office") {
-        envFile = AgentManager.getOfficeSettings().envFile;
+        envFile = agentManager.getOfficeSettings().envFile;
       } else if (cmd.scope === "user" && cmd.username) {
         envFile = getUser(cmd.username)?.envFile ?? null;
       }
@@ -1787,7 +1794,7 @@ async function dispatchCommand(
         break;
       }
       try {
-        const keyCount = AgentManager.validateEnvPath(envFile);
+        const keyCount = agentManager.validateEnvPath(envFile);
         ws.send(
           JSON.stringify({
             type: "settings_validation",
@@ -1815,7 +1822,7 @@ async function dispatchCommand(
       break;
     }
     case "add_task": {
-      AgentManager.addTask(cmd.title, session.username, {
+      agentManager.addTask(cmd.title, session.username, {
         description: cmd.description,
         priority:
           cmd.priority && isValidPriority(cmd.priority)
@@ -1843,11 +1850,11 @@ async function dispatchCommand(
         changes.status = c.status;
       if (c.priority !== undefined && isValidPriority(c.priority))
         changes.priority = c.priority;
-      AgentManager.updateTask(cmd.id, changes);
+      agentManager.updateTask(cmd.id, changes);
       break;
     }
     case "delete_task": {
-      AgentManager.deleteTask(cmd.id);
+      agentManager.deleteTask(cmd.id);
       break;
     }
     case "create_room": {
@@ -1861,7 +1868,7 @@ async function dispatchCommand(
       // Members other than the creator are NOT auto-added; they
       // become visible only when an owner grants them via the Allowed
       // Rooms editor.
-      const newRoomId = AgentManager.createRoom(cmd.name);
+      const newRoomId = agentManager.createRoom(cmd.name);
       const usersToUpdate: UserRecord[] = [];
       const seen = new Set<string>();
       const creator = getUserById(session.userId);
@@ -1915,7 +1922,7 @@ async function dispatchCommand(
     }
     case "close_room": {
       if (!roomAllowedForSession(session, cmd.roomId)) break;
-      const closed = AgentManager.closeRoom(cmd.roomId);
+      const closed = agentManager.closeRoom(cmd.roomId);
       if (closed) {
         // Strip the closed roomId from every user's allowedRooms /
         // notifRooms so stale references don't accumulate. Without
@@ -1962,14 +1969,14 @@ async function dispatchCommand(
     }
     case "rename_room":
       if (!roomAllowedForSession(session, cmd.roomId)) break;
-      AgentManager.renameRoom(cmd.roomId, cmd.name);
+      agentManager.renameRoom(cmd.roomId, cmd.name);
       break;
     case "move_agent": {
       // Source and target rooms must both be visible to the session.
       // agentVisibleForSession looks up the agent's current global room.
       if (!agentVisibleForSession(session, cmd.agentId)) break;
       if (!roomAllowedForSession(session, cmd.targetRoomId)) break;
-      AgentManager.moveAgent(cmd.agentId, cmd.targetRoomId);
+      agentManager.moveAgent(cmd.agentId, cmd.targetRoomId);
       break;
     }
     case "reorder_rooms":
@@ -1978,7 +1985,7 @@ async function dispatchCommand(
       // of the office and can't author a coherent reorder of the
       // global list. sessionHasFullRoomAccess encodes that test.
       if (!sessionHasFullRoomAccess(session)) break;
-      AgentManager.reorderRooms(cmd.order);
+      agentManager.reorderRooms(cmd.order);
       // Live-avatars: reorder remaps every dense room index, so
       // cached PresenceInfo.currentRoom values on every client are
       // immediately stale. Rebroadcast so clients re-render ghosts
@@ -1989,7 +1996,7 @@ async function dispatchCommand(
     case "edit_message":
       if (!agentVisibleForSession(session, cmd.agentId)) break;
       // Don't await — let it stream in the background (like send_message)
-      void AgentManager.editMessage(
+      void agentManager.editMessage(
         cmd.agentId,
         cmd.logEntryId,
         cmd.newText,
@@ -1999,7 +2006,7 @@ async function dispatchCommand(
       break;
     case "add_cronjob": {
       try {
-        AgentManager.validateCwd(cmd.cwd);
+        agentManager.validateCwd(cmd.cwd);
       } catch (err) {
         if (cmd.requestId) {
           ws.send(
@@ -2041,7 +2048,7 @@ async function dispatchCommand(
     case "update_cronjob": {
       if (cmd.changes.cwd) {
         try {
-          AgentManager.validateCwd(cmd.changes.cwd);
+          agentManager.validateCwd(cmd.changes.cwd);
         } catch (err) {
           if (cmd.requestId) {
             ws.send(
@@ -2200,7 +2207,7 @@ async function dispatchCommand(
       // Validate envFile if present.
       if (cmd.changes.envFile && cmd.changes.envFile.trim()) {
         try {
-          AgentManager.validateEnvPath(cmd.changes.envFile.trim());
+          agentManager.validateEnvPath(cmd.changes.envFile.trim());
         } catch (err) {
           if (cmd.requestId) {
             ws.send(
@@ -2902,7 +2909,7 @@ function escapeHtml(s: string): string {
 // so the tab title is correct before the WS connects (and on the auth page).
 async function serveIndexHtml(): Promise<Response> {
   const raw = await Bun.file(join(UI_DIST, "index.html")).text();
-  const officeName = AgentManager.getOfficeSettings().name;
+  const officeName = agentManager.getOfficeSettings().name;
   const title = officeName ? `${escapeHtml(officeName)} | Isomux` : "Isomux";
   const html = raw.replace("__OFFICE_TITLE__", title);
   return new Response(html, {
@@ -2954,7 +2961,7 @@ const server = Bun.serve<WsData>({
     // because unauthenticated visitors transition to authenticated through
     // them. Pass the office name so pre-auth pages render the same tab
     // title format (`<name> | Isomux — ...`) the SPA shell uses.
-    const officeName = AgentManager.getOfficeSettings().name;
+    const officeName = agentManager.getOfficeSettings().name;
     const authResponse = await tryHandleAuthRoute(req, url, officeName, server);
     if (authResponse) return authResponse;
 
@@ -3172,7 +3179,7 @@ const server = Bun.serve<WsData>({
         const status = url.searchParams.get("status");
         const assignee = url.searchParams.get("assignee");
         const titleFilter = url.searchParams.get("title");
-        let filtered = AgentManager.getTasks();
+        let filtered = agentManager.getTasks();
         if (!status) {
           filtered = filtered.filter(
             (t) => t.status !== "done" && t.status !== "backlog",
@@ -3192,7 +3199,7 @@ const server = Bun.serve<WsData>({
 
       // GET /tasks/:id — detail
       if (req.method === "GET" && taskId && !action) {
-        const task = AgentManager.getTasks().find((t) => t.id === taskId);
+        const task = agentManager.getTasks().find((t) => t.id === taskId);
         if (!task)
           return new Response(JSON.stringify({ error: "not found" }), {
             status: 404,
@@ -3227,7 +3234,7 @@ const server = Bun.serve<WsData>({
             { status: 400, headers: corsHeaders },
           );
         }
-        const task = AgentManager.addTask(body.title, body.createdBy, {
+        const task = agentManager.addTask(body.title, body.createdBy, {
           description:
             typeof body.description === "string" ? body.description : undefined,
           priority: body.priority,
@@ -3283,7 +3290,7 @@ const server = Bun.serve<WsData>({
         if (body.assignee !== undefined)
           changes.assignee =
             typeof body.assignee === "string" ? body.assignee : undefined;
-        const task = AgentManager.updateTask(taskId, changes);
+        const task = agentManager.updateTask(taskId, changes);
         if (!task)
           return new Response(JSON.stringify({ error: "not found" }), {
             status: 404,
@@ -3307,7 +3314,7 @@ const server = Bun.serve<WsData>({
           status: "in_progress",
         };
         if (typeof body.assignee === "string") changes.assignee = body.assignee;
-        const task = AgentManager.updateTask(taskId, changes);
+        const task = agentManager.updateTask(taskId, changes);
         if (!task)
           return new Response(JSON.stringify({ error: "not found" }), {
             status: 404,
@@ -3322,7 +3329,7 @@ const server = Bun.serve<WsData>({
         try {
           await req.json();
         } catch {}
-        const task = AgentManager.updateTask(taskId, { status: "done" });
+        const task = agentManager.updateTask(taskId, { status: "done" });
         if (!task)
           return new Response(JSON.stringify({ error: "not found" }), {
             status: 404,
@@ -3370,7 +3377,7 @@ const server = Bun.serve<WsData>({
           if (body && typeof body.dir === "string") dir = body.dir;
           if (body && typeof body.commit === "string") commit = body.commit;
         } catch {}
-        const result = AgentManager.emitAgentDiff(agentId, dir, commit);
+        const result = agentManager.emitAgentDiff(agentId, dir, commit);
         if (!result.ok)
           return new Response(JSON.stringify({ error: result.error }), {
             status: result.status,
@@ -3399,7 +3406,7 @@ const server = Bun.serve<WsData>({
             headers: corsHeaders,
           });
         }
-        const result = AgentManager.emitAgentEditRequest(agentId, path);
+        const result = agentManager.emitAgentEditRequest(agentId, path);
         if (!result.ok)
           return new Response(JSON.stringify({ error: result.error }), {
             status: result.status,
@@ -3431,7 +3438,7 @@ const server = Bun.serve<WsData>({
             headers: corsHeaders,
           });
         }
-        const result = AgentManager.emitAgentReadFile(agentId, path);
+        const result = agentManager.emitAgentReadFile(agentId, path);
         if (!result.ok)
           return new Response(JSON.stringify({ error: result.error }), {
             status: result.status,
@@ -3461,7 +3468,7 @@ const server = Bun.serve<WsData>({
             headers: corsHeaders,
           });
         }
-        const result = AgentManager.emitAgentTerminalCommand(agentId, command);
+        const result = agentManager.emitAgentTerminalCommand(agentId, command);
         if (!result.ok)
           return new Response(JSON.stringify({ error: result.error }), {
             status: result.status,
@@ -3511,14 +3518,14 @@ const server = Bun.serve<WsData>({
             { status: 400, headers: corsHeaders },
           );
         }
-        const senderInfo = AgentManager.getAgentDisplay(senderAgentId);
+        const senderInfo = agentManager.getAgentDisplay(senderAgentId);
         if (!senderInfo) {
           return new Response(
             JSON.stringify({ error: "senderAgentId is not a known agent" }),
             { status: 400, headers: corsHeaders },
           );
         }
-        const result = AgentManager.enqueueMessage(receiverId, {
+        const result = agentManager.enqueueMessage(receiverId, {
           sender: {
             kind: "agent",
             agentId: senderAgentId,
@@ -3541,7 +3548,7 @@ const server = Bun.serve<WsData>({
     // File upload endpoint: POST /api/upload/{agentId}
     if (url.pathname.startsWith("/api/upload/") && req.method === "POST") {
       const agentId = url.pathname.split("/")[3];
-      if (!agentId || !AgentManager.getAgent(agentId)) {
+      if (!agentId || !agentManager.getAgent(agentId)) {
         return new Response(JSON.stringify({ error: "agent not found" }), {
           status: 404,
           headers: { "Content-Type": "application/json" },
@@ -3685,7 +3692,7 @@ const server = Bun.serve<WsData>({
         ws.send(
           JSON.stringify({
             type: "all_rooms_list",
-            rooms: AgentManager.getRooms(),
+            rooms: agentManager.getRooms(),
           }),
         );
       }
@@ -3693,7 +3700,7 @@ const server = Bun.serve<WsData>({
       ws.send(
         JSON.stringify({
           type: "tasks",
-          tasks: AgentManager.getTasks(),
+          tasks: agentManager.getTasks(),
         }),
       );
       // Send cronjobs + cronjobsPrompt
@@ -3720,13 +3727,13 @@ const server = Bun.serve<WsData>({
       // session can see. agentVisibleForSession short-circuits to true
       // for full-access sessions so the gate is free on the fast path.
       const session = ws.data.session;
-      for (const agent of AgentManager.getAllAgents()) {
+      for (const agent of agentManager.getAllAgents()) {
         if (!agentVisibleForSession(session, agent.id)) continue;
-        const logs = AgentManager.getAgentLogs(agent.id);
+        const logs = agentManager.getAgentLogs(agent.id);
         for (const entry of logs) {
           ws.send(JSON.stringify({ type: "log_entry", entry }));
         }
-        const cmds = AgentManager.getAgentCommands(agent.id);
+        const cmds = agentManager.getAgentCommands(agent.id);
         if (cmds.commands.length > 0 || cmds.skills.length > 0) {
           ws.send(
             JSON.stringify({
@@ -3876,7 +3883,7 @@ startUpdateChecker();
 // logCache / room lookup) BEFORE loading plugins, so the loader has a usable
 // runtime when discovery completes. Plugins themselves are discovered + imported
 // in loadPlugins below. See server/plugin-hooks.ts for the contract.
-AgentManager.configurePluginHooksDeps();
+agentManager.configurePluginHooksDeps();
 
 // Plugin load + agent restore are sequenced inside the same async boot so
 // RESTORED agents come up with the full plugin set already in place. A
@@ -3907,7 +3914,7 @@ void (async () => {
     console.error("[plugins] unexpected error during plugin load:", err);
   }
 
-  const restored = await AgentManager.restoreAgents();
+  const restored = await agentManager.restoreAgents();
   if (restored.length > 0) {
     console.log(
       `Restored ${restored.length} agent(s): ${restored.map((a) => a.name).join(", ")}`,
@@ -3918,7 +3925,7 @@ void (async () => {
   // room. Catches references left behind by close_room calls from
   // earlier versions that didn't prune user records inline. Cheap
   // no-op once a deployment has converged.
-  const validIds = AgentManager.getRooms().map((r) => r.id);
+  const validIds = agentManager.getRooms().map((r) => r.id);
   const pruned = pruneStaleRoomRefs(validIds);
   if (pruned > 0) {
     console.log(
