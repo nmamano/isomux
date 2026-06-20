@@ -74,6 +74,7 @@ import {
 // `cronjob-manager → agent-manager → command-handlers → cronjob-manager`
 // cycle is what env-loader exists to break.
 import { buildEnvForUserId as defaultResolveEnv } from "./env-loader.ts";
+import { mintRunToken, revokeRunToken } from "./identity/tokens.ts";
 import { getUserByName as defaultResolveUser } from "./users.ts";
 // The cron persistence surface is injected as a whole (see CronPersistence /
 // CronjobManagerDeps below). Imported as a namespace so the production factory
@@ -854,6 +855,9 @@ How to answer questions about Isomux itself: the source lives at https://github.
     // finalizeRun(completed) right after session.close() ends the stream.
     if (!activeRuns.has(active.runId)) return;
     activeRuns.delete(active.runId);
+    // Run ended; revoke its bearer token (mirrors the mint in fire()). No-op
+    // for runs that never carried one (e.g. resumed follow-up turns).
+    revokeRunToken(active.jobId, active.runId);
     if (active.hardTimeoutTimer) {
       scheduler.clearTimeout(active.hardTimeoutTimer);
       active.hardTimeoutTimer = null;
@@ -963,6 +967,20 @@ How to answer questions about Isomux itself: the source lives at https://github.
       if (updated) eventHandler({ type: "cronjob_run_updated", run: updated });
       return updated ?? run;
     }
+    // Mint this run's bearer token now that runId is known, cwd is valid, and
+    // env built cleanly; inject it as ISOMUX_AGENT_TOKEN (same env var as agent
+    // scope — scope is resolved server-side) so the run's in-flight read-file/
+    // diff affordances authenticate as the run (RUN scope: self:affordance
+    // bound to {cronjobId, runId}). Revoked on every terminal path — the
+    // createSession failure below, and finalizeRun for everything after
+    // activeRuns.set. In-memory secret, never persisted/logged.
+    //
+    // Scope note (Phase 2.1): only the PRIMARY run lifecycle carries a RUN
+    // token. Resumed follow-up turns (sendRunMessage / editRunMessage) remain
+    // loopback-covered for now; their token wiring lands with the Phase 3
+    // loopback-bypass removal, where it becomes load-bearing.
+    const runToken = mintRunToken(jobId, runId, job.userId ?? null);
+    env = { ...(env ?? process.env), ISOMUX_AGENT_TOKEN: runToken };
     const opts: CreateSessionOptions = {
       agentId: cronjobRunStreamId(runId),
       cwd: job.cwd,
@@ -977,6 +995,9 @@ How to answer questions about Isomux itself: the source lives at https://github.
     try {
       session = getBackend(job.agentType).createSession(opts);
     } catch (err) {
+      // Session never started; revoke the run token minted above (this path
+      // does not enter activeRuns/finalizeRun).
+      revokeRunToken(jobId, runId);
       const updated = updateRun(jobId, runId, {
         status: "failed",
         endedAt: clock.now(),
@@ -1318,6 +1339,14 @@ How to answer questions about Isomux itself: the source lives at https://github.
     rollRunSessionUsageOnResume(run.cronjobId, run.id, resumeSessionId);
     const job = cronjobs.find((c) => c.id === run.cronjobId);
     const systemPrompt = job ? buildCronjobSystemPrompt(job, run.id) : "";
+    // TODO(Phase 3 — before loopback-bypass removal): resumed run turns need
+    // their own RUN-token lifecycle. Phase 2.1 mints the RUN token only in the
+    // primary fire() path; sendRunMessage/editRunMessage resume through here
+    // WITHOUT a token, so their read-file/diff affordances stay loopback-covered
+    // for now. When those endpoints flip to bearer-required, this path must mint
+    // a run token (rotation), inject ISOMUX_AGENT_TOKEN into the returned env,
+    // and revoke on every terminal path (the resume-failure catch in each caller
+    // + finalizeRun). This is implementation work, not only a doc follow-up.
     const env = buildEnvForUserId(job?.userId ?? null);
     return {
       agentId: cronjobRunStreamId(run.id),

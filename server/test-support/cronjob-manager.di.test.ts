@@ -12,9 +12,14 @@
 // state); they run in-suite because the bun test preload presets ISOMUX_HOME to
 // a temp dir before config.ts is imported (see agent-manager.di.test.ts).
 
-import { describe, it, expect, beforeAll, afterAll } from "bun:test";
+import { describe, it, expect, beforeAll, afterAll, afterEach } from "bun:test";
 import { FakeBackend } from "./fake-backend.ts";
 import { makeFakeCronPersistence } from "./fake-cron-persistence.ts";
+import {
+  resolveToken,
+  getRunTokenRaw,
+  _testResetTokens,
+} from "../identity/tokens.ts";
 import { STATE_ROOT } from "../config.ts";
 import {
   createCronjobManager,
@@ -163,5 +168,64 @@ describe("CronjobManager DI (temp-state isolated)", () => {
     const mgr = createProductionCronjobManager();
     expect(typeof mgr.listCronjobs).toBe("function");
     expect(Array.isArray(mgr.listCronjobs())).toBe(true);
+  });
+});
+
+// Phase 2.1 (ADDITIVE) — RUN-scope token wired into the PRIMARY run lifecycle.
+// fire() mints a token, injects it as ISOMUX_AGENT_TOKEN into the run env (so a
+// firing run's in-flight read-file/diff can authenticate as the run), and every
+// terminal path revokes it. Resumed follow-up turns are out of 2.1 scope (still
+// loopback-covered; wired with the Phase 3 loopback-bypass removal).
+describe("CronjobManager RUN token lifecycle (Phase 2.1)", () => {
+  afterEach(() => _testResetTokens());
+
+  it("fire() injects a RUN bearer into the run env and resolves it to a cron-run identity; finalize revokes it", async () => {
+    // No auto-complete: keep the run live so we can inspect the token before it
+    // is revoked at finalize.
+    const fake = new FakeBackend();
+    const mgr = createCronjobManager(baseDeps({ resolveBackend: () => fake }));
+    const job = mgr.addCronjob(intervalInput("RunTokenJob"));
+    const run = mgr.runCronjobNow(job.id, "Nil");
+    expect(run).not.toBeNull();
+    // Let the async run reach createSession (+ send, which does not complete).
+    await new Promise((r) => setTimeout(r, 25));
+
+    const sess = fake.lastSession;
+    const raw = sess?.opts.env?.ISOMUX_AGENT_TOKEN;
+    expect(typeof raw).toBe("string");
+
+    // Resolves (while the run is live) to a RUN-scope identity bound to {job,run}.
+    const id = resolveToken(raw as string)!;
+    expect(id.scope).toBe("cron-run");
+    expect(id.cronjobId).toBe(job.id);
+    expect(id.runId).toBe(run!.id);
+    expect([...id.capabilities]).toEqual(["self:affordance"]);
+
+    // Redaction: the run token must not ride in the run's system prompt.
+    expect(sess?.opts.systemPrompt ?? "").not.toContain(raw as string);
+
+    // End the run -> finalizeRun revokes the token.
+    sess?.completeTurn({ text: "done" });
+    await new Promise((r) => setTimeout(r, 25));
+    expect(resolveToken(raw as string)).toBeNull();
+
+    fake.sessions.forEach((s) => s.close());
+  });
+
+  it("createSession failure revokes the run token (no leak on the failed-run path)", async () => {
+    const throwing = new FakeBackend();
+    // Force the failed-run path: fire() must revoke the token it minted before
+    // createSession threw (this path never enters activeRuns/finalizeRun).
+    throwing.createSession = () => {
+      throw new Error("boom (createSession)");
+    };
+    const mgr = createCronjobManager(
+      baseDeps({ resolveBackend: () => throwing }),
+    );
+    const job = mgr.addCronjob(intervalInput("FailJob"));
+    const run = mgr.runCronjobNow(job.id, "Nil");
+    expect(run).not.toBeNull();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(getRunTokenRaw(job.id, run!.id)).toBeNull();
   });
 });

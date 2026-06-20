@@ -117,6 +117,11 @@ import type {
 } from "./backends/types.ts";
 import { OfficeState } from "../shared/office-state.ts";
 import { buildEnvForUserId, setOfficeEnvFileProvider } from "./env-loader.ts";
+import {
+  mintAgentToken,
+  revokeAgentToken,
+  getAgentTokenRaw,
+} from "./identity/tokens.ts";
 import { getUserByName } from "./users.ts";
 // Backend-option validators live in agent-validators.ts so cron handlers can
 // share them. UI shouldn't send mismatched values, but a stale tab or hand-
@@ -1123,6 +1128,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       queueDedupe: new Map(),
     };
     agents.set(p.id, managed);
+    // Mint (or rotate, on revive) the agent's bearer token before any
+    // createSession/resumeSession below reads it via buildSessionEnv. Boot
+    // restore and revive both funnel here, so "rotated on revive" is automatic;
+    // revoked when the agent leaves the map (kill, or the revive rollback).
+    mintAgentToken(p.id, userId);
 
     if (resumeSessionId) {
       const history = loadLogWithAncestors(p.id, resumeSessionId);
@@ -2372,7 +2382,15 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   function buildSessionEnv(
     managed: ManagedAgent,
   ): { [key: string]: string | undefined } | undefined {
-    return buildEnvForUserId(managed.info.userId);
+    const base = buildEnvForUserId(managed.info.userId);
+    const token = getAgentTokenRaw(managed.info.id);
+    if (!token) return base;
+    // Inject the agent's own bearer token (Phase 2.1) so its self-affordance /
+    // inter-agent message curls authenticate as itself. In-memory secret, never
+    // persisted/logged; spread process.env when there's no env-file base so the
+    // subprocess keeps PATH/HOME/etc. Redaction tests assert it stays out of
+    // prompts, logs, errors, diffs, and the WS.
+    return { ...(base ?? process.env), ISOMUX_AGENT_TOKEN: token };
   }
 
   // Error-path env build for diagnostic hints. Resume preflights deliberately
@@ -2650,6 +2668,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       queueDedupe: new Map(),
     };
     agents.set(id, managed);
+    // Mint the agent's bearer token before the first createSession below reads
+    // it via buildSessionEnv. Revoked in kill() when the agent leaves the map.
+    mintAgentToken(id, info.userId);
     for (const event of events) emit(event);
     // Send commands immediately so autocomplete works before SDK init
     emit({
@@ -3888,6 +3909,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     managed.session = null;
     // Remove from the map so the consumer's outer `agents.has(agentId)` guard exits.
     agents.delete(agentId);
+    // The agent left the live map; revoke its bearer token (mirrors the mint at
+    // spawn/restore). A killed agent has no subprocess and no valid token.
+    revokeAgentToken(agentId);
     officeState.kill(agentId);
     logCache.delete(agentId);
     // Drop any pending live-Codex-cwd-change marker so a kill during the
@@ -4047,6 +4071,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // Manual rollback avoids re-stamping killedAt — the chip retains
       // its original kill-time order.
       agents.delete(agentId);
+      // Revive failed and we're removing the just-installed agent; revoke the
+      // token minted in restoreOrReviveAgent so a non-live agent has none.
+      revokeAgentToken(agentId);
       for (const event of officeState.kill(agentId)) emit(event);
       logCache.delete(agentId);
       return {

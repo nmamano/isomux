@@ -25,6 +25,9 @@
 import { describe, it, expect, afterEach } from "bun:test";
 import { startTestServer, type TestServer } from "./harness.ts";
 import type { TaskItem } from "../../shared/types.ts";
+import type { SessionLookup } from "../auth.ts";
+import { resolveIdentityForRequest } from "../auth-middleware.ts";
+import { mintAgentToken, _testResetTokens } from "../identity/tokens.ts";
 
 let server: TestServer | null = null;
 
@@ -32,6 +35,10 @@ afterEach(async () => {
   await server?.stop();
   server = null;
 });
+
+// Phase 2.1: clear the in-memory token store between cases. The harness resets
+// it on boot, but the precedence unit cases below mint tokens without a boot.
+afterEach(() => _testResetTokens());
 
 describe("routes/auth: loopback trust (no cookie) (Phase 1.4b)", () => {
   it("isAgentApiPath GET routes are reachable with no cookie", async () => {
@@ -162,5 +169,85 @@ describe("routes/auth: body-trust attribution (Phase 1.4b)", () => {
     expect(res.status).toBe(201);
     // The cookie session is Alice, but createdBy is taken verbatim from the body.
     expect(((await res.json()) as TaskItem).createdBy).toBe("Bob");
+  });
+});
+
+// Phase 2.1 (ADDITIVE) — Bearer lands ALONGSIDE the cookie path. These assert
+// the NEW acceptance (a valid bearer authenticates), NOT any new rejection: a
+// garbage bearer behaves exactly like no Authorization. NOTE the deliberate
+// broad-acceptance window: until the guard catalog (2.2) lands, a valid AGENT
+// bearer clears the cookie wall anywhere authenticate() gates — acceptable only
+// because the token is a bearer secret injected into local subprocess env.
+describe("routes/auth: bearer alongside cookie (Phase 2.1, additive)", () => {
+  it("a valid AGENT bearer token clears the cookie wall (GET /api/files -> 404, not 401)", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const raw = mintAgentToken("agent-bearer-1", "user-1");
+    const res = await srv.http("/api/files/ghost/x.txt", {
+      headers: { Authorization: `Bearer ${raw}` },
+    });
+    // Reached the handler (file just doesn't exist) instead of the 401 wall.
+    expect(res.status).toBe(404);
+  });
+
+  it("an invalid/garbage bearer is IGNORED: a cookie-walled path still 401 (no new rejection)", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const res = await srv.http("/api/files/ghost/x.txt", {
+      headers: { Authorization: "Bearer not-a-real-token" },
+    });
+    expect(res.status).toBe(401);
+    expect((await res.json()).error).toBe("unauthenticated");
+  });
+
+  it("a garbage bearer does not disturb loopback trust (POST /tasks still 201)", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const res = await srv.http("/tasks", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer garbage",
+      },
+      body: JSON.stringify({ title: "loopback+badbearer", createdBy: "agent" }),
+    });
+    expect(res.status).toBe(201);
+  });
+});
+
+describe("auth-middleware: resolveIdentityForRequest precedence (Phase 2.1)", () => {
+  const cookieLookup: SessionLookup = {
+    sessionIdHash: "hash",
+    sessionPrefix: "prefix12",
+    userId: "user-cookie",
+    username: "Carol",
+    role: "owner",
+    needsRolling: false,
+  };
+  const reqWith = (headers: Record<string, string>) =>
+    new Request("http://localhost/x", { headers });
+
+  it("a valid bearer wins over a valid cookie", () => {
+    const raw = mintAgentToken("agent-prec", "user-agent");
+    const id = resolveIdentityForRequest(
+      reqWith({ Authorization: `Bearer ${raw}` }),
+      cookieLookup,
+    )!;
+    expect(id.scope).toBe("agent");
+    expect(id.agentId).toBe("agent-prec");
+  });
+
+  it("an invalid bearer falls through to the cookie identity", () => {
+    const id = resolveIdentityForRequest(
+      reqWith({ Authorization: "Bearer nope" }),
+      cookieLookup,
+    )!;
+    expect(id.scope).toBe("user");
+    expect(id.userId).toBe("user-cookie");
+    expect(id.role).toBe("owner");
+  });
+
+  it("no credentials -> null", () => {
+    expect(resolveIdentityForRequest(reqWith({}), null)).toBeNull();
   });
 });

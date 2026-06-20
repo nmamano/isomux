@@ -28,6 +28,7 @@ import {
   _testSeedOwner,
 } from "../auth.ts";
 import { _testResetUsers } from "../users.ts";
+import { _testResetTokens } from "../identity/tokens.ts";
 import { registerProductionCronjobManagerForModuleReads } from "../cronjob-manager.ts";
 import type { UserRole } from "../../shared/types.ts";
 
@@ -99,6 +100,7 @@ export async function startTestServer(
     mkdirSync(STATE_ROOT, { recursive: true });
     _testResetState();
     _testResetUsers();
+    _testResetTokens();
     registerProductionCronjobManagerForModuleReads(null);
 
     const fakeBackend =

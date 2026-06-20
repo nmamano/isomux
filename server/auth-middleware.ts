@@ -19,6 +19,12 @@ import {
   type SessionLookup,
 } from "./auth.ts";
 import { hasOwner } from "./users.ts";
+import {
+  readBearerToken,
+  identityFromSession,
+  type Identity,
+} from "./identity/index.ts";
+import { resolveToken } from "./identity/tokens.ts";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
@@ -119,7 +125,16 @@ export function securityHeaders(opts?: {
 
 export interface AuthOk {
   kind: "ok";
-  session: SessionLookup;
+  // Present for the cookie path; absent for a bearer-only caller (agent/run
+  // token, which has no cookie session). No consumer reads this beyond the
+  // `kind` check today; it stays for the cookie callers that already relied
+  // on it.
+  session?: SessionLookup;
+  // The resolved caller identity (Phase 2.1). Always set on an "ok" result:
+  // a bearer token resolves to an agent/run identity, a cookie to a user
+  // identity. Nothing enforces against it yet — the guard catalog (2.2) and
+  // dispatcher (2.3) will.
+  identity: Identity;
 }
 export interface AuthLoopback {
   kind: "loopback";
@@ -196,6 +211,22 @@ export function authenticate<T>(
       };
     }
   }
+  // Bearer (Phase 2.1, ADDITIVE) lands ALONGSIDE the cookie path. A valid
+  // bearer is resolved BEFORE the loopback short-circuit so that
+  // `Authorization: Bearer ...` is deterministic and a valid bearer wins; an
+  // invalid/garbage bearer is IGNORED (treated like no Authorization) so it
+  // never becomes a NEW rejection — valid cookie/loopback can still pass, and
+  // an invalid bearer alone still gets today's 401.
+  //
+  // Until the guard catalog lands (2.2), a valid agent/run bearer clears the
+  // cookie wall anywhere authenticate() gates. That broad acceptance is
+  // acceptable ONLY for this additive phase because the token is a bearer
+  // secret injected into local subprocess env; 2.2 + the Reviewer4 pass narrow
+  // it by capability + resource guard.
+  const bearerId = resolveBearerIdentity(req);
+  if (bearerId) {
+    return { kind: "ok", identity: bearerId };
+  }
   if (looped) {
     return { kind: "loopback" };
   }
@@ -207,7 +238,31 @@ export function authenticate<T>(
       response: unauthorized(req, opts?.officeName ?? null),
     };
   }
-  return { kind: "ok", session };
+  return { kind: "ok", session, identity: identityFromSession(session) };
+}
+
+// The bearer-then-cookie identity precedence, factored out as a pure helper so
+// the "a valid bearer wins over a valid cookie" contract is unit-testable
+// without constructing a Server. authenticate() applies the same order with the
+// loopback fallback interleaved (loopback is anonymous trust and carries no
+// identity). A valid bearer wins; an invalid bearer is ignored; otherwise a
+// cookie session (if any) yields a USER identity.
+export function resolveIdentityForRequest(
+  req: Request,
+  cookieLookup: SessionLookup | null,
+): Identity | null {
+  const bearerId = resolveBearerIdentity(req);
+  if (bearerId) return bearerId;
+  if (cookieLookup) return identityFromSession(cookieLookup);
+  return null;
+}
+
+// Single source of bearer-identity resolution, shared by authenticate() and
+// resolveIdentityForRequest() so the bearer precedence has exactly ONE
+// implementation — no drift between the live gate and the unit-tested helper.
+function resolveBearerIdentity(req: Request): Identity | null {
+  const bearer = readBearerToken(req);
+  return bearer ? resolveToken(bearer) : null;
 }
 
 // ---------------------------------------------------------------------------
