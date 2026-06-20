@@ -57,6 +57,8 @@ import {
   type JsonRpcLiteClientOptions,
   type JsonRpcNotification,
   type JsonRpcRequest,
+  type NotificationHandler,
+  type ServerRequestHandler,
 } from "./client.ts";
 import {
   codexWrapperCommandForShell,
@@ -65,6 +67,7 @@ import {
 } from "./native-bin.ts";
 
 import type { InitializeParams } from "./_generated/InitializeParams.ts";
+import type { InitializeResponse } from "./_generated/InitializeResponse.ts";
 import type { Model as CodexProtocolModel } from "./_generated/v2/Model.ts";
 import type { ModelListParams } from "./_generated/v2/ModelListParams.ts";
 import type { ModelListResponse } from "./_generated/v2/ModelListResponse.ts";
@@ -321,7 +324,35 @@ interface PendingApproval {
   reject: (err: unknown) => void;
 }
 
-interface CodexSessionInitOpts {
+// The narrow transport surface CodexSession depends on — exactly the subset of
+// JsonRpcLiteClient it calls (lifecycle, request, pending-approval error
+// response, and the four handler registrations). Extracted so the T2
+// adapter-contract tests can drive the *real* translation logic with curated
+// JSON-RPC provider events through a fake transport, without spawning a codex
+// subprocess. JsonRpcLiteClient satisfies this structurally; production wiring
+// is unchanged (the constructor still builds a real client when none is
+// injected). Keep this session-scoped and free of test-only helpers — fixture
+// driving lives on the fake in codex/adapter.test.ts, not here.
+export interface CodexTransport {
+  start(): void;
+  initialize(params: InitializeParams): Promise<InitializeResponse>;
+  request<T = unknown>(method: string, params?: unknown): Promise<T>;
+  respondWithError(
+    id: JsonRpcId,
+    code: number,
+    message: string,
+    data?: unknown,
+  ): void;
+  onNotification(handler: NotificationHandler): () => void;
+  onServerRequest(handler: ServerRequestHandler): () => void;
+  onStderr(handler: (chunk: string) => void): () => void;
+  onExit(
+    handler: (code: number | null, signal: NodeJS.Signals | null) => void,
+  ): () => void;
+  close(): Promise<void>;
+}
+
+export interface CodexSessionInitOpts {
   agentId: string;
   cwd: string;
   systemPrompt: string;
@@ -332,10 +363,14 @@ interface CodexSessionInitOpts {
   env?: { [key: string]: string | undefined };
   resumeThreadId?: string;
   ephemeral?: boolean;
+  // Test seam (T2 adapter contract): inject a fake transport to drive the real
+  // translation with curated provider events. Undefined in production, where
+  // the constructor builds a real JsonRpcLiteClient.
+  client?: CodexTransport;
 }
 
-class CodexSession implements BackendSession {
-  private client: JsonRpcLiteClient;
+export class CodexSession implements BackendSession {
+  private client: CodexTransport;
   private threadId: string | null = null;
   private activeTurnId: string | null = null;
   private buffer: NormalizedEvent[] = [];
@@ -413,7 +448,7 @@ class CodexSession implements BackendSession {
       cwd: opts.cwd,
       env: opts.env,
     };
-    this.client = new JsonRpcLiteClient(clientOpts);
+    this.client = opts.client ?? new JsonRpcLiteClient(clientOpts);
     this.client.onStderr((chunk) => this.handleStderr(chunk));
     this.client.onNotification((n) => this.handleNotification(n));
     this.client.onServerRequest((req) => this.handleServerRequest(req));

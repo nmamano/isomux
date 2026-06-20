@@ -1,3 +1,15 @@
+// Claude backend — T2 adapter-contract tier.
+//
+// This file is the Claude half of the adapter-contract net (the Codex half is
+// server/backends/codex/adapter.test.ts). It freezes the claude-agent-sdk
+// SDKMessage -> NormalizedEvent translation by feeding curated SDK messages to
+// the pure `translateSDKMessage` generator and asserting the emitted events,
+// plus the user-message builder (`buildClaudeUserMessage`) and session-message
+// flattening. Zero LLM: plain `bun test` runs it always; refresh the fixtures
+// on claude-agent-sdk bumps. The session-lifecycle seam (ClaudeSession + the
+// injected SdkClient) is covered in claude.session.test.ts; the live
+// end-to-end smoke is server/backends/live-smoke.test.ts (T3, opt-in). See
+// internal-docs/generic-runtime-refactor.md, Testing strategy -> test tiers.
 import { describe, expect, it, afterAll } from "bun:test";
 import { join } from "path";
 import { mkdirSync, writeFileSync, rmSync } from "fs";
