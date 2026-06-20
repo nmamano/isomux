@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { expectRejection } from "../test-support/expect-rejection.ts";
 import type {
   SDKMessage,
   SDKUserMessage,
@@ -185,24 +186,6 @@ function nextEvent<T extends { kind: string }>(
   it: AsyncIterator<T>,
 ): Promise<T | undefined> {
   return it.next().then((r) => (r.done ? undefined : r.value));
-}
-
-// Bun's `expect(promise).rejects.toThrow(...)` is typed as returning `void`
-// (bun-types gap) so `await` on it trips @typescript-eslint/await-thenable
-// even though the runtime returns a thenable. This helper makes the assertion
-// portable and lint-clean: it awaits the promise, fails if it resolved, and
-// matches the rejection's message against the supplied pattern.
-async function expectRejection(
-  p: Promise<unknown>,
-  pattern: RegExp,
-): Promise<void> {
-  try {
-    await p;
-  } catch (err) {
-    expect((err as Error).message).toMatch(pattern);
-    return;
-  }
-  throw new Error("expected promise to reject, but it resolved");
 }
 
 function fakeCallOpts(

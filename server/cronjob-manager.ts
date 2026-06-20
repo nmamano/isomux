@@ -1931,14 +1931,23 @@ function readCronjobLifetimeUsage(jobId: string): {
 // timers). No global side effects. index.ts calls this at boot; tests build
 // createCronjobManager(...) with fakes (FakeBackend, fake clock/scheduler,
 // in-memory persistence) instead.
-export function createProductionCronjobManager(): CronjobManager {
+export function createProductionCronjobManager(overrides?: {
+  resolveBackend?: typeof defaultResolveBackend;
+  clock?: Parameters<typeof createCronjobManager>[0]["clock"];
+  scheduler?: Parameters<typeof createCronjobManager>[0]["scheduler"];
+}): CronjobManager {
   return createCronjobManager({
-    resolveBackend: defaultResolveBackend,
+    resolveBackend: overrides?.resolveBackend ?? defaultResolveBackend,
     resolveEnv: defaultResolveEnv,
     resolveUser: defaultResolveUser,
     persistence: cronPersistence,
-    clock: { now: Date.now },
-    scheduler: { setTimeout, clearTimeout, setInterval, clearInterval },
+    clock: overrides?.clock ?? { now: Date.now },
+    scheduler: overrides?.scheduler ?? {
+      setTimeout,
+      clearTimeout,
+      setInterval,
+      clearInterval,
+    },
   });
 }
 

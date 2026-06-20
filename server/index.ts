@@ -1,4 +1,4 @@
-import type { ServerWebSocket } from "bun";
+import type { Server, ServerWebSocket } from "bun";
 import type {
   ServerMessage,
   ClientCommand,
@@ -14,15 +14,18 @@ import {
   refreshPresenceForUser,
   removePresence,
   setPresence,
+  _testClearPresence,
 } from "./presence.ts";
 import type { AgentEvent } from "./internal-types.ts";
 import { runPreUseridBackupIfNeeded } from "./migrations.ts";
 import { createProductionAgentManager } from "./agent-manager.ts";
+import type { AgentManager } from "./agent-manager.ts";
 import { getBackend } from "./backends/index.ts";
 import {
   createProductionCronjobManager,
   registerProductionCronjobManagerForModuleReads,
 } from "./cronjob-manager.ts";
+import type { CronjobManager } from "./cronjob-manager.ts";
 import {
   loadRecentCwds,
   saveRecentCwd,
@@ -97,6 +100,7 @@ import {
   setOnInviteConsumed,
   setOnSessionsChanged,
   setPublicOriginFallback,
+  setLoopbackOriginPort,
   setRoomsSnapshotProvider,
   unregisterSocket,
   validateSession,
@@ -106,25 +110,23 @@ import {
 import { lowercaseKey } from "../shared/identity.ts";
 import { startAdminSocket } from "./admin-socket.ts";
 
-// CLI sub-command fast-path. The operator invokes
-//   `bun run server/index.ts owner-login --name X`
-// to mint a recovery URL for an existing owner. We dynamic-import the CLI
-// module (which has no auth-state side effects of its own) and exit before
-// the heavy boot side effects below — backup, freeze, listener, etc. The
-// CLI just opens an HTTP-over-unix-socket request to the running server's
-// admin endpoint, so the running server's mutex is the only auth-state
-// touchpoint.
-if (process.argv[2] === "owner-login") {
-  const { runAdminCli } = await import("./admin-cli.ts");
-  await runAdminCli(process.argv.slice(2));
-  process.exit(0);
-}
+// Boot is extracted into startServer() at the end of this file. The CLI
+// fast-path (`bun run server/index.ts owner-login`) and the production
+// auto-start both live in the `if (import.meta.main)` guard there, so importing
+// this module (the in-process test harness) has no boot side effects.
 
-// Pre-userid backup must run before any user/session/agent/cronjob state
-// touches disk. The state modules above lazy-load (no top-level disk
-// reads), so this top-of-body call is in time — but it is fragile to
-// future eager-load refactors. Keep this near the top of the module body
-// and audit if any imported module starts loading eagerly.
+// bootPrelude: pre-userid backup migration, access-settings resolution, and
+// boot-state freeze. Extracted from module top-level so startServer() controls
+// timing (production via import.meta.main; tests via the in-process harness).
+// Body left at its prior indentation; prettier normalizes post-review.
+function bootPrelude(): void {
+// Pre-userid backup is the migration safety snapshot (NOT the daily backup
+// scheduler), so it runs UNCONDITIONALLY — skipBackups controls only the daily
+// scheduler in runBackgroundBoot. It must run before any user/session/agent/
+// cronjob state touches disk; the state modules above lazy-load (no top-level
+// disk reads), so this top-of-body call is in time — but it is fragile to
+// future eager-load refactors. Audit if any imported module starts loading
+// eagerly. On a fresh harness boot it is a no-op (no pre-userid state).
 runPreUseridBackupIfNeeded();
 
 // Resolve access settings from office-config.json + the deprecated
@@ -194,21 +196,38 @@ runPreUseridBackupIfNeeded();
   setPublicOriginFallback(cfg.publicOrigin);
   freezeBootState({ externalAccess });
 }
+} // end bootPrelude
 
-// The production AgentManager instance. createProductionAgentManager() loads
-// the persisted office/agents snapshot synchronously (so getRooms() is valid
-// immediately, before the async restore below) and registers the office
-// env-file provider for env-loader. Tests build their own via
-// createAgentManager(deps) with a FakeBackend resolver.
-const agentManager = createProductionAgentManager();
+// AgentManager / CronjobManager instances. Module-level `let` (not top-level
+// `const`) so startServer() can inject test doubles or a FakeBackend resolver;
+// production passes none and gets the real factories. The many handler closures
+// below read these after startServer() has assigned them (never before).
+let agentManager: AgentManager;
+let cronjobManager: CronjobManager;
 
-// The production CronjobManager instance. createProductionCronjobManager() wires
-// the real backend/env/user/persistence collaborators plus the system clock and
-// global timers, with no global side effects. Register it for the module-read
-// bridge that command-handlers/usage-report use (they don't hold the instance).
-const cronjobManager = createProductionCronjobManager();
-registerProductionCronjobManagerForModuleReads(cronjobManager);
+function createManagers(startOpts: StartServerOpts): void {
+  // createProductionAgentManager() loads the persisted office/agents snapshot
+  // synchronously (getRooms() valid before the async restore) and registers the
+  // office env-file provider. createProductionCronjobManager() wires the real
+  // backend/env/user/persistence + clock/timers. Tests pass a pre-built manager
+  // (or just a resolveBackend override) so a FakeBackend drives the same wiring.
+  agentManager =
+    startOpts.agentManager ??
+    createProductionAgentManager({ resolveBackend: startOpts.resolveBackend });
+  cronjobManager =
+    startOpts.cronjobManager ??
+    createProductionCronjobManager({ resolveBackend: startOpts.resolveBackend });
+  // Register the production instance for the module-read bridge that
+  // command-handlers/usage-report use (they don't hold the instance).
+  registerProductionCronjobManagerForModuleReads(cronjobManager);
+}
 
+// registerBootHooks: install the auth.ts callbacks (room-snapshot provider,
+// invite/session change fanout, first-owner welcome-agent seed) against the
+// active manager instance. Extracted so startServer() controls when they run.
+// The welcome-agent helpers below are local to this function (used only here).
+// Body left at prior indentation; prettier normalizes post-review.
+function registerBootHooks(): void {
 // Inject the room snapshot provider auth.ts uses when seeding a new
 // owner's allowedRooms at invite-acceptance time. The provider closes
 // over agentManager.getRooms() rather than auth.ts importing
@@ -336,6 +355,7 @@ setOnOwnerCreated(async ({ username }) => {
     username,
   );
 });
+} // end registerBootHooks
 
 // Each WS carries the session it was authenticated with at upgrade time. The
 // session reference is used per-message (so revoke kicks in on the next msg)
@@ -850,6 +870,10 @@ function routeAgentEventToWs(ws: ServerWebSocket<WsData>, event: AgentEvent) {
   }
 }
 
+// wireEventSinks: route AgentManager + CronjobManager domain events onto the
+// WS broadcast / per-recipient fanout. Extracted so startServer() wires the
+// active instances. Body left at prior indentation; prettier normalizes.
+function wireEventSinks(): void {
 // Wire AgentManager events to WebSocket broadcasts
 agentManager.onEvent((event) => {
   // Task mutations carry the full list as a domain event; the wire still
@@ -885,6 +909,7 @@ agentManager.onEvent((event) => {
 cronjobManager.onCronjobEvent((event) => {
   broadcast(event);
 });
+} // end wireEventSinks
 
 async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<WsData>) {
   const session = ws.data.session;
@@ -2933,14 +2958,19 @@ async function serveIndexHtml(): Promise<Response> {
 
 const PORT = parseInt(process.env.PORT || "4000");
 
+// buildServer: construct the HTTP+WS listener. Extracted from module top-level
+// so startServer() controls when the bind happens (production via
+// import.meta.main; tests via the in-process harness on an ephemeral port).
+// Body left at its prior indentation; prettier normalizes post-review.
+function buildServer(startOpts: StartServerOpts): Server<WsData> {
 // Pre-claim OR post-claim-with-external-access-off, bind loopback only.
 // External clients can't reach the server at all in either case; the
 // Access pane's external-access toggle, paired with a restart, opens the
 // bind to all interfaces.
 const BIND_LOOPBACK_ONLY = isProcessBoundLoopback();
 
-const server = Bun.serve<WsData>({
-  port: PORT,
+return Bun.serve<WsData>({
+  port: startOpts.port ?? PORT,
   // Default is ~128MB, below our 200MB per-file / 400MB per-upload limits, so a
   // large upload would 413 before reaching the handler. Keep this above MAX_TOTAL.
   maxRequestBodySize: 512 * 1024 * 1024, // 512MB
@@ -3800,7 +3830,12 @@ const server = Bun.serve<WsData>({
     },
   },
 });
+} // end buildServer
 
+// logBootBanners: the two boot-time console banners (resolved public-origin
+// note + the pre-claim SSH/claim instructions). Pure logging; startServer()
+// calls it only when not quiet. Body left at prior indentation.
+function logBootBanners(): void {
 // The public origin is the canonical URL the server expects browsers to hit.
 // We compare it against the Origin header on WS upgrades and unsafe HTTP
 // requests, and bake it into invite URLs. Resolution precedence is env >
@@ -3877,7 +3912,19 @@ if (isProcessPreClaim()) {
   );
   console.log("");
 }
+} // end logBootBanners
 
+// runBackgroundBoot: post-listen boot work (update checker, plugin-hooks deps,
+// plugin load + agent restore, schedulers, backup, admin socket). Each
+// background job is individually skippable so the in-process test harness boots
+// with no timers / no network / no LLM. Returns the plugin-load+restore promise
+// so the harness can await a fully-restored office; production fires and forgets
+// (listener already up). Body left at prior indentation; prettier normalizes.
+function runBackgroundBoot(
+  startOpts: StartServerOpts,
+  server: Server<WsData>,
+): Promise<void> {
+if (!startOpts.skipUpdateChecker) {
 // Start update checker
 onUpdateChange((status) => {
   broadcast({
@@ -3888,6 +3935,7 @@ onUpdateChange((status) => {
   });
 });
 startUpdateChecker();
+}
 
 // Wire plugin-hooks to agent-manager internals (beginTurn / createTurnDeferred /
 // logCache / room lookup) BEFORE loading plugins, so the loader has a usable
@@ -3914,7 +3962,7 @@ agentManager.configurePluginHooksDeps();
 // Plugin load failures land in ~/.isomux/logs/plugins.jsonl + stderr and
 // don't block startup; we still proceed to restoreAgents on the catch path
 // so a broken plugin doesn't kill the server.
-void (async () => {
+const restorePromise = (async () => {
   try {
     // import.meta.dir points at server/, so go up one to get the repo root.
     const isomuxRoot = join(import.meta.dir, "..");
@@ -3946,15 +3994,160 @@ void (async () => {
 })();
 
 // Boot cronjob scheduler (loads configs, reconciles stale "running" rows, starts tick).
-cronjobManager.startCronjobScheduler();
+if (!startOpts.skipSchedulers) cronjobManager.startCronjobScheduler();
 
 // Daily ~/.isomux/ backup tarball with N=7 retention. See server/backup.ts.
-startBackupScheduler();
+if (!startOpts.skipBackups) startBackupScheduler();
 
-console.log(`Isomux running at http://localhost:${server.port}`);
+if (!startOpts.quiet)
+  console.log(`Isomux running at http://localhost:${server.port}`);
 
 // Admin Unix socket — lets the `owner-login` CLI mint a recovery URL for
 // an existing owner. Starts after the HTTP listener so the CLI's printed
 // URL is immediately openable. Optional surface; a startup failure logs
 // but doesn't block the server.
-startAdminSocket();
+if (!startOpts.skipAdminSocket) startAdminSocket();
+
+return restorePromise;
+} // end runBackgroundBoot
+
+// ---------------------------------------------------------------------------
+// startServer: the single boot entrypoint. Composes the extracted boot steps in
+// the exact order the old top-level body ran them. Production calls it from the
+// import.meta.main guard below; the in-process test harness imports and calls
+// it with injected managers / a FakeBackend resolver on an ephemeral port.
+// Production behavior is unchanged (opts default to today's defaults).
+//
+// SINGLE INSTANCE PER PROCESS: it binds a listener and writes process-global
+// module state (managers, auth boot state, the loopback-origin port). Call the
+// returned ServerHandle.stop() before calling startServer() again in the same
+// process, or the prior listener leaks. The test harness (startTestServer)
+// enforces this with a process-global lock; a direct caller must self-manage.
+// ---------------------------------------------------------------------------
+
+export interface StartServerOpts {
+  // Listen port. Omit → process.env.PORT || 4000 (production). Tests pass 0 for
+  // an ephemeral port.
+  port?: number;
+  // Inject pre-built managers (tests). Omit → production factories.
+  agentManager?: AgentManager;
+  cronjobManager?: CronjobManager;
+  // Override the backend resolver for both factories (tests pass a FakeBackend
+  // resolver). Ignored when agentManager/cronjobManager are supplied directly.
+  resolveBackend?: typeof getBackend;
+  // Background-job skips. Tests set these so `bun test` does no timers, no
+  // network (update checker), no daily backup, and no admin socket.
+  skipSchedulers?: boolean;
+  skipBackups?: boolean;
+  skipAdminSocket?: boolean;
+  skipUpdateChecker?: boolean;
+  // Await plugin-load + agent restore before resolving (tests that assert on a
+  // fully-restored office). Production leaves this false: fire-and-forget so the
+  // listener is up immediately, matching today's behavior.
+  awaitRestore?: boolean;
+  // Suppress the boot banners / "running at" log (tests).
+  quiet?: boolean;
+}
+
+export interface ServerHandle {
+  server: Server<WsData>;
+  port: number;
+  agentManager: AgentManager;
+  cronjobManager: CronjobManager;
+  // Stop the listener (force-closing live sockets) and return the in-process
+  // module singletons to a known-idle state so the next startServer() in the
+  // same process is clean. See stopServer.
+  stop: () => Promise<void>;
+}
+
+// Reset index.ts's own module-level collections so a repeated in-process boot
+// doesn't inherit a prior server's sockets / id counter.
+function resetServerModuleState(): void {
+  browsers.clear();
+  connectionIdCounter = 0;
+}
+
+async function stopServer(server: Server<WsData>): Promise<void> {
+  // Force-close active sockets and stop accepting, freeing the (ephemeral) port
+  // before the next harness boot.
+  await server.stop(true);
+  // Editor file-watches are per-WS (keyed by socket in editorWatchers); the WS
+  // close handlers that server.stop(true) triggers unregister them. There is no
+  // global watch registry, and 0.3 opens no editor files, so a stopAllWatches()
+  // is intentionally out of 0.3 scope — add a real registry only if a later
+  // harness opens editor files (don't add speculative plumbing now).
+  //
+  // Agent backend sessions are likewise not closed here: AgentManager exposes no
+  // stopAll() today, and the next createManagers() drops this manager instance
+  // entirely, so its parked (timer-free) sessions become GC-eligible. Fine for
+  // the serial T1 tier; a longer-lived/concurrent harness would want an
+  // agentManager.stop() that closes live sessions first (out of 0.3 scope).
+  browsers.clear();
+  _testClearPresence();
+  // Neutralize the auth.ts boot hooks so a stale closure from this boot can't
+  // fire into a torn-down broadcast set between stop() and the next start();
+  // the next startServer() re-registers them against the new instance.
+  setRoomsSnapshotProvider(() => []);
+  setOnInviteConsumed(() => {});
+  setOnSessionsChanged(() => {});
+  setOnOwnerCreated(async () => {});
+  // Clear the cron module-read bridge so command-handlers/usage-report don't
+  // read a dead manager between boots, and the loopback origin port.
+  registerProductionCronjobManagerForModuleReads(null);
+  setLoopbackOriginPort(null);
+}
+
+export async function startServer(
+  opts: StartServerOpts = {},
+): Promise<ServerHandle> {
+  resetServerModuleState();
+  bootPrelude();
+  createManagers(opts);
+  registerBootHooks();
+  wireEventSinks();
+  const server = buildServer(opts);
+  // Bun.serve resolves a concrete TCP port (including when opts.port is 0). The
+  // `| undefined` in the type is for unix-socket servers, which we never create.
+  const port = server.port;
+  if (port == null) {
+    await server.stop(true);
+    throw new Error("startServer: Bun.serve did not resolve a TCP port");
+  }
+  // Make buildPublicOrigin's loopback fallback match the actual bound port so
+  // origin checks (WS upgrade + HTTP form posts) and minted localhost URLs are
+  // consistent. Production: server.port === PORT, so byte-for-byte unchanged.
+  setLoopbackOriginPort(port);
+  if (!opts.quiet) logBootBanners();
+  const restore = runBackgroundBoot(opts, server);
+  if (opts.awaitRestore) {
+    // The listener is already bound; if restore rejects, stop it so we do not
+    // leak the port (and the harness single-instance lock), then rethrow.
+    try {
+      await restore;
+    } catch (err) {
+      await stopServer(server);
+      throw err;
+    }
+  }
+  return {
+    server,
+    port,
+    agentManager,
+    cronjobManager,
+    stop: () => stopServer(server),
+  };
+}
+
+if (import.meta.main) {
+  // CLI sub-command fast-path. `bun run server/index.ts owner-login --name X`
+  // dynamic-imports the CLI (no auth-state side effects of its own) and exits
+  // before the heavy boot below. Guarded by import.meta.main so importing this
+  // module (the in-process test harness) can never process-exit on a stray
+  // argv token.
+  if (process.argv[2] === "owner-login") {
+    const { runAdminCli } = await import("./admin-cli.ts");
+    await runAdminCli(process.argv.slice(2));
+    process.exit(0);
+  }
+  await startServer();
+}

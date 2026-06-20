@@ -1,7 +1,7 @@
 import { describe, expect, it, afterAll } from "bun:test";
 import { join } from "path";
-import { homedir } from "os";
 import { mkdirSync, writeFileSync, rmSync } from "fs";
+import { STATE_ROOT } from "../config.ts";
 import {
   translateSDKMessage,
   flattenSessionMessageText,
@@ -552,20 +552,17 @@ describe("flattenSessionMessageText", () => {
 // buildClaudeUserMessage — real persistence under unique agent id
 // ---------------------------------------------------------------------------
 // buildClaudeUserMessage resolves attachments via getFilePath (looks under
-// ~/.isomux/logs/<agentId>/files/<filename>). We allocate a unique agentId
-// per test and write fixtures directly under that path; an afterAll hook
-// cleans up the agent dir.
+// STATE_ROOT/logs/<agentId>/files/<filename>). We allocate a unique agentId per
+// test and write fixtures directly under that path; an afterAll hook cleans up
+// the agent dir. Uses STATE_ROOT (the config-root seam) rather than a hardcoded
+// ~/.isomux, so it follows ISOMUX_HOME: the bun test preload points STATE_ROOT
+// at a temp dir, and getFilePath reads from there too (previously the hardcode
+// happened to match only because STATE_ROOT defaulted to ~/.isomux).
 
 const TEST_AGENT_ID = `test-build-msg-${Date.now()}-${Math.random()
   .toString(36)
   .slice(2, 8)}`;
-const AGENT_FILES_DIR = join(
-  homedir(),
-  ".isomux",
-  "logs",
-  TEST_AGENT_ID,
-  "files",
-);
+const AGENT_FILES_DIR = join(STATE_ROOT, "logs", TEST_AGENT_ID, "files");
 
 function fixtureFile(filename: string, contents: Buffer | string) {
   mkdirSync(AGENT_FILES_DIR, { recursive: true });
@@ -574,7 +571,7 @@ function fixtureFile(filename: string, contents: Buffer | string) {
 
 afterAll(() => {
   try {
-    rmSync(join(homedir(), ".isomux", "logs", TEST_AGENT_ID), {
+    rmSync(join(STATE_ROOT, "logs", TEST_AGENT_ID), {
       recursive: true,
       force: true,
     });

@@ -18,7 +18,7 @@ import { dirname, join, resolve, sep } from "path";
 // ~/.isomux resolves to its real target and is rejected — without requiring the
 // target to exist (deleting an already-absent path is a no-op but must still
 // validate, so `/tmpx/missing` cannot masquerade as being under `/tmp`).
-function canonicalize(target: string): string {
+export function canonicalize(target: string): string {
   const abs = resolve(target);
   let anc = abs;
   while (!existsSync(anc)) {

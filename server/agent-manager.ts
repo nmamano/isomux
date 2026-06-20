@@ -4769,7 +4769,9 @@ function resolveEditorPathForAgent(
 // valid before the async restoreAgents()), injects the real getBackend
 // resolver, and registers the office-env-file provider for env-loader. index.ts
 // calls this at boot; tests construct createAgentManager(...) with fakes.
-export function createProductionAgentManager(): AgentManager {
+export function createProductionAgentManager(overrides?: {
+  resolveBackend?: typeof defaultResolveBackend;
+}): AgentManager {
   const initialOfficeConfig = loadOfficeConfig();
   const initialLoadedAgents = loadAgents();
   const officeState = new OfficeState({
@@ -4788,7 +4790,7 @@ export function createProductionAgentManager(): AgentManager {
     },
   });
   const manager = createAgentManager({
-    resolveBackend: defaultResolveBackend,
+    resolveBackend: overrides?.resolveBackend ?? defaultResolveBackend,
     officeState,
     initialRooms: initialLoadedAgents,
   });

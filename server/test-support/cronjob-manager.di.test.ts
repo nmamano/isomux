@@ -8,27 +8,20 @@
 // cronjob-persistence, but that import is now side-effect-free (CRONJOBS_DIR is
 // created lazily on first write, not at module load), so module import never
 // creates dirs under real state. The run-execution proof and the
-// production-factory check still touch disk directly (office-config read /
-// real state) and gate on ISOLATED, like the agent-manager DI test.
+// production-factory check touch disk directly (office-config read / temp
+// state); they run in-suite because the bun test preload presets ISOMUX_HOME to
+// a temp dir before config.ts is imported (see agent-manager.di.test.ts).
 
 import { describe, it, expect, beforeAll, afterAll } from "bun:test";
-import { mkdtempSync } from "fs";
-import { tmpdir } from "os";
-import { join } from "path";
-import { removeStateDir } from "./temp-state.ts";
 import { FakeBackend } from "./fake-backend.ts";
 import { makeFakeCronPersistence } from "./fake-cron-persistence.ts";
-
-const tmpHome = mkdtempSync(join(tmpdir(), "isomux-di-cron-"));
-process.env.ISOMUX_HOME = tmpHome;
-
-const { STATE_ROOT } = await import("../config.ts");
-const {
+import { STATE_ROOT } from "../config.ts";
+import {
   createCronjobManager,
   createProductionCronjobManager,
   registerProductionCronjobManagerForModuleReads,
   listCronjobs,
-} = await import("../cronjob-manager.ts");
+} from "../cronjob-manager.ts";
 type CronDeps = Parameters<typeof createCronjobManager>[0];
 type CronEvent = Parameters<NonNullable<CronDeps["eventSink"]>>[0];
 // AddCronjobInput is a factory-local interface; derive it from the method.
@@ -36,20 +29,14 @@ type AddCronjobInput = Parameters<
   ReturnType<typeof createCronjobManager>["addCronjob"]
 >[0];
 
-const ISOLATED = STATE_ROOT === tmpHome;
-if (!ISOLATED) {
-  console.warn(
-    `[cronjob-manager.di.test] STATE_ROOT=${STATE_ROOT} != temp; ` +
-      "skipping disk-touching assertions (runCronjobNow, production factory). " +
-      "Run this file alone, or via the Phase 0.3 ISOMUX_HOME-set script, for full coverage.",
-  );
-}
+// STATE_ROOT is a temp dir (the bun test preload preset ISOMUX_HOME before
+// config.ts was imported), so the disk-touching assertions below run in-suite
+// instead of skipping. The preload owns temp-root cleanup at process exit.
 
 afterAll(() => {
   // Clear the module-read bridge so the fake instance registered by the bridge
-  // test below doesn't leak into other files in the shared Bun process.
+  // test above doesn't leak into other files in the shared Bun process.
   registerProductionCronjobManagerForModuleReads(null);
-  removeStateDir(tmpHome);
 });
 
 // A fake scheduler that records registrations and never auto-fires, so tests
@@ -91,7 +78,7 @@ function intervalInput(name: string): AddCronjobInput {
     name,
     schedule: { type: "interval", minutes: 60 },
     prompt: "do the thing",
-    cwd: tmpHome,
+    cwd: STATE_ROOT,
     agentType: "claude",
     modelFamily: "opus",
     effort: "medium",
@@ -157,7 +144,7 @@ describe("CronjobManager DI (disk-free seam)", () => {
 });
 
 describe("CronjobManager DI (temp-state isolated)", () => {
-  it.skipIf(!ISOLATED)(
+  it(
     "runCronjobNow drives the FakeBackend through the resolver (no real backend)",
     async () => {
       const fake = new FakeBackend({
@@ -177,7 +164,7 @@ describe("CronjobManager DI (temp-state isolated)", () => {
     },
   );
 
-  it.skipIf(!ISOLATED)(
+  it(
     "production factory constructs against today's defaults (shallow)",
     () => {
       const mgr = createProductionCronjobManager();

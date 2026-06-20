@@ -43,6 +43,12 @@ export interface PresenceState {
 
 const presences = new Map<string, PresenceState>();
 
+// Test-only: drop all presence so a fresh in-process harness boot starts with
+// no ghosts from a prior boot's sockets. Not a production path.
+export function _testClearPresence(): void {
+  presences.clear();
+}
+
 // Upsert. Returns true if the visible-to-clients state actually changed
 // (so callers can avoid a no-op broadcast on a repeated identical
 // update — e.g. focus-change handlers that fire from multiple effect

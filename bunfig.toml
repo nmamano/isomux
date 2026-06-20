@@ -1,0 +1,5 @@
+# bun test configuration. The preload presets ISOMUX_HOME to a throwaway temp
+# dir before any test imports server/config.ts, so the whole suite runs against
+# temp state (never the real ~/.isomux). See server/test-support/preload.ts.
+[test]
+preload = ["./server/test-support/preload.ts"]

@@ -41,6 +41,14 @@ const USERS_FILE = join(STATE_ROOT, "users.json");
 let users: Record<string, UserRecord> = {};
 let loaded = false;
 
+// Test-only: drop the in-memory user cache so the next access reloads from the
+// (freshly wiped) STATE_ROOT. The in-process harness calls this between boots;
+// mirrors auth._testResetState. Not a production path.
+export function _testResetUsers(): void {
+  users = {};
+  loaded = false;
+}
+
 function normalizeRole(value: unknown): UserRole {
   return value === "owner" ? "owner" : "member";
 }

@@ -5,55 +5,34 @@
 // multi-socket harness or the Phase 1.1 onboarding flow — it exercises the seam
 // only, with zero LLM/provider calls.
 //
-// State-root isolation caveat: STATE_ROOT is an eager import-time const, and
-// `bun test` runs every test file in ONE shared process — so when this file is
-// part of a full-suite run, config.ts has usually already resolved STATE_ROOT
-// to the real ~/.isomux before this file sets ISOMUX_HOME. Assertions that
-// would touch disk (spawn, the production factory) are therefore gated on
-// ISOLATED below and SKIP in the shared run, so they can never write to real
-// state. They DO run when this file is invoked on its own
-// (`bun test server/test-support/agent-manager.di.test.ts`), and will run in
-// the full suite once the Phase 0.3 script split invokes `bun test` with
-// ISOMUX_HOME pre-set. The disk-free assertions run unconditionally: importing
-// agent-manager pulls in persistence.ts, but that import is now side-effect-free
-// (state dirs are created lazily on first write, not at module load), so neither
-// the import nor these assertions ever touch the real ~/.isomux.
+// State-root isolation: STATE_ROOT is an eager import-time const resolved from
+// ISOMUX_HOME. The bun test preload (server/test-support/preload.ts) presets
+// ISOMUX_HOME to a temp dir before any test imports config.ts, so STATE_ROOT is
+// a throwaway temp root for the whole shared `bun test` process. That is what
+// lets the disk-touching assertions here (spawn, the production factory) run
+// in-suite; before Phase 0.3 they were gated on an ISOLATED check and skipped,
+// because this file lost the import-time race to set its own ISOMUX_HOME. The
+// disk-free assertions never needed the gate: importing agent-manager pulls in
+// persistence.ts, but that import is side-effect-free (state dirs are created
+// lazily on first write), so neither the import nor these assertions touch real
+// state. The preload removes the temp root at process exit.
 
-import { describe, it, expect, afterAll } from "bun:test";
-import { mkdtempSync } from "fs";
-import { tmpdir } from "os";
-import { join } from "path";
-import { removeStateDir } from "./temp-state.ts";
+import { describe, it, expect } from "bun:test";
 import { FakeBackend } from "./fake-backend.ts";
 import { OfficeState } from "../../shared/office-state.ts";
 import type { RoomWire } from "../../shared/types.ts";
 import type { AgentBackendType } from "../../shared/types.ts";
 import type { Backend } from "../backends/types.ts";
 import type { EventHandler } from "../internal-types.ts";
+import { STATE_ROOT } from "../config.ts";
+import {
+  createAgentManager,
+  createProductionAgentManager,
+} from "../agent-manager.ts";
 
-const tmpHome = mkdtempSync(join(tmpdir(), "isomux-di-agent-"));
-process.env.ISOMUX_HOME = tmpHome;
-
-const { STATE_ROOT } = await import("../config.ts");
-const { createAgentManager, createProductionAgentManager } = await import(
-  "../agent-manager.ts"
-);
-
-// True only when this file's ISOMUX_HOME actually won the import-time race, i.e.
-// STATE_ROOT resolved to our temp dir. Disk-touching assertions gate on this so
-// they never write to the real ~/.isomux in a shared-process suite run.
-const ISOLATED = STATE_ROOT === tmpHome;
-if (!ISOLATED) {
-  console.warn(
-    `[agent-manager.di.test] STATE_ROOT=${STATE_ROOT} != temp; ` +
-      "skipping disk-touching DI assertions (spawn, production factory). " +
-      "Run this file alone, or via the Phase 0.3 ISOMUX_HOME-set script, for full coverage.",
-  );
-}
-
-afterAll(() => {
-  removeStateDir(tmpHome);
-});
+// STATE_ROOT is a temp dir (the bun test preload preset ISOMUX_HOME before
+// config.ts was imported), so the disk-touching assertions below run in-suite
+// instead of skipping. The preload owns temp-root cleanup at process exit.
 
 function rooms(...ids: string[]): RoomWire[] {
   return ids.map((id) => ({ id, name: id, prompt: null }));
@@ -123,7 +102,7 @@ describe("AgentManager DI (disk-free seam)", () => {
 });
 
 describe("AgentManager DI (temp-state isolated)", () => {
-  it.skipIf(!ISOLATED)(
+  it(
     "consults the injected resolver and drives the FakeBackend on spawn (no real backend)",
     async () => {
       const fake = new FakeBackend();
@@ -135,7 +114,7 @@ describe("AgentManager DI (temp-state isolated)", () => {
       });
       const info = await mgr.spawn(
         "TestAgent",
-        tmpHome,
+        STATE_ROOT,
         "default",
         undefined,
         undefined,
@@ -153,11 +132,11 @@ describe("AgentManager DI (temp-state isolated)", () => {
     },
   );
 
-  it.skipIf(!ISOLATED)(
+  it(
     "production factory constructs against today's defaults (shallow)",
     () => {
       // Empty temp home → loadAgents() returns [], so OfficeState seeds the
-      // default single room. Reads tmpHome only.
+      // default single room. Reads the temp STATE_ROOT only.
       const mgr = createProductionAgentManager();
       expect(mgr.getRooms().length).toBeGreaterThanOrEqual(1);
     },

@@ -7,6 +7,7 @@ import type { Server } from "bun";
 import {
   acceptInvite,
   buildPublicOrigin,
+  isLoopbackOrigin,
   claimOwnership,
   clearCookieHeader,
   logoutBySessionHash,
@@ -504,16 +505,6 @@ async function handleClaim<T>(
       ...securityHeaders({ tokenInUrl: false }),
     },
   });
-}
-
-// Accept either http://localhost:<port> or http://127.0.0.1:<port> as the
-// claim-form Origin. The browser sends whichever the operator typed.
-function isLoopbackOrigin(origin: string): boolean {
-  const port = process.env.PORT || "4000";
-  return (
-    origin === `http://localhost:${port}` ||
-    origin === `http://127.0.0.1:${port}`
-  );
 }
 
 async function handleLoginBackdrop(): Promise<Response> {

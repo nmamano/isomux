@@ -1475,6 +1475,38 @@ export function setPublicOriginFallback(origin: string | null): void {
   cachedFallbackOrigin = origin;
 }
 
+// The actual bound loopback port. Production sets this to server.port (== PORT,
+// so the localhost fallback stays byte-for-byte unchanged); the in-process test
+// harness boots on an ephemeral port and sets it to that port, so origin checks
+// (WS upgrade + HTTP form posts) and minted localhost URLs match the real
+// listener instead of a hardcoded 4000. Null until startServer sets it, in
+// which case the legacy process.env.PORT || "4000" fallback applies.
+let boundLoopbackPort: number | null = null;
+export function setLoopbackOriginPort(port: number | null): void {
+  boundLoopbackPort = port;
+}
+// The effective loopback port: the actual bound port when startServer set it
+// (tests use an ephemeral port), else process.env.PORT, else 4000. Single
+// source so the /auth/claim Origin check and buildPublicOrigin agree on the
+// port instead of one of them hardcoding 4000.
+function loopbackPort(): string {
+  return String(boundLoopbackPort ?? process.env.PORT ?? "4000");
+}
+function loopbackOrigin(): string {
+  return `http://localhost:${loopbackPort()}`;
+}
+// Accept either http://localhost:<port> or http://127.0.0.1:<port> at the bound
+// loopback port (the browser sends whichever the operator typed). The tokenless
+// /auth/claim form (auth-middleware) uses this so its Origin check tracks the
+// actual port on an ephemeral bind instead of a hardcoded 4000.
+export function isLoopbackOrigin(origin: string): boolean {
+  const port = loopbackPort();
+  return (
+    origin === `http://localhost:${port}` ||
+    origin === `http://127.0.0.1:${port}`
+  );
+}
+
 function evaluateEnvOrigin(): string | null {
   if (envEvaluated) return envCachedOrigin;
   envEvaluated = true;
@@ -1551,7 +1583,7 @@ export function buildPublicOrigin(): {
   // the bind. The env/JSON value re-engages on the next process boot
   // (which is when external access can be turned on and the bind widens).
   if (isProcessBoundLoopback()) {
-    const fallback = `http://localhost:${process.env.PORT || "4000"}`;
+    const fallback = loopbackOrigin();
     return { origin: fallback, isHttps: false, source: "localhost" };
   }
   const envOrigin = evaluateEnvOrigin();
@@ -1569,7 +1601,7 @@ export function buildPublicOrigin(): {
       source: "config",
     };
   }
-  const fallback = `http://localhost:${process.env.PORT || "4000"}`;
+  const fallback = loopbackOrigin();
   return { origin: fallback, isHttps: false, source: "localhost" };
 }
 
@@ -1675,4 +1707,15 @@ export function _testResetState() {
   invites = new Map();
   sessions = new Map();
   wsBySession.clear();
+  // Repeated in-process harness boots must not inherit a prior run's mutex
+  // chain, persist throttle, or cached origin/port. Reset them so each boot
+  // starts from a known-idle auth module. (Boot captures bootHadOwner /
+  // bootExternalAccess are re-frozen by startServer's freezeBootState.)
+  mutexTail = Promise.resolve();
+  sessionsNeedsPersist = false;
+  lastPersist = 0;
+  cachedFallbackOrigin = null;
+  envEvaluated = false;
+  envCachedOrigin = null;
+  boundLoopbackPort = null;
 }
