@@ -102,43 +102,37 @@ describe("AgentManager DI (disk-free seam)", () => {
 });
 
 describe("AgentManager DI (temp-state isolated)", () => {
-  it(
-    "consults the injected resolver and drives the FakeBackend on spawn (no real backend)",
-    async () => {
-      const fake = new FakeBackend();
-      const { calls, resolveBackend } = spyResolver(fake);
-      const mgr = createAgentManager({
-        resolveBackend,
-        officeState: new OfficeState({ rooms: rooms("room-a") }),
-        initialRooms: [],
-      });
-      const info = await mgr.spawn(
-        "TestAgent",
-        STATE_ROOT,
-        "default",
-        undefined,
-        undefined,
-        "room-a",
-      );
-      expect(info).not.toBeNull();
-      // Resolver consulted (production getBackend bypassed) and a FakeSession
-      // created — proving no real LLM/provider call.
-      expect(calls).toContain("claude");
-      expect(fake.createSessionCount).toBeGreaterThan(0);
-      expect(fake.lastSession?.opts.agentId).toBe(info!.id);
-      // Close the fake session so the manager's background stream consumer
-      // doesn't stay parked after the test.
-      fake.lastSession?.close();
-    },
-  );
+  it("consults the injected resolver and drives the FakeBackend on spawn (no real backend)", async () => {
+    const fake = new FakeBackend();
+    const { calls, resolveBackend } = spyResolver(fake);
+    const mgr = createAgentManager({
+      resolveBackend,
+      officeState: new OfficeState({ rooms: rooms("room-a") }),
+      initialRooms: [],
+    });
+    const info = await mgr.spawn(
+      "TestAgent",
+      STATE_ROOT,
+      "default",
+      undefined,
+      undefined,
+      "room-a",
+    );
+    expect(info).not.toBeNull();
+    // Resolver consulted (production getBackend bypassed) and a FakeSession
+    // created — proving no real LLM/provider call.
+    expect(calls).toContain("claude");
+    expect(fake.createSessionCount).toBeGreaterThan(0);
+    expect(fake.lastSession?.opts.agentId).toBe(info!.id);
+    // Close the fake session so the manager's background stream consumer
+    // doesn't stay parked after the test.
+    fake.lastSession?.close();
+  });
 
-  it(
-    "production factory constructs against today's defaults (shallow)",
-    () => {
-      // Empty temp home → loadAgents() returns [], so OfficeState seeds the
-      // default single room. Reads the temp STATE_ROOT only.
-      const mgr = createProductionAgentManager();
-      expect(mgr.getRooms().length).toBeGreaterThanOrEqual(1);
-    },
-  );
+  it("production factory constructs against today's defaults (shallow)", () => {
+    // Empty temp home → loadAgents() returns [], so OfficeState seeds the
+    // default single room. Reads the temp STATE_ROOT only.
+    const mgr = createProductionAgentManager();
+    expect(mgr.getRooms().length).toBeGreaterThanOrEqual(1);
+  });
 });

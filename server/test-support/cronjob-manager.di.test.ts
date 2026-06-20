@@ -144,32 +144,24 @@ describe("CronjobManager DI (disk-free seam)", () => {
 });
 
 describe("CronjobManager DI (temp-state isolated)", () => {
-  it(
-    "runCronjobNow drives the FakeBackend through the resolver (no real backend)",
-    async () => {
-      const fake = new FakeBackend({
-        // Auto-complete the run's single turn so it finalizes deterministically.
-        session: { onSend: (_t, _a, s) => s.completeTurn({ text: "done" }) },
-      });
-      const mgr = createCronjobManager(
-        baseDeps({ resolveBackend: () => fake }),
-      );
-      const job = mgr.addCronjob(intervalInput("RunJob"));
-      const run = mgr.runCronjobNow(job.id, "Nil");
-      expect(run).not.toBeNull();
-      // Let the async run reach createSession.
-      await new Promise((r) => setTimeout(r, 25));
-      expect(fake.createSessionCount).toBeGreaterThan(0);
-      fake.sessions.forEach((s) => s.close());
-    },
-  );
+  it("runCronjobNow drives the FakeBackend through the resolver (no real backend)", async () => {
+    const fake = new FakeBackend({
+      // Auto-complete the run's single turn so it finalizes deterministically.
+      session: { onSend: (_t, _a, s) => s.completeTurn({ text: "done" }) },
+    });
+    const mgr = createCronjobManager(baseDeps({ resolveBackend: () => fake }));
+    const job = mgr.addCronjob(intervalInput("RunJob"));
+    const run = mgr.runCronjobNow(job.id, "Nil");
+    expect(run).not.toBeNull();
+    // Let the async run reach createSession.
+    await new Promise((r) => setTimeout(r, 25));
+    expect(fake.createSessionCount).toBeGreaterThan(0);
+    fake.sessions.forEach((s) => s.close());
+  });
 
-  it(
-    "production factory constructs against today's defaults (shallow)",
-    () => {
-      const mgr = createProductionCronjobManager();
-      expect(typeof mgr.listCronjobs).toBe("function");
-      expect(Array.isArray(mgr.listCronjobs())).toBe(true);
-    },
-  );
+  it("production factory constructs against today's defaults (shallow)", () => {
+    const mgr = createProductionCronjobManager();
+    expect(typeof mgr.listCronjobs).toBe("function");
+    expect(Array.isArray(mgr.listCronjobs())).toBe(true);
+  });
 });

@@ -89,11 +89,15 @@ describe("FakeBackend — Backend contract", () => {
   });
 
   it("forkSessionBeforeMessage defaults to fresh, honors override", async () => {
-    expect(
-      await new FakeBackend().forkSessionBeforeMessage("s", "m"),
-    ).toEqual({ kind: "fresh" });
+    expect(await new FakeBackend().forkSessionBeforeMessage("s", "m")).toEqual({
+      kind: "fresh",
+    });
     const forked = new FakeBackend({
-      forkResult: { kind: "fork", sessionId: "child", forkedFromSessionId: "s" },
+      forkResult: {
+        kind: "fork",
+        sessionId: "child",
+        forkedFromSessionId: "s",
+      },
     });
     expect(await forked.forkSessionBeforeMessage("s", "m")).toEqual({
       kind: "fork",
@@ -126,7 +130,10 @@ describe("FakeSession — stream lifecycle", () => {
     s.endStream();
     const got = await collect(s.stream());
     expect(got).toHaveLength(1);
-    expect(got[0]).toMatchObject({ kind: "system_init", sessionId: s.sessionId });
+    expect(got[0]).toMatchObject({
+      kind: "system_init",
+      sessionId: s.sessionId,
+    });
   });
 
   it("resumeSession reuses the provided id on its system_init", async () => {
@@ -232,9 +239,9 @@ describe("FakeSession — stream lifecycle", () => {
   });
 
   it("getContextUsage returns null by default, override honored", async () => {
-    expect(await (new FakeBackend().createSession(opts())).getContextUsage()).toBe(
-      null,
-    );
+    expect(
+      await new FakeBackend().createSession(opts()).getContextUsage(),
+    ).toBe(null);
     const usage = {
       model: "fake",
       totalTokens: 10,
@@ -242,8 +249,6 @@ describe("FakeSession — stream lifecycle", () => {
       percentage: 10,
     };
     const fake = new FakeBackend({ session: { contextUsage: usage } });
-    expect(
-      await fake.createSession(opts()).getContextUsage(),
-    ).toEqual(usage);
+    expect(await fake.createSession(opts()).getContextUsage()).toEqual(usage);
   });
 });

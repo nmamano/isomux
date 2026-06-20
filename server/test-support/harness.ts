@@ -124,7 +124,11 @@ export async function startTestServer(
 
     async function seedOwner(displayName = "Owner"): Promise<SeededIdentity> {
       const r = await _testSeedOwner(displayName);
-      return { username: r.username, role: r.role, rawSessionId: r.rawSessionId };
+      return {
+        username: r.username,
+        role: r.role,
+        rawSessionId: r.rawSessionId,
+      };
     }
 
     async function seedMember(displayName: string): Promise<SeededIdentity> {
@@ -178,7 +182,9 @@ export async function startTestServer(
       ws.addEventListener("message", (ev: MessageEvent) => {
         let msg: Record<string, unknown>;
         try {
-          msg = JSON.parse(typeof ev.data === "string" ? ev.data : String(ev.data));
+          msg = JSON.parse(
+            typeof ev.data === "string" ? ev.data : String(ev.data),
+          );
         } catch {
           return;
         }

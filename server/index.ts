@@ -120,82 +120,82 @@ import { startAdminSocket } from "./admin-socket.ts";
 // timing (production via import.meta.main; tests via the in-process harness).
 // Body left at its prior indentation; prettier normalizes post-review.
 function bootPrelude(): void {
-// Pre-userid backup is the migration safety snapshot (NOT the daily backup
-// scheduler), so it runs UNCONDITIONALLY — skipBackups controls only the daily
-// scheduler in runBackgroundBoot. It must run before any user/session/agent/
-// cronjob state touches disk; the state modules above lazy-load (no top-level
-// disk reads), so this top-of-body call is in time — but it is fragile to
-// future eager-load refactors. Audit if any imported module starts loading
-// eagerly. On a fresh harness boot it is a no-op (no pre-userid state).
-runPreUseridBackupIfNeeded();
+  // Pre-userid backup is the migration safety snapshot (NOT the daily backup
+  // scheduler), so it runs UNCONDITIONALLY — skipBackups controls only the daily
+  // scheduler in runBackgroundBoot. It must run before any user/session/agent/
+  // cronjob state touches disk; the state modules above lazy-load (no top-level
+  // disk reads), so this top-of-body call is in time — but it is fragile to
+  // future eager-load refactors. Audit if any imported module starts loading
+  // eagerly. On a fresh harness boot it is a no-op (no pre-userid state).
+  runPreUseridBackupIfNeeded();
 
-// Resolve access settings from office-config.json + the deprecated
-// ISOMUX_PUBLIC_ORIGIN env var, write any migration / backfill back to disk,
-// then lock the boot-time state. Cookie attributes and origin policy are
-// frozen from this point, so the bind decision can't disagree with the
-// minted cookies if a claim flips hasOwner() mid-process.
-{
-  let cfg = loadServerConfig();
-  const envRaw = process.env.ISOMUX_PUBLIC_ORIGIN?.trim();
-  const envOrigin = envRaw ? normalizePublicOrigin(envRaw) : null;
+  // Resolve access settings from office-config.json + the deprecated
+  // ISOMUX_PUBLIC_ORIGIN env var, write any migration / backfill back to disk,
+  // then lock the boot-time state. Cookie attributes and origin policy are
+  // frozen from this point, so the bind decision can't disagree with the
+  // minted cookies if a claim flips hasOwner() mid-process.
+  {
+    let cfg = loadServerConfig();
+    const envRaw = process.env.ISOMUX_PUBLIC_ORIGIN?.trim();
+    const envOrigin = envRaw ? normalizePublicOrigin(envRaw) : null;
 
-  // Env-var migration. ISOMUX_PUBLIC_ORIGIN is deprecated; copy its value
-  // into office-config.json (only when JSON's slot is empty, never clobber
-  // an explicit JSON value) and warn the operator. The env var still wins
-  // for THIS boot via buildPublicOrigin's precedence chain — the message
-  // tells the operator that removing the env var will silently start
-  // using the JSON value, which matches what we wrote.
-  let configDirty = false;
-  if (envOrigin) {
-    if (cfg.publicOrigin === null) {
-      console.log(
-        `[auth] ISOMUX_PUBLIC_ORIGIN is deprecated. Migrating "${envOrigin}" into office-config.json so it survives without the env var. Remove ISOMUX_PUBLIC_ORIGIN from your env on your next deploy.`,
-      );
-      cfg = { ...cfg, publicOrigin: envOrigin };
-      configDirty = true;
-    } else if (cfg.publicOrigin === envOrigin) {
-      console.log(
-        `[auth] ISOMUX_PUBLIC_ORIGIN env var is redundant with office-config.json#publicOrigin (${cfg.publicOrigin}) and is deprecated. Remove it from your env on your next deploy.`,
-      );
+    // Env-var migration. ISOMUX_PUBLIC_ORIGIN is deprecated; copy its value
+    // into office-config.json (only when JSON's slot is empty, never clobber
+    // an explicit JSON value) and warn the operator. The env var still wins
+    // for THIS boot via buildPublicOrigin's precedence chain — the message
+    // tells the operator that removing the env var will silently start
+    // using the JSON value, which matches what we wrote.
+    let configDirty = false;
+    if (envOrigin) {
+      if (cfg.publicOrigin === null) {
+        console.log(
+          `[auth] ISOMUX_PUBLIC_ORIGIN is deprecated. Migrating "${envOrigin}" into office-config.json so it survives without the env var. Remove ISOMUX_PUBLIC_ORIGIN from your env on your next deploy.`,
+        );
+        cfg = { ...cfg, publicOrigin: envOrigin };
+        configDirty = true;
+      } else if (cfg.publicOrigin === envOrigin) {
+        console.log(
+          `[auth] ISOMUX_PUBLIC_ORIGIN env var is redundant with office-config.json#publicOrigin (${cfg.publicOrigin}) and is deprecated. Remove it from your env on your next deploy.`,
+        );
+      } else {
+        console.error(
+          `[auth] ISOMUX_PUBLIC_ORIGIN ("${envOrigin}") differs from office-config.json#publicOrigin ("${cfg.publicOrigin}"). The env var is deprecated; isomux uses the env value for THIS boot but will use the JSON value once the env var is removed. Reconcile by editing one and removing the other.`,
+        );
+      }
+    } else if (envRaw) {
+      // Env set but invalid. evaluateEnvOrigin (and normalizePublicOrigin
+      // here) already logged the rejection; nothing to migrate.
+    }
+
+    // External-access backfill. When the field is absent from JSON
+    // (pre-redesign install), default to true if any publicOrigin source
+    // exists so the office stays reachable at its old address after the
+    // upgrade. Write the resolved value back so subsequent boots don't
+    // re-run this inference.
+    let externalAccess: boolean;
+    if (cfg.externalAccess !== null) {
+      externalAccess = cfg.externalAccess;
     } else {
-      console.error(
-        `[auth] ISOMUX_PUBLIC_ORIGIN ("${envOrigin}") differs from office-config.json#publicOrigin ("${cfg.publicOrigin}"). The env var is deprecated; isomux uses the env value for THIS boot but will use the JSON value once the env var is removed. Reconcile by editing one and removing the other.`,
-      );
+      externalAccess = cfg.publicOrigin !== null || envOrigin !== null;
+      configDirty = true;
     }
-  } else if (envRaw) {
-    // Env set but invalid. evaluateEnvOrigin (and normalizePublicOrigin
-    // here) already logged the rejection; nothing to migrate.
-  }
 
-  // External-access backfill. When the field is absent from JSON
-  // (pre-redesign install), default to true if any publicOrigin source
-  // exists so the office stays reachable at its old address after the
-  // upgrade. Write the resolved value back so subsequent boots don't
-  // re-run this inference.
-  let externalAccess: boolean;
-  if (cfg.externalAccess !== null) {
-    externalAccess = cfg.externalAccess;
-  } else {
-    externalAccess = cfg.publicOrigin !== null || envOrigin !== null;
-    configDirty = true;
-  }
-
-  if (configDirty) {
-    try {
-      saveServerConfig({
-        publicOrigin: cfg.publicOrigin,
-        externalAccess,
-      });
-    } catch (err) {
-      console.error(
-        `[auth] failed to backfill office-config.json (${(err as Error).message}); will re-attempt next boot`,
-      );
+    if (configDirty) {
+      try {
+        saveServerConfig({
+          publicOrigin: cfg.publicOrigin,
+          externalAccess,
+        });
+      } catch (err) {
+        console.error(
+          `[auth] failed to backfill office-config.json (${(err as Error).message}); will re-attempt next boot`,
+        );
+      }
     }
-  }
 
-  setPublicOriginFallback(cfg.publicOrigin);
-  freezeBootState({ externalAccess });
-}
+    setPublicOriginFallback(cfg.publicOrigin);
+    freezeBootState({ externalAccess });
+  }
 } // end bootPrelude
 
 // AgentManager / CronjobManager instances. Module-level `let` (not top-level
@@ -216,7 +216,9 @@ function createManagers(startOpts: StartServerOpts): void {
     createProductionAgentManager({ resolveBackend: startOpts.resolveBackend });
   cronjobManager =
     startOpts.cronjobManager ??
-    createProductionCronjobManager({ resolveBackend: startOpts.resolveBackend });
+    createProductionCronjobManager({
+      resolveBackend: startOpts.resolveBackend,
+    });
   // Register the production instance for the module-read bridge that
   // command-handlers/usage-report use (they don't hold the instance).
   registerProductionCronjobManagerForModuleReads(cronjobManager);
@@ -228,133 +230,133 @@ function createManagers(startOpts: StartServerOpts): void {
 // The welcome-agent helpers below are local to this function (used only here).
 // Body left at prior indentation; prettier normalizes post-review.
 function registerBootHooks(): void {
-// Inject the room snapshot provider auth.ts uses when seeding a new
-// owner's allowedRooms at invite-acceptance time. The provider closes
-// over agentManager.getRooms() rather than auth.ts importing
-// agent-manager directly — keeps the dependency graph one-way.
-setRoomsSnapshotProvider(() => agentManager.getRooms().map((r) => r.id));
+  // Inject the room snapshot provider auth.ts uses when seeding a new
+  // owner's allowedRooms at invite-acceptance time. The provider closes
+  // over agentManager.getRooms() rather than auth.ts importing
+  // agent-manager directly — keeps the dependency graph one-way.
+  setRoomsSnapshotProvider(() => agentManager.getRooms().map((r) => r.id));
 
-// When an invite is consumed (typically via HTTP POST /auth/accept,
-// which never touches the WS dispatch loop), fan out an updated
-// invites_list to every owner WS so their Access pane re-renders in
-// real time. Without this hook, a browser that minted an invite while a
-// *separate* browser opened the /i/ URL would have to reconnect to see
-// the consumed invite drop off the Outstanding list.
-setOnInviteConsumed(() => {
-  pushInvitesListToEachWs();
-  pushSessionsListToEachWs();
-});
+  // When an invite is consumed (typically via HTTP POST /auth/accept,
+  // which never touches the WS dispatch loop), fan out an updated
+  // invites_list to every owner WS so their Access pane re-renders in
+  // real time. Without this hook, a browser that minted an invite while a
+  // *separate* browser opened the /i/ URL would have to reconnect to see
+  // the consumed invite drop off the Outstanding list.
+  setOnInviteConsumed(() => {
+    pushInvitesListToEachWs();
+    pushSessionsListToEachWs();
+  });
 
-// Owner AccessPane sessions table stays fresh on any server-initiated
-// session invalidation: revoke, logout, delete-user fanout, and the
-// hot-path expiry / orphan branches in validateByHash. Without this,
-// e.g. deleting a member silently leaves their row in the table until
-// the owner reloads. Per-WS pushers also keep the member's
-// "My devices" sessions table consistent on the same events.
-setOnSessionsChanged(() => {
-  pushSessionsListToEachWs();
-});
+  // Owner AccessPane sessions table stays fresh on any server-initiated
+  // session invalidation: revoke, logout, delete-user fanout, and the
+  // hot-path expiry / orphan branches in validateByHash. Without this,
+  // e.g. deleting a member silently leaves their row in the table until
+  // the owner reloads. Per-WS pushers also keep the member's
+  // "My devices" sessions table consistent on the same events.
+  setOnSessionsChanged(() => {
+    pushSessionsListToEachWs();
+  });
 
-// First-install onboarding: pre-spawn one Claude and one Codex welcome agent
-// so the new owner can try whichever backend they're set up for. Spawn is
-// always allowed (no CLI install check); the other backend surfaces a
-// chat-visible error on first message — missing CLI, missing auth, all the
-// same UX. Per-spawn try/catch is defense in depth against any unexpected
-// throw. Awaited so both agents are in officeState before the redirected
-// browser reads `full_state`. Guarded so an owner-recovery on an existing
-// office doesn't double-seed.
-function welcomeAgentPrompt(agentType: "claude" | "codex"): string {
-  const selfName =
-    agentType === "claude" ? "Claude Welcome Agent" : "Codex Welcome Agent";
-  const selfFamily = agentType === "claude" ? "Claude" : "Codex";
-  const otherName =
-    agentType === "claude" ? "Codex Welcome Agent" : "Claude Welcome Agent";
-  const otherFamily = agentType === "claude" ? "Codex" : "Claude";
-  return `You are the ${selfName} in this user's new Isomux office. Isomux is a persistent office of AI agents reachable from any device; each agent lives at a desk in a room with its own chat. New offices come preset with two welcome agents — you (a ${selfFamily} agent) and "${otherName}" (a ${otherFamily} agent). If the user messages you without a specific request, welcome them to the office and suggest \`/help\` to see your available commands, skills, and tips. You can also offer to walk them through spawning their first agent or to showcase agent-to-agent communication. If they ask for the showcase, check ~/.isomux/agents-summary.json to confirm the other welcome agent is present and then send them a message asking for a message back. Be brief, friendly, and focus on what the user asks. For deeper Isomux questions, use https://github.com/nmamano/isomux/blob/main/README.md or https://isomux.com as references.`;
-}
-
-// Fixed outfits so both welcome agents have a recognizable, friendly look on
-// every fresh install instead of the random palette new spawns get. Claude =
-// blue/glasses, Codex = pink/tie — visually distinct so the user can tell
-// them apart at a glance from the desk view.
-const CLAUDE_WELCOME_OUTFIT: AgentOutfit = {
-  hat: "bow",
-  color: "#45B7D1",
-  hair: "#6C5CE7",
-  hairStyle: "long",
-  skin: "#FDEBD0",
-  beard: "none",
-  accessory: "glasses",
-};
-const CODEX_WELCOME_OUTFIT: AgentOutfit = {
-  hat: "none",
-  color: "#E85D75",
-  hair: "#E84393",
-  hairStyle: "ponytail",
-  skin: "#FDEBD0",
-  beard: "stubble",
-  accessory: "tie",
-};
-
-async function spawnWelcomeAgent(
-  name: string,
-  agentType: "claude" | "codex",
-  modelFamily: string,
-  permissionMode: "auto" | "on-request",
-  outfit: AgentOutfit,
-  username: string,
-): Promise<void> {
-  try {
-    const created = await agentManager.spawn(
-      name,
-      "~",
-      permissionMode,
-      undefined,
-      welcomeAgentPrompt(agentType),
-      undefined,
-      outfit,
-      modelFamily,
-      undefined,
-      username,
-      agentType,
-      undefined,
-      undefined,
-    );
-    if (!created) {
-      console.warn(
-        `[bootstrap] ${name} spawn returned null (duplicate name or full room?)`,
-      );
-    }
-  } catch (err) {
-    console.warn(`[bootstrap] ${name} spawn threw:`, err);
+  // First-install onboarding: pre-spawn one Claude and one Codex welcome agent
+  // so the new owner can try whichever backend they're set up for. Spawn is
+  // always allowed (no CLI install check); the other backend surfaces a
+  // chat-visible error on first message — missing CLI, missing auth, all the
+  // same UX. Per-spawn try/catch is defense in depth against any unexpected
+  // throw. Awaited so both agents are in officeState before the redirected
+  // browser reads `full_state`. Guarded so an owner-recovery on an existing
+  // office doesn't double-seed.
+  function welcomeAgentPrompt(agentType: "claude" | "codex"): string {
+    const selfName =
+      agentType === "claude" ? "Claude Welcome Agent" : "Codex Welcome Agent";
+    const selfFamily = agentType === "claude" ? "Claude" : "Codex";
+    const otherName =
+      agentType === "claude" ? "Codex Welcome Agent" : "Claude Welcome Agent";
+    const otherFamily = agentType === "claude" ? "Codex" : "Claude";
+    return `You are the ${selfName} in this user's new Isomux office. Isomux is a persistent office of AI agents reachable from any device; each agent lives at a desk in a room with its own chat. New offices come preset with two welcome agents — you (a ${selfFamily} agent) and "${otherName}" (a ${otherFamily} agent). If the user messages you without a specific request, welcome them to the office and suggest \`/help\` to see your available commands, skills, and tips. You can also offer to walk them through spawning their first agent or to showcase agent-to-agent communication. If they ask for the showcase, check ~/.isomux/agents-summary.json to confirm the other welcome agent is present and then send them a message asking for a message back. Be brief, friendly, and focus on what the user asks. For deeper Isomux questions, use https://github.com/nmamano/isomux/blob/main/README.md or https://isomux.com as references.`;
   }
-}
 
-// Seed welcome agents on the first owner of a fresh office. Fires for
-// both the tokenless claim form (handleClaim) and the legacy bootstrap-
-// invite accept (handleAccept where isBootstrap is true). The hook only
-// fires on first-claim flows by design; the agent-count guard below is
-// defensive in case a future call path fires it against an already-
-// populated office.
-setOnOwnerCreated(async ({ username }) => {
-  if (agentManager.getAllAgents().length > 0) return;
-  await spawnWelcomeAgent(
-    "Claude Welcome Agent",
-    "claude",
-    "opus",
-    "auto",
-    CLAUDE_WELCOME_OUTFIT,
-    username,
-  );
-  await spawnWelcomeAgent(
-    "Codex Welcome Agent",
-    "codex",
-    CODEX_MODELS[0].value,
-    "on-request",
-    CODEX_WELCOME_OUTFIT,
-    username,
-  );
-});
+  // Fixed outfits so both welcome agents have a recognizable, friendly look on
+  // every fresh install instead of the random palette new spawns get. Claude =
+  // blue/glasses, Codex = pink/tie — visually distinct so the user can tell
+  // them apart at a glance from the desk view.
+  const CLAUDE_WELCOME_OUTFIT: AgentOutfit = {
+    hat: "bow",
+    color: "#45B7D1",
+    hair: "#6C5CE7",
+    hairStyle: "long",
+    skin: "#FDEBD0",
+    beard: "none",
+    accessory: "glasses",
+  };
+  const CODEX_WELCOME_OUTFIT: AgentOutfit = {
+    hat: "none",
+    color: "#E85D75",
+    hair: "#E84393",
+    hairStyle: "ponytail",
+    skin: "#FDEBD0",
+    beard: "stubble",
+    accessory: "tie",
+  };
+
+  async function spawnWelcomeAgent(
+    name: string,
+    agentType: "claude" | "codex",
+    modelFamily: string,
+    permissionMode: "auto" | "on-request",
+    outfit: AgentOutfit,
+    username: string,
+  ): Promise<void> {
+    try {
+      const created = await agentManager.spawn(
+        name,
+        "~",
+        permissionMode,
+        undefined,
+        welcomeAgentPrompt(agentType),
+        undefined,
+        outfit,
+        modelFamily,
+        undefined,
+        username,
+        agentType,
+        undefined,
+        undefined,
+      );
+      if (!created) {
+        console.warn(
+          `[bootstrap] ${name} spawn returned null (duplicate name or full room?)`,
+        );
+      }
+    } catch (err) {
+      console.warn(`[bootstrap] ${name} spawn threw:`, err);
+    }
+  }
+
+  // Seed welcome agents on the first owner of a fresh office. Fires for
+  // both the tokenless claim form (handleClaim) and the legacy bootstrap-
+  // invite accept (handleAccept where isBootstrap is true). The hook only
+  // fires on first-claim flows by design; the agent-count guard below is
+  // defensive in case a future call path fires it against an already-
+  // populated office.
+  setOnOwnerCreated(async ({ username }) => {
+    if (agentManager.getAllAgents().length > 0) return;
+    await spawnWelcomeAgent(
+      "Claude Welcome Agent",
+      "claude",
+      "opus",
+      "auto",
+      CLAUDE_WELCOME_OUTFIT,
+      username,
+    );
+    await spawnWelcomeAgent(
+      "Codex Welcome Agent",
+      "codex",
+      CODEX_MODELS[0].value,
+      "on-request",
+      CODEX_WELCOME_OUTFIT,
+      username,
+    );
+  });
 } // end registerBootHooks
 
 // Each WS carries the session it was authenticated with at upgrade time. The
@@ -667,7 +669,8 @@ function sendProjectedFullState(
   // private room they can't enter. Cap AFTER filtering so the user
   // sees up to KILLED_AGENT_CHIP_CAP entries they can actually act on,
   // not a smaller number trimmed by entries outside their room set.
-  const killedAgents = agentManager.getKilledAgentSummaries()
+  const killedAgents = agentManager
+    .getKilledAgentSummaries()
     .filter((k) => roomAllowedForSession(session, k.lastRoomId))
     .slice(0, KILLED_AGENT_CHIP_CAP);
   ws.send(
@@ -874,41 +877,41 @@ function routeAgentEventToWs(ws: ServerWebSocket<WsData>, event: AgentEvent) {
 // WS broadcast / per-recipient fanout. Extracted so startServer() wires the
 // active instances. Body left at prior indentation; prettier normalizes.
 function wireEventSinks(): void {
-// Wire AgentManager events to WebSocket broadcasts
-agentManager.onEvent((event) => {
-  // Task mutations carry the full list as a domain event; the wire still
-  // uses the legacy `{type:"tasks", tasks}` shape so the UI doesn't change.
-  if (event.type === "tasks_changed") {
-    broadcast({ type: "tasks", tasks: event.tasks });
-    return;
-  }
-  // Office settings are not room-scoped — same payload for everyone.
-  if (event.type === "office_settings_updated") {
-    broadcast(event);
-    return;
-  }
-  // All remaining events touch a specific room or agent — route per-WS so
-  // restricted members get a projected view (or suppression).
-  routeAgentEvent(event);
-  // Any mutation of the global rooms list also refreshes the owner-only
-  // admin view of all rooms (used by UserManagementModal). Done here
-  // (rather than inside routeAgentEvent) so the all_rooms_list message
-  // doesn't fan out per-event-type; one shot per mutation.
-  if (
-    event.type === "room_created" ||
-    event.type === "room_closed" ||
-    event.type === "room_renamed" ||
-    event.type === "rooms_reordered" ||
-    event.type === "room_settings_updated"
-  ) {
-    pushAllRoomsListToOwners();
-  }
-});
+  // Wire AgentManager events to WebSocket broadcasts
+  agentManager.onEvent((event) => {
+    // Task mutations carry the full list as a domain event; the wire still
+    // uses the legacy `{type:"tasks", tasks}` shape so the UI doesn't change.
+    if (event.type === "tasks_changed") {
+      broadcast({ type: "tasks", tasks: event.tasks });
+      return;
+    }
+    // Office settings are not room-scoped — same payload for everyone.
+    if (event.type === "office_settings_updated") {
+      broadcast(event);
+      return;
+    }
+    // All remaining events touch a specific room or agent — route per-WS so
+    // restricted members get a projected view (or suppression).
+    routeAgentEvent(event);
+    // Any mutation of the global rooms list also refreshes the owner-only
+    // admin view of all rooms (used by UserManagementModal). Done here
+    // (rather than inside routeAgentEvent) so the all_rooms_list message
+    // doesn't fan out per-event-type; one shot per mutation.
+    if (
+      event.type === "room_created" ||
+      event.type === "room_closed" ||
+      event.type === "room_renamed" ||
+      event.type === "rooms_reordered" ||
+      event.type === "room_settings_updated"
+    ) {
+      pushAllRoomsListToOwners();
+    }
+  });
 
-// Wire CronjobManager events to WebSocket broadcasts
-cronjobManager.onCronjobEvent((event) => {
-  broadcast(event);
-});
+  // Wire CronjobManager events to WebSocket broadcasts
+  cronjobManager.onCronjobEvent((event) => {
+    broadcast(event);
+  });
 } // end wireEventSinks
 
 async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<WsData>) {
@@ -1038,9 +1041,9 @@ async function dispatchCommand(
         cmd.focusedAgentId &&
         roomId !== null
       ) {
-        const agent = agentManager.getAllAgents().find(
-          (a) => a.id === cmd.focusedAgentId,
-        );
+        const agent = agentManager
+          .getAllAgents()
+          .find((a) => a.id === cmd.focusedAgentId);
         const agentRoomId =
           agent !== undefined ? (rooms[agent.room]?.id ?? null) : null;
         if (agentRoomId === roomId) {
@@ -1162,9 +1165,9 @@ async function dispatchCommand(
             // Disambiguate post-hoc so the UI can render the error under
             // the right field rather than under cwd by default.
             const trimmedName = cmd.name.trim();
-            const dupName = agentManager.getAllAgents().some(
-              (a) => a.name.toLowerCase() === trimmedName.toLowerCase(),
-            );
+            const dupName = agentManager
+              .getAllAgents()
+              .some((a) => a.name.toLowerCase() === trimmedName.toLowerCase());
             ws.send(
               JSON.stringify({
                 type: "agent_save_response",
@@ -2963,955 +2966,983 @@ const PORT = parseInt(process.env.PORT || "4000");
 // import.meta.main; tests via the in-process harness on an ephemeral port).
 // Body left at its prior indentation; prettier normalizes post-review.
 function buildServer(startOpts: StartServerOpts): Server<WsData> {
-// Pre-claim OR post-claim-with-external-access-off, bind loopback only.
-// External clients can't reach the server at all in either case; the
-// Access pane's external-access toggle, paired with a restart, opens the
-// bind to all interfaces.
-const BIND_LOOPBACK_ONLY = isProcessBoundLoopback();
+  // Pre-claim OR post-claim-with-external-access-off, bind loopback only.
+  // External clients can't reach the server at all in either case; the
+  // Access pane's external-access toggle, paired with a restart, opens the
+  // bind to all interfaces.
+  const BIND_LOOPBACK_ONLY = isProcessBoundLoopback();
 
-return Bun.serve<WsData>({
-  port: startOpts.port ?? PORT,
-  // Default is ~128MB, below our 200MB per-file / 400MB per-upload limits, so a
-  // large upload would 413 before reaching the handler. Keep this above MAX_TOTAL.
-  maxRequestBodySize: 512 * 1024 * 1024, // 512MB
-  ...(BIND_LOOPBACK_ONLY ? { hostname: "127.0.0.1" } : {}),
-  async fetch(req, server) {
-    const url = new URL(req.url);
+  return Bun.serve<WsData>({
+    port: startOpts.port ?? PORT,
+    // Default is ~128MB, below our 200MB per-file / 400MB per-upload limits, so a
+    // large upload would 413 before reaching the handler. Keep this above MAX_TOTAL.
+    maxRequestBodySize: 512 * 1024 * 1024, // 512MB
+    ...(BIND_LOOPBACK_ONLY ? { hostname: "127.0.0.1" } : {}),
+    async fetch(req, server) {
+      const url = new URL(req.url);
 
-    // WebSocket upgrade — authenticated and origin-checked. The upgrade
-    // carries the session into ws.data so per-message handlers can attribute
-    // writes without trusting client-supplied username fields.
-    if (url.pathname === "/ws") {
-      const wsCookie = readSessionCookie(req);
-      const wsSession = validateSession(wsCookie);
-      if (!wsSession) {
-        return new Response("unauthenticated", { status: 401 });
+      // WebSocket upgrade — authenticated and origin-checked. The upgrade
+      // carries the session into ws.data so per-message handlers can attribute
+      // writes without trusting client-supplied username fields.
+      if (url.pathname === "/ws") {
+        const wsCookie = readSessionCookie(req);
+        const wsSession = validateSession(wsCookie);
+        if (!wsSession) {
+          return new Response("unauthenticated", { status: 401 });
+        }
+        if (!checkOrigin(req)) {
+          return new Response("bad origin", { status: 403 });
+        }
+        const upgraded = server.upgrade(req, {
+          data: { session: wsSession, connectionId: nextConnectionId() },
+        });
+        if (upgraded) return;
+        return new Response("WebSocket upgrade failed", { status: 400 });
       }
-      if (!checkOrigin(req)) {
-        return new Response("bad origin", { status: 403 });
+
+      // /auth/* and /i/<token> routes. These must run before the gating check
+      // because unauthenticated visitors transition to authenticated through
+      // them. Pass the office name so pre-auth pages render the same tab
+      // title format (`<name> | Isomux — ...`) the SPA shell uses.
+      const officeName = agentManager.getOfficeSettings().name;
+      const authResponse = await tryHandleAuthRoute(
+        req,
+        url,
+        officeName,
+        server,
+      );
+      if (authResponse) return authResponse;
+
+      // PWA manifest + app icons: iOS Safari fetches these out-of-band when
+      // "Add to Home Screen" runs, and the apple-touch-icon fetch in particular
+      // can happen without the page's cookies. If 401'd here the PWA tile
+      // shows a generic icon and the manifest's name/colors don't apply.
+      // Whitelisted unauthenticated; they're public marketing-grade assets
+      // baked at build time and contain no deployment state. URL.pathname is
+      // normalized by the parser so path-traversal via .. can't escape /icons/.
+      if (
+        req.method === "GET" &&
+        (url.pathname === "/manifest.json" ||
+          url.pathname.startsWith("/icons/"))
+      ) {
+        const f = Bun.file(join(UI_DIST, url.pathname));
+        if (await f.exists()) {
+          return new Response(f, {
+            headers: {
+              "Content-Type": mimeTypeForFilename(url.pathname),
+              "Cache-Control": "public, max-age=31536000, immutable",
+            },
+          });
+        }
+        // fall through to the 404 path below if the asset isn't on disk
       }
-      const upgraded = server.upgrade(req, {
-        data: { session: wsSession, connectionId: nextConnectionId() },
+
+      // Loopback bypass is intentionally narrow: it only applies to API paths
+      // agents legitimately hit from the same box (POST /tasks, /cronjobs read
+      // routes, /agents/:id/* in-process actions). The SPA shell still requires
+      // an authenticated cookie even from localhost, so a same-host browser is
+      // pushed through the bootstrap-invite flow instead of getting a half-
+      // functional page where HTTP works but WS rejects.
+      const isAgentApiPath =
+        url.pathname.startsWith("/tasks") ||
+        url.pathname.startsWith("/cronjobs") ||
+        url.pathname.startsWith("/agents/") ||
+        url.pathname === "/backup/status";
+      const auth = authenticate(req, server, {
+        allowLoopback: isAgentApiPath,
+        officeName,
       });
-      if (upgraded) return;
-      return new Response("WebSocket upgrade failed", { status: 400 });
-    }
+      if (auth.kind === "rejected") return auth.response;
 
-    // /auth/* and /i/<token> routes. These must run before the gating check
-    // because unauthenticated visitors transition to authenticated through
-    // them. Pass the office name so pre-auth pages render the same tab
-    // title format (`<name> | Isomux — ...`) the SPA shell uses.
-    const officeName = agentManager.getOfficeSettings().name;
-    const authResponse = await tryHandleAuthRoute(req, url, officeName, server);
-    if (authResponse) return authResponse;
-
-    // PWA manifest + app icons: iOS Safari fetches these out-of-band when
-    // "Add to Home Screen" runs, and the apple-touch-icon fetch in particular
-    // can happen without the page's cookies. If 401'd here the PWA tile
-    // shows a generic icon and the manifest's name/colors don't apply.
-    // Whitelisted unauthenticated; they're public marketing-grade assets
-    // baked at build time and contain no deployment state. URL.pathname is
-    // normalized by the parser so path-traversal via .. can't escape /icons/.
-    if (
-      req.method === "GET" &&
-      (url.pathname === "/manifest.json" || url.pathname.startsWith("/icons/"))
-    ) {
-      const f = Bun.file(join(UI_DIST, url.pathname));
-      if (await f.exists()) {
-        return new Response(f, {
+      // CORS preflight for task API
+      if (req.method === "OPTIONS" && url.pathname.startsWith("/tasks")) {
+        return new Response(null, {
           headers: {
-            "Content-Type": mimeTypeForFilename(url.pathname),
-            "Cache-Control": "public, max-age=31536000, immutable",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type",
           },
         });
       }
-      // fall through to the 404 path below if the asset isn't on disk
-    }
 
-    // Loopback bypass is intentionally narrow: it only applies to API paths
-    // agents legitimately hit from the same box (POST /tasks, /cronjobs read
-    // routes, /agents/:id/* in-process actions). The SPA shell still requires
-    // an authenticated cookie even from localhost, so a same-host browser is
-    // pushed through the bootstrap-invite flow instead of getting a half-
-    // functional page where HTTP works but WS rejects.
-    const isAgentApiPath =
-      url.pathname.startsWith("/tasks") ||
-      url.pathname.startsWith("/cronjobs") ||
-      url.pathname.startsWith("/agents/") ||
-      url.pathname === "/backup/status";
-    const auth = authenticate(req, server, {
-      allowLoopback: isAgentApiPath,
-      officeName,
-    });
-    if (auth.kind === "rejected") return auth.response;
+      // CORS preflight for cronjobs API
+      if (req.method === "OPTIONS" && url.pathname.startsWith("/cronjobs")) {
+        return new Response(null, {
+          headers: {
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type",
+          },
+        });
+      }
 
-    // CORS preflight for task API
-    if (req.method === "OPTIONS" && url.pathname.startsWith("/tasks")) {
-      return new Response(null, {
-        headers: {
+      // Cronjobs HTTP API (read-only — mutations go through WebSocket, except
+      // POST /cronjobs/:id/runs/:runId/read-file which lets an in-flight run
+      // surface a file in its transcript — the cronjob equivalent of POST
+      // /agents/:id/read-file).
+      if (url.pathname.startsWith("/cronjobs")) {
+        const corsHeaders = {
           "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET, POST, PATCH, DELETE, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type",
-        },
-      });
-    }
-
-    // CORS preflight for cronjobs API
-    if (req.method === "OPTIONS" && url.pathname.startsWith("/cronjobs")) {
-      return new Response(null, {
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type",
-        },
-      });
-    }
-
-    // Cronjobs HTTP API (read-only — mutations go through WebSocket, except
-    // POST /cronjobs/:id/runs/:runId/read-file which lets an in-flight run
-    // surface a file in its transcript — the cronjob equivalent of POST
-    // /agents/:id/read-file).
-    if (url.pathname.startsWith("/cronjobs")) {
-      const corsHeaders = {
-        "Access-Control-Allow-Origin": "*",
-        "Content-Type": "application/json",
-      };
-      const parts = url.pathname.split("/").filter(Boolean); // ["cronjobs"] or ["cronjobs", id] or ["cronjobs", id, "runs"] or ["cronjobs", id, "runs", runId, ...]
-      // POST /cronjobs/:jobId/runs/:runId/read-file — copy a file into the
-      // run's files dir and emit a `file-view` log entry so the run's
-      // transcript renders it inline (images) or as a clickable file chip.
-      // Body: { path }.
-      if (
-        req.method === "POST" &&
-        parts.length === 5 &&
-        parts[2] === "runs" &&
-        parts[4] === "read-file"
-      ) {
-        const jobId = parts[1];
-        const runId = parts[3];
-        let path: string | undefined;
-        try {
-          const body = (await req.json()) as Record<string, unknown> | null;
-          if (body && typeof body.path === "string") path = body.path;
-        } catch {}
-        if (!path) {
-          return new Response(JSON.stringify({ error: "missing path" }), {
-            status: 400,
+          "Content-Type": "application/json",
+        };
+        const parts = url.pathname.split("/").filter(Boolean); // ["cronjobs"] or ["cronjobs", id] or ["cronjobs", id, "runs"] or ["cronjobs", id, "runs", runId, ...]
+        // POST /cronjobs/:jobId/runs/:runId/read-file — copy a file into the
+        // run's files dir and emit a `file-view` log entry so the run's
+        // transcript renders it inline (images) or as a clickable file chip.
+        // Body: { path }.
+        if (
+          req.method === "POST" &&
+          parts.length === 5 &&
+          parts[2] === "runs" &&
+          parts[4] === "read-file"
+        ) {
+          const jobId = parts[1];
+          const runId = parts[3];
+          let path: string | undefined;
+          try {
+            const body = (await req.json()) as Record<string, unknown> | null;
+            if (body && typeof body.path === "string") path = body.path;
+          } catch {}
+          if (!path) {
+            return new Response(JSON.stringify({ error: "missing path" }), {
+              status: 400,
+              headers: corsHeaders,
+            });
+          }
+          const result = cronjobManager.emitCronjobRunReadFile(
+            jobId,
+            runId,
+            path,
+          );
+          if (!result.ok)
+            return new Response(JSON.stringify({ error: result.error }), {
+              status: result.status,
+              headers: corsHeaders,
+            });
+          return new Response(JSON.stringify({ ok: true }), {
             headers: corsHeaders,
           });
         }
-        const result = cronjobManager.emitCronjobRunReadFile(
-          jobId,
-          runId,
-          path,
-        );
-        if (!result.ok)
-          return new Response(JSON.stringify({ error: result.error }), {
-            status: result.status,
+        // POST /cronjobs/:jobId/runs/:runId/diff — emit a styled diff card
+        // into the run transcript. Mirrors POST /agents/:id/diff. Optional
+        // body fields: { dir, commit } — see the agent endpoint for the
+        // accepted commit syntax.
+        if (
+          req.method === "POST" &&
+          parts.length === 5 &&
+          parts[2] === "runs" &&
+          parts[4] === "diff"
+        ) {
+          const jobId = parts[1];
+          const runId = parts[3];
+          let dir: string | undefined;
+          let commit: string | undefined;
+          try {
+            const body = (await req.json()) as Record<string, unknown> | null;
+            if (body && typeof body.dir === "string") dir = body.dir;
+            if (body && typeof body.commit === "string") commit = body.commit;
+          } catch {}
+          const result = cronjobManager.emitCronjobRunDiff(
+            jobId,
+            runId,
+            dir,
+            commit,
+          );
+          if (!result.ok)
+            return new Response(JSON.stringify({ error: result.error }), {
+              status: result.status,
+              headers: corsHeaders,
+            });
+          return new Response(JSON.stringify({ ok: true }), {
             headers: corsHeaders,
           });
-        return new Response(JSON.stringify({ ok: true }), {
-          headers: corsHeaders,
-        });
-      }
-      // POST /cronjobs/:jobId/runs/:runId/diff — emit a styled diff card
-      // into the run transcript. Mirrors POST /agents/:id/diff. Optional
-      // body fields: { dir, commit } — see the agent endpoint for the
-      // accepted commit syntax.
-      if (
-        req.method === "POST" &&
-        parts.length === 5 &&
-        parts[2] === "runs" &&
-        parts[4] === "diff"
-      ) {
+        }
+        if (req.method !== "GET") {
+          return new Response(JSON.stringify({ error: "method not allowed" }), {
+            status: 405,
+            headers: corsHeaders,
+          });
+        }
+        const cronjobs = cronjobManager.listCronjobs();
+        // GET /cronjobs
+        if (parts.length === 1) {
+          return new Response(JSON.stringify(cronjobs), {
+            headers: corsHeaders,
+          });
+        }
         const jobId = parts[1];
-        const runId = parts[3];
-        let dir: string | undefined;
-        let commit: string | undefined;
-        try {
-          const body = (await req.json()) as Record<string, unknown> | null;
-          if (body && typeof body.dir === "string") dir = body.dir;
-          if (body && typeof body.commit === "string") commit = body.commit;
-        } catch {}
-        const result = cronjobManager.emitCronjobRunDiff(
-          jobId,
-          runId,
-          dir,
-          commit,
-        );
-        if (!result.ok)
-          return new Response(JSON.stringify({ error: result.error }), {
-            status: result.status,
+        const cronjob = cronjobs.find((c) => c.id === jobId);
+        if (!cronjob)
+          return new Response(JSON.stringify({ error: "not found" }), {
+            status: 404,
             headers: corsHeaders,
           });
-        return new Response(JSON.stringify({ ok: true }), {
-          headers: corsHeaders,
-        });
-      }
-      if (req.method !== "GET") {
-        return new Response(JSON.stringify({ error: "method not allowed" }), {
-          status: 405,
-          headers: corsHeaders,
-        });
-      }
-      const cronjobs = cronjobManager.listCronjobs();
-      // GET /cronjobs
-      if (parts.length === 1) {
-        return new Response(JSON.stringify(cronjobs), { headers: corsHeaders });
-      }
-      const jobId = parts[1];
-      const cronjob = cronjobs.find((c) => c.id === jobId);
-      if (!cronjob)
+        // GET /cronjobs/:id
+        if (parts.length === 2) {
+          return new Response(JSON.stringify(cronjob), {
+            headers: corsHeaders,
+          });
+        }
+        // GET /cronjobs/:id/runs
+        if (parts[2] === "runs" && parts.length === 3) {
+          const runs = cronjobManager.getRunsForCronjob(jobId);
+          return new Response(JSON.stringify(runs), { headers: corsHeaders });
+        }
+        // GET /cronjobs/:id/runs/:runId
+        if (parts[2] === "runs" && parts.length === 4) {
+          const { run, entries } = cronjobManager.getRunTranscript(
+            jobId,
+            parts[3],
+          );
+          if (!run)
+            return new Response(JSON.stringify({ error: "not found" }), {
+              status: 404,
+              headers: corsHeaders,
+            });
+          return new Response(JSON.stringify({ run, entries }), {
+            headers: corsHeaders,
+          });
+        }
         return new Response(JSON.stringify({ error: "not found" }), {
           status: 404,
           headers: corsHeaders,
         });
-      // GET /cronjobs/:id
-      if (parts.length === 2) {
-        return new Response(JSON.stringify(cronjob), { headers: corsHeaders });
-      }
-      // GET /cronjobs/:id/runs
-      if (parts[2] === "runs" && parts.length === 3) {
-        const runs = cronjobManager.getRunsForCronjob(jobId);
-        return new Response(JSON.stringify(runs), { headers: corsHeaders });
-      }
-      // GET /cronjobs/:id/runs/:runId
-      if (parts[2] === "runs" && parts.length === 4) {
-        const { run, entries } = cronjobManager.getRunTranscript(
-          jobId,
-          parts[3],
-        );
-        if (!run)
-          return new Response(JSON.stringify({ error: "not found" }), {
-            status: 404,
-            headers: corsHeaders,
-          });
-        return new Response(JSON.stringify({ run, entries }), {
-          headers: corsHeaders,
-        });
-      }
-      return new Response(JSON.stringify({ error: "not found" }), {
-        status: 404,
-        headers: corsHeaders,
-      });
-    }
-
-    // Task HTTP API
-    if (url.pathname.startsWith("/tasks")) {
-      const corsHeaders = {
-        "Access-Control-Allow-Origin": "*",
-        "Content-Type": "application/json",
-      };
-      const parts = url.pathname.split("/").filter(Boolean); // ["tasks"] or ["tasks", id] or ["tasks", id, action]
-      const taskId = parts[1];
-      const action = parts[2]; // "claim" or "done"
-
-      // DELETE blocked at HTTP level
-      if (req.method === "DELETE") {
-        return new Response(
-          JSON.stringify({ error: "DELETE not allowed via HTTP" }),
-          { status: 405, headers: corsHeaders },
-        );
       }
 
-      // GET /tasks — list (excludes done and backlog by default)
-      if (req.method === "GET" && !taskId) {
-        const status = url.searchParams.get("status");
-        const assignee = url.searchParams.get("assignee");
-        const titleFilter = url.searchParams.get("title");
-        let filtered = agentManager.getTasks();
-        if (!status) {
-          filtered = filtered.filter(
-            (t) => t.status !== "done" && t.status !== "backlog",
-          );
-        } else if (status !== "all") {
-          filtered = filtered.filter((t) => t.status === status);
-        }
-        if (assignee) {
-          filtered = filtered.filter((t) => t.assignee === assignee);
-        }
-        if (titleFilter) {
-          const q = titleFilter.toLowerCase();
-          filtered = filtered.filter((t) => t.title.toLowerCase().includes(q));
-        }
-        return new Response(JSON.stringify(filtered), { headers: corsHeaders });
-      }
-
-      // GET /tasks/:id — detail
-      if (req.method === "GET" && taskId && !action) {
-        const task = agentManager.getTasks().find((t) => t.id === taskId);
-        if (!task)
-          return new Response(JSON.stringify({ error: "not found" }), {
-            status: 404,
-            headers: corsHeaders,
-          });
-        return new Response(JSON.stringify(task), { headers: corsHeaders });
-      }
-
-      // POST /tasks — create
-      if (req.method === "POST" && !taskId) {
-        let body: Record<string, unknown>;
-        try {
-          body = (await req.json()) as Record<string, unknown>;
-        } catch {
-          return new Response(JSON.stringify({ error: "invalid JSON" }), {
-            status: 400,
-            headers: corsHeaders,
-          });
-        }
-        if (
-          typeof body.title !== "string" ||
-          typeof body.createdBy !== "string"
-        ) {
-          return new Response(
-            JSON.stringify({ error: "title and createdBy required" }),
-            { status: 400, headers: corsHeaders },
-          );
-        }
-        if (body.priority !== undefined && !isValidPriority(body.priority)) {
-          return new Response(
-            JSON.stringify({ error: "invalid priority, must be P0-P3" }),
-            { status: 400, headers: corsHeaders },
-          );
-        }
-        const task = agentManager.addTask(body.title, body.createdBy, {
-          description:
-            typeof body.description === "string" ? body.description : undefined,
-          priority: body.priority,
-          assignee:
-            typeof body.assignee === "string" ? body.assignee : undefined,
-          username:
-            typeof body.username === "string" ? body.username : undefined,
-        });
-        return new Response(JSON.stringify(task), {
-          status: 201,
-          headers: corsHeaders,
-        });
-      }
-
-      // PATCH /tasks/:id — update
-      if (req.method === "PATCH" && taskId && !action) {
-        let body: Record<string, unknown>;
-        try {
-          body = (await req.json()) as Record<string, unknown>;
-        } catch {
-          return new Response(JSON.stringify({ error: "invalid JSON" }), {
-            status: 400,
-            headers: corsHeaders,
-          });
-        }
-        if (body.status !== undefined && !isValidStatus(body.status)) {
-          return new Response(
-            JSON.stringify({
-              error: "invalid status, must be open|in_progress|backlog|done",
-            }),
-            { status: 400, headers: corsHeaders },
-          );
-        }
-        if (body.priority !== undefined && !isValidPriority(body.priority)) {
-          return new Response(
-            JSON.stringify({ error: "invalid priority, must be P0-P3" }),
-            { status: 400, headers: corsHeaders },
-          );
-        }
-        const changes: Partial<
-          Pick<
-            TaskItem,
-            "title" | "description" | "priority" | "status" | "assignee"
-          >
-        > = {};
-        if (typeof body.title === "string") changes.title = body.title;
-        if (body.description !== undefined)
-          changes.description =
-            typeof body.description === "string" ? body.description : undefined;
-        if (body.status !== undefined) changes.status = body.status;
-        if (body.priority !== undefined)
-          changes.priority = body.priority ? body.priority : undefined;
-        if (body.assignee !== undefined)
-          changes.assignee =
-            typeof body.assignee === "string" ? body.assignee : undefined;
-        const task = agentManager.updateTask(taskId, changes);
-        if (!task)
-          return new Response(JSON.stringify({ error: "not found" }), {
-            status: 404,
-            headers: corsHeaders,
-          });
-        return new Response(JSON.stringify(task), { headers: corsHeaders });
-      }
-
-      // POST /tasks/:id/claim
-      if (req.method === "POST" && taskId && action === "claim") {
-        let body: Record<string, unknown>;
-        try {
-          body = (await req.json()) as Record<string, unknown>;
-        } catch {
-          return new Response(JSON.stringify({ error: "invalid JSON" }), {
-            status: 400,
-            headers: corsHeaders,
-          });
-        }
-        const changes: Partial<Pick<TaskItem, "status" | "assignee">> = {
-          status: "in_progress",
-        };
-        if (typeof body.assignee === "string") changes.assignee = body.assignee;
-        const task = agentManager.updateTask(taskId, changes);
-        if (!task)
-          return new Response(JSON.stringify({ error: "not found" }), {
-            status: 404,
-            headers: corsHeaders,
-          });
-        return new Response(JSON.stringify(task), { headers: corsHeaders });
-      }
-
-      // POST /tasks/:id/done
-      if (req.method === "POST" && taskId && action === "done") {
-        // Agents send `curl -d '{}'` — consume the body so Bun doesn't warn
-        try {
-          await req.json();
-        } catch {}
-        const task = agentManager.updateTask(taskId, { status: "done" });
-        if (!task)
-          return new Response(JSON.stringify({ error: "not found" }), {
-            status: 404,
-            headers: corsHeaders,
-          });
-        return new Response(JSON.stringify(task), { headers: corsHeaders });
-      }
-
-      return new Response(JSON.stringify({ error: "not found" }), {
-        status: 404,
-        headers: corsHeaders,
-      });
-    }
-
-    // GET /backup/status — last-run timestamp, ok/error, retention, dest dir.
-    if (url.pathname === "/backup/status" && req.method === "GET") {
-      return new Response(JSON.stringify(getBackupStatus()), {
-        headers: {
-          "Access-Control-Allow-Origin": "*",
-          "Content-Type": "application/json",
-        },
-      });
-    }
-
-    // POST /agents/:id/diff — emit a styled diff card into the agent's chat,
-    // matching the /isomux-diff slash command. Lets an agent surface a diff
-    // when the boss asks "show me your changes". Optional body fields:
-    //   { dir } — target a different directory (defaults to agent cwd)
-    //   { commit } — a single ref (SHA, branch, tag) or a range using `..` /
-    //                `...` (e.g. "08dbbe2", "main..feature", "HEAD~3..HEAD").
-    //                When set, the diff shows that commit/range's changes
-    //                instead of the working tree.
-    if (url.pathname.startsWith("/agents/") && req.method === "POST") {
-      const parts = url.pathname.split("/").filter(Boolean);
-      if (parts.length === 3 && parts[2] === "diff") {
+      // Task HTTP API
+      if (url.pathname.startsWith("/tasks")) {
         const corsHeaders = {
           "Access-Control-Allow-Origin": "*",
           "Content-Type": "application/json",
         };
-        const agentId = parts[1];
-        let dir: string | undefined;
-        let commit: string | undefined;
-        try {
-          const body = (await req.json()) as Record<string, unknown> | null;
-          if (body && typeof body.dir === "string") dir = body.dir;
-          if (body && typeof body.commit === "string") commit = body.commit;
-        } catch {}
-        const result = agentManager.emitAgentDiff(agentId, dir, commit);
-        if (!result.ok)
-          return new Response(JSON.stringify({ error: result.error }), {
-            status: result.status,
-            headers: corsHeaders,
-          });
-        return new Response(JSON.stringify({ ok: true }), {
-          headers: corsHeaders,
-        });
-      }
-      // POST /agents/:id/edit-file — emit an `edit-request` card so the boss
-      // can open the file in the editor side panel. Mirrors /diff. Body: { path }.
-      if (parts.length === 3 && parts[2] === "edit-file") {
-        const corsHeaders = {
-          "Access-Control-Allow-Origin": "*",
-          "Content-Type": "application/json",
-        };
-        const agentId = parts[1];
-        let path: string | undefined;
-        try {
-          const body = (await req.json()) as Record<string, unknown> | null;
-          if (body && typeof body.path === "string") path = body.path;
-        } catch {}
-        if (!path) {
-          return new Response(JSON.stringify({ error: "missing path" }), {
-            status: 400,
-            headers: corsHeaders,
-          });
-        }
-        const result = agentManager.emitAgentEditRequest(agentId, path);
-        if (!result.ok)
-          return new Response(JSON.stringify({ error: result.error }), {
-            status: result.status,
-            headers: corsHeaders,
-          });
-        return new Response(JSON.stringify({ ok: true }), {
-          headers: corsHeaders,
-        });
-      }
-      // POST /agents/:id/read-file — copy a file into the agent's files dir
-      // and emit a `file-view` card so the boss sees the file (images render
-      // inline, others render as a clickable file chip). Replaces the older
-      // "Read tool on an image → SDK extracts bytes" convention; works for
-      // both Claude and Codex agents. Body: { path }.
-      if (parts.length === 3 && parts[2] === "read-file") {
-        const corsHeaders = {
-          "Access-Control-Allow-Origin": "*",
-          "Content-Type": "application/json",
-        };
-        const agentId = parts[1];
-        let path: string | undefined;
-        try {
-          const body = (await req.json()) as Record<string, unknown> | null;
-          if (body && typeof body.path === "string") path = body.path;
-        } catch {}
-        if (!path) {
-          return new Response(JSON.stringify({ error: "missing path" }), {
-            status: 400,
-            headers: corsHeaders,
-          });
-        }
-        const result = agentManager.emitAgentReadFile(agentId, path);
-        if (!result.ok)
-          return new Response(JSON.stringify({ error: result.error }), {
-            status: result.status,
-            headers: corsHeaders,
-          });
-        return new Response(JSON.stringify({ ok: true }), {
-          headers: corsHeaders,
-        });
-      }
-      // POST /agents/:id/terminal-command — emit a `terminal-command` card so
-      // the boss can prefill the terminal panel with this command. Mirrors
-      // /edit-file. Body: { command }. Single-line; not auto-executed.
-      if (parts.length === 3 && parts[2] === "terminal-command") {
-        const corsHeaders = {
-          "Access-Control-Allow-Origin": "*",
-          "Content-Type": "application/json",
-        };
-        const agentId = parts[1];
-        let command: string | undefined;
-        try {
-          const body = (await req.json()) as Record<string, unknown> | null;
-          if (body && typeof body.command === "string") command = body.command;
-        } catch {}
-        if (!command) {
-          return new Response(JSON.stringify({ error: "missing command" }), {
-            status: 400,
-            headers: corsHeaders,
-          });
-        }
-        const result = agentManager.emitAgentTerminalCommand(agentId, command);
-        if (!result.ok)
-          return new Response(JSON.stringify({ error: result.error }), {
-            status: result.status,
-            headers: corsHeaders,
-          });
-        return new Response(JSON.stringify({ ok: true }), {
-          headers: corsHeaders,
-        });
-      }
-      // POST /agents/:id/message — queue a message into the receiving agent's
-      // chat. The sender's identity (name + room) is looked up server-side
-      // from senderAgentId so callers can't spoof identity or inject
-      // prefix-delimiter characters into the prompt the receiver sees.
-      // Body: { text, senderAgentId, clientMessageId? }
-      if (parts.length === 3 && parts[2] === "message") {
-        const corsHeaders = {
-          "Access-Control-Allow-Origin": "*",
-          "Content-Type": "application/json",
-        };
-        const receiverId = parts[1];
-        let body: Record<string, unknown> | null = null;
-        try {
-          body = (await req.json()) as Record<string, unknown> | null;
-        } catch {}
-        if (!body) {
-          return new Response(JSON.stringify({ error: "invalid JSON body" }), {
-            status: 400,
-            headers: corsHeaders,
-          });
-        }
-        const text = typeof body.text === "string" ? body.text : null;
-        const senderAgentId =
-          typeof body.senderAgentId === "string" ? body.senderAgentId : null;
-        const clientMessageId =
-          typeof body.clientMessageId === "string"
-            ? body.clientMessageId
-            : undefined;
-        if (!text || !senderAgentId) {
-          return new Response(
-            JSON.stringify({ error: "required: text, senderAgentId" }),
-            { status: 400, headers: corsHeaders },
-          );
-        }
-        if (senderAgentId === receiverId) {
-          return new Response(
-            JSON.stringify({ error: "cannot send to self" }),
-            { status: 400, headers: corsHeaders },
-          );
-        }
-        const senderInfo = agentManager.getAgentDisplay(senderAgentId);
-        if (!senderInfo) {
-          return new Response(
-            JSON.stringify({ error: "senderAgentId is not a known agent" }),
-            { status: 400, headers: corsHeaders },
-          );
-        }
-        const result = agentManager.enqueueMessage(receiverId, {
-          sender: {
-            kind: "agent",
-            agentId: senderAgentId,
-            agentName: senderInfo.name,
-            roomName: senderInfo.roomName,
-          },
-          text,
-          clientMessageId,
-        });
-        if (!result.ok) {
-          return new Response(JSON.stringify({ error: result.error }), {
-            status: result.status,
-            headers: corsHeaders,
-          });
-        }
-        return new Response(JSON.stringify(result), { headers: corsHeaders });
-      }
-    }
+        const parts = url.pathname.split("/").filter(Boolean); // ["tasks"] or ["tasks", id] or ["tasks", id, action]
+        const taskId = parts[1];
+        const action = parts[2]; // "claim" or "done"
 
-    // File upload endpoint: POST /api/upload/{agentId}
-    if (url.pathname.startsWith("/api/upload/") && req.method === "POST") {
-      const agentId = url.pathname.split("/")[3];
-      if (!agentId || !agentManager.getAgent(agentId)) {
-        return new Response(JSON.stringify({ error: "agent not found" }), {
+        // DELETE blocked at HTTP level
+        if (req.method === "DELETE") {
+          return new Response(
+            JSON.stringify({ error: "DELETE not allowed via HTTP" }),
+            { status: 405, headers: corsHeaders },
+          );
+        }
+
+        // GET /tasks — list (excludes done and backlog by default)
+        if (req.method === "GET" && !taskId) {
+          const status = url.searchParams.get("status");
+          const assignee = url.searchParams.get("assignee");
+          const titleFilter = url.searchParams.get("title");
+          let filtered = agentManager.getTasks();
+          if (!status) {
+            filtered = filtered.filter(
+              (t) => t.status !== "done" && t.status !== "backlog",
+            );
+          } else if (status !== "all") {
+            filtered = filtered.filter((t) => t.status === status);
+          }
+          if (assignee) {
+            filtered = filtered.filter((t) => t.assignee === assignee);
+          }
+          if (titleFilter) {
+            const q = titleFilter.toLowerCase();
+            filtered = filtered.filter((t) =>
+              t.title.toLowerCase().includes(q),
+            );
+          }
+          return new Response(JSON.stringify(filtered), {
+            headers: corsHeaders,
+          });
+        }
+
+        // GET /tasks/:id — detail
+        if (req.method === "GET" && taskId && !action) {
+          const task = agentManager.getTasks().find((t) => t.id === taskId);
+          if (!task)
+            return new Response(JSON.stringify({ error: "not found" }), {
+              status: 404,
+              headers: corsHeaders,
+            });
+          return new Response(JSON.stringify(task), { headers: corsHeaders });
+        }
+
+        // POST /tasks — create
+        if (req.method === "POST" && !taskId) {
+          let body: Record<string, unknown>;
+          try {
+            body = (await req.json()) as Record<string, unknown>;
+          } catch {
+            return new Response(JSON.stringify({ error: "invalid JSON" }), {
+              status: 400,
+              headers: corsHeaders,
+            });
+          }
+          if (
+            typeof body.title !== "string" ||
+            typeof body.createdBy !== "string"
+          ) {
+            return new Response(
+              JSON.stringify({ error: "title and createdBy required" }),
+              { status: 400, headers: corsHeaders },
+            );
+          }
+          if (body.priority !== undefined && !isValidPriority(body.priority)) {
+            return new Response(
+              JSON.stringify({ error: "invalid priority, must be P0-P3" }),
+              { status: 400, headers: corsHeaders },
+            );
+          }
+          const task = agentManager.addTask(body.title, body.createdBy, {
+            description:
+              typeof body.description === "string"
+                ? body.description
+                : undefined,
+            priority: body.priority,
+            assignee:
+              typeof body.assignee === "string" ? body.assignee : undefined,
+            username:
+              typeof body.username === "string" ? body.username : undefined,
+          });
+          return new Response(JSON.stringify(task), {
+            status: 201,
+            headers: corsHeaders,
+          });
+        }
+
+        // PATCH /tasks/:id — update
+        if (req.method === "PATCH" && taskId && !action) {
+          let body: Record<string, unknown>;
+          try {
+            body = (await req.json()) as Record<string, unknown>;
+          } catch {
+            return new Response(JSON.stringify({ error: "invalid JSON" }), {
+              status: 400,
+              headers: corsHeaders,
+            });
+          }
+          if (body.status !== undefined && !isValidStatus(body.status)) {
+            return new Response(
+              JSON.stringify({
+                error: "invalid status, must be open|in_progress|backlog|done",
+              }),
+              { status: 400, headers: corsHeaders },
+            );
+          }
+          if (body.priority !== undefined && !isValidPriority(body.priority)) {
+            return new Response(
+              JSON.stringify({ error: "invalid priority, must be P0-P3" }),
+              { status: 400, headers: corsHeaders },
+            );
+          }
+          const changes: Partial<
+            Pick<
+              TaskItem,
+              "title" | "description" | "priority" | "status" | "assignee"
+            >
+          > = {};
+          if (typeof body.title === "string") changes.title = body.title;
+          if (body.description !== undefined)
+            changes.description =
+              typeof body.description === "string"
+                ? body.description
+                : undefined;
+          if (body.status !== undefined) changes.status = body.status;
+          if (body.priority !== undefined)
+            changes.priority = body.priority ? body.priority : undefined;
+          if (body.assignee !== undefined)
+            changes.assignee =
+              typeof body.assignee === "string" ? body.assignee : undefined;
+          const task = agentManager.updateTask(taskId, changes);
+          if (!task)
+            return new Response(JSON.stringify({ error: "not found" }), {
+              status: 404,
+              headers: corsHeaders,
+            });
+          return new Response(JSON.stringify(task), { headers: corsHeaders });
+        }
+
+        // POST /tasks/:id/claim
+        if (req.method === "POST" && taskId && action === "claim") {
+          let body: Record<string, unknown>;
+          try {
+            body = (await req.json()) as Record<string, unknown>;
+          } catch {
+            return new Response(JSON.stringify({ error: "invalid JSON" }), {
+              status: 400,
+              headers: corsHeaders,
+            });
+          }
+          const changes: Partial<Pick<TaskItem, "status" | "assignee">> = {
+            status: "in_progress",
+          };
+          if (typeof body.assignee === "string")
+            changes.assignee = body.assignee;
+          const task = agentManager.updateTask(taskId, changes);
+          if (!task)
+            return new Response(JSON.stringify({ error: "not found" }), {
+              status: 404,
+              headers: corsHeaders,
+            });
+          return new Response(JSON.stringify(task), { headers: corsHeaders });
+        }
+
+        // POST /tasks/:id/done
+        if (req.method === "POST" && taskId && action === "done") {
+          // Agents send `curl -d '{}'` — consume the body so Bun doesn't warn
+          try {
+            await req.json();
+          } catch {}
+          const task = agentManager.updateTask(taskId, { status: "done" });
+          if (!task)
+            return new Response(JSON.stringify({ error: "not found" }), {
+              status: 404,
+              headers: corsHeaders,
+            });
+          return new Response(JSON.stringify(task), { headers: corsHeaders });
+        }
+
+        return new Response(JSON.stringify({ error: "not found" }), {
           status: 404,
-          headers: { "Content-Type": "application/json" },
+          headers: corsHeaders,
         });
       }
-      try {
-        const formData = await req.formData();
-        const attachments: Attachment[] = [];
-        const MAX_FILE_SIZE = 200 * 1024 * 1024; // 200MB
-        const MAX_FILES = 5;
-        const MAX_TOTAL = 400 * 1024 * 1024; // 400MB
-        let totalSize = 0;
-        let fileCount = 0;
 
-        for (const [, value] of formData) {
-          if (!(value instanceof File)) continue;
-          fileCount++;
-          if (fileCount > MAX_FILES) {
-            return new Response(
-              JSON.stringify({
-                error: `Maximum ${MAX_FILES} files per upload`,
-              }),
-              {
-                status: 400,
-                headers: { "Content-Type": "application/json" },
-              },
-            );
-          }
-          if (value.size > MAX_FILE_SIZE) {
-            return new Response(
-              JSON.stringify({
-                error: `File "${value.name}" exceeds 200MB limit`,
-              }),
-              {
-                status: 400,
-                headers: { "Content-Type": "application/json" },
-              },
-            );
-          }
-          totalSize += value.size;
-          if (totalSize > MAX_TOTAL) {
-            return new Response(
-              JSON.stringify({ error: "Total upload exceeds 400MB limit" }),
-              {
-                status: 400,
-                headers: { "Content-Type": "application/json" },
-              },
-            );
-          }
-          const buffer = Buffer.from(await value.arrayBuffer());
-          const att = saveFile(
-            agentId,
-            buffer,
-            value.type || "application/octet-stream",
-            value.name,
-          );
-          if (att) attachments.push(att);
-        }
-        return new Response(JSON.stringify({ attachments }), {
-          headers: { "Content-Type": "application/json" },
-        });
-      } catch (err) {
-        return new Response(
-          JSON.stringify({ error: errMessage(err, "Upload failed") }),
-          {
-            status: 500,
-            headers: { "Content-Type": "application/json" },
+      // GET /backup/status — last-run timestamp, ok/error, retention, dest dir.
+      if (url.pathname === "/backup/status" && req.method === "GET") {
+        return new Response(JSON.stringify(getBackupStatus()), {
+          headers: {
+            "Access-Control-Allow-Origin": "*",
+            "Content-Type": "application/json",
           },
-        );
+        });
       }
-    }
 
-    // File serving endpoint (also handles legacy /api/images/ URLs)
-    if (
-      url.pathname.startsWith("/api/files/") ||
-      url.pathname.startsWith("/api/images/")
-    ) {
-      const parts = url.pathname.split("/").filter(Boolean); // ["api", "files"|"images", agentId, filename]
-      const agentId = parts[2];
-      const filename = parts[3];
-      if (!agentId || !filename) {
-        return new Response("Not found", { status: 404 });
-      }
-      const filePath = getFilePath(agentId, filename);
-      if (!filePath) {
-        return new Response("Not found", { status: 404 });
-      }
-      return new Response(Bun.file(filePath), {
-        headers: {
-          "Content-Type": mimeTypeForFilename(filename),
-          "Cache-Control": "public, max-age=31536000, immutable",
-        },
-      });
-    }
-
-    // Static file serving
-    const filePath = url.pathname === "/" ? "/index.html" : url.pathname;
-    if (filePath === "/index.html") {
-      return serveIndexHtml();
-    }
-    const file = Bun.file(join(UI_DIST, filePath));
-    if (await file.exists()) {
-      return new Response(file, {
-        headers: { "Cache-Control": "no-cache" },
-      });
-    }
-    // SPA fallback
-    return serveIndexHtml();
-  },
-  websocket: {
-    open(ws) {
-      browsers.add(ws);
-      registerSocket(ws.data.session.sessionIdHash, ws);
-      // Send session context FIRST so the client knows the authenticated
-      // identity and role before any reducer touches state. connectionId
-      // is per-WS (live-avatars) so the client can identify its OWN
-      // ghost in presence_list — same auth session can be running in
-      // multiple tabs and each tab has a distinct connectionId.
-      ws.send(
-        JSON.stringify({
-          type: "session_context",
-          context: sessionContextFor(ws.data.session, ws.data.connectionId),
-        }),
-      );
-      // Send users (boss profiles) so the full_state reducer can apply
-      // the current user's defaultRoomId from server-stored prefs.
-      ws.send(
-        JSON.stringify({
-          type: "users_list",
-          users: listUsers(),
-        }),
-      );
-      // Send projected full_state (rooms + agents filtered to the
-      // session's allowedRooms; sessions whose allowedRooms covers
-      // every current room get the identity projection).
-      sendProjectedFullState(ws);
-      // Owners also receive the unfiltered global rooms list so the
-      // admin surface (UserManagementModal's Allowed Rooms editor) can
-      // grant access to rooms the owner has hidden from their own view.
-      if (ws.data.session.role === "owner") {
-        ws.send(
-          JSON.stringify({
-            type: "all_rooms_list",
-            rooms: agentManager.getRooms(),
-          }),
-        );
-      }
-      // Send tasks
-      ws.send(
-        JSON.stringify({
-          type: "tasks",
-          tasks: agentManager.getTasks(),
-        }),
-      );
-      // Send cronjobs + cronjobsPrompt
-      ws.send(
-        JSON.stringify({
-          type: "cronjobs_state",
-          cronjobs: cronjobManager.listCronjobs(),
-          cronjobsPrompt: cronjobManager.getCronjobsPrompt(),
-        }),
-      );
-      // Send update status
-      const update = getUpdateStatus();
-      if (update.updateAvailable) {
-        ws.send(
-          JSON.stringify({
-            type: "update_status",
-            updateAvailable: true,
-            current: update.current,
-            latest: update.latest,
-          }),
-        );
-      }
-      // Send cached log history and slash commands for each agent the
-      // session can see. agentVisibleForSession short-circuits to true
-      // for full-access sessions so the gate is free on the fast path.
-      const session = ws.data.session;
-      for (const agent of agentManager.getAllAgents()) {
-        if (!agentVisibleForSession(session, agent.id)) continue;
-        const logs = agentManager.getAgentLogs(agent.id);
-        for (const entry of logs) {
-          ws.send(JSON.stringify({ type: "log_entry", entry }));
+      // POST /agents/:id/diff — emit a styled diff card into the agent's chat,
+      // matching the /isomux-diff slash command. Lets an agent surface a diff
+      // when the boss asks "show me your changes". Optional body fields:
+      //   { dir } — target a different directory (defaults to agent cwd)
+      //   { commit } — a single ref (SHA, branch, tag) or a range using `..` /
+      //                `...` (e.g. "08dbbe2", "main..feature", "HEAD~3..HEAD").
+      //                When set, the diff shows that commit/range's changes
+      //                instead of the working tree.
+      if (url.pathname.startsWith("/agents/") && req.method === "POST") {
+        const parts = url.pathname.split("/").filter(Boolean);
+        if (parts.length === 3 && parts[2] === "diff") {
+          const corsHeaders = {
+            "Access-Control-Allow-Origin": "*",
+            "Content-Type": "application/json",
+          };
+          const agentId = parts[1];
+          let dir: string | undefined;
+          let commit: string | undefined;
+          try {
+            const body = (await req.json()) as Record<string, unknown> | null;
+            if (body && typeof body.dir === "string") dir = body.dir;
+            if (body && typeof body.commit === "string") commit = body.commit;
+          } catch {}
+          const result = agentManager.emitAgentDiff(agentId, dir, commit);
+          if (!result.ok)
+            return new Response(JSON.stringify({ error: result.error }), {
+              status: result.status,
+              headers: corsHeaders,
+            });
+          return new Response(JSON.stringify({ ok: true }), {
+            headers: corsHeaders,
+          });
         }
-        const cmds = agentManager.getAgentCommands(agent.id);
-        if (cmds.commands.length > 0 || cmds.skills.length > 0) {
+        // POST /agents/:id/edit-file — emit an `edit-request` card so the boss
+        // can open the file in the editor side panel. Mirrors /diff. Body: { path }.
+        if (parts.length === 3 && parts[2] === "edit-file") {
+          const corsHeaders = {
+            "Access-Control-Allow-Origin": "*",
+            "Content-Type": "application/json",
+          };
+          const agentId = parts[1];
+          let path: string | undefined;
+          try {
+            const body = (await req.json()) as Record<string, unknown> | null;
+            if (body && typeof body.path === "string") path = body.path;
+          } catch {}
+          if (!path) {
+            return new Response(JSON.stringify({ error: "missing path" }), {
+              status: 400,
+              headers: corsHeaders,
+            });
+          }
+          const result = agentManager.emitAgentEditRequest(agentId, path);
+          if (!result.ok)
+            return new Response(JSON.stringify({ error: result.error }), {
+              status: result.status,
+              headers: corsHeaders,
+            });
+          return new Response(JSON.stringify({ ok: true }), {
+            headers: corsHeaders,
+          });
+        }
+        // POST /agents/:id/read-file — copy a file into the agent's files dir
+        // and emit a `file-view` card so the boss sees the file (images render
+        // inline, others render as a clickable file chip). Replaces the older
+        // "Read tool on an image → SDK extracts bytes" convention; works for
+        // both Claude and Codex agents. Body: { path }.
+        if (parts.length === 3 && parts[2] === "read-file") {
+          const corsHeaders = {
+            "Access-Control-Allow-Origin": "*",
+            "Content-Type": "application/json",
+          };
+          const agentId = parts[1];
+          let path: string | undefined;
+          try {
+            const body = (await req.json()) as Record<string, unknown> | null;
+            if (body && typeof body.path === "string") path = body.path;
+          } catch {}
+          if (!path) {
+            return new Response(JSON.stringify({ error: "missing path" }), {
+              status: 400,
+              headers: corsHeaders,
+            });
+          }
+          const result = agentManager.emitAgentReadFile(agentId, path);
+          if (!result.ok)
+            return new Response(JSON.stringify({ error: result.error }), {
+              status: result.status,
+              headers: corsHeaders,
+            });
+          return new Response(JSON.stringify({ ok: true }), {
+            headers: corsHeaders,
+          });
+        }
+        // POST /agents/:id/terminal-command — emit a `terminal-command` card so
+        // the boss can prefill the terminal panel with this command. Mirrors
+        // /edit-file. Body: { command }. Single-line; not auto-executed.
+        if (parts.length === 3 && parts[2] === "terminal-command") {
+          const corsHeaders = {
+            "Access-Control-Allow-Origin": "*",
+            "Content-Type": "application/json",
+          };
+          const agentId = parts[1];
+          let command: string | undefined;
+          try {
+            const body = (await req.json()) as Record<string, unknown> | null;
+            if (body && typeof body.command === "string")
+              command = body.command;
+          } catch {}
+          if (!command) {
+            return new Response(JSON.stringify({ error: "missing command" }), {
+              status: 400,
+              headers: corsHeaders,
+            });
+          }
+          const result = agentManager.emitAgentTerminalCommand(
+            agentId,
+            command,
+          );
+          if (!result.ok)
+            return new Response(JSON.stringify({ error: result.error }), {
+              status: result.status,
+              headers: corsHeaders,
+            });
+          return new Response(JSON.stringify({ ok: true }), {
+            headers: corsHeaders,
+          });
+        }
+        // POST /agents/:id/message — queue a message into the receiving agent's
+        // chat. The sender's identity (name + room) is looked up server-side
+        // from senderAgentId so callers can't spoof identity or inject
+        // prefix-delimiter characters into the prompt the receiver sees.
+        // Body: { text, senderAgentId, clientMessageId? }
+        if (parts.length === 3 && parts[2] === "message") {
+          const corsHeaders = {
+            "Access-Control-Allow-Origin": "*",
+            "Content-Type": "application/json",
+          };
+          const receiverId = parts[1];
+          let body: Record<string, unknown> | null = null;
+          try {
+            body = (await req.json()) as Record<string, unknown> | null;
+          } catch {}
+          if (!body) {
+            return new Response(
+              JSON.stringify({ error: "invalid JSON body" }),
+              {
+                status: 400,
+                headers: corsHeaders,
+              },
+            );
+          }
+          const text = typeof body.text === "string" ? body.text : null;
+          const senderAgentId =
+            typeof body.senderAgentId === "string" ? body.senderAgentId : null;
+          const clientMessageId =
+            typeof body.clientMessageId === "string"
+              ? body.clientMessageId
+              : undefined;
+          if (!text || !senderAgentId) {
+            return new Response(
+              JSON.stringify({ error: "required: text, senderAgentId" }),
+              { status: 400, headers: corsHeaders },
+            );
+          }
+          if (senderAgentId === receiverId) {
+            return new Response(
+              JSON.stringify({ error: "cannot send to self" }),
+              { status: 400, headers: corsHeaders },
+            );
+          }
+          const senderInfo = agentManager.getAgentDisplay(senderAgentId);
+          if (!senderInfo) {
+            return new Response(
+              JSON.stringify({ error: "senderAgentId is not a known agent" }),
+              { status: 400, headers: corsHeaders },
+            );
+          }
+          const result = agentManager.enqueueMessage(receiverId, {
+            sender: {
+              kind: "agent",
+              agentId: senderAgentId,
+              agentName: senderInfo.name,
+              roomName: senderInfo.roomName,
+            },
+            text,
+            clientMessageId,
+          });
+          if (!result.ok) {
+            return new Response(JSON.stringify({ error: result.error }), {
+              status: result.status,
+              headers: corsHeaders,
+            });
+          }
+          return new Response(JSON.stringify(result), { headers: corsHeaders });
+        }
+      }
+
+      // File upload endpoint: POST /api/upload/{agentId}
+      if (url.pathname.startsWith("/api/upload/") && req.method === "POST") {
+        const agentId = url.pathname.split("/")[3];
+        if (!agentId || !agentManager.getAgent(agentId)) {
+          return new Response(JSON.stringify({ error: "agent not found" }), {
+            status: 404,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        try {
+          const formData = await req.formData();
+          const attachments: Attachment[] = [];
+          const MAX_FILE_SIZE = 200 * 1024 * 1024; // 200MB
+          const MAX_FILES = 5;
+          const MAX_TOTAL = 400 * 1024 * 1024; // 400MB
+          let totalSize = 0;
+          let fileCount = 0;
+
+          for (const [, value] of formData) {
+            if (!(value instanceof File)) continue;
+            fileCount++;
+            if (fileCount > MAX_FILES) {
+              return new Response(
+                JSON.stringify({
+                  error: `Maximum ${MAX_FILES} files per upload`,
+                }),
+                {
+                  status: 400,
+                  headers: { "Content-Type": "application/json" },
+                },
+              );
+            }
+            if (value.size > MAX_FILE_SIZE) {
+              return new Response(
+                JSON.stringify({
+                  error: `File "${value.name}" exceeds 200MB limit`,
+                }),
+                {
+                  status: 400,
+                  headers: { "Content-Type": "application/json" },
+                },
+              );
+            }
+            totalSize += value.size;
+            if (totalSize > MAX_TOTAL) {
+              return new Response(
+                JSON.stringify({ error: "Total upload exceeds 400MB limit" }),
+                {
+                  status: 400,
+                  headers: { "Content-Type": "application/json" },
+                },
+              );
+            }
+            const buffer = Buffer.from(await value.arrayBuffer());
+            const att = saveFile(
+              agentId,
+              buffer,
+              value.type || "application/octet-stream",
+              value.name,
+            );
+            if (att) attachments.push(att);
+          }
+          return new Response(JSON.stringify({ attachments }), {
+            headers: { "Content-Type": "application/json" },
+          });
+        } catch (err) {
+          return new Response(
+            JSON.stringify({ error: errMessage(err, "Upload failed") }),
+            {
+              status: 500,
+              headers: { "Content-Type": "application/json" },
+            },
+          );
+        }
+      }
+
+      // File serving endpoint (also handles legacy /api/images/ URLs)
+      if (
+        url.pathname.startsWith("/api/files/") ||
+        url.pathname.startsWith("/api/images/")
+      ) {
+        const parts = url.pathname.split("/").filter(Boolean); // ["api", "files"|"images", agentId, filename]
+        const agentId = parts[2];
+        const filename = parts[3];
+        if (!agentId || !filename) {
+          return new Response("Not found", { status: 404 });
+        }
+        const filePath = getFilePath(agentId, filename);
+        if (!filePath) {
+          return new Response("Not found", { status: 404 });
+        }
+        return new Response(Bun.file(filePath), {
+          headers: {
+            "Content-Type": mimeTypeForFilename(filename),
+            "Cache-Control": "public, max-age=31536000, immutable",
+          },
+        });
+      }
+
+      // Static file serving
+      const filePath = url.pathname === "/" ? "/index.html" : url.pathname;
+      if (filePath === "/index.html") {
+        return serveIndexHtml();
+      }
+      const file = Bun.file(join(UI_DIST, filePath));
+      if (await file.exists()) {
+        return new Response(file, {
+          headers: { "Cache-Control": "no-cache" },
+        });
+      }
+      // SPA fallback
+      return serveIndexHtml();
+    },
+    websocket: {
+      open(ws) {
+        browsers.add(ws);
+        registerSocket(ws.data.session.sessionIdHash, ws);
+        // Send session context FIRST so the client knows the authenticated
+        // identity and role before any reducer touches state. connectionId
+        // is per-WS (live-avatars) so the client can identify its OWN
+        // ghost in presence_list — same auth session can be running in
+        // multiple tabs and each tab has a distinct connectionId.
+        ws.send(
+          JSON.stringify({
+            type: "session_context",
+            context: sessionContextFor(ws.data.session, ws.data.connectionId),
+          }),
+        );
+        // Send users (boss profiles) so the full_state reducer can apply
+        // the current user's defaultRoomId from server-stored prefs.
+        ws.send(
+          JSON.stringify({
+            type: "users_list",
+            users: listUsers(),
+          }),
+        );
+        // Send projected full_state (rooms + agents filtered to the
+        // session's allowedRooms; sessions whose allowedRooms covers
+        // every current room get the identity projection).
+        sendProjectedFullState(ws);
+        // Owners also receive the unfiltered global rooms list so the
+        // admin surface (UserManagementModal's Allowed Rooms editor) can
+        // grant access to rooms the owner has hidden from their own view.
+        if (ws.data.session.role === "owner") {
           ws.send(
             JSON.stringify({
-              type: "slash_commands",
-              agentId: agent.id,
-              commands: cmds.commands,
-              skills: cmds.skills,
+              type: "all_rooms_list",
+              rooms: agentManager.getRooms(),
             }),
           );
         }
-      }
-      // Live-avatars: send the current presence snapshot (filtered to
-      // rooms this session can see) so the new client renders existing
-      // ghosts immediately rather than waiting for the next
-      // presence_update from someone else.
-      sendPresenceListTo(ws);
+        // Send tasks
+        ws.send(
+          JSON.stringify({
+            type: "tasks",
+            tasks: agentManager.getTasks(),
+          }),
+        );
+        // Send cronjobs + cronjobsPrompt
+        ws.send(
+          JSON.stringify({
+            type: "cronjobs_state",
+            cronjobs: cronjobManager.listCronjobs(),
+            cronjobsPrompt: cronjobManager.getCronjobsPrompt(),
+          }),
+        );
+        // Send update status
+        const update = getUpdateStatus();
+        if (update.updateAvailable) {
+          ws.send(
+            JSON.stringify({
+              type: "update_status",
+              updateAvailable: true,
+              current: update.current,
+              latest: update.latest,
+            }),
+          );
+        }
+        // Send cached log history and slash commands for each agent the
+        // session can see. agentVisibleForSession short-circuits to true
+        // for full-access sessions so the gate is free on the fast path.
+        const session = ws.data.session;
+        for (const agent of agentManager.getAllAgents()) {
+          if (!agentVisibleForSession(session, agent.id)) continue;
+          const logs = agentManager.getAgentLogs(agent.id);
+          for (const entry of logs) {
+            ws.send(JSON.stringify({ type: "log_entry", entry }));
+          }
+          const cmds = agentManager.getAgentCommands(agent.id);
+          if (cmds.commands.length > 0 || cmds.skills.length > 0) {
+            ws.send(
+              JSON.stringify({
+                type: "slash_commands",
+                agentId: agent.id,
+                commands: cmds.commands,
+                skills: cmds.skills,
+              }),
+            );
+          }
+        }
+        // Live-avatars: send the current presence snapshot (filtered to
+        // rooms this session can see) so the new client renders existing
+        // ghosts immediately rather than waiting for the next
+        // presence_update from someone else.
+        sendPresenceListTo(ws);
+      },
+      message(ws, data) {
+        // Per-message session recheck. Revoke kicks in here without a reconnect:
+        // revalidateByHash hits the same in-memory map and returns null if the
+        // session has been deleted (revoke), expired, or its user removed.
+        const fresh = revalidateByHash(ws.data.session.sessionIdHash);
+        if (!fresh) {
+          ws.send(JSON.stringify({ type: "session_expired" }));
+          ws.close();
+          return;
+        }
+        ws.data.session = fresh;
+        try {
+          const cmd = JSON.parse(data as string) as ClientCommand;
+          void handleCommand(cmd, ws);
+        } catch (e) {
+          console.error("Invalid command:", e);
+        }
+      },
+      close(ws) {
+        browsers.delete(ws);
+        unregisterSocket(ws.data.session.sessionIdHash, ws);
+        // Drop any per-WS editor watchers on disconnect.
+        const map = editorWatchers.get(ws);
+        if (map) {
+          for (const w of map.values()) stopWatch(w);
+          editorWatchers.delete(ws);
+        }
+        // Live-avatars cleanup. Idempotent: removePresence returns true
+        // only if an entry existed. Key is the per-WS connectionId, NOT
+        // the auth session hash — that distinction is what makes
+        // reconnects and same-cookie multi-tab work: when a tab reconnects
+        // it gets a NEW connectionId, and the OLD close handler here
+        // removes only the OLD id, never racing with the new tab's entry.
+        if (removePresence(ws.data.connectionId)) {
+          pushPresenceListToEachWs();
+        }
+      },
     },
-    message(ws, data) {
-      // Per-message session recheck. Revoke kicks in here without a reconnect:
-      // revalidateByHash hits the same in-memory map and returns null if the
-      // session has been deleted (revoke), expired, or its user removed.
-      const fresh = revalidateByHash(ws.data.session.sessionIdHash);
-      if (!fresh) {
-        ws.send(JSON.stringify({ type: "session_expired" }));
-        ws.close();
-        return;
-      }
-      ws.data.session = fresh;
-      try {
-        const cmd = JSON.parse(data as string) as ClientCommand;
-        void handleCommand(cmd, ws);
-      } catch (e) {
-        console.error("Invalid command:", e);
-      }
-    },
-    close(ws) {
-      browsers.delete(ws);
-      unregisterSocket(ws.data.session.sessionIdHash, ws);
-      // Drop any per-WS editor watchers on disconnect.
-      const map = editorWatchers.get(ws);
-      if (map) {
-        for (const w of map.values()) stopWatch(w);
-        editorWatchers.delete(ws);
-      }
-      // Live-avatars cleanup. Idempotent: removePresence returns true
-      // only if an entry existed. Key is the per-WS connectionId, NOT
-      // the auth session hash — that distinction is what makes
-      // reconnects and same-cookie multi-tab work: when a tab reconnects
-      // it gets a NEW connectionId, and the OLD close handler here
-      // removes only the OLD id, never racing with the new tab's entry.
-      if (removePresence(ws.data.connectionId)) {
-        pushPresenceListToEachWs();
-      }
-    },
-  },
-});
+  });
 } // end buildServer
 
 // logBootBanners: the two boot-time console banners (resolved public-origin
 // note + the pre-claim SSH/claim instructions). Pure logging; startServer()
 // calls it only when not quiet. Body left at prior indentation.
 function logBootBanners(): void {
-// The public origin is the canonical URL the server expects browsers to hit.
-// We compare it against the Origin header on WS upgrades and unsafe HTTP
-// requests, and bake it into invite URLs. Resolution precedence is env >
-// office-config.json `publicOrigin` > localhost fallback. Pre-claim we
-// force the localhost fallback so the cookie attributes match the bind;
-// any configured value re-engages once an owner exists.
-{
-  const resolved = buildPublicOrigin();
-  // Pre-claim: the banner below covers everything, no need for a separate
-  // log line. Env-var source: the ISOMUX_PUBLIC_ORIGIN deprecation warning
-  // (emitted earlier when the env is set) is the only signal needed; no
-  // additional log here, since the var itself is deprecated.
-  if (!isProcessPreClaim()) {
-    if (resolved.source === "config") {
-      console.log(
-        `[auth] using publicOrigin from office-config.json: ${resolved.origin}`,
-      );
-    } else if (resolved.source === "localhost") {
-      console.log(
-        `[auth] local-only mode: no public origin configured, using ${resolved.origin}. See https://isomux.com/docs/access-and-invites for remote-access setups.`,
-      );
+  // The public origin is the canonical URL the server expects browsers to hit.
+  // We compare it against the Origin header on WS upgrades and unsafe HTTP
+  // requests, and bake it into invite URLs. Resolution precedence is env >
+  // office-config.json `publicOrigin` > localhost fallback. Pre-claim we
+  // force the localhost fallback so the cookie attributes match the bind;
+  // any configured value re-engages once an owner exists.
+  {
+    const resolved = buildPublicOrigin();
+    // Pre-claim: the banner below covers everything, no need for a separate
+    // log line. Env-var source: the ISOMUX_PUBLIC_ORIGIN deprecation warning
+    // (emitted earlier when the env is set) is the only signal needed; no
+    // additional log here, since the var itself is deprecated.
+    if (!isProcessPreClaim()) {
+      if (resolved.source === "config") {
+        console.log(
+          `[auth] using publicOrigin from office-config.json: ${resolved.origin}`,
+        );
+      } else if (resolved.source === "localhost") {
+        console.log(
+          `[auth] local-only mode: no public origin configured, using ${resolved.origin}. See https://isomux.com/docs/access-and-invites for remote-access setups.`,
+        );
+      }
     }
   }
-}
 
-// First-time-setup banner. When no owner exists, the SPA shell is replaced
-// by a tokenless name-picker form at http://localhost:PORT/. The form is
-// served only over the loopback bind, so it's reachable only from the same
-// machine (or via SSH port-forward from another). Print a banner that spells
-// out both paths so an operator who's never used `ssh -L` can copy-paste.
-//
-// The SSH target is printed as a template (<user>@<host>) rather than auto-
-// detecting via os.userInfo()/os.hostname(): the local username on the
-// server box is often not the SSH login name (think `nil` vs `root`, or
-// hosting-provider-assigned users), and os.hostname() returns the box's
-// internal hostname rather than a network-routable address. We do show the
-// detected values as a hint, but the operator is supposed to replace them
-// with whatever SSH target they normally use for this machine.
-if (isProcessPreClaim()) {
-  let detectedUser = "";
-  try {
-    detectedUser = userInfo().username;
-  } catch {}
-  let detectedHost = "";
-  try {
-    detectedHost = osHostname();
-  } catch {}
-  const detectedHint =
-    detectedUser && detectedHost
-      ? ` (this machine reports ${detectedUser}@${detectedHost}; use whatever you actually SSH as)`
-      : "";
-  console.log("");
-  console.log(
-    "================================================================",
-  );
-  console.log("  Isomux: no owner has been set up for this office yet.");
-  console.log("");
-  console.log("  TO CLAIM OWNERSHIP from THIS machine:");
-  console.log(`    Open http://localhost:${PORT} in your browser.`);
-  console.log("");
-  console.log("  TO CLAIM OWNERSHIP from another machine:");
-  console.log(
-    `    1. On that machine, open a tunnel to this box${detectedHint}:`,
-  );
-  console.log(`         ssh -L ${PORT}:localhost:${PORT} <user>@<host>`);
-  console.log(`    2. Open http://localhost:${PORT} in that browser.`);
-  console.log("");
-  console.log(
-    "  After you claim, the Access pane (User Settings) lets you enable",
-  );
-  console.log("  external access so everyday use doesn't need the SSH tunnel.");
-  console.log(
-    "================================================================",
-  );
-  console.log("");
-}
+  // First-time-setup banner. When no owner exists, the SPA shell is replaced
+  // by a tokenless name-picker form at http://localhost:PORT/. The form is
+  // served only over the loopback bind, so it's reachable only from the same
+  // machine (or via SSH port-forward from another). Print a banner that spells
+  // out both paths so an operator who's never used `ssh -L` can copy-paste.
+  //
+  // The SSH target is printed as a template (<user>@<host>) rather than auto-
+  // detecting via os.userInfo()/os.hostname(): the local username on the
+  // server box is often not the SSH login name (think `nil` vs `root`, or
+  // hosting-provider-assigned users), and os.hostname() returns the box's
+  // internal hostname rather than a network-routable address. We do show the
+  // detected values as a hint, but the operator is supposed to replace them
+  // with whatever SSH target they normally use for this machine.
+  if (isProcessPreClaim()) {
+    let detectedUser = "";
+    try {
+      detectedUser = userInfo().username;
+    } catch {}
+    let detectedHost = "";
+    try {
+      detectedHost = osHostname();
+    } catch {}
+    const detectedHint =
+      detectedUser && detectedHost
+        ? ` (this machine reports ${detectedUser}@${detectedHost}; use whatever you actually SSH as)`
+        : "";
+    console.log("");
+    console.log(
+      "================================================================",
+    );
+    console.log("  Isomux: no owner has been set up for this office yet.");
+    console.log("");
+    console.log("  TO CLAIM OWNERSHIP from THIS machine:");
+    console.log(`    Open http://localhost:${PORT} in your browser.`);
+    console.log("");
+    console.log("  TO CLAIM OWNERSHIP from another machine:");
+    console.log(
+      `    1. On that machine, open a tunnel to this box${detectedHint}:`,
+    );
+    console.log(`         ssh -L ${PORT}:localhost:${PORT} <user>@<host>`);
+    console.log(`    2. Open http://localhost:${PORT} in that browser.`);
+    console.log("");
+    console.log(
+      "  After you claim, the Access pane (User Settings) lets you enable",
+    );
+    console.log(
+      "  external access so everyday use doesn't need the SSH tunnel.",
+    );
+    console.log(
+      "================================================================",
+    );
+    console.log("");
+  }
 } // end logBootBanners
 
 // runBackgroundBoot: post-listen boot work (update checker, plugin-hooks deps,
@@ -3924,91 +3955,91 @@ function runBackgroundBoot(
   startOpts: StartServerOpts,
   server: Server<WsData>,
 ): Promise<void> {
-if (!startOpts.skipUpdateChecker) {
-// Start update checker
-onUpdateChange((status) => {
-  broadcast({
-    type: "update_status",
-    updateAvailable: status.updateAvailable,
-    current: status.current,
-    latest: status.latest,
-  });
-});
-startUpdateChecker();
-}
-
-// Wire plugin-hooks to agent-manager internals (beginTurn / createTurnDeferred /
-// logCache / room lookup) BEFORE loading plugins, so the loader has a usable
-// runtime when discovery completes. Plugins themselves are discovered + imported
-// in loadPlugins below. See server/plugin-hooks.ts for the contract.
-agentManager.configurePluginHooksDeps();
-
-// Plugin load + agent restore are sequenced inside the same async boot so
-// RESTORED agents come up with the full plugin set already in place. A
-// fire-and-forget plugin load would race with restoreAgents — a slow
-// plugin import could let restored-agent turns dispatch with
-// getEnabledPlugins() empty.
-//
-// Caveat: `Bun.serve` above already bound the HTTP listener BEFORE this
-// IIFE started. A user who spawns a brand-new agent during the small
-// plugin-load window (typically <100ms; longer if a plugin's transitive
-// deps need fetching) and immediately sends them a message will see that
-// agent's first turn run without plugin hooks. We accept this for v0:
-// gating HTTP on plugin load would let a single broken local plugin
-// stall the whole UI, which is a worse failure mode than one
-// plugin-less first turn. If it bites, the right fix is a `pluginsReady`
-// flag checked at turn-dispatch time, not at HTTP-accept time.
-//
-// Plugin load failures land in ~/.isomux/logs/plugins.jsonl + stderr and
-// don't block startup; we still proceed to restoreAgents on the catch path
-// so a broken plugin doesn't kill the server.
-const restorePromise = (async () => {
-  try {
-    // import.meta.dir points at server/, so go up one to get the repo root.
-    const isomuxRoot = join(import.meta.dir, "..");
-    const enabledPlugins = loadEnabledPlugins();
-    await loadPlugins({ isomuxRoot, enabledPlugins });
-  } catch (err) {
-    console.error("[plugins] unexpected error during plugin load:", err);
+  if (!startOpts.skipUpdateChecker) {
+    // Start update checker
+    onUpdateChange((status) => {
+      broadcast({
+        type: "update_status",
+        updateAvailable: status.updateAvailable,
+        current: status.current,
+        latest: status.latest,
+      });
+    });
+    startUpdateChecker();
   }
 
-  const restored = await agentManager.restoreAgents();
-  if (restored.length > 0) {
-    console.log(
-      `Restored ${restored.length} agent(s): ${restored.map((a) => a.name).join(", ")}`,
-    );
-  }
-  // One-time hygiene pass: remove any stale roomIds from users'
-  // allowedRooms / notifRooms that don't match a currently-existing
-  // room. Catches references left behind by close_room calls from
-  // earlier versions that didn't prune user records inline. Cheap
-  // no-op once a deployment has converged.
-  const validIds = agentManager.getRooms().map((r) => r.id);
-  const pruned = pruneStaleRoomRefs(validIds);
-  if (pruned > 0) {
-    console.log(
-      `[startup] pruned stale room refs from ${pruned} user record(s)`,
-    );
-    broadcast({ type: "users_list", users: listUsers() });
-  }
-})();
+  // Wire plugin-hooks to agent-manager internals (beginTurn / createTurnDeferred /
+  // logCache / room lookup) BEFORE loading plugins, so the loader has a usable
+  // runtime when discovery completes. Plugins themselves are discovered + imported
+  // in loadPlugins below. See server/plugin-hooks.ts for the contract.
+  agentManager.configurePluginHooksDeps();
 
-// Boot cronjob scheduler (loads configs, reconciles stale "running" rows, starts tick).
-if (!startOpts.skipSchedulers) cronjobManager.startCronjobScheduler();
+  // Plugin load + agent restore are sequenced inside the same async boot so
+  // RESTORED agents come up with the full plugin set already in place. A
+  // fire-and-forget plugin load would race with restoreAgents — a slow
+  // plugin import could let restored-agent turns dispatch with
+  // getEnabledPlugins() empty.
+  //
+  // Caveat: `Bun.serve` above already bound the HTTP listener BEFORE this
+  // IIFE started. A user who spawns a brand-new agent during the small
+  // plugin-load window (typically <100ms; longer if a plugin's transitive
+  // deps need fetching) and immediately sends them a message will see that
+  // agent's first turn run without plugin hooks. We accept this for v0:
+  // gating HTTP on plugin load would let a single broken local plugin
+  // stall the whole UI, which is a worse failure mode than one
+  // plugin-less first turn. If it bites, the right fix is a `pluginsReady`
+  // flag checked at turn-dispatch time, not at HTTP-accept time.
+  //
+  // Plugin load failures land in ~/.isomux/logs/plugins.jsonl + stderr and
+  // don't block startup; we still proceed to restoreAgents on the catch path
+  // so a broken plugin doesn't kill the server.
+  const restorePromise = (async () => {
+    try {
+      // import.meta.dir points at server/, so go up one to get the repo root.
+      const isomuxRoot = join(import.meta.dir, "..");
+      const enabledPlugins = loadEnabledPlugins();
+      await loadPlugins({ isomuxRoot, enabledPlugins });
+    } catch (err) {
+      console.error("[plugins] unexpected error during plugin load:", err);
+    }
 
-// Daily ~/.isomux/ backup tarball with N=7 retention. See server/backup.ts.
-if (!startOpts.skipBackups) startBackupScheduler();
+    const restored = await agentManager.restoreAgents();
+    if (restored.length > 0) {
+      console.log(
+        `Restored ${restored.length} agent(s): ${restored.map((a) => a.name).join(", ")}`,
+      );
+    }
+    // One-time hygiene pass: remove any stale roomIds from users'
+    // allowedRooms / notifRooms that don't match a currently-existing
+    // room. Catches references left behind by close_room calls from
+    // earlier versions that didn't prune user records inline. Cheap
+    // no-op once a deployment has converged.
+    const validIds = agentManager.getRooms().map((r) => r.id);
+    const pruned = pruneStaleRoomRefs(validIds);
+    if (pruned > 0) {
+      console.log(
+        `[startup] pruned stale room refs from ${pruned} user record(s)`,
+      );
+      broadcast({ type: "users_list", users: listUsers() });
+    }
+  })();
 
-if (!startOpts.quiet)
-  console.log(`Isomux running at http://localhost:${server.port}`);
+  // Boot cronjob scheduler (loads configs, reconciles stale "running" rows, starts tick).
+  if (!startOpts.skipSchedulers) cronjobManager.startCronjobScheduler();
 
-// Admin Unix socket — lets the `owner-login` CLI mint a recovery URL for
-// an existing owner. Starts after the HTTP listener so the CLI's printed
-// URL is immediately openable. Optional surface; a startup failure logs
-// but doesn't block the server.
-if (!startOpts.skipAdminSocket) startAdminSocket();
+  // Daily ~/.isomux/ backup tarball with N=7 retention. See server/backup.ts.
+  if (!startOpts.skipBackups) startBackupScheduler();
 
-return restorePromise;
+  if (!startOpts.quiet)
+    console.log(`Isomux running at http://localhost:${server.port}`);
+
+  // Admin Unix socket — lets the `owner-login` CLI mint a recovery URL for
+  // an existing owner. Starts after the HTTP listener so the CLI's printed
+  // URL is immediately openable. Optional surface; a startup failure logs
+  // but doesn't block the server.
+  if (!startOpts.skipAdminSocket) startAdminSocket();
+
+  return restorePromise;
 } // end runBackgroundBoot
 
 // ---------------------------------------------------------------------------
