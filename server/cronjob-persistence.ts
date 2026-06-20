@@ -27,9 +27,9 @@ const CRONJOBS_FILE = join(CRONJOBS_DIR, "cronjobs.json");
 const CRONJOB_HISTORY_FILE = join(CRONJOBS_DIR, "cronjob-history.json");
 const CRONJOBS_PROMPT_FILE = join(CRONJOBS_DIR, "cronjobs-prompt.md");
 
-try {
-  mkdirSync(CRONJOBS_DIR, { recursive: true });
-} catch {}
+// Importing this module is side-effect-free: CRONJOBS_DIR is created lazily by
+// atomicWriteFileSync (top-level cronjob files) and by the per-job / per-run
+// mkdir calls below, rather than at module load.
 
 // Cronjobs system prompt — owned by cronjob-manager and stored in its own
 // file, not folded into office-config.json. Two managers writing the same

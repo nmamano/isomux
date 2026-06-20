@@ -14,10 +14,10 @@
 // state. They DO run when this file is invoked on its own
 // (`bun test server/test-support/agent-manager.di.test.ts`), and will run in
 // the full suite once the Phase 0.3 script split invokes `bun test` with
-// ISOMUX_HOME pre-set. The disk-free assertions run unconditionally — though
-// note importing agent-manager pulls in persistence.ts, whose top-level
-// mkdirSync(ISOMUX_DIR) runs against the resolved STATE_ROOT at import (a no-op
-// on an existing root; it writes no agent content, so operations stay disk-free).
+// ISOMUX_HOME pre-set. The disk-free assertions run unconditionally: importing
+// agent-manager pulls in persistence.ts, but that import is now side-effect-free
+// (state dirs are created lazily on first write, not at module load), so neither
+// the import nor these assertions ever touch the real ~/.isomux.
 
 import { describe, it, expect, afterAll } from "bun:test";
 import { mkdtempSync } from "fs";

@@ -1,4 +1,4 @@
-import { join } from "path";
+import { join, dirname } from "path";
 import { STATE_ROOT } from "./config.ts";
 import {
   mkdirSync,
@@ -30,17 +30,22 @@ const OFFICE_CONFIG_FILE = join(ISOMUX_DIR, "office-config.json");
 const TASKS_FILE = join(ISOMUX_DIR, "tasks.json");
 const AGENT_HISTORY_FILE = join(ISOMUX_DIR, "agent-history.json");
 
-// Ensure directories exist
-try {
-  mkdirSync(ISOMUX_DIR, { recursive: true });
-  mkdirSync(LOGS_DIR, { recursive: true });
-} catch {}
+// Importing this module is side-effect-free: state directories are created
+// lazily by atomicWriteFileSync (and by the per-agent log/file writers below)
+// rather than at module load, so tests and other runtimes can import the
+// persistence API without touching the filesystem.
 
 // Atomic file write: write to a sibling .tmp file then rename. Renames are
 // atomic on the same filesystem, so a concurrent reader (notably the backup
 // tarball) sees either the previous contents or the new contents, never a
 // half-written file. JSONL appends are line-tolerant and skip this.
 export function atomicWriteFileSync(path: string, data: string | Buffer) {
+  // Ensure the target directory exists. This is the single choke point for
+  // every top-level state-file write (agents/tasks/office config, users,
+  // invites/sessions, cronjob config), so creating dirname here is what lets
+  // this module import side-effect-free while still guaranteeing the directory
+  // exists on the first write. Recursive mkdir is a no-op once it exists.
+  mkdirSync(dirname(path), { recursive: true });
   const tmp = path + ".tmp";
   writeFileSync(tmp, data);
   renameSync(tmp, path);

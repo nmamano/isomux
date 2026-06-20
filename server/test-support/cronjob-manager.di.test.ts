@@ -4,15 +4,14 @@
 // construction); schedule firing is deterministic via a fake clock + scheduler;
 // and no real LLM/provider call happens. Injecting an in-memory persistence
 // makes the manager OPERATIONS disk-free, so the seam assertions run
-// unconditionally regardless of STATE_ROOT. Caveat: importing cronjob-manager
-// pulls in cronjob-persistence, which runs a top-level mkdirSync(CRONJOBS_DIR)
-// against the already-resolved STATE_ROOT — so module IMPORT can create the
-// cronjobs dir under real state if STATE_ROOT was pinned there (it never writes
-// cronjob/run CONTENT — that all goes to the fake). The run-execution proof and
-// the production-factory check additionally touch disk (office-config read /
+// unconditionally regardless of STATE_ROOT. Importing cronjob-manager pulls in
+// cronjob-persistence, but that import is now side-effect-free (CRONJOBS_DIR is
+// created lazily on first write, not at module load), so module import never
+// creates dirs under real state. The run-execution proof and the
+// production-factory check still touch disk directly (office-config read /
 // real state) and gate on ISOLATED, like the agent-manager DI test.
 
-import { describe, it, expect, afterAll } from "bun:test";
+import { describe, it, expect, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
@@ -108,8 +107,12 @@ function capture() {
 }
 
 describe("CronjobManager DI (disk-free seam)", () => {
-  // MUST run before any registerProductionCronjobManagerForModuleReads call in
-  // this process — only this test file registers, and bun runs tests top-down.
+  // Make the "throws before registration" precondition self-enforcing instead of
+  // relying on bun's top-down order: reset the bridge to unregistered before this
+  // block runs, so a future reorder or a new registering test can't silently flip
+  // the assertion below from "tests the throw path" to a confusing failure.
+  beforeAll(() => registerProductionCronjobManagerForModuleReads(null));
+
   it("module-read bridge throws before registration, forwards after (registration-only)", () => {
     expect(() => listCronjobs()).toThrow(/not registered/);
 
