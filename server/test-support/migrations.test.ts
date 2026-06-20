@@ -25,10 +25,11 @@
 // surprise suite noise). beforeEach swaps console.log/error for collectors and
 // afterEach restores them; tests that care assert on the captured lines.
 //
-// Intentionally deferred (by review agreement) to Phase 1.4's session/queue/
-// resume seam: the loadLog legacy `images` -> `attachments` read-time migration
-// (persistence.ts). It is a log/attachment-compatibility concern, not part of
-// the room-shape / pre-flatten migration story, so it is excluded here.
+// The loadLog legacy `images` -> `attachments` read-time migration
+// (persistence.ts) was deferred from the initial 1.3 net (by review agreement)
+// as a log/attachment-compat concern rather than part of the room-shape /
+// pre-flatten migration story. It is a load-time migration, so it landed back
+// here when the deferral was reconciled — see the final describe below.
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import {
@@ -41,7 +42,12 @@ import {
 import { join } from "path";
 import { STATE_ROOT } from "../config.ts";
 import { removeStateDir } from "./temp-state.ts";
-import { loadAgents, loadTasks, loadOfficeConfig } from "../persistence.ts";
+import {
+  loadAgents,
+  loadTasks,
+  loadOfficeConfig,
+  loadLog,
+} from "../persistence.ts";
 import {
   loadCronjobs,
   loadRuns,
@@ -591,5 +597,94 @@ describe("runPreUseridBackupIfNeeded (Phase 1.3)", () => {
     runPreUseridBackupIfNeeded();
     expect(existsSync(stateFile(SENTINEL))).toBe(true);
     expect(backupWrites()).toBe(2); // the backup path ran a second time
+  });
+});
+
+// ---------------------------------------------------------------------------
+// loadLog legacy `images` -> `attachments` read-time migration
+// (deferred from the initial 1.3 net by review agreement; reconciled here)
+// ---------------------------------------------------------------------------
+
+describe("loadLog images -> attachments read-time migration (Phase 1.3, deferred)", () => {
+  const agentId = "agent-mig";
+  const sessionId = "sess-mig";
+
+  function seedLog(entries: unknown[]): void {
+    seed(
+      `logs/${agentId}/${sessionId}.jsonl`,
+      entries.map((e) => JSON.stringify(e)).join("\n") + "\n",
+    );
+  }
+
+  it("migrates a legacy images[] entry to attachments and drops the images field", () => {
+    seedLog([
+      {
+        id: "e1",
+        agentId,
+        timestamp: 1,
+        kind: "file-view",
+        content: "legacy",
+        images: ["pic.png", "report.pdf", "weird.xyz"],
+      },
+      { id: "e2", agentId, timestamp: 2, kind: "text", content: "plain" },
+    ]);
+    const entries = loadLog(agentId, sessionId);
+    expect(entries.length).toBe(2);
+    // images -> attachments: ext-mapped mediaType (unknown ext -> octet-stream),
+    // originalName == filename, size 0.
+    expect(entries[0].attachments).toEqual([
+      {
+        filename: "pic.png",
+        originalName: "pic.png",
+        mediaType: "image/png",
+        size: 0,
+      },
+      {
+        filename: "report.pdf",
+        originalName: "report.pdf",
+        mediaType: "application/pdf",
+        size: 0,
+      },
+      {
+        filename: "weird.xyz",
+        originalName: "weird.xyz",
+        mediaType: "application/octet-stream",
+        size: 0,
+      },
+    ]);
+    // The legacy field is removed after migration.
+    expect((entries[0] as { images?: unknown }).images).toBeUndefined();
+    // An entry without images is untouched (no attachments synthesized).
+    expect(entries[1].attachments).toBeUndefined();
+  });
+
+  it("leaves an entry that already has attachments untouched (guard is images && !attachments)", () => {
+    const existing = [
+      {
+        filename: "kept.png",
+        originalName: "kept.png",
+        mediaType: "image/png",
+        size: 123,
+      },
+    ];
+    seedLog([
+      {
+        id: "e1",
+        agentId,
+        timestamp: 1,
+        kind: "file-view",
+        content: "both",
+        attachments: existing,
+        images: ["ignored.png"],
+      },
+    ]);
+    const entries = loadLog(agentId, sessionId);
+    // Existing attachments are preserved unchanged...
+    expect(entries[0].attachments).toEqual(existing);
+    // ...and because the migration block is skipped, the legacy images field is
+    // NOT deleted — a no-op pass-through, frozen as the current behavior.
+    expect((entries[0] as { images?: unknown }).images).toEqual([
+      "ignored.png",
+    ]);
   });
 });
