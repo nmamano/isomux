@@ -94,7 +94,10 @@ function formatUsd(n: number): string {
 // `forkBaseUsage` is captured at fork creation by walking the parent's log to
 // find the cumulative usage at the exact fork point, so each fork contributes
 // only its own new work — no double-counting of the shared parent prefix.
-function readAgentUsage(
+// Exported for the Phase 1.4a usage characterization (fork-usage.test.ts) so the
+// lifetime/session fork-base math is asserted directly rather than through the
+// formatting-coupled renderUsageReport string. Production callers stay internal.
+export function readAgentUsage(
   agentId: string,
   currentSessionId: string | null,
 ): { session: UsageBucket; lifetime: UsageBucket } {
