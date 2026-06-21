@@ -3,6 +3,7 @@ import type {
   ServerMessage,
   ClientCommand,
   BackendModelWire,
+  AgentBackendType,
   AgentInfo,
   RoomWire,
   NotifRoomsSetting,
@@ -141,6 +142,10 @@ import { uploadsHandlers } from "./routes/handlers/uploads.ts";
 import { invitesHandlers } from "./routes/handlers/invites.ts";
 import { sessionsHandlers } from "./routes/handlers/sessions.ts";
 import { accessHandlers } from "./routes/handlers/access.ts";
+import { officeSettingsHandlers } from "./routes/handlers/office-settings.ts";
+import { validateHandlers } from "./routes/handlers/validate.ts";
+import { backendsHandlers } from "./routes/handlers/backends.ts";
+import { systemHandlers } from "./routes/handlers/system.ts";
 import type { AccessSettings } from "../shared/contract-shapes.ts";
 import { createIdempotencyCache } from "./transport/idempotency.ts";
 import { emit, type EmitContext, type EmitDeps } from "./events/emit.ts";
@@ -739,6 +744,136 @@ async function applyAccessSettings(
   };
 }
 
+// --- Shared cores for the Phase 3a slice 3a.5 stranglers --------------------
+// office.setSettings / validate.env / backends.listModels each run through ONE
+// core called by BOTH the new REST handler and the still-living WS arm, so the
+// two transports cannot drift. Object-level AUTH is NOT here: REST enforces it in
+// the route table (guard + precondition), the WS arms keep their inline checks.
+
+// office.setSettings + update_office_settings. Validates COMPLETELY before it
+// mutates/emits (no double-signal on an invalid env path or over-long name).
+// name === undefined PRESERVES the current name (stale-tab safety); null/empty
+// CLEARS it. setOfficeSettings emits office_settings_updated via the event sink.
+function applyOfficeSettings(input: {
+  prompt: string | null;
+  envFile: string | null;
+  name?: string | null;
+}): { ok: true } | { ok: false; status: 400; error: string } {
+  const envFile =
+    input.envFile && input.envFile.trim() ? input.envFile.trim() : null;
+  if (envFile) {
+    try {
+      agentManager.validateEnvPath(envFile);
+    } catch (err) {
+      return {
+        ok: false,
+        status: 400,
+        error: errMessage(err, "Invalid env file"),
+      };
+    }
+  }
+  const rawName =
+    input.name === undefined
+      ? agentManager.getOfficeSettings().name
+      : typeof input.name === "string" && input.name.trim()
+        ? input.name.trim()
+        : null;
+  if (rawName && rawName.length > 60) {
+    return {
+      ok: false,
+      status: 400,
+      error: "Office name must be 60 characters or fewer",
+    };
+  }
+  agentManager.setOfficeSettings(input.prompt, envFile, rawName);
+  return { ok: true };
+}
+
+// validate.env + request_settings_validation. Resolves the scope/user's env-file
+// path and counts its keys. AUTH lives outside (precondition / WS inline). The
+// resolved path is returned so the WS arm can echo it; REST drops it. An absent
+// env file is trivially ok (nothing to validate). For scope:"user", an explicit
+// username targets THAT user; an omitted username targets the CALLER's OWN env
+// (selfUserId) — the subject the precondition / WS inline checks already
+// authorized as "self". Without this self-resolution an authorized own-env probe
+// would validate nothing and return a false ok.
+function resolveAndValidateEnv(
+  scope: string,
+  username: string | undefined,
+  selfUserId: string | undefined,
+): { ok: boolean; keyCount?: number; error?: string; envFile: string | null } {
+  let envFile: string | null = null;
+  if (scope === "office") {
+    envFile = agentManager.getOfficeSettings().envFile;
+  } else if (scope === "user") {
+    const rec = username
+      ? getUser(username)
+      : selfUserId
+        ? getUserById(selfUserId)
+        : undefined;
+    envFile = rec?.envFile ?? null;
+  }
+  if (!envFile) return { ok: true, envFile: null };
+  try {
+    return {
+      ok: true,
+      keyCount: agentManager.validateEnvPath(envFile),
+      envFile,
+    };
+  } catch (err) {
+    return { ok: false, error: errMessage(err, "Invalid env file"), envFile };
+  }
+}
+
+// backends.listModels + list_backend_models. Resolves the per-user env stack and
+// cwd EXACTLY like a real spawn (so office/user env-file overrides are reflected),
+// lists, and maps to the wire shape. On failure, flags backend-specific auth
+// errors via detectAuthError so the UI can render login instructions.
+async function listBackendModels(input: {
+  agentType: string;
+  cwd: string;
+  includeHidden: boolean;
+  userId: string;
+}): Promise<
+  | { ok: true; models: BackendModelWire[] }
+  | { ok: false; error: string; authError: boolean }
+> {
+  try {
+    const backend = getBackend(input.agentType as AgentBackendType);
+    const env = agentManager.buildEnvForUserId(input.userId);
+    const models = await backend.listModels({
+      // The codex subprocess's cwd must be a real directory or posix_spawn fails
+      // with ENOENT before our error path can clean up — resolve `~` here the
+      // same way agentManager.spawn does before persisting.
+      cwd: resolveCwd(input.cwd),
+      env,
+      includeHidden: input.includeHidden,
+    });
+    const wire: BackendModelWire[] = models.map((m) => ({
+      id: m.id,
+      label: m.label,
+      description: m.description,
+      isDefault: m.isDefault,
+      hidden: m.hidden,
+      supportedEfforts: m.supportedEfforts,
+      defaultEffort: m.defaultEffort,
+    }));
+    return { ok: true, models: wire };
+  } catch (err) {
+    const message = errMessage(err);
+    const authError = (() => {
+      try {
+        return getBackend(input.agentType as AgentBackendType).detectAuthError(
+          message,
+        );
+      } catch {
+        return false;
+      }
+    })();
+    return { ok: false, error: message, authError };
+  }
+}
+
 function broadcast(msg: ServerMessage) {
   const data = JSON.stringify(msg);
   for (const ws of browsers) {
@@ -1297,6 +1432,80 @@ function buildExecutorDeps(): ExecutorDeps {
       },
     }),
   );
+
+  // 3a.5 — Office settings (owner-only) + validation probes + backend models.
+  // Four narrow deps over the shared cores so REST and the legacy WS arms stay in
+  // lockstep. office.setSettings emits office_settings_updated via the
+  // AgentManager event sink (the handler never emits). validate.cwd shares
+  // agentManager.validateCwd directly; validate.env/backends share the cores.
+  register(
+    officeSettingsHandlers({
+      getSettings: () => agentManager.getOfficeSettings(),
+      applySettings: (input) => applyOfficeSettings(input),
+    }),
+  );
+  register(
+    validateHandlers({
+      validateCwd: (cwd) => {
+        try {
+          agentManager.validateCwd(cwd);
+          return null;
+        } catch (err) {
+          return errMessage(err, "Invalid directory");
+        }
+      },
+      validateEnv: (scope, username, selfUserId) =>
+        resolveAndValidateEnv(scope, username, selfUserId),
+    }),
+  );
+  register(
+    backendsHandlers({
+      listModels: (input) => listBackendModels(input),
+    }),
+  );
+  // 3a.6 — System backup status. Maps the internal BackupStatus to the normalized
+  // /api wire shape (rename + null→false on ok); the legacy /backup/status keeps
+  // its raw shape.
+  register(
+    systemHandlers({
+      getBackupStatus: () => {
+        const s = getBackupStatus();
+        return {
+          lastRunAt: s.lastBackupAt,
+          ok: s.lastBackupOk ?? false,
+          error: s.lastBackupError,
+          retention: s.retention,
+          destDir: s.backupDir,
+        };
+      },
+    }),
+  );
+
+  // 3a.5 — validateEnvBodySelfSubject: the SOLE object-level policy for
+  // validate.env (its guard is just `authenticated`). office:read (stage 1)
+  // already restricted the caller to USER scope; here an owner may validate any
+  // scope/user, a member ONLY their own user env. Non-leak: office scope or
+  // another user's env both deny with the same 403. Mirrors the legacy
+  // request_settings_validation inline checks — and is what keeps the precondition
+  // reachable (a member validating their own env is allowed HERE, not denied at
+  // the guard as the prior or(officeOwner, selfUser) did).
+  preconditions.set("validateEnvBodySelfSubject", (ctx) => {
+    const u = ctx.identity.userId
+      ? getUserById(ctx.identity.userId)
+      : undefined;
+    if (!u) return fail(403, "forbidden");
+    if (u.role === "owner") return null;
+    const b = (ctx.body ?? {}) as { scope?: unknown; username?: unknown };
+    if (b.scope !== "user") return fail(403, "forbidden");
+    const username = typeof b.username === "string" ? b.username : undefined;
+    if (
+      username !== undefined &&
+      lowercaseKey(username) !== lowercaseKey(u.name)
+    ) {
+      return fail(403, "forbidden");
+    }
+    return null;
+  });
 
   return {
     guardDeps: buildLiveGuardDeps(),
@@ -2401,52 +2610,30 @@ async function dispatchCommand(
         );
         break;
       }
-      const envFile =
-        cmd.envFile && cmd.envFile.trim() ? cmd.envFile.trim() : null;
-      if (envFile) {
-        try {
-          agentManager.validateEnvPath(envFile);
-        } catch (err) {
-          ws.send(
-            JSON.stringify({
-              type: "settings_save_response",
-              requestId: cmd.requestId,
-              ok: false,
-              error: errMessage(err, "Invalid env file"),
-            }),
-          );
-          break;
-        }
-      }
-      // Distinguish "field omitted" from "field set to null/empty". A stale
-      // client tab from before the name field existed sends no `name`
-      // property; treating undefined as null would clear an existing name
-      // when the user saves prompt/envFile from that tab. Explicit null or
-      // empty string still clears.
-      const rawName =
-        cmd.name === undefined
-          ? agentManager.getOfficeSettings().name
-          : cmd.name && cmd.name.trim()
-            ? cmd.name.trim()
-            : null;
-      if (rawName && rawName.length > 60) {
-        ws.send(
-          JSON.stringify({
-            type: "settings_save_response",
-            requestId: cmd.requestId,
-            ok: false,
-            error: "Office name must be 60 characters or fewer",
-          }),
-        );
-        break;
-      }
-      agentManager.setOfficeSettings(cmd.prompt, envFile, rawName);
+      // Validate-then-apply via the shared core (also used by office.setSettings
+      // REST): trims envFile, validates the env path + name length BEFORE any
+      // mutate/emit (no double-signal on invalid), preserves name omitted-vs-null,
+      // then emits office_settings_updated through the AgentManager event sink.
+      const r = applyOfficeSettings({
+        prompt: cmd.prompt,
+        envFile: cmd.envFile ?? null,
+        name: cmd.name,
+      });
       ws.send(
-        JSON.stringify({
-          type: "settings_save_response",
-          requestId: cmd.requestId,
-          ok: true,
-        }),
+        JSON.stringify(
+          r.ok
+            ? {
+                type: "settings_save_response",
+                requestId: cmd.requestId,
+                ok: true,
+              }
+            : {
+                type: "settings_save_response",
+                requestId: cmd.requestId,
+                ok: false,
+                error: r.error,
+              },
+        ),
       );
       break;
     }
@@ -2506,62 +2693,32 @@ async function dispatchCommand(
       break;
     }
     case "list_backend_models": {
-      // Resolves the env file stack the same way a real spawn would, so
-      // OPENAI_API_KEY / CHATGPT_LOGIN overrides from office or user files
-      // are reflected in the model list. cwd validation is best-effort —
-      // codex model/list itself doesn't require the cwd to be a real dir,
-      // but we pass the requested cwd through so the subprocess inherits
-      // it (matches what'll be used at spawn time).
-      try {
-        const backend = getBackend(cmd.agentType);
-        const env = agentManager.buildEnvForUserId(session.userId);
-        const models = await backend.listModels({
-          // The codex subprocess's cwd must be a real directory or posix_spawn
-          // fails with ENOENT before our error path can clean up — resolve `~`
-          // here the same way agentManager.spawn does before persisting.
-          cwd: resolveCwd(cmd.cwd),
-          env,
-          includeHidden: cmd.includeHidden,
-        });
-        const wire: BackendModelWire[] = models.map((m) => ({
-          id: m.id,
-          label: m.label,
-          description: m.description,
-          isDefault: m.isDefault,
-          hidden: m.hidden,
-          supportedEfforts: m.supportedEfforts,
-          defaultEffort: m.defaultEffort,
-        }));
-        ws.send(
-          JSON.stringify({
-            type: "list_backend_models_response",
-            requestId: cmd.requestId,
-            ok: true,
-            models: wire,
-          }),
-        );
-      } catch (err) {
-        const message = errMessage(err);
-        // Auth-error flag lets the UI render a login-instructions message
-        // instead of a generic "failed to load" — same pattern the
-        // orchestrator uses for in-session auth detection.
-        const authError = (() => {
-          try {
-            return getBackend(cmd.agentType).detectAuthError(message);
-          } catch {
-            return false;
-          }
-        })();
-        ws.send(
-          JSON.stringify({
-            type: "list_backend_models_response",
-            requestId: cmd.requestId,
-            ok: false,
-            error: message,
-            authError,
-          }),
-        );
-      }
+      // Shared core with backends.listModels (REST): resolves the per-user env
+      // stack + cwd like a real spawn and flags auth errors via detectAuthError.
+      const r = await listBackendModels({
+        agentType: cmd.agentType,
+        cwd: cmd.cwd,
+        includeHidden: cmd.includeHidden ?? false,
+        userId: session.userId,
+      });
+      ws.send(
+        JSON.stringify(
+          r.ok
+            ? {
+                type: "list_backend_models_response",
+                requestId: cmd.requestId,
+                ok: true,
+                models: r.models,
+              }
+            : {
+                type: "list_backend_models_response",
+                requestId: cmd.requestId,
+                ok: false,
+                error: r.error,
+                authError: r.authError,
+              },
+        ),
+      );
       break;
     }
     case "request_settings_validation": {
@@ -2600,51 +2757,26 @@ async function dispatchCommand(
         );
         break;
       }
-      let envFile: string | null = null;
-      if (cmd.scope === "office") {
-        envFile = agentManager.getOfficeSettings().envFile;
-      } else if (cmd.scope === "user" && cmd.username) {
-        envFile = getUser(cmd.username)?.envFile ?? null;
-      }
-      if (!envFile) {
-        ws.send(
-          JSON.stringify({
-            type: "settings_validation",
-            requestId: cmd.requestId,
-            scope: cmd.scope,
-            username: cmd.username,
-            envFile: null,
-            ok: true,
-          }),
-        );
-        break;
-      }
-      try {
-        const keyCount = agentManager.validateEnvPath(envFile);
-        ws.send(
-          JSON.stringify({
-            type: "settings_validation",
-            requestId: cmd.requestId,
-            scope: cmd.scope,
-            username: cmd.username,
-            envFile,
-            ok: true,
-            keyCount,
-          }),
-        );
-      } catch (err) {
-        ws.send(
-          JSON.stringify({
-            type: "settings_validation",
-            requestId: cmd.requestId,
-            scope: cmd.scope,
-            username: cmd.username,
-            envFile,
-            ok: false,
-            error: errMessage(err, "Invalid env file"),
-          }),
-        );
-      }
+      // Shared validation core with validate.env (REST). The inline checks above
+      // own AUTH for the WS path (REST uses the validateEnvBodySelfSubject
+      // precondition); the core only resolves + validates. WS echoes the resolved
+      // envFile; REST drops it.
+      const r = resolveAndValidateEnv(cmd.scope, cmd.username, session.userId);
+      ws.send(
+        JSON.stringify({
+          type: "settings_validation",
+          requestId: cmd.requestId,
+          scope: cmd.scope,
+          username: cmd.username,
+          envFile: r.envFile,
+          ok: r.ok,
+          ...(r.ok
+            ? r.keyCount !== undefined
+              ? { keyCount: r.keyCount }
+              : {}
+            : { error: r.error }),
+        }),
+      );
       break;
     }
     case "add_task": {

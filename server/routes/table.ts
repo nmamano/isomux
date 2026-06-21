@@ -25,7 +25,6 @@ import type { Capability } from "../identity/index.ts";
 import type { RouteAuthz } from "../identity/dispatch.ts";
 import {
   authenticated,
-  selfUser,
   selfOrOwner,
   officeOwner,
   requiresRoomAccess,
@@ -34,7 +33,6 @@ import {
   cronjobOwnerOrOfficeOwner,
   runParamMustEqualTokenRun,
   and,
-  or,
   type Guard,
 } from "../identity/guards.ts";
 import type { EventId } from "../events/registry.ts";
@@ -615,14 +613,22 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "validate.env",
     method: "POST",
     path: "/api/validate/env",
-    // office/other-user ⇒ officeOwner; own ⇒ selfUser. The self subject is
-    // body.username (not a path param) — a typed Phase-3 precondition; selfUser
-    // reads params.username today.
-    auth: cap("office:read", or(officeOwner, selfUser)),
+    // Object-level policy (office or another user ⇒ officeOwner; own user ⇒
+    // self) lives ENTIRELY in the validateEnvBodySelfSubject precondition, NOT
+    // the guard: this route's subject is body.username (scope:"user") and there
+    // is NO :username path param, so the params-based selfUser guard could never
+    // match it. The guard is therefore just `authenticated`; stage-1 office:read
+    // already excludes AGENT scope. (A prior or(officeOwner, selfUser) collapsed
+    // to officeOwner and wrongly denied a member validating their OWN env before
+    // the precondition could run — do not reinstate it.)
+    auth: cap("office:read", authenticated),
     emits: [],
     preconditions: ["validateEnvBodySelfSubject"],
   }),
-  defineRoute<void, { models: BackendModelWire[]; authError?: string }>({
+  defineRoute<
+    void,
+    { models: BackendModelWire[]; error?: string; authError?: boolean }
+  >({
     opId: "backends.listModels",
     method: "GET",
     path: "/api/backends/:agentType/models",
