@@ -58,7 +58,11 @@ import {
   buildProductionGuardDeps,
   type GuardDepsLiveReaders,
 } from "./identity/guard-deps.ts";
-import type { GuardDeps } from "./identity/guards.ts";
+import {
+  cronjobOwnerOrOfficeOwner,
+  officeOwner,
+  type GuardDeps,
+} from "./identity/guards.ts";
 import {
   listUsers,
   getUser,
@@ -115,6 +119,21 @@ import {
 } from "./auth.ts";
 import { lowercaseKey } from "../shared/identity.ts";
 import { startAdminSocket } from "./admin-socket.ts";
+import { matchRoute } from "./routes/match.ts";
+import { API_ROUTES, type RoutePrecondition } from "./routes/table.ts";
+import {
+  executeRoute,
+  errorResponse,
+  type ExecutorDeps,
+  type RouteHandler,
+  type PreconditionFn,
+} from "./routes/executor.ts";
+import { tasksHandlers } from "./routes/handlers/tasks.ts";
+import { cronHandlers } from "./routes/handlers/cron.ts";
+import { createIdempotencyCache } from "./transport/idempotency.ts";
+import { emit, type EmitContext, type EmitDeps } from "./events/emit.ts";
+import type { EventId, EventPayloads } from "./events/registry.ts";
+import { identityFromSession, type Identity } from "./identity/index.ts";
 
 // Boot is extracted into startServer() at the end of this file. The CLI
 // fast-path (`bun run server/index.ts owner-login`) and the production
@@ -389,6 +408,14 @@ function nextConnectionId(): string {
 
 const browsers = new Set<ServerWebSocket<WsData>>();
 
+// Centralized Idempotency-Key cache (Phase 3a). Process-global; reset per boot in
+// resetServerModuleState so a repeated in-process harness boot starts clean.
+const idempotencyCache = createIdempotencyCache();
+
+// The HTTP executor's deps for the migrated /api surface (Phase 3a). Assembled in
+// startServer once the managers exist; read by the fetch handler at request time.
+let executorDeps: ExecutorDeps;
+
 // Per-WS editor file watchers. Each open file gets one fs.watch handle keyed
 // by `${agentId}\0${absPath}` so the same path can be watched independently
 // across agents. Watchers close on editor_close or WS disconnect.
@@ -613,6 +640,183 @@ function buildLiveGuardDeps(): GuardDeps {
     listCronjobs: () => cronjobManager.listCronjobs(),
   };
   return buildProductionGuardDeps(readers);
+}
+
+// Production EmitDeps adapter (Phase 3a). The single transport seam the emit()
+// helper uses: audience -> recipient selection is computed in emit() from the
+// event registry; this adapter owns only recipient enumeration over the live
+// `browsers` set + per-recipient delivery. For 3a's groups the emits are
+// all/owners/recipient-scoped ONLY (no room-ACL), so the dense-index projection
+// is not exercised here; sessionsForRoomAccess is wired for completeness and the
+// 3b projection rewrite. deliver() stamps the event id as `type` and sends the
+// already-shaped payload (the core op does any per-user shaping before emit()).
+const liveEmitDeps: EmitDeps<ServerWebSocket<WsData>> = {
+  allSessions: () => [...browsers],
+  ownerSessions: () =>
+    [...browsers].filter((ws) => ws.data.session.role === "owner"),
+  sessionsForUser: (userId) =>
+    [...browsers].filter((ws) => ws.data.session.userId === userId),
+  sessionByConnectionId: (connectionId) => {
+    for (const ws of browsers) {
+      if (ws.data.connectionId === connectionId) return ws;
+    }
+    return null;
+  },
+  sessionsForRoomAccess: (roomIds) =>
+    [...browsers].filter((ws) =>
+      roomIds.some((roomId) => roomAllowedForSession(ws.data.session, roomId)),
+    ),
+  roomIdForAgent: (agentId) => {
+    const agent = agentManager.getAllAgents().find((a) => a.id === agentId);
+    if (!agent) return null;
+    return agentManager.getRooms()[agent.room]?.id ?? null;
+  },
+  deliver: (recipients, id, payload) => {
+    const data = JSON.stringify({ type: id, ...(payload as object) });
+    for (const ws of recipients) ws.send(data);
+  },
+};
+
+// Bind the emit() helper to the production transport seam. The ONLY path to the
+// wire for migrated core ops / event sinks (never a raw broadcast()).
+function liveEmit<K extends EventId>(
+  id: K,
+  payload: EventPayloads[K],
+  ctx: EmitContext = {},
+): void {
+  emit(id, payload, ctx, liveEmitDeps);
+}
+
+// Token-derived task/cron attribution (Phase 3a). createdBy is the caller's
+// display identity (agent name, or the human's name on a user token); username
+// is the token's owning user. Never sourced from a request body.
+function attributionFor(identity: Identity): {
+  createdBy: string;
+  username: string | undefined;
+} {
+  let createdBy = "unknown";
+  let username: string | undefined = undefined;
+  if (identity.userId) {
+    const user = getUserById(identity.userId);
+    if (user) {
+      username = user.name;
+      createdBy = user.name;
+    }
+  }
+  if (identity.scope === "agent" && identity.agentId) {
+    const display = agentManager.getAgentDisplay(identity.agentId);
+    if (display) createdBy = display.name;
+  }
+  return { createdBy, username };
+}
+
+// Assemble the executor deps for the migrated /api surface. Called from
+// startServer once the managers exist. Each resource slice registers its
+// handlers (and any precondition enforcers) here over its own slim deps bundle;
+// the executor stays ignorant of managers/auth internals.
+function buildExecutorDeps(): ExecutorDeps {
+  const handlers = new Map<string, RouteHandler>();
+  const preconditions = new Map<RoutePrecondition, PreconditionFn>();
+  const register = (hs: Record<string, RouteHandler>): void => {
+    for (const [opId, handler] of Object.entries(hs)) {
+      handlers.set(opId, handler);
+    }
+  };
+
+  // 3a.1 — Tasks (global shared board; attribution from token).
+  register(
+    tasksHandlers({
+      listTasks: () => agentManager.getTasks(),
+      createTask: ({
+        title,
+        createdBy,
+        username,
+        description,
+        priority,
+        assignee,
+      }) =>
+        agentManager.addTask(title, createdBy, {
+          description,
+          priority,
+          assignee,
+          username,
+        }),
+      updateTask: (id, changes) => agentManager.updateTask(id, changes),
+      deleteTask: (id) => agentManager.deleteTask(id),
+      attributionFor,
+    }),
+  );
+
+  // 3a.2 — Cronjobs (metadata + runs; mutation tightened to owner/office-owner).
+  register(
+    cronHandlers({
+      listCronjobs: () => cronjobManager.listCronjobs(),
+      createCronjob: (input) =>
+        cronjobManager.addCronjob({
+          ...input,
+          agentType: input.agentType ?? "claude",
+          // cron:manage is USER-only, so a valid caller always resolves a
+          // username; the fallback only satisfies the definite-string contract.
+          username: input.username ?? "unknown",
+        }),
+      updateCronjob: (id, changes) => cronjobManager.updateCronjob(id, changes),
+      deleteCronjob: (id) => cronjobManager.deleteCronjob(id),
+      setPrompt: (value) => cronjobManager.setCronjobsPrompt(value),
+      runNow: (id, username) => cronjobManager.runCronjobNow(id, username),
+      runsForCronjob: (jobId) => cronjobManager.getRunsForCronjob(jobId),
+      allRunsByJob: () => cronjobManager.getAllRunsByJob(),
+      runTranscript: (jobId, runId) =>
+        cronjobManager.getRunTranscript(jobId, runId),
+      attributionFor,
+      validateCwd: (cwd) => {
+        try {
+          agentManager.validateCwd(cwd);
+          return null;
+        } catch (err) {
+          return errMessage(err, "Invalid directory");
+        }
+      },
+      saveRecentCwd,
+    }),
+  );
+
+  return {
+    guardDeps: buildLiveGuardDeps(),
+    idempotency: idempotencyCache,
+    handlers,
+    preconditions,
+  };
+}
+
+// Shared cron-mutation authorization for the LEGACY WS shims (Phase 3a). The new
+// REST routes enforce cronjobOwnerOrOfficeOwner / officeOwner via authorize();
+// the still-living WS arms must enforce the SAME tightening at the shared
+// boundary so the strangler doesn't leave a WS-path bypass (the [behavior-change]
+// the route table declares). One impl: these wrap the very guards the route
+// table names, fed the live GuardDeps.
+function wsCanMutateCronjob(session: SessionLookup, jobId: string): boolean {
+  const identity = identityFromSession({
+    userId: session.userId,
+    role: session.role,
+  });
+  return cronjobOwnerOrOfficeOwner("id")({
+    identity,
+    params: { id: jobId },
+    body: undefined,
+    deps: buildLiveGuardDeps(),
+  }).ok;
+}
+function wsIsOfficeOwner(session: SessionLookup): boolean {
+  const identity = identityFromSession({
+    userId: session.userId,
+    role: session.role,
+  });
+  return officeOwner({
+    identity,
+    params: {},
+    body: undefined,
+    deps: buildLiveGuardDeps(),
+  }).ok;
 }
 
 interface VisibleRoomProjection {
@@ -914,7 +1118,10 @@ function wireEventSinks(): void {
     // Task mutations carry the full list as a domain event; the wire still
     // uses the legacy `{type:"tasks", tasks}` shape so the UI doesn't change.
     if (event.type === "tasks_changed") {
-      broadcast({ type: "tasks", tasks: event.tasks });
+      // Routed through the emit() helper (audience `all`) rather than a raw
+      // broadcast, so the migrated tasks core ops share one wire path. emit()
+      // resolves `all` -> every session, so the wire stays byte-identical.
+      liveEmit("tasks", { tasks: event.tasks });
       return;
     }
     // Office settings are not room-scoped — same payload for everyone.
@@ -942,7 +1149,38 @@ function wireEventSinks(): void {
 
   // Wire CronjobManager events to WebSocket broadcasts
   cronjobManager.onCronjobEvent((event) => {
-    broadcast(event);
+    switch (event.type) {
+      // The clean `all`-audience cron events route through the emit() helper
+      // (byte-identical broadcast); matching registry ids + payload shapes.
+      case "cronjob_added":
+        liveEmit("cronjob_added", { cronjob: event.cronjob });
+        break;
+      case "cronjob_updated":
+        liveEmit("cronjob_updated", { cronjob: event.cronjob });
+        break;
+      case "cronjob_deleted":
+        liveEmit("cronjob_deleted", { id: event.id });
+        break;
+      case "cronjobs_prompt_updated":
+        liveEmit("cronjobs_prompt_updated", { value: event.value });
+        break;
+      case "cronjob_run_updated":
+        liveEmit("cronjob_run_updated", { run: event.run });
+        break;
+      // COMPATIBILITY BRIDGE (Phase 3a, deliberate — flagged to Nil): cron-run
+      // transcript entries stream as `log_entry` with a synthetic
+      // cronrun-<runId> agentId. The TARGET registry event is the office-wide
+      // `cron_run_log_entry`, but the UI/demo still key cron transcripts on
+      // `log_entry` (ui/store.tsx), and the target `log_entry` registry entry is
+      // room-ACL (it would fail-closed on the non-existent synthetic agent). So
+      // these stay on the raw broadcast until the UI-coordinated
+      // cron_run_log_entry wire migration (a later contract step, same bucket as
+      // retiring the *_response messages). Do NOT route through liveEmit until
+      // shared ServerMessage + ui/store + demo-server switch together.
+      case "log_entry":
+        broadcast({ type: "log_entry", entry: event.entry });
+        break;
+    }
   });
 } // end wireEventSinks
 
@@ -2116,6 +2354,19 @@ async function dispatchCommand(
       break;
     }
     case "update_cronjob": {
+      if (!wsCanMutateCronjob(session, cmd.id)) {
+        if (cmd.requestId) {
+          ws.send(
+            JSON.stringify({
+              type: "agent_save_response",
+              requestId: cmd.requestId,
+              ok: false,
+              error: "You don't have permission to edit this cron job.",
+            }),
+          );
+        }
+        break;
+      }
       if (cmd.changes.cwd) {
         try {
           agentManager.validateCwd(cmd.changes.cwd);
@@ -2147,12 +2398,25 @@ async function dispatchCommand(
       break;
     }
     case "delete_cronjob":
+      if (!wsCanMutateCronjob(session, cmd.id)) break;
       cronjobManager.deleteCronjob(cmd.id);
       break;
     case "run_cronjob_now":
+      if (!wsCanMutateCronjob(session, cmd.id)) break;
       cronjobManager.runCronjobNow(cmd.id, session.username);
       break;
     case "update_cronjobs_prompt":
+      if (!wsIsOfficeOwner(session)) {
+        ws.send(
+          JSON.stringify({
+            type: "settings_save_response",
+            requestId: cmd.requestId,
+            ok: false,
+            error: "Only an office owner can edit the cron jobs prompt.",
+          }),
+        );
+        break;
+      }
       cronjobManager.setCronjobsPrompt(cmd.value);
       ws.send(
         JSON.stringify({
@@ -3067,6 +3331,48 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           });
         }
         // fall through to the 404 path below if the asset isn't on disk
+      }
+
+      // Unified REST surface (Phase 3a). Routes declared in the typed table are
+      // dispatched through the executor: identity -> authorize -> preconditions
+      // -> idempotency -> handler -> emit. Identity is REQUIRED (cookie or
+      // bearer); there is NO loopback bypass for /api (allowLoopback:false), so
+      // the new surface cannot reintroduce the bypass the legacy paths still
+      // carry. An unmatched or not-yet-migrated /api path falls through to the
+      // legacy handlers (/api/upload, /api/files, /api/images) and the static
+      // serve below.
+      if (url.pathname.startsWith("/api/")) {
+        const apiMatch = matchRoute(API_ROUTES, req.method, url.pathname);
+        if (apiMatch && executorDeps.handlers.has(apiMatch.route.opId)) {
+          const apiAuth = authenticate(req, server, {
+            allowLoopback: false,
+            officeName,
+          });
+          if (apiAuth.kind !== "ok") {
+            // Marshal the auth rejection (or the impossible loopback case, since
+            // allowLoopback:false) into the /api envelope {error:{code,message}}
+            // — the new contract, NOT the legacy auth-middleware shape. Every
+            // migrated /api route inherits this entrypoint, so the envelope must
+            // be uniform here. authenticate() rejects with only two statuses:
+            // 403 (bad origin / CSRF) and 401 (no / invalid identity).
+            const badOrigin =
+              apiAuth.kind === "rejected" && apiAuth.response.status === 403;
+            return badOrigin
+              ? errorResponse(403, "bad_origin", "bad origin")
+              : errorResponse(401, "unauthenticated", "unauthenticated");
+          }
+          try {
+            return await executeRoute(
+              apiMatch,
+              req,
+              apiAuth.identity,
+              executorDeps,
+            );
+          } catch (err) {
+            console.error("[/api] uncaught executor error:", err);
+            return errorResponse(500, "internal", "internal");
+          }
+        }
       }
 
       // Loopback bypass is intentionally narrow: it only applies to API paths
@@ -4132,6 +4438,7 @@ export interface ServerHandle {
 function resetServerModuleState(): void {
   browsers.clear();
   connectionIdCounter = 0;
+  idempotencyCache._reset();
 }
 
 async function stopServer(server: Server<WsData>): Promise<void> {
@@ -4172,6 +4479,7 @@ export async function startServer(
   createManagers(opts);
   registerBootHooks();
   wireEventSinks();
+  executorDeps = buildExecutorDeps();
   const server = buildServer(opts);
   // Bun.serve resolves a concrete TCP port (including when opts.port is 0). The
   // `| undefined` in the type is for unix-socket servers, which we never create.
