@@ -89,6 +89,13 @@ export interface RouteHandlerContext {
   rawBody: string;
   query: URLSearchParams;
   req: Request;
+  // The caller's own cookie-session hash, supplied by the /api dispatch from the
+  // already-resolved auth result (NOT re-derived here — the executor stays a leaf
+  // carrying a string, never re-validating cookies). Present only for a cookie
+  // (USER) caller; absent for a bearer (agent/run) caller. Used by routes that
+  // act on the caller's OWN session (sessions.logout) and the logout lockout
+  // precondition; a route that doesn't need it simply ignores it.
+  callerSessionIdHash?: string;
 }
 
 export type RouteHandler = (
@@ -197,6 +204,10 @@ export async function executeRoute(
   req: Request,
   identity: Identity,
   deps: ExecutorDeps,
+  // Per-request context the dispatch supplies alongside the identity. An options
+  // object (not a positional arg) so future request-context fields extend it
+  // without re-threading every call site.
+  opts?: { callerSessionIdHash?: string },
 ): Promise<Response> {
   const { route, params } = match;
   const method = req.method;
@@ -237,6 +248,7 @@ export async function executeRoute(
     rawBody,
     query: url.searchParams,
     req,
+    callerSessionIdHash: opts?.callerSessionIdHash,
   };
 
   // Stage 1 + 2 authorization.

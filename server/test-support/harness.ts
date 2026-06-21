@@ -254,10 +254,24 @@ export async function startTestServer(
       async stop() {
         for (const s of sockets) s.close();
         try {
-          await handle.stop();
+          // Bun 1.3.11 bug: server.stop() (graceful OR forced) NEVER resolves if
+          // any ServerWebSocket was closed via ws.close() during the server's
+          // life — which the production force-expire path does on session
+          // revoke/logout (forceExpireSocketsForSession). Confirmed with a pure
+          // Bun.serve repro (no isomux involved). The harness binds an EPHEMERAL
+          // port (port:0), so a not-fully-drained server is inert and harmless
+          // between serial boots; cap the wait so a wedged stop() can't hold the
+          // single-instance lock forever. A clean stop resolves well under this
+          // cap, so non-force-close tests pay no real cost. The .catch() keeps a
+          // late stop() rejection from surfacing as an unhandled rejection after
+          // the timeout already won the race.
+          await Promise.race([
+            handle.stop().catch(() => {}),
+            new Promise<void>((r) => setTimeout(r, 500)),
+          ]);
         } finally {
-          // Release the single-instance lock even if handle.stop() throws, so a
-          // failed teardown cannot wedge the whole test process.
+          // Release the single-instance lock even if handle.stop() hangs/throws,
+          // so a failed teardown cannot wedge the whole test process.
           activeHarness = false;
         }
       },

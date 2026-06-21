@@ -1184,7 +1184,11 @@ function validateByHash(hash: string): SessionLookup | null {
 // ---------------------------------------------------------------------------
 // Wire shapes for owner UI.
 
-function toInviteWire(v: StoredInvite): InviteWire {
+// Pure shape helper: StoredInvite → the InviteWire the owner/member UIs render.
+// Exported (3a.4a) so the index.ts invites seam builds the mint-response wire
+// from ONE source of truth (the same helper listInvites/listInvitesForUsername
+// use) instead of duplicating the field list. Read-only — never widens mutation.
+export function toInviteWire(v: StoredInvite): InviteWire {
   return {
     tokenPrefix: v.tokenPrefix,
     username: v.username,

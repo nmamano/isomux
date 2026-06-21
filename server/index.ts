@@ -38,7 +38,7 @@ import {
 import { loadPlugins } from "./plugins.ts";
 import { normalizePublicOrigin } from "../shared/public-origin.ts";
 import { KILLED_AGENT_CHIP_CAP } from "../shared/types.ts";
-import type { Attachment } from "../shared/types.ts";
+import type { Attachment, InviteWire, SessionWire } from "../shared/types.ts";
 import {
   startUpdateChecker,
   getUpdateStatus,
@@ -106,6 +106,7 @@ import {
   revokeInviteByPrefix,
   revokeOutstandingInviteByPrefixForUsername,
   revokeSessionByPrefix,
+  toInviteWire,
   sessionContextFor,
   setOnInviteConsumed,
   setOnSessionsChanged,
@@ -115,6 +116,9 @@ import {
   unregisterSocket,
   validateSession,
   wouldRevokeLeaveOfficeUnreachable,
+  type MintErr,
+  type RevokeResult,
+  type ScopedSessionRevokeResult,
   type SessionLookup,
 } from "./auth.ts";
 import { lowercaseKey } from "../shared/identity.ts";
@@ -124,14 +128,20 @@ import { API_ROUTES, type RoutePrecondition } from "./routes/table.ts";
 import {
   executeRoute,
   errorResponse,
+  fail,
   type ExecutorDeps,
   type RouteHandler,
   type PreconditionFn,
+  type HandlerErrorStatus,
 } from "./routes/executor.ts";
 import { tasksHandlers } from "./routes/handlers/tasks.ts";
 import { cronHandlers } from "./routes/handlers/cron.ts";
 import { agentAffordanceHandlers } from "./routes/handlers/agent-affordances.ts";
 import { uploadsHandlers } from "./routes/handlers/uploads.ts";
+import { invitesHandlers } from "./routes/handlers/invites.ts";
+import { sessionsHandlers } from "./routes/handlers/sessions.ts";
+import { accessHandlers } from "./routes/handlers/access.ts";
+import type { AccessSettings } from "../shared/contract-shapes.ts";
 import { createIdempotencyCache } from "./transport/idempotency.ts";
 import { emit, type EmitContext, type EmitDeps } from "./events/emit.ts";
 import type { EventId, EventPayloads } from "./events/registry.ts";
@@ -270,8 +280,8 @@ function registerBootHooks(): void {
   // *separate* browser opened the /i/ URL would have to reconnect to see
   // the consumed invite drop off the Outstanding list.
   setOnInviteConsumed(() => {
-    pushInvitesListToEachWs();
-    pushSessionsListToEachWs();
+    emitInvitesList();
+    emitSessionsList();
   });
 
   // Owner AccessPane sessions table stays fresh on any server-initiated
@@ -281,7 +291,7 @@ function registerBootHooks(): void {
   // the owner reloads. Per-WS pushers also keep the member's
   // "My devices" sessions table consistent on the same events.
   setOnSessionsChanged(() => {
-    pushSessionsListToEachWs();
+    emitSessionsList();
   });
 
   // First-install onboarding: pre-spawn one Claude and one Codex welcome agent
@@ -439,61 +449,294 @@ function getWatcherMap(ws: ServerWebSocket<WsData>): Map<string, FileWatcher> {
   return map;
 }
 
-// Owner-scoped fan-out for messages that carry full-office Access state
-// (per-prefix events like invite_revoked/session_revoked, and the
-// owner-only full invites/sessions lists). Members don't render the
-// owner Access pane, but a plain broadcast() would still seed those
-// rows into their reducer state — leaking other users' token prefixes,
-// usernames, expiry timestamps, and user-agent strings. Routing only
-// the owner-WS subset preserves the owner-only design contract.
-function broadcastToOwners(msg: ServerMessage) {
-  const data = JSON.stringify(msg);
-  for (const ws of browsers) {
-    if (ws.data.session.role === "owner") {
-      ws.send(data);
-    }
+// (broadcastToOwners removed in 3a.4b: the only owner-scoped events,
+// invite_revoked + session_revoked, now flow through liveEmit() with their
+// registry audience "owners" — server/events/emit.ts owns the owner fan-out, so
+// the bespoke helper is dead. No raw ws.send fan-out lives outside emit()/the
+// per-WS direct replies anymore.)
+
+// --- Invites: recipient-scoped projection + emit (3a.4a) -------------------
+// Map an auth MintErr code → the REST status for the invite mint routes (locked
+// with Reviewer1): bad input → 400, conflict (user/role already exists) → 409.
+function mintErrStatus(code: MintErr["code"]): HandlerErrorStatus {
+  switch (code) {
+    case "USER_EXISTS":
+    case "ROLE_MISMATCH":
+      return 409;
+    case "INVALID_USERNAME":
+    case "INVALID_ROLE":
+      return 400;
   }
 }
 
-// Push an invites_list to every WS using the right scope for the
-// receiving session: owners get the full list; members get just the
-// invites bound to their own username (driving the member "My devices"
-// pane). Used after every mutation that could change either scope.
-function pushInvitesListToEachWs() {
+// Scoped invite list for a user (record role — Reviewer1 Option A): owner sees
+// ALL outstanding invites; a member sees only invites bound to their own current
+// display name. The whole invite seam (this projection, the inviteOwnerOrSelf
+// precondition, and the revoke branch) keys owner/member off the user RECORD via
+// getUserById, NOT the WS session role — because the recipient-scoped emit is
+// userId-keyed and must resolve the record anyway. They differ only in the rare
+// promote-without-reconnect race; the record is the authoritative source. (Two
+// intentional session-role exceptions remain, both pre-existing emit/guard infra
+// rather than this seam's projection: the invites.mint officeOwner guard, and the
+// shared owners-audience fan-out — ownerSessions in liveEmitDeps — that selects
+// recipients for invite_revoked/session_revoked.)
+function scopedInvitesFor(userId: string | null): InviteWire[] {
+  if (!userId) return [];
+  const u = getUserById(userId);
+  if (!u) return [];
+  return u.role === "owner" ? listInvites() : listInvitesForUsername(u.name);
+}
+
+// Emit one recipient-scoped invites_list to all of a single user's sockets.
+// Fail-closed: an unknown userId (no record) emits nothing. Reused as the
+// per-user step of emitInvitesList().
+function emitInvitesListForUser(userId: string): void {
+  if (!getUserById(userId)) return;
+  liveEmit("invites_list", { invites: scopedInvitesFor(userId) }, { userId });
+}
+
+// Fan out a freshly-scoped invites_list to EVERY connected user (each socket of
+// each user gets that user's own projection). Replaces pushInvitesListToEachWs:
+// loops DISTINCT connected userIds so the scope is computed once per user, then
+// the recipient-scoped emit (userId → sessionsForUser) delivers to all of that
+// user's sockets. Used after every MUTATION (mint / self-mint / revoke /
+// access-settings self-mint / invite-consumed) — NEVER for a pure list read.
+function emitInvitesList(): void {
+  const seen = new Set<string>();
   for (const ws of browsers) {
-    const s = ws.data.session;
-    if (s.role === "owner") {
-      ws.send(JSON.stringify({ type: "invites_list", invites: listInvites() }));
-    } else {
-      const me = getUserById(s.userId);
-      const list = me ? listInvitesForUsername(me.name) : [];
-      ws.send(JSON.stringify({ type: "invites_list", invites: list }));
-    }
+    const uid = ws.data.session.userId;
+    if (seen.has(uid)) continue;
+    seen.add(uid);
+    emitInvitesListForUser(uid);
   }
 }
 
-// Companion to pushInvitesListToEachWs for active sessions. Owners get
-// every active session; members get sessions whose userId matches their
-// own — the rename-stable filter.
-function pushSessionsListToEachWs() {
+// Shared invite-revoke core for BOTH transports (the REST invites.revoke dep and
+// the legacy WS revoke_invite arm). Branches owner/member off the user RECORD,
+// calls the matching auth core op, and on success emits invite_revoked
+// (owners-only via liveEmit) + the scoped invites_list fan-out. Returns the raw
+// RevokeResult so the REST dep can apply the non-leak HTTP status policy (owner:
+// honest 404/409; member: uniform 403). One path, no WS-vs-REST divergence.
+async function revokeInviteForUserRecord(
+  u: UserRecord,
+  tokenPrefix: string,
+): Promise<RevokeResult> {
+  const result =
+    u.role === "owner"
+      ? await revokeInviteByPrefix(tokenPrefix)
+      : await revokeOutstandingInviteByPrefixForUsername(tokenPrefix, u.name);
+  if (result === "ok") {
+    liveEmit("invite_revoked", { tokenPrefix });
+    emitInvitesList();
+  } else if (result === "ambiguous" && u.role === "owner") {
+    // Owner-only diagnostic (a member never learns a prefix is ambiguous — that
+    // would leak existence). Mirrors the legacy revoke_invite warning.
+    console.warn(
+      `[auth] ambiguous invite prefix ${tokenPrefix} — refused revoke`,
+    );
+  }
+  return result;
+}
+
+// --- Sessions: recipient-scoped projection + emit (3a.4b) ------------------
+// Lockout reasons (shared by the REST preconditions + the legacy WS arms) for
+// the invariant "the office must always keep one owner with an active session,
+// so an operator can recover from inside the browser".
+const SESSION_REVOKE_LOCKOUT_REASON =
+  "Refused: this is the last active owner session in the office. Mint an " +
+  "additional invite for an owner first, accept it on another device, then retry.";
+const SESSION_LOGOUT_LOCKOUT_REASON =
+  "You're the only owner with an active session. Signing out would lock the " +
+  "office out of in-browser recovery. Mint an additional invite for yourself " +
+  "and accept it on another device first.";
+
+// Scoped session list for a user (record role — Option A, mirrors invites):
+// owner sees ALL active sessions; a member sees only their own (by stable
+// userId, rename-safe). Same record-role rationale as scopedInvitesFor.
+function scopedSessionsFor(userId: string | null): SessionWire[] {
+  if (!userId) return [];
+  const u = getUserById(userId);
+  if (!u) return [];
+  return u.role === "owner"
+    ? listActiveSessions()
+    : listActiveSessionsForUserId(userId);
+}
+
+// Emit one recipient-scoped sessions_active_list to all of a single user's
+// sockets. Fail-closed on an unknown userId. Per-user step of emitSessionsList().
+function emitSessionsListForUser(userId: string): void {
+  if (!getUserById(userId)) return;
+  liveEmit(
+    "sessions_active_list",
+    { sessions: scopedSessionsFor(userId) },
+    { userId },
+  );
+}
+
+// Fan out a freshly-scoped sessions_active_list to EVERY connected user (loops
+// distinct userIds; each user's sockets get that user's own projection).
+// Replaces pushSessionsListToEachWs and is wired into fireSessionsChangedHook,
+// so it fires from EVERY session mutation (revoke / logout / evict / expiry).
+function emitSessionsList(): void {
+  const seen = new Set<string>();
   for (const ws of browsers) {
-    const s = ws.data.session;
-    if (s.role === "owner") {
-      ws.send(
-        JSON.stringify({
-          type: "sessions_active_list",
-          sessions: listActiveSessions(),
-        }),
-      );
-    } else {
-      ws.send(
-        JSON.stringify({
-          type: "sessions_active_list",
-          sessions: listActiveSessionsForUserId(s.userId),
-        }),
-      );
+    const uid = ws.data.session.userId;
+    if (seen.has(uid)) continue;
+    seen.add(uid);
+    emitSessionsListForUser(uid);
+  }
+}
+
+// Shared session-revoke core for BOTH transports (the REST sessions.revoke dep
+// and the legacy WS revoke_session arm). Branches owner/member off the user
+// RECORD; owner uses the unrestricted revoker (its lockout is pre-checked by the
+// caller — the REST precondition or the WS arm), member uses the scoped mutator
+// whose folded lockout returns "would_strand_office". On success emits
+// session_revoked (owners-only via liveEmit); sessions_active_list rides
+// fireSessionsChangedHook→emitSessionsList and session_expired + socket close
+// ride the forceExpireSocketsForSession bridge, both inside the auth core ops.
+async function revokeSessionForUserRecord(
+  u: UserRecord,
+  sessionPrefix: string,
+): Promise<ScopedSessionRevokeResult> {
+  const result =
+    u.role === "owner"
+      ? await revokeSessionByPrefix(sessionPrefix)
+      : await revokeActiveSessionByPrefixForUserId(sessionPrefix, u.id);
+  if (result === "ok") {
+    liveEmit("session_revoked", { sessionPrefix });
+  } else if (result === "ambiguous" && u.role === "owner") {
+    console.warn(
+      `[auth] ambiguous session prefix ${sessionPrefix} — refused revoke`,
+    );
+  }
+  return result;
+}
+
+// --- Access settings: shared read + mutation cores (3a.4c) -----------------
+// Both transports (the WS get_access_settings / update_access_settings arms and
+// the REST office.getAccess / office.setAccess routes) go through these, so the
+// bind/origin policy can't drift between them.
+
+// Effective access policy for the owner UI. Mirrors the boot-time inference
+// exactly: an explicit cfg.externalAccess wins; otherwise external is implied by
+// a saved publicOrigin OR a VALID env origin. envOriginSet is the raw "is the
+// env var defined at all" flag (so the UI can show "set but invalid").
+function computeAccessSettings(): AccessSettings {
+  const cfg = loadServerConfig();
+  const envRaw = process.env.ISOMUX_PUBLIC_ORIGIN?.trim() ?? "";
+  const envOriginSet = envRaw.length > 0;
+  const envOrigin = envRaw ? normalizePublicOrigin(envRaw) : null;
+  const effectiveExternal =
+    cfg.externalAccess !== null
+      ? cfg.externalAccess
+      : cfg.publicOrigin !== null || envOrigin !== null;
+  return {
+    externalAccess: effectiveExternal,
+    publicOrigin: cfg.publicOrigin,
+    envOriginSet,
+    envOrigin,
+    boundLoopback: isProcessBoundLoopback(),
+  };
+}
+
+// Result of an access-settings mutation. The RICHER object (externalAccess /
+// publicOrigin / envOrigin) feeds the WS access_settings_updated payload; the
+// REST handler selects just { signInUrl, restartRequired }.
+type ApplyAccessResult =
+  | {
+      ok: true;
+      externalAccess: boolean;
+      publicOrigin: string | null;
+      signInUrl: string | null;
+      restartRequired: boolean;
+      envOrigin: string | null;
+    }
+  | {
+      ok: false;
+      status: HandlerErrorStatus;
+      error: string;
+      envOrigin?: string;
+    };
+
+// Validate → persist → (on enable) mint the owner self-invite bound to the NEW
+// origin + emitInvitesList(). The change persists immediately but the running
+// process keeps its boot-frozen bind/origin until restart (restartRequired:true).
+// Status: invalid origin / enable-without-origin → 400; an enable that conflicts
+// with a differing ISOMUX_PUBLIC_ORIGIN env (which would win after restart and
+// 403 the minted URL) → 409; save failure → 500. If the self-invite mint fails
+// AFTER the save, we log and still return ok with signInUrl:null (preserved
+// legacy behavior — the config change is what matters).
+async function applyAccessSettings(
+  externalAccess: boolean,
+  publicOrigin: string,
+  userId: string | null,
+): Promise<ApplyAccessResult> {
+  const rawOrigin = publicOrigin.trim();
+  let origin: string | null = null;
+  if (rawOrigin) {
+    const normalized = normalizePublicOrigin(rawOrigin);
+    if (!normalized) {
+      return {
+        ok: false,
+        status: 400,
+        error:
+          "Public URL must be https://<host> or http://localhost (no path, query, or fragment).",
+      };
+    }
+    origin = normalized;
+  }
+  if (externalAccess && !origin) {
+    return {
+      ok: false,
+      status: 400,
+      error: "Enabling external access requires a public URL.",
+    };
+  }
+  const envRaw = process.env.ISOMUX_PUBLIC_ORIGIN?.trim() ?? "";
+  const envOrigin = envRaw ? normalizePublicOrigin(envRaw) : null;
+  if (externalAccess && envOrigin && origin && envOrigin !== origin) {
+    return {
+      ok: false,
+      status: 409,
+      error: `ISOMUX_PUBLIC_ORIGIN is still set to ${envOrigin}. Remove it from the service environment or set the Public URL to the same value, then save again.`,
+      envOrigin,
+    };
+  }
+  try {
+    saveServerConfig({ publicOrigin: origin, externalAccess });
+  } catch (err) {
+    return { ok: false, status: 500, error: errMessage(err) };
+  }
+  let signInUrl: string | null = null;
+  if (externalAccess && origin) {
+    const me = userId ? getUserById(userId) : undefined;
+    if (me) {
+      const minted = await mintInvite({
+        username: me.name,
+        role: me.role,
+        createdBy: me.name,
+        allowExisting: true,
+        replacePriorForUsername: true,
+      });
+      if (minted.ok) {
+        signInUrl = `${origin}/i/${minted.rawToken}`;
+        emitInvitesList();
+      } else {
+        console.warn(
+          `[auth] applyAccessSettings: self-invite mint failed: ${minted.error}`,
+        );
+      }
     }
   }
+  return {
+    ok: true,
+    externalAccess,
+    publicOrigin: origin,
+    signInUrl,
+    restartRequired: true,
+    envOrigin,
+  };
 }
 
 function broadcast(msg: ServerMessage) {
@@ -848,6 +1091,210 @@ function buildExecutorDeps(): ExecutorDeps {
         saveFile(agentId, data, mediaType, originalName),
       getFilePath: (agentId, filename) => getFilePath(agentId, filename),
       contentTypeFor: (filename) => mimeTypeForFilename(filename),
+    }),
+  );
+
+  // 3a.4a — Invites (auth surface; recipient-scoped emit). EMIT-IN-DEP: there is
+  // no auth event sink, so the seam owns mutate→emit — mint/self-mint/revoke fan
+  // out emitInvitesList(), and revoke also liveEmits invite_revoked (owners). The
+  // handlers stay pure REST mappers. Owner/member resolves from the user RECORD
+  // (Reviewer1 Option A) uniformly across the scoped list, the inviteOwnerOrSelf
+  // precondition, and the revoke branch; invites.mint alone stays on the table's
+  // officeOwner (session) guard — an accepted asymmetry. (The owners-audience
+  // fan-out for invite_revoked/session_revoked also keys on session role, via the
+  // pre-existing shared ownerSessions in liveEmitDeps.)
+  register(
+    invitesHandlers({
+      mint: async ({ username, role, allowExisting, identity }) => {
+        const { createdBy } = attributionFor(identity);
+        const r = await mintInvite({
+          username,
+          role,
+          createdBy,
+          allowExisting,
+        });
+        if (!r.ok) {
+          return { ok: false, status: mintErrStatus(r.code), error: r.error };
+        }
+        emitInvitesList();
+        return {
+          ok: true,
+          url: `${buildPublicOrigin().origin}/i/${r.rawToken}`,
+          invite: toInviteWire(r.invite),
+        };
+      },
+      mintSelf: async (identity) => {
+        const me = identity.userId ? getUserById(identity.userId) : undefined;
+        if (!me) {
+          return {
+            ok: false,
+            status: 404,
+            error: "Your user record is missing; reload and try again.",
+          };
+        }
+        const r = await mintInvite({
+          username: me.name,
+          role: me.role === "owner" ? "owner" : "member",
+          createdBy: me.name,
+          allowExisting: true,
+          replacePriorForUsername: true,
+        });
+        if (!r.ok) {
+          return { ok: false, status: mintErrStatus(r.code), error: r.error };
+        }
+        emitInvitesList();
+        return {
+          ok: true,
+          url: `${buildPublicOrigin().origin}/i/${r.rawToken}`,
+          invite: toInviteWire(r.invite),
+        };
+      },
+      listScoped: (identity) => scopedInvitesFor(identity.userId),
+      revoke: async (identity, tokenPrefix) => {
+        const u = identity.userId ? getUserById(identity.userId) : undefined;
+        // inviteOwnerOrSelf already passed; a missing record here is a torn-down
+        // session — uniform 403, no leak.
+        if (!u) return { ok: false, status: 403, code: "forbidden" };
+        const result = await revokeInviteForUserRecord(u, tokenPrefix);
+        if (result === "ok") return { ok: true };
+        if (u.role === "owner") {
+          // Owner has full visibility, so an honest status leaks nothing.
+          return result === "ambiguous"
+            ? { ok: false, status: 409, code: "ambiguous_prefix" }
+            : { ok: false, status: 404, code: "not_found" };
+        }
+        // Member post-precondition not_found/ambiguous (TOCTOU): uniform 403,
+        // same envelope as the precondition — never reveal which case occurred.
+        return { ok: false, status: 403, code: "forbidden" };
+      },
+    }),
+  );
+
+  // 3a.4a — inviteOwnerOrSelf: the FIRST precondition enforcer. Owner (record
+  // role) may revoke any invite; a member only one bound to their own name.
+  // NON-LEAKING: a foreign prefix AND a nonexistent prefix BOTH return the same
+  // 403 envelope (no exists-but-hidden distinction). The revoke dep then
+  // re-checks atomically via revokeOutstandingInviteByPrefixForUsername.
+  preconditions.set("inviteOwnerOrSelf", (ctx) => {
+    const u = ctx.identity.userId
+      ? getUserById(ctx.identity.userId)
+      : undefined;
+    if (!u) return fail(403, "forbidden");
+    if (u.role === "owner") return null;
+    const owns = listInvitesForUsername(u.name).some(
+      (i) => i.tokenPrefix === ctx.params.tokenPrefix,
+    );
+    return owns ? null : fail(403, "forbidden");
+  });
+
+  // 3a.4b — Sessions (auth surface; recipient-scoped emit, mirrors invites).
+  // session_revoked → liveEmit (owners) in the shared core; sessions_active_list
+  // rides fireSessionsChangedHook→emitSessionsList; session_expired + socket
+  // close ride the forceExpireSocketsForSession bridge inside the auth core ops.
+  register(
+    sessionsHandlers({
+      listScoped: (identity) => scopedSessionsFor(identity.userId),
+      revoke: async (identity, sessionPrefix) => {
+        const u = identity.userId ? getUserById(identity.userId) : undefined;
+        if (!u) return { ok: false, status: 403, code: "forbidden" };
+        const result = await revokeSessionForUserRecord(u, sessionPrefix);
+        if (result === "ok") return { ok: true };
+        if (result === "would_strand_office") {
+          return {
+            ok: false,
+            status: 409,
+            code: "would_strand_office",
+            message: SESSION_REVOKE_LOCKOUT_REASON,
+          };
+        }
+        if (u.role === "owner") {
+          // Owner has full visibility, so an honest status leaks nothing.
+          return result === "ambiguous"
+            ? { ok: false, status: 409, code: "ambiguous_prefix" }
+            : { ok: false, status: 404, code: "not_found" };
+        }
+        // Member post-precondition not_found/ambiguous (TOCTOU): uniform 403,
+        // same envelope as the precondition — never reveal which case occurred.
+        return { ok: false, status: 403, code: "forbidden" };
+      },
+      logout: async (callerSessionIdHash) => {
+        // Fail closed: a bearer (non-cookie) caller has no current browser
+        // session to end (Reviewer1 correction — NEVER a 204 no-op).
+        if (!callerSessionIdHash) {
+          return { ok: false, status: 403, code: "forbidden" };
+        }
+        await logoutBySessionHash(callerSessionIdHash);
+        return { ok: true };
+      },
+    }),
+  );
+
+  // 3a.4b — sessionOwnerOrSelf: owner (record role) may revoke any session; a
+  // member only one bound to their own stable userId. NON-LEAKING: foreign AND
+  // nonexistent prefixes BOTH return the same 403 (mirrors inviteOwnerOrSelf).
+  preconditions.set("sessionOwnerOrSelf", (ctx) => {
+    const u = ctx.identity.userId
+      ? getUserById(ctx.identity.userId)
+      : undefined;
+    if (!u) return fail(403, "forbidden");
+    if (u.role === "owner") return null;
+    const owns = listActiveSessionsForUserId(u.id).some(
+      (s) => s.sessionPrefix === ctx.params.sessionPrefix,
+    );
+    return owns ? null : fail(403, "forbidden");
+  });
+
+  // 3a.4b — notLastOwnerLockout: ONE enforcer for both sessions.revoke (carries
+  // the :sessionPrefix param) and sessions.logout (/current, no param → the
+  // caller's OWN session). Refuses an op that would leave the office with zero
+  // active owner sessions (shell-recovery lockout).
+  preconditions.set("notLastOwnerLockout", (ctx) => {
+    if (ctx.params.sessionPrefix !== undefined) {
+      // revoke: only the owner GLOBAL path pre-checks lockout here. A member's
+      // lockout is folded into the atomic mutator (so "would_strand_office"
+      // only ever surfaces for a session the member actually owns — non-leak).
+      const u = ctx.identity.userId
+        ? getUserById(ctx.identity.userId)
+        : undefined;
+      if (u?.role !== "owner") return null;
+      const hash = resolveSessionHashByPrefix(ctx.params.sessionPrefix);
+      if (hash && wouldRevokeLeaveOfficeUnreachable(hash)) {
+        return fail(409, "would_strand_office", SESSION_REVOKE_LOCKOUT_REASON);
+      }
+      return null;
+    }
+    // logout: act on the caller's OWN session. Fail closed if there is none (a
+    // bearer caller) — DELETE /api/sessions/current can't identify a session.
+    const hash = ctx.callerSessionIdHash;
+    if (!hash) return fail(403, "forbidden");
+    if (wouldRevokeLeaveOfficeUnreachable(hash)) {
+      return fail(409, "would_strand_office", SESSION_LOGOUT_LOCKOUT_REASON);
+    }
+    return null;
+  });
+
+  // 3a.4c — Access settings (owner-only; office:admin + officeOwner guard, no
+  // precondition). Both handlers delegate to the shared cores so the WS arms and
+  // REST stay in lockstep; setAccess fans out invites_list via the self-invite
+  // mint inside applyAccessSettings. REST selects the narrow { signInUrl,
+  // restartRequired } shape from the richer core result.
+  register(
+    accessHandlers({
+      getAccess: () => computeAccessSettings(),
+      setAccess: async ({ externalAccess, publicOrigin, identity }) => {
+        const r = await applyAccessSettings(
+          externalAccess,
+          publicOrigin,
+          identity.userId,
+        );
+        return r.ok
+          ? {
+              ok: true,
+              signInUrl: r.signInUrl,
+              restartRequired: r.restartRequired,
+            }
+          : { ok: false, status: r.status, error: r.error };
+      },
     }),
   );
 
@@ -2889,7 +3336,7 @@ async function dispatchCommand(
       // when they're bound to that member's name (the existing
       // "additional invite for this identity" flow), so push scoped
       // lists to every WS rather than only owners.
-      pushInvitesListToEachWs();
+      emitInvitesList();
       break;
     }
     case "mint_self_invite": {
@@ -2954,12 +3401,14 @@ async function dispatchCommand(
           },
         }),
       );
-      pushInvitesListToEachWs();
+      emitInvitesList();
       break;
     }
     case "get_access_settings": {
-      // Owners read the current bind/origin policy. Members would see
-      // nothing actionable, so we don't bother with a scoped version.
+      // Owners read the current bind/origin policy. Members would see nothing
+      // actionable, so we don't bother with a scoped version. Strangler: the
+      // effective-state computation is the shared computeAccessSettings() core,
+      // identical to REST office.getAccess.
       if (session.role !== "owner") {
         ws.send(
           JSON.stringify({
@@ -2970,31 +3419,11 @@ async function dispatchCommand(
         );
         break;
       }
-      const cfg = loadServerConfig();
-      // Same normalization as the boot block: an invalid env value should
-      // not count as an effective override anywhere. envOriginSet stays a
-      // bool flag for "operator has the env var defined at all" so the UI
-      // can distinguish "set but invalid" from "unset".
-      const envRaw = process.env.ISOMUX_PUBLIC_ORIGIN?.trim() ?? "";
-      const envOriginSet = envRaw.length > 0;
-      const envOrigin = envRaw ? normalizePublicOrigin(envRaw) : null;
-      // Match the boot-time migration default so the UI reflects the same
-      // effective state the running process is using. Only a *valid* env
-      // value implies external access; an invalid env value is ignored
-      // by the boot inference, so the UI must agree.
-      const effectiveExternal =
-        cfg.externalAccess !== null
-          ? cfg.externalAccess
-          : cfg.publicOrigin !== null || envOrigin !== null;
       ws.send(
         JSON.stringify({
           type: "access_settings",
           ok: true,
-          externalAccess: effectiveExternal,
-          publicOrigin: cfg.publicOrigin,
-          envOriginSet,
-          envOrigin,
-          boundLoopback: isProcessBoundLoopback(),
+          ...computeAccessSettings(),
         }),
       );
       break;
@@ -3018,251 +3447,108 @@ async function dispatchCommand(
         );
         break;
       }
-      const wantsExternal = !!cmd.externalAccess;
-      const rawOrigin =
-        typeof cmd.publicOrigin === "string" ? cmd.publicOrigin.trim() : "";
-      let publicOrigin: string | null = null;
-      if (rawOrigin) {
-        const normalized = normalizePublicOrigin(rawOrigin);
-        if (!normalized) {
-          ws.send(
-            JSON.stringify({
-              type: "access_settings_updated",
-              requestId: cmd.requestId,
-              ok: false,
-              error:
-                "Public URL must be https://<host> or http://localhost (no path, query, or fragment).",
-            }),
-          );
-          break;
-        }
-        publicOrigin = normalized;
-      }
-      if (wantsExternal && !publicOrigin) {
+      // Strangler: delegate validate → save → owner self-invite →
+      // emitInvitesList to the shared applyAccessSettings() core (identical to
+      // REST office.setAccess). This arm keeps its bespoke access_settings_updated
+      // wire payload; the richer success fields come straight from the result.
+      // envOrigin rides only the env-mismatch reply (and success), matching legacy.
+      const r = await applyAccessSettings(
+        !!cmd.externalAccess,
+        typeof cmd.publicOrigin === "string" ? cmd.publicOrigin : "",
+        session.userId,
+      );
+      if (!r.ok) {
         ws.send(
           JSON.stringify({
             type: "access_settings_updated",
             requestId: cmd.requestId,
             ok: false,
-            error: "Enabling external access requires a public URL.",
+            error: r.error,
+            ...(r.envOrigin !== undefined ? { envOrigin: r.envOrigin } : {}),
           }),
         );
         break;
-      }
-      // Refuse the save when *enabling* external access against a valid
-      // ISOMUX_PUBLIC_ORIGIN env override that differs from the typed
-      // URL. After restart the env var would win, so the freshly minted
-      // signInUrl we'd otherwise return points at an origin the running
-      // server would 403 on (Origin check mismatch). Better to block now
-      // with a clear remediation than to hand the operator a dud URL.
-      //
-      // Only the *enable* path is gated: when wantsExternal is false the
-      // server boot pins isProcessBoundLoopback=true regardless of env,
-      // and buildPublicOrigin short-circuits to localhost before env
-      // precedence — so disabling is safe even with env set. The match
-      // case (env === typed URL) is allowed; the response surfaces the
-      // env metadata so the UI can label it as redundant/deprecated.
-      const envRaw = process.env.ISOMUX_PUBLIC_ORIGIN?.trim() ?? "";
-      const envOrigin = envRaw ? normalizePublicOrigin(envRaw) : null;
-      if (
-        wantsExternal &&
-        envOrigin &&
-        publicOrigin &&
-        envOrigin !== publicOrigin
-      ) {
-        ws.send(
-          JSON.stringify({
-            type: "access_settings_updated",
-            requestId: cmd.requestId,
-            ok: false,
-            error: `ISOMUX_PUBLIC_ORIGIN is still set to ${envOrigin}. Remove it from the service environment or set the Public URL to the same value, then save again.`,
-            envOrigin,
-          }),
-        );
-        break;
-      }
-      try {
-        saveServerConfig({
-          publicOrigin,
-          externalAccess: wantsExternal,
-        });
-      } catch (err) {
-        ws.send(
-          JSON.stringify({
-            type: "access_settings_updated",
-            requestId: cmd.requestId,
-            ok: false,
-            error: errMessage(err),
-          }),
-        );
-        break;
-      }
-      // Mint a fresh owner self-invite bound to the calling user, using the
-      // NEW public origin (not buildPublicOrigin(), which is boot-frozen).
-      // replacePriorForUsername=true keeps the 1-outstanding-per-user
-      // invariant so a previous toggle attempt's invite doesn't linger.
-      // Skip the mint when external access is being turned OFF — the user
-      // doesn't need a public sign-in URL for a localhost-only office.
-      let signInUrl: string | null = null;
-      if (wantsExternal && publicOrigin) {
-        const me = getUserById(session.userId);
-        if (me) {
-          const minted = await mintInvite({
-            username: me.name,
-            role: me.role,
-            createdBy: session.username,
-            allowExisting: true,
-            replacePriorForUsername: true,
-          });
-          if (minted.ok) {
-            signInUrl = `${publicOrigin}/i/${minted.rawToken}`;
-            pushInvitesListToEachWs();
-          } else {
-            console.warn(
-              `[auth] update_access_settings: self-invite mint failed: ${minted.error}`,
-            );
-          }
-        }
       }
       ws.send(
         JSON.stringify({
           type: "access_settings_updated",
           requestId: cmd.requestId,
           ok: true,
-          externalAccess: wantsExternal,
-          publicOrigin,
-          signInUrl,
-          restartRequired: true,
-          // Surface envOrigin so the UI can render a "redundant env"
-          // nag when the env value equals the just-saved publicOrigin.
-          envOrigin,
+          externalAccess: r.externalAccess,
+          publicOrigin: r.publicOrigin,
+          signInUrl: r.signInUrl,
+          restartRequired: r.restartRequired,
+          envOrigin: r.envOrigin,
         }),
       );
       break;
     }
     case "list_invites": {
-      if (session.role === "owner") {
-        ws.send(
-          JSON.stringify({ type: "invites_list", invites: listInvites() }),
-        );
-      } else {
-        const me = getUserById(session.userId);
-        const list = me ? listInvitesForUsername(me.name) : [];
-        ws.send(JSON.stringify({ type: "invites_list", invites: list }));
-      }
+      // Direct reply to the requesting socket ONLY (a pure read must never fan
+      // out to other users). Scoped via the shared record-role projection so the
+      // WS list matches the REST GET /api/invites payload exactly.
+      ws.send(
+        JSON.stringify({
+          type: "invites_list",
+          invites: scopedInvitesFor(session.userId),
+        }),
+      );
       break;
     }
     case "revoke_invite": {
-      // Owners use the unrestricted revoker; members route through the
-      // scoped mutator so authorization and the state change happen in
-      // a single mutate() — no TOCTOU window between "is this mine?"
-      // and "delete it". A unique prefix that isn't theirs returns
-      // "not_found" silently so we don't reveal the foreign row's
-      // existence.
-      let result: "ok" | "not_found" | "ambiguous";
-      if (session.role === "owner") {
-        result = await revokeInviteByPrefix(cmd.tokenPrefix);
-      } else {
-        const me = getUserById(session.userId);
-        if (!me) break;
-        result = await revokeOutstandingInviteByPrefixForUsername(
-          cmd.tokenPrefix,
-          me.name,
-        );
-      }
-      if (result === "ok") {
-        broadcastToOwners({
-          type: "invite_revoked",
-          tokenPrefix: cmd.tokenPrefix,
-        });
-        pushInvitesListToEachWs();
-      } else if (result === "ambiguous") {
-        console.warn(
-          `[auth] ambiguous invite prefix ${cmd.tokenPrefix} — refused revoke`,
-        );
-      }
+      // Strangler: delegate to the SAME shared core as the REST invites.revoke
+      // (revokeInviteForUserRecord) — record-role branch, atomic scoped mutate
+      // for members, and on success invite_revoked (owners-only via liveEmit) +
+      // the scoped invites_list fan-out. One path for both transports; a foreign
+      // or unknown prefix is a silent no-op (the scoped mutator returns
+      // not_found), so the member never learns the row exists.
+      const me = getUserById(session.userId);
+      if (!me) break;
+      await revokeInviteForUserRecord(me, cmd.tokenPrefix);
       break;
     }
     case "list_active_sessions": {
-      if (session.role === "owner") {
-        ws.send(
-          JSON.stringify({
-            type: "sessions_active_list",
-            sessions: listActiveSessions(),
-          }),
-        );
-      } else {
-        ws.send(
-          JSON.stringify({
-            type: "sessions_active_list",
-            sessions: listActiveSessionsForUserId(session.userId),
-          }),
-        );
-      }
+      // Direct reply to the requesting socket only; scoped via the shared
+      // record-role projection so the WS list matches GET /api/sessions exactly.
+      ws.send(
+        JSON.stringify({
+          type: "sessions_active_list",
+          sessions: scopedSessionsFor(session.userId),
+        }),
+      );
       break;
     }
     case "revoke_session": {
-      // Branch on role BEFORE any prefix-based check. The owner path
-      // runs its lockout precheck against the global session set
-      // (owners can revoke anyone's session, so they're allowed to
-      // know that a given prefix is the last owner session). The
-      // member path must not run that precheck on the unscoped set,
-      // because a divergent "blocked" reason for a foreign prefix
-      // would leak the existence of an owner session at that prefix.
-      // Instead, the scoped mutator folds the lockout check inside its
-      // own scope-confirmed branch — so "would_strand_office" only
-      // ever surfaces for a row the caller actually owns.
-      const lockoutReason =
-        "Refused: this is the last active owner session in the office. " +
-        "Mint an additional invite for an owner first, accept it on " +
-        "another device, then retry.";
-      if (session.role === "owner") {
+      // Strangler: delegate to the SAME shared core as the REST sessions.revoke
+      // (revokeSessionForUserRecord) — record-role branch; on ok session_revoked
+      // (owners via liveEmit) + sessions_active_list via the hook + session_expired
+      // /close via the force-expire bridge. The WS path has no executor
+      // precondition, so the OWNER global-revoke lockout pre-check lives here; the
+      // member path's lockout folds into the mutator, so "would_strand_office"
+      // (and the revoke_blocked reply) only ever surfaces for a row they own.
+      const me = getUserById(session.userId);
+      if (!me) break;
+      if (me.role === "owner") {
         const targetHash = resolveSessionHashByPrefix(cmd.sessionPrefix);
         if (targetHash && wouldRevokeLeaveOfficeUnreachable(targetHash)) {
           ws.send(
             JSON.stringify({
               type: "revoke_blocked",
               sessionPrefix: cmd.sessionPrefix,
-              reason: lockoutReason,
+              reason: SESSION_REVOKE_LOCKOUT_REASON,
             }),
           );
           break;
         }
-        const result = await revokeSessionByPrefix(cmd.sessionPrefix);
-        if (result === "ok") {
-          broadcastToOwners({
-            type: "session_revoked",
-            sessionPrefix: cmd.sessionPrefix,
-          });
-          pushSessionsListToEachWs();
-        } else if (result === "ambiguous") {
-          console.warn(
-            `[auth] ambiguous session prefix ${cmd.sessionPrefix} — refused revoke`,
-          );
-        }
-        break;
       }
-      const result = await revokeActiveSessionByPrefixForUserId(
-        cmd.sessionPrefix,
-        session.userId,
-      );
-      if (result === "ok") {
-        broadcastToOwners({
-          type: "session_revoked",
-          sessionPrefix: cmd.sessionPrefix,
-        });
-        pushSessionsListToEachWs();
-      } else if (result === "would_strand_office") {
+      const result = await revokeSessionForUserRecord(me, cmd.sessionPrefix);
+      if (result === "would_strand_office") {
         ws.send(
           JSON.stringify({
             type: "revoke_blocked",
             sessionPrefix: cmd.sessionPrefix,
-            reason: lockoutReason,
+            reason: SESSION_REVOKE_LOCKOUT_REASON,
           }),
-        );
-      } else if (result === "ambiguous") {
-        console.warn(
-          `[auth] ambiguous session prefix ${cmd.sessionPrefix} — refused revoke`,
         );
       }
       break;
@@ -3443,6 +3729,10 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
               req,
               apiAuth.identity,
               executorDeps,
+              // Thread the caller's own session hash (cookie path only) so
+              // sessions.logout + the logout lockout precondition act on the
+              // caller's session WITHOUT re-validating the cookie in the seam.
+              { callerSessionIdHash: apiAuth.session?.sessionIdHash },
             );
           } catch (err) {
             console.error("[/api] uncaught executor error:", err);
