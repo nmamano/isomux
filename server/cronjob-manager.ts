@@ -857,8 +857,10 @@ How to answer questions about Isomux itself: the source lives at https://github.
     // finalizeRun(completed) right after session.close() ends the stream.
     if (!activeRuns.has(active.runId)) return;
     activeRuns.delete(active.runId);
-    // Run ended; revoke its bearer token (mirrors the mint in fire()). No-op
-    // for runs that never carried one (e.g. resumed follow-up turns).
+    // Run ended; revoke its bearer token. Mirrors the mint in fire() (primary
+    // turn) and in buildRunSessionOptions (resumed sendRunMessage/editRunMessage
+    // turns). Idempotent: a no-op for the rare run that never carried one, or
+    // one whose resume failed before install and already revoked in the caller.
     revokeRunToken(active.jobId, active.runId);
     if (active.hardTimeoutTimer) {
       scheduler.clearTimeout(active.hardTimeoutTimer);
@@ -977,10 +979,11 @@ How to answer questions about Isomux itself: the source lives at https://github.
     // createSession failure below, and finalizeRun for everything after
     // activeRuns.set. In-memory secret, never persisted/logged.
     //
-    // Scope note (Phase 2.1): only the PRIMARY run lifecycle carries a RUN
-    // token. Resumed follow-up turns (sendRunMessage / editRunMessage) remain
-    // loopback-covered for now; their token wiring lands with the Phase 3
-    // loopback-bypass removal, where it becomes load-bearing.
+    // Both the primary turn (here) and resumed follow-up turns (sendRunMessage /
+    // editRunMessage, via buildRunSessionOptions) mint a RUN token and inject it
+    // as ISOMUX_AGENT_TOKEN, so a run's in-flight read-file/diff affordances
+    // authenticate as the run on the token-required /api cron-run routes
+    // (Follow-up #11).
     const runToken = mintRunToken(jobId, runId, job.userId ?? null);
     env = { ...(env ?? process.env), ISOMUX_AGENT_TOKEN: runToken };
     const opts: CreateSessionOptions = {
@@ -1341,15 +1344,22 @@ How to answer questions about Isomux itself: the source lives at https://github.
     rollRunSessionUsageOnResume(run.cronjobId, run.id, resumeSessionId);
     const job = cronjobs.find((c) => c.id === run.cronjobId);
     const systemPrompt = job ? buildCronjobSystemPrompt(job, run.id) : "";
-    // TODO(Phase 3 — before loopback-bypass removal): resumed run turns need
-    // their own RUN-token lifecycle. Phase 2.1 mints the RUN token only in the
-    // primary fire() path; sendRunMessage/editRunMessage resume through here
-    // WITHOUT a token, so their read-file/diff affordances stay loopback-covered
-    // for now. When those endpoints flip to bearer-required, this path must mint
-    // a run token (rotation), inject ISOMUX_AGENT_TOKEN into the returned env,
-    // and revoke on every terminal path (the resume-failure catch in each caller
-    // + finalizeRun). This is implementation work, not only a doc follow-up.
+    // Resolve env BEFORE minting so a broken env file throws with no token to
+    // leak (mirrors fire()'s env-build-first ordering). Then mint this resumed
+    // turn's RUN token and inject it as ISOMUX_AGENT_TOKEN, exactly as fire()
+    // does for the primary turn, so the resumed run's in-flight read-file/diff
+    // affordances authenticate as the run (RUN scope: self:affordance bound to
+    // {cronjobId, runId}) on the token-required /api cron-run routes. mintRunToken
+    // rotates (revokes any prior token for this {cronjobId, runId}) so repeated
+    // resumes are safe. Spread `env ?? process.env` (env is undefined when the
+    // owner has no env file) so the subprocess keeps PATH/HOME/etc. In-memory
+    // secret, never persisted/logged.
+    //
+    // Revoke ownership: the minted token has exactly one terminal owner — the
+    // caller's resume-failure catch (revokeRunToken) if resumeSession throws
+    // before installResumedActive, otherwise finalizeRun after activeRuns.set.
     const env = buildEnvForUserId(job?.userId ?? null);
+    const runToken = mintRunToken(run.cronjobId, run.id, job?.userId ?? null);
     return {
       agentId: cronjobRunStreamId(run.id),
       cwd: run.cwdSnapshot,
@@ -1358,7 +1368,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
       effort: run.effortSnapshot,
       permissionMode: run.permissionModeSnapshot,
       sandbox: run.codexSandboxSnapshot,
-      env,
+      env: { ...(env ?? process.env), ISOMUX_AGENT_TOKEN: runToken },
     };
   }
 
@@ -1418,6 +1428,25 @@ How to answer questions about Isomux itself: the source lives at https://github.
       finalizeRun(active, "timed_out", "exceeded global run timeout");
     }, HARD_TIMEOUT_MS);
     return active;
+  }
+
+  // Revoke a resumed turn's RUN token after a post-mint failure that happens
+  // BEFORE installResumedActive hands ownership to finalizeRun: a fork-metadata
+  // / persistence throw in editRunMessageImpl steps 5–7, or installResumedActive
+  // itself throwing after activeRuns.set. Drops any half-registered active run
+  // and closes the orphaned session. Idempotent (revoke + delete + close all
+  // no-op if already done). Once install fully succeeds, finalizeRun owns the
+  // revoke and this must NOT be called.
+  function abortResumedRunToken(
+    jobId: string,
+    runId: string,
+    session: BackendSession,
+  ): void {
+    activeRuns.delete(runId);
+    revokeRunToken(jobId, runId);
+    try {
+      session.close();
+    } catch {}
   }
 
   // Send a follow-up message into a finalized run by resuming the leaf session.
@@ -1481,11 +1510,26 @@ How to answer questions about Isomux itself: the source lives at https://github.
           buildRunSessionOptions(run, leaf),
         );
       } catch (err) {
+        // buildRunSessionOptions minted this turn's RUN token before resume.
+        // Resume failed before installResumedActive, so finalizeRun never runs
+        // for it — revoke here so the token doesn't outlive the attempt.
+        revokeRunToken(jobId, runId);
         emitRunErrorEntry(jobId, runId, `Failed to resume: ${errMessage(err)}`);
         return;
       }
 
-      const active = installResumedActive(run, session, leaf);
+      let active: ActiveRun;
+      try {
+        active = installResumedActive(run, session, leaf);
+      } catch (err) {
+        // installResumedActive threw after the mint (possibly after
+        // activeRuns.set): revoke the token, drop any half-registered active,
+        // close the orphaned session. finalizeRun only owns the token once
+        // install fully succeeds.
+        abortResumedRunToken(jobId, runId, session);
+        emitRunErrorEntry(jobId, runId, `Failed to resume: ${errMessage(err)}`);
+        return;
+      }
       // Persist the user message so it shows up in the transcript.
       const meta: Record<string, unknown> | undefined =
         username || device
@@ -1765,6 +1809,10 @@ How to answer questions about Isomux itself: the source lives at https://github.
         buildRunSessionOptions(run, newSessionId),
       );
     } catch (err) {
+      // Symmetric to sendRunMessage: buildRunSessionOptions minted the RUN token
+      // before this fork resume; it failed before installResumedActive, so
+      // finalizeRun never runs for it — revoke here.
+      revokeRunToken(jobId, runId);
       emitRunErrorEntry(
         jobId,
         runId,
@@ -1773,68 +1821,80 @@ How to answer questions about Isomux itself: the source lives at https://github.
       return;
     }
 
-    // 5. The target log entry may live in an ancestor's JSONL (if the user has
-    //    forked before). Walk back to find which JSONL actually contains it,
-    //    and point forkedFrom at that ancestor — keeps loadRunLogWithAncestors
-    //    cutting at the right level.
-    let forkFromSessionId = leaf;
-    const leafEntries = loadRunLog(jobId, runId, leaf);
-    if (!leafEntries.some((e) => e.id === logEntryId)) {
-      const sessMap = loadRunSessionsMap(jobId, runId);
-      let walk: string | undefined = sessMap[leaf]?.forkedFrom;
-      const visited = new Set<string>([leaf]);
-      while (walk && !visited.has(walk)) {
-        visited.add(walk);
-        const ancestorEntries = loadRunLog(jobId, runId, walk);
-        if (ancestorEntries.some((e) => e.id === logEntryId)) {
-          forkFromSessionId = walk;
-          break;
+    // Steps 5–8 run AFTER buildRunSessionOptions minted this turn's RUN token
+    // (it rides the resumed session env created at step 4) but BEFORE
+    // installResumedActive hands token ownership to finalizeRun. The persistence
+    // / event-emit calls below can throw; without this guard a throw would leak
+    // a live RUN token (and wedge the run). On any failure here revoke + clean up.
+    let active: ActiveRun;
+    try {
+      // 5. The target log entry may live in an ancestor's JSONL (if the user has
+      //    forked before). Walk back to find which JSONL actually contains it,
+      //    and point forkedFrom at that ancestor — keeps loadRunLogWithAncestors
+      //    cutting at the right level.
+      let forkFromSessionId = leaf;
+      const leafEntries = loadRunLog(jobId, runId, leaf);
+      if (!leafEntries.some((e) => e.id === logEntryId)) {
+        const sessMap = loadRunSessionsMap(jobId, runId);
+        let walk: string | undefined = sessMap[leaf]?.forkedFrom;
+        const visited = new Set<string>([leaf]);
+        while (walk && !visited.has(walk)) {
+          visited.add(walk);
+          const ancestorEntries = loadRunLog(jobId, runId, walk);
+          if (ancestorEntries.some((e) => e.id === logEntryId)) {
+            forkFromSessionId = walk;
+            break;
+          }
+          walk = sessMap[walk]?.forkedFrom;
         }
-        walk = sessMap[walk]?.forkedFrom;
       }
-    }
 
-    // 6. Persist fork metadata + parent-base usage, then update the run's
-    //    currentSessionId so getRunTranscript walks back from the fork.
-    const parentBase = findUsageAtForkRun(
-      jobId,
-      runId,
-      forkFromSessionId,
-      logEntryId,
-    );
-    persistRunSessionFork(
-      jobId,
-      runId,
-      newSessionId,
-      forkFromSessionId,
-      logEntryId,
-      parentBase,
-    );
-    const updatedRun = updateRun(jobId, runId, {
-      currentSessionId: newSessionId,
-    });
-    if (updatedRun)
-      eventHandler({ type: "cronjob_run_updated", run: updatedRun });
+      // 6. Persist fork metadata + parent-base usage, then update the run's
+      //    currentSessionId so getRunTranscript walks back from the fork.
+      const parentBase = findUsageAtForkRun(
+        jobId,
+        runId,
+        forkFromSessionId,
+        logEntryId,
+      );
+      persistRunSessionFork(
+        jobId,
+        runId,
+        newSessionId,
+        forkFromSessionId,
+        logEntryId,
+        parentBase,
+      );
+      const updatedRun = updateRun(jobId, runId, {
+        currentSessionId: newSessionId,
+      });
+      if (updatedRun)
+        eventHandler({ type: "cronjob_run_updated", run: updatedRun });
 
-    // 7. Re-emit the transcript up to (but not including) the edited entry so
-    //    every connected client switches to the new branch immediately.
-    const streamId = cronjobRunStreamId(runId);
-    const parentEntries: LogEntry[] = [];
-    for (const e of oldEntries) {
-      if (e.id === logEntryId) break;
-      parentEntries.push(e);
-    }
-    eventHandler({ type: "clear_logs", agentId: streamId });
-    for (const e of parentEntries) {
-      eventHandler({ type: "log_entry", entry: e });
-    }
+      // 7. Re-emit the transcript up to (but not including) the edited entry so
+      //    every connected client switches to the new branch immediately.
+      const streamId = cronjobRunStreamId(runId);
+      const parentEntries: LogEntry[] = [];
+      for (const e of oldEntries) {
+        if (e.id === logEntryId) break;
+        parentEntries.push(e);
+      }
+      eventHandler({ type: "clear_logs", agentId: streamId });
+      for (const e of parentEntries) {
+        eventHandler({ type: "log_entry", entry: e });
+      }
 
-    // 8. Wire up the active run, persist the new edited message, send it.
-    const active = installResumedActive(
-      updatedRun ?? run,
-      session,
-      newSessionId,
-    );
+      // 8. Wire up the active run, persist the new edited message, send it.
+      active = installResumedActive(updatedRun ?? run, session, newSessionId);
+    } catch (err) {
+      abortResumedRunToken(jobId, runId, session);
+      emitRunErrorEntry(
+        jobId,
+        runId,
+        `Failed to start fork: ${errMessage(err)}`,
+      );
+      return;
+    }
     const editMeta: Record<string, unknown> | undefined =
       username || device
         ? { ...(username ? { username } : {}), ...(device ? { device } : {}) }

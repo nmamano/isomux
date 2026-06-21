@@ -4381,10 +4381,19 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           });
         }
         // POST /agents/:id/message — queue a message into the receiving agent's
-        // chat. The sender's identity (name + room) is looked up server-side
-        // from senderAgentId so callers can't spoof identity or inject
-        // prefix-delimiter characters into the prompt the receiver sees.
-        // Body: { text, senderAgentId, clientMessageId? }
+        // chat. The sender's identity (name + room) is looked up server-side so
+        // callers can't inject prefix-delimiter characters into the prompt the
+        // receiver sees.
+        //
+        // Sender authority (Phase 3 loopback-bypass removal, grace window): a
+        // valid AGENT bearer (auto-injected ISOMUX_AGENT_TOKEN) IS the sender —
+        // a present-but-mismatched body.senderAgentId is a spoof attempt (403).
+        // A valid NON-agent bearer (USER/RUN) is rejected (403) rather than
+        // body-trusted, so it can't become a spoofing bypass. Anonymous loopback
+        // (no/invalid bearer — same-box requests resolve here BEFORE any cookie
+        // is read) still trusts body.senderAgentId during the grace window; that
+        // fallback is deleted at the restart-boundary flip.
+        // Body: { text, senderAgentId?, clientMessageId? }
         if (parts.length === 3 && parts[2] === "message") {
           const corsHeaders = {
             "Access-Control-Allow-Origin": "*",
@@ -4405,15 +4414,51 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
             );
           }
           const text = typeof body.text === "string" ? body.text : null;
-          const senderAgentId =
+          const claimedSender =
             typeof body.senderAgentId === "string" ? body.senderAgentId : null;
           const clientMessageId =
             typeof body.clientMessageId === "string"
               ? body.clientMessageId
               : undefined;
-          if (!text || !senderAgentId) {
+          // Resolve the sender per the grace-window sender-authority rules above.
+          let senderAgentId: string | null;
+          if (auth.kind === "ok") {
+            if (auth.identity.scope === "agent" && auth.identity.agentId) {
+              if (claimedSender && claimedSender !== auth.identity.agentId) {
+                return new Response(
+                  JSON.stringify({
+                    error:
+                      "senderAgentId does not match the authenticated agent",
+                  }),
+                  { status: 403, headers: corsHeaders },
+                );
+              }
+              senderAgentId = auth.identity.agentId;
+            } else {
+              // Valid non-agent BEARER (USER/RUN; a same-box cookie resolves as
+              // loopback above, not here): not an agent self-send, and must not
+              // body-trust senderAgentId.
+              return new Response(
+                JSON.stringify({ error: "agent identity required" }),
+                { status: 403, headers: corsHeaders },
+              );
+            }
+          } else {
+            // Anonymous loopback (grace window): trust the body-sourced sender.
+            senderAgentId = claimedSender;
+          }
+          if (!text) {
+            return new Response(JSON.stringify({ error: "required: text" }), {
+              status: 400,
+              headers: corsHeaders,
+            });
+          }
+          if (!senderAgentId) {
+            // Only reachable on the loopback path — the bearer path always
+            // derives the sender from the token, so a bearer caller never
+            // needs to supply senderAgentId.
             return new Response(
-              JSON.stringify({ error: "required: text, senderAgentId" }),
+              JSON.stringify({ error: "required: senderAgentId" }),
               { status: 400, headers: corsHeaders },
             );
           }

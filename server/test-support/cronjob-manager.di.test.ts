@@ -15,6 +15,9 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from "bun:test";
 import { FakeBackend } from "./fake-backend.ts";
 import { makeFakeCronPersistence } from "./fake-cron-persistence.ts";
+import { mkdirSync, writeFileSync } from "fs";
+import { join } from "path";
+import { claudeProjectDir } from "../cwd-utils.ts";
 import {
   resolveToken,
   getRunTokenRaw,
@@ -227,5 +230,211 @@ describe("CronjobManager RUN token lifecycle (Phase 2.1)", () => {
     expect(run).not.toBeNull();
     await new Promise((r) => setTimeout(r, 10));
     expect(getRunTokenRaw(job.id, run!.id)).toBeNull();
+  });
+});
+
+// Follow-up #11 — RUN token on RESUMED cron turns. Phase 2.1 wired the RUN
+// token only into the primary fire() lifecycle; resumed follow-up turns
+// (sendRunMessage / editRunMessage) resume through buildRunSessionOptions, which
+// now mints + injects a fresh RUN token and revokes it on every terminal path
+// (the caller's resume-failure catch before install, finalizeRun after). These
+// tests drive a REAL resume: the claude resume-precheck is satisfied by pointing
+// CLAUDE_CONFIG_DIR at a temp dir (via the injected resolveEnv) and touching the
+// leaf session file, mirroring fork-usage.test.ts's seedClaudeSession.
+describe("CronjobManager RUN token lifecycle on RESUMED turns (Follow-up #11)", () => {
+  afterEach(() => _testResetTokens());
+
+  const CLAUDE_CFG = join(STATE_ROOT, "cron-resume-claude-home");
+
+  const waitFor = async (pred: () => boolean, label = "cond") => {
+    for (let i = 0; i < 400; i++) {
+      if (pred()) return;
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    throw new Error(`waitFor timed out: ${label}`);
+  };
+
+  // Touch the existence-only leaf session file the claude resume precheck checks.
+  function seedLeafSession(cwd: string, sessionId: string): void {
+    const dir = claudeProjectDir(cwd, { CLAUDE_CONFIG_DIR: CLAUDE_CFG });
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, `${sessionId}.jsonl`), "");
+  }
+
+  // Run the primary turn to completion (so it finalizes + revokes and the run is
+  // resumable), then seed the leaf session file. fake.session.onSend decides
+  // which turns auto-complete.
+  async function primaryRunThenLeaf(fake: FakeBackend) {
+    const mgr = createCronjobManager(
+      baseDeps({
+        resolveBackend: () => fake,
+        resolveEnv: () => ({ CLAUDE_CONFIG_DIR: CLAUDE_CFG }),
+      }),
+    );
+    const job = mgr.addCronjob(intervalInput("ResumeJob"));
+    const run = mgr.runCronjobNow(job.id, "Nil");
+    expect(run).not.toBeNull();
+    await waitFor(
+      () => mgr.findRun(job.id, run!.id)?.status === "completed",
+      "primary run finalized",
+    );
+    const finalized = mgr.findRun(job.id, run!.id)!;
+    const leaf = finalized.currentSessionId ?? finalized.rootSessionId;
+    seedLeafSession(STATE_ROOT, leaf);
+    return { mgr, job, run: run! };
+  }
+
+  it("a resumed turn injects a fresh RUN bearer resolving to {cron-run, job, run}; finalize revokes it", async () => {
+    let sends = 0;
+    const fake = new FakeBackend({
+      session: {
+        // Primary turn (send #1) completes; the resumed turn (send #2) stays
+        // live so we can inspect its token before finalize revokes it.
+        onSend: (_t, _a, s) => {
+          if (++sends === 1) s.completeTurn({ text: "done" });
+        },
+      },
+    });
+    const { mgr, job, run } = await primaryRunThenLeaf(fake);
+
+    await mgr.sendRunMessage(job.id, run.id, "follow up", "Nil");
+    await waitFor(
+      () => getRunTokenRaw(job.id, run.id) !== null,
+      "resumed run active",
+    );
+
+    const resumed = fake.lastSession!;
+    expect(resumed.isResume).toBe(true);
+    const raw = resumed.opts.env?.ISOMUX_AGENT_TOKEN;
+    expect(typeof raw).toBe("string");
+    const id = resolveToken(raw as string)!;
+    expect(id.scope).toBe("cron-run");
+    expect(id.cronjobId).toBe(job.id);
+    expect(id.runId).toBe(run.id);
+    expect([...id.capabilities]).toEqual(["self:affordance"]);
+    // Redaction: the run token must not ride in the resumed run's system prompt.
+    expect(resumed.opts.systemPrompt ?? "").not.toContain(raw as string);
+
+    // Once active is installed, finalizeRun owns the revoke.
+    resumed.completeTurn({ text: "done2" });
+    await waitFor(
+      () => getRunTokenRaw(job.id, run.id) === null,
+      "resumed token revoked at finalize",
+    );
+    expect(resolveToken(raw as string)).toBeNull();
+    fake.sessions.forEach((s) => s.close());
+  });
+
+  it("each resumed turn mints a fresh RUN bearer; the prior token is dead", async () => {
+    let sends = 0;
+    const fake = new FakeBackend({
+      session: {
+        // Primary (#1) + first resume (#2) complete; the second resume (#3) lives.
+        onSend: (_t, _a, s) => {
+          if (++sends <= 2) s.completeTurn({ text: "x" });
+        },
+      },
+    });
+    const { mgr, job, run } = await primaryRunThenLeaf(fake);
+
+    await mgr.sendRunMessage(job.id, run.id, "first", "Nil");
+    await waitFor(
+      () => mgr.findRun(job.id, run.id)?.status === "completed",
+      "first resume finalized",
+    );
+    const firstRaw = fake.lastSession!.opts.env?.ISOMUX_AGENT_TOKEN as string;
+    expect(resolveToken(firstRaw)).toBeNull(); // revoked at first finalize
+
+    await mgr.sendRunMessage(job.id, run.id, "second", "Nil");
+    await waitFor(
+      () => getRunTokenRaw(job.id, run.id) !== null,
+      "second resume active",
+    );
+    const secondRaw = fake.lastSession!.opts.env?.ISOMUX_AGENT_TOKEN as string;
+    expect(secondRaw).not.toBe(firstRaw);
+    const id = resolveToken(secondRaw)!;
+    expect(id.scope).toBe("cron-run");
+    expect(id.runId).toBe(run.id);
+
+    fake.lastSession!.completeTurn({ text: "done" });
+    await waitFor(
+      () => getRunTokenRaw(job.id, run.id) === null,
+      "second revoked",
+    );
+    fake.sessions.forEach((s) => s.close());
+  });
+
+  it("a resume whose resumeSession throws revokes the token minted before install (no leak)", async () => {
+    let sends = 0;
+    const fake = new FakeBackend({
+      session: {
+        onSend: (_t, _a, s) => {
+          if (++sends === 1) s.completeTurn({ text: "done" });
+        },
+      },
+    });
+    const { mgr, job, run } = await primaryRunThenLeaf(fake);
+
+    // Force the resume to throw AFTER buildRunSessionOptions mints the token
+    // (call arguments evaluate before the call). The resume-failure catch must
+    // revoke it — installResumedActive never runs, so finalizeRun never would.
+    fake.resumeSession = () => {
+      throw new Error("boom (resume)");
+    };
+    await mgr.sendRunMessage(job.id, run.id, "follow up", "Nil");
+    expect(getRunTokenRaw(job.id, run.id)).toBeNull();
+    fake.sessions.forEach((s) => s.close());
+  });
+
+  it("a post-mint, pre-install failure (install-time emit throws) revokes the token — no leak", async () => {
+    // resumeSession SUCCEEDS (token minted + injected), but installResumedActive
+    // throws AFTER activeRuns.set (its cronjob_run_updated emit throws). Without
+    // the guard the token would outlive the run with no terminal owner (finalize
+    // never runs). The shared abortResumedRunToken path must revoke + clean up.
+    let sends = 0;
+    const fake = new FakeBackend({
+      session: {
+        onSend: (_t, _a, s) => {
+          if (++sends === 1) s.completeTurn({ text: "primary done" });
+        },
+      },
+    });
+    // Arm a throwing sink: after the primary finalizes ("completed"), the next
+    // "running" cronjob_run_updated is the resume's installResumedActive emit.
+    let armed = false;
+    const sink = (e: CronEvent) => {
+      if (
+        armed &&
+        e.type === "cronjob_run_updated" &&
+        e.run.status === "running"
+      )
+        throw new Error("boom (install-time emit)");
+    };
+    const mgr = createCronjobManager(
+      baseDeps({
+        resolveBackend: () => fake,
+        resolveEnv: () => ({ CLAUDE_CONFIG_DIR: CLAUDE_CFG }),
+        eventSink: sink,
+      }),
+    );
+    const job = mgr.addCronjob(intervalInput("ResumeLeakJob"));
+    const run = mgr.runCronjobNow(job.id, "Nil")!;
+    await waitFor(
+      () => mgr.findRun(job.id, run.id)?.status === "completed",
+      "primary finalized",
+    );
+    const finalized = mgr.findRun(job.id, run.id)!;
+    seedLeafSession(
+      STATE_ROOT,
+      finalized.currentSessionId ?? finalized.rootSessionId,
+    );
+    expect(getRunTokenRaw(job.id, run.id)).toBeNull(); // primary token revoked
+
+    armed = true;
+    await mgr.sendRunMessage(job.id, run.id, "follow up", "Nil");
+    // The resumed turn's token was minted then revoked by the post-mint guard —
+    // not leaked. (A subsequent resume could start again; the run isn't wedged.)
+    expect(getRunTokenRaw(job.id, run.id)).toBeNull();
+    fake.sessions.forEach((s) => s.close());
   });
 });

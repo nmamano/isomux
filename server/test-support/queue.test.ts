@@ -33,6 +33,7 @@ import {
   type TestSocket,
 } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
+import { getAgentTokenRaw, mintRunToken } from "../identity/tokens.ts";
 import {
   formatPrefix,
   formatAgentSenderPrefix,
@@ -730,5 +731,111 @@ describe("queue: cancel / send-now / new-conversation (Phase 1.4a)", () => {
       .filter((s) => s.opts.agentId === recv.id)
       .reduce((n, s) => n + s.sent.length, 0);
     expect(afterSends).toBe(beforeSends);
+  });
+});
+
+// Phase 3 loopback-bypass removal (grace window): the legacy POST
+// /agents/:id/message gains in-place bearer sender-authority. A valid AGENT
+// bearer (auto-injected ISOMUX_AGENT_TOKEN) IS the sender; a mismatched
+// body.senderAgentId is a spoof (403); a valid non-agent identity is rejected
+// rather than body-trusted; anonymous loopback keeps body-trust until the
+// restart-boundary flip (frozen by the loopback tests above).
+describe("queue: message endpoint sender authority (Phase 3 grace window)", () => {
+  async function postBearer(
+    srv: TestServer,
+    receiverId: string,
+    bearer: string,
+    body: Record<string, unknown>,
+  ): Promise<{ status: number; body: { ok?: boolean; error?: string } }> {
+    const res = await srv.http(`/agents/${receiverId}/message`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${bearer}`,
+      },
+      body: JSON.stringify(body),
+    });
+    return {
+      status: res.status,
+      body: (await res.json()) as { ok?: boolean; error?: string },
+    };
+  }
+
+  it("a valid AGENT bearer IS the sender; no senderAgentId needed (token-derived)", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const room = server.agentManager.getRooms()[0];
+    const recv = await spawnAgent(server, "Receiver", room.id);
+    const sender = await spawnAgent(server, "Sender", room.id);
+    const token = getAgentTokenRaw(sender.id)!;
+
+    // No senderAgentId in the body — a loopback post without it would 400. The
+    // 200 + token-derived attribution proves the sender came from the bearer.
+    const r = await postBearer(server, recv.id, token, {
+      text: "hi from token",
+    });
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+
+    await waitUntil(
+      () =>
+        (server!.fakeBackend.sessionForAgent(recv.id)?.sent.length ?? 0) >= 1,
+      2000,
+      "receiver received the flushed prompt",
+    );
+    const prefix = formatAgentSenderPrefix(sender.id, "Sender", room.name);
+    expect(server.fakeBackend.sessionForAgent(recv.id)!.sent[0].text).toContain(
+      prefix,
+    );
+  });
+
+  it("a present-but-mismatched senderAgentId on an AGENT bearer is a spoof -> 403", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const room = server.agentManager.getRooms()[0];
+    const recv = await spawnAgent(server, "Receiver", room.id);
+    const sender = await spawnAgent(server, "Sender", room.id);
+    const token = getAgentTokenRaw(sender.id)!;
+
+    const r = await postBearer(server, recv.id, token, {
+      text: "spoof attempt",
+      senderAgentId: "agent-someone-else",
+    });
+    expect(r.status).toBe(403);
+    // Nothing was enqueued/flushed to the receiver.
+    expect(server.fakeBackend.sessionForAgent(recv.id)?.sent.length ?? 0).toBe(
+      0,
+    );
+  });
+
+  it("a matching senderAgentId on an AGENT bearer is accepted (legacy input tolerated)", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const room = server.agentManager.getRooms()[0];
+    const recv = await spawnAgent(server, "Receiver", room.id);
+    const sender = await spawnAgent(server, "Sender", room.id);
+    const token = getAgentTokenRaw(sender.id)!;
+
+    const r = await postBearer(server, recv.id, token, {
+      text: "explicit but matching",
+      senderAgentId: sender.id,
+    });
+    expect(r.status).toBe(200);
+    expect(r.body.ok).toBe(true);
+  });
+
+  it("a valid non-agent bearer (RUN token) cannot send -> 403 (no body-trust bypass)", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const room = server.agentManager.getRooms()[0];
+    const recv = await spawnAgent(server, "Receiver", room.id);
+    // RUN scope carries only self:affordance — it is not an agent identity, so
+    // it must not be allowed to body-trust a senderAgentId.
+    const runToken = mintRunToken("some-job", "some-run", null);
+
+    const r = await postBearer(server, recv.id, runToken, {
+      text: "x",
+      senderAgentId: "agent-anything",
+    });
+    expect(r.status).toBe(403);
+    expect(server.fakeBackend.sessionForAgent(recv.id)?.sent.length ?? 0).toBe(
+      0,
+    );
   });
 });

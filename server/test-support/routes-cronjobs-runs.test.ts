@@ -25,8 +25,10 @@
 // Zero LLM.
 
 import { describe, it, expect, afterEach } from "bun:test";
-import { writeFileSync } from "fs";
+import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
+import { setOfficeEnvFileProvider } from "../env-loader.ts";
+import { claudeProjectDir } from "../cwd-utils.ts";
 import {
   startTestServer,
   type TestServer,
@@ -45,6 +47,10 @@ let server: TestServer | null = null;
 afterEach(async () => {
   await server?.stop();
   server = null;
+  // The #11 bridge test overrides the process-global office env-file provider
+  // to inject a temp CLAUDE_CONFIG_DIR. Reset it so it can't outlive this file
+  // pointing at a now-deleted temp STATE_ROOT path (mirrors fork-usage.test.ts).
+  setOfficeEnvFileProvider(() => null);
 });
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -261,6 +267,93 @@ describe("routes/cron run-affordances: RUN bearer + the log_entry bridge", () =>
     );
     expect(res.status).toBe(200);
     expect((await res.json()).ok).toBe(true);
+  });
+
+  // Follow-up #11 bridge: proves the resume-token plumbing actually unblocks the
+  // loopback flip — a RESUMED run's in-flight read-file authenticates to the
+  // token-required /api route using the bearer buildRunSessionOptions injected
+  // into the resumed run's env (not just the primary fire() token). Without #11
+  // this 401s/403s because the resumed run carries no RUN token.
+  it("PINNED (#11): a RESUMED run's injected RUN bearer authenticates read-file via /api", async () => {
+    // Counter FakeBackend: the primary turn (send #1) completes so the run is
+    // resumable; the resumed turn (send #2) stays live so its RUN token is
+    // active for the affordance call.
+    let sends = 0;
+    const fb = new FakeBackend({
+      session: {
+        onSend: (_t, _a, s) => {
+          if (++sends === 1) s.completeTurn({ text: "primary done" });
+        },
+      },
+    });
+    const srv = await startTestServer({ fakeBackend: fb });
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+
+    // Point CLAUDE_CONFIG_DIR at a temp tree via the office env-file provider (the
+    // same hook production uses), so the claude resume precheck checks the temp
+    // tree, never the real ~/.claude. Mirrors fork-usage.test.ts. The next
+    // startTestServer boot re-registers the production provider, so no leak.
+    const claudeHome = join(srv.stateRoot, "bridge-claude-home");
+    const envFile = join(srv.stateRoot, "bridge-office.env");
+    writeFileSync(envFile, `CLAUDE_CONFIG_DIR=${claudeHome}\n`);
+    setOfficeEnvFileProvider(() => envFile);
+
+    const job = seedJob(srv, "Boss");
+    const run = srv.cronjobManager.runCronjobNow(job.id, "Boss");
+    if (!run) throw new Error("runCronjobNow returned null");
+    await waitUntil(
+      () => srv.cronjobManager.findRun(job.id, run.id)?.status === "completed",
+      3000,
+      "primary run finalized (resumable)",
+    );
+
+    // Touch the existence-only leaf session file the resume precheck wants.
+    const finalized = srv.cronjobManager.findRun(job.id, run.id)!;
+    const leaf = finalized.currentSessionId ?? finalized.rootSessionId;
+    const projDir = claudeProjectDir(srv.stateRoot, {
+      CLAUDE_CONFIG_DIR: claudeHome,
+    });
+    mkdirSync(projDir, { recursive: true });
+    writeFileSync(join(projDir, `${leaf}.jsonl`), "");
+
+    // Resume: buildRunSessionOptions mints + injects a fresh RUN token; the run
+    // goes active and the token is live.
+    await srv.cronjobManager.sendRunMessage(
+      job.id,
+      run.id,
+      "follow up",
+      "Boss",
+    );
+    await waitUntil(
+      () => getRunTokenRaw(job.id, run.id) !== null,
+      3000,
+      "resumed run active w/ token",
+    );
+
+    // The token the /api route accepts IS exactly the one injected into the
+    // resumed run's backend env.
+    const resumedToken = getRunTokenRaw(job.id, run.id)!;
+    const resumed = fb.lastSession!;
+    expect(resumed.isResume).toBe(true);
+    expect(resumed.opts.env?.ISOMUX_AGENT_TOKEN).toBe(resumedToken);
+
+    const sock = await srv.connectWs(owner.rawSessionId);
+    writeFileSync(join(srv.stateRoot, "resumed.txt"), "hello resumed run");
+
+    const r = await httpJson(
+      srv,
+      `/api/cronjobs/${job.id}/runs/${run.id}/read-file`,
+      { method: "POST", bearer: resumedToken, body: { path: "resumed.txt" } },
+    );
+    expect(r.status).toBe(200);
+    expect((r.body as { ok?: boolean }).ok).toBe(true);
+
+    await waitUntil(
+      () => countLog(sock, cronjobRunStreamId(run.id), "file-view") >= 1,
+      2000,
+      "resumed-run file-view bridged to the cronrun stream",
+    );
   });
 });
 

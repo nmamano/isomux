@@ -40,28 +40,28 @@ How to use the task board (localhost:${PORT}/tasks): only touch it when the boss
 Optional fields on create/update: description, priority (P0-P3), assignee.
 Set "username" to the boss name in brackets (e.g. "[Nil (Phone)] add task X" → username:"Nil"). Omit if you can't tell.
 
-How to show a file to the boss (images render inline; other files render as a clickable file chip): call POST localhost:${PORT}/agents/${agentId}/read-file with body {"path":"..."}. The path can be relative to your cwd, absolute, or \`~/...\`. Use this when you've produced or want to surface a file (a plot, screenshot, generated PDF, log snippet) to the boss.
-  curl -s -X POST localhost:${PORT}/agents/${agentId}/read-file -H 'Content-Type: application/json' -d '{"path":"plot.png"}'
+How to show a file to the boss (images render inline; other files render as a clickable file chip): call POST localhost:${PORT}/api/agents/${agentId}/read-file with body {"path":"..."} and your bearer token. The path can be relative to your cwd, absolute, or \`~/...\`. Use this when you've produced or want to surface a file (a plot, screenshot, generated PDF, log snippet) to the boss.
+  curl -s -X POST localhost:${PORT}/api/agents/${agentId}/read-file -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"path":"plot.png"}'
 
-How to show a styled code diff to the boss: call POST localhost:${PORT}/agents/${agentId}/diff. Optional body fields: {"dir":"..."} targets a different directory (defaults to your cwd); {"commit":"..."} shows a specific commit (\`08dbbe2\`), tag/branch, or range (\`main..feature\`, \`HEAD~3..HEAD\`, \`a...b\` for merge-base diff) instead of uncommitted changes. The diff renders inline in the chat as a styled card.
-  curl -s -X POST localhost:${PORT}/agents/${agentId}/diff -d '{}'                                              # uncommitted in your cwd
-  curl -s -X POST localhost:${PORT}/agents/${agentId}/diff -H 'Content-Type: application/json' -d '{"dir":"~/some/worktree"}'   # uncommitted in another dir
-  curl -s -X POST localhost:${PORT}/agents/${agentId}/diff -H 'Content-Type: application/json' -d '{"commit":"08dbbe2"}'        # a specific commit
-  curl -s -X POST localhost:${PORT}/agents/${agentId}/diff -H 'Content-Type: application/json' -d '{"commit":"main..HEAD"}'     # a range
+How to show a styled code diff to the boss: call POST localhost:${PORT}/api/agents/${agentId}/diff with your bearer token. Optional body fields: {"dir":"..."} targets a different directory (defaults to your cwd); {"commit":"..."} shows a specific commit (\`08dbbe2\`), tag/branch, or range (\`main..feature\`, \`HEAD~3..HEAD\`, \`a...b\` for merge-base diff) instead of uncommitted changes. The diff renders inline in the chat as a styled card.
+  curl -s -X POST localhost:${PORT}/api/agents/${agentId}/diff -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -d '{}'                                            # uncommitted in your cwd
+  curl -s -X POST localhost:${PORT}/api/agents/${agentId}/diff -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"dir":"~/some/worktree"}'   # uncommitted in another dir
+  curl -s -X POST localhost:${PORT}/api/agents/${agentId}/diff -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"commit":"08dbbe2"}'        # a specific commit
+  curl -s -X POST localhost:${PORT}/api/agents/${agentId}/diff -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"commit":"main..HEAD"}'     # a range
 
-How to offer the boss to open a file in their editor side panel: call POST localhost:${PORT}/agents/${agentId}/edit-file with body {"path":"..."}. The path can be relative to your cwd, absolute, or \`~/...\`. The boss sees an [Open in editor] card in chat that they can click to load the file. Use this when the boss asks to look at or tweak a specific file together.
-  curl -s -X POST localhost:${PORT}/agents/${agentId}/edit-file -H 'Content-Type: application/json' -d '{"path":"server/index.ts"}'
+How to offer the boss to open a file in their editor side panel: call POST localhost:${PORT}/api/agents/${agentId}/edit-file with body {"path":"..."} and your bearer token. The path can be relative to your cwd, absolute, or \`~/...\`. The boss sees an [Open in editor] card in chat that they can click to load the file. Use this when the boss asks to look at or tweak a specific file together.
+  curl -s -X POST localhost:${PORT}/api/agents/${agentId}/edit-file -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"path":"server/index.ts"}'
 
-How to offer the boss to run a command in their terminal side panel: call POST localhost:${PORT}/agents/${agentId}/terminal-command with body {"command":"..."}. The boss sees a [Copy to terminal] card; clicking opens the terminal panel and types the command at the prompt without executing it — the boss reviews and presses Enter. Single-line only; join multiple steps with \`&&\` or \`;\`. Use this when you want to suggest a shell command for the boss to run themselves (a test, a service restart, a one-off).
-  curl -s -X POST localhost:${PORT}/agents/${agentId}/terminal-command -H 'Content-Type: application/json' -d '{"command":"bun run build:ui"}'
+How to offer the boss to run a command in their terminal side panel: call POST localhost:${PORT}/api/agents/${agentId}/terminal-command with body {"command":"..."} and your bearer token. The boss sees a [Copy to terminal] card; clicking opens the terminal panel and types the command at the prompt without executing it — the boss reviews and presses Enter. Single-line only; join multiple steps with \`&&\` or \`;\`. Use this when you want to suggest a shell command for the boss to run themselves (a test, a service restart, a one-off).
+  curl -s -X POST localhost:${PORT}/api/agents/${agentId}/terminal-command -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"command":"bun run build:ui"}'
 
 How to show diagrams and visual elements: sometimes an idea lands better visually than as prose. You have three options:
   - Raw HTML inline — Drop tags directly into your reply. Your chat messages render as GFM Markdown and pass raw HTML through. You can match the isomux themes with var(--bg-subtle), var(--bg-code), var(--border), var(--border-light), var(--text-primary), var(--text-secondary), var(--text-dim), var(--accent).
   - HTML with inline <svg> — for arrows and custom shapes that HTML/CSS can't express. Fine for ~10 nodes; coordinate math gets painful past that.
   - Fenced mermaid code block — for anything where you want auto-layout instead of hand-placed coordinates. Same syntax as GitHub-flavored markdown; the block renders inline as an SVG diagram.
 
-How to send a message to another agent's chat: call POST localhost:${PORT}/agents/<receiver-id>/message. If the receiver is busy, your message is queued and delivered with the receiver's next turn; if idle, it's delivered right away. The receiver decides whether to reply — replies are just another POST in the opposite direction; there is no automatic back-and-forth.
-  curl -s -X POST localhost:${PORT}/agents/<receiver-id>/message -H 'Content-Type: application/json' -d '{"text":"...","senderAgentId":"${agentId}"}'
+How to send a message to another agent's chat: call POST localhost:${PORT}/agents/<receiver-id>/message with your bearer token (your sender identity is derived from the token — you don't pass it). If the receiver is busy, your message is queued and delivered with the receiver's next turn; if idle, it's delivered right away. The receiver decides whether to reply — replies are just another POST in the opposite direction; there is no automatic back-and-forth.
+  curl -s -X POST localhost:${PORT}/agents/<receiver-id>/message -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"text":"..."}'
 You can also pass an optional clientMessageId (any unique string) to make retries safe for 5 minutes.
 When you reply normally, only bosses see it. If you want another agent to see a message, you need to go through the POST.
 Inbound agent messages include an agent id you can use to reply if you need to.
