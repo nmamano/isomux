@@ -130,6 +130,8 @@ import {
 } from "./routes/executor.ts";
 import { tasksHandlers } from "./routes/handlers/tasks.ts";
 import { cronHandlers } from "./routes/handlers/cron.ts";
+import { agentAffordanceHandlers } from "./routes/handlers/agent-affordances.ts";
+import { uploadsHandlers } from "./routes/handlers/uploads.ts";
 import { createIdempotencyCache } from "./transport/idempotency.ts";
 import { emit, type EmitContext, type EmitDeps } from "./events/emit.ts";
 import type { EventId, EventPayloads } from "./events/registry.ts";
@@ -767,6 +769,45 @@ function buildExecutorDeps(): ExecutorDeps {
       allRunsByJob: () => cronjobManager.getAllRunsByJob(),
       runTranscript: (jobId, runId) =>
         cronjobManager.getRunTranscript(jobId, runId),
+      // 3a.2b — run-message + RUN-affordance core ops. sendRunMessage/
+      // editRunMessage are fire-and-forget: void-discard the manager's
+      // background promise (like the legacy WS arms), so the HTTP response
+      // never blocks on the turn/fork. The handler threads a messageId override
+      // so the persisted user_message entry id === the route ack.
+      findRun: (jobId, runId) => cronjobManager.findRun(jobId, runId),
+      sendRunMessage: (jobId, runId, text, username, device, opts) => {
+        void cronjobManager.sendRunMessage(
+          jobId,
+          runId,
+          text,
+          username,
+          device,
+          opts,
+        );
+      },
+      editRunMessage: (
+        jobId,
+        runId,
+        logEntryId,
+        newText,
+        username,
+        device,
+        opts,
+      ) => {
+        void cronjobManager.editRunMessage(
+          jobId,
+          runId,
+          logEntryId,
+          newText,
+          username,
+          device,
+          opts,
+        );
+      },
+      emitCronjobRunReadFile: (jobId, runId, path) =>
+        cronjobManager.emitCronjobRunReadFile(jobId, runId, path),
+      emitCronjobRunDiff: (jobId, runId, dir, commit) =>
+        cronjobManager.emitCronjobRunDiff(jobId, runId, dir, commit),
       attributionFor,
       validateCwd: (cwd) => {
         try {
@@ -777,6 +818,36 @@ function buildExecutorDeps(): ExecutorDeps {
         }
       },
       saveRecentCwd,
+    }),
+  );
+
+  // 3a.3a — Agent self-affordances (AGENT bearer; read-file / diff / edit-file /
+  // terminal-command on the agent's OWN chat). Slim deps: just the four manager
+  // emit ops. The manager emits room-ACL-projected log_entry via the event sink;
+  // handlers never emit. The legacy loopback /agents/:id/* handlers stay untouched.
+  register(
+    agentAffordanceHandlers({
+      emitAgentReadFile: (agentId, path) =>
+        agentManager.emitAgentReadFile(agentId, path),
+      emitAgentDiff: (agentId, dir, commit) =>
+        agentManager.emitAgentDiff(agentId, dir, commit),
+      emitAgentEditRequest: (agentId, path) =>
+        agentManager.emitAgentEditRequest(agentId, path),
+      emitAgentTerminalCommand: (agentId, command) =>
+        agentManager.emitAgentTerminalCommand(agentId, command),
+    }),
+  );
+
+  // 3a.3b — Uploads + file-serving (browser surfaces; room-ACL gated). Narrow
+  // deps: just the persistence helpers (the guard owns access, getFilePath owns
+  // path-traversal). agents.getFile is room-ACL-gated [behavior-change]; the
+  // legacy /api/upload + /api/files + /api/images stay untouched.
+  register(
+    uploadsHandlers({
+      saveFile: (agentId, data, mediaType, originalName) =>
+        saveFile(agentId, data, mediaType, originalName),
+      getFilePath: (agentId, filename) => getFilePath(agentId, filename),
+      contentTypeFor: (filename) => mimeTypeForFilename(filename),
     }),
   );
 
@@ -2468,6 +2539,10 @@ async function dispatchCommand(
       break;
     }
     case "send_cronjob_run_message":
+      // [behavior-change] tighten to cronjobOwnerOrOfficeOwner on the WS
+      // transport too (parity with the REST guard) so the strangler leaves no
+      // WS-path bypass — same bypass class as the 2a cron-mutation arms.
+      if (!wsCanMutateCronjob(session, cmd.cronjobId)) break;
       // Don't await — let it stream in the background (matches send_message).
       void cronjobManager.sendRunMessage(
         cmd.cronjobId,
@@ -2478,6 +2553,7 @@ async function dispatchCommand(
       );
       break;
     case "edit_cronjob_run_message":
+      if (!wsCanMutateCronjob(session, cmd.cronjobId)) break;
       // Don't await — let it stream in the background (matches edit_message).
       void cronjobManager.editRunMessage(
         cmd.cronjobId,

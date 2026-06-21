@@ -65,6 +65,13 @@ export const created = (body: unknown): HandlerResult => ({
   status: 201,
 });
 export const noContent = (): HandlerResult => ({ kind: "noContent" });
+// Byte/stream response (agents.getFile). The executor renders it via Bun.file();
+// the handler stays out of the Response-building business, same as the JSON ones.
+export const file = (
+  path: string,
+  contentType: string,
+  headers?: Record<string, string>,
+): HandlerResult => ({ kind: "file", path, contentType, headers });
 export const fail = (
   status: HandlerErrorStatus,
   code: string,

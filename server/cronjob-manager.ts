@@ -778,7 +778,9 @@ How to answer questions about Isomux itself: the source lives at https://github.
     content: string,
     metadata?: Record<string, unknown>,
     attachments?: Attachment[],
-    extra?: Partial<Pick<LogEntry, "diff" | "file" | "terminal">>,
+    // `extra.id` overrides the generated entry id, so a REST boundary can thread
+    // a correlation/ack id and the response's messageId === the persisted entry id.
+    extra?: Partial<Pick<LogEntry, "id" | "diff" | "file" | "terminal">>,
   ) {
     const entry: LogEntry = {
       id: `log-${clock.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -1427,6 +1429,9 @@ How to answer questions about Isomux itself: the source lives at https://github.
     text: string,
     username?: string,
     device?: string,
+    // REST boundary threads a messageId so the persisted/broadcast user_message
+    // entry id equals the route response's ack. WS callers omit it (generated id).
+    opts?: { messageId?: string },
   ): Promise<void> {
     const run = findRun(jobId, runId);
     if (!run) return;
@@ -1486,7 +1491,14 @@ How to answer questions about Isomux itself: the source lives at https://github.
         username || device
           ? { ...(username ? { username } : {}), ...(device ? { device } : {}) }
           : undefined;
-      writeLog(active, "user_message", text, meta);
+      writeLog(
+        active,
+        "user_message",
+        text,
+        meta,
+        undefined,
+        opts?.messageId ? { id: opts.messageId } : undefined,
+      );
 
       const prefix = formatPrefix({ username, device });
       const prefixedText = prefix ? `${prefix}${text}` : text;
@@ -1568,6 +1580,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
     newText: string,
     username?: string,
     device?: string,
+    opts?: { messageId?: string },
   ): Promise<void> {
     const run = findRun(jobId, runId);
     if (!run) return;
@@ -1617,6 +1630,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
         leaf,
         username,
         device,
+        opts,
       );
     } finally {
       startingRuns.delete(runId);
@@ -1630,6 +1644,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
     leaf: string,
     username?: string,
     device?: string,
+    opts?: { messageId?: string },
   ): Promise<void> {
     const jobId = run.cronjobId;
     const runId = run.id;
@@ -1824,7 +1839,14 @@ How to answer questions about Isomux itself: the source lives at https://github.
       username || device
         ? { ...(username ? { username } : {}), ...(device ? { device } : {}) }
         : undefined;
-    writeLog(active, "user_message", newText, editMeta);
+    writeLog(
+      active,
+      "user_message",
+      newText,
+      editMeta,
+      undefined,
+      opts?.messageId ? { id: opts.messageId } : undefined,
+    );
     const editPrefix = formatPrefix({ username, device });
     const prefixedText = editPrefix ? `${editPrefix}${newText}` : newText;
     void (async () => {
@@ -1981,6 +2003,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
     getRunTranscript,
     buildCronjobSystemPrompt,
     runCronjobNow,
+    findRun,
     emitCronjobRunReadFile,
     emitCronjobRunDiff,
     sendRunMessage,

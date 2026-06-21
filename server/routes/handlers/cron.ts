@@ -23,6 +23,7 @@ import {
   noContent,
   fail,
   type RouteHandler,
+  type HandlerErrorStatus,
 } from "../executor.ts";
 import type { Identity } from "../../identity/index.ts";
 import type { Cronjob, CronjobRun, LogEntry } from "../../../shared/types.ts";
@@ -30,6 +31,10 @@ import type {
   CronCreateReq,
   CronUpdateReq,
   CronPromptReq,
+  CronRunMessageReq,
+  EditMessageReq,
+  AffordanceReadFileReq,
+  AffordanceDiffReq,
 } from "../../../shared/contract-shapes.ts";
 
 export interface CronDeps {
@@ -57,6 +62,41 @@ export interface CronDeps {
     jobId: string,
     runId: string,
   ): { run: CronjobRun | null; entries: LogEntry[] };
+  // 3a.2b — run-message + RUN-affordance core ops, shared with the legacy WS
+  // arms / loopback HTTP affordance handlers. Run-messages are fire-and-forget
+  // (the turn streams in the background); the REST handler threads a boundary
+  // `messageId` so the persisted/broadcast user_message entry id === the ack.
+  // The affordance ops return the manager's own { ok } | { ok:false,status,error }
+  // shape (status is only ever 400 bad-input / 404 unknown-or-inactive run).
+  findRun(jobId: string, runId: string): CronjobRun | null;
+  sendRunMessage(
+    jobId: string,
+    runId: string,
+    text: string,
+    username: string | undefined,
+    device: string | undefined,
+    opts: { messageId?: string },
+  ): void;
+  editRunMessage(
+    jobId: string,
+    runId: string,
+    logEntryId: string,
+    newText: string,
+    username: string | undefined,
+    device: string | undefined,
+    opts: { messageId?: string },
+  ): void;
+  emitCronjobRunReadFile(
+    jobId: string,
+    runId: string,
+    path: string,
+  ): { ok: true } | { ok: false; status: number; error: string };
+  emitCronjobRunDiff(
+    jobId: string,
+    runId: string,
+    dir: string | undefined,
+    commit: string | undefined,
+  ): { ok: true } | { ok: false; status: number; error: string };
   attributionFor(identity: Identity): {
     createdBy: string;
     username: string | undefined;
@@ -163,6 +203,82 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
         ctx.params.runId,
       );
       return run ? ok({ run, entries }) : fail(404, "not_found");
+    },
+
+    // 3a.2b — run-messages (fire-and-forget; the manager threads our messageId
+    // into the persisted user_message so the ack === the eventual transcript
+    // entry id). Resumability / cwd / provider errors stay transcript-level (not
+    // HTTP) to preserve the legacy WS contract; only an unknown run is a cheap
+    // 404 pre-flight. The cronjobOwnerOrOfficeOwner guard already ran.
+    "cron.runMessage": (ctx) => {
+      const body = (ctx.body ?? {}) as Partial<CronRunMessageReq>;
+      if (typeof body.text !== "string" || body.text.length === 0) {
+        return fail(400, "invalid_request", "text is required");
+      }
+      const { id: jobId, runId } = ctx.params;
+      if (!deps.findRun(jobId, runId)) return fail(404, "not_found");
+      const messageId = crypto.randomUUID();
+      const { username } = deps.attributionFor(ctx.identity);
+      const device = typeof body.device === "string" ? body.device : undefined;
+      deps.sendRunMessage(jobId, runId, body.text, username, device, {
+        messageId,
+      });
+      return ok({ messageId });
+    },
+
+    "cron.editRunMessage": (ctx) => {
+      const body = (ctx.body ?? {}) as Partial<EditMessageReq>;
+      if (typeof body.newText !== "string" || body.newText.length === 0) {
+        return fail(400, "invalid_request", "newText is required");
+      }
+      const { id: jobId, runId, logEntryId } = ctx.params;
+      if (!deps.findRun(jobId, runId)) return fail(404, "not_found");
+      const messageId = crypto.randomUUID();
+      const { username } = deps.attributionFor(ctx.identity);
+      const device = typeof body.device === "string" ? body.device : undefined;
+      deps.editRunMessage(
+        jobId,
+        runId,
+        logEntryId,
+        body.newText,
+        username,
+        device,
+        { messageId },
+      );
+      return ok({ messageId });
+    },
+
+    // RUN-bearer affordances (self:affordance + runParamMustEqualTokenRun). The
+    // manager op surfaces the file/diff card into the LIVE run transcript and
+    // returns its own active-run 404 / bad-input 400; map it straight through.
+    "cron.runReadFile": (ctx) => {
+      const body = (ctx.body ?? {}) as Partial<AffordanceReadFileReq>;
+      if (typeof body.path !== "string" || body.path.length === 0) {
+        return fail(400, "invalid_request", "path is required");
+      }
+      const r = deps.emitCronjobRunReadFile(
+        ctx.params.id,
+        ctx.params.runId,
+        body.path,
+      );
+      return r.ok
+        ? ok({ ok: true })
+        : fail(r.status as HandlerErrorStatus, "run_read_file_failed", r.error);
+    },
+
+    "cron.runDiff": (ctx) => {
+      const body = (ctx.body ?? {}) as Partial<AffordanceDiffReq>;
+      const dir = typeof body.dir === "string" ? body.dir : undefined;
+      const commit = typeof body.commit === "string" ? body.commit : undefined;
+      const r = deps.emitCronjobRunDiff(
+        ctx.params.id,
+        ctx.params.runId,
+        dir,
+        commit,
+      );
+      return r.ok
+        ? ok({ ok: true })
+        : fail(r.status as HandlerErrorStatus, "run_diff_failed", r.error);
     },
   };
 }
