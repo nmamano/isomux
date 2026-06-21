@@ -55,9 +55,15 @@ import {
 } from "../shared/types.ts";
 import { errMessage } from "../shared/errors.ts";
 import {
+  buildProductionGuardDeps,
+  type GuardDepsLiveReaders,
+} from "./identity/guard-deps.ts";
+import type { GuardDeps } from "./identity/guards.ts";
+import {
   listUsers,
   getUser,
   getUserById,
+  getUserByName,
   claimUser,
   pruneStaleRoomRefs,
   updateUser,
@@ -581,6 +587,32 @@ function roomAllowedForSession(
   const user = getUserById(session.userId);
   if (!user) return false;
   return user.allowedRooms.includes(roomId);
+}
+
+// Production GuardDeps adapter (Phase 2.3, deferred from 2.2). Wires the guard
+// catalog's injected office-state seam to today's materialized-allowedRooms
+// predicates + the live managers. Built at boot and exposed (dormant) on the
+// ServerHandle; nothing consumes it in 2.3 — Phase 3 feeds it to authorize()
+// when routes migrate. See server/identity/guard-deps.ts.
+function buildLiveGuardDeps(): GuardDeps {
+  const readers: GuardDepsLiveReaders = {
+    // sessionHasFullRoomAccess / roomAllowedForSession only read session.userId,
+    // so a minimal { userId } stands in for the full SessionLookup. The cast is
+    // contained here at the seam; Phase 3b swaps this materialized predicate for
+    // rule-based access by changing this body, never the adapter's shape.
+    hasRoomAccessForUser: (userId, roomId) => {
+      const session = { userId } as unknown as SessionLookup;
+      return (
+        sessionHasFullRoomAccess(session) ||
+        roomAllowedForSession(session, roomId)
+      );
+    },
+    getAllAgents: () => agentManager.getAllAgents(),
+    getRooms: () => agentManager.getRooms(),
+    getUserByName: (username) => getUserByName(username) ?? null,
+    listCronjobs: () => cronjobManager.listCronjobs(),
+  };
+  return buildProductionGuardDeps(readers);
 }
 
 interface VisibleRoomProjection {
@@ -4085,6 +4117,10 @@ export interface ServerHandle {
   port: number;
   agentManager: AgentManager;
   cronjobManager: CronjobManager;
+  // Production GuardDeps adapter (Phase 2.3). Dormant: exposed for the contract
+  // T1 to assert agreement with the live ACL; nothing consumes it until Phase 3
+  // wires it into authorize().
+  guardDeps: GuardDeps;
   // Stop the listener (force-closing live sockets) and return the in-process
   // module singletons to a known-idle state so the next startServer() in the
   // same process is clean. See stopServer.
@@ -4165,6 +4201,7 @@ export async function startServer(
     port,
     agentManager,
     cronjobManager,
+    guardDeps: buildLiveGuardDeps(),
     stop: () => stopServer(server),
   };
 }

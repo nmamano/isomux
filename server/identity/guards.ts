@@ -268,3 +268,39 @@ export const messageSend: Guard = (ctx) => {
       return FORBIDDEN;
   }
 };
+
+// --- Combinators ------------------------------------------------------------
+// Typed composition for the route table's compound guards (e.g. agents.move /
+// agents.revive need access to BOTH the source and target room). Encoding these
+// as combinators rather than free-form strings keeps the route table's authz
+// slice machine-checkable: a contract test can reason about `and(g1, g2)` the
+// same way it reasons about a leaf guard.
+
+// All must allow (first-deny-wins). The first non-ALLOW outcome is returned
+// verbatim, preserving its status/code for the non-leak envelope; if every
+// guard allows, ALLOW. An empty composition allows (vacuous truth) — callers
+// pass at least one guard in practice.
+export function and(...guards: readonly Guard[]): Guard {
+  return (ctx) => {
+    for (const g of guards) {
+      const outcome = g(ctx);
+      if (!outcome.ok) return outcome;
+    }
+    return ALLOW;
+  };
+}
+
+// Any may allow (first-allow-wins). Returns ALLOW on the first passing guard;
+// otherwise the LAST denial verbatim (so a meaningful status/code survives
+// rather than a synthesized one). An empty composition denies with FORBIDDEN.
+export function or(...guards: readonly Guard[]): Guard {
+  return (ctx) => {
+    let lastDeny: AuthzOutcome = FORBIDDEN;
+    for (const g of guards) {
+      const outcome = g(ctx);
+      if (outcome.ok) return ALLOW;
+      lastDeny = outcome;
+    }
+    return lastDeny;
+  };
+}
