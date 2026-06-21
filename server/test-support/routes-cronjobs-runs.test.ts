@@ -11,8 +11,10 @@
 //     cronrun-<runId>` (NOT the target `cron_run_log_entry`, which waits for the
 //     UI/demo-coordinated wire switch). This is Reviewer1's PINNED bridge test.
 //   - The legacy loopback affordance path (`/cronjobs/:id/runs/:runId/read-file`,
-//     no `/api`, no token) stays a byte-identical compatibility bridge until the
-//     post-3a loopback flip.
+//     no `/api`, no token) is now REJECTED: the loopback-bypass removal deleted
+//     the legacy cron-run POST handlers, so it falls through to the 405 method
+//     gate (/cronjobs stays loopback-trusted for GET this milestone, so it is a
+//     405, not a 401) and writes nothing to the transcript.
 //   - run-message ownership tightening on BOTH transports: REST via the route
 //     guard (cronjobOwnerOrOfficeOwner), the legacy WS arms via the shared
 //     wsCanMutateCronjob shim — same bypass class the 2a cron-mutation arms closed.
@@ -254,9 +256,10 @@ describe("routes/cron run-affordances: RUN bearer + the log_entry bridge", () =>
     expect(countLog(sock, live.streamId, "file-view")).toBe(1);
   });
 
-  it("legacy loopback affordance path (no /api, no token) stays a byte-identical 200 bridge", async () => {
+  it("legacy loopback affordance path (no /api, no token) is rejected — the deleted POST hits the 405 method gate, not the transcript", async () => {
     const live = await startLiveRun();
     writeFileSync(join(live.srv.stateRoot, "legacy.txt"), "y");
+    const sock = await live.srv.connectWs(live.ownerSession);
     const res = await live.srv.http(
       `/cronjobs/${live.job.id}/runs/${live.run.id}/read-file`,
       {
@@ -265,8 +268,15 @@ describe("routes/cron run-affordances: RUN bearer + the log_entry bridge", () =>
         body: JSON.stringify({ path: "legacy.txt" }),
       },
     );
-    expect(res.status).toBe(200);
-    expect((await res.json()).ok).toBe(true);
+    // The legacy loopback cron-run affordances were deleted. /cronjobs stays
+    // loopback-trusted for GET this milestone, so a no-token POST is NOT a 401;
+    // the deleted handler leaves the existing method gate to reject it 405.
+    expect(res.status).toBe(405);
+    // Fail-closed: nothing reached the run transcript. ping/pong barrier — any
+    // (erroneous) emit would have been ws.send'd before this ping arrives.
+    sock.send({ type: "ping" });
+    await sock.waitFor("pong");
+    expect(countLog(sock, live.streamId, "file-view")).toBe(0);
   });
 
   // Follow-up #11 bridge: proves the resume-token plumbing actually unblocks the

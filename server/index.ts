@@ -1202,7 +1202,9 @@ function buildExecutorDeps(): ExecutorDeps {
   // 3a.3a — Agent self-affordances (AGENT bearer; read-file / diff / edit-file /
   // terminal-command on the agent's OWN chat). Slim deps: just the four manager
   // emit ops. The manager emits room-ACL-projected log_entry via the event sink;
-  // handlers never emit. The legacy loopback /agents/:id/* handlers stay untouched.
+  // handlers never emit. These /api routes are the SOLE affordance surface now —
+  // the legacy loopback /agents/:id/* affordance handlers were deleted in the
+  // loopback-bypass removal milestone.
   register(
     agentAffordanceHandlers({
       emitAgentReadFile: (agentId, path) =>
@@ -3875,14 +3877,21 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
 
       // Loopback bypass is intentionally narrow: it only applies to API paths
       // agents legitimately hit from the same box (POST /tasks, /cronjobs read
-      // routes, /agents/:id/* in-process actions). The SPA shell still requires
-      // an authenticated cookie even from localhost, so a same-host browser is
-      // pushed through the bootstrap-invite flow instead of getting a half-
-      // functional page where HTTP works but WS rejects.
+      // routes, /backup/status). The SPA shell still requires an authenticated
+      // cookie even from localhost, so a same-host browser is pushed through the
+      // bootstrap-invite flow instead of getting a half-functional page where
+      // HTTP works but WS rejects.
+      //
+      // /agents/ is deliberately NOT in this list: the loopback-bypass removal
+      // milestone made the agent surface bearer-required. The self-affordance
+      // routes moved to /api (token-required), and POST /agents/:id/message now
+      // derives the sender from the AGENT bearer — a no/invalid-bearer request
+      // is no longer loopback-trusted, so it falls through to the cookie wall
+      // below and 401s. (/tasks, /cronjobs, /backup/status loopback removal is a
+      // separate later milestone.)
       const isAgentApiPath =
         url.pathname.startsWith("/tasks") ||
         url.pathname.startsWith("/cronjobs") ||
-        url.pathname.startsWith("/agents/") ||
         url.pathname === "/backup/status";
       const auth = authenticate(req, server, {
         allowLoopback: isAgentApiPath,
@@ -3901,98 +3910,29 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         });
       }
 
-      // CORS preflight for cronjobs API
+      // CORS preflight for cronjobs API (read-only over loopback now — the
+      // in-flight run read-file/diff affordances moved to the token-required
+      // /api surface, so POST is no longer accepted here).
       if (req.method === "OPTIONS" && url.pathname.startsWith("/cronjobs")) {
         return new Response(null, {
           headers: {
             "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+            "Access-Control-Allow-Methods": "GET, OPTIONS",
             "Access-Control-Allow-Headers": "Content-Type",
           },
         });
       }
 
-      // Cronjobs HTTP API (read-only — mutations go through WebSocket, except
-      // POST /cronjobs/:id/runs/:runId/read-file which lets an in-flight run
-      // surface a file in its transcript — the cronjob equivalent of POST
-      // /agents/:id/read-file).
+      // Cronjobs HTTP API — read-only over loopback. Mutations and the in-flight
+      // run read-file/diff affordances are token-required under /api now (the
+      // legacy loopback POST affordances were removed in the loopback-bypass
+      // removal milestone); a POST here falls through to the 405 method gate.
       if (url.pathname.startsWith("/cronjobs")) {
         const corsHeaders = {
           "Access-Control-Allow-Origin": "*",
           "Content-Type": "application/json",
         };
         const parts = url.pathname.split("/").filter(Boolean); // ["cronjobs"] or ["cronjobs", id] or ["cronjobs", id, "runs"] or ["cronjobs", id, "runs", runId, ...]
-        // POST /cronjobs/:jobId/runs/:runId/read-file — copy a file into the
-        // run's files dir and emit a `file-view` log entry so the run's
-        // transcript renders it inline (images) or as a clickable file chip.
-        // Body: { path }.
-        if (
-          req.method === "POST" &&
-          parts.length === 5 &&
-          parts[2] === "runs" &&
-          parts[4] === "read-file"
-        ) {
-          const jobId = parts[1];
-          const runId = parts[3];
-          let path: string | undefined;
-          try {
-            const body = (await req.json()) as Record<string, unknown> | null;
-            if (body && typeof body.path === "string") path = body.path;
-          } catch {}
-          if (!path) {
-            return new Response(JSON.stringify({ error: "missing path" }), {
-              status: 400,
-              headers: corsHeaders,
-            });
-          }
-          const result = cronjobManager.emitCronjobRunReadFile(
-            jobId,
-            runId,
-            path,
-          );
-          if (!result.ok)
-            return new Response(JSON.stringify({ error: result.error }), {
-              status: result.status,
-              headers: corsHeaders,
-            });
-          return new Response(JSON.stringify({ ok: true }), {
-            headers: corsHeaders,
-          });
-        }
-        // POST /cronjobs/:jobId/runs/:runId/diff — emit a styled diff card
-        // into the run transcript. Mirrors POST /agents/:id/diff. Optional
-        // body fields: { dir, commit } — see the agent endpoint for the
-        // accepted commit syntax.
-        if (
-          req.method === "POST" &&
-          parts.length === 5 &&
-          parts[2] === "runs" &&
-          parts[4] === "diff"
-        ) {
-          const jobId = parts[1];
-          const runId = parts[3];
-          let dir: string | undefined;
-          let commit: string | undefined;
-          try {
-            const body = (await req.json()) as Record<string, unknown> | null;
-            if (body && typeof body.dir === "string") dir = body.dir;
-            if (body && typeof body.commit === "string") commit = body.commit;
-          } catch {}
-          const result = cronjobManager.emitCronjobRunDiff(
-            jobId,
-            runId,
-            dir,
-            commit,
-          );
-          if (!result.ok)
-            return new Response(JSON.stringify({ error: result.error }), {
-              status: result.status,
-              headers: corsHeaders,
-            });
-          return new Response(JSON.stringify({ ok: true }), {
-            headers: corsHeaders,
-          });
-        }
         if (req.method !== "GET") {
           return new Response(JSON.stringify({ error: "method not allowed" }), {
             status: 405,
@@ -4252,148 +4192,27 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         });
       }
 
-      // POST /agents/:id/diff — emit a styled diff card into the agent's chat,
-      // matching the /isomux-diff slash command. Lets an agent surface a diff
-      // when the boss asks "show me your changes". Optional body fields:
-      //   { dir } — target a different directory (defaults to agent cwd)
-      //   { commit } — a single ref (SHA, branch, tag) or a range using `..` /
-      //                `...` (e.g. "08dbbe2", "main..feature", "HEAD~3..HEAD").
-      //                When set, the diff shows that commit/range's changes
-      //                instead of the working tree.
+      // POST /agents/:id/message — queue an inter-agent message into the
+      // receiving agent's chat. The sender's identity (name + room) is looked
+      // up server-side so callers can't inject prefix-delimiter characters into
+      // the prompt the receiver sees.
+      //
+      // This is the one legacy /agents/ HTTP handler that stays (now bearer-
+      // required): the /api/agents/:id/messages route is declared but not yet
+      // wired (the conversation group is unmigrated). The self-affordance POSTs
+      // that used to live here (diff / edit-file / read-file / terminal-command)
+      // were removed in the loopback-bypass removal milestone; agents now use
+      // the token-required /api/agents/:id/* equivalents.
+      //
+      // Sender authority: the AGENT bearer (auto-injected ISOMUX_AGENT_TOKEN) IS
+      // the sender. A present-but-mismatched body.senderAgentId is a spoof
+      // attempt (403). A valid non-agent identity (USER cookie / RUN bearer) is
+      // rejected (403). There is no loopback body-trust: a no/invalid-bearer
+      // request is rejected with 401 upstream (the cookie wall) before reaching
+      // this handler, because /agents/ is no longer in isAgentApiPath.
+      // Body: { text, senderAgentId?, clientMessageId? }
       if (url.pathname.startsWith("/agents/") && req.method === "POST") {
         const parts = url.pathname.split("/").filter(Boolean);
-        if (parts.length === 3 && parts[2] === "diff") {
-          const corsHeaders = {
-            "Access-Control-Allow-Origin": "*",
-            "Content-Type": "application/json",
-          };
-          const agentId = parts[1];
-          let dir: string | undefined;
-          let commit: string | undefined;
-          try {
-            const body = (await req.json()) as Record<string, unknown> | null;
-            if (body && typeof body.dir === "string") dir = body.dir;
-            if (body && typeof body.commit === "string") commit = body.commit;
-          } catch {}
-          const result = agentManager.emitAgentDiff(agentId, dir, commit);
-          if (!result.ok)
-            return new Response(JSON.stringify({ error: result.error }), {
-              status: result.status,
-              headers: corsHeaders,
-            });
-          return new Response(JSON.stringify({ ok: true }), {
-            headers: corsHeaders,
-          });
-        }
-        // POST /agents/:id/edit-file — emit an `edit-request` card so the boss
-        // can open the file in the editor side panel. Mirrors /diff. Body: { path }.
-        if (parts.length === 3 && parts[2] === "edit-file") {
-          const corsHeaders = {
-            "Access-Control-Allow-Origin": "*",
-            "Content-Type": "application/json",
-          };
-          const agentId = parts[1];
-          let path: string | undefined;
-          try {
-            const body = (await req.json()) as Record<string, unknown> | null;
-            if (body && typeof body.path === "string") path = body.path;
-          } catch {}
-          if (!path) {
-            return new Response(JSON.stringify({ error: "missing path" }), {
-              status: 400,
-              headers: corsHeaders,
-            });
-          }
-          const result = agentManager.emitAgentEditRequest(agentId, path);
-          if (!result.ok)
-            return new Response(JSON.stringify({ error: result.error }), {
-              status: result.status,
-              headers: corsHeaders,
-            });
-          return new Response(JSON.stringify({ ok: true }), {
-            headers: corsHeaders,
-          });
-        }
-        // POST /agents/:id/read-file — copy a file into the agent's files dir
-        // and emit a `file-view` card so the boss sees the file (images render
-        // inline, others render as a clickable file chip). Replaces the older
-        // "Read tool on an image → SDK extracts bytes" convention; works for
-        // both Claude and Codex agents. Body: { path }.
-        if (parts.length === 3 && parts[2] === "read-file") {
-          const corsHeaders = {
-            "Access-Control-Allow-Origin": "*",
-            "Content-Type": "application/json",
-          };
-          const agentId = parts[1];
-          let path: string | undefined;
-          try {
-            const body = (await req.json()) as Record<string, unknown> | null;
-            if (body && typeof body.path === "string") path = body.path;
-          } catch {}
-          if (!path) {
-            return new Response(JSON.stringify({ error: "missing path" }), {
-              status: 400,
-              headers: corsHeaders,
-            });
-          }
-          const result = agentManager.emitAgentReadFile(agentId, path);
-          if (!result.ok)
-            return new Response(JSON.stringify({ error: result.error }), {
-              status: result.status,
-              headers: corsHeaders,
-            });
-          return new Response(JSON.stringify({ ok: true }), {
-            headers: corsHeaders,
-          });
-        }
-        // POST /agents/:id/terminal-command — emit a `terminal-command` card so
-        // the boss can prefill the terminal panel with this command. Mirrors
-        // /edit-file. Body: { command }. Single-line; not auto-executed.
-        if (parts.length === 3 && parts[2] === "terminal-command") {
-          const corsHeaders = {
-            "Access-Control-Allow-Origin": "*",
-            "Content-Type": "application/json",
-          };
-          const agentId = parts[1];
-          let command: string | undefined;
-          try {
-            const body = (await req.json()) as Record<string, unknown> | null;
-            if (body && typeof body.command === "string")
-              command = body.command;
-          } catch {}
-          if (!command) {
-            return new Response(JSON.stringify({ error: "missing command" }), {
-              status: 400,
-              headers: corsHeaders,
-            });
-          }
-          const result = agentManager.emitAgentTerminalCommand(
-            agentId,
-            command,
-          );
-          if (!result.ok)
-            return new Response(JSON.stringify({ error: result.error }), {
-              status: result.status,
-              headers: corsHeaders,
-            });
-          return new Response(JSON.stringify({ ok: true }), {
-            headers: corsHeaders,
-          });
-        }
-        // POST /agents/:id/message — queue a message into the receiving agent's
-        // chat. The sender's identity (name + room) is looked up server-side so
-        // callers can't inject prefix-delimiter characters into the prompt the
-        // receiver sees.
-        //
-        // Sender authority (Phase 3 loopback-bypass removal, grace window): a
-        // valid AGENT bearer (auto-injected ISOMUX_AGENT_TOKEN) IS the sender —
-        // a present-but-mismatched body.senderAgentId is a spoof attempt (403).
-        // A valid NON-agent bearer (USER/RUN) is rejected (403) rather than
-        // body-trusted, so it can't become a spoofing bypass. Anonymous loopback
-        // (no/invalid bearer — same-box requests resolve here BEFORE any cookie
-        // is read) still trusts body.senderAgentId during the grace window; that
-        // fallback is deleted at the restart-boundary flip.
-        // Body: { text, senderAgentId?, clientMessageId? }
         if (parts.length === 3 && parts[2] === "message") {
           const corsHeaders = {
             "Access-Control-Allow-Origin": "*",
@@ -4420,47 +4239,42 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
             typeof body.clientMessageId === "string"
               ? body.clientMessageId
               : undefined;
-          // Resolve the sender per the grace-window sender-authority rules above.
-          let senderAgentId: string | null;
-          if (auth.kind === "ok") {
-            if (auth.identity.scope === "agent" && auth.identity.agentId) {
-              if (claimedSender && claimedSender !== auth.identity.agentId) {
-                return new Response(
-                  JSON.stringify({
-                    error:
-                      "senderAgentId does not match the authenticated agent",
-                  }),
-                  { status: 403, headers: corsHeaders },
-                );
-              }
-              senderAgentId = auth.identity.agentId;
-            } else {
-              // Valid non-agent BEARER (USER/RUN; a same-box cookie resolves as
-              // loopback above, not here): not an agent self-send, and must not
-              // body-trust senderAgentId.
-              return new Response(
-                JSON.stringify({ error: "agent identity required" }),
-                { status: 403, headers: corsHeaders },
-              );
-            }
-          } else {
-            // Anonymous loopback (grace window): trust the body-sourced sender.
-            senderAgentId = claimedSender;
+          // Sender authority is the AGENT bearer; there is no loopback body-
+          // trust. A no/invalid-bearer request is already rejected with 401 at
+          // the cookie wall above (now that /agents/ is off isAgentApiPath), so
+          // auth.kind === "ok" here in practice. The kind !== "ok" guard fails
+          // closed with the correct contract (401: no identity) in case future
+          // routing ever makes it reachable.
+          if (auth.kind !== "ok") {
+            return new Response(JSON.stringify({ error: "unauthenticated" }), {
+              status: 401,
+              headers: corsHeaders,
+            });
+          }
+          if (auth.identity.scope !== "agent" || !auth.identity.agentId) {
+            // A valid non-agent identity (USER cookie / RUN bearer) cannot send
+            // as an agent and must not body-trust senderAgentId.
+            return new Response(
+              JSON.stringify({ error: "agent identity required" }),
+              { status: 403, headers: corsHeaders },
+            );
+          }
+          const senderAgentId = auth.identity.agentId;
+          // A present-but-mismatched senderAgentId is a spoof attempt; an absent
+          // or matching value is tolerated (legacy input).
+          if (claimedSender && claimedSender !== senderAgentId) {
+            return new Response(
+              JSON.stringify({
+                error: "senderAgentId does not match the authenticated agent",
+              }),
+              { status: 403, headers: corsHeaders },
+            );
           }
           if (!text) {
             return new Response(JSON.stringify({ error: "required: text" }), {
               status: 400,
               headers: corsHeaders,
             });
-          }
-          if (!senderAgentId) {
-            // Only reachable on the loopback path — the bearer path always
-            // derives the sender from the token, so a bearer caller never
-            // needs to supply senderAgentId.
-            return new Response(
-              JSON.stringify({ error: "required: senderAgentId" }),
-              { status: 400, headers: corsHeaders },
-            );
           }
           if (senderAgentId === receiverId) {
             return new Response(
@@ -4493,6 +4307,19 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           }
           return new Response(JSON.stringify(result), { headers: corsHeaders });
         }
+        // Any other POST /agents/:id/:action is a deleted or unknown affordance
+        // path (the self-affordances moved to the token-required /api surface).
+        // Fail closed with a JSON 404 instead of falling through to the SPA shell
+        // (which would return 200 text/html and mask stale callers). No-bearer
+        // requests never reach here — they 401 at the cookie wall above, since
+        // /agents/ is off isAgentApiPath (allowLoopback:false).
+        return new Response(JSON.stringify({ error: "not found" }), {
+          status: 404,
+          headers: {
+            "Access-Control-Allow-Origin": "*",
+            "Content-Type": "application/json",
+          },
+        });
       }
 
       // File upload endpoint: POST /api/upload/{agentId}

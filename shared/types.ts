@@ -325,7 +325,7 @@ export interface DiffPayload {
 }
 
 // Structured payload attached to LogEntry when kind === "edit-request".
-// Emitted by /isomux-edit or POST /agents/:id/edit-file. The card surfaces
+// Emitted by /isomux-edit or POST /api/agents/:id/edit-file. The card surfaces
 // an [Open in editor] button that opens the side panel for this path.
 export interface FilePayload {
   cwd: string; // agent cwd at emission time (for trimming display)
@@ -333,7 +333,7 @@ export interface FilePayload {
 }
 
 // Structured payload attached to LogEntry when kind === "terminal-command".
-// Emitted by POST /agents/:id/terminal-command. The card surfaces a
+// Emitted by POST /api/agents/:id/terminal-command. The card surfaces a
 // [Copy to terminal] button that opens the terminal side panel and types
 // the command at the prompt without executing it (boss presses Enter).
 export interface TerminalCommandPayload {

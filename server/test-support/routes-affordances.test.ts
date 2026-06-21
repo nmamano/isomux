@@ -1,26 +1,22 @@
-// Phase 1.4(b) — Agent self-affordance + upload + file-serving route characterization.
+// Agent self-affordance (removal) + upload + file-serving route characterization.
 //
-// Freezes the OBSERVABLE contract of the agent-facing HTTP affordances before
-// Phase 3 strangles them onto the typed route table (opIds agents.readFile/
-// diff/editFile/terminalCommand [retain, later token-authed]; agents.upload
-// [strangle]; agents.getFile [behavior-change, later room-ACL-gated]).
+// The legacy loopback agent self-affordances (POST /agents/:id/{read-file,diff,
+// edit-file,terminal-command}) were REMOVED in the loopback-bypass removal
+// milestone; agents use the token-required /api equivalents now (positive
+// coverage in routes-agent-affordances-rest.test.ts). This file freezes that the
+// deleted legacy surface fails CLOSED, plus the observable contract of the
+// upload + file-serving routes that remain.
 //
 // The message route (POST /agents/:id/message) is deliberately EXCLUDED: its
-// 200/400/404/409/429 + dedupe/cap/reject matrix and body-trust senderAgentId
-// are already frozen by queue.test.ts (Phase 1.4a). No overlap.
-//
-// Boundary = HTTP response (status + body) AND the WS log_entry the affordance
-// emits into the agent's chat (kind + payload), asserted via waitUntil on a
-// connected socket — never a sync read after an in-memory mutation (the
-// WS-arrival race that flaked a 1.4a test).
+// sender-authority + dedupe/cap/reject matrix is frozen by queue.test.ts.
 //
 // Key current behaviors frozen here:
-//   - Affordance handlers return { ok:true } | { ok:false, status, error };
-//     an UNKNOWN agent is a 404, but a bad/missing FILE is NOT an HTTP error —
-//     it returns { ok:true } and surfaces a kind:"system" log entry instead.
+//   - Legacy agent affordances are gone: /agents/ is off isAgentApiPath, so a
+//     no-bearer loopback POST is rejected 401 at the cookie wall before any
+//     handler runs — fail-closed by construction.
 //   - /api/upload and /api/files are NOT in isAgentApiPath, so they require a
-//     cookie even from loopback (the agent affordances do not). Auth posture
-//     itself is frozen in routes-auth; here we use a seeded owner cookie.
+//     cookie even from loopback. Auth posture itself is frozen in routes-auth;
+//     here we use a seeded owner cookie.
 //   - Upload limits are 5 files / 200MB each / 400MB total in code today. We
 //     freeze the cheap COUNT limit; the byte limits are intentionally NOT
 //     exercised (allocating >200MB would bloat `bun test`).
@@ -28,14 +24,9 @@
 // Seam: startTestServer(). Zero LLM.
 
 import { describe, it, expect, afterEach } from "bun:test";
-import { writeFileSync } from "fs";
-import { join } from "path";
-import {
-  startTestServer,
-  type TestServer,
-  type TestSocket,
-} from "./harness.ts";
-import type { AgentInfo, LogEntry } from "../../shared/types.ts";
+import { startTestServer, type TestServer } from "./harness.ts";
+import type { AgentInfo } from "../../shared/types.ts";
+import { getAgentTokenRaw } from "../identity/tokens.ts";
 
 let server: TestServer | null = null;
 
@@ -43,21 +34,6 @@ afterEach(async () => {
   await server?.stop();
   server = null;
 });
-
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-async function waitUntil(
-  pred: () => boolean,
-  timeoutMs = 2000,
-  label = "condition",
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    if (pred()) return;
-    if (Date.now() > deadline) throw new Error(`waitUntil timed out: ${label}`);
-    await sleep(10);
-  }
-}
 
 async function spawnAgent(
   srv: TestServer,
@@ -81,50 +57,30 @@ async function spawnAgent(
   return info;
 }
 
-// Wait for (and return) the first log_entry for `agentId` of the given kind.
-// `contains` disambiguates kind:"system" (spawn emits an "Agent ready" system
-// entry that is replayed on connect, so kind alone is not unique there).
-async function waitForLog(
-  sock: TestSocket,
-  agentId: string,
-  kind: LogEntry["kind"],
-  contains?: string,
-  timeoutMs = 2000,
-): Promise<LogEntry> {
-  const match = () =>
-    sock.messages.find((m) => {
-      const msg = m as { type?: string; entry?: LogEntry };
-      return (
-        msg.type === "log_entry" &&
-        msg.entry?.agentId === agentId &&
-        msg.entry?.kind === kind &&
-        (contains === undefined || msg.entry.content.includes(contains))
-      );
-    }) as { entry: LogEntry } | undefined;
-  await waitUntil(
-    () => !!match(),
-    timeoutMs,
-    `log_entry kind=${kind}${contains ? ` ~ ${contains}` : ""}`,
-  );
-  return match()!.entry;
-}
-
 interface HttpResult {
   status: number;
   body: { ok?: boolean; error?: string; [k: string]: unknown };
 }
 
-// Agent affordances are loopback-trusted (/agents/ is in isAgentApiPath), so no
-// cookie is needed; the harness fetches 127.0.0.1.
+// Legacy agent affordances POST to /agents/:id/:action over loopback with NO
+// bearer. After the loopback-bypass removal, /agents/ is off isAgentApiPath, so
+// these requests are rejected 401 at the cookie wall (used below to prove the
+// legacy surface fails closed). The token-required /api affordances are covered
+// in routes-agent-affordances-rest.test.ts.
 async function affordance(
   srv: TestServer,
   agentId: string,
   action: string,
   body: unknown,
+  bearer?: string,
 ): Promise<HttpResult> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (bearer) headers["Authorization"] = `Bearer ${bearer}`;
   const res = await srv.http(`/agents/${agentId}/${action}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(body),
   });
   return {
@@ -133,146 +89,69 @@ async function affordance(
   };
 }
 
-describe("routes/affordances: read-file (Phase 1.4b)", () => {
-  it("missing path -> 400 missing path", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Boss");
-    const room = srv.agentManager.getRooms()[0];
-    const a = await spawnAgent(srv, "Worker", room.id);
-    const r = await affordance(srv, a.id, "read-file", {});
-    expect(r.status).toBe(400);
-    expect(r.body.error).toBe("missing path");
-  });
-
-  it("unknown agent (valid path) -> 404 agent not found", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const r = await affordance(srv, "ghost", "read-file", { path: "/x" });
-    expect(r.status).toBe(404);
-    expect(r.body.error).toBe("agent not found");
-  });
-
-  it("existing file -> { ok:true } + kind:file-view log entry with attachment", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Boss");
-    const room = srv.agentManager.getRooms()[0];
-    const a = await spawnAgent(srv, "Worker", room.id);
-    writeFileSync(join(srv.stateRoot, "hello.txt"), "hi there");
-    const sock = await srv.connectWs(owner.rawSessionId);
-    const r = await affordance(srv, a.id, "read-file", { path: "hello.txt" });
-    expect(r.status).toBe(200);
-    expect(r.body.ok).toBe(true);
-    const entry = await waitForLog(sock, a.id, "file-view");
-    expect(entry.attachments?.length).toBe(1);
-  });
-
-  it("nonexistent file is NOT an HTTP error -> { ok:true } + kind:system 'does not exist'", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Boss");
-    const room = srv.agentManager.getRooms()[0];
-    const a = await spawnAgent(srv, "Worker", room.id);
-    const sock = await srv.connectWs(owner.rawSessionId);
-    const r = await affordance(srv, a.id, "read-file", { path: "nope.txt" });
-    expect(r.status).toBe(200);
-    expect(r.body.ok).toBe(true);
-    const entry = await waitForLog(sock, a.id, "system", "does not exist");
-    expect(entry.content).toContain("does not exist");
-  });
-});
-
-describe("routes/affordances: edit-file + terminal-command (Phase 1.4b)", () => {
-  it("edit-file existing text file -> { ok:true } + kind:edit-request", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Boss");
-    const room = srv.agentManager.getRooms()[0];
-    const a = await spawnAgent(srv, "Worker", room.id);
-    writeFileSync(join(srv.stateRoot, "edit-me.txt"), "content");
-    const sock = await srv.connectWs(owner.rawSessionId);
-    const r = await affordance(srv, a.id, "edit-file", { path: "edit-me.txt" });
-    expect(r.status).toBe(200);
-    expect(r.body.ok).toBe(true);
-    const entry = await waitForLog(sock, a.id, "edit-request");
-    expect(entry.file?.path).toContain("edit-me.txt");
-  });
-
-  it("edit-file missing path -> 400 missing path", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Boss");
-    const room = srv.agentManager.getRooms()[0];
-    const a = await spawnAgent(srv, "Worker", room.id);
-    const r = await affordance(srv, a.id, "edit-file", {});
-    expect(r.status).toBe(400);
-    expect(r.body.error).toBe("missing path");
-  });
-
-  it("terminal-command single-line -> { ok:true } + kind:terminal-command", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Boss");
-    const room = srv.agentManager.getRooms()[0];
-    const a = await spawnAgent(srv, "Worker", room.id);
-    const sock = await srv.connectWs(owner.rawSessionId);
-    const r = await affordance(srv, a.id, "terminal-command", {
-      command: "bun test",
+describe("routes/affordances: legacy loopback agent affordances removed (loopback-bypass removal)", () => {
+  // The legacy loopback agent self-affordances (POST /agents/:id/{read-file,
+  // edit-file,terminal-command,diff}) were deleted. /agents/ was dropped from
+  // isAgentApiPath, so a no-bearer loopback POST is rejected 401 at the cookie
+  // wall BEFORE any handler runs — which is exactly why the legacy surface now
+  // fails closed (no handler, so no transcript write is possible). A VALID
+  // bearer clears the cookie wall but hits the /agents/ POST block's JSON-404
+  // fallback (not the SPA 200 HTML fall-through that would mask stale callers).
+  // Positive coverage of the token-required /api replacements lives in
+  // routes-agent-affordances-rest.test.ts.
+  const cases: { action: string; body: Record<string, unknown> }[] = [
+    { action: "read-file", body: { path: "hello.txt" } },
+    { action: "edit-file", body: { path: "hello.txt" } },
+    { action: "terminal-command", body: { command: "bun test" } },
+    { action: "diff", body: {} },
+  ];
+  for (const { action, body } of cases) {
+    it(`no-bearer legacy POST /agents/:id/${action} -> 401 (fail closed)`, async () => {
+      const srv = await startTestServer();
+      server = srv;
+      await srv.seedOwner("Boss");
+      const room = srv.agentManager.getRooms()[0];
+      const a = await spawnAgent(srv, "Worker", room.id);
+      const r = await affordance(srv, a.id, action, body);
+      expect(r.status).toBe(401);
     });
-    expect(r.status).toBe(200);
-    expect(r.body.ok).toBe(true);
-    const entry = await waitForLog(sock, a.id, "terminal-command");
-    expect(entry.terminal?.command).toBe("bun test");
-  });
+  }
 
-  it("terminal-command missing command -> 400; multiline -> 400 single-line", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Boss");
-    const room = srv.agentManager.getRooms()[0];
-    const a = await spawnAgent(srv, "Worker", room.id);
-    const missing = await affordance(srv, a.id, "terminal-command", {});
-    expect(missing.status).toBe(400);
-    expect(missing.body.error).toBe("missing command");
-    const multiline = await affordance(srv, a.id, "terminal-command", {
-      command: "echo a\necho b",
-    });
-    expect(multiline.status).toBe(400);
-    expect(multiline.body.error).toBe(
-      "command must be single-line; join steps with && or ;",
-    );
-  });
-});
-
-describe("routes/affordances: diff (Phase 1.4b)", () => {
-  it("unknown agent -> 404 agent not found", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const r = await affordance(srv, "ghost", "diff", {});
-    expect(r.status).toBe(404);
-    expect(r.body.error).toBe("agent not found");
-  });
-
-  it("non-repo cwd -> { ok:true } + kind:system 'not a git repository'", async () => {
+  it("a valid AGENT bearer to a deleted affordance path -> 404 (no side effect)", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
     const room = srv.agentManager.getRooms()[0];
-    // The agent's cwd is the throwaway temp stateRoot, which is not a git repo,
-    // so the diff machinery deterministically returns the not_repo branch.
     const a = await spawnAgent(srv, "Worker", room.id);
+    const token = getAgentTokenRaw(a.id)!;
     const sock = await srv.connectWs(owner.rawSessionId);
-    const r = await affordance(srv, a.id, "diff", {});
-    expect(r.status).toBe(200);
-    expect(r.body.ok).toBe(true);
-    const entry = await waitForLog(
-      sock,
+    // A valid bearer clears the cookie wall, but the deleted affordance sub-block
+    // is gone; the /agents/ POST block's JSON-404 fallback rejects it instead of
+    // the SPA 200 HTML fall-through that would mask stale callers.
+    const r = await affordance(
+      srv,
       a.id,
-      "system",
-      "not a git repository",
+      "read-file",
+      { path: "hello.txt" },
+      token,
     );
-    expect(entry.content).toContain("not a git repository");
+    expect(r.status).toBe(404);
+    expect(r.body.error).toBe("not found");
+    // Fail-closed: the deleted handler never ran, so no file-view card emitted.
+    sock.send({ type: "ping" });
+    await sock.waitFor("pong");
+    const fileViews = sock.messages.filter((m) => {
+      const msg = m as {
+        type?: string;
+        entry?: { agentId?: string; kind?: string };
+      };
+      return (
+        msg.type === "log_entry" &&
+        msg.entry?.agentId === a.id &&
+        msg.entry?.kind === "file-view"
+      );
+    });
+    expect(fileViews.length).toBe(0);
   });
 });
 

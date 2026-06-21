@@ -182,10 +182,12 @@ function authPageTitle(officeName: string | null, suffix: string): string {
 // ---------------------------------------------------------------------------
 // Gating function. Called at the top of every fetch handler.
 //
-// The `allowLoopback` parameter is true for endpoints agents legitimately hit
-// from the same box (POST /tasks, POST /agents/:id/message, etc.). It's
-// false for the SPA shell and static assets, so a same-box browser still has
-// to claim a cookie via /i/<token> instead of getting a half-functional
+// The `allowLoopback` parameter is true for the API paths agents legitimately
+// hit from the same box (POST /tasks, /cronjobs read routes, /backup/status).
+// It's false for the SPA shell and static assets — and for the agent surface
+// (/agents/...), which is bearer-required after the loopback-bypass removal, so
+// a same-box agent must present its ISOMUX_AGENT_TOKEN. A same-box browser still
+// has to claim a cookie via /i/<token> instead of getting a half-functional
 // landing page where HTTP works but WS doesn't.
 
 export function authenticate<T>(

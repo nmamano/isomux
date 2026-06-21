@@ -799,7 +799,7 @@ export function* translateSDKMessage(
         // have the base64 bytes.
         //
         // Not the canonical "show a file to the boss" path — that's POST
-        // /agents/:id/read-file (or /cronjobs/:id/runs/:runId/read-file
+        // /api/agents/:id/read-file (or /api/cronjobs/:id/runs/:runId/read-file
         // for cronjobs); the system prompt teaches those endpoints. This
         // branch stays because it's a useful side effect: when an agent
         // genuinely uses Read on an image to look at it themselves, the

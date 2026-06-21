@@ -31,7 +31,7 @@ Write a brief detailed enough that the boss doesn't have to re-explain anything.
 
 ### 3. Send the brief
 
-POST the brief to `/agents/<peer-id>/message` with your own `senderAgentId` so the peer knows who's handing off. The body MUST also tell the peer:
+POST the brief to `/agents/<peer-id>/message` so the peer knows who's handing off. The body MUST also tell the peer:
 
 - That they own the work from here — they don't need to check in with you unless they're blocked.
 - **If they have clarifying questions, they must POST back to your agent endpoint, not just type in their own chat.** Replies that only land in their own chat never reach you. Give them your agent ID explicitly.

@@ -302,12 +302,12 @@ Known **post-acceptance** authorization gaps fall outside this report's external
 
 **If tightening is desired:** demote active-content extensions (`html`/`htm`/`xml`/`xhtml`/`svg`/`css`/`js`) on `/api/files` to `application/octet-stream` with `Content-Disposition: attachment`; add `X-Content-Type-Options: nosniff`; consider serving attachments from a separate origin.
 
-### C.4 Loopback agent-API trusts any same-host process as an agent
+### C.4 Loopback bypass scope (agent-API is token-bound; task/cron/backup are not)
 
-- `server/index.ts` — `POST /agents/:id/diff|edit-file|read-file|terminal-command|message` are loopback-bypassable; the handlers validate `senderAgentId` exists but do not authenticate that the calling process _is_ that agent.
-- A same-host process can post messages and surface UI cards purporting to come from any other agent.
+- `server/index.ts` — the agent self-affordances (`POST /api/agents/:id/{diff,edit-file,read-file,terminal-command}`) and `POST /agents/:id/message` require a per-agent bearer token: affordances are bound to the calling agent by `agentParamMustEqualTokenAgent`, and the message sender is derived from the agent's injected `ISOMUX_AGENT_TOKEN` (a `senderAgentId` that does not match the token is rejected). A same-host process cannot act as an agent it holds no token for.
+- The remaining loopback bypass (`isAgentApiPath`) covers `POST /tasks`, the `GET /cronjobs` read routes, and `GET /backup/status`: a same-host process reaches these without a token, so it can list/create tasks, read cronjob metadata/transcripts, and read backup status as if it were local.
 
-**Status:** documented in `docs/access-and-invites.md` as "Not protection against rogue agents." Tightening requires per-agent auth tokens on `/agents/:id/*` calls.
+**If tightening is desired:** extend the per-agent/per-run token requirement to the task and cronjob-read surfaces, as was done for the agent affordance and message endpoints.
 
 ### C.5 HTTP `POST /tasks` accepts client-controlled attribution
 

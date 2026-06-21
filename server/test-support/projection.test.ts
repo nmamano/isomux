@@ -49,6 +49,7 @@ import {
   type TestSocket,
 } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
+import { getAgentTokenRaw } from "../identity/tokens.ts";
 import type {
   AgentInfo,
   LogEntry,
@@ -954,11 +955,10 @@ describe("killed-agent summary ACL (Phase 1.2)", () => {
 
 describe("agent-to-agent message endpoint is outside browser room ACL (Phase 1.2)", () => {
   it("permits cross-room enqueue (existence-only gate), regardless of either agent's room visibility", async () => {
-    // The loopback /agents/:id/message endpoint has NO session and no room ACL:
-    // it gates on agent EXISTENCE only and the sender's identity (incl. its
-    // roomName) is resolved server-side. Cross-room enqueue is intentional.
-    // (Phase 2.1/3a token-auth this endpoint; this freezes that the room
-    // boundary does not block delivery today.)
+    // The bearer-required /agents/:id/message endpoint has NO session and no
+    // room ACL: it gates on agent EXISTENCE only, and the sender's identity
+    // (incl. its roomName) is derived from the AGENT bearer server-side. Cross-
+    // room enqueue is intentional — the room boundary does not block delivery.
     server = await boot();
     const r1 = server.agentManager.getRooms()[0].id;
     const [r2] = makeRoomsBeforeOwner(server, ["R2"]);
@@ -967,24 +967,30 @@ describe("agent-to-agent message endpoint is outside browser room ACL (Phase 1.2
     const sender = await spawnIn(server, "Sender", r2); // a "hidden" room
     const receiver = await spawnIn(server, "Receiver", r1);
 
+    // Sender authenticates with its own AGENT bearer (the sender is token-
+    // derived, not body-sourced). Delivery crosses the room boundary.
     const ok = await server.http(`/agents/${receiver.id}/message`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: "ping", senderAgentId: sender.id }),
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${getAgentTokenRaw(sender.id)!}`,
+      },
+      body: JSON.stringify({ text: "ping" }),
     });
     expect(ok.status).toBe(200);
     expect(((await ok.json()) as { ok?: boolean }).ok).toBe(true);
 
     // Existence is the ONLY gate (no exists-but-hidden distinction — there is no
-    // ACL here at all): an unknown sender id is a generic 400.
-    const bad = await server.http(`/agents/${receiver.id}/message`, {
+    // ACL here at all): an unknown RECEIVER is a generic 404, never a leak of
+    // whether a hidden agent exists.
+    const bad = await server.http(`/agents/no-such-agent/message`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: "ping", senderAgentId: "no-such-agent" }),
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${getAgentTokenRaw(sender.id)!}`,
+      },
+      body: JSON.stringify({ text: "ping" }),
     });
-    expect(bad.status).toBe(400);
-    expect(((await bad.json()) as { error?: string }).error).toContain(
-      "not a known agent",
-    );
+    expect(bad.status).toBe(404);
   });
 });

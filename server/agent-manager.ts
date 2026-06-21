@@ -1369,7 +1369,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return { ok: true };
   }
 
-  // Display cap for POST /agents/:id/read-file. Independent from the editor
+  // Display cap for POST /api/agents/:id/read-file. Independent from the editor
   // panel's 1 MB text cap (file-editor.ts) — this one bounds binary/image
   // display payloads served through /api/files.
   const MAX_READ_FILE_BYTES = 20 * 1024 * 1024;
@@ -1445,7 +1445,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   }
 
   // Run the same diff machinery as /isomux-diff and emit the result into the
-  // agent's chat stream. Used by POST /agents/:id/diff so an agent can show
+  // agent's chat stream. Used by POST /api/agents/:id/diff so an agent can show
   // the boss a styled diff card without the boss invoking the slash command.
   function emitAgentDiff(
     agentId: string,

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { Attachment } from "../../shared/types.ts";
 
-// Card emitted by POST /agents/:id/read-file. Images render inline (clickable
+// Card emitted by POST /api/agents/:id/read-file. Images render inline (clickable
 // for lightbox); other media types render as a clickable file chip via the
 // same /api/files/<agentId>/<filename> route used by uploaded attachments.
 export function FileViewCard({

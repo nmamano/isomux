@@ -7,10 +7,11 @@
 // cross-agent or unknown `:id` is a 403 at the guard (the token binds the agent),
 // NOT the legacy 404 — the intended token-auth behavior of the new route.
 //
-// Strangler EXPAND: these REST handlers + the still-living loopback HTTP handlers
-// (/agents/:id/{read-file,diff,edit-file,terminal-command}) BOTH delegate to ONE
-// shared AgentManager core op. The legacy loopback paths stay trusted + byte-
-// identical (frozen by routes-affordances.test.ts) until the post-3a flip.
+// Sole affordance surface: the legacy loopback HTTP handlers
+// (/agents/:id/{read-file,diff,edit-file,terminal-command}) were DELETED in the
+// loopback-bypass removal milestone. These REST handlers delegate to the same
+// shared AgentManager core ops the legacy paths used; nothing else reaches them.
+// (routes-affordances.test.ts asserts the deleted legacy paths now fail closed.)
 //
 // NO emit bridge (unlike cron): the manager already emits `log_entry` through the
 // event sink, which routes it via routeAgentEvent / room-ACL projection. Handlers

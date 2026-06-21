@@ -186,13 +186,13 @@ describe("routes/cronjobs: read surface (Phase 1.4b)", () => {
 });
 
 describe("routes/cronjobs: method + CORS walls (Phase 1.4b)", () => {
-  it("OPTIONS preflight advertises GET,POST,OPTIONS", async () => {
+  it("OPTIONS preflight advertises GET,OPTIONS (POST dropped — loopback affordances removed)", async () => {
     const srv = await boot();
     const res = await srv.http("/cronjobs", { method: "OPTIONS" });
     expect(res.status).toBe(200);
     expect(res.headers.get("access-control-allow-origin")).toBe("*");
     expect(res.headers.get("access-control-allow-methods")).toBe(
-      "GET, POST, OPTIONS",
+      "GET, OPTIONS",
     );
     expect(res.headers.get("access-control-allow-headers")).toBe(
       "Content-Type",
@@ -208,37 +208,33 @@ describe("routes/cronjobs: method + CORS walls (Phase 1.4b)", () => {
   });
 });
 
-describe("routes/cronjobs: in-flight run affordances (dispatch-only) (Phase 1.4b)", () => {
-  it("POST .../runs/:runId/read-file without a path -> 400 missing path", async () => {
-    const srv = await boot();
-    const job = seedJob(srv, "Nightly");
-    const r = await cronHttp(srv, `/cronjobs/${job.id}/runs/r1/read-file`, {
-      method: "POST",
-      body: {},
-    });
-    expect(r.status).toBe(400);
-    expect((r.body as { error: string }).error).toBe("missing path");
-  });
-
-  it("POST .../runs/:runId/read-file with no live run -> 404 active run not found", async () => {
+describe("routes/cronjobs: legacy in-flight run affordances removed (loopback-bypass removal)", () => {
+  // The legacy loopback cron-run affordances (POST /cronjobs/:id/runs/:runId/
+  // {read-file,diff}) were deleted; in-flight runs use the token-required /api
+  // surface now (covered in routes-cronjobs-runs.test.ts). /cronjobs stays
+  // loopback-trusted for GET this milestone, so a POST here is no longer the old
+  // 400/404 dispatch — it falls through to the existing method gate (405), not a
+  // 401. The old "missing path -> 400" / "no live run -> 404" dispatch behavior
+  // is gone with the handler.
+  it("POST .../runs/:runId/read-file -> 405 method not allowed (handler deleted)", async () => {
     const srv = await boot();
     const job = seedJob(srv, "Nightly");
     const r = await cronHttp(srv, `/cronjobs/${job.id}/runs/r1/read-file`, {
       method: "POST",
       body: { path: "/etc/hostname" },
     });
-    expect(r.status).toBe(404);
-    expect((r.body as { error: string }).error).toBe("active run not found");
+    expect(r.status).toBe(405);
+    expect((r.body as { error: string }).error).toBe("method not allowed");
   });
 
-  it("POST .../runs/:runId/diff with no live run -> 404 active run not found", async () => {
+  it("POST .../runs/:runId/diff -> 405 method not allowed (handler deleted)", async () => {
     const srv = await boot();
     const job = seedJob(srv, "Nightly");
     const r = await cronHttp(srv, `/cronjobs/${job.id}/runs/r1/diff`, {
       method: "POST",
       body: {},
     });
-    expect(r.status).toBe(404);
-    expect((r.body as { error: string }).error).toBe("active run not found");
+    expect(r.status).toBe(405);
+    expect((r.body as { error: string }).error).toBe("method not allowed");
   });
 });

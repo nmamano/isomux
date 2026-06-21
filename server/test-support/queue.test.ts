@@ -123,8 +123,13 @@ interface PostResult {
   };
 }
 
-// Agent-to-agent entry point: POST /agents/:receiverId/message. Loopback-trusted
-// today (no auth); the harness fetches 127.0.0.1 so it is a loopback request.
+// Agent-to-agent entry point: POST /agents/:receiverId/message. Bearer-required
+// after the loopback-bypass removal: the sender's auto-injected AGENT bearer
+// (ISOMUX_AGENT_TOKEN, resolved here via getAgentTokenRaw) IS the sender, so the
+// body no longer carries senderAgentId on the happy path — it's token-derived.
+// A null senderId (or one with no minted token) sends NO bearer, exercising the
+// no-identity 401 path (the harness fetches 127.0.0.1, but loopback is no longer
+// trusted for /agents/).
 async function postAgentMessage(
   srv: TestServer,
   receiverId: string,
@@ -134,11 +139,15 @@ async function postAgentMessage(
 ): Promise<PostResult> {
   const payload: Record<string, unknown> = {};
   if (text !== null) payload.text = text;
-  if (senderId !== null) payload.senderAgentId = senderId;
   if (clientMessageId) payload.clientMessageId = clientMessageId;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  const bearer = senderId !== null ? getAgentTokenRaw(senderId) : null;
+  if (bearer) headers["Authorization"] = `Bearer ${bearer}`;
   const res = await srv.http(`/agents/${receiverId}/message`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify(payload),
   });
   return { status: res.status, body: (await res.json()) as PostResult["body"] };
@@ -532,28 +541,23 @@ describe("queue: dedupe / cap / reject contracts (Phase 1.4a)", () => {
     expect(queueOf(server, recv.id).length).toBe(50); // unchanged
   });
 
-  it("rejects malformed / unknown / self / error-state sends with today's status codes", async () => {
+  it("rejects malformed / self / unknown-receiver / error-state sends with today's status codes", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
     const room = server.agentManager.getRooms()[0];
     const recv = await spawnAgent(server, "Receiver", room.id);
     const sender = await spawnAgent(server, "Sender", room.id);
 
-    // Missing fields -> 400.
-    expect((await postAgentMessage(server, recv.id, null, "hi")).status).toBe(
-      400,
-    );
+    // Missing text (valid AGENT bearer) -> 400. The old "missing / unknown
+    // senderAgentId -> 400" cases are gone: the sender is token-derived, not
+    // body-sourced (see the bearer-required sender-authority block below).
     expect(
       (await postAgentMessage(server, recv.id, sender.id, null)).status,
     ).toBe(400);
-    // Unknown sender -> 400.
-    expect(
-      (await postAgentMessage(server, recv.id, "agent-bogus", "hi")).status,
-    ).toBe(400);
-    // Send-to-self -> 400.
+    // Send-to-self -> 400 (sender derived from the bearer equals the receiver).
     expect(
       (await postAgentMessage(server, recv.id, recv.id, "hi")).status,
     ).toBe(400);
-    // Unknown receiver (known sender) -> 404 from enqueueMessage.
+    // Unknown receiver (valid sender bearer) -> 404 from enqueueMessage.
     const unknown = await postAgentMessage(
       server,
       "agent-bogus",
@@ -734,13 +738,13 @@ describe("queue: cancel / send-now / new-conversation (Phase 1.4a)", () => {
   });
 });
 
-// Phase 3 loopback-bypass removal (grace window): the legacy POST
-// /agents/:id/message gains in-place bearer sender-authority. A valid AGENT
-// bearer (auto-injected ISOMUX_AGENT_TOKEN) IS the sender; a mismatched
-// body.senderAgentId is a spoof (403); a valid non-agent identity is rejected
-// rather than body-trusted; anonymous loopback keeps body-trust until the
-// restart-boundary flip (frozen by the loopback tests above).
-describe("queue: message endpoint sender authority (Phase 3 grace window)", () => {
+// Loopback-bypass removal (deletion): the legacy POST /agents/:id/message is now
+// bearer-required. A valid AGENT bearer (auto-injected ISOMUX_AGENT_TOKEN) IS the
+// sender; a mismatched body.senderAgentId is a spoof (403); a valid non-agent
+// identity (USER/RUN) is rejected (403); a no/invalid-bearer request is rejected
+// 401 at the cookie wall — loopback body-trust is gone (/agents/ is off
+// isAgentApiPath).
+describe("queue: message endpoint sender authority (bearer-required)", () => {
   async function postBearer(
     srv: TestServer,
     receiverId: string,
@@ -760,6 +764,27 @@ describe("queue: message endpoint sender authority (Phase 3 grace window)", () =
       body: (await res.json()) as { ok?: boolean; error?: string },
     };
   }
+
+  it("a no-bearer loopback POST is rejected 401 (loopback body-trust removed)", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const room = server.agentManager.getRooms()[0];
+    const recv = await spawnAgent(server, "Receiver", room.id);
+    const sender = await spawnAgent(server, "Sender", room.id);
+
+    // No Authorization header. Previously the anonymous-loopback path body-
+    // trusted senderAgentId; now /agents/ is off isAgentApiPath, so the cookie
+    // wall rejects it (401) before the handler runs.
+    const res = await server.http(`/agents/${recv.id}/message`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "anon", senderAgentId: sender.id }),
+    });
+    expect(res.status).toBe(401);
+    // Nothing was enqueued or flushed to the receiver.
+    expect(server.fakeBackend.sessionForAgent(recv.id)?.sent.length ?? 0).toBe(
+      0,
+    );
+  });
 
   it("a valid AGENT bearer IS the sender; no senderAgentId needed (token-derived)", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });

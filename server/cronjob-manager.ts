@@ -526,12 +526,12 @@ How to use the task board (localhost:${PORT}/tasks): only touch it if your promp
     -d '{"title":"...","createdBy":"${cronjob.name}"}'                  # create
   curl -s -X POST localhost:${PORT}/tasks/ID/done -d '{}'                  # mark done
 
-How to surface a file in the run transcript (images render inline; other files render as a clickable file chip): call POST localhost:${PORT}/cronjobs/${cronjob.id}/runs/${runIdForUrl}/read-file with body {"path":"..."}. The path can be relative to your cwd, absolute, or \`~/...\`. Use this when you've produced or want to surface a file (a plot, screenshot, generated PDF, log snippet) for whoever reviews the run.
-  curl -s -X POST localhost:${PORT}/cronjobs/${cronjob.id}/runs/${runIdForUrl}/read-file -H 'Content-Type: application/json' -d '{"path":"plot.png"}'
+How to surface a file in the run transcript (images render inline; other files render as a clickable file chip): call POST localhost:${PORT}/api/cronjobs/${cronjob.id}/runs/${runIdForUrl}/read-file with body {"path":"..."} and your bearer token (the auto-injected $ISOMUX_AGENT_TOKEN). The path can be relative to your cwd, absolute, or \`~/...\`. Use this when you've produced or want to surface a file (a plot, screenshot, generated PDF, log snippet) for whoever reviews the run.
+  curl -s -X POST localhost:${PORT}/api/cronjobs/${cronjob.id}/runs/${runIdForUrl}/read-file -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"path":"plot.png"}'
 
-How to show a styled code diff in the run transcript: call POST localhost:${PORT}/cronjobs/${cronjob.id}/runs/${runIdForUrl}/diff. Optional body fields: {"dir":"..."} targets a different directory (defaults to your cwd); {"commit":"..."} shows a specific commit (\`08dbbe2\`), tag/branch, or range (\`main..feature\`, \`HEAD~3..HEAD\`, \`a...b\` for merge-base diff) instead of uncommitted changes.
-  curl -s -X POST localhost:${PORT}/cronjobs/${cronjob.id}/runs/${runIdForUrl}/diff -d '{}'                                                # uncommitted in your cwd
-  curl -s -X POST localhost:${PORT}/cronjobs/${cronjob.id}/runs/${runIdForUrl}/diff -H 'Content-Type: application/json' -d '{"commit":"08dbbe2"}'   # a specific commit
+How to show a styled code diff in the run transcript: call POST localhost:${PORT}/api/cronjobs/${cronjob.id}/runs/${runIdForUrl}/diff with your bearer token. Optional body fields: {"dir":"..."} targets a different directory (defaults to your cwd); {"commit":"..."} shows a specific commit (\`08dbbe2\`), tag/branch, or range (\`main..feature\`, \`HEAD~3..HEAD\`, \`a...b\` for merge-base diff) instead of uncommitted changes.
+  curl -s -X POST localhost:${PORT}/api/cronjobs/${cronjob.id}/runs/${runIdForUrl}/diff -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -d '{}'                                                # uncommitted in your cwd
+  curl -s -X POST localhost:${PORT}/api/cronjobs/${cronjob.id}/runs/${runIdForUrl}/diff -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"commit":"08dbbe2"}'   # a specific commit
 
 How to inspect cronjobs (~/.isomux/cronjobs/): cronjobs are scheduled SDK sessions, not agents — they fire daily/weekly/at an interval, run a fresh session with a configured prompt, and save the transcript as a "run". They have no desk or persistent identity. Only touch them when the boss asks.
   ~/.isomux/cronjobs/cronjobs.json                              # all cronjob configs

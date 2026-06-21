@@ -11,7 +11,9 @@
 //   - The central idempotency layer applies to these side-effecting log emitters.
 //   - Cross-agent / unknown `:id` is 403 (token binds the agent), a USER cookie is
 //     403 (no self:affordance), and no identity is 401 (allowLoopback:false).
-//   - The legacy loopback /agents/:id/* paths stay untouched (frozen elsewhere).
+//   - The legacy loopback /agents/:id/* affordance paths were DELETED in the
+//     loopback-bypass removal milestone; that they now fail closed is covered by
+//     routes-affordances.test.ts. These /api routes are the sole surface.
 //
 // Seam: startTestServer(). Zero LLM.
 
