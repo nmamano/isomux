@@ -6,7 +6,6 @@ import type {
   AgentBackendType,
   AgentInfo,
   RoomWire,
-  NotifRoomsSetting,
   PresenceInfo,
   UserRecord,
 } from "../shared/types.ts";
@@ -953,36 +952,41 @@ function pushPresenceListToEachWs() {
 }
 
 // ---------------------------------------------------------------------------
-// Per-WS room ACL projection
+// Per-WS room ACL + view projection (Phase 3b)
 //
-// Members can be restricted to a subset of rooms via UserRecord.allowedRooms.
-// Owners and members with "all" are not restricted. The wire contract uses
-// numeric `room` indices on AgentInfo and on tab-bar order, so when we hide
-// rooms from a member we must rewrite those indices into a dense visible
-// space. Otherwise the member's UI iterates over a global rooms array with
+// ACCESS (security): owners reach EVERY room by RULE; members reach their
+// explicitly-granted rooms (UserRecord.allowedRooms == member grants). See
+// canAccess(). VIEW (non-security): layered ON TOP of access — `hidden`
+// (effective shown = accessible \ hidden) and sparse `order` decide WHICH
+// accessible rooms appear and in what order. The wire contract uses numeric
+// `room` indices on AgentInfo and on tab-bar order, so the projection rewrites
+// them into a dense per-recipient visible space (accessible ∩ shown, ordered).
+// Otherwise a restricted recipient's UI iterates a global rooms array with
 // holes and `agent.room === currentRoom` checks miss.
 //
-// Helpers below are the single source of truth for those translations;
-// per-WS event routing and the connect-time full_state both go through
-// them.
+// Helpers below are the single source of truth for those translations; per-WS
+// event routing and the connect-time full_state both go through them.
 
-// Visibility is fully encoded in UserRecord.allowedRooms. There is no
-// per-room "private" flag and no "all" sentinel — the literal list IS
-// the access control. "Private to creator + owners" is an emergent
-// behavior of the create_room handler adding the new roomId to those
-// users' lists at creation time. Future rooms are added explicitly to
-// every owner + the creator.
-//
-// A session has "full access" when its user's allowedRooms covers
-// every current room id — that's the only state where the routing
-// fast-path can skip the projection. Owners with a self-imposed
-// restriction (allowedRooms missing some room ids) lose full access
-// just like restricted members would.
+// A session has "full access" when it can ACCESS every current room: an owner
+// (by rule) or a member whose grants cover all rooms. visibleRoomProjection's
+// identity fast-path additionally requires no hidden rooms and no custom order
+// (otherwise it falls to the general accessible∩shown-in-order path).
+// Rule-based room ACCESS (Phase 3b slice 3). Owners have access to ALL rooms by
+// RULE (no materialized grant list); members have access to explicitly-granted
+// rooms only (UserRecord.allowedRooms == member grants). This is the SECURITY
+// gate. View preference (hidden/order) is a separate, ADDITIVE filter applied
+// ON TOP by the projection — never here — so a future re-show path can never
+// turn `hidden` into a security gate.
+function canAccess(user: UserRecord, roomId: string): boolean {
+  return user.role === "owner" || user.allowedRooms.includes(roomId);
+}
+
 function sessionHasFullRoomAccess(session: SessionLookup): boolean {
   const user = getUserById(session.userId);
   if (!user) return false;
+  if (user.role === "owner") return true; // rule: owners can access every room
   for (const r of agentManager.getRooms()) {
-    if (!user.allowedRooms.includes(r.id)) return false;
+    if (!canAccess(user, r.id)) return false;
   }
   return true;
 }
@@ -993,7 +997,48 @@ function roomAllowedForSession(
 ): boolean {
   const user = getUserById(session.userId);
   if (!user) return false;
-  return user.allowedRooms.includes(roomId);
+  return canAccess(user, roomId);
+}
+
+// The concrete set of room ids a user can access right now — owner: every
+// current room by rule; member: their explicit grants. For sites that need a
+// materialized accessible-set rather than a per-room predicate (e.g. the
+// presence currentRoomId clamp on an access change).
+function accessibleRoomIdsFor(user: UserRecord): Set<string> {
+  if (user.role === "owner") {
+    return new Set(agentManager.getRooms().map((r) => r.id));
+  }
+  return new Set(user.allowedRooms);
+}
+
+// Phase 3b slice 3 — one-time owner-access migration to the rule-based model.
+// Runs at boot AFTER rooms + users are loaded (it needs BOTH). IDEMPOTENT: the
+// marker is "owner with non-empty allowedRooms"; a migrated owner has [], so a
+// re-run is a no-op. For each owner still carrying materialized grants:
+//   1. Seed `hidden` from the OLD grants so the owner's CURRENT view survives
+//      the flip (under rule-based access an owner would otherwise see every
+//      room). EFFECTIVE-coverage guard: if the grants cover NO live room (empty
+//      or all-stale ids) hidden = ∅ (sees all) — never a blank office.
+//   2. THEN clear grants to [] (compute hidden FIRST). Grants are a member-only
+//      store under the rule; clearing closes the demotion bomb (an owner→member
+//      demotion can no longer inherit the old materialized all-rooms set).
+function migrateOwnersToRuleBasedAccess(): void {
+  const liveRoomIds = agentManager.getRooms().map((r) => r.id);
+  const liveSet = new Set(liveRoomIds);
+  for (const u of listUsers()) {
+    if (u.role !== "owner" || u.allowedRooms.length === 0) continue;
+    const coversAnyLive = u.allowedRooms.some((id) => liveSet.has(id));
+    const seededHidden = coversAnyLive
+      ? liveRoomIds.filter((id) => !u.allowedRooms.includes(id))
+      : [];
+    const mergedHidden = Array.from(new Set([...u.hidden, ...seededHidden]));
+    const r = updateUserById(u.id, { hidden: mergedHidden, allowedRooms: [] });
+    if (!r.ok) {
+      console.error(
+        `[3b migration] owner ${u.id} rule-based-access migration failed: ${r.error}`,
+      );
+    }
+  }
 }
 
 // Production GuardDeps adapter (Phase 2.3, deferred from 2.2). Wires the guard
@@ -1052,6 +1097,40 @@ const liveEmitDeps: EmitDeps<ServerWebSocket<WsData>> = {
     return agentManager.getRooms()[agent.room]?.id ?? null;
   },
   deliver: (recipients, id, payload) => {
+    // Slice 3b.1: room-ACL events arrive here with recipients ALREADY filtered
+    // to room-access sessions by emit()'s registry audience, so deliver() only
+    // performs per-recipient WIRE SHAPING — it does NOT own the audience decision
+    // and never broadens recipients (projectAgentForSession's visibility check
+    // below is defensive shaping if state/projection disagree, not a second
+    // audience gate):
+    //   - agent_added: rewrite agent.room to the recipient's dense visible index
+    //     (full-access sessions get the identity projection → verbatim bytes).
+    //   - room_closed: a closed room shifts a restricted recipient's dense space,
+    //     so send a projected full_state (+ log replay) rather than the bare
+    //     delta; full-access sessions take the verbatim close.
+    // Every other event (today's 3a all/owners/recipient-scoped set + the
+    // remaining room-ACL deltas that carry no dense room index) is byte-identical
+    // verbatim. This reproduces routeAgentEventToWs for the migrated events.
+    if (id === "agent_added") {
+      const agent = (payload as { agent: AgentInfo }).agent;
+      for (const ws of recipients) {
+        const projected = projectAgentForSession(ws.data.session, agent);
+        if (projected) {
+          ws.send(JSON.stringify({ type: "agent_added", agent: projected }));
+        }
+      }
+      return;
+    }
+    if (id === "room_closed") {
+      for (const ws of recipients) {
+        if (sessionHasFullRoomAccess(ws.data.session)) {
+          ws.send(JSON.stringify({ type: id, ...(payload as object) }));
+        } else {
+          sendProjectedFullState(ws, { replayLogsForVisible: true });
+        }
+      }
+      return;
+    }
     const data = JSON.stringify({ type: id, ...(payload as object) });
     for (const ws of recipients) ws.send(data);
   },
@@ -1558,20 +1637,52 @@ interface VisibleRoomProjection {
 
 function visibleRoomProjection(session: SessionLookup): VisibleRoomProjection {
   const all = agentManager.getRooms();
-  if (sessionHasFullRoomAccess(session)) {
-    // Identity projection; avoid per-room allocations on the fast path.
+  const user = getUserById(session.userId);
+  // Fast path: a full-access user with NO hidden rooms and NO custom order sees
+  // every room in office order — the identity projection (no per-room
+  // allocations). Phase 3b migrates hidden/order to [], so this is the common
+  // case and stays byte-identical to the pre-3b full-access fast path.
+  if (
+    user &&
+    sessionHasFullRoomAccess(session) &&
+    user.hidden.length === 0 &&
+    user.order.length === 0
+  ) {
     const identity: number[] = all.map((_, i) => i);
     return { rooms: all, globalToVisible: identity, visibleToGlobal: identity };
   }
+  // General path. ACCESS is the security gate (roomAllowedForSession today;
+  // canAccess after the 3b.3 flip). `hidden` is an additive VIEW filter ON TOP
+  // (effective shown = accessible \ hidden) and is NEVER a security gate — an
+  // owner who hides a room still has access; a re-show consults only access.
+  // `order` is a SPARSE per-user preference: rooms listed there come first in
+  // that order, then the remaining visible rooms in office order. With the
+  // migrated defaults (hidden=[], order=[]) this reduces to "accessible rooms
+  // in office order", i.e. today's projection — verified by projection.test.
+  const hidden = new Set(user?.hidden ?? []);
+  const orderRank = new Map<string, number>();
+  if (user) user.order.forEach((id, i) => orderRank.set(id, i));
+  const visibleGlobal: number[] = [];
+  for (let i = 0; i < all.length; i++) {
+    if (!roomAllowedForSession(session, all[i].id)) continue; // access gate
+    if (hidden.has(all[i].id)) continue; // view filter (not security)
+    visibleGlobal.push(i);
+  }
+  // Stable sort: explicit-order rank first (listed rooms, in listed order),
+  // office order (the original global index) as the tiebreak for everything
+  // unlisted. Rank +Infinity for unlisted rooms keeps them in office order.
+  visibleGlobal.sort((a, b) => {
+    const ra = orderRank.has(all[a].id) ? orderRank.get(all[a].id)! : Infinity;
+    const rb = orderRank.has(all[b].id) ? orderRank.get(all[b].id)! : Infinity;
+    return ra !== rb ? ra - rb : a - b;
+  });
   const rooms: RoomWire[] = [];
   const globalToVisible: number[] = new Array(all.length).fill(-1);
   const visibleToGlobal: number[] = [];
-  for (let i = 0; i < all.length; i++) {
-    if (roomAllowedForSession(session, all[i].id)) {
-      globalToVisible[i] = rooms.length;
-      visibleToGlobal.push(i);
-      rooms.push(all[i]);
-    }
+  for (const i of visibleGlobal) {
+    globalToVisible[i] = rooms.length;
+    visibleToGlobal.push(i);
+    rooms.push(all[i]);
   }
   return { rooms, globalToVisible, visibleToGlobal };
 }
@@ -1722,6 +1833,100 @@ function routeAgentEvent(event: AgentEvent) {
   }
 }
 
+// Slice 3b.1: route the room-ACL agent/room event fanout through the emit()
+// helper (registry audience) + the projection-aware deliver(), replacing the
+// implicit per-WS routeAgentEvent for every event whose registry audience maps
+// 1:1 to today's access decision (verified byte-identical; projection.test
+// stays green). The two events that need pre-mutation context the domain event
+// drops stay on the routeAgentEvent bridge until slice 3b.3 carries the ids and
+// tightens the ACL:
+//   - agent_removed: domain {agentId} lacks the pre-removal roomId the room-ACL
+//     audience needs (and the agent is already gone from state here).
+//   - agent_updated MOVE (changes.room set): carries the NEW global index but
+//     drops the OLD room the old∪new move audience needs.
+function emitAgentEvent(event: AgentEvent): void {
+  switch (event.type) {
+    case "log_entry":
+      liveEmit("log_entry", { entry: event.entry });
+      break;
+    case "clear_logs":
+      liveEmit("clear_logs", { agentId: event.agentId });
+      break;
+    case "slash_commands":
+      liveEmit("slash_commands", {
+        agentId: event.agentId,
+        commands: event.commands,
+        skills: event.skills,
+      });
+      break;
+    case "terminal_output":
+      liveEmit("terminal_output", {
+        agentId: event.agentId,
+        data: event.data,
+      });
+      break;
+    case "terminal_exit":
+      liveEmit("terminal_exit", {
+        agentId: event.agentId,
+        exitCode: event.exitCode,
+      });
+      break;
+    case "agent_added":
+      liveEmit("agent_added", { agent: event.agent });
+      break;
+    case "killed_agent_added":
+      liveEmit("killed_agent_added", { agent: event.agent });
+      break;
+    case "killed_agent_removed":
+      liveEmit("killed_agent_removed", {
+        agentId: event.agentId,
+        lastRoomId: event.lastRoomId,
+      });
+      break;
+    case "room_created":
+      liveEmit("room_created", { room: event.room });
+      break;
+    case "room_renamed":
+      liveEmit("room_renamed", { roomId: event.roomId, name: event.name });
+      break;
+    case "room_settings_updated":
+      liveEmit("room_settings_updated", {
+        roomId: event.roomId,
+        prompt: event.prompt,
+      });
+      break;
+    case "room_closed":
+      liveEmit("room_closed", { roomId: event.roomId });
+      break;
+    case "agent_updated":
+      // NON-move updates project via agentLookup on the agent's CURRENT room.
+      // TODO(3b.3): a MOVE (changes.room set) needs the old∪new audience the
+      // domain event can't supply yet, so it rides the bridge (full_state-on-
+      // shift refresh) until oldRoomId is carried in the carried-context slice.
+      if (event.changes.room === undefined) {
+        liveEmit("agent_updated", {
+          agentId: event.agentId,
+          changes: event.changes,
+        });
+      } else {
+        routeAgentEvent(event);
+      }
+      break;
+    default:
+      // TODO(3b.3): the routeAgentEvent bridge is BOUNDED — after this slice
+      // routeAgentEvent is allowed ONLY for agent_removed and agent_updated with
+      // changes.room set (handled in the case above), plus any explicitly
+      // documented bridge case. Nothing else may be added here. agent_removed
+      // keeps today's
+      // broadcast-all (a minor id leak) until 3b.3 tightens it to room-ACL with a
+      // characterization flip; the bounded-bridge + behavioral raw-send invariant
+      // (no un-projected fanout outside the projection dispatcher) is enforced by
+      // the contract-test slice.
+      routeAgentEvent(event);
+      break;
+  }
+}
+
 function routeAgentEventToWs(ws: ServerWebSocket<WsData>, event: AgentEvent) {
   const session = ws.data.session;
 
@@ -1858,9 +2063,11 @@ function wireEventSinks(): void {
       broadcast(event);
       return;
     }
-    // All remaining events touch a specific room or agent — route per-WS so
-    // restricted members get a projected view (or suppression).
-    routeAgentEvent(event);
+    // All remaining events touch a specific room or agent. Slice 3b.1 routes the
+    // clean room-ACL events through the emit() helper (registry audience) +
+    // projection-aware deliver(); agent_removed and agent_updated-MOVE stay on
+    // the routeAgentEvent bridge inside emitAgentEvent until slice 3b.3.
+    emitAgentEvent(event);
     // Any mutation of the global rooms list also refreshes the owner-only
     // admin view of all rooms (used by UserManagementModal). Done here
     // (rather than inside routeAgentEvent) so the all_rooms_list message
@@ -2024,7 +2231,10 @@ async function dispatchCommand(
       ) {
         const globalIdx = projection.visibleToGlobal[cmd.currentRoom];
         const r = rooms[globalIdx];
-        if (r && user.allowedRooms.includes(r.id)) {
+        // Defensive: the room already came from this session's visible
+        // projection (access+shown filtered), so canAccess is redundant-but-
+        // safe. Phase 3b: rule-based, so an owner (grants=[]) is not rejected.
+        if (r && canAccess(user, r.id)) {
           roomId = r.id;
         }
       }
@@ -2818,65 +3028,33 @@ async function dispatchCommand(
       break;
     }
     case "create_room": {
-      // Anyone can create rooms. Access control is the literal
-      // allowedRooms list — no per-room flag, no sentinel. The handler
-      // seeds the right users explicitly:
-      //   - The creator (sees their own creation).
-      //   - Every current owner (owners always see every room; the
-      //     model materializes that invariant on every room creation
-      //     rather than encoding it in a sentinel).
-      // Members other than the creator are NOT auto-added; they
-      // become visible only when an owner grants them via the Allowed
-      // Rooms editor.
+      // Rule-based access (Phase 3b): anyone can create a room. OWNERS reach it
+      // by RULE — they are already in the room_created audience and receive it
+      // live, with NO fan-out. A MEMBER creator needs an explicit GRANT to see
+      // their own creation (room_created fired during createRoom, before the
+      // grant, so it was suppressed for them); grant it, then push a projected
+      // full_state to catch them up. Other members get nothing until an owner
+      // grants access. There is NO owner allowedRooms/notifRooms fan-out, and NO
+      // user_updated broadcast of the creator's grant — that broadcast was the
+      // hidden-room-id leak (a grant change reaches only its own subject).
       const newRoomId = agentManager.createRoom(cmd.name);
-      const usersToUpdate: UserRecord[] = [];
-      const seen = new Set<string>();
       const creator = getUserById(session.userId);
-      if (creator) {
-        usersToUpdate.push(creator);
-        seen.add(creator.id);
-      }
-      for (const u of listUsers()) {
-        if (u.role === "owner" && !seen.has(u.id)) {
-          usersToUpdate.push(u);
-          seen.add(u.id);
-        }
-      }
-      let anyUpdate = false;
-      for (const u of usersToUpdate) {
-        if (u.allowedRooms.includes(newRoomId)) continue;
-        // Mirror auto-add on notifRooms so the prune invariant holds:
-        // a user's notif list always tracks the rooms they can see.
-        // No-op when the room is somehow already present.
-        const notifPatch: { notifRooms?: NotifRoomsSetting } = {};
-        if (!u.notifRooms.includes(newRoomId)) {
-          notifPatch.notifRooms = [...u.notifRooms, newRoomId];
-        }
-        const result = updateUserById(u.id, {
-          allowedRooms: [...u.allowedRooms, newRoomId],
-          ...notifPatch,
+      if (
+        creator &&
+        creator.role !== "owner" &&
+        !creator.allowedRooms.includes(newRoomId)
+      ) {
+        const result = updateUserById(creator.id, {
+          allowedRooms: [...creator.allowedRooms, newRoomId],
         });
         if (result.ok) {
-          broadcast({ type: "user_updated", user: result.user });
-          // The `room_created` event was already filtered out for this
-          // user's WSes at fan-out time (their allowedRooms didn't
-          // include the new id yet). A projected full_state catches
-          // them up; logs/slashCommands are replayed for visible
-          // agents inside the helper.
-          pushProjectedFullStateForUserId(u.id);
-          anyUpdate = true;
+          pushProjectedFullStateForUserId(creator.id);
         }
       }
-      if (anyUpdate) {
-        broadcast({ type: "users_list", users: listUsers() });
-      }
-      // Live-avatars: rebroadcast presence so any newly-room-granted
-      // user (creator, owners) sees ghosts in the correct dense room
-      // index. New rooms are appended to the global rooms array, so
-      // existing dense indices don't shift for users who DIDN'T get
-      // access — but the call is cheap and keeps the invariant
-      // (room mutations rebroadcast presence) consistent across all
-      // three room handlers.
+      // Live-avatars: rebroadcast presence so the creator (and owners, who got
+      // the room by rule) render ghosts at the correct dense index. New rooms
+      // append to the global array so non-recipients' indices don't shift; the
+      // call keeps the room-mutation→presence invariant uniform across handlers.
       pushPresenceListToEachWs();
       break;
     }
@@ -3326,7 +3504,7 @@ async function dispatchCommand(
       // active ghost) is a no-op.
       const allowedSet =
         cmd.changes.allowedRooms !== undefined
-          ? new Set(result.user.allowedRooms)
+          ? accessibleRoomIdsFor(result.user)
           : undefined;
       const presenceTouched = refreshPresenceForUser(
         result.user.id,
@@ -4849,6 +5027,12 @@ export async function startServer(
   createManagers(opts);
   registerBootHooks();
   wireEventSinks();
+  // Phase 3b slice 3: migrate any PERSISTED owner from the old materialized-
+  // grants model to rule-based access (seed hidden from old grants, then clear
+  // grants). Idempotent; needs rooms (createManagers, synchronous) + users
+  // (lazy load) ready. Fresh-install owners are created later via /auth/claim
+  // and seeded grants=[] directly (auth.ts), so this is a no-op for them.
+  migrateOwnersToRuleBasedAccess();
   executorDeps = buildExecutorDeps();
   const server = buildServer(opts);
   // Bun.serve resolves a concrete TCP port (including when opts.port is 0). The

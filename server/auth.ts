@@ -604,7 +604,13 @@ function commitBootstrapOwnerUser(chosenName: string): {
   if (!existing) {
     const created = claimUser(chosenName, {
       role: "owner",
-      allowedRooms: snapshotRoomIds(),
+      // Phase 3b: owners reach every room by RULE, so allowedRooms (member
+      // GRANTS) stays EMPTY for an owner — no room snapshot. Materializing
+      // owner grants is the demotion bomb a later owner→member demotion would
+      // inherit. notifRooms still seeds from current rooms so a new owner is
+      // notified for their office by default (notifRooms ⊆ shown ⊆ accessible
+      // holds: an owner shows every room).
+      notifRooms: snapshotRoomIds(),
     });
     const createdId = created.id;
     return {
@@ -658,14 +664,17 @@ function commitBootstrapOwnerUser(chosenName: string): {
     }
   };
 
-  // allowedRooms first (idempotent on identical input), role second. If
-  // the allowedRooms write returns not-ok or throws, the user is unchanged
-  // on disk so we propagate without invoking rollback.
-  const snapshot = snapshotRoomIds();
-  const r = updateUserById(userId, { allowedRooms: snapshot });
+  // Phase 3b: CLEAR owner grants (rule covers owner access; an owner carrying
+  // materialized grants is the demotion bomb). allowedRooms write first
+  // (idempotent — already [] for a previously-migrated owner), role second; if
+  // the write returns not-ok or throws, the user is unchanged on disk so we
+  // propagate without invoking rollback. notifRooms is left untouched (a
+  // promoted member keeps their notif prefs; the invariant still holds because
+  // an owner shows every room).
+  const r = updateUserById(userId, { allowedRooms: [] });
   if (!r.ok) {
     throw new Error(
-      `bootstrap owner promotion: allowedRooms write failed for ${existing.name}: ${r.error}`,
+      `bootstrap owner promotion: allowedRooms clear failed for ${existing.name}: ${r.error}`,
     );
   }
   if (existing.role !== "owner") {
@@ -760,13 +769,13 @@ export async function acceptInvite(
       userRecord = committed.user;
       bootstrapRollback = committed.rollback;
     } else if (!userRecord) {
-      // Owner invites seed the new owner with every current room id;
-      // member invites land on the [] default, leaving the new member
-      // with no rooms visible until an owner grants access or they
-      // create their own.
+      // Phase 3b: an owner invite seeds EMPTY grants (rule covers owner access)
+      // but notifRooms from current rooms (so the new owner is notified for
+      // their office by default). A member invite lands on the [] defaults — no
+      // grants, no notifs — until an owner grants access or they create a room.
       userRecord = claimUser(chosenName, {
         role: invite.role,
-        ...(invite.role === "owner" ? { allowedRooms: snapshotRoomIds() } : {}),
+        ...(invite.role === "owner" ? { notifRooms: snapshotRoomIds() } : {}),
       });
     }
 

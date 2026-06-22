@@ -496,6 +496,47 @@ describe("users.json field normalization (Phase 1.3)", () => {
     expect(u?.avatarColor).toBe("#aabbcc"); // normalized to lowercase
     expect(u?.avatarVariant).toBe("big-eyes");
   });
+
+  it("backfills missing view-preference fields (hidden/order) to [] and preserves/normalizes present ones (Phase 3b)", () => {
+    seed("users.json", {
+      // Legacy record predating Phase 3b: no hidden/order keys at all.
+      legacy: {
+        id: "legacy",
+        name: "Legacy",
+        role: "member",
+        allowedRooms: ["r1", "r2"],
+        notifRooms: ["r1"],
+      },
+      // Valid view prefs -> preserved verbatim.
+      withprefs: {
+        id: "withprefs",
+        name: "Pref",
+        role: "member",
+        allowedRooms: ["r1", "r2"],
+        hidden: ["r2"],
+        order: ["r2", "r1"],
+      },
+      // Malformed (non-array) view prefs -> normalized to [].
+      bad: {
+        id: "bad",
+        name: "Bad",
+        role: "member",
+        allowedRooms: ["r1"],
+        hidden: "r1",
+        order: 42,
+      },
+    });
+    _testResetUsers();
+    const legacy = getUserById("legacy");
+    expect(legacy?.hidden).toEqual([]);
+    expect(legacy?.order).toEqual([]);
+    const withprefs = getUserById("withprefs");
+    expect(withprefs?.hidden).toEqual(["r2"]);
+    expect(withprefs?.order).toEqual(["r2", "r1"]);
+    const bad = getUserById("bad");
+    expect(bad?.hidden).toEqual([]);
+    expect(bad?.order).toEqual([]);
+  });
 });
 
 // ---------------------------------------------------------------------------

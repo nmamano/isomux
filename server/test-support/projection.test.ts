@@ -328,10 +328,14 @@ describe("full_state projection — connect-time ACL (Phase 1.2)", () => {
     expect(agentInFullState(mfs, a2.id)).toBeUndefined();
   });
 
-  it("owner with a self-hidden room: main view respects access, owner-only all_rooms_list stays unfiltered; members never receive all_rooms_list", async () => {
-    // Checklist: "Owner with hidden rooms: main view respects access, owner-only
-    // all_rooms_list stays unfiltered." Confirms the materialized-to-computed
-    // owner-access migration (3b) must preserve this.
+  it("owner access is RULE-BASED: writing an owner's grants does NOT restrict their view; owner-only all_rooms_list stays unfiltered; members never receive all_rooms_list (3b flip)", async () => {
+    // 3b FLIP of the old "owner self-hides via allowedRooms" characterization.
+    // Under rule-based access an owner reaches every room by RULE, so writing
+    // their allowedRooms (now a member-only GRANT store) no longer restricts
+    // their own view — they keep seeing all rooms. Owner self-hide moves to the
+    // `hidden` VIEW preference (view.setShown, slice 4), tested there. The two
+    // invariants that survive UNCHANGED: the owner-only all_rooms_list stays
+    // unfiltered, and members never receive all_rooms_list at all.
     server = await boot();
     const r1 = server.agentManager.getRooms()[0].id;
     const [r2, r3] = makeRoomsBeforeOwner(server, ["R2", "R3"]);
@@ -349,20 +353,18 @@ describe("full_state projection — connect-time ACL (Phase 1.2)", () => {
       r2,
       r3,
     ]);
+    // Owner sees all three rooms by rule at connect.
+    expect(fullStateRoomIds(latestFullState(ownerSock)!)).toEqual([r1, r2, r3]);
 
-    // Owner hides R3 from their OWN view (a self-restrict of allowedRooms).
+    // Writing the owner's allowedRooms (grants) is a NO-OP on their view: rule
+    // access still covers every room. setAccess pushes a projected full_state to
+    // the target; for an owner it MUST still contain all three rooms.
     await setAccess(ownerSock, owner.username, [r1, r2]);
-    const refreshed = await waitForMessageWhere(
-      ownerSock,
-      (m) => m.type === "full_state" && fullStateRoomIds(m).length === 2,
-    );
-    // Main view now respects the self-restriction...
-    expect(fullStateRoomIds(refreshed)).toEqual([r1, r2]);
+    await waitForMessageWhere(ownerSock, (m) => m.type === "full_state");
+    expect(fullStateRoomIds(latestFullState(ownerSock)!)).toEqual([r1, r2, r3]);
 
-    // ...but the owner-only all_rooms_list is still UNFILTERED. Re-exercise the
-    // PUSH path under the restriction (not just the full-access connect snapshot):
-    // a room mutation re-pushes all_rooms_list, and it must still include R3 even
-    // though R3 is hidden from the owner's own main view.
+    // The owner-only all_rooms_list is unfiltered on the PUSH path too: a room
+    // mutation re-pushes it, still carrying every room.
     const arBefore = bag(ownerSock).filter(
       (m) => m.type === "all_rooms_list",
     ).length;
@@ -681,14 +683,19 @@ describe("room close / reorder with restricted members (Phase 1.2)", () => {
   });
 });
 
-describe("create_room owner fan-out — current materialized model (Phase 1.2)", () => {
-  it("creator gets access, every owner gets access via the materialized fan-out, other members do not", async () => {
-    // Checklist #6, frozen as the CURRENT model: create_room appends the new
-    // roomId to the creator + every owner's allowedRooms (the fan-out 3b
-    // deletes in favor of rule-based owner access). Also pins a KNOWN-CURRENT
-    // LEAK (see below) so 3b has a deliberate test to flip.
+describe("create_room under rule-based access (Phase 3b flip of the owner fan-out)", () => {
+  it("member creator gets access by GRANT (full_state); owners get the room by RULE via room_created (no fan-out); other members do not; no grant leak", async () => {
+    // 3b FLIP of the materialized create_room fan-out. Under rule-based access:
+    //   - a MEMBER creator is granted access and catches up via a projected
+    //     full_state (room_created fired pre-grant, suppressed for them);
+    //   - OWNERS reach the new room by RULE, so they receive room_created LIVE
+    //     (no allowedRooms fan-out, no full_state push);
+    //   - other members get nothing until granted;
+    //   - the old KNOWN LEAK is GONE: no user_updated carries the new room id —
+    //     a grant change reaches only its own subject (full_state), never the
+    //     all-audience broadcast.
     server = await boot();
-    const owner = await server.seedOwner("Boss"); // owner, full access
+    const owner = await server.seedOwner("Boss"); // owner, rule access
     const creator = await server.seedMember("Cara"); // member, starts []
     const other = await server.seedMember("Omar"); // member, starts []
 
@@ -698,37 +705,37 @@ describe("create_room owner fan-out — current materialized model (Phase 1.2)",
 
     creatorSock.send({ type: "create_room", name: "NewRoom" });
 
-    // Creator gets a projected full_state that now includes the new room.
+    // Member creator catches up via a projected full_state that includes the new
+    // room (the grant path — NOT a fan-out).
     const creatorFs = await waitForMessageWhere(
       creatorSock,
       (m) => m.type === "full_state" && fullStateRoomIds(m).length >= 1,
     );
     const newId = fullStateRoomIds(creatorFs)[0];
 
-    // Owner gets it via the fan-out (their allowedRooms is mutated + pushed),
-    // NOT via a room_created event (which was suppressed pre-grant).
-    await waitForMessageWhere(
+    // Owner receives the new room by RULE via room_created (NOT a fan-out
+    // full_state): rule access puts every owner in the room_created audience.
+    const ownerRc = await waitForMessageWhere(
       ownerSock,
-      (m) => m.type === "full_state" && fullStateRoomIds(m).includes(newId),
+      (m) => m.type === "room_created" && (m.room as RoomWire).id === newId,
     );
+    expect((ownerRc.room as RoomWire).id).toBe(newId);
 
     expect(fullStateRoomIds(latestFullState(creatorSock)!)).toContain(newId);
-    expect(fullStateRoomIds(latestFullState(ownerSock)!)).toContain(newId);
-    // The other member is NOT in the fan-out: the room never enters their view.
+    // The other member never sees the room.
     expect(fullStateRoomIds(latestFullState(otherSock)!)).not.toContain(newId);
 
-    // KNOWN-CURRENT-LEAK (frozen on purpose): user_updated / users_list are
-    // broadcast UNFILTERED, so the fan-out leaks the hidden room's id to the
-    // other member through another user's allowedRooms on the wire. 3b's user-
-    // wire projection removes this; this assertion is the red test 3b flips.
-    const leaked = await waitForMessageWhere(
-      otherSock,
-      (m) =>
-        m.type === "user_updated" &&
-        (m.user as UserRecord).allowedRooms?.includes(newId) === true,
-    );
-    expect((leaked.user as UserRecord).allowedRooms).toContain(newId);
-    // ...even though that room id is absent from the other member's own view.
+    // NO LEAK (the red assertion 3b flips green): ping/pong is the synchronous
+    // barrier (the create_room fanout already ran), and NO user_updated carrying
+    // the new room id ever reached the other member.
+    await pingPong(otherSock);
+    expect(
+      bag(otherSock).some(
+        (m) =>
+          m.type === "user_updated" &&
+          (m.user as UserRecord).allowedRooms?.includes(newId) === true,
+      ),
+    ).toBe(false);
     expect(fullStateRoomIds(latestFullState(otherSock)!)).not.toContain(newId);
   });
 });

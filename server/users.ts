@@ -77,6 +77,16 @@ function normalizeAllowedRooms(value: unknown): string[] {
   return [];
 }
 
+// Generic "string[] or []" normalizer for the per-user view-preference room-id
+// lists (hidden / order) — Phase 3b. Same shape as normalizeAllowedRooms; named
+// for the view fields so call sites read clearly.
+function normalizeRoomIdList(value: unknown): string[] {
+  if (Array.isArray(value) && value.every((x) => typeof x === "string")) {
+    return value;
+  }
+  return [];
+}
+
 // memberPrompt is self-described user context auto-injected into the
 // system prompt of every agent owned by this user. Trim whitespace and
 // treat empty strings as absent (null) so the system-prompt builder
@@ -170,6 +180,9 @@ function load(): Record<string, UserRecord> {
           typeof value.createdAt === "number" ? value.createdAt : Date.now(),
         role: normalizeRole(value.role),
         allowedRooms: normalizeAllowedRooms(value.allowedRooms),
+        // View prefs (Phase 3b): backfill [] for legacy records lacking them.
+        hidden: normalizeRoomIdList(value.hidden),
+        order: normalizeRoomIdList(value.order),
         memberPrompt: normalizeMemberPrompt(value.memberPrompt),
         avatarColor: normalizeAvatarColor(value.avatarColor, id),
         avatarVariant: normalizeAvatarVariant(value.avatarVariant),
@@ -324,6 +337,10 @@ export function claimUser(
     // in auth.ts) to preserve "owners see everything" semantics; they
     // default to [] here if the caller omits the snapshot.
     allowedRooms: resolvedAllowed,
+    // View prefs (Phase 3b): new users start with nothing hidden and the
+    // default office-order room order.
+    hidden: [],
+    order: [],
     memberPrompt: null,
     // Live-avatars defaults. Color is deterministic per user-id so the
     // same user gets a consistent hue across restarts; variant is the
@@ -407,6 +424,8 @@ export function updateUserById(
       | "notifRooms"
       | "envFile"
       | "allowedRooms"
+      | "hidden"
+      | "order"
       | "memberPrompt"
       | "avatarColor"
       | "avatarVariant"
@@ -461,6 +480,18 @@ export function updateUserById(
       changes.allowedRooms !== undefined
         ? normalizeAllowedRooms(changes.allowedRooms)
         : existing.allowedRooms,
+    // View prefs (Phase 3b): writable by SERVER-SIDE callers via updateUserById
+    // (the slice-3 owner-access migration; the slice-4 view.* routes), but NOT
+    // exposed on the client update_user wire (that command omits hidden/order),
+    // so a client cannot set them through here. Preserve when absent.
+    hidden:
+      changes.hidden !== undefined
+        ? normalizeRoomIdList(changes.hidden)
+        : existing.hidden,
+    order:
+      changes.order !== undefined
+        ? normalizeRoomIdList(changes.order)
+        : existing.order,
     memberPrompt:
       changes.memberPrompt !== undefined
         ? normalizeMemberPrompt(changes.memberPrompt)

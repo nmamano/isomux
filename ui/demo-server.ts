@@ -655,6 +655,8 @@ function seedUsers() {
       createdAt: now,
       role,
       allowedRooms: [...roomIds],
+      hidden: [],
+      order: [],
       memberPrompt: null,
       avatarColor: defaultGhostColorForUserId(id),
       // Stephen gets a distinctive variant so the cycling ghost is
@@ -1125,6 +1127,8 @@ export function handleCommand(cmd: ClientCommand) {
         createdAt: Date.now(),
         role: "member",
         allowedRooms: [...roomIds],
+        hidden: [],
+        order: [],
         memberPrompt: null,
         avatarColor: defaultGhostColorForUserId(newId),
         avatarVariant: "classic",

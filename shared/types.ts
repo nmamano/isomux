@@ -647,18 +647,30 @@ export interface UserRecord {
   // through update_user.
   avatarColor: string;
   avatarVariant: GhostVariant;
-  // Rooms this user can see and act in — strict string[] of roomIds.
-  // The literal list IS the access control: server filters reads and
-  // rejects writes for any room not in this array. No "all" sentinel.
-  // New owners receive a snapshot of current room ids at creation
-  // time; new members default to `[]`. The create_room handler
-  // appends the new roomId to the creator AND to every current owner,
-  // so new rooms land in owners' allowedRooms by default. Owners can
-  // still hide rooms from their own view by removing entries here;
-  // the admin `all_rooms_list` channel surfaces the unfiltered global
-  // list for the owner UI. Only owners can mutate this through
-  // update_user.
+  // Member room-access GRANTS (Phase 3b) — strict string[] of roomIds a member
+  // may access. ACCESS is rule-based: OWNERS reach every room by rule and IGNORE
+  // this field (it is [] for an owner post-migration); members access exactly
+  // the rooms granted here. No "all" sentinel. New members default to `[]` until
+  // an owner grants access (users.setAccess, owner-only) or they create their
+  // own room (the creator gets a grant). There is NO create_room owner fan-out.
+  // WHICH accessible rooms a user shows, and in what order, is the separate view
+  // preference (`hidden`/`order` below) — never this field.
   allowedRooms: string[];
+  // View preference (per-user, non-security) — Phase 3b. These split the
+  // VIEW (which accessible rooms a user shows, and in what order) out of
+  // ACCESS (allowedRooms / owner rule). They never gate security; the
+  // projection applies them ON TOP of the access set.
+  //   - `hidden`: rooms the user has explicitly hidden from their own view.
+  //     Effective shown = accessible \ hidden. An owner who hides a room
+  //     still has ACCESS to it (a re-show consults only access, never this).
+  //   - `order`: SPARSE explicit room order. Effective order = the rooms
+  //     listed here (that are accessible+shown), in this order, then any
+  //     remaining accessible+shown rooms in the office's room order. A
+  //     brand-new or never-reordered user has `order: []` and falls back to
+  //     the office order, so newly-created rooms append at the end for free.
+  // Both default to `[]` (backfilled on load for legacy records).
+  hidden: string[];
+  order: string[];
   // Self-described member profile prompt. Auto-injected into the system
   // prompt of every agent owned by this user, so the agent has standing
   // context about who its owner is. Other agents can also look up this

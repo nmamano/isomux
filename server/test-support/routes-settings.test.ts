@@ -192,7 +192,15 @@ describe("routes/settings: room settings (access-gated) (Phase 1.4b)", () => {
     await sock.waitFor("room_settings_updated");
   });
 
-  it("an unknown room id fails the access check first -> You don't have access (Room not found is unreachable)", async () => {
+  it("rule-based owner access: an unknown room id now PASSES the owner gate (rule) and reaches the existence check -> Room not found (3b flip; was unreachable under materialized access)", async () => {
+    // 3b FLIP. Under materialized access an owner's allowedRooms never contained
+    // an unknown id, so the access check rejected first ("You don't have access")
+    // and the "Room not found" branch was DEAD (doc Follow-up 6). Rule-based
+    // access grants an owner EVERY room id by rule — including a nonexistent one
+    // — so the access gate passes and the existence check is now reachable. Not
+    // a leak: an owner can already see every real room, so distinguishing
+    // "doesn't exist" reveals nothing hidden. (Members are unchanged: an unknown
+    // id still fails their grant check -> "You don't have access" -> no oracle.)
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
@@ -203,7 +211,7 @@ describe("routes/settings: room settings (access-gated) (Phase 1.4b)", () => {
       prompt: "x",
     });
     expect(resp.ok).toBe(false);
-    expect(resp.error).toBe("You don't have access to that room.");
+    expect(resp.error).toBe("Room not found");
   });
 
   it("a member with no access to the room is rejected", async () => {
