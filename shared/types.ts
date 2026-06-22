@@ -1164,7 +1164,6 @@ export type ClientCommand =
   | { type: "delete_cronjob"; id: string }
   | { type: "run_cronjob_now"; id: string; username: string }
   | { type: "update_cronjobs_prompt"; requestId: string; value: string | null }
-  | { type: "load_cronjob_run"; cronjobId: string; runId: string }
   | {
       type: "send_cronjob_run_message";
       cronjobId: string;

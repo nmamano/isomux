@@ -829,6 +829,16 @@ export async function demoApi(
   if (method === "GET" && /^\/api\/backends\/[^/]+\/models$/.test(pathname)) {
     return { models: [] };
   }
+  // cron.getRun — no runs in the demo (cronjobs never fire), so no transcript.
+  // Listed before listRuns: the trailing anchors already make the two routes
+  // disjoint, but specific-before-general is the safe convention. The view
+  // ignores the fetched `run`, so returning just `entries` is enough.
+  if (
+    method === "GET" &&
+    /^\/api\/cronjobs\/[^/]+\/runs\/[^/]+$/.test(pathname)
+  ) {
+    return { entries: [] };
+  }
   // cron.listRuns — no runs in the demo.
   if (method === "GET" && /^\/api\/cronjobs\/[^/]+\/runs$/.test(pathname)) {
     return { runs: [] };
@@ -1299,7 +1309,6 @@ export function handleCommand(cmd: ClientCommand) {
     case "resume":
     case "list_sessions":
     case "run_cronjob_now":
-    case "load_cronjob_run":
     case "send_cronjob_run_message":
     case "edit_cronjob_run_message":
       break;

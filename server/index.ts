@@ -3397,19 +3397,6 @@ async function dispatchCommand(
         }),
       );
       break;
-    case "load_cronjob_run": {
-      // Client passes jobId from the run row it just clicked, so no scan
-      // needed. Works for runs from deleted cronjobs too: getRunTranscript
-      // reads from disk regardless of whether the cronjob config still exists.
-      const { entries } = cronjobManager.getRunTranscript(
-        cmd.cronjobId,
-        cmd.runId,
-      );
-      for (const entry of entries) {
-        ws.send(JSON.stringify({ type: "log_entry", entry }));
-      }
-      break;
-    }
     case "send_cronjob_run_message":
       // [behavior-change] tighten to cronjobOwnerOrOfficeOwner on the WS
       // transport too (parity with the REST guard) so the strangler leaves no

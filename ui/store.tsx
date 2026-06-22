@@ -162,6 +162,12 @@ type Action =
   | { type: "killed_agent_added"; agent: KilledAgentSummary }
   | { type: "killed_agent_removed"; agentId: string; lastRoomId: string }
   | { type: "log_entry"; entry: LogEntry }
+  // CLIENT-LOCAL (not a ServerMessage): CronjobRunView dispatches this after the
+  // REST cron.getRun fetch to merge the historical run transcript into the same
+  // logs stream that live `log_entry` events feed during an active run. Reuses
+  // the per-stream id dedupe (logEntryIds), so it is equivalent to replaying
+  // each entry as a `log_entry` — just one reducer pass instead of N.
+  | { type: "log_entries_batch"; entries: LogEntry[] }
   | { type: "focus"; agentId: string | null }
   | { type: "connected" }
   | { type: "disconnected" }
@@ -252,7 +258,7 @@ type Action =
 // States that warrant attention
 const ATTENTION_STATES = new Set(["idle", "error", "waiting_for_response"]);
 
-function reducer(state: AppState, action: Action): AppState {
+export function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case "full_state": {
       // Apply the user's default room only on the first full_state (when we
@@ -394,6 +400,40 @@ function reducer(state: AppState, action: Action): AppState {
       logEntryIds.set(streamId, new Set(seen).add(action.entry.id));
       const entries = logs.get(streamId) ?? [];
       logs.set(streamId, [...entries, action.entry]);
+      return { ...state, logs, logEntryIds };
+    }
+    case "log_entries_batch": {
+      // Merge a fetched historical batch into the per-stream logs, reusing the
+      // log_entry dedupe (logEntryIds Set, keyed by entry.agentId). Behaviorally
+      // identical to dispatching log_entry per entry, but clones each touched
+      // stream's Set + array once instead of N times. Unseen entries append;
+      // already-seen ids are skipped, so live entries that overlap the batch are
+      // neither dropped nor duplicated. Render-time sorting (in the view) orders
+      // the merged stream by timestamp.
+      const seenByStream = new Map<string, Set<string>>();
+      const arrByStream = new Map<string, LogEntry[]>();
+      let changed = false;
+      for (const entry of action.entries) {
+        const streamId = entry.agentId;
+        let seen = seenByStream.get(streamId);
+        let arr = arrByStream.get(streamId);
+        if (seen === undefined || arr === undefined) {
+          seen = new Set(state.logEntryIds.get(streamId) ?? []);
+          arr = [...(state.logs.get(streamId) ?? [])];
+          seenByStream.set(streamId, seen);
+          arrByStream.set(streamId, arr);
+        }
+        if (seen.has(entry.id)) continue;
+        seen.add(entry.id);
+        arr.push(entry);
+        changed = true;
+      }
+      if (!changed) return state;
+      const logs = new Map(state.logs);
+      const logEntryIds = new Map(state.logEntryIds);
+      for (const [streamId, seen] of seenByStream)
+        logEntryIds.set(streamId, seen);
+      for (const [streamId, arr] of arrByStream) logs.set(streamId, arr);
       return { ...state, logs, logEntryIds };
     }
     case "focus": {
@@ -650,7 +690,7 @@ function reducer(state: AppState, action: Action): AppState {
   }
 }
 
-const initialState: AppState = {
+export const initialState: AppState = {
   agents: [],
   logs: new Map(),
   logEntryIds: new Map(),

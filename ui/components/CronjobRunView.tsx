@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useAppState } from "../store.tsx";
+import { useAppState, useDispatch } from "../store.tsx";
 import { LogEntryCard } from "../log-view/LogEntryCard.tsx";
 import { send } from "../ws.ts";
+import { apiFetch } from "../api.ts";
 import {
   cronjobRunStreamId,
   type CronjobRun,
@@ -41,6 +42,7 @@ export function CronjobRunView({
   onClose: () => void;
 }) {
   const { cronjobRunsByJob, isMobile, logs } = useAppState();
+  const dispatch = useDispatch();
   // Use `pointer: coarse` instead of viewport `isMobile` so narrow desktop
   // windows (split-screen) with a hardware keyboard still send on Enter.
   const isTouchPrimary = useMemo(
@@ -70,10 +72,27 @@ export function CronjobRunView({
   const [loaded, setLoaded] = useState(false);
   useEffect(() => {
     if (loaded) return;
-    send({ type: "load_cronjob_run", cronjobId: jobId, runId });
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoaded(true);
-  }, [jobId, runId, loaded]);
+    // Fetch the historical transcript and merge it into the run's log stream
+    // (the same stream live `log_entry` events feed during an active run). The
+    // batch reducer dedupes by id, so overlapping live entries are neither
+    // dropped nor duplicated.
+    apiFetch<{ run: CronjobRun; entries: LogEntry[] }>(
+      "GET",
+      `/api/cronjobs/${encodeURIComponent(jobId)}/runs/${encodeURIComponent(
+        runId,
+      )}`,
+    )
+      .then(({ entries }) => dispatch({ type: "log_entries_batch", entries }))
+      .catch(() => {
+        // 404 (run gone) or transport error: leave the stream as-is. Matches the
+        // old load_cronjob_run, which replayed zero entries for a missing run, so
+        // the view still shows "No log entries."; any live entries already in the
+        // stream are preserved. Run metadata stays store-only (cronjobRunsByJob),
+        // so the fetched `run` is intentionally ignored.
+      });
+  }, [jobId, runId, loaded, dispatch]);
 
   // ESC closes the view, unless the user is editing a message — then ESC
   // cancels the edit (handled inside EditableUserMessage).
