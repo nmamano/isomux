@@ -328,6 +328,51 @@ describe("full_state projection — connect-time ACL (Phase 1.2)", () => {
     expect(agentInFullState(mfs, a2.id)).toBeUndefined();
   });
 
+  it("3c slice 1: additive agent.roomId names the room at the dense agent.room index for every recipient (stable global id, same across recipients)", async () => {
+    // Slice-1 gate (agreed with Reviewer1): the additive stable roomId must name
+    // the SAME room the dense per-recipient `room` index points at, for owner and
+    // restricted member alike. This invariant is what lets slice 2 make roomId
+    // authoritative and slice 4 drop the dense index with no further wire change.
+    server = await boot();
+    const r1 = server.agentManager.getRooms()[0].id;
+    const [r2, r3] = makeRoomsBeforeOwner(server, ["R2", "R3"]);
+    const owner = await server.seedOwner("Boss");
+    const member = await server.seedMember("Mia");
+
+    const a1 = await spawnIn(server, "A1", r1);
+    await spawnIn(server, "A2", r2);
+    const a3 = await spawnIn(server, "A3", r3);
+
+    const ownerSock = await connectSettled(server, owner.rawSessionId);
+    await setAccess(ownerSock, member.username, [r1, r3]); // member sees R1 + R3
+    const memberSock = await connectSettled(server, member.rawSessionId);
+
+    // Invariant for BOTH recipients: every agent's additive roomId equals the id
+    // of the room its (recipient-dense) `room` index resolves to in that
+    // recipient's own filtered rooms list.
+    for (const sock of [ownerSock, memberSock]) {
+      const fs = latestFullState(sock)!;
+      const rooms = fs.rooms as RoomWire[];
+      for (const agent of fs.agents as AgentInfo[]) {
+        expect(rooms[agent.room]).toBeDefined();
+        expect(agent.roomId).toBe(rooms[agent.room].id);
+      }
+    }
+
+    // roomId is the STABLE GLOBAL id — identical across recipients even though
+    // the dense index differs (A3 is dense 2 for the owner, dense 1 for Mia who
+    // can't see R2). a1 is dense 0 for both.
+    const ownerA3 = agentInFullState(latestFullState(ownerSock)!, a3.id)!;
+    const memberA3 = agentInFullState(latestFullState(memberSock)!, a3.id)!;
+    expect(ownerA3.room).toBe(2);
+    expect(memberA3.room).toBe(1);
+    expect(ownerA3.roomId).toBe(r3);
+    expect(memberA3.roomId).toBe(r3);
+    expect(agentInFullState(latestFullState(ownerSock)!, a1.id)!.roomId).toBe(
+      r1,
+    );
+  });
+
   it("owner access is RULE-BASED: writing an owner's grants does NOT restrict their view; owner-only all_rooms_list stays unfiltered; members never receive all_rooms_list (3b flip)", async () => {
     // 3b FLIP of the old "owner self-hides via allowedRooms" characterization.
     // Under rule-based access an owner reaches every room by RULE, so writing

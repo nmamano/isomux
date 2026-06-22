@@ -6,10 +6,10 @@
 // write API — there is no saveUsers). Two jobs:
 //   - Round-trip: write then load, asserting field preservation, so the Phase 3
 //     refactor cannot silently drop or mangle a persisted field.
-//   - Pre-flatten freeze: pin the CURRENT nested agents.json shape — Room[] with
-//     PersistedAgents nested under each room, NO explicit roomId on the agent,
-//     userId NOT resolved at this layer — as the before-picture that 3c's
-//     stable-room-IDs flatten migration will be diffed against.
+//   - Stable-room-IDs (3c) shape: agents.json stays a nested Room[] (NO
+//     structural flatten — additive only). Phase 3c slice 1 stamps an explicit
+//     roomId on each PersistedAgent, backfilled from its container room. userId
+//     is still NOT resolved at this layer (that is agent-manager's job).
 //
 // Why NOT the WS harness (startTestServer): the harness WIPES + recreates
 // STATE_ROOT on boot (clean slate per server), so it cannot host pre-seeded
@@ -21,9 +21,9 @@
 // resets the one cached module on this seam (users.ts). Most persistence
 // functions are stateless reads/writes of STATE_ROOT, so no other cache to drop.
 //
-// Expected to change when 3c lands: the pre-flatten assertions flip to the
-// flattened (explicit-roomId) shape at that point — that is the point of pinning
-// them now.
+// Updated for 3c slice 1: the roomId assertion flipped from "absent" to
+// "backfilled from container" (additive, no structural flatten). The remaining
+// nested/positional + userId-not-derived assertions stay current-behavior.
 
 import { describe, it, expect, beforeEach } from "bun:test";
 import { mkdirSync, writeFileSync, readFileSync } from "fs";
@@ -126,6 +126,7 @@ describe("agents persistence round-trip (Phase 1.3)", () => {
       customInstructions: "be terse",
       userId: "user-1",
       username: "Boss",
+      roomId: "aaaa0001",
     };
     const codex: PersistedAgent = {
       id: "agent-bbb",
@@ -143,6 +144,7 @@ describe("agents persistence round-trip (Phase 1.3)", () => {
       customInstructions: null,
       userId: "user-2",
       username: "Nil",
+      roomId: "bbbb0002",
     };
     const rooms: Room[] = [
       {
@@ -469,21 +471,21 @@ describe("office-config / server-config persistence (Phase 1.3)", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Pre-flatten persisted shape: the stable-room-IDs (Phase 3c) before-picture.
-// HIGHEST-VALUE net. Freeze the OLD nested shape verbatim; 3c flattens it.
+// Nested persisted shape + stable-room-IDs (Phase 3c) migration.
+// HIGHEST-VALUE net. agents.json stays a nested Room[] (no structural flatten);
+// 3c slice 1 backfills an explicit roomId on each agent from its container room.
 // ---------------------------------------------------------------------------
 
-describe("pre-flatten persisted shape — stable-room-IDs before-picture (Phase 1.3)", () => {
-  // A pre-flatten agents.json: Room[] with agents nested under each room, NO
-  // explicit roomId on any PersistedAgent. Room membership is POSITIONAL (which
-  // room's .agents array the record lives in). Alice carries userId+username
+describe("nested persisted shape + stable-room-IDs migration (Phase 1.3 / 3c.1)", () => {
+  // A pre-3c agents.json: Room[] with agents nested under each room, NO explicit
+  // roomId on any PersistedAgent. Room membership is POSITIONAL (which room's
+  // .agents array the record lives in). Alice carries userId+username
   // (new-style); Bob is a legacy record with username only (no userId).
   //
-  // The actual 3c tripwires are the roomId- and userId-absence checks below:
-  // loadAgents will STILL return Room[] with nested .agents after 3c (only the
-  // on-disk record gains an explicit roomId), so the positional/return-shape
-  // test is current-behavior characterization, while Object.hasOwn(roomId)===false
-  // is what flips to failing once 3c flattens the persisted record.
+  // loadAgents STILL returns Room[] with nested .agents (3c is additive, not a
+  // structural flatten); slice 1 stamps each agent's roomId from its container
+  // room. The positional/return-shape and userId-not-derived tests stay
+  // current-behavior characterization; the roomId test pins the slice-1 backfill.
   function seedNestedAgents(): void {
     seed("agents.json", [
       {
@@ -542,16 +544,56 @@ describe("pre-flatten persisted shape — stable-room-IDs before-picture (Phase 
     expect(rooms[1].agents.map((a) => a.id)).toEqual(["agent-bbb"]);
   });
 
-  it("does NOT invent an explicit roomId on any PersistedAgent (3c adds that)", () => {
+  it("backfills an explicit roomId on each PersistedAgent from its container room (3c slice 1)", () => {
+    // Phase 3c slice 1: a pre-3c file (no roomId on agents) is migrated on load
+    // by stamping each agent's roomId from its container room — the physical
+    // nesting position. No structural flatten: the agents stay nested under
+    // Room[]. Idempotent (a file already carrying roomId is unchanged — covered
+    // by the round-trip test above).
     seedNestedAgents();
     const rooms = loadAgents();
     for (const room of rooms) {
       for (const agent of room.agents) {
-        // own-property check: catches an explicitly-present `roomId: undefined`
-        // future field, not just a missing key.
-        expect(Object.hasOwn(agent, "roomId")).toBe(false);
+        expect(agent.roomId).toBe(room.id);
       }
     }
+    // Spot-check the specific containers (positional membership preserved).
+    expect(rooms[0].agents[0].roomId).toBe("aaaa0001");
+    expect(rooms[1].agents[0].roomId).toBe("bbbb0002");
+  });
+
+  it("prefers the container room id over a MISMATCHED persisted roomId (defensive contract, 3c slice 1)", () => {
+    // Design contract (Q1): physical nesting is the source of truth. If a
+    // persisted agent carries a roomId that disagrees with its container room
+    // (corrupt or hand-edited file), loadAgents corrects it to the container id
+    // rather than trusting the stale stamped value.
+    seed("agents.json", [
+      {
+        id: "aaaa0001",
+        name: "Room 1",
+        prompt: null,
+        agents: [
+          {
+            id: "agent-mismatch",
+            name: "Mallory",
+            desk: 0,
+            cwd: "/x",
+            outfit: OUTFIT,
+            permissionMode: "auto",
+            modelFamily: "opus",
+            agentType: "claude",
+            lastSessionId: null,
+            topic: null,
+            customInstructions: null,
+            userId: "user-1",
+            username: "Boss",
+            roomId: "deadbeef", // WRONG — does not match container aaaa0001
+          },
+        ],
+      },
+    ]);
+    const rooms = loadAgents();
+    expect(rooms[0].agents[0].roomId).toBe("aaaa0001"); // container wins
   });
 
   it("preserves userId when present but does NOT derive it at this layer when absent", () => {

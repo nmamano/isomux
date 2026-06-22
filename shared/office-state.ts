@@ -215,6 +215,7 @@ export class OfficeState {
       name: opts.name,
       desk,
       room: targetRoom,
+      roomId: this._rooms[targetRoom].id,
       cwd: opts.cwd,
       outfit: opts.outfit ?? generateOutfit(),
       permissionMode: opts.permissionMode,
@@ -399,6 +400,10 @@ export class OfficeState {
     const events: OfficeEvent[] = [];
     for (const agent of this.agents.values()) {
       if (agent.room > room) {
+        // Phase 3c: only the DENSE index shifts when a lower room closes — the
+        // agent's stable roomId is unchanged (it did not move), so roomId is
+        // deliberately absent from `changes`. This index-shift churn is exactly
+        // what the slice-4 id-keyed wire cut eliminates.
         agent.room--;
         events.push({
           type: "agent_updated",
@@ -447,12 +452,17 @@ export class OfficeState {
     if (newDesk === -1) return [];
 
     agent.room = targetRoom;
+    agent.roomId = this._rooms[targetRoom].id;
     agent.desk = newDesk;
     const events: OfficeEvent[] = [
       {
         type: "agent_updated",
         agentId,
-        changes: { room: targetRoom, desk: newDesk },
+        // Phase 3c: the stable roomId rides additively next to the dense `room`
+        // index so slice-3 clients can track moves by id. Full-access sessions
+        // get this delta verbatim (global id, un-remapped); restricted sessions
+        // get a full_state refresh instead, which carries roomId via the agent.
+        changes: { room: targetRoom, roomId: agent.roomId, desk: newDesk },
       },
     ];
     this.emitEvents(events);

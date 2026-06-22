@@ -482,6 +482,12 @@ export interface PersistedAgent {
   // Both null on legacy unowned agents.
   userId?: string | null;
   username?: string | null;
+  // Stable room id (matches the container Room.id). Phase 3c: persisted agents
+  // are explicitly room-id keyed. Physical nesting under rooms stays the source
+  // of truth, so this is optional and backfilled from the container on load —
+  // there is no structural flatten to {rooms, agents} in 3c (deferred/not
+  // required).
+  roomId?: string;
 }
 
 export interface PersistedUsage {
@@ -561,6 +567,7 @@ export function loadAgents(): Room[] {
     .filter((id): id is string => typeof id === "string" && id.length > 0);
   let strippedRoomEnv = 0;
   let migratedAgents = 0;
+  let backfilledRoomIds = 0;
   for (const room of rooms) {
     if (typeof room.id !== "string" || room.id.length === 0) {
       room.id = generateRoomId(existingIds);
@@ -576,6 +583,20 @@ export function loadAgents(): Room[] {
     delete room.envFile;
     for (const agent of room.agents) {
       migratePersistedAgent(agent);
+      // Phase 3c: stamp the stable roomId from the container room so each
+      // persisted agent is explicitly room-id keyed. Physical nesting stays the
+      // source of truth: backfill when missing, and on the (defensive) mismatch
+      // case prefer the container and log.
+      if (typeof agent.roomId !== "string" || agent.roomId.length === 0) {
+        agent.roomId = room.id;
+        backfilledRoomIds++;
+      } else if (agent.roomId !== room.id) {
+        console.log(
+          `[migration] agent ${agent.id} roomId ${agent.roomId} != container room ${room.id}; using container`,
+        );
+        agent.roomId = room.id;
+        backfilledRoomIds++;
+      }
       // Stamp username: null on legacy agents that pre-date the user/device split.
       if (!("username" in agent)) {
         agent.username = null;
@@ -595,6 +616,11 @@ export function loadAgents(): Room[] {
   if (strippedRoomEnv > 0) {
     console.log(
       `[migration] stripped envFile from ${strippedRoomEnv} room(s); env is now per-user`,
+    );
+  }
+  if (backfilledRoomIds > 0) {
+    console.log(
+      `[migration] stamped roomId on ${backfilledRoomIds} persisted agent(s) from their container room`,
     );
   }
   return rooms;

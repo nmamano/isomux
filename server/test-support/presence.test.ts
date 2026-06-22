@@ -150,6 +150,47 @@ describe("presence projection — recipient-specific remap (Phase 1.2)", () => {
     expect(presenceEntry(memberView, memberCid)!.currentRoom).toBe(1);
   });
 
+  it("3c slice 1: additive presence.currentRoomId is the stable global roomId — identical across recipients while the dense currentRoom differs", async () => {
+    // Slice-1 gate (Reviewer1): presence carries an additive currentRoomId that
+    // is ALWAYS the global stable room id (never a dense/visible value), so it
+    // reads the same for every recipient even though the dense currentRoom is
+    // per-recipient. This is the invariant the slice-4 cut relies on when it
+    // drops the dense currentRoom.
+    server = await startTestServer();
+    const [r2, r3] = makeRoomsBeforeOwner(server, ["R2", "R3"]);
+    const owner = await server.seedOwner("Boss");
+    const member = await server.seedMember("Mia");
+
+    const ownerSock = await connectSettled(server, owner.rawSessionId);
+    await setAccess(ownerSock, member.username, [r2, r3]);
+    const memberSock = await connectSettled(server, member.rawSessionId);
+    const memberCid = connectionIdOf(memberSock);
+
+    presenceUpdate(memberSock, 1); // member dense index 1 → R3
+
+    // Owner sees dense index 2, member sees dense index 1 — same underlying room.
+    const ownerView = await waitForMessageWhere(
+      ownerSock,
+      (m) =>
+        m.type === "presence_list" &&
+        presenceEntry(m, memberCid)?.currentRoom === 2,
+    );
+    const memberView = await waitForMessageWhere(
+      memberSock,
+      (m) =>
+        m.type === "presence_list" &&
+        presenceEntry(m, memberCid)?.currentRoom === 1,
+    );
+    const ownerEntry = presenceEntry(ownerView, memberCid)!;
+    const memberEntry = presenceEntry(memberView, memberCid)!;
+    expect(ownerEntry.currentRoom).toBe(2);
+    expect(memberEntry.currentRoom).toBe(1);
+    // Additive global id: identical across recipients, the stable name of the
+    // room each per-recipient dense index resolves to.
+    expect(ownerEntry.currentRoomId).toBe(r3);
+    expect(memberEntry.currentRoomId).toBe(r3);
+  });
+
   it("an out-of-bounds / out-of-allowed index is clamped to null and the ghost is omitted from the wire", async () => {
     server = await startTestServer();
     const [r2, r3] = makeRoomsBeforeOwner(server, ["R2", "R3"]);

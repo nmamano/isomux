@@ -904,6 +904,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           customInstructions: a.info.customInstructions,
           userId: a.info.userId,
           username: a.info.username,
+          roomId: a.info.roomId,
         });
       }
     }
@@ -1060,11 +1061,29 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           ?.topicMessageCount ?? 0)
       : 0;
     const desk = opts.deskOverride ?? p.desk;
+    // Phase 3c: stamp the stable roomId next to the dense index. The container
+    // room (opts.roomIdx) is the physical truth; cross-check any persisted
+    // roomId and prefer the container, clamping + logging if the index is out
+    // of range (corrupt state) rather than silently mapping to 0.
+    const containerRoom = officeState.rooms[opts.roomIdx];
+    if (!containerRoom) {
+      console.error(
+        `[3c] restore: roomIdx ${opts.roomIdx} out of range for agent ${p.id} (${officeState.rooms.length} room(s)); clamping to room 0`,
+      );
+    } else if (p.roomId && p.roomId !== containerRoom.id) {
+      console.log(
+        `[3c] restore: agent ${p.id} persisted roomId ${p.roomId} != container ${containerRoom.id}; using container`,
+      );
+    }
+    const roomId = containerRoom?.id ?? officeState.rooms[0]?.id ?? "";
     const info: AgentInfo = {
       id: p.id,
       name: p.name,
       desk,
-      room: opts.roomIdx,
+      // Clamp the dense index together with roomId when the container is out of
+      // range, so the two never disagree (matches the "clamping to room 0" log).
+      room: containerRoom ? opts.roomIdx : 0,
+      roomId,
       cwd: p.cwd,
       outfit: p.outfit,
       permissionMode,

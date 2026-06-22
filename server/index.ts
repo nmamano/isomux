@@ -916,6 +916,10 @@ function buildPresenceListFor(session: SessionLookup): PresenceInfo[] {
       avatarColor: p.avatarColor,
       avatarVariant: p.avatarVariant,
       currentRoom: visibleIdx,
+      // Phase 3c: additive global stable room id next to the dense index.
+      // p.currentRoomId is already the global id in the presence store; the null
+      // case was filtered out above, so this is always a concrete id here.
+      currentRoomId: p.currentRoomId,
       focusedAgentId: p.focusedAgentId,
       viewMode: p.viewMode,
     });

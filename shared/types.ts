@@ -227,7 +227,13 @@ export interface AgentInfo {
   id: string;
   name: string;
   desk: number; // 0-7
-  room: number; // 0-based room index
+  room: number; // 0-based room index (DENSE per-recipient on the wire)
+  // Stable global room id (matches RoomWire.id). Phase 3c migration target:
+  // additive in slice 1 (populated everywhere `room` is, never read yet),
+  // authoritative for internal logic in slice 2 (read `roomId`, never branch
+  // on `room`), and the sole room reference after the slice-4 wire cut drops
+  // the dense `room` index.
+  roomId: string;
   cwd: string;
   outfit: AgentOutfit;
   // Backend-specific permission/approval mode. For Claude this is the
@@ -771,6 +777,12 @@ export interface PresenceInfo {
   // members the same as for full-access sessions). null when the
   // session has not yet sent its first presence_update.
   currentRoom: number | null;
+  // Global stable room id (matches RoomWire.id) — the id-keyed counterpart of
+  // the dense `currentRoom` index above, and ALWAYS a global id, never a
+  // dense/visible value. Phase 3c: additive in slice 1, consumed by clients in
+  // slice 3, and the sole presence room reference after the slice-4 cut drops
+  // the dense `currentRoom`.
+  currentRoomId: string | null;
   focusedAgentId: string | null;
   viewMode: "office" | "log" | "away";
 }

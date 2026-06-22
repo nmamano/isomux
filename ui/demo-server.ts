@@ -222,6 +222,7 @@ function seedOffice() {
       name: char.name,
       desk: char.desk,
       room: char.room,
+      roomId: state.rooms[char.room].id,
       cwd: char.cwd,
       outfit: char.outfit,
       permissionMode: "auto",
@@ -273,6 +274,7 @@ function emitStephenPresence() {
     avatarColor: stephen.avatarColor,
     avatarVariant: stephen.avatarVariant,
     currentRoom: agent.room,
+    currentRoomId: agent.roomId,
     focusedAgentId: agent.id,
     viewMode: "log",
   };
