@@ -638,6 +638,7 @@ Exit: the `dispatchCommand` switch is deleted; the WS carries only the event str
 ### Phase 4 — Close-out
 
 - Delete the now-dead surface, only after the strangler leaves it callerless: the ~1,940-line switch, the bespoke `*_response` messages, the `rooms_reordered` broadcast, and the materialized owner-access code.
+- Doc sweep once the WS command surface is gone: dated snapshots that enumerate live WS commands drift as commands migrate to REST. `docs/security-audit.md` Appendix C.1 still lists `load_cronjob_run`, `list_cronjob_runs`, `list_all_cronjob_runs` (already migrated) alongside the still-WS cron commands; the findings stand (transcripts office-wide-readable, per Follow-up #3) but the command-name mechanism is stale. Sweep these references when the strangler retires the WS commands they name — not per-slice (premature edits re-drift as more commands migrate).
 - Full suite plus ESLint, and a final review pass.
 - Extract the Testing strategy section into a standalone, maintained testing guide (tiers, how to run them, seams, conventions, reflecting what was actually built) and register it in `internal-docs/documentation.md` in the same change, so the doc index does not drift. This document stays the design and decision record; the testing guide becomes the living reference.
 - File the follow-ups below as tracked tasks.
