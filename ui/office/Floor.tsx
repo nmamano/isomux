@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { SCENE_W, SCENE_H, VB_X, VB_Y } from "./grid.ts";
+import { SCENE_W, SCENE_H, VB_X, VB_Y, roomPaletteIndex } from "./grid.ts";
 import { useAppState } from "../store.tsx";
 
 const NEON_COLORS = [
@@ -86,8 +86,8 @@ export function Walls({
   leftDoor?: DoorProps | null;
   rightDoor?: DoorProps | null;
 }) {
-  const { currentRoom } = useAppState();
-  const neon = NEON_COLORS[currentRoom % NEON_COLORS.length];
+  const { currentRoomId } = useAppState();
+  const neon = NEON_COLORS[roomPaletteIndex(currentRoomId, NEON_COLORS.length)];
   const [now, setNow] = useState(new Date());
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 30_000);

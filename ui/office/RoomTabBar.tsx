@@ -127,7 +127,7 @@ function TotalOnlineChip({ count }: { count: number }) {
 export function RoomTabBar() {
   const {
     agents,
-    currentRoom,
+    currentRoomId,
     rooms,
     needsAttention,
     presences,
@@ -136,24 +136,22 @@ export function RoomTabBar() {
   } = useAppState();
   const selfConnectionId = sessionContext?.connectionId ?? null;
   const roomCount = rooms.length;
-  const roomNames = rooms.map((r) => r.name);
   const dispatch = useDispatch();
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
   const [settingsRoomId, setSettingsRoomId] = useState<string | null>(null);
 
-  // Bucket presences by visible room index. The server already filters
-  // by allowedRooms and remaps currentRoomId → currentRoom (visible
-  // index) per-recipient, so a simple `p.currentRoom === i` is the
-  // correct intersection. No user-level dedupe: one mini-ghost per
-  // connection, matching the in-scene ghost layer's rules.
+  // Bucket presences by global room id, then look each tab up by its
+  // room.id. The server already filters by allowedRooms; off-scene entries
+  // (currentRoomId null) are absent from the wire. No user-level dedupe:
+  // one mini-ghost per connection, matching the in-scene ghost layer.
   const presencesByRoom = useMemo(() => {
-    const buckets = new Map<number, PresenceInfo[]>();
+    const buckets = new Map<string, PresenceInfo[]>();
     for (const p of presences) {
-      if (p.currentRoom === null) continue;
-      const list = buckets.get(p.currentRoom);
+      if (p.currentRoomId === null) continue;
+      const list = buckets.get(p.currentRoomId);
       if (list) list.push(p);
-      else buckets.set(p.currentRoom, [p]);
+      else buckets.set(p.currentRoomId, [p]);
     }
     return buckets;
   }, [presences]);
@@ -214,15 +212,15 @@ export function RoomTabBar() {
         zIndex: 500,
       }}
     >
-      {Array.from({ length: roomCount }, (_, i) => {
-        const isActive = i === currentRoom;
-        const roomAgents = agents.filter((a) => a.room === i);
+      {rooms.map((room, i) => {
+        const isActive = room.id === currentRoomId;
+        const roomAgents = agents.filter((a) => a.roomId === room.id);
         const hasAttention = roomAgents.some((a) => needsAttention.has(a.id));
         const isEmpty = roomAgents.length === 0;
-        const displayName = roomNames[i] ?? `Room ${i + 1}`;
+        const displayName = room.name;
         const isDragging = dragFrom === i;
         const isDropTarget = dragOver === i;
-        const roomPresences = presencesByRoom.get(i) ?? [];
+        const roomPresences = presencesByRoom.get(room.id) ?? [];
 
         return (
           <div
@@ -264,12 +262,11 @@ export function RoomTabBar() {
             <button
               onClick={(e) => {
                 (e.target as HTMLElement).blur();
-                dispatch({ type: "set_current_room", room: i });
+                dispatch({ type: "set_current_room", roomId: room.id });
               }}
               onDoubleClick={(e) => {
                 e.preventDefault();
-                const rid = rooms[i]?.id;
-                if (rid) setSettingsRoomId(rid);
+                setSettingsRoomId(room.id);
               }}
               onContextMenu={(e) => e.preventDefault()}
               style={{
@@ -330,13 +327,16 @@ export function RoomTabBar() {
               presences={roomPresences}
               selfConnectionId={selfConnectionId}
             />
-            {/* Close button: only for empty rooms that aren't Room 1 */}
+            {/* Close button: empty rooms only. `i > 0` is NOT semantically
+                correct under a custom view order; it is a temporary default-
+                order-compatible approximation of the server's protected-first-
+                room rule, until RoomWire carries an explicit protected/
+                deletable capability (slice 4). Server stays authoritative. */}
             {i > 0 && isEmpty && (
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  const rid = rooms[i]?.id;
-                  if (rid) send({ type: "close_room", roomId: rid });
+                  send({ type: "close_room", roomId: room.id });
                 }}
                 style={{
                   width: 16,

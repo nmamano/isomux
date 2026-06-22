@@ -17,8 +17,15 @@ export function RoomSettingsModal({
   const { agents, rooms, isMobile } = useAppState();
   const room = rooms.find((r) => r.id === roomId);
   const roomIndex = rooms.findIndex((r) => r.id === roomId);
+  // Emptiness is id-based and authoritative. `roomIndex > 0` is NOT
+  // semantically correct: it approximates the server's protected-first-room
+  // rule (office-state.closeRoom refuses global index <= 0) via the VISIBLE
+  // index, which is right only under default view order and diverges once a
+  // user sets a custom order. It is a temporary default-order-compatible
+  // approximation until RoomWire carries an explicit protected/deletable
+  // capability (slice 4). The server stays authoritative on the close.
   const canDeleteRoom =
-    roomIndex > 0 && agents.every((agent) => agent.room !== roomIndex);
+    roomIndex > 0 && agents.every((agent) => agent.roomId !== roomId);
   const [name, setName] = useState(room?.name ?? "");
   const [prompt, setPrompt] = useState(room?.prompt ?? "");
   const [saving, setSaving] = useState(false);

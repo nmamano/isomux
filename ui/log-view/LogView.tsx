@@ -503,7 +503,12 @@ export function LogView({
     isMobile,
     connected,
     sidePanels,
+    rooms,
   } = useAppState();
+  // Room ordinal for the header "R{n}:" badge, derived from the agent's
+  // stable roomId. A -1 (room not in the viewer's visible set) renders no
+  // badge, never "R0".
+  const agentRoomIndex = rooms.findIndex((r) => r.id === agent.roomId);
   // Use `pointer: coarse` instead of viewport `isMobile` so narrow desktop
   // windows (split-screen) with a hardware keyboard still send on Enter.
   const isTouchPrimary = useMemo(
@@ -1576,7 +1581,7 @@ export function LogView({
                   }}
                 >
                   {agent.name}
-                  {agent.room > 0 ? (
+                  {agentRoomIndex > 0 ? (
                     <span
                       style={{
                         opacity: 0.4,
@@ -1585,7 +1590,7 @@ export function LogView({
                         marginLeft: 6,
                       }}
                     >
-                      R{agent.room + 1}:{agent.desk + 1}
+                      R{agentRoomIndex + 1}:{agent.desk + 1}
                     </span>
                   ) : (
                     ""
@@ -1680,7 +1685,7 @@ export function LogView({
                 title="Edit agent"
               >
                 <span style={{ opacity: 0.5 }}>
-                  {agent.room > 0 ? `R${agent.room + 1}:` : ""}
+                  {agentRoomIndex > 0 ? `R${agentRoomIndex + 1}:` : ""}
                   {agent.desk + 1} ·
                 </span>{" "}
                 {agent.name}

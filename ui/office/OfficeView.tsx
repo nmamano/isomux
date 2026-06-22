@@ -154,7 +154,7 @@ export function OfficeView({
     stateChangedAt,
     office,
     tasks,
-    currentRoom,
+    currentRoomId,
     rooms,
     isMobile,
     updateAvailable,
@@ -164,6 +164,9 @@ export function OfficeView({
   } = useAppState();
   const roomCount = rooms.length;
   const roomNames = rooms.map((r) => r.name);
+  // Dense index of the selected room within the visible projection. Drives
+  // positional door nav (prev/next neighbour); -1 when nothing is selected.
+  const currentRoomIndex = rooms.findIndex((r) => r.id === currentRoomId);
   const officePrompt = office.prompt;
   const dispatch = useDispatch();
   const { mode, toggleTheme } = useTheme();
@@ -216,7 +219,7 @@ export function OfficeView({
   ]);
 
   // Filter agents to current room for rendering
-  const roomAgents = agents.filter((a) => a.room === currentRoom);
+  const roomAgents = agents.filter((a) => a.roomId === currentRoomId);
   // Final ghost placement list — natural desk / lobby positions, plus
   // door-slide overrides for ghosts whose presence just crossed into / out
   // of our current room. The hook owns all per-ghost coordinate state;
@@ -224,7 +227,8 @@ export function OfficeView({
   const ghostPlacements = useGhostTransitions(
     presences,
     roomAgents,
-    currentRoom,
+    currentRoomId,
+    rooms,
     sessionContext?.connectionId ?? null,
     LEFT_DOOR_COORD,
     RIGHT_DOOR_COORD,
@@ -518,14 +522,15 @@ export function OfficeView({
                 ).length
               }
               leftDoor={
-                currentRoom > 0
+                currentRoomIndex > 0
                   ? {
                       label:
-                        roomNames[currentRoom - 1] ?? `Room ${currentRoom}`,
+                        roomNames[currentRoomIndex - 1] ??
+                        `Room ${currentRoomIndex}`,
                       onClick: () =>
                         dispatch({
                           type: "set_current_room",
-                          room: currentRoom - 1,
+                          roomId: rooms[currentRoomIndex - 1].id,
                         }),
                       dragOver: leftDoorDragOver,
                       reject: leftDoorReject,
@@ -533,14 +538,15 @@ export function OfficeView({
                   : null
               }
               rightDoor={
-                currentRoom < roomCount - 1
+                currentRoomIndex >= 0 && currentRoomIndex < roomCount - 1
                   ? {
                       label:
-                        roomNames[currentRoom + 1] ?? `Room ${currentRoom + 2}`,
+                        roomNames[currentRoomIndex + 1] ??
+                        `Room ${currentRoomIndex + 2}`,
                       onClick: () =>
                         dispatch({
                           type: "set_current_room",
-                          room: currentRoom + 1,
+                          roomId: rooms[currentRoomIndex + 1].id,
                         }),
                       dragOver: rightDoorDragOver,
                       reject: rightDoorReject,
@@ -550,14 +556,17 @@ export function OfficeView({
             />
             <Floor />
             <RoomProps />
-            {currentRoom > 0 && (
+            {currentRoomIndex > 0 && (
               <DoorDropZone
                 side="left"
                 // viewport.wrapClick is a stable callback that wraps a click
                 // handler to suppress clicks during pan-drag.
                 // eslint-disable-next-line react-hooks/refs
                 onClick={viewport.wrapClick(() =>
-                  dispatch({ type: "set_current_room", room: currentRoom - 1 }),
+                  dispatch({
+                    type: "set_current_room",
+                    roomId: rooms[currentRoomIndex - 1].id,
+                  }),
                 )}
                 onDragOverChange={(over) => setLeftDoorDragOver(over)}
                 onDrop={(deskIndex) => {
@@ -567,11 +576,10 @@ export function OfficeView({
                     setTimeout(() => setLeftDoorReject(false), 400);
                     return false;
                   }
-                  const targetRoom = currentRoom - 1;
-                  const targetRoomId = rooms[targetRoom]?.id;
+                  const targetRoomId = rooms[currentRoomIndex - 1]?.id;
                   if (
                     !targetRoomId ||
-                    agents.filter((x) => x.room === targetRoom).length >= 8
+                    agents.filter((x) => x.roomId === targetRoomId).length >= 8
                   ) {
                     setLeftDoorReject(true);
                     setTimeout(() => setLeftDoorReject(false), 400);
@@ -582,13 +590,16 @@ export function OfficeView({
                 }}
               />
             )}
-            {currentRoom < roomCount - 1 && (
+            {currentRoomIndex >= 0 && currentRoomIndex < roomCount - 1 && (
               <DoorDropZone
                 side="right"
                 // viewport.wrapClick: same stable-callback pattern as left door.
                 // eslint-disable-next-line react-hooks/refs
                 onClick={viewport.wrapClick(() =>
-                  dispatch({ type: "set_current_room", room: currentRoom + 1 }),
+                  dispatch({
+                    type: "set_current_room",
+                    roomId: rooms[currentRoomIndex + 1].id,
+                  }),
                 )}
                 onDragOverChange={(over) => setRightDoorDragOver(over)}
                 onDrop={(deskIndex) => {
@@ -598,11 +609,10 @@ export function OfficeView({
                     setTimeout(() => setRightDoorReject(false), 400);
                     return false;
                   }
-                  const targetRoom = currentRoom + 1;
-                  const targetRoomId = rooms[targetRoom]?.id;
+                  const targetRoomId = rooms[currentRoomIndex + 1]?.id;
                   if (
                     !targetRoomId ||
-                    agents.filter((x) => x.room === targetRoom).length >= 8
+                    agents.filter((x) => x.roomId === targetRoomId).length >= 8
                   ) {
                     setRightDoorReject(true);
                     setTimeout(() => setRightDoorReject(false), 400);
@@ -629,7 +639,7 @@ export function OfficeView({
                     }
                     needsAttention={needsAttention.has(agent.id)}
                     onSwap={(a, b) => {
-                      const rid = rooms[currentRoom]?.id;
+                      const rid = currentRoomId;
                       if (rid)
                         send({
                           type: "swap_desks",
@@ -648,7 +658,7 @@ export function OfficeView({
                   deskIndex={i}
                   onClick={viewport.wrapClick(() => onSpawn(i))}
                   onSwap={(a, b) => {
-                    const rid = rooms[currentRoom]?.id;
+                    const rid = currentRoomId;
                     if (rid)
                       send({
                         type: "swap_desks",
@@ -662,7 +672,7 @@ export function OfficeView({
             })}
             {/* eslint-enable react-hooks/refs */}
             {/* Live-avatars: floating ghost per active presence whose
-                currentRoom matches the viewer's currentRoom. Rendered
+                currentRoomId matches the viewer's currentRoomId. Rendered
                 last (and with high z-index) so they sit above desks,
                 walls, and props per Q20 in the design memo. */}
             {/* Two layers, two stable per-connection keys per layer. The

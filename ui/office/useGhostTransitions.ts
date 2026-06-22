@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { AgentInfo, PresenceInfo } from "../../shared/types.ts";
+import type { AgentInfo, PresenceInfo, RoomWire } from "../../shared/types.ts";
 import { DESK_SLOTS, deskPixelPos } from "./grid.ts";
 
 // "Outside SE wall" lobby coordinates. Until the desk repositioning in
@@ -65,11 +65,12 @@ function mapsEqual<K, V>(a: Map<K, V>, b: Map<K, V>): boolean {
 function computeNaturalPlacements(
   presences: PresenceInfo[],
   roomAgents: AgentInfo[],
-  currentRoom: number,
+  currentRoomId: string | null,
   ownConnectionId: string | null,
 ): GhostPlacement[] {
   const visible = presences.filter(
-    (p) => p.currentRoom === currentRoom && p.connectionId !== ownConnectionId,
+    (p) =>
+      p.currentRoomId === currentRoomId && p.connectionId !== ownConnectionId,
   );
   const groups = new Map<string, PresenceInfo[]>();
   for (const p of visible) {
@@ -134,7 +135,7 @@ function computeNaturalPlacements(
 // transition could run.
 //
 // Detection runs SYNCHRONOUSLY during render via the React render-phase
-// setState pattern: we hold `prevPresences` and `prevOwnRoom` in state,
+// setState pattern: we hold `prevPresences` and `prevOwnRoomId` in state,
 // compare against the current props, and update state during the render
 // that first sees a diff. React discards that render and re-renders with
 // the new state — so the first paint after a presence_list room change
@@ -143,20 +144,23 @@ function computeNaturalPlacements(
 // natural -> phantom transition so the existing left/top CSS transition
 // animates the slide instead of remount-popping.
 //
-// Direction rule: sign(currRoom - prevRoom) decides which door.
+// Direction rule: the two room ids are resolved to their dense positions in
+// the visible `rooms` list, and sign(currIdx - prevIdx) decides which door.
 //   forward (positive): exit RIGHT (old room) / enter LEFT (new room).
 //   backward (negative): exit LEFT (old room) / enter RIGHT (new room).
 //
 // No door animation when:
-//   - the viewer themselves changed currentRoom (their movement, not the
+//   - the viewer themselves changed currentRoomId (their movement, not the
 //     other presence's): all in-flight state is cleared,
-//   - the presence's prevRoom or currRoom is null (connect / disconnect /
+//   - the presence's prevRoomId or currRoomId is null (connect / disconnect /
 //     crossing in or out of the recipient's visible projection),
+//   - either room id is missing from the visible `rooms` list (no direction),
 //   - we've never seen this presence before (initial mount of its entry).
 export function useGhostTransitions(
   presences: PresenceInfo[],
   roomAgents: AgentInfo[],
-  currentRoom: number,
+  currentRoomId: string | null,
+  rooms: RoomWire[],
   ownConnectionId: string | null,
   leftDoor: DoorCoord,
   rightDoor: DoorCoord,
@@ -167,18 +171,30 @@ export function useGhostTransitions(
   const [exiting, setExiting] = useState<Map<string, GhostPlacement>>(
     () => new Map(),
   );
-  // `prevPresences` / `prevOwnRoom` are kept in STATE (not refs) so the
+  // `prevPresences` / `prevOwnRoomId` are kept in STATE (not refs) so the
   // render-phase compare-and-update pattern is a pure function of state
   // and props. Refs would also work but would be a side-effect mutation
   // during render, which strict-mode double-renders catch.
   const [prevPresences, setPrevPresences] = useState<PresenceInfo[]>(presences);
-  const [prevOwnRoom, setPrevOwnRoom] = useState<number>(currentRoom);
+  const [prevOwnRoomId, setPrevOwnRoomId] = useState<string | null>(
+    currentRoomId,
+  );
 
-  // Map<cid, prevRoom> derived from prevPresences. Recomputed only when
+  // Global room id -> dense index in the visible projection. Used ONLY to
+  // derive the slide direction (which door) when a ghost changes rooms; all
+  // room-membership checks are by id. An id missing here means the room isn't
+  // in this session's visible set, so the door animation is skipped.
+  const roomIndexById = useMemo(() => {
+    const m = new Map<string, number>();
+    rooms.forEach((r, i) => m.set(r.id, i));
+    return m;
+  }, [rooms]);
+
+  // Map<cid, prevRoomId> derived from prevPresences. Recomputed only when
   // prevPresences changes (i.e., when we accept a new diff into state).
   const prevRoomByCid = useMemo(() => {
-    const m = new Map<string, number | null>();
-    for (const p of prevPresences) m.set(p.connectionId, p.currentRoom);
+    const m = new Map<string, string | null>();
+    for (const p of prevPresences) m.set(p.connectionId, p.currentRoomId);
     return m;
   }, [prevPresences]);
 
@@ -190,13 +206,13 @@ export function useGhostTransitions(
     Map<string, { raf1: number; raf2: number | null }>
   >(new Map());
 
-  // Render-phase derived-state pattern. When `presences` or `currentRoom`
+  // Render-phase derived-state pattern. When `presences` or `currentRoomId`
   // change (compared by reference / value to the snapshot in state), detect
   // transitions and update state IN THIS render so the same render's return
   // value reflects them. React discards the just-returned output and
   // re-renders with the updated state before painting.
-  if (presences !== prevPresences || currentRoom !== prevOwnRoom) {
-    const ownChanged = prevOwnRoom !== currentRoom;
+  if (presences !== prevPresences || currentRoomId !== prevOwnRoomId) {
+    const ownChanged = prevOwnRoomId !== currentRoomId;
 
     if (ownChanged) {
       // The viewer moved. Their natural appearance/disappearance from our
@@ -210,14 +226,20 @@ export function useGhostTransitions(
       const newExitingEntries = new Map<string, GhostPlacement>();
 
       for (const p of presences) {
-        const prevRoom = prevRoomByCid.get(p.connectionId);
-        const currRoom = p.currentRoom;
-        if (prevRoom === undefined) continue;
-        if (prevRoom === currRoom) continue;
-        if (prevRoom === null || currRoom === null) continue;
+        const prevRoomId = prevRoomByCid.get(p.connectionId);
+        const currRoomId = p.currentRoomId;
+        if (prevRoomId === undefined) continue;
+        if (prevRoomId === currRoomId) continue;
+        if (prevRoomId === null || currRoomId === null) continue;
 
-        const goingForward = currRoom > prevRoom;
-        if (prevRoom === currentRoom) {
+        // Direction needs the dense ordering of the two rooms. If either id
+        // isn't in the visible projection, skip the door anim (don't guess).
+        const prevIdx = roomIndexById.get(prevRoomId);
+        const currIdx = roomIndexById.get(currRoomId);
+        if (prevIdx === undefined || currIdx === undefined) continue;
+
+        const goingForward = currIdx > prevIdx;
+        if (prevRoomId === currentRoomId) {
           const door = goingForward ? rightDoor : leftDoor;
           newExitingEntries.set(p.connectionId, {
             presence: p,
@@ -225,7 +247,7 @@ export function useGhostTransitions(
             top: door.top,
             dimmed: p.viewMode === "away",
           });
-        } else if (currRoom === currentRoom) {
+        } else if (currRoomId === currentRoomId) {
           const door = goingForward ? leftDoor : rightDoor;
           newEnteringEntries.set(p.connectionId, {
             left: door.left,
@@ -271,7 +293,7 @@ export function useGhostTransitions(
     }
 
     setPrevPresences(presences);
-    setPrevOwnRoom(currentRoom);
+    setPrevOwnRoomId(currentRoomId);
   }
 
   // Sync rAF schedule to current `entering` state. New cids in `entering`
@@ -358,10 +380,10 @@ export function useGhostTransitions(
       computeNaturalPlacements(
         presences,
         roomAgents,
-        currentRoom,
+        currentRoomId,
         ownConnectionId,
       ),
-    [presences, roomAgents, currentRoom, ownConnectionId],
+    [presences, roomAgents, currentRoomId, ownConnectionId],
   );
 
   return useMemo(() => {

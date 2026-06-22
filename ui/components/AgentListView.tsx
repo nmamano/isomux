@@ -47,12 +47,13 @@ export function AgentListView({
   onSwipeLeft?: () => void;
   onSwipeRight?: () => void;
 }) {
-  const { agents, currentRoom, rooms, updateAvailable, needsAttention } =
+  const { agents, currentRoomId, rooms, updateAvailable, needsAttention } =
     useAppState();
   const { mode } = useTheme();
   const [themePickerOpen, setThemePickerOpen] = useState(false);
   const roomCount = rooms.length;
-  const roomAgents = agents.filter((a) => a.room === currentRoom);
+  const roomAgents = agents.filter((a) => a.roomId === currentRoomId);
+  const currentRoomName = rooms.find((r) => r.id === currentRoomId)?.name;
   const swipeRef = useSwipeLeftRight(
     onSwipeLeft ?? (() => {}),
     onSwipeRight ?? (() => {}),
@@ -154,7 +155,7 @@ export function AgentListView({
             >
               <span style={{ fontSize: 15, color: "var(--text-muted)" }}>
                 {roomCount > 1
-                  ? `${rooms[currentRoom]?.name ?? `Room ${currentRoom + 1}`} is empty`
+                  ? `${currentRoomName ?? "This room"} is empty`
                   : "No agents yet"}
               </span>
               <span style={{ fontSize: 13, color: "var(--text-faint)" }}>

@@ -1,4 +1,4 @@
-import { SCENE_W, SCENE_H, VB_X, VB_Y } from "./grid.ts";
+import { SCENE_W, SCENE_H, VB_X, VB_Y, roomPaletteIndex } from "./grid.ts";
 import { useAppState } from "../store.tsx";
 
 const CAT_PALETTES = [
@@ -11,9 +11,10 @@ const CAT_PALETTES = [
 ];
 
 export function RoomProps() {
-  const { currentRoom, rooms } = useAppState();
-  const cat = CAT_PALETTES[currentRoom % CAT_PALETTES.length];
-  const isLastRoom = currentRoom === rooms.length - 1;
+  const { currentRoomId, rooms } = useAppState();
+  const cat =
+    CAT_PALETTES[roomPaletteIndex(currentRoomId, CAT_PALETTES.length)];
+  const isLastRoom = rooms[rooms.length - 1]?.id === currentRoomId;
   return (
     <svg
       style={{ position: "absolute", top: 0, left: 0, pointerEvents: "none" }}

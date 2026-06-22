@@ -23,11 +23,11 @@ import { EngineChooserDialog } from "./components/EngineChooserDialog.tsx";
 function cycleAgent(
   agents: AgentInfo[],
   drafts: Map<string, string>,
-  currentRoom: number,
+  currentRoomId: string | null,
   focusedAgentId: string | null,
   direction: "next" | "prev",
 ): string | null {
-  const roomAgents = agents.filter((a) => a.room === currentRoom);
+  const roomAgents = agents.filter((a) => a.roomId === currentRoomId);
   const sorted = [...roomAgents].sort((a, b) => a.desk - b.desk);
   const nonIdle = sorted.filter(
     (a) =>
@@ -57,7 +57,7 @@ export function App() {
     isMobile,
     mobileViewMode,
     drafts,
-    currentRoom,
+    currentRoomId,
     rooms,
     office,
     connected,
@@ -112,38 +112,39 @@ export function App() {
 
   const swipeRoomNext = useCallback(() => {
     if (roomCount <= 1) return;
-    dispatch({ type: "set_current_room", room: (currentRoom + 1) % roomCount });
-  }, [dispatch, currentRoom, roomCount]);
+    const idx = rooms.findIndex((r) => r.id === currentRoomId);
+    const next = rooms[(idx + 1) % roomCount];
+    if (next) dispatch({ type: "set_current_room", roomId: next.id });
+  }, [dispatch, rooms, currentRoomId, roomCount]);
 
   const swipeRoomPrev = useCallback(() => {
     if (roomCount <= 1) return;
-    dispatch({
-      type: "set_current_room",
-      room: (currentRoom - 1 + roomCount) % roomCount,
-    });
-  }, [dispatch, currentRoom, roomCount]);
+    const idx = rooms.findIndex((r) => r.id === currentRoomId);
+    const prev = rooms[(idx - 1 + roomCount) % roomCount];
+    if (prev) dispatch({ type: "set_current_room", roomId: prev.id });
+  }, [dispatch, rooms, currentRoomId, roomCount]);
 
   const swipeAgentNext = useCallback(() => {
     const nextId = cycleAgent(
       agents,
       drafts,
-      currentRoom,
+      currentRoomId,
       focusedAgentId,
       "next",
     );
     if (nextId) dispatch({ type: "focus", agentId: nextId });
-  }, [dispatch, agents, drafts, currentRoom, focusedAgentId]);
+  }, [dispatch, agents, drafts, currentRoomId, focusedAgentId]);
 
   const swipeAgentPrev = useCallback(() => {
     const nextId = cycleAgent(
       agents,
       drafts,
-      currentRoom,
+      currentRoomId,
       focusedAgentId,
       "prev",
     );
     if (nextId) dispatch({ type: "focus", agentId: nextId });
-  }, [dispatch, agents, drafts, currentRoom, focusedAgentId]);
+  }, [dispatch, agents, drafts, currentRoomId, focusedAgentId]);
 
   // Live-avatars: tell the server where this session's ghost should
   // appear. Fires whenever any of the relevant view states change, plus
@@ -164,21 +165,27 @@ export function App() {
         ? "log"
         : "office";
   // When a focused agent moves rooms (owner drags them across with
-  // move_agent), the viewer's state.currentRoom doesn't follow — but
-  // the ghost should anchor to wherever the agent IS, not where the
-  // viewer last clicked. Use the agent's room as the presence room
-  // when focused; fall back to the viewer's selection otherwise.
-  // Depending on the scalar `focusedAgent?.room` (a number) instead
-  // of the `focusedAgent` object identity keeps the effect quiet
-  // through unrelated agent_updated noise like state/log changes.
-  const focusedAgentRoom = focusedAgent?.room ?? null;
-  const presenceRoom =
-    focusedAgentRoom !== null ? focusedAgentRoom : currentRoom;
+  // move_agent), the viewer's selection (currentRoomId) doesn't follow.
+  // The ghost should anchor to wherever the agent IS, not where the viewer
+  // last clicked, so use the focused agent's roomId when focused and fall
+  // back to the viewer's selection otherwise. Depending on the scalar id
+  // rather than the focusedAgent object identity keeps the effect quiet
+  // through unrelated agent_updated noise (state/log changes).
+  const presenceRoomId = focusedAgent?.roomId ?? currentRoomId;
+  // The running server still consumes the dense VISIBLE index, so send it
+  // additively (derived from the id via the visible `rooms` projection). A
+  // -1 (the id isn't in this session's visible set) is sent as null so the
+  // server clamps to off-scene instead of mis-indexing. Slice 4 drops this.
+  const presenceRoomIndex = presenceRoomId
+    ? rooms.findIndex((r) => r.id === presenceRoomId)
+    : -1;
+  const presenceRoom = presenceRoomIndex >= 0 ? presenceRoomIndex : null;
   useEffect(() => {
     if (!sessionContext) return;
     send({
       type: "presence_update",
       currentRoom: presenceRoom,
+      currentRoomId: presenceRoomId,
       focusedAgentId,
       viewMode,
       // Read device inline rather than as a dep so we don't need to
@@ -187,7 +194,7 @@ export function App() {
       // and refires this effect with the fresh value.
       device: getDevice(),
     });
-  }, [sessionContext, presenceRoom, focusedAgentId, viewMode]);
+  }, [sessionContext, presenceRoom, presenceRoomId, focusedAgentId, viewMode]);
 
   // Browser back button: navigate to office view instead of leaving the page.
   // Model: office = home, any other view = one level deep. Only one history
@@ -256,7 +263,7 @@ export function App() {
       ) {
         const deskIndex = parseInt(e.key) - 1;
         const agent = agents.find(
-          (a) => a.desk === deskIndex && a.room === currentRoom,
+          (a) => a.desk === deskIndex && a.roomId === currentRoomId,
         );
         if (agent) {
           e.preventDefault();
@@ -272,10 +279,12 @@ export function App() {
         !e.defaultPrevented
       ) {
         e.preventDefault();
-        const next = e.shiftKey
-          ? (currentRoom - 1 + roomCount) % roomCount
-          : (currentRoom + 1) % roomCount;
-        dispatch({ type: "set_current_room", room: next });
+        const idx = rooms.findIndex((r) => r.id === currentRoomId);
+        const nextIdx = e.shiftKey
+          ? (idx - 1 + roomCount) % roomCount
+          : (idx + 1) % roomCount;
+        const next = rooms[nextIdx];
+        if (next) dispatch({ type: "set_current_room", roomId: next.id });
       }
       // Tab: cycle to next agent within current room (Shift+Tab: previous) when viewing an agent
       // Skip if autocomplete already consumed this Tab (it calls preventDefault)
@@ -289,7 +298,7 @@ export function App() {
         const nextId = cycleAgent(
           agents,
           drafts,
-          currentRoom,
+          currentRoomId,
           focusedAgentId,
           e.shiftKey ? "prev" : "next",
         );
@@ -304,7 +313,8 @@ export function App() {
     focusedAgentId,
     agents,
     drafts,
-    currentRoom,
+    rooms,
+    currentRoomId,
     roomCount,
   ]);
 
@@ -383,7 +393,7 @@ export function App() {
           onOpenDeviceSettings={() => setEditingDeviceSettings(true)}
           onEditOfficePrompt={() => setEditingOfficePrompt(true)}
           onEditRoomSettings={() => {
-            const rid = rooms[currentRoom]?.id;
+            const rid = currentRoomId;
             if (rid) setEditingRoomSettings(rid);
           }}
           onOpenTasks={() => setTasksOpen(true)}
@@ -405,7 +415,7 @@ export function App() {
           onOpenDeviceSettings={() => setEditingDeviceSettings(true)}
           onEditOfficePrompt={() => setEditingOfficePrompt(true)}
           onEditRoomSettings={() => {
-            const rid = rooms[currentRoom]?.id;
+            const rid = currentRoomId;
             if (rid) setEditingRoomSettings(rid);
           }}
           onOpenTasks={() => setTasksOpen(true)}
@@ -416,10 +426,10 @@ export function App() {
           viewportControlsRef={viewportControlsRef}
         />
       )}
-      {spawnPickerDesk !== null && rooms[currentRoom] && (
+      {spawnPickerDesk !== null && currentRoomId && (
         <EngineChooserDialog
           deskIndex={spawnPickerDesk}
-          roomId={rooms[currentRoom].id}
+          roomId={currentRoomId}
           onCancel={() => setSpawnPickerDesk(null)}
           onPick={(agentType) => {
             const desk = spawnPickerDesk;
@@ -428,13 +438,13 @@ export function App() {
           }}
         />
       )}
-      {spawnReady !== null && (
+      {spawnReady !== null && currentRoomId && (
         <EditAgentDialog
           deskIndex={spawnReady.desk}
           defaultCwd="~"
           spawnAgentType={spawnReady.agentType}
           onClose={() => setSpawnReady(null)}
-          room={currentRoom}
+          roomId={currentRoomId}
         />
       )}
       {ctxMenu && (

@@ -259,11 +259,14 @@ let cycleTimer: ReturnType<typeof setInterval> | null = null;
 function emitStephenPresence() {
   const stephen = users.get("stephen");
   if (!stephen) return;
-  // Cycle only through agents in room 0. The seed has Angela in room
-  // 1, and the client-side currentRoom filter would (correctly) hide
-  // the ghost whenever the cycle landed on her — which reads as a
-  // 6-second blank gap in a single-room demo view.
-  const agents = state.getState().agents.filter((a) => a.room === 0);
+  // Cycle only through agents in the first room. The seed has Angela in
+  // the second room, and the client-side currentRoomId filter would
+  // (correctly) hide the ghost whenever the cycle landed on her, which
+  // reads as a 6-second blank gap in a single-room demo view.
+  const firstRoomId = state.getState().rooms[0]?.id;
+  const agents = state
+    .getState()
+    .agents.filter((a) => a.roomId === firstRoomId);
   if (agents.length === 0) return;
   const agent = agents[cycleIndex % agents.length];
   const entry: PresenceInfo = {
@@ -289,7 +292,10 @@ function startStephenGhostCycle() {
   // than 4 seconds later.
   emitStephenPresence();
   cycleTimer = setInterval(() => {
-    const total = state.getState().agents.filter((a) => a.room === 0).length;
+    const firstRoomId = state.getState().rooms[0]?.id;
+    const total = state
+      .getState()
+      .agents.filter((a) => a.roomId === firstRoomId).length;
     if (total === 0) return;
     cycleIndex = (cycleIndex + 1) % total;
     emitStephenPresence();

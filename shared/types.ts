@@ -1312,6 +1312,11 @@ export type ClientCommand =
       // an access revoke) are clamped to null rather than rejected.
       type: "presence_update";
       currentRoom: number | null;
+      // Phase 3c slice 3: additive global room id sent alongside the dense
+      // visible `currentRoom`. The running server still consumes the dense
+      // index; slice 4 switches inbound logic to this id and drops the dense
+      // `currentRoom`. Optional so an older client that omits it still parses.
+      currentRoomId?: string | null;
       focusedAgentId: string | null;
       viewMode: "office" | "log" | "away";
       // Client-supplied device label (from localStorage isomux-device).

@@ -37,6 +37,7 @@ import {
   upsertUserView,
   rebuildUserViews,
 } from "./user-merge.ts";
+import { resolveSelectedRoomId, applyRoomClose } from "./roomSelection.ts";
 import { connect, send } from "./ws.ts";
 import { type Features, PRODUCTION_FEATURES } from "../shared/features.ts";
 import {
@@ -91,7 +92,7 @@ export interface AppState {
   cronjobsPrompt: string | null;
   cronjobRunsByJob: Map<string, CronjobRun[]>; // jobId → run list (loaded on demand)
   cronjobRunsLoaded: boolean;
-  currentRoom: number; // 0-based room index (view selection only)
+  currentRoomId: string | null; // selected room id (view selection only; null when no rooms visible)
   updateAvailable: boolean;
   updateCurrent: { sha: string; message: string; date: string };
   updateLatest: { sha: string; message: string; date: string };
@@ -126,7 +127,7 @@ export interface AppState {
   // Live-avatars: other connections' presence in the office scene.
   // Pre-filtered by the server for the current session's allowedRooms
   // and sorted by connectionId. The client renders one Ghost per entry
-  // whose currentRoom matches state.currentRoom (rooms render
+  // whose currentRoomId matches state.currentRoomId (rooms render
   // independently). Self entry (matching state.sessionContext.
   // connectionId, per-WS not per-cookie) is hidden client-side
   // unconditionally — the boss never sees their own avatar. The
@@ -192,7 +193,7 @@ type Action =
       name: string | null;
     }
   | { type: "tasks"; tasks: TaskItem[] }
-  | { type: "set_current_room"; room: number }
+  | { type: "set_current_room"; roomId: string }
   | { type: "room_created"; room: RoomWire }
   | { type: "room_closed"; roomId: string }
   | { type: "room_renamed"; roomId: string; name: string }
@@ -251,20 +252,21 @@ function reducer(state: AppState, action: Action): AppState {
     case "full_state": {
       // Apply the user's default room only on the first full_state (when we
       // haven't seen any rooms yet). Subsequent full_states (e.g. after a
-      // server reconnect) preserve whichever room the user was viewing.
-      let currentRoom = state.currentRoom;
+      // server reconnect) preserve whichever room the user was viewing, as
+      // long as it still exists; otherwise fall back to the first room.
+      let preferredRoomId: string | null = null;
       if (state.rooms.length === 0) {
         const username = getUsername();
         const me = username
           ? state.users.get(username.toLowerCase())
           : undefined;
-        const defaultId = me?.defaultRoomId ?? null;
-        if (defaultId) {
-          const idx = action.rooms.findIndex((r) => r.id === defaultId);
-          if (idx >= 0) currentRoom = idx;
-        }
+        preferredRoomId = me?.defaultRoomId ?? null;
       }
-      currentRoom = Math.min(currentRoom, Math.max(0, action.rooms.length - 1));
+      const currentRoomId = resolveSelectedRoomId(
+        action.rooms,
+        state.currentRoomId,
+        preferredRoomId,
+      );
       return {
         ...state,
         agents: action.agents,
@@ -278,7 +280,7 @@ function reducer(state: AppState, action: Action): AppState {
         },
         rooms: action.rooms,
         killedAgents: action.killedAgents,
-        currentRoom,
+        currentRoomId,
         logs: new Map(),
         logEntryIds: new Map(),
         needsAttention: new Set(),
@@ -354,7 +356,7 @@ function reducer(state: AppState, action: Action): AppState {
           // another, the receiver answers and idles) stays silent — see
           // turnHadHumanInput on the server side.
           if (prevAgent.turnHadHumanInput) {
-            const roomId = state.rooms[prevAgent.room]?.id ?? null;
+            const roomId = prevAgent.roomId;
             soundTrigger = { seq: state.soundTrigger.seq + 1, roomId };
           }
           // Badge: only when not viewing this agent. Set regardless of input
@@ -460,9 +462,17 @@ function reducer(state: AppState, action: Action): AppState {
     case "tasks":
       return { ...state, tasks: action.tasks, tasksLoaded: true };
     case "set_current_room":
-      return { ...state, currentRoom: action.room };
+      return { ...state, currentRoomId: action.roomId };
     case "room_created":
-      return { ...state, rooms: [...state.rooms, action.room] };
+      // Select the new room only when nothing is currently selected (e.g. a
+      // member whose visible rooms were all closed, then gains a freshly
+      // created room via room_created with no intervening full_state). When a
+      // room is already selected, creating another doesn't switch to it.
+      return {
+        ...state,
+        rooms: [...state.rooms, action.room],
+        currentRoomId: state.currentRoomId ?? action.room.id,
+      };
     case "update_status":
       return {
         ...state,
@@ -471,14 +481,17 @@ function reducer(state: AppState, action: Action): AppState {
         updateLatest: action.latest,
       };
     case "room_closed": {
-      const idx = state.rooms.findIndex((r) => r.id === action.roomId);
-      if (idx < 0) return state;
-      const newRooms = [...state.rooms];
-      newRooms.splice(idx, 1);
-      let currentRoom = state.currentRoom;
-      if (currentRoom === idx) currentRoom = 0;
-      else if (currentRoom > idx) currentRoom--;
-      return { ...state, rooms: newRooms, currentRoom };
+      const result = applyRoomClose(
+        state.rooms,
+        action.roomId,
+        state.currentRoomId,
+      );
+      if (!result) return state;
+      return {
+        ...state,
+        rooms: result.rooms,
+        currentRoomId: result.currentRoomId,
+      };
     }
     case "room_renamed": {
       const newRooms = state.rooms.map((r) =>
@@ -652,7 +665,7 @@ const initialState: AppState = {
   cronjobsPrompt: null,
   cronjobRunsByJob: new Map(),
   cronjobRunsLoaded: false,
-  currentRoom: 0,
+  currentRoomId: null,
   updateAvailable: false,
   updateCurrent: { sha: "", message: "", date: "" },
   updateLatest: { sha: "", message: "", date: "" },

@@ -39,3 +39,17 @@ export function deskPixelPos(row: number, col: number) {
     top: y - VB_Y - 116, // anchor chair legs to floor point
   };
 }
+
+// Pick a palette slot for a room from its STABLE id rather than its dense
+// position. Keyed by identity, a room keeps its decoration colour across
+// reorders and neighbour closes (the old `index % len` recoloured every room
+// when the list shifted). Deterministic char-code rolling hash; null/empty id
+// falls back to slot 0.
+export function roomPaletteIndex(roomId: string | null, len: number): number {
+  if (!roomId || len <= 0) return 0;
+  let h = 0;
+  for (let i = 0; i < roomId.length; i++) {
+    h = (h * 31 + roomId.charCodeAt(i)) >>> 0;
+  }
+  return h % len;
+}

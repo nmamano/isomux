@@ -91,14 +91,14 @@ type EditAgentDialogProps = {
   | {
       agent: AgentInfo;
       deskIndex?: undefined;
-      room?: undefined;
+      roomId?: undefined;
       defaultCwd?: undefined;
       spawnAgentType?: undefined;
     }
   | {
       agent?: undefined;
       deskIndex: number;
-      room: number;
+      roomId: string;
       defaultCwd: string;
       spawnAgentType: AgentBackendType;
     }
@@ -114,6 +114,12 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
 
   const { recentCwds: allRecentCwds, isMobile, agents, rooms } = useAppState();
   const roomCount = rooms.length;
+  // Room of the agent being edited, resolved by stable id. The index is used
+  // only for ordinal fallbacks; name is "" when the room isn't visible.
+  const agentRoomIndex = agent
+    ? rooms.findIndex((r) => r.id === agent.roomId)
+    : -1;
+  const agentRoomName = agentRoomIndex >= 0 ? rooms[agentRoomIndex].name : "";
   const [name, setName] = useState(agent?.name ?? "");
   const [cwd, setCwd] = useState(agent?.cwd ?? props.defaultCwd ?? "~");
   const [outfit, setOutfit] = useState<AgentOutfit>(
@@ -304,7 +310,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     };
 
     if (isSpawn) {
-      const targetRoomId = rooms[props.room]?.id;
+      const targetRoomId = props.roomId;
       setCwdError(null);
       setSaving(true);
       addRawListener(listener);
@@ -439,7 +445,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
           >
             {isSpawn
               ? `Desk #${props.deskIndex + 1}`
-              : `${roomCount > 1 ? `${rooms[agent!.room]?.name ?? `Room ${agent!.room + 1}`}, ` : ""}Desk #${agent!.desk + 1}`}
+              : `${roomCount > 1 && agentRoomName ? `${agentRoomName}, ` : ""}Desk #${agent!.desk + 1}`}
           </p>
 
           <label style={labelStyle}>Name</label>
@@ -1084,9 +1090,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
               </label>
               <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                 {Array.from({ length: roomCount }, (_, i) => {
-                  if (i === agent!.room) return null;
+                  if (rooms[i]?.id === agent!.roomId) return null;
                   const roomAgentCount = agents.filter(
-                    (a) => a.room === i,
+                    (a) => a.roomId === rooms[i]?.id,
                   ).length;
                   const isFull = roomAgentCount >= 8;
                   return (
