@@ -838,17 +838,6 @@ export interface BackendModelWire {
   defaultEffort?: string;
 }
 
-// Response to list_backend_models. ok:false carries an error string (auth
-// failure, transport failure, etc.) so the UI can fall back gracefully.
-export interface ListBackendModelsResponse {
-  type: "list_backend_models_response";
-  requestId: string;
-  ok: boolean;
-  models?: BackendModelWire[];
-  error?: string;
-  authError?: boolean;
-}
-
 // Server → Browser messages
 export type ServerMessage =
   | {
@@ -992,7 +981,6 @@ export type ServerMessage =
     }
   | SettingsSaveResponse
   | AgentSaveResponse
-  | ListBackendModelsResponse
   | {
       type: "update_status";
       updateAvailable: boolean;
@@ -1008,8 +996,6 @@ export type ServerMessage =
   | { type: "cronjob_updated"; cronjob: Cronjob }
   | { type: "cronjob_deleted"; id: string }
   | { type: "cronjobs_prompt_updated"; value: string | null }
-  | { type: "cronjob_runs"; cronjobId: string; runs: CronjobRun[] }
-  | { type: "cronjob_runs_complete" }
   | { type: "cronjob_run_updated"; run: CronjobRun }
   | { type: "pong" };
 
@@ -1106,14 +1092,6 @@ export type ClientCommand =
       prompt: string | null;
     }
   | {
-      type: "list_backend_models";
-      requestId: string;
-      agentType: AgentBackendType;
-      cwd: string;
-      username?: string;
-      includeHidden?: boolean;
-    }
-  | {
       type: "add_task";
       title: string;
       description?: string;
@@ -1186,8 +1164,6 @@ export type ClientCommand =
   | { type: "delete_cronjob"; id: string }
   | { type: "run_cronjob_now"; id: string; username: string }
   | { type: "update_cronjobs_prompt"; requestId: string; value: string | null }
-  | { type: "list_cronjob_runs"; cronjobId: string }
-  | { type: "list_all_cronjob_runs" }
   | { type: "load_cronjob_run"; cronjobId: string; runId: string }
   | {
       type: "send_cronjob_run_message";

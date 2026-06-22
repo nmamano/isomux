@@ -1,6 +1,6 @@
 // Shared env file resolver. Used by agent spawn/resume AND cronjob fire/
 // resume to merge process.env with office and user env files, so the same
-// env reaches the model picker (`list_backend_models`), the actual session
+// env reaches the model picker (`backends.listModels`), the actual session
 // (`createSession`), and any session-file prechecks (Codex `CODEX_HOME`).
 //
 // Lives in its own module to avoid a `cronjob-manager → agent-manager →

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useAppState } from "../store.tsx";
 import { send, addRawListener, removeRawListener } from "../ws.ts";
-import { getUsername } from "../device-settings.ts";
+import { apiFetch, ApiError } from "../api.ts";
 import {
   MODEL_FAMILIES,
   EFFORT_LEVELS,
@@ -153,6 +153,10 @@ export function CronjobDialog({
 
   // Fetch the auth-appropriate Codex model list. Fires when the dialog opens
   // on a Codex cronjob, or when the user flips the Engine select to Codex.
+  // GET backends.listModels: a DOMAIN failure (auth/transport in the executor's
+  // model probe) comes back as a 200 carrying { models: [], authError, error },
+  // NOT a thrown ApiError — so read r.error in .then(); only a real HTTP/network
+  // failure reaches .catch().
   useEffect(() => {
     if (!isCodex) return;
     let cancelled = false;
@@ -160,63 +164,52 @@ export function CronjobDialog({
     setModelsLoading(true);
     setModelsError(null);
     /* eslint-enable react-hooks/set-state-in-effect */
-    const reqId = `cron-model-list-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-    const listener = (data: string) => {
-      try {
-        const msg = JSON.parse(data);
-        if (
-          msg.type !== "list_backend_models_response" ||
-          msg.requestId !== reqId
-        )
-          return;
-        removeRawListener(listener);
+    apiFetch<{
+      models: BackendModelWire[];
+      authError?: boolean;
+      error?: string;
+    }>(
+      "GET",
+      `/api/backends/${encodeURIComponent(agentType)}/models?cwd=${encodeURIComponent(cwd)}`,
+    )
+      .then((r) => {
         if (cancelled) return;
         setModelsLoading(false);
-        if (msg.ok && Array.isArray(msg.models)) {
-          setBackendModels(msg.models);
-          // On create, pick the default. Invariant: prefer Isomux's canonical
-          // default (CODEX_MODELS[0], currently gpt-5.5) when this auth tier
-          // offers it; otherwise fall back to Codex's per-auth isDefault, then
-          // the first listed model. We choose from the visible (non-hidden)
-          // models so the value always matches a rendered <option>. The model
-          // select is disabled during loading so the user can't have
-          // overridden us.
-          if (!isEdit) {
-            const preferredModelId = CODEX_MODELS[0].value;
-            const visibleModels = msg.models.filter(
-              (m: BackendModelWire) => !m.hidden,
-            );
-            const def =
-              visibleModels.find(
-                (m: BackendModelWire) => m.id === preferredModelId,
-              ) ??
-              visibleModels.find((m: BackendModelWire) => m.isDefault) ??
-              visibleModels[0];
-            if (def) {
-              setModelFamily(def.id);
-              if (def.defaultEffort)
-                setEffort(def.defaultEffort as EffortLevel);
-            }
-          }
-        } else {
-          setModelsError({
-            message: msg.error || "Failed to load models",
-            authError: !!msg.authError,
-          });
+        if (r.error) {
+          setModelsError({ message: r.error, authError: !!r.authError });
+          return;
         }
-      } catch {}
-    };
-    addRawListener(listener);
-    send({
-      type: "list_backend_models",
-      requestId: reqId,
-      agentType,
-      cwd,
-      username: getUsername() ?? undefined,
-    });
+        setBackendModels(r.models);
+        // On create, pick the default. Invariant: prefer Isomux's canonical
+        // default (CODEX_MODELS[0], currently gpt-5.5) when this auth tier
+        // offers it; otherwise fall back to Codex's per-auth isDefault, then
+        // the first listed model. We choose from the visible (non-hidden)
+        // models so the value always matches a rendered <option>. The model
+        // select is disabled during loading so the user can't have
+        // overridden us.
+        if (!isEdit) {
+          const preferredModelId = CODEX_MODELS[0].value;
+          const visibleModels = r.models.filter((m) => !m.hidden);
+          const def =
+            visibleModels.find((m) => m.id === preferredModelId) ??
+            visibleModels.find((m) => m.isDefault) ??
+            visibleModels[0];
+          if (def) {
+            setModelFamily(def.id);
+            if (def.defaultEffort) setEffort(def.defaultEffort as EffortLevel);
+          }
+        }
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setModelsLoading(false);
+        setModelsError({
+          message: e instanceof ApiError ? e.message : "Failed to load models",
+          authError: false,
+        });
+      });
     return () => {
       cancelled = true;
-      removeRawListener(listener);
     };
     // Intentionally not depending on cwd: re-fetching on every keystroke
     // would spawn a codex subprocess per character. Auth is global, so the
@@ -580,17 +573,23 @@ export function CronjobDialog({
           <label style={{ ...labelStyle, marginTop: 14 }}>Model</label>
           {(() => {
             // Codex models come from the server (auth-aware via model/list).
-            // On fetch failure we fall back to the hardcoded CODEX_MODELS list
-            // so the dialog is still usable. Claude uses MODEL_FAMILIES.
-            const codexFetched = isCodex && backendModels;
+            // On fetch failure OR an empty list we fall back to the hardcoded
+            // CODEX_MODELS list so the dialog is still usable (an empty fetched
+            // list would otherwise render a zero-option select). Claude uses
+            // MODEL_FAMILIES.
+            const codexFetched =
+              isCodex && backendModels && backendModels.length > 0;
             const codexVisible = codexFetched
               ? backendModels.filter((m) => !m.hidden)
               : null;
+            // Pin the stored model as an extra option whenever the rendered
+            // list (the fetched list OR the CODEX_MODELS fallback) lacks it, so
+            // editing never silently drops a value not offered on this login.
+            const renderedModelIds = codexVisible
+              ? codexVisible.map((m) => m.id)
+              : CODEX_MODELS.map((m) => m.value);
             const storedNotInList =
-              isEdit &&
-              isCodex &&
-              codexFetched &&
-              !codexVisible!.some((m) => m.id === modelFamily);
+              isEdit && isCodex && !renderedModelIds.includes(modelFamily);
             return (
               <select
                 value={modelFamily}

@@ -238,8 +238,15 @@ type Action =
   | { type: "cronjob_updated"; cronjob: Cronjob }
   | { type: "cronjob_deleted"; id: string }
   | { type: "cronjobs_prompt_updated"; value: string | null }
+  // cronjob_runs + cronjob_runs_loaded are CLIENT-LOCAL actions (NOT
+  // ServerMessage members): CronjobsView dispatches them after the REST
+  // cron.listRuns / cron.listAllRuns fetches to seed cronjobRunsByJob. Live
+  // cronjob_run_updated events (still on the wire) merge into the same map.
   | { type: "cronjob_runs"; cronjobId: string; runs: CronjobRun[] }
-  | { type: "cronjob_runs_complete" }
+  | {
+      type: "cronjob_runs_loaded";
+      jobs: { cronjobId: string; runs: CronjobRun[] }[];
+    }
   | { type: "cronjob_run_updated"; run: CronjobRun };
 
 // States that warrant attention
@@ -611,13 +618,22 @@ function reducer(state: AppState, action: Action): AppState {
       };
     case "cronjobs_prompt_updated":
       return { ...state, cronjobsPrompt: action.value };
+    // Client-local seed for a single job (cron.listRuns REST fetch).
     case "cronjob_runs": {
       const cronjobRunsByJob = new Map(state.cronjobRunsByJob);
       cronjobRunsByJob.set(action.cronjobId, action.runs);
       return { ...state, cronjobRunsByJob };
     }
-    case "cronjob_runs_complete":
-      return { ...state, cronjobRunsLoaded: true };
+    // Client-local seed for the all-runs fetch (cron.listAllRuns REST). Per-job
+    // set (NOT a wholesale replace), so a job absent from the payload keeps its
+    // existing entry — preserving the old per-job cronjob_runs stream behavior.
+    case "cronjob_runs_loaded": {
+      const cronjobRunsByJob = new Map(state.cronjobRunsByJob);
+      for (const { cronjobId, runs } of action.jobs) {
+        cronjobRunsByJob.set(cronjobId, runs);
+      }
+      return { ...state, cronjobRunsByJob, cronjobRunsLoaded: true };
+    }
     case "cronjob_run_updated": {
       const cronjobRunsByJob = new Map(state.cronjobRunsByJob);
       const existing = cronjobRunsByJob.get(action.run.cronjobId) ?? [];

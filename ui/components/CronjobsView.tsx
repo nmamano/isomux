@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import { useAppState } from "../store.tsx";
+import { useAppState, useDispatch } from "../store.tsx";
 import { send } from "../ws.ts";
+import { apiFetch } from "../api.ts";
 import { CronjobDialog } from "./CronjobDialog.tsx";
 import { CronjobsPromptDialog } from "./CronjobsPromptDialog.tsx";
 import { CronjobRunView } from "./CronjobRunView.tsx";
@@ -87,6 +88,7 @@ export function CronjobsView({
     cronjobRunsLoaded,
     isMobile,
   } = useAppState();
+  const dispatch = useDispatch();
   const [tab, setTab] = useState<Tab>("runs");
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Cronjob | null>(null);
@@ -104,16 +106,33 @@ export function CronjobsView({
   // historical runs from deleted cronjobs still appear in the Runs tab.
   // Fires on first mount and whenever the live cronjob list changes (e.g. a
   // new cronjob was just created — its runs.json will appear on disk on first
-  // fire and we'd want to pick it up on the next refresh).
+  // fire and we'd want to pick it up on the next refresh). The fetch SEEDS the
+  // store (per-job merge, so a job absent from disk keeps its stale entry, as
+  // before); live cronjob_run_updated events keep cronjobRunsByJob fresh after.
   useEffect(() => {
-    send({ type: "list_all_cronjob_runs" });
-  }, [cronjobs.length]);
+    apiFetch<{ jobs: { cronjobId: string; runs: CronjobRun[] }[] }>(
+      "GET",
+      "/api/cron-runs",
+    )
+      .then(({ jobs }) => dispatch({ type: "cronjob_runs_loaded", jobs }))
+      .catch(() => {
+        // Transport error: leave the table as-is (matches the old no-reply
+        // behavior — a dropped runs stream never cleared the table).
+      });
+  }, [cronjobs.length, dispatch]);
 
   // Re-request runs for a specific job when the user pins a filter to it,
-  // so the table is current even if the websocket dropped previous updates.
+  // so the table is current even if a previous update was missed.
   useEffect(() => {
-    if (runFilter)
-      send({ type: "list_cronjob_runs", cronjobId: runFilter.jobId });
+    if (!runFilter) return;
+    apiFetch<{ runs: CronjobRun[] }>(
+      "GET",
+      `/api/cronjobs/${encodeURIComponent(runFilter.jobId)}/runs`,
+    )
+      .then(({ runs }) =>
+        dispatch({ type: "cronjob_runs", cronjobId: runFilter.jobId, runs }),
+      )
+      .catch(() => {});
     // Depend only on the id; full runFilter object identity churns per render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runFilter?.jobId]);

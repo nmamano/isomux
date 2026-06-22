@@ -666,6 +666,34 @@ describe("routes/cron run-messages: messageId threading (handler boundary)", () 
     expect(captured?.messageId).toBe(messageId);
   });
 
+  it("cron.listAllRuns maps the manager's internal jobId to the public cronjobId on the wire", async () => {
+    // Regression guard (3d slice 2): getAllRunsByJob() yields { jobId, runs },
+    // but the documented wire contract + every other cron field use cronjobId.
+    // The handler must remap; otherwise the client seeds runs under key
+    // `undefined` and the Jobs-tab run counts read zero.
+    const handlers = cronHandlers(
+      stubDeps({
+        allRunsByJob: () => [
+          {
+            jobId: "job-1",
+            runs: [{ id: "r1", cronjobId: "job-1" } as CronjobRun],
+          },
+        ],
+      }),
+    );
+    const result = await handlers["cron.listAllRuns"](unitCtx({}, {}));
+    expect(result.kind).toBe("json");
+    if (result.kind !== "json") throw new Error("expected json");
+    const body = result.body as {
+      jobs: { cronjobId: string; runs: CronjobRun[] }[];
+    };
+    expect(body.jobs).toHaveLength(1);
+    expect(body.jobs[0].cronjobId).toBe("job-1");
+    // The internal `jobId` field must NOT leak onto the wire.
+    expect((body.jobs[0] as Record<string, unknown>).jobId).toBeUndefined();
+    expect(body.jobs[0].runs).toHaveLength(1);
+  });
+
   it("cron.runMessage on an unknown run -> 404 (cheap pre-flight, manager not called)", async () => {
     let calls = 0;
     const handlers = cronHandlers(

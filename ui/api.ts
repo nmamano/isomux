@@ -50,6 +50,14 @@ export async function apiFetch<T = unknown>(
   path: string,
   body?: unknown,
 ): Promise<T> {
+  // Dev guard: every route on this surface is under /api/. A caller passing a
+  // bare path (e.g. a leftover "/validate/cwd") would silently miss the shim and
+  // hit the SPA's catch-all instead of erroring. Cheap startsWith, not URL
+  // parsing — the intent is to catch a typo at the call site, not validate URLs.
+  if (!path.startsWith("/api/")) {
+    throw new Error(`apiFetch: path must start with "/api/" (got "${path}")`);
+  }
+
   if (apiShim) {
     return (await apiShim(method, path, body)) as T;
   }

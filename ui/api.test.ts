@@ -118,4 +118,28 @@ describe("apiFetch", () => {
     });
     expect(networkHit).toBe(false);
   });
+
+  it("throws on a path not under /api/ (dev guard) before touching network or shim", async () => {
+    let networkHit = false;
+    globalThis.fetch = (() => {
+      networkHit = true;
+      throw new Error("network should not be hit for a bad path");
+    }) as unknown as typeof fetch;
+    let shimHit = false;
+    setApiShim(async () => {
+      shimHit = true;
+      return undefined;
+    });
+    let err: unknown;
+    try {
+      await apiFetch("GET", "/validate/cwd");
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toContain("/api/");
+    // The guard runs first: neither the network nor the demo shim is reached.
+    expect(networkHit).toBe(false);
+    expect(shimHit).toBe(false);
+  });
 });

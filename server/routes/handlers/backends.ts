@@ -4,9 +4,8 @@
 // agent:manage and is rejected at stage 1.
 //
 // GET /api/backends/:agentType/models?cwd=&includeHidden= . The shared core
-// (listBackendModels in the index seam) is also called by the legacy
-// list_backend_models WS arm, so the two cannot drift. The core resolves the
-// per-user env stack (buildEnvForUserId) and the cwd (resolveCwd) EXACTLY like a
+// (listBackendModels in the index seam) resolves the per-user env stack
+// (buildEnvForUserId) and the cwd (resolveCwd) EXACTLY like a
 // real spawn, so OPENAI_API_KEY / CHATGPT_LOGIN overrides from office/user env
 // files are reflected, and on failure flags backend-specific auth errors
 // (detectAuthError) so the UI can render login instructions instead of a generic

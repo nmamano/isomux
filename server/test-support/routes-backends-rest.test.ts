@@ -1,17 +1,13 @@
 // Phase 3a slice 3a.5 — backends.listModels on the unified REST surface.
 // GET /api/backends/:agentType/models?cwd=&includeHidden= (agent:manage +
-// authenticated). The shared core (listBackendModels) is also the legacy
-// list_backend_models WS arm's core. Claude's listModels is a static, offline
-// family list, so this is deterministic and zero-LLM.
+// authenticated). The shared core (listBackendModels) backed the legacy
+// list_backend_models WS arm, retired in 3d slice 2. Claude's listModels is a
+// static, offline family list, so this is deterministic and zero-LLM.
 //
 // Seam: startTestServer(). Zero LLM.
 
 import { describe, it, expect, afterEach } from "bun:test";
-import {
-  startTestServer,
-  type TestServer,
-  type TestSocket,
-} from "./harness.ts";
+import { startTestServer, type TestServer } from "./harness.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import type { AgentInfo, BackendModelWire } from "../../shared/types.ts";
 
@@ -111,42 +107,5 @@ describe("routes/backends.listModels REST", () => {
     expect(body.models).toEqual([]);
     expect(body.authError).toBe(false);
     expect(typeof body.error).toBe("string");
-  });
-});
-
-describe("routes/backends.listModels: WS parity (shared core)", () => {
-  it("legacy list_backend_models returns the same static claude list via listBackendModels", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Boss");
-    const sock: TestSocket = await srv.connectWs(owner.rawSessionId);
-
-    const requestId = "b-1";
-    sock.send({
-      type: "list_backend_models",
-      agentType: "claude",
-      cwd: srv.stateRoot,
-      includeHidden: false,
-      requestId,
-    });
-
-    const deadline = Date.now() + 2000;
-    let resp: Record<string, unknown> | undefined;
-    for (;;) {
-      resp = sock.messages.find(
-        (x) =>
-          (x as { type?: string }).type === "list_backend_models_response" &&
-          (x as { requestId?: string }).requestId === requestId,
-      ) as Record<string, unknown> | undefined;
-      if (resp) break;
-      if (Date.now() > deadline)
-        throw new Error("list_backend_models_response timeout");
-      await new Promise((r) => setTimeout(r, 10));
-    }
-
-    expect(resp.ok).toBe(true);
-    const models = resp.models as BackendModelWire[];
-    expect(models.length).toBeGreaterThan(0);
-    expect(models.some((m) => m.isDefault)).toBe(true);
   });
 });

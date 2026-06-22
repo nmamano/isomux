@@ -195,7 +195,15 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
 
     "cron.listRuns": (ctx) => ok({ runs: deps.runsForCronjob(ctx.params.id) }),
 
-    "cron.listAllRuns": () => ok({ jobs: deps.allRunsByJob() }),
+    // Map the manager's internal `jobId` to the public `cronjobId` so the wire
+    // matches the documented contract and the rest of the cron surface (every
+    // other cron field identifies a cronjob by `cronjobId`). [3d slice 2]
+    "cron.listAllRuns": () =>
+      ok({
+        jobs: deps
+          .allRunsByJob()
+          .map((j) => ({ cronjobId: j.jobId, runs: j.runs })),
+      }),
 
     "cron.getRun": (ctx) => {
       const { run, entries } = deps.runTranscript(

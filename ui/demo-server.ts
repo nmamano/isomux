@@ -808,7 +808,10 @@ export async function demoApi(
   method: ApiMethod,
   path: string,
 ): Promise<unknown> {
-  const route = `${method} ${path}`;
+  // Split the query string off before matching: query/param routes (e.g.
+  // backends.listModels carries ?cwd=) can't be matched by exact full-path.
+  const pathname = path.split("?")[0];
+  const route = `${method} ${pathname}`;
   switch (route) {
     // validate.cwd / validate.env — the demo has no filesystem, so every probe
     // succeeds. REST drops the resolved env path + keyCount the WS arm echoed.
@@ -816,9 +819,21 @@ export async function demoApi(
       return { ok: true };
     case "POST /api/validate/env":
       return { ok: true };
-    default:
-      throw new Error(`demoApi: unhandled route ${route}`);
+    // cron.listAllRuns — demo cron jobs never fire, so there are no runs.
+    case "GET /api/cron-runs":
+      return { jobs: [] };
   }
+  // Param routes (matched by shape, since the id/agentType segment varies).
+  // backends.listModels — the demo has no backend process to probe; an empty
+  // list makes the model dialog fall back to its hardcoded CODEX_MODELS list.
+  if (method === "GET" && /^\/api\/backends\/[^/]+\/models$/.test(pathname)) {
+    return { models: [] };
+  }
+  // cron.listRuns — no runs in the demo.
+  if (method === "GET" && /^\/api\/cronjobs\/[^/]+\/runs$/.test(pathname)) {
+    return { runs: [] };
+  }
+  throw new Error(`demoApi: unhandled route ${route}`);
 }
 
 export function handleCommand(cmd: ClientCommand) {
@@ -1101,12 +1116,6 @@ export function handleCommand(cmd: ClientCommand) {
       });
       break;
     }
-    case "list_all_cronjob_runs": {
-      // Demo cron jobs never actually fire, so there are no runs to send.
-      // Still emit the sentinel so the client flips its "runs loaded" flag.
-      shimEmit({ type: "cronjob_runs_complete" });
-      break;
-    }
     case "claim_user": {
       const trimmed = cmd.username.trim();
       if (!trimmed) break;
@@ -1290,7 +1299,6 @@ export function handleCommand(cmd: ClientCommand) {
     case "resume":
     case "list_sessions":
     case "run_cronjob_now":
-    case "list_cronjob_runs":
     case "load_cronjob_run":
     case "send_cronjob_run_message":
     case "edit_cronjob_run_message":

@@ -830,7 +830,7 @@ function resolveAndValidateEnv(
   }
 }
 
-// backends.listModels + list_backend_models. Resolves the per-user env stack and
+// backends.listModels. Resolves the per-user env stack and
 // cwd EXACTLY like a real spawn (so office/user env-file overrides are reflected),
 // lists, and maps to the wire shape. On failure, flags backend-specific auth
 // errors via detectAuthError so the UI can render login instructions.
@@ -3140,35 +3140,6 @@ async function dispatchCommand(
       }
       break;
     }
-    case "list_backend_models": {
-      // Shared core with backends.listModels (REST): resolves the per-user env
-      // stack + cwd like a real spawn and flags auth errors via detectAuthError.
-      const r = await listBackendModels({
-        agentType: cmd.agentType,
-        cwd: cmd.cwd,
-        includeHidden: cmd.includeHidden ?? false,
-        userId: session.userId,
-      });
-      ws.send(
-        JSON.stringify(
-          r.ok
-            ? {
-                type: "list_backend_models_response",
-                requestId: cmd.requestId,
-                ok: true,
-                models: r.models,
-              }
-            : {
-                type: "list_backend_models_response",
-                requestId: cmd.requestId,
-                ok: false,
-                error: r.error,
-                authError: r.authError,
-              },
-        ),
-      );
-      break;
-    }
     case "add_task": {
       agentManager.addTask(cmd.title, session.username, {
         description: cmd.description,
@@ -3426,34 +3397,6 @@ async function dispatchCommand(
         }),
       );
       break;
-    case "list_cronjob_runs": {
-      const runs = cronjobManager.getRunsForCronjob(cmd.cronjobId);
-      ws.send(
-        JSON.stringify({
-          type: "cronjob_runs",
-          cronjobId: cmd.cronjobId,
-          runs,
-        }),
-      );
-      break;
-    }
-    case "list_all_cronjob_runs": {
-      // Returns runs for every cronjob dir on disk (including deleted ones)
-      // so the Runs tab can surface historical runs after a cronjob is gone.
-      for (const { jobId, runs } of cronjobManager.getAllRunsByJob()) {
-        ws.send(
-          JSON.stringify({
-            type: "cronjob_runs",
-            cronjobId: jobId,
-            runs,
-          }),
-        );
-      }
-      // Sentinel so the client can flip its "runs loaded" flag even when no
-      // cronjob has ever fired (no run dirs on disk = zero cronjob_runs sent).
-      ws.send(JSON.stringify({ type: "cronjob_runs_complete" }));
-      break;
-    }
     case "load_cronjob_run": {
       // Client passes jobId from the run row it just clicked, so no scan
       // needed. Works for runs from deleted cronjobs too: getRunTranscript

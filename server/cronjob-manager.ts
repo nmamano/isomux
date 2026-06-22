@@ -68,7 +68,7 @@ import {
 // buildEnvFor merges process.env with the office env file and the cronjob
 // owner's user env file (matches agent-manager's spawn-time env). Cron uses
 // the same builder so a user that successfully fetches Codex models with
-// their per-user OPENAI_API_KEY / CODEX_HOME via `list_backend_models` gets
+// their per-user OPENAI_API_KEY / CODEX_HOME via `backends.listModels` gets
 // the same env when the cronjob actually fires. Imported from env-loader
 // (not agent-manager) to keep cron decoupled from the orchestrator — the
 // `cronjob-manager → agent-manager → command-handlers → cronjob-manager`
