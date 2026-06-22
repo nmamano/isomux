@@ -805,18 +805,6 @@ export interface SettingsSaveResponse {
   error?: string;
 }
 
-// Response to request_settings_validation (sent only to the requesting client)
-export interface SettingsValidationResponse {
-  type: "settings_validation";
-  requestId: string;
-  scope: "office" | "user";
-  username?: string; // lowercase key when scope === "user"
-  envFile: string | null;
-  ok: boolean;
-  keyCount?: number;
-  error?: string;
-}
-
 // Response to spawn / edit_agent (sent only to the requesting client, when requestId provided)
 export interface AgentSaveResponse {
   type: "agent_save_response";
@@ -829,14 +817,6 @@ export interface AgentSaveResponse {
   // Absent for errors that don't map to a single field — the UI falls
   // back to its general save-error location.
   field?: "name" | "cwd";
-}
-
-// Response to request_cwd_validation (sent only to the requesting client)
-export interface CwdValidationResponse {
-  type: "cwd_validation";
-  requestId: string;
-  ok: boolean;
-  error?: string;
 }
 
 // Backend-reported effort option for a model. `level` is the backend-specific
@@ -1011,9 +991,7 @@ export type ServerMessage =
       reason: string;
     }
   | SettingsSaveResponse
-  | SettingsValidationResponse
   | AgentSaveResponse
-  | CwdValidationResponse
   | ListBackendModelsResponse
   | {
       type: "update_status";
@@ -1127,13 +1105,6 @@ export type ClientCommand =
       roomId: string;
       prompt: string | null;
     }
-  | {
-      type: "request_settings_validation";
-      requestId: string;
-      scope: "office" | "user";
-      username?: string;
-    }
-  | { type: "request_cwd_validation"; requestId: string; cwd: string }
   | {
       type: "list_backend_models";
       requestId: string;

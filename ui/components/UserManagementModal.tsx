@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppState } from "../store.tsx";
 import { send, addRawListener, removeRawListener } from "../ws.ts";
+import { apiFetch, ApiError } from "../api.ts";
 import {
   setUsername as saveLocalUsername,
   getUsername,
@@ -551,30 +552,32 @@ function UserEditPanel({
       setValidation({ kind: "idle" });
       return;
     }
-    const reqId = `user-env-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     setValidation({ kind: "pending" });
-    const listener = (data: string) => {
-      try {
-        const msg = JSON.parse(data);
-        if (msg.type === "settings_validation" && msg.requestId === reqId) {
-          if (msg.ok) setValidation({ kind: "ok", keyCount: msg.keyCount });
-          else
-            setValidation({
-              kind: "error",
-              message: msg.error || "Invalid env file",
-            });
-          removeRawListener(listener);
-        }
-      } catch {}
+    let cancelled = false;
+    apiFetch<{ ok: boolean; keyCount?: number; error?: string }>(
+      "POST",
+      "/api/validate/env",
+      { scope: "user", username: user.name },
+    )
+      .then((r) => {
+        if (cancelled) return;
+        if (r.ok) setValidation({ kind: "ok", keyCount: r.keyCount });
+        else
+          setValidation({
+            kind: "error",
+            message: r.error || "Invalid env file",
+          });
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setValidation({
+          kind: "error",
+          message: e instanceof ApiError ? e.message : "Invalid env file",
+        });
+      });
+    return () => {
+      cancelled = true;
     };
-    addRawListener(listener);
-    send({
-      type: "request_settings_validation",
-      requestId: reqId,
-      scope: "user",
-      username: user.name,
-    });
-    return () => removeRawListener(listener);
   }, [user.envFile, user.name]);
 
   // notifSetting and allowedSetting are both strict string[] (no "all"

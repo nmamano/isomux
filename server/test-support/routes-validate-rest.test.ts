@@ -17,11 +17,7 @@
 import { describe, it, expect, afterEach } from "bun:test";
 import { writeFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
-import {
-  startTestServer,
-  type TestServer,
-  type TestSocket,
-} from "./harness.ts";
+import { startTestServer, type TestServer } from "./harness.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import { getUserByName, updateUserById } from "../users.ts";
 import type { AgentInfo } from "../../shared/types.ts";
@@ -84,36 +80,6 @@ async function spawnAgent(
   );
   if (!info) throw new Error(`spawn ${name} returned null`);
   return info;
-}
-
-// Send a request_settings_validation WS command and resolve with the
-// settings_validation carrying the SAME requestId (waitFor matches type only, so
-// a buffered earlier reply would otherwise race in).
-let ridSeq = 0;
-async function wsSettingsValidation(
-  sock: TestSocket,
-  scope: string,
-  username?: string,
-): Promise<Record<string, unknown>> {
-  const requestId = `v-${++ridSeq}`;
-  sock.send({
-    type: "request_settings_validation",
-    scope,
-    username,
-    requestId,
-  });
-  const deadline = Date.now() + 2000;
-  for (;;) {
-    const m = sock.messages.find(
-      (x) =>
-        (x as { type?: string }).type === "settings_validation" &&
-        (x as { requestId?: string }).requestId === requestId,
-    ) as Record<string, unknown> | undefined;
-    if (m) return m;
-    if (Date.now() > deadline)
-      throw new Error(`settings_validation ${requestId} timeout`);
-    await new Promise((r) => setTimeout(r, 10));
-  }
 }
 
 describe("routes/validate.cwd REST", () => {
@@ -404,45 +370,5 @@ describe("routes/validate.env REST: resolution core (keyCount + error)", () => {
     });
     expect(broken.status).toBe(200);
     expect((broken.body as { ok: boolean }).ok).toBe(false);
-  });
-});
-
-describe("routes/validate.env: WS parity (shared core + equivalent authz)", () => {
-  it("request_settings_validation routes through the SAME core: owner office validates; member self-resolves; member office/other denied", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Boss");
-    const member = await srv.seedMember("Alice");
-
-    // Office env (3 keys) + Alice's own env (2 keys) — real files.
-    const officeEnv = join(srv.stateRoot, "office.env");
-    writeFileSync(officeEnv, "A=1\nB=2\nC=3\n");
-    srv.agentManager.setOfficeSettings(null, officeEnv, null);
-    const aliceEnv = join(srv.stateRoot, "alice.env");
-    writeFileSync(aliceEnv, "X=1\nY=2\n");
-    updateUserById(getUserByName("Alice")!.id, { envFile: aliceEnv });
-
-    const ownerSock = await srv.connectWs(owner.rawSessionId);
-    const memberSock = await srv.connectWs(member.rawSessionId);
-
-    // Owner office scope -> core resolves + validates (same as REST).
-    const ownerOffice = await wsSettingsValidation(ownerSock, "office");
-    expect(ownerOffice.ok).toBe(true);
-    expect(ownerOffice.keyCount).toBe(3);
-
-    // Member own env, username omitted -> WS self-resolution via session.userId
-    // (the should-fix on the WS path, not just REST).
-    const memberOwn = await wsSettingsValidation(memberSock, "user");
-    expect(memberOwn.ok).toBe(true);
-    expect(memberOwn.keyCount).toBe(2);
-
-    // Member office scope -> denied at the WS inline authz (parity with the REST
-    // precondition).
-    const memberOffice = await wsSettingsValidation(memberSock, "office");
-    expect(memberOffice.ok).toBe(false);
-
-    // Member another user's env -> denied.
-    const memberOther = await wsSettingsValidation(memberSock, "user", "Boss");
-    expect(memberOther.ok).toBe(false);
   });
 });

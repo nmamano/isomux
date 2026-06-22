@@ -22,7 +22,6 @@ import type {
   OfficeWire,
   RoomWire,
   SettingsSaveResponse,
-  SettingsValidationResponse,
   Cronjob,
   CronjobRun,
   PresenceInfo,
@@ -224,7 +223,6 @@ type Action =
   | { type: "session_revoked"; sessionPrefix: string }
   | { type: "session_expired" }
   | SettingsSaveResponse
-  | SettingsValidationResponse
   | {
       type: "update_status";
       updateAvailable: boolean;

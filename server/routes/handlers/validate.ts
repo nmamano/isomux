@@ -3,9 +3,9 @@
 // are pure request/response (emits: []); neither mutates state.
 //
 // validate.cwd (agent:manage + authenticated): any caller who can spawn may
-// check a cwd. Delegates to the SAME agentManager.validateCwd the legacy
-// request_cwd_validation WS arm already calls — that manager method IS the shared
-// core, so the two paths cannot drift.
+// check a cwd. Delegates to agentManager.validateCwd — the shared validation
+// core. The legacy request_cwd_validation WS arm that also called it was retired
+// in the Phase 3 transport migration, so REST is now the sole transport.
 //
 // validate.env (office:read + authenticated + validateEnvBodySelfSubject): the
 // object-level policy (office or another user's env ⇒ officeOwner; own user's env
@@ -14,10 +14,10 @@
 // — the params-based selfUser guard could never match it (see the route-table
 // comment + internal-docs Guard catalog). By the time this handler runs, the
 // precondition has authorized the caller; the handler only resolves + validates.
-// The shared core (resolveAndValidateEnv) is also called by the legacy
-// request_settings_validation WS arm. REST DROPS the resolved env-file path from
-// the response by design; the WS arm keeps echoing it until that UI contract
-// migrates.
+// The shared core (resolveAndValidateEnv) is the sole resolver now that the
+// legacy request_settings_validation WS arm has been retired (Phase 3 transport
+// migration). REST DROPS the resolved env-file path from the response by design
+// (the retired WS arm used to echo it).
 //
 // LEAF over the executor + shared types. Only the injected ValidateDeps.
 
@@ -28,10 +28,11 @@ export interface ValidateDeps {
   // failure (the manager's validateCwd throws; the seam catches + flattens it).
   validateCwd(cwd: string): string | null;
   // Resolve the scope/user's env-file path and count its keys. AUTH is NOT here
-  // (the precondition / WS inline checks own it); this is resolution only. For
-  // scope:"user", an omitted username resolves to the CALLER's own env via
-  // selfUserId (the subject the precondition authorized as "self"). The resolved
-  // path is returned for the WS echo and DROPPED by the REST handler.
+  // (the validateEnvBodySelfSubject precondition owns it); this is resolution
+  // only. For scope:"user", an omitted username resolves to the CALLER's own env
+  // via selfUserId (the subject the precondition authorized as "self"). The
+  // resolved path is returned by the core but DROPPED by the REST handler (the
+  // retired request_settings_validation WS arm used to echo it).
   validateEnv(
     scope: string,
     username: string | undefined,

@@ -3,7 +3,9 @@ import { StoreProvider, ThemeProvider, FeaturesProvider } from "./store.tsx";
 import { DEMO_FEATURES } from "../shared/features.ts";
 import { App } from "./App.tsx";
 import { setShim } from "./ws.ts";
+import { setApiShim } from "./api.ts";
 import {
+  demoApi,
   handleCommand,
   sendInitialState,
   setEmbedMode,
@@ -14,8 +16,10 @@ const isEmbed = new URLSearchParams(window.location.search).has("embed");
 // In embed mode, strip Angela (room 1) so only room 0 is seeded
 if (isEmbed) setEmbedMode();
 
-// Wire the shim before anything connects
+// Wire the shims before anything connects: the WS shim handles commands still
+// on the bus; the API shim handles commands already migrated to apiFetch.
 setShim(handleCommand, sendInitialState);
+setApiShim(demoApi);
 
 // Hardcode username so the modal is skipped.
 // Safe: demo runs at isomux.com/demo, real app is self-hosted (different origin).

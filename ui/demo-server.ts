@@ -26,6 +26,7 @@ import {
   normalizeHexColor,
 } from "../shared/avatar.ts";
 import { shimEmit } from "./ws.ts";
+import type { ApiMethod } from "./api.ts";
 
 const state = new OfficeState();
 let embedMode = false;
@@ -798,6 +799,28 @@ function makeLogEntry(
   };
 }
 
+// Demo counterpart to the server's REST executor. As each command migrates off
+// the WS shim (handleCommand) to apiFetch, its demo handling moves here so the
+// landing demo keeps working — the demo's own WS-case -> REST-route strangle,
+// one route at a time, mirroring the real server. Registered via setApiShim() in
+// demo-entry; apiFetch routes here instead of the network when the demo is live.
+export async function demoApi(
+  method: ApiMethod,
+  path: string,
+): Promise<unknown> {
+  const route = `${method} ${path}`;
+  switch (route) {
+    // validate.cwd / validate.env — the demo has no filesystem, so every probe
+    // succeeds. REST drops the resolved env path + keyCount the WS arm echoed.
+    case "POST /api/validate/cwd":
+      return { ok: true };
+    case "POST /api/validate/env":
+      return { ok: true };
+    default:
+      throw new Error(`demoApi: unhandled route ${route}`);
+  }
+}
+
 export function handleCommand(cmd: ClientCommand) {
   switch (cmd.type) {
     case "spawn": {
@@ -929,33 +952,6 @@ export function handleCommand(cmd: ClientCommand) {
         requestId: cmd.requestId,
         ok: true,
       });
-      break;
-    }
-    case "request_cwd_validation": {
-      // Demo mode: assume all paths are valid (no filesystem access).
-      shimEmit({ type: "cwd_validation", requestId: cmd.requestId, ok: true });
-      break;
-    }
-    case "request_settings_validation": {
-      const s = state.getState();
-      if (cmd.scope === "office") {
-        shimEmit({
-          type: "settings_validation",
-          requestId: cmd.requestId,
-          scope: "office",
-          envFile: s.office.envFile,
-          ok: true,
-        });
-      } else if (cmd.scope === "user") {
-        shimEmit({
-          type: "settings_validation",
-          requestId: cmd.requestId,
-          scope: "user",
-          username: cmd.username,
-          envFile: null,
-          ok: true,
-        });
-      }
       break;
     }
     case "add_task": {

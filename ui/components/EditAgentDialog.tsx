@@ -28,6 +28,7 @@ import {
 } from "../../shared/outfit-options.ts";
 import { Character } from "../office/Character.tsx";
 import { send, addRawListener, removeRawListener } from "../ws.ts";
+import { apiFetch } from "../api.ts";
 import { useAppState } from "../store.tsx";
 import { getUsername } from "../device-settings.ts";
 import {
@@ -192,19 +193,21 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   useEffect(() => {
     if (isSpawn || !agent) return;
     const initialCwd = agent.cwd;
-    const reqId = `cwd-check-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-    const listener = (data: string) => {
-      try {
-        const msg = JSON.parse(data);
-        if (msg.type === "cwd_validation" && msg.requestId === reqId) {
-          removeRawListener(listener);
-          if (!msg.ok) setCwdError(msg.error || "Invalid directory");
-        }
-      } catch {}
+    let cancelled = false;
+    apiFetch<{ ok: boolean; error?: string }>("POST", "/api/validate/cwd", {
+      cwd: initialCwd,
+    })
+      .then((r) => {
+        if (cancelled) return;
+        if (!r.ok) setCwdError(r.error || "Invalid directory");
+      })
+      .catch(() => {
+        // Transport error: leave the field unflagged, matching the old
+        // no-reply behavior (a dropped cwd_validation never set an error).
+      });
+    return () => {
+      cancelled = true;
     };
-    addRawListener(listener);
-    send({ type: "request_cwd_validation", requestId: reqId, cwd: initialCwd });
-    return () => removeRawListener(listener);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isSpawn, agent?.id]);
 

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useAppState } from "../store.tsx";
 import { send, addRawListener, removeRawListener } from "../ws.ts";
+import { apiFetch, ApiError } from "../api.ts";
 import {
   dialogInput,
   dialogCancelBtn,
@@ -39,30 +40,29 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
       setStatus({ kind: "idle" });
       return;
     }
-    const reqId = `office-open-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-    requestIdRef.current = reqId;
     setStatus({ kind: "pending" });
-    const listener = (data: string) => {
-      try {
-        const msg = JSON.parse(data);
-        if (msg.type === "settings_validation" && msg.requestId === reqId) {
-          if (msg.ok) setStatus({ kind: "ok", keyCount: msg.keyCount });
-          else
-            setStatus({
-              kind: "error",
-              message: msg.error || "Invalid env file",
-            });
-          removeRawListener(listener);
-        }
-      } catch {}
+    let cancelled = false;
+    apiFetch<{ ok: boolean; keyCount?: number; error?: string }>(
+      "POST",
+      "/api/validate/env",
+      { scope: "office" },
+    )
+      .then((r) => {
+        if (cancelled) return;
+        if (r.ok) setStatus({ kind: "ok", keyCount: r.keyCount });
+        else
+          setStatus({ kind: "error", message: r.error || "Invalid env file" });
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setStatus({
+          kind: "error",
+          message: e instanceof ApiError ? e.message : "Invalid env file",
+        });
+      });
+    return () => {
+      cancelled = true;
     };
-    addRawListener(listener);
-    send({
-      type: "request_settings_validation",
-      requestId: reqId,
-      scope: "office",
-    });
-    return () => removeRawListener(listener);
   }, [office.envFile, readOnly]);
 
   function handleSave() {

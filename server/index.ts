@@ -793,14 +793,15 @@ function applyOfficeSettings(input: {
   return { ok: true };
 }
 
-// validate.env + request_settings_validation. Resolves the scope/user's env-file
-// path and counts its keys. AUTH lives outside (precondition / WS inline). The
-// resolved path is returned so the WS arm can echo it; REST drops it. An absent
-// env file is trivially ok (nothing to validate). For scope:"user", an explicit
-// username targets THAT user; an omitted username targets the CALLER's OWN env
-// (selfUserId) — the subject the precondition / WS inline checks already
-// authorized as "self". Without this self-resolution an authorized own-env probe
-// would validate nothing and return a false ok.
+// Shared core for the validate.env REST handler. Resolves the scope/user's
+// env-file path and counts its keys. AUTH lives outside (the
+// validateEnvBodySelfSubject precondition). The resolved path is returned but
+// the REST handler drops it (the retired request_settings_validation WS arm used
+// to echo it). An absent env file is trivially ok (nothing to validate). For
+// scope:"user", an explicit username targets THAT user; an omitted username
+// targets the CALLER's OWN env (selfUserId) — the subject the precondition
+// already authorized as "self". Without this self-resolution an authorized
+// own-env probe would validate nothing and return a false ok.
 function resolveAndValidateEnv(
   scope: string,
   username: string | undefined,
@@ -1615,10 +1616,10 @@ function buildExecutorDeps(): ExecutorDeps {
   // validate.env (its guard is just `authenticated`). office:read (stage 1)
   // already restricted the caller to USER scope; here an owner may validate any
   // scope/user, a member ONLY their own user env. Non-leak: office scope or
-  // another user's env both deny with the same 403. Mirrors the legacy
-  // request_settings_validation inline checks — and is what keeps the precondition
-  // reachable (a member validating their own env is allowed HERE, not denied at
-  // the guard as the prior or(officeOwner, selfUser) did).
+  // another user's env both deny with the same 403. (This replaced the equivalent
+  // inline checks in the now-retired request_settings_validation WS arm.) It is
+  // what keeps the precondition reachable (a member validating their own env is
+  // allowed HERE, not denied at the guard as the prior or(officeOwner, selfUser) did).
   preconditions.set("validateEnvBodySelfSubject", (ctx) => {
     const u = ctx.identity.userId
       ? getUserById(ctx.identity.userId)
@@ -2440,7 +2441,6 @@ function surfaceCommandError(
       }
       return;
     case "update_user":
-    case "request_settings_validation":
       if (cmd.requestId) {
         ws.send(
           JSON.stringify({
@@ -3140,28 +3140,6 @@ async function dispatchCommand(
       }
       break;
     }
-    case "request_cwd_validation": {
-      try {
-        agentManager.validateCwd(cmd.cwd);
-        ws.send(
-          JSON.stringify({
-            type: "cwd_validation",
-            requestId: cmd.requestId,
-            ok: true,
-          }),
-        );
-      } catch (err) {
-        ws.send(
-          JSON.stringify({
-            type: "cwd_validation",
-            requestId: cmd.requestId,
-            ok: false,
-            error: errMessage(err, "Invalid directory"),
-          }),
-        );
-      }
-      break;
-    }
     case "list_backend_models": {
       // Shared core with backends.listModels (REST): resolves the per-user env
       // stack + cwd like a real spawn and flags auth errors via detectAuthError.
@@ -3188,64 +3166,6 @@ async function dispatchCommand(
                 authError: r.authError,
               },
         ),
-      );
-      break;
-    }
-    case "request_settings_validation": {
-      // Members can only validate their own envFile. Owners can validate any
-      // user's envFile and the office envFile.
-      if (cmd.scope === "office" && session.role !== "owner") {
-        ws.send(
-          JSON.stringify({
-            type: "settings_validation",
-            requestId: cmd.requestId,
-            scope: cmd.scope,
-            username: cmd.username,
-            envFile: null,
-            ok: false,
-            error: "Only the office owner can validate office settings.",
-          }),
-        );
-        break;
-      }
-      if (
-        cmd.scope === "user" &&
-        cmd.username &&
-        lowercaseKey(cmd.username) !== lowercaseKey(session.username) &&
-        session.role !== "owner"
-      ) {
-        ws.send(
-          JSON.stringify({
-            type: "settings_validation",
-            requestId: cmd.requestId,
-            scope: cmd.scope,
-            username: cmd.username,
-            envFile: null,
-            ok: false,
-            error: "Only the office owner can validate another user's env.",
-          }),
-        );
-        break;
-      }
-      // Shared validation core with validate.env (REST). The inline checks above
-      // own AUTH for the WS path (REST uses the validateEnvBodySelfSubject
-      // precondition); the core only resolves + validates. WS echoes the resolved
-      // envFile; REST drops it.
-      const r = resolveAndValidateEnv(cmd.scope, cmd.username, session.userId);
-      ws.send(
-        JSON.stringify({
-          type: "settings_validation",
-          requestId: cmd.requestId,
-          scope: cmd.scope,
-          username: cmd.username,
-          envFile: r.envFile,
-          ok: r.ok,
-          ...(r.ok
-            ? r.keyCount !== undefined
-              ? { keyCount: r.keyCount }
-              : {}
-            : { error: r.error }),
-        }),
       );
       break;
     }
