@@ -3397,32 +3397,6 @@ async function dispatchCommand(
         }),
       );
       break;
-    case "send_cronjob_run_message":
-      // [behavior-change] tighten to cronjobOwnerOrOfficeOwner on the WS
-      // transport too (parity with the REST guard) so the strangler leaves no
-      // WS-path bypass — same bypass class as the 2a cron-mutation arms.
-      if (!wsCanMutateCronjob(session, cmd.cronjobId)) break;
-      // Don't await — let it stream in the background (matches send_message).
-      void cronjobManager.sendRunMessage(
-        cmd.cronjobId,
-        cmd.runId,
-        cmd.text,
-        session.username,
-        cmd.device,
-      );
-      break;
-    case "edit_cronjob_run_message":
-      if (!wsCanMutateCronjob(session, cmd.cronjobId)) break;
-      // Don't await — let it stream in the background (matches edit_message).
-      void cronjobManager.editRunMessage(
-        cmd.cronjobId,
-        cmd.runId,
-        cmd.logEntryId,
-        cmd.newText,
-        session.username,
-        cmd.device,
-      );
-      break;
     case "claim_user": {
       // Post-auth, the session cookie is authoritative for username. This is the
       // one-shot localStorage->server migration of legacy view prefs (the UI

@@ -428,6 +428,21 @@ describe("routes/cron run-messages: ownership tightening on BOTH transports", ()
       ).status,
     ).toBe(403);
 
+    // Member -> owner's run-message EDIT (PATCH, :logEntryId): same route guard.
+    expect(
+      (
+        await httpJson(
+          srv,
+          `/api/cronjobs/${ownersJob.id}/runs/r1/messages/e1`,
+          {
+            method: "PATCH",
+            rawSessionId: member.rawSessionId,
+            body: { newText: "hijack-edit" },
+          },
+        )
+      ).status,
+    ).toBe(403);
+
     // Owner, empty text -> 400 (before the run pre-flight).
     expect(
       (
@@ -453,80 +468,6 @@ describe("routes/cron run-messages: ownership tightening on BOTH transports", ()
         )
       ).status,
     ).toBe(404);
-  });
-
-  it("WS: the shim blocks a non-owner send/edit on a REAL run, while the owner's identical op passes (proves the shim, not inactivity)", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Boss");
-    const member = await srv.seedMember("Mallory");
-    const ownersJob = seedJob(srv, "Boss", "Locked");
-    // Drive a REAL run to completion (default FakeBackend completes the turn). A
-    // completed run is non-active + non-resumable (no on-disk session file), so
-    // WITHOUT the shim a send/edit would pass findRun + the active/skip/leaf
-    // checks and reach checkResumableSession, emitting a "Cannot resume" error
-    // entry on the cronrun stream. The shim must stop the MEMBER before that,
-    // while the OWNER (same run) reaches it — so the difference is the shim, NOT
-    // a findRun/active early-return (which would mask a deleted shim).
-    const run = srv.cronjobManager.runCronjobNow(ownersJob.id, "Boss");
-    if (!run) throw new Error("runCronjobNow returned null");
-    await waitUntil(
-      () =>
-        srv.cronjobManager
-          .getRunsForCronjob(ownersJob.id)
-          .some((r) => r.id === run.id && r.status !== "running"),
-      3000,
-      "run reaches a terminal status",
-    );
-    const streamId = cronjobRunStreamId(run.id);
-    const countCronrun = (sock: TestSocket) =>
-      sock.messages.filter((m) => {
-        const msg = m as { type?: string; entry?: LogEntry };
-        return msg.type === "log_entry" && msg.entry?.agentId === streamId;
-      }).length;
-
-    // Sockets connect AFTER completion, so the cronrun stream starts clean (run
-    // transcripts are not replayed on connect).
-    const ownerSock = await srv.connectWs(owner.rawSessionId);
-    const memberSock = await srv.connectWs(member.rawSessionId);
-
-    // Member: both arms blocked by the shim BEFORE the manager runs. The shim is
-    // synchronous in the dispatch switch, so a pong barrier guarantees both were
-    // processed (and blocked) in order.
-    memberSock.send({
-      type: "send_cronjob_run_message",
-      cronjobId: ownersJob.id,
-      runId: run.id,
-      text: "hijack",
-    });
-    memberSock.send({
-      type: "edit_cronjob_run_message",
-      cronjobId: ownersJob.id,
-      runId: run.id,
-      logEntryId: "e1",
-      newText: "hijack-edit",
-    });
-    memberSock.send({ type: "ping" });
-    await memberSock.waitFor("pong");
-    // Cron transcripts broadcast office-wide: had either member op reached the
-    // manager, a resume-error entry would be on BOTH sockets by now. Neither is.
-    expect(countCronrun(memberSock)).toBe(0);
-    expect(countCronrun(ownerSock)).toBe(0);
-
-    // Owner: the SAME op on the SAME run passes the shim -> reaches the manager
-    // -> emits a "Cannot resume" error entry. This is the discriminator that the
-    // member's zero-count is the shim, not inactivity.
-    ownerSock.send({
-      type: "send_cronjob_run_message",
-      cronjobId: ownersJob.id,
-      runId: run.id,
-      text: "owner message",
-    });
-    await waitUntil(
-      () => countCronrun(ownerSock) >= 1,
-      3000,
-      "owner's send reaches the manager (resume-error entry on the cronrun stream)",
-    );
   });
 });
 

@@ -843,6 +843,17 @@ export async function demoApi(
   if (method === "GET" && /^\/api\/cronjobs\/[^/]+\/runs$/.test(pathname)) {
     return { runs: [] };
   }
+  // cron.runMessage (POST) / cron.editRunMessage (PATCH) — fire-and-forget
+  // mutations. The demo has no runs (unreachable in practice), but demoApi throws
+  // on unmapped routes, so map them; the caller ignores the { messageId } ack.
+  if (
+    (method === "POST" &&
+      /^\/api\/cronjobs\/[^/]+\/runs\/[^/]+\/messages$/.test(pathname)) ||
+    (method === "PATCH" &&
+      /^\/api\/cronjobs\/[^/]+\/runs\/[^/]+\/messages\/[^/]+$/.test(pathname))
+  ) {
+    return { messageId: "demo" };
+  }
   throw new Error(`demoApi: unhandled route ${route}`);
 }
 
@@ -1309,8 +1320,6 @@ export function handleCommand(cmd: ClientCommand) {
     case "resume":
     case "list_sessions":
     case "run_cronjob_now":
-    case "send_cronjob_run_message":
-    case "edit_cronjob_run_message":
       break;
   }
 }

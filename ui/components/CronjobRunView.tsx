@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppState, useDispatch } from "../store.tsx";
 import { LogEntryCard } from "../log-view/LogEntryCard.tsx";
-import { send } from "../ws.ts";
 import { apiFetch } from "../api.ts";
 import {
   cronjobRunStreamId,
@@ -29,16 +28,15 @@ const STATUS_COLOR: Record<CronjobRun["status"], string> = {
 // Cronjob runs are resumable: any boss can send follow-up turns into a past
 // run, and edit-to-fork lets them branch from any prior user message. The
 // server-side handlers live in cronjob-manager.ts (sendRunMessage,
-// editRunMessage); see send_cronjob_run_message / edit_cronjob_run_message.
+// editRunMessage), reached via the REST routes cron.runMessage (POST) /
+// cron.editRunMessage (PATCH).
 export function CronjobRunView({
   jobId,
   runId,
-  username,
   onClose,
 }: {
   jobId: string;
   runId: string;
-  username: string;
   onClose: () => void;
 }) {
   const { cronjobRunsByJob, isMobile, logs } = useAppState();
@@ -183,14 +181,17 @@ export function CronjobRunView({
   function handleSend() {
     const text = input.trim();
     if (!text || !canResume) return;
-    send({
-      type: "send_cronjob_run_message",
-      cronjobId: jobId,
-      runId,
-      text,
-      username,
-      device: device || undefined,
-    });
+    // Fire-and-forget: the user_message and the run's reply stream back via live
+    // cron_run_log_entry / log_entry events, so the { messageId } ack is ignored.
+    // .catch stays silent for parity with the old fire-and-forget WS command (a
+    // non-owner / unknown-run was dropped without a user-visible error).
+    apiFetch(
+      "POST",
+      `/api/cronjobs/${encodeURIComponent(jobId)}/runs/${encodeURIComponent(
+        runId,
+      )}/messages`,
+      { text, device: device || undefined },
+    ).catch(() => {});
     setInput("");
     if (textareaRef.current) textareaRef.current.style.height = "auto";
     setAutoScroll(true);
@@ -198,15 +199,16 @@ export function CronjobRunView({
 
   function handleSubmitEdit(id: string, newText: string) {
     setEditingLogEntryId(null);
-    send({
-      type: "edit_cronjob_run_message",
-      cronjobId: jobId,
-      runId,
-      logEntryId: id,
-      newText,
-      username,
-      device: device || undefined,
-    });
+    // Fire-and-forget (see handleSend): the edit re-forks the run server-side and
+    // the result streams back as live events; the { messageId } ack is ignored
+    // and .catch stays silent for parity with the old WS command.
+    apiFetch(
+      "PATCH",
+      `/api/cronjobs/${encodeURIComponent(jobId)}/runs/${encodeURIComponent(
+        runId,
+      )}/messages/${encodeURIComponent(id)}`,
+      { newText, device: device || undefined },
+    ).catch(() => {});
     setAutoScroll(true);
   }
 

@@ -1165,23 +1165,6 @@ export type ClientCommand =
   | { type: "run_cronjob_now"; id: string; username: string }
   | { type: "update_cronjobs_prompt"; requestId: string; value: string | null }
   | {
-      type: "send_cronjob_run_message";
-      cronjobId: string;
-      runId: string;
-      text: string;
-      username?: string;
-      device?: string;
-    }
-  | {
-      type: "edit_cronjob_run_message";
-      cronjobId: string;
-      runId: string;
-      logEntryId: string;
-      newText: string;
-      username?: string;
-      device?: string;
-    }
-  | {
       type: "claim_user";
       username: string;
       defaultRoomId?: string | null;
