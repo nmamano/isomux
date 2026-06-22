@@ -1311,6 +1311,11 @@ export function sendInitialState() {
   });
   shimEmit({ type: "tasks", tasks: s.tasks });
   shimEmit({ type: "cronjobs_state", cronjobs: [...cronjobs], cronjobsPrompt });
+  // DEMO ONLY (non-production): the demo has a single simulated user and no ACL
+  // boundary, so it sends FULL records on the public users_list. The live
+  // server sends UserPublicWire here plus the subject's full record via
+  // user_self_updated; the UI merge core tolerates both (a full record is
+  // assignable to the public wire and simply hydrates as a full view).
   shimEmit({ type: "users_list", users: [...users.values()] });
   if (sessionContext) {
     shimEmit({ type: "session_context", context: sessionContext });

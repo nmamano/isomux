@@ -19,6 +19,7 @@ import type {
   SkillInfo,
   TaskItem,
   OfficeSettings,
+  OfficeWire,
   RoomWire,
   SettingsSaveResponse,
   SettingsValidationResponse,
@@ -26,10 +27,16 @@ import type {
   CronjobRun,
   PresenceInfo,
   UserRecord,
+  UserPublicWire,
   SessionContext,
   InviteWire,
   SessionWire,
 } from "../shared/types.ts";
+import {
+  type UserView,
+  upsertUserView,
+  rebuildUserViews,
+} from "./user-merge.ts";
 import { connect, send } from "./ws.ts";
 import { type Features, PRODUCTION_FEATURES } from "../shared/features.ts";
 import {
@@ -92,7 +99,7 @@ export interface AppState {
   // current device's user is identified by `sessionContext.username`, which
   // the server sends right after WS open from the session cookie. Pre-auth
   // setups have null until the server emits session_context.
-  users: Map<string, UserRecord>;
+  users: Map<string, UserView>;
   usersLoaded: boolean;
   // Owner-only access state. Both maps stay empty (and the corresponding
   // owner UI is hidden) for members and unauthenticated states.
@@ -145,7 +152,7 @@ type Action =
       type: "full_state";
       agents: AgentInfo[];
       recentCwds: string[];
-      office: OfficeSettings;
+      office: OfficeWire;
       rooms: RoomWire[];
       killedAgents: KilledAgentSummary[];
     }
@@ -182,7 +189,6 @@ type Action =
   | {
       type: "office_settings_updated";
       prompt: string | null;
-      envFile: string | null;
       name: string | null;
     }
   | { type: "tasks"; tasks: TaskItem[] }
@@ -191,8 +197,11 @@ type Action =
   | { type: "room_closed"; roomId: string }
   | { type: "room_renamed"; roomId: string; name: string }
   | { type: "room_settings_updated"; roomId: string; prompt: string | null }
-  | { type: "users_list"; users: UserRecord[] }
-  | { type: "user_updated"; user: UserRecord; prevName?: string }
+  | { type: "users_list"; users: UserPublicWire[] }
+  | { type: "user_updated"; user: UserPublicWire; prevName?: string }
+  | { type: "users_admin_list"; users: UserRecord[] }
+  | { type: "user_admin_updated"; user: UserRecord; prevName?: string }
+  | { type: "user_self_updated"; user: UserRecord; prevName?: string }
   | { type: "session_context"; context: SessionContext }
   | {
       type: "presence_list";
@@ -260,7 +269,13 @@ function reducer(state: AppState, action: Action): AppState {
         ...state,
         agents: action.agents,
         recentCwds: action.recentCwds,
-        office: action.office,
+        office: {
+          prompt: action.office.prompt,
+          name: action.office.name,
+          // OfficeWire omits envFile for members; coerce to null for the
+          // store's OfficeSettings shape. Owners carry the real value.
+          envFile: action.office.envFile ?? null,
+        },
         rooms: action.rooms,
         killedAgents: action.killedAgents,
         currentRoom,
@@ -435,13 +450,12 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, mobileViewMode: next };
     }
     case "office_settings_updated":
+      // envFile is owner-only and no longer rides this all-audience event
+      // (3b.5). PRESERVE the existing office.envFile (an owner's loaded value)
+      // and update only the public fields, so the event never blanks it.
       return {
         ...state,
-        office: {
-          prompt: action.prompt,
-          envFile: action.envFile,
-          name: action.name,
-        },
+        office: { ...state.office, prompt: action.prompt, name: action.name },
       };
     case "tasks":
       return { ...state, tasks: action.tasks, tasksLoaded: true };
@@ -478,22 +492,33 @@ function reducer(state: AppState, action: Action): AppState {
       );
       return { ...state, rooms: newRooms };
     }
-    case "users_list": {
-      const users = new Map(action.users.map((u) => [u.name.toLowerCase(), u]));
-      return { ...state, users, usersLoaded: true };
-    }
-    case "user_updated": {
-      const users = new Map(state.users);
-      // On rename, drop the old key so the map doesn't accumulate ghosts.
-      if (
-        action.prevName &&
-        action.prevName.toLowerCase() !== action.user.name.toLowerCase()
-      ) {
-        users.delete(action.prevName.toLowerCase());
-      }
-      users.set(action.user.name.toLowerCase(), action.user);
-      return { ...state, users };
-    }
+    case "users_list":
+      // Public roster (audience all). Authoritative membership: rebuild from it
+      // (drops removed users) while preserving any sensitive fields already
+      // held for survivors (self via user_self_updated, admin via users_admin_*).
+      return {
+        ...state,
+        users: rebuildUserViews(state.users, action.users),
+        usersLoaded: true,
+      };
+    case "users_admin_list":
+      // Owners-audience FULL roster. Also authoritative membership; full records
+      // win over any public-only entry held for the same user.
+      return {
+        ...state,
+        users: rebuildUserViews(state.users, action.users),
+        usersLoaded: true,
+      };
+    case "user_updated":
+    case "user_admin_updated":
+    case "user_self_updated":
+      // One merge core for all three: a public wire refreshes public columns
+      // only (sensitive fields preserved); a full (admin/self) record overwrites
+      // every column. Rename carries sensitive fields across the key migration.
+      return {
+        ...state,
+        users: upsertUserView(state.users, action.user, action.prevName),
+      };
     case "presence_list":
       return {
         ...state,

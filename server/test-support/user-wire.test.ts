@@ -231,4 +231,26 @@ describe("user-wire projection leak closure (3b.5)", () => {
     );
     expect(ownerEv.envFile).toBeUndefined(); // dropped even for owners on the all-event
   });
+
+  it("connect hydration delivers the full self/admin records BEFORE full_state (the UI default-room + owner-roster reads depend on this order)", async () => {
+    server = await startTestServer();
+    const owner = await server.seedOwner("Boss");
+    const mia = await server.seedMember("Mia");
+    const idxOf = (s: TestSocket, type: string) =>
+      bag(s).findIndex((m) => m.type === type);
+
+    const miaSock = await connectSettled(server, mia.rawSessionId);
+    expect(idxOf(miaSock, "user_self_updated")).toBeGreaterThanOrEqual(0);
+    expect(idxOf(miaSock, "user_self_updated")).toBeLessThan(
+      idxOf(miaSock, "full_state"),
+    );
+
+    const ownerSock = await connectSettled(server, owner.rawSessionId);
+    expect(idxOf(ownerSock, "users_admin_list")).toBeLessThan(
+      idxOf(ownerSock, "full_state"),
+    );
+    expect(idxOf(ownerSock, "user_self_updated")).toBeLessThan(
+      idxOf(ownerSock, "full_state"),
+    );
+  });
 });

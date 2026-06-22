@@ -692,6 +692,17 @@ export interface UserRecord {
   memberPrompt: string | null;
 }
 
+// Office-wide user display metadata: the ONLY user shape allowed on an `all`
+// event or the public roster. Excludes envFile, allowedRooms, memberPrompt, and
+// view prefs by construction, so sensitive fields can never ride an `all`
+// channel. Canonical home (next to UserRecord + the ServerMessage that
+// references it); re-exported from contract-shapes.ts so the server
+// route-table / event-registry import sites keep importing from one module.
+export type UserPublicWire = Pick<
+  UserRecord,
+  "id" | "name" | "role" | "avatarColor" | "avatarVariant" | "createdAt"
+>;
+
 // Sent to the client over the WS at connect time so the UI knows whether to
 // render owner-only surfaces (Access pane, "Sign out" reachability, etc.).
 // Display name is derived from the user record at the moment of send, so a
@@ -937,8 +948,16 @@ export type ServerMessage =
   | { type: "room_closed"; roomId: string }
   | { type: "room_renamed"; roomId: string; name: string }
   | { type: "room_settings_updated"; roomId: string; prompt: string | null }
-  | { type: "users_list"; users: UserRecord[] }
-  | { type: "user_updated"; user: UserRecord; prevName?: string }
+  | { type: "users_list"; users: UserPublicWire[] }
+  | { type: "user_updated"; user: UserPublicWire; prevName?: string }
+  // Owners-audience FULL records (UserAdminWire === UserRecord). SEPARATE event
+  // ids so the all-audience users_list/user_updated above stay public-only — no
+  // recipient-dependent payload behind one id (Phase 3b slice 5).
+  | { type: "users_admin_list"; users: UserRecord[] }
+  | { type: "user_admin_updated"; user: UserRecord; prevName?: string }
+  // Recipient-scoped to the subject: their OWN full record (UserSelfWire ===
+  // UserRecord), incl. at connect hydration since users_list is now public-only.
+  | { type: "user_self_updated"; user: UserRecord; prevName?: string }
   | { type: "session_context"; context: SessionContext }
   // totalOnlineUsers counts distinct userIds across ALL live presence
   // entries (including off-scene viewMode="away" sessions whose

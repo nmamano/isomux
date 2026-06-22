@@ -5,12 +5,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppState } from "../store.tsx";
 import { send, addRawListener, removeRawListener } from "../ws.ts";
-import type {
-  InviteWire,
-  SessionWire,
-  UserRecord,
-  UserRole,
-} from "../../shared/types.ts";
+import type { InviteWire, SessionWire, UserRole } from "../../shared/types.ts";
+import { type UserView } from "../user-merge.ts";
 import { lowercaseKey } from "../../shared/identity.ts";
 import { normalizePublicOrigin } from "../../shared/public-origin.ts";
 import {
@@ -410,7 +406,7 @@ function IssueInviteForm() {
   // Existing-user detection uses the same lowercase key the server uses
   // (lowercaseKey, not raw toLowerCase) so unicode/whitespace handling
   // stays consistent across the two sides.
-  const existingUser: UserRecord | null = useMemo(() => {
+  const existingUser: UserView | null = useMemo(() => {
     const trimmed = name.trim();
     if (!trimmed) return null;
     return users.get(lowercaseKey(trimmed)) ?? null;

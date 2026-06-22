@@ -6,6 +6,7 @@ import {
   getUsername,
 } from "../device-settings.ts";
 import type { NotifRoomsSetting, UserRecord } from "../../shared/types.ts";
+import { type UserView, isFullUserView } from "../user-merge.ts";
 import {
   GHOST_COLOR_PALETTE,
   GHOST_VARIANTS,
@@ -244,7 +245,7 @@ export function UserManagementModal({
                           {summarizeUser(u, editorRooms)}
                         </div>
                       </div>
-                      {(isMe || isOwner) && (
+                      {(isMe || isOwner) && isFullUserView(u) && (
                         <button
                           onClick={() => {
                             const targetKey = u.name.toLowerCase();
@@ -267,7 +268,7 @@ export function UserManagementModal({
                         </button>
                       )}
                     </div>
-                    {isEditing && (
+                    {isEditing && isFullUserView(u) && (
                       <UserEditPanel
                         user={u}
                         closeRef={editCloseRef}
@@ -381,9 +382,12 @@ function sameRoomSet(a: string[], b: string[]): boolean {
 }
 
 function summarizeUser(
-  u: UserRecord,
+  u: UserView,
   rooms: { id: string; name: string }[],
 ): string {
+  // Public-only view (e.g. a member's view of another user): no sensitive data
+  // is present, so render nothing beyond the name + role badge already shown.
+  if (!isFullUserView(u)) return "";
   const parts: string[] = [];
   const room = rooms.find((r) => r.id === u.defaultRoomId);
   parts.push(`default: ${room?.name ?? "first room"}`);

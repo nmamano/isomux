@@ -19,14 +19,10 @@ import type {
 
 // --- Wire projections (response / event shapes) -----------------------------
 
-// Office-wide user display metadata — the ONLY user shape allowed on an `all`
-// event or the public roster. Excludes envFile, allowedRooms, memberPrompt, and
-// view prefs by construction, so sensitive fields can never ride an `all`
-// channel.
-export type UserPublicWire = Pick<
-  UserRecord,
-  "id" | "name" | "role" | "avatarColor" | "avatarVariant" | "createdAt"
->;
+// UserPublicWire's canonical home is shared/types.ts (next to UserRecord +
+// ServerMessage, which references it). Re-exported here so the route-table /
+// event-registry import sites keep importing every wire shape from one module.
+export type { UserPublicWire } from "./types.ts";
 
 // The caller's own full record (env/access/prompt/view prefs); delivered ONLY
 // to that user. Same shape as UserAdminWire, kept as a distinct name so the
