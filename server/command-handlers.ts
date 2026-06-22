@@ -117,6 +117,10 @@ interface HandlerDeps {
   // State accessors (live references — read at call time)
   agents: Map<string, ManagedAgent>;
   getRooms: () => RoomWire[];
+  // Phase 3c: roomId is the room authority; the dense index / room object are
+  // derived from it via these instead of reading AgentInfo.room.
+  globalRoomIndexOf: (roomId: string) => number;
+  roomById: (roomId: string) => RoomWire | undefined;
   getOfficeConfig: () => OfficeSettings;
   logCache: Map<string, LogEntry[]>;
 
@@ -492,13 +496,14 @@ export function createCommandHandling(deps: HandlerDeps) {
       const userMeta = buildMeta(username, device);
       deps.addLogEntry(agentId, "user_message", rawText, userMeta);
 
-      // Gather all agents grouped by room
+      // Gather all agents grouped by room. Phase 3c: group/sort/label by the
+      // roomId-derived dense index, not AgentInfo.room.
       const allAgents = [...deps.agents.values()];
       const roomMap = new Map<number, ManagedAgent[]>();
       for (const a of allAgents) {
-        const room = a.info.room;
-        if (!roomMap.has(room)) roomMap.set(room, []);
-        roomMap.get(room)!.push(a);
+        const roomIdx = deps.globalRoomIndexOf(a.info.roomId);
+        if (!roomMap.has(roomIdx)) roomMap.set(roomIdx, []);
+        roomMap.get(roomIdx)!.push(a);
       }
 
       const lines: string[] = [];
@@ -546,7 +551,9 @@ export function createCommandHandling(deps: HandlerDeps) {
     ) {
       const userMeta = buildMeta(username, device);
       deps.addLogEntry(agentId, "user_message", rawText, userMeta);
-      const room = deps.getRooms()[managed.info.room];
+      // Phase 3c: a live agent's roomId always resolves; roomById logs loud on a
+      // miss and we fail fast rather than build a prompt against room 0.
+      const room = deps.roomById(managed.info.roomId)!;
       const officeConfig = deps.getOfficeConfig();
       const ownerRecord = managed.info.username
         ? getUserByName(managed.info.username)

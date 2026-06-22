@@ -85,7 +85,8 @@ type PluginHooksDeps = {
   beginTurn: (agentId: string, opts: { humanInput: boolean }) => void;
   createTurnDeferred: (managed: ManagedAgent) => Promise<void>;
   getLogCache: (agentId: string) => LogEntry[] | undefined;
-  getRoom: (roomIdx: number) => { id: string; name: string } | null;
+  // Phase 3c: looked up by the agent's authoritative roomId, not a dense index.
+  getRoom: (roomId: string) => { id: string; name: string } | null;
 };
 
 let deps: PluginHooksDeps | null = null;
@@ -157,9 +158,9 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
     checkCancelled();
   }
 
-  // 3. Build the plugin context. roomLookup may return null if the agent's
-  // room index is somehow out of range (shouldn't happen, but defensive).
-  const room = deps.getRoom(managed.info.room);
+  // 3. Build the plugin context. getRoom may return null if the agent's
+  // roomId somehow names no live room (shouldn't happen, but defensive).
+  const room = deps.getRoom(managed.info.roomId);
   const ctx: PluginTurnContext = {
     agentId,
     agentName: managed.info.name,

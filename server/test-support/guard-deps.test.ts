@@ -24,9 +24,9 @@ describe("guard-deps (unit): roomIdForAgent resolves the GLOBAL room id", () => 
     hasRoomAccessForUser: (userId, roomId) =>
       userId === "u1" && roomId === "r1",
     getAllAgents: () => [
-      { id: "a1", room: 0 },
-      { id: "a2", room: 1 },
-      { id: "aOob", room: 9 }, // index past the rooms array
+      { id: "a1", roomId: "r1" },
+      { id: "a2", roomId: "r2" },
+      { id: "aDangling", roomId: "rGone" }, // roomId names no live room
     ],
     getRooms: () => [{ id: "r1" }, { id: "r2" }],
     getUserByName: (name) => (name === "Nil" ? { id: "u1" } : null),
@@ -37,15 +37,15 @@ describe("guard-deps (unit): roomIdForAgent resolves the GLOBAL room id", () => 
   };
   const deps = buildProductionGuardDeps(readers);
 
-  it("maps an agent's dense room index to the global room id", () => {
+  it("returns the agent's authoritative roomId as the global room id", () => {
     expect(deps.roomIdForAgent("a1")).toBe("r1");
     expect(deps.roomIdForAgent("a2")).toBe("r2");
   });
   it("unknown agent → null (collapses with inaccessible)", () => {
     expect(deps.roomIdForAgent("ghost")).toBeNull();
   });
-  it("out-of-range room index → null", () => {
-    expect(deps.roomIdForAgent("aOob")).toBeNull();
+  it("dangling roomId (names no live room) → null", () => {
+    expect(deps.roomIdForAgent("aDangling")).toBeNull();
   });
   it("hasRoomAccess delegates to hasRoomAccessForUser, false for null userId", () => {
     expect(deps.hasRoomAccess(userIdentity("u1"), "r1")).toBe(true);

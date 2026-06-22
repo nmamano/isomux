@@ -1108,7 +1108,13 @@ const liveEmitDeps: EmitDeps<ServerWebSocket<WsData>> = {
   roomIdForAgent: (agentId) => {
     const agent = agentManager.getAllAgents().find((a) => a.id === agentId);
     if (!agent) return null;
-    return agentManager.getRooms()[agent.room]?.id ?? null;
+    // Phase 3c: return the authoritative roomId only if it names a LIVE room.
+    // Do NOT lean on downstream audience filtering to fail closed — under the 3b
+    // owner rule canAccess() returns true for ANY roomId string, so a dangling
+    // id would still route this agent's room-ACL events to owner sockets.
+    // Validate here, matching the guard-deps authz posture (pre-3c the
+    // out-of-range dense index produced null at getRooms()[agent.room]?.id).
+    return agentManager.roomById(agent.roomId) ? agent.roomId : null;
   },
   deliver: (recipients, id, payload) => {
     // Slice 3b.1: room-ACL events arrive here with recipients ALREADY filtered
@@ -1695,10 +1701,18 @@ interface VisibleRoomProjection {
   globalToVisible: number[];
   // dense visible index → global room index
   visibleToGlobal: number[];
+  // Phase 3c: stable roomId → GLOBAL room index (covers every room, not just the
+  // visible ones). Lets roomId-authority callers derive the dense/global index
+  // without reading AgentInfo.room. A roomId absent here is corrupt (loud);
+  // present-but-not-visible is normal projection filtering (globalToVisible=-1).
+  globalRoomIdToIndex: Map<string, number>;
 }
 
 function visibleRoomProjection(session: SessionLookup): VisibleRoomProjection {
   const all = agentManager.getRooms();
+  // Phase 3c: built once, shared by both projection paths. roomId → global index
+  // for callers that derive the dense index from the authoritative roomId.
+  const globalRoomIdToIndex = new Map(all.map((r, i) => [r.id, i] as const));
   const user = getUserById(session.userId);
   // Fast path: a full-access user with NO hidden rooms and NO custom order sees
   // every room in office order — the identity projection (no per-room
@@ -1711,7 +1725,12 @@ function visibleRoomProjection(session: SessionLookup): VisibleRoomProjection {
     user.order.length === 0
   ) {
     const identity: number[] = all.map((_, i) => i);
-    return { rooms: all, globalToVisible: identity, visibleToGlobal: identity };
+    return {
+      rooms: all,
+      globalToVisible: identity,
+      visibleToGlobal: identity,
+      globalRoomIdToIndex,
+    };
   }
   // General path. ACCESS is the security gate (roomAllowedForSession today;
   // canAccess after the 3b.3 flip). `hidden` is an additive VIEW filter ON TOP
@@ -1752,7 +1771,7 @@ function visibleRoomProjection(session: SessionLookup): VisibleRoomProjection {
     visibleToGlobal.push(i);
     rooms.push(all[i]);
   }
-  return { rooms, globalToVisible, visibleToGlobal };
+  return { rooms, globalToVisible, visibleToGlobal, globalRoomIdToIndex };
 }
 
 // Returns a fresh AgentInfo with `room` rewritten to the dense visible
@@ -1765,9 +1784,19 @@ function projectAgentForSession(
   projection?: VisibleRoomProjection,
 ): AgentInfo | null {
   const proj = projection ?? visibleRoomProjection(session);
-  const visible = proj.globalToVisible[agent.room];
+  // Phase 3c: derive the global index from the authoritative roomId. Absent from
+  // the map = corrupt roomId (loud + suppress); present but globalToVisible < 0 =
+  // legitimately not visible to this session (silent, normal filtering).
+  const globalIdx = proj.globalRoomIdToIndex.get(agent.roomId);
+  if (globalIdx === undefined) {
+    console.error(
+      `[3c] projectAgentForSession: unknown roomId "${agent.roomId}" for agent ${agent.id}; suppressing`,
+    );
+    return null;
+  }
+  const visible = proj.globalToVisible[globalIdx];
   if (visible === undefined || visible < 0) return null;
-  if (visible === agent.room) return agent; // identity (full-access fast path)
+  if (visible === globalIdx) return agent; // identity (full-access fast path)
   return { ...agent, room: visible };
 }
 
@@ -1782,10 +1811,9 @@ function agentVisibleForSession(
   if (sessionHasFullRoomAccess(session)) return true;
   const agent = agentManager.getAllAgents().find((a) => a.id === agentId);
   if (!agent) return false;
-  const rooms = agentManager.getRooms();
-  const roomId = rooms[agent.room]?.id;
-  if (!roomId) return false;
-  return roomAllowedForSession(session, roomId);
+  // Phase 3c: the agent carries its authoritative roomId directly.
+  if (!agent.roomId) return false;
+  return roomAllowedForSession(session, agent.roomId);
 }
 
 // Build and send the full_state payload for a given WS using the session's
@@ -2515,8 +2543,8 @@ async function dispatchCommand(
         const agent = agentManager
           .getAllAgents()
           .find((a) => a.id === cmd.focusedAgentId);
-        const agentRoomId =
-          agent !== undefined ? (rooms[agent.room]?.id ?? null) : null;
+        // Phase 3c: read the agent's authoritative roomId directly.
+        const agentRoomId = agent?.roomId ?? null;
         if (agentRoomId === roomId) {
           focusedAgentId = cmd.focusedAgentId;
         }

@@ -188,8 +188,8 @@ export function createAgentManager(deps: ManagerDeps) {
       beginTurn,
       createTurnDeferred,
       getLogCache: (agentId) => logCache.get(agentId),
-      getRoom: (roomIdx) => {
-        const r = officeState.rooms[roomIdx];
+      getRoom: (roomId) => {
+        const r = roomById(roomId);
         return r ? { id: r.id, name: r.name } : null;
       },
     });
@@ -488,6 +488,31 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return agents.get(agentId)?.sessionId ?? null;
   }
 
+  // Phase 3c (slice 2): resolve a stable roomId to its dense index in
+  // officeState.rooms. roomId is the authority; the dense `room` index is now a
+  // derived wire/persist/display field, recomputed from roomId here rather than
+  // read off AgentInfo.room. A live agent's roomId always names a real room
+  // (closeRoom is empty-only; roomId is validated at spawn, move, and restore),
+  // so a miss is a genuine invariant breach: log loud and return -1 — NEVER
+  // silently coerce to room 0. Callers apply their own safe fallback off -1.
+  function globalRoomIndexOf(roomId: string): number {
+    const idx = officeState.rooms.findIndex((r) => r.id === roomId);
+    if (idx < 0) {
+      console.error(
+        `[3c] globalRoomIndexOf: unknown roomId "${roomId}" (${officeState.rooms.length} room(s)); returning -1`,
+      );
+    }
+    return idx;
+  }
+
+  // Companion lookup for the sites that want the RoomWire object, not the index.
+  // Returns undefined on miss (globalRoomIndexOf already logged loud); callers
+  // keep their existing `if (!room)` fallback / suppression.
+  function roomById(roomId: string): RoomWire | undefined {
+    const idx = globalRoomIndexOf(roomId);
+    return idx < 0 ? undefined : officeState.rooms[idx];
+  }
+
   // Server-controlled view of an agent's identity, used by the HTTP message
   // endpoint to derive the sender label instead of trusting the request body.
   // Prevents an attacker from spoofing identity or injecting prefix-delimiter
@@ -497,7 +522,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   ): { name: string; roomName: string } | null {
     const managed = agents.get(agentId);
     if (!managed) return null;
-    const room = officeState.rooms[managed.info.room];
+    const room = roomById(managed.info.roomId);
     if (!room) return null;
     return { name: managed.info.name, roomName: room.name };
   }
@@ -858,22 +883,27 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   function updateManifest() {
     const rooms = officeState.rooms;
     writeManifest(
-      [...agents.values()].map((a) => ({
-        id: a.info.id,
-        name: a.info.name,
-        desk: a.info.desk,
-        room: a.info.room,
-        roomName: rooms[a.info.room]?.name ?? `Room ${a.info.room + 1}`,
-        topic: a.info.topic,
-        cwd: a.info.cwd,
-        modelFamily: a.info.modelFamily,
-        // Concrete model id: for Claude families resolve via FAMILY_TO_MODEL, for
-        // Codex agents the value itself IS the codex model id (e.g. "gpt-5.5").
-        model: isClaudeFamily(a.info.modelFamily)
-          ? FAMILY_TO_MODEL[a.info.modelFamily]
-          : a.info.modelFamily,
-        username: a.info.username,
-      })),
+      [...agents.values()].map((a) => {
+        // Phase 3c: the manifest's dense `room` (and its room name) is a derived
+        // wire-compat field, recomputed from the authoritative roomId.
+        const roomIdx = globalRoomIndexOf(a.info.roomId);
+        return {
+          id: a.info.id,
+          name: a.info.name,
+          desk: a.info.desk,
+          room: roomIdx,
+          roomName: rooms[roomIdx]?.name ?? `Room ${roomIdx + 1}`,
+          topic: a.info.topic,
+          cwd: a.info.cwd,
+          modelFamily: a.info.modelFamily,
+          // Concrete model id: for Claude families resolve via FAMILY_TO_MODEL,
+          // for Codex agents the value itself IS the codex model id (e.g. "gpt-5.5").
+          model: isClaudeFamily(a.info.modelFamily)
+            ? FAMILY_TO_MODEL[a.info.modelFamily]
+            : a.info.modelFamily,
+          username: a.info.username,
+        };
+      }),
     );
   }
 
@@ -886,9 +916,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       agents: [] as PersistedAgent[],
     }));
     for (const a of agents.values()) {
-      const room = a.info.room;
-      if (room >= 0 && room < persistedRooms.length) {
-        persistedRooms[room].agents.push({
+      // Phase 3c: bucket into the dense persisted array by the roomId-derived
+      // index, not AgentInfo.room (the dense field is now wire-compat only).
+      const roomIdx = globalRoomIndexOf(a.info.roomId);
+      if (roomIdx >= 0 && roomIdx < persistedRooms.length) {
+        persistedRooms[roomIdx].agents.push({
           id: a.info.id,
           name: a.info.name,
           desk: a.info.desk,
@@ -919,10 +951,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // for killed agents, and the spawn menu's revive chips (which read the snapshot
   // to rehydrate config).
   function updateAgentHistory() {
-    const rooms = officeState.rooms;
     const history: AgentHistory = loadAgentHistory();
     for (const a of agents.values()) {
-      const room = rooms[a.info.room];
+      const room = roomById(a.info.roomId);
       if (!room) continue;
       history[a.info.id] = {
         name: a.info.name,
@@ -951,7 +982,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     agentId: string,
     a: ManagedAgent,
   ): KilledAgentSummary | null {
-    const room = officeState.rooms[a.info.room];
+    const room = roomById(a.info.roomId);
     if (!room) return null;
     return {
       id: agentId,
@@ -2525,7 +2556,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           `Use /resume to pick another session, or start a new conversation.`,
       );
     }
-    const room = officeState.rooms[managed.info.room];
+    // Phase 3c: a live agent's roomId always resolves to a real room; roomById
+    // logs loud and we fail fast (vs silently building a prompt for room 0).
+    const room = roomById(managed.info.roomId)!;
     const ownerRecord = managed.info.username
       ? getUserByName(managed.info.username)
       : undefined;
@@ -2718,6 +2751,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   const { handleSlashCommand } = createCommandHandling({
     agents,
     getRooms: () => officeState.rooms,
+    globalRoomIndexOf,
+    roomById,
     getOfficeConfig: () => officeState.office,
     logCache,
     emit,
@@ -3872,7 +3907,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // authoritative kill-time snapshot.
     const killedSummary = buildKilledAgentSummary(agentId, managed);
     {
-      const room = officeState.rooms[managed.info.room];
+      const room = roomById(managed.info.roomId);
       if (room) {
         const history = loadAgentHistory();
         history[agentId] = {
@@ -3987,7 +4022,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     const taken = new Set(
       officeState
         .getAllAgents()
-        .filter((a) => a.room === roomIdx)
+        .filter((a) => a.roomId === roomId)
         .map((a) => a.desk),
     );
     if (desk < 0 || desk >= 8 || taken.has(desk)) {
@@ -4803,6 +4838,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   return {
     configurePluginHooksDeps,
     getRooms,
+    globalRoomIndexOf,
+    roomById,
     getOfficeSettings,
     getTasks,
     addTask,

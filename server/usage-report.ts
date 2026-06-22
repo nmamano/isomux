@@ -222,9 +222,13 @@ export function renderUsageReport(
     `| Agent | Room | In (sess) | Out (sess) | $ (sess) | In (life) | Out (life) | $ (life) |`,
   );
   lines.push(`| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |`);
+  // Phase 3c: resolve each agent's room by its authoritative roomId (the dense
+  // AgentInfo.room index is wire-compat only). Local map mirrors the id-keyed
+  // bucket pass below, so no AgentManager helper needs threading in here.
+  const roomByIdMap = new Map(rooms.map((r) => [r.id, r] as const));
   const rows = [...agents.values()].map((a) => {
     const usage = readAgentUsage(a.info.id, a.sessionId);
-    const roomName = rooms[a.info.room]?.name ?? "?";
+    const roomName = roomByIdMap.get(a.info.roomId)?.name ?? "?";
     return {
       id: a.info.id,
       name: a.info.name,
@@ -272,7 +276,7 @@ export function renderUsageReport(
   for (const r of rooms) getBucket(r.id, r.name, false);
 
   for (const a of agents.values()) {
-    const room = rooms[a.info.room];
+    const room = roomByIdMap.get(a.info.roomId);
     if (!room) continue;
     const usage = readAgentUsage(a.info.id, a.sessionId);
     const b = getBucket(room.id, room.name, false);
