@@ -2001,8 +2001,8 @@ function applyViewChange(targetUserId: string, change: ViewChange): boolean {
   // Fanout, scoped to what actually changed. order/hidden change the PROJECTION
   // (room list + dense agent indices) → projected full_state to the target's
   // own sockets. notifRooms/defaultRoomId are scalar record fields not carried
-  // in full_state → user_updated (all-audience, full record TODAY; slice 5
-  // narrows this to UserPublicWire + a self channel).
+  // in full_state → emitUserUpdated (public wire to all, full record to owners
+  // via the admin channel and to the subject via the self channel) + emitUsersList.
   const projectionChanged =
     next.order.join(" ") !== prevOrderKey ||
     [...next.hidden].sort().join(" ") !== prevHiddenKey;

@@ -14,7 +14,7 @@
 // LEAF MODULE: imports only ./index.ts (Identity/Capability). It must NOT import
 // server/index.ts, the managers, or users.ts — mutable office state reaches
 // guards ONLY through the injected `GuardDeps` seam. That keeps the catalog pure
-// and unit-testable, and lets Phase 3b swap the access model (materialized
+// and unit-testable, and let Phase 3b swap the access model (materialized
 // `allowedRooms` → rule-based) by replacing the GuardDeps implementation, never
 // a guard signature.
 
@@ -56,11 +56,11 @@ export const FORBIDDEN: AuthzOutcome = Object.freeze({
 // synchronous by contract. Production wiring (built at the server/index.ts seam
 // in Phase 2.3/3) supplies the live lookups; tests supply fakes.
 export interface GuardDeps {
-  // Does this identity have access to `roomId`? Wraps TODAY's materialized
-  // predicate (owner-all is already materialized into `allowedRooms`, so a
-  // single membership test covers owners and members). NON-LEAK: callers must
-  // not branch on the reason — false is false. Phase 3b replaces the body with
-  // rule-based access without touching this signature.
+  // Does this identity have access to `roomId`? Wraps the live RULE-BASED
+  // predicate (owners reach every room by rule; members by their grants in
+  // `allowedRooms`). NON-LEAK: callers must not branch on the reason; false is
+  // false. Phase 3b swapped the body to rule-based access without touching this
+  // signature.
   hasRoomAccess(identity: Identity, roomId: string): boolean;
   // The agent's current roomId, or null if the agent does not exist. A null
   // collapses with "inaccessible" into one indistinguishable deny.

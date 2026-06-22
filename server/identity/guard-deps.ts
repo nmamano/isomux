@@ -8,11 +8,11 @@
 // This keeps the adapter a small, unit-testable translation layer — the bit
 // worth testing (agentId → GLOBAL room id resolution, unknown-agent → null,
 // username/cronjob lookups) is exercised with tiny fakes, and an integration T1
-// proves it agrees with the live materialized-allowedRooms ACL.
+// proves it agrees with the live rule-based ACL.
 //
 // ADDITIVE: constructed at boot and exposed (dormant) on the ServerHandle. In
 // 2.3 nothing consumes it — Phase 3 feeds it to authorize() when routes migrate.
-// Phase 3b swaps the access model (materialized → rule-based) by changing
+// Phase 3b swapped the access model (materialized → rule-based) by changing
 // `hasRoomAccessForUser`'s body, never this adapter's shape.
 
 import type { Identity } from "./index.ts";
@@ -22,10 +22,10 @@ import type { GuardDeps } from "./guards.ts";
 // production managers' richer return types (AgentInfo / RoomWire / UserRecord /
 // Cronjob) satisfy them and tests can pass trivial fakes.
 export interface GuardDepsLiveReaders {
-  // Today's materialized access predicate for a user, keyed by userId:
-  // sessionHasFullRoomAccess(session) || roomAllowedForSession(session, roomId),
-  // with session reduced to { userId }. The index.ts seam supplies this closure;
-  // Phase 3b replaces its body with rule-based access without touching the shape.
+  // The live RULE-BASED access predicate for a user, keyed by userId:
+  // sessionHasFullRoomAccess(session) || roomAllowedForSession(session, roomId)
+  // (both now route through canAccess: owners by rule, members by grants), with
+  // session reduced to { userId }. The index.ts seam supplies this closure.
   hasRoomAccessForUser(userId: string, roomId: string): boolean;
   // The live agent roster (AgentInfo.room is the GLOBAL room index in 2.3).
   getAllAgents(): readonly { id: string; room: number }[];
