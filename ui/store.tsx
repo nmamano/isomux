@@ -191,7 +191,6 @@ type Action =
   | { type: "room_closed"; roomId: string }
   | { type: "room_renamed"; roomId: string; name: string }
   | { type: "room_settings_updated"; roomId: string; prompt: string | null }
-  | { type: "rooms_reordered"; order: string[] }
   | { type: "users_list"; users: UserRecord[] }
   | { type: "user_updated"; user: UserRecord; prevName?: string }
   | { type: "session_context"; context: SessionContext }
@@ -593,32 +592,6 @@ function reducer(state: AppState, action: Action): AppState {
           : [...existing, action.run];
       cronjobRunsByJob.set(action.run.cronjobId, next);
       return { ...state, cronjobRunsByJob };
-    }
-    case "rooms_reordered": {
-      // action.order is the new ordering of roomIds
-      const idToOldIdx = new Map(state.rooms.map((r, i) => [r.id, i]));
-      const newRooms = action.order
-        .map((id) => state.rooms[idToOldIdx.get(id)!])
-        .filter(Boolean);
-      // Recompute currentRoom: find where the previously-current room landed
-      const prevId = state.rooms[state.currentRoom]?.id;
-      const newCurrentRoom = prevId
-        ? Math.max(0, action.order.indexOf(prevId))
-        : 0;
-      // Remap agents' numeric room index to the new positions
-      const idToNewIdx = new Map(newRooms.map((r, i) => [r.id, i]));
-      const newAgents = state.agents.map((a) => {
-        const oldId = state.rooms[a.room]?.id;
-        if (!oldId) return a;
-        const newIdx = idToNewIdx.get(oldId) ?? a.room;
-        return newIdx !== a.room ? { ...a, room: newIdx } : a;
-      });
-      return {
-        ...state,
-        rooms: newRooms,
-        agents: newAgents,
-        currentRoom: newCurrentRoom,
-      };
     }
     default:
       return state;

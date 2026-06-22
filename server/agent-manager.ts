@@ -836,13 +836,6 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return true;
   }
 
-  function reorderRooms(order: string[]): boolean {
-    const events = officeState.reorderRooms(order);
-    if (events.length === 0) return false;
-    for (const event of events) eventHandler(event);
-    return true;
-  }
-
   function moveAgent(agentId: string, targetRoomId: string): boolean {
     const events = officeState.moveAgent(agentId, targetRoomId);
     if (events.length === 0) return false;
@@ -4810,7 +4803,6 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     createRoom,
     closeRoom,
     renameRoom,
-    reorderRooms,
     moveAgent,
     getAllAgents,
     getKilledAgentSummaries,

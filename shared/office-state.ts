@@ -26,7 +26,6 @@ export type OfficeEvent =
   | { type: "room_created"; room: RoomWire }
   | { type: "room_closed"; roomId: string }
   | { type: "room_renamed"; roomId: string; name: string }
-  | { type: "rooms_reordered"; order: string[] }
   | { type: "room_settings_updated"; roomId: string; prompt: string | null }
   | {
       type: "office_settings_updated";
@@ -422,35 +421,6 @@ export class OfficeState {
     const events: OfficeEvent[] = [
       { type: "room_renamed", roomId, name: trimmed },
     ];
-    this.emitEvents(events);
-    return events;
-  }
-
-  reorderRooms(order: string[]): OfficeEvent[] {
-    if (order.length !== this._rooms.length) return [];
-    const currentIds = new Set(this._rooms.map((r) => r.id));
-    const seen = new Set<string>();
-    for (const id of order) {
-      if (typeof id !== "string" || !currentIds.has(id) || seen.has(id))
-        return [];
-      seen.add(id);
-    }
-    if (order.every((id, i) => id === this._rooms[i].id)) return [];
-
-    const oldIndexById = new Map(this._rooms.map((r, i) => [r.id, i] as const));
-    const reverseMap = new Array<number>(this._rooms.length);
-    for (let newIdx = 0; newIdx < order.length; newIdx++) {
-      reverseMap[oldIndexById.get(order[newIdx])!] = newIdx;
-    }
-
-    const byId = new Map(this._rooms.map((r) => [r.id, r] as const));
-    this._rooms = order.map((id) => byId.get(id)!);
-
-    for (const agent of this.agents.values()) {
-      agent.room = reverseMap[agent.room];
-    }
-
-    const events: OfficeEvent[] = [{ type: "rooms_reordered", order }];
     this.emitEvents(events);
     return events;
   }

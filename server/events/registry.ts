@@ -15,7 +15,9 @@
 //   - tasks_changed (domain) → `tasks` (wire shape)
 //   - NEW `cron_run_log_entry` (no current wire member)
 //   - office_settings_updated drops `envFile` (owner-only via office.getSettings)
-//   - users_list / user_updated carry UserPublicWire, never UserRecord
+//   - users_list / user_updated carry UserPublicWire, never UserRecord; owners
+//     get full records via users_admin_list / user_admin_updated, and the
+//     subject gets their own full record via user_self_updated (3b.5)
 //   - agent_removed carries `roomId`; agent_updated-move carries old/new room ids
 //   - RETIRED (fold into HTTP responses, absent here): the `*_response` family,
 //     sessions_list, cronjob_runs(_complete), invite_minted, the *_blocked
@@ -34,7 +36,7 @@ import type {
   RoomWire,
   SessionContext,
   PresenceInfo,
-  OfficeSettings,
+  OfficeWire,
   TaskItem,
   Cronjob,
   CronjobRun,
@@ -42,7 +44,11 @@ import type {
   SessionWire,
   SkillInfo,
 } from "../../shared/types.ts";
-import type { UserPublicWire } from "../../shared/contract-shapes.ts";
+import type {
+  UserPublicWire,
+  UserAdminWire,
+  UserSelfWire,
+} from "../../shared/contract-shapes.ts";
 
 // --- Audience strategies ----------------------------------------------------
 // The fan-out lattice. The registry currently assigns from {all, owners,
@@ -134,7 +140,7 @@ export interface EventPayloads {
   full_state: {
     agents: AgentInfo[];
     recentCwds: string[];
-    office: OfficeSettings;
+    office: OfficeWire;
     rooms: RoomWire[];
     killedAgents: KilledAgentSummary[];
   };
@@ -149,6 +155,15 @@ export interface EventPayloads {
   // Office-wide (audience `all` — the leak-prone class; reduced projections only)
   users_list: { users: UserPublicWire[] };
   user_updated: { user: UserPublicWire; prevName?: string };
+  // Owners-audience: the FULL admin record (UserAdminWire). SEPARATE ids so the
+  // all-audience users_list/user_updated stay UserPublicWire — no recipient-
+  // dependent payload behind a single id (cleaner registry audit).
+  users_admin_list: { users: UserAdminWire[] };
+  user_admin_updated: { user: UserAdminWire; prevName?: string };
+  // Recipient-scoped (by userId): the subject's OWN full record (UserSelfWire),
+  // delivered to every socket of that user — incl. at connect hydration, since
+  // the now-public users_list can no longer carry the caller's own grants/view.
+  user_self_updated: { user: UserSelfWire; prevName?: string };
   tasks: { tasks: TaskItem[] };
   cronjobs_state: { cronjobs: Cronjob[]; cronjobsPrompt: string | null };
   cronjob_added: { cronjob: Cronjob };
@@ -275,6 +290,12 @@ export const EVENT_REGISTRY = {
   // Office-wide — all
   users_list: { audience: "all", projectionKey: { kind: "all" } },
   user_updated: { audience: "all", projectionKey: { kind: "all" } },
+  users_admin_list: { audience: "owners", projectionKey: { kind: "owners" } },
+  user_admin_updated: { audience: "owners", projectionKey: { kind: "owners" } },
+  user_self_updated: {
+    audience: "recipient-scoped",
+    projectionKey: { kind: "userId" },
+  },
   tasks: { audience: "all", projectionKey: { kind: "all" } },
   cronjobs_state: { audience: "all", projectionKey: { kind: "all" } },
   cronjob_added: { audience: "all", projectionKey: { kind: "all" } },

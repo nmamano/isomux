@@ -762,10 +762,10 @@ function emitEvents(events: OfficeEvent[]) {
         });
         break;
       case "office_settings_updated":
+        // envFile is owner-only and never rides the all-audience event (3b.5).
         shimEmit({
           type: "office_settings_updated",
           prompt: event.prompt,
-          envFile: event.envFile,
           name: event.name,
         });
         break;

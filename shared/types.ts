@@ -583,6 +583,16 @@ export interface OfficeSettings {
   name: string | null;
 }
 
+// Office settings as PROJECTED to the wire (full_state.office / the all-audience
+// office_settings_updated): envFile is owner-only (Phase 3b slice 5 / Isomuxer3
+// Q1b), so it is OMITTED for member recipients and never rides the all-audience
+// office_settings_updated. Owner full_state carries it; members never see it.
+export interface OfficeWire {
+  prompt: string | null;
+  name: string | null;
+  envFile?: string | null;
+}
+
 // Maximum number of revive chips offered in the spawn menu. Applied
 // server-side after ACL filtering and on the client when merging diff
 // events into state — shared so the two never drift.
@@ -843,7 +853,7 @@ export type ServerMessage =
       type: "full_state";
       agents: AgentInfo[];
       recentCwds: string[];
-      office: OfficeSettings;
+      office: OfficeWire;
       rooms: RoomWire[];
       // ACL-filtered list of currently-killed agents for the spawn menu's
       // revive chips. Sorted killedAt desc, capped server-side. Empty array
@@ -920,7 +930,6 @@ export type ServerMessage =
   | {
       type: "office_settings_updated";
       prompt: string | null;
-      envFile: string | null;
       name: string | null;
     }
   | { type: "tasks"; tasks: TaskItem[] }
@@ -928,7 +937,6 @@ export type ServerMessage =
   | { type: "room_closed"; roomId: string }
   | { type: "room_renamed"; roomId: string; name: string }
   | { type: "room_settings_updated"; roomId: string; prompt: string | null }
-  | { type: "rooms_reordered"; order: string[] }
   | { type: "users_list"; users: UserRecord[] }
   | { type: "user_updated"; user: UserRecord; prevName?: string }
   | { type: "session_context"; context: SessionContext }

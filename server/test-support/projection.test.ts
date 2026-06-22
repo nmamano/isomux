@@ -641,10 +641,11 @@ describe("room close / reorder with restricted members (Phase 1.2)", () => {
     );
   });
 
-  it("reorder_rooms is global and owner-only-gated (OLD behavior frozen for 3b)", async () => {
-    // 3b deletes this gate (reorder becomes per-user, always allowed). Freeze
-    // the current behavior: a partial-access member's reorder is a no-op; an
-    // owner's reorder rewrites the GLOBAL order and reprojects each member.
+  it("reorder_rooms is PER-USER (3b.4 flip): a member reorders their own visible rooms; the global order is unchanged; an owner's reorder does not affect the member", async () => {
+    // 3b.4 FLIP of the old global/owner-only reorder. Reorder is now a per-user
+    // VIEW preference (applyViewChange): always allowed, NO global _rooms
+    // mutation, NO rooms_reordered event. Each user's full_state reflects only
+    // THEIR own order; one user's reorder never reprojects another.
     server = await boot();
     const r1 = server.agentManager.getRooms()[0].id;
     const [r2, r3] = makeRoomsBeforeOwner(server, ["R2", "R3"]);
@@ -652,34 +653,49 @@ describe("room close / reorder with restricted members (Phase 1.2)", () => {
     const member = await server.seedMember("Mia");
 
     const ownerSock = await connectSettled(server, owner.rawSessionId);
-    await setAccess(ownerSock, member.username, [r1, r2]); // partial (no R3)
+    await setAccess(ownerSock, member.username, [r1, r2]); // member sees R1, R2
     const memberSock = await connectSettled(server, member.rawSessionId);
+    expect(fullStateRoomIds(latestFullState(memberSock)!)).toEqual([r1, r2]);
 
-    // Member (partial access) cannot reorder the global list: no-op. ping/pong
-    // proves the denied command was processed (it emits nothing observable).
-    memberSock.send({ type: "reorder_rooms", order: [r3, r2, r1] });
-    await pingPong(memberSock);
-    expect(server.agentManager.getRooms().map((r) => r.id)).toEqual([
-      r1,
-      r2,
-      r3,
-    ]);
-
-    // Owner (full access) reorders globally; the member is reprojected into the
-    // new global order (their visible slice R1,R2 flips to R2,R1).
-    ownerSock.send({ type: "reorder_rooms", order: [r2, r1, r3] });
+    // Member reorders their OWN visible slice (R2 before R1) — always allowed,
+    // no owner gate. They get a projected full_state in their new order; an
+    // inaccessible id in the request (none here) would be silently filtered.
+    memberSock.send({ type: "reorder_rooms", order: [r2, r1] });
     await waitForMessageWhere(
       memberSock,
       (m) =>
         m.type === "full_state" &&
         fullStateRoomIds(m).join() === [r2, r1].join(),
     );
+    expect(fullStateRoomIds(latestFullState(memberSock)!)).toEqual([r2, r1]);
+    // The GLOBAL room order is UNCHANGED — reorder no longer mutates _rooms.
     expect(server.agentManager.getRooms().map((r) => r.id)).toEqual([
-      r2,
       r1,
+      r2,
       r3,
     ]);
+    // No rooms_reordered wire message is ever emitted (retired in 3b.4).
+    expect(bag(memberSock).some((m) => m.type === "rooms_reordered")).toBe(
+      false,
+    );
+
+    // The owner reorders THEIR own (full) view; this is independent of the
+    // member's order and of the global list.
+    ownerSock.send({ type: "reorder_rooms", order: [r3, r2, r1] });
+    await waitForMessageWhere(
+      ownerSock,
+      (m) =>
+        m.type === "full_state" &&
+        fullStateRoomIds(m).join() === [r3, r2, r1].join(),
+    );
+    expect(fullStateRoomIds(latestFullState(ownerSock)!)).toEqual([r3, r2, r1]);
+    // Member's order is untouched by the owner's reorder; global still stable.
     expect(fullStateRoomIds(latestFullState(memberSock)!)).toEqual([r2, r1]);
+    expect(server.agentManager.getRooms().map((r) => r.id)).toEqual([
+      r1,
+      r2,
+      r3,
+    ]);
   });
 });
 

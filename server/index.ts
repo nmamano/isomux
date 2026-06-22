@@ -8,6 +8,7 @@ import type {
   RoomWire,
   PresenceInfo,
   UserRecord,
+  OfficeWire,
 } from "../shared/types.ts";
 import {
   listAllPresence,
@@ -68,7 +69,6 @@ import {
   getUser,
   getUserById,
   getUserByName,
-  claimUser,
   pruneStaleRoomRefs,
   updateUser,
   updateUserById,
@@ -145,10 +145,15 @@ import { officeSettingsHandlers } from "./routes/handlers/office-settings.ts";
 import { validateHandlers } from "./routes/handlers/validate.ts";
 import { backendsHandlers } from "./routes/handlers/backends.ts";
 import { systemHandlers } from "./routes/handlers/system.ts";
-import type { AccessSettings } from "../shared/contract-shapes.ts";
+import { viewHandlers } from "./routes/handlers/view.ts";
+import type {
+  AccessSettings,
+  UserPublicWire,
+} from "../shared/contract-shapes.ts";
 import { createIdempotencyCache } from "./transport/idempotency.ts";
 import { emit, type EmitContext, type EmitDeps } from "./events/emit.ts";
 import type { EventId, EventPayloads } from "./events/registry.ts";
+import { planOwnerAccessMigration } from "./access-migration.ts";
 import { identityFromSession, type Identity } from "./identity/index.ts";
 
 // Boot is extracted into startServer() at the end of this file. The CLI
@@ -1001,41 +1006,46 @@ function roomAllowedForSession(
 }
 
 // The concrete set of room ids a user can access right now — owner: every
-// current room by rule; member: their explicit grants. For sites that need a
+// current room by RULE; member: their explicit grants. For sites that need a
 // materialized accessible-set rather than a per-room predicate (e.g. the
-// presence currentRoomId clamp on an access change).
-function accessibleRoomIdsFor(user: UserRecord): Set<string> {
+// presence currentRoomId clamp + the notifRooms clamp on an access change).
+// `allowedRoomsOverride` lets a caller clamp against grants being set in the
+// SAME command before they are persisted (update_user computes the new
+// accessible set from the incoming allowedRooms); it is ignored for owners,
+// who access every live room by rule regardless of their (now empty) grants.
+function accessibleRoomIdsFor(
+  user: UserRecord,
+  allowedRoomsOverride?: readonly string[],
+): Set<string> {
   if (user.role === "owner") {
     return new Set(agentManager.getRooms().map((r) => r.id));
   }
-  return new Set(user.allowedRooms);
+  return new Set(allowedRoomsOverride ?? user.allowedRooms);
 }
 
 // Phase 3b slice 3 — one-time owner-access migration to the rule-based model.
-// Runs at boot AFTER rooms + users are loaded (it needs BOTH). IDEMPOTENT: the
-// marker is "owner with non-empty allowedRooms"; a migrated owner has [], so a
-// re-run is a no-op. For each owner still carrying materialized grants:
-//   1. Seed `hidden` from the OLD grants so the owner's CURRENT view survives
-//      the flip (under rule-based access an owner would otherwise see every
-//      room). EFFECTIVE-coverage guard: if the grants cover NO live room (empty
-//      or all-stale ids) hidden = ∅ (sees all) — never a blank office.
-//   2. THEN clear grants to [] (compute hidden FIRST). Grants are a member-only
-//      store under the rule; clearing closes the demotion bomb (an owner→member
-//      demotion can no longer inherit the old materialized all-rooms set).
+// Runs at boot AFTER rooms + users are loaded (it needs BOTH): the boot
+// ORDERING is the security-critical part (a migration that ran before rooms
+// load would see no live rooms and take the all-stale branch for every owner),
+// so it is pinned by a real-boot restart() integration test, not just the pure
+// planner's unit tests. IDEMPOTENT: the marker is "owner with non-empty
+// allowedRooms"; a migrated owner has [], so a re-run is a no-op. The per-owner
+// decision (seed hidden from the OLD grants with an effective-coverage guard,
+// then clear grants) lives in the PURE planner — see server/access-migration.ts.
 function migrateOwnersToRuleBasedAccess(): void {
+  // Thin boot wrapper: collect the persisted users + the live room ids (rooms
+  // are seeded synchronously by createManagers, so getRooms() is valid here),
+  // delegate the per-owner decision to the PURE planner (unit-tested over the
+  // full case matrix in access-migration.test.ts), and apply each mutation.
   const liveRoomIds = agentManager.getRooms().map((r) => r.id);
-  const liveSet = new Set(liveRoomIds);
-  for (const u of listUsers()) {
-    if (u.role !== "owner" || u.allowedRooms.length === 0) continue;
-    const coversAnyLive = u.allowedRooms.some((id) => liveSet.has(id));
-    const seededHidden = coversAnyLive
-      ? liveRoomIds.filter((id) => !u.allowedRooms.includes(id))
-      : [];
-    const mergedHidden = Array.from(new Set([...u.hidden, ...seededHidden]));
-    const r = updateUserById(u.id, { hidden: mergedHidden, allowedRooms: [] });
+  for (const plan of planOwnerAccessMigration(listUsers(), liveRoomIds)) {
+    const r = updateUserById(plan.id, {
+      hidden: plan.hidden,
+      allowedRooms: plan.allowedRooms,
+    });
     if (!r.ok) {
       console.error(
-        `[3b migration] owner ${u.id} rule-based-access migration failed: ${r.error}`,
+        `[3b migration] owner ${plan.id} rule-based-access migration failed: ${r.error}`,
       );
     }
   }
@@ -1144,6 +1154,46 @@ function liveEmit<K extends EventId>(
   ctx: EmitContext = {},
 ): void {
   emit(id, payload, ctx, liveEmitDeps);
+}
+
+// Project a full UserRecord to the office-wide PUBLIC wire — the ONLY user shape
+// allowed on an all-audience event. Single helper so no all-audience emit hand-
+// rolls the field set and accidentally leaks a sensitive field (grants/env/
+// prompt/view). Phase 3b slice 5.
+function toPublicWire(user: UserRecord): UserPublicWire {
+  return {
+    id: user.id,
+    name: user.name,
+    role: user.role,
+    avatarColor: user.avatarColor,
+    avatarVariant: user.avatarVariant,
+    createdAt: user.createdAt,
+  };
+}
+
+// Fan out a single user-record change across the THREE audiences (3b.5):
+//   - user_updated (all): UserPublicWire — public profile only.
+//   - user_admin_updated (owners): the FULL record (grants/env/prompt/view).
+//   - user_self_updated (the subject's own sockets): the subject's full record.
+// The all-audience public event reaches owners + the subject too; the client
+// reducer merges, with the admin/self full data winning over public for records
+// the recipient is allowed to know. This is the ONLY sanctioned path for
+// user_updated — any remaining raw broadcast of user_updated/users_list is a leak.
+function emitUserUpdated(user: UserRecord, prevName?: string): void {
+  const tail = prevName !== undefined ? { prevName } : {};
+  liveEmit("user_updated", { user: toPublicWire(user), ...tail });
+  liveEmit("user_admin_updated", { user, ...tail });
+  liveEmit("user_self_updated", { user, ...tail }, { userId: user.id });
+}
+
+// Fan out the whole roster: PUBLIC list to all, FULL admin list to owners. The
+// per-user self record is NOT sent here — it rides emitUserUpdated on a change
+// and the connect hydration. A bulk op that changes self-visible fields for
+// specific users should also emitUserUpdated() each touched user.
+function emitUsersList(): void {
+  const all = listUsers();
+  liveEmit("users_list", { users: all.map(toPublicWire) });
+  liveEmit("users_admin_list", { users: all });
 }
 
 // Token-derived task/cron attribution (Phase 3a). createdBy is the caller's
@@ -1525,6 +1575,14 @@ function buildExecutorDeps(): ExecutorDeps {
       applySettings: (input) => applyOfficeSettings(input),
     }),
   );
+  // 3b.4 — per-user view preferences. Both REST view.* and the legacy WS arms
+  // (reorder_rooms; update_user notif/default) delegate to this same core.
+  register(
+    viewHandlers({
+      getView: (userId) => getViewProjection(userId),
+      applyView: (userId, change) => applyViewChange(userId, change),
+    }),
+  );
   register(
     validateHandlers({
       validateCwd: (cwd) => {
@@ -1661,7 +1719,13 @@ function visibleRoomProjection(session: SessionLookup): VisibleRoomProjection {
   // in office order", i.e. today's projection — verified by projection.test.
   const hidden = new Set(user?.hidden ?? []);
   const orderRank = new Map<string, number>();
-  if (user) user.order.forEach((id, i) => orderRank.set(id, i));
+  // First-write-wins on duplicate order ids (applyViewChange dedupes on write;
+  // this guards a hand-edited persisted order array too).
+  if (user) {
+    user.order.forEach((id, i) => {
+      if (!orderRank.has(id)) orderRank.set(id, i);
+    });
+  }
   const visibleGlobal: number[] = [];
   for (let i = 0; i < all.length; i++) {
     if (!roomAllowedForSession(session, all[i].id)) continue; // access gate
@@ -1728,6 +1792,17 @@ function agentVisibleForSession(
 // pass replayLogsForVisible=true to also resend cached log entries for
 // agents the session can now see; without that flag, newly visible agents
 // would render in the UI with no history until the next reload.
+// Project office settings for a recipient: envFile is owner-only (Phase 3b
+// slice 5 / Isomuxer3 Q1b), so it is stripped for non-owner recipients and
+// never reaches a member's full_state.office. Owners keep the full triple.
+function projectOfficeFor(session: SessionLookup): OfficeWire {
+  const office = agentManager.getOfficeSettings();
+  const isOwner = getUserById(session.userId)?.role === "owner";
+  return isOwner
+    ? { prompt: office.prompt, name: office.name, envFile: office.envFile }
+    : { prompt: office.prompt, name: office.name };
+}
+
 function sendProjectedFullState(
   ws: ServerWebSocket<WsData>,
   options?: { replayLogsForVisible?: boolean },
@@ -1754,7 +1829,7 @@ function sendProjectedFullState(
       type: "full_state",
       agents,
       recentCwds: loadRecentCwds(),
-      office: agentManager.getOfficeSettings(),
+      office: projectOfficeFor(session),
       rooms: proj.rooms,
       killedAgents,
     }),
@@ -1792,6 +1867,191 @@ function pushProjectedFullStateForUserId(userId: string) {
       sendProjectedFullState(ws, { replayLogsForVisible: true });
     }
   }
+}
+
+// Push the presence_list to just ONE user's sockets (each per-recipient
+// projected). Used after a per-user view change reprojects that user's dense
+// room order: their cached ghost indices need remapping, but no other user's
+// projection changed — so this stays tighter than pushPresenceListToEachWs.
+function pushPresenceListForUserId(userId: string) {
+  for (const ws of browsers) {
+    if (ws.data.session.userId === userId) sendPresenceListTo(ws);
+  }
+}
+
+// Dedupe preserving FIRST occurrence (used for the sparse `order` list, so a
+// hand-edited or client-sent order with duplicates resolves deterministically).
+function dedupeFirstWins(ids: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const id of ids) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
+// Phase 3b slice 4 — the SINGLE core that owns every per-user VIEW-preference
+// write. TARGET-USER based (owners edit a member's view via admin surfaces, and
+// a role-change/demotion hook re-clamps the target the same way), so the change
+// applies to targetUserId, never the actor's session. It is the ONE place that
+// computes: the rule-based ACCESSIBLE set, effective shown (accessible \
+// hidden), the sparse-order filter+dedupe, and the notifRooms / defaultRoomId
+// clamps — then persists once and fans out.
+//
+// NO-ORACLE on write (Isomuxer3 Q2): unknown / inaccessible / accessible-but-
+// hidden room ids are SILENTLY filtered/clamped, never rejected (a reject is an
+// existence oracle). Callers reject malformed body SHAPES before reaching here.
+//
+// `change` is a partial: any subset of {order, shown, notifRooms, defaultRoomId}.
+// An EMPTY change is the re-clamp pass (call after an access mutation / demotion
+// to re-establish hidden ⊆ accessible, notifRooms ⊆ effective shown, default ∈
+// effective shown). `shown` is the desired VISIBLE set (route input); it is
+// converted at the boundary to hidden = accessible \ shown (only accessible ids
+// are ever persisted in hidden). Returns false if the target user is missing.
+interface ViewChange {
+  order?: readonly string[];
+  shown?: readonly string[];
+  notifRooms?: readonly string[];
+  defaultRoomId?: string | null;
+}
+
+// PURE clamp — the single source of truth for the view invariants. Given the
+// accessible set, the user's CURRENT view fields, and a partial change, compute
+// the next fields: order deduped (first wins) + filtered to accessible (hidden-
+// but-accessible ids KEPT, so hide/show is non-destructive); hidden = the
+// accessible rooms NOT in the desired shown set (or the stored hidden re-
+// filtered to accessible); notifRooms within effective shown; defaultRoomId
+// within effective shown else null (inaccessible and accessible-but-hidden both
+// miss effective shown -> null, so no existence oracle). applyViewChange (the
+// new view surface) and the legacy update_user bridge both clamp through this,
+// so the invariant lives in exactly one place.
+function clampViewFields(
+  accessible: ReadonlySet<string>,
+  current: {
+    order: readonly string[];
+    hidden: readonly string[];
+    notifRooms: readonly string[];
+    defaultRoomId: string | null;
+  },
+  change: ViewChange,
+): {
+  order: string[];
+  hidden: string[];
+  notifRooms: string[];
+  defaultRoomId: string | null;
+} {
+  const order = dedupeFirstWins([...(change.order ?? current.order)]).filter(
+    (id) => accessible.has(id),
+  );
+  let hidden: string[];
+  if (change.shown !== undefined) {
+    const shownSet = new Set(change.shown.filter((id) => accessible.has(id)));
+    hidden = [...accessible].filter((id) => !shownSet.has(id));
+  } else {
+    hidden = current.hidden.filter((id) => accessible.has(id));
+  }
+  const hiddenSet = new Set(hidden);
+  const effectiveShown = new Set(
+    [...accessible].filter((id) => !hiddenSet.has(id)),
+  );
+  const notifRooms = dedupeFirstWins([
+    ...(change.notifRooms ?? current.notifRooms),
+  ]).filter((id) => effectiveShown.has(id));
+  const candidateDefault =
+    change.defaultRoomId !== undefined
+      ? change.defaultRoomId
+      : current.defaultRoomId;
+  const defaultRoomId =
+    candidateDefault && effectiveShown.has(candidateDefault)
+      ? candidateDefault
+      : null;
+  return { order, hidden, notifRooms, defaultRoomId };
+}
+
+function applyViewChange(targetUserId: string, change: ViewChange): boolean {
+  const user = getUserById(targetUserId);
+  if (!user) return false;
+  const accessible = accessibleRoomIdsFor(user);
+
+  // Snapshot prior values (as keys) BEFORE the write so the post-write fanout
+  // can tell what actually changed (sets compared order-insensitively; `order`
+  // is order-sensitive).
+  const prevOrderKey = user.order.join(" ");
+  const prevHiddenKey = [...user.hidden].sort().join(" ");
+  const prevNotifKey = [...user.notifRooms].sort().join(" ");
+  const prevDefault = user.defaultRoomId;
+
+  const next = clampViewFields(accessible, user, change);
+
+  const r = updateUserById(targetUserId, {
+    order: next.order,
+    hidden: next.hidden,
+    notifRooms: next.notifRooms,
+    defaultRoomId: next.defaultRoomId,
+  });
+  if (!r.ok) {
+    console.error(
+      `[view] applyViewChange failed for ${targetUserId}: ${r.error}`,
+    );
+    return false;
+  }
+
+  // Fanout, scoped to what actually changed. order/hidden change the PROJECTION
+  // (room list + dense agent indices) → projected full_state to the target's
+  // own sockets. notifRooms/defaultRoomId are scalar record fields not carried
+  // in full_state → user_updated (all-audience, full record TODAY; slice 5
+  // narrows this to UserPublicWire + a self channel).
+  const projectionChanged =
+    next.order.join(" ") !== prevOrderKey ||
+    [...next.hidden].sort().join(" ") !== prevHiddenKey;
+  const recordChanged =
+    [...next.notifRooms].sort().join(" ") !== prevNotifKey ||
+    next.defaultRoomId !== prevDefault;
+  if (projectionChanged) {
+    pushProjectedFullStateForUserId(targetUserId);
+    // Reproject the target's OWN presence ghosts to their new dense room order
+    // (full_state carries no presence; only this user's sockets are affected).
+    pushPresenceListForUserId(targetUserId);
+  }
+  if (recordChanged) {
+    emitUserUpdated(r.user);
+    emitUsersList();
+  }
+  return true;
+}
+
+// view.get — the effective view projection for a user. Returns ONLY accessible
+// ids (Isomuxer3 Q2: view.get is not a read-back oracle): shown = effective
+// visible rooms in office order, order = the stored sparse order ∩ accessible,
+// notifRooms ∩ effective shown, defaultRoomId clamped to effective shown / null.
+function getViewProjection(userId: string): {
+  order: string[];
+  shown: string[];
+  notifRooms: string[];
+  defaultRoomId: string | null;
+} {
+  const user = getUserById(userId);
+  if (!user) {
+    return { order: [], shown: [], notifRooms: [], defaultRoomId: null };
+  }
+  const accessible = accessibleRoomIdsFor(user);
+  const hiddenSet = new Set(user.hidden);
+  const effectiveShown = new Set(
+    [...accessible].filter((id) => !hiddenSet.has(id)),
+  );
+  const order = dedupeFirstWins(user.order).filter((id) => accessible.has(id));
+  const shown = agentManager
+    .getRooms()
+    .map((room) => room.id)
+    .filter((id) => effectiveShown.has(id));
+  const notifRooms = user.notifRooms.filter((id) => effectiveShown.has(id));
+  const defaultRoomId =
+    user.defaultRoomId && effectiveShown.has(user.defaultRoomId)
+      ? user.defaultRoomId
+      : null;
+  return { order, shown, notifRooms, defaultRoomId };
 }
 
 // Push the unfiltered global rooms list to every owner WS. Used after
@@ -2012,13 +2272,6 @@ function routeAgentEventToWs(ws: ServerWebSocket<WsData>, event: AgentEvent) {
       }
       break;
     }
-    case "rooms_reordered": {
-      // Global order changed; the dense visible projection may have
-      // shifted in arbitrary ways. Refresh + replay so the member's
-      // transcripts survive the index re-mapping.
-      sendProjectedFullState(ws, { replayLogsForVisible: true });
-      break;
-    }
     case "log_entry": {
       if (agentVisibleForSession(session, event.entry.agentId)) {
         ws.send(JSON.stringify(event));
@@ -2058,9 +2311,15 @@ function wireEventSinks(): void {
       liveEmit("tasks", { tasks: event.tasks });
       return;
     }
-    // Office settings are not room-scoped — same payload for everyone.
+    // Office settings: envFile is owner-only and NEVER rides this all-audience
+    // event (3b.5 Q1b). Members read {prompt,name}; owners learn envFile via
+    // their full_state (owner office projection) / office.getSettings on reload.
     if (event.type === "office_settings_updated") {
-      broadcast(event);
+      broadcast({
+        type: "office_settings_updated",
+        prompt: event.prompt,
+        name: event.name,
+      });
       return;
     }
     // All remaining events touch a specific room or agent. Slice 3b.1 routes the
@@ -2076,7 +2335,6 @@ function wireEventSinks(): void {
       event.type === "room_created" ||
       event.type === "room_closed" ||
       event.type === "room_renamed" ||
-      event.type === "rooms_reordered" ||
       event.type === "room_settings_updated"
     ) {
       pushAllRoomsListToOwners();
@@ -3084,12 +3342,12 @@ async function dispatchCommand(
           }
           const r = updateUserById(u.id, changes);
           if (r.ok) {
-            broadcast({ type: "user_updated", user: r.user });
+            emitUserUpdated(r.user);
             touched = true;
           }
         }
         if (touched) {
-          broadcast({ type: "users_list", users: listUsers() });
+          emitUsersList();
         }
         // Live-avatars: closing a room shifts dense room indices for
         // every user whose allowedRooms covered it (the now-gone room
@@ -3118,18 +3376,14 @@ async function dispatchCommand(
       break;
     }
     case "reorder_rooms":
-      // Reorder shapes the office's global room order. Sessions whose
-      // allowedRooms doesn't cover every current room see only a slice
-      // of the office and can't author a coherent reorder of the
-      // global list. sessionHasFullRoomAccess encodes that test.
-      if (!sessionHasFullRoomAccess(session)) break;
-      agentManager.reorderRooms(cmd.order);
-      // Live-avatars: reorder remaps every dense room index, so
-      // cached PresenceInfo.currentRoom values on every client are
-      // immediately stale. Rebroadcast so clients re-render ghosts
-      // at the right room indices without waiting for any unrelated
-      // presence event.
-      pushPresenceListToEachWs();
+      // Per-user view preference (Phase 3b.4): reorder sets the CALLER's own
+      // sparse room order, always allowed for an authenticated session — no
+      // sessionHasFullRoomAccess gate, no global agentManager.reorderRooms, no
+      // rooms_reordered. applyViewChange persists the order (filtered to the
+      // caller's accessible rooms), pushes a projected full_state to the caller's
+      // sockets, and reprojects the caller's own presence ghosts to the new dense
+      // order. Other users' projections are unaffected.
+      applyViewChange(session.userId, { order: cmd.order });
       break;
     case "edit_message":
       if (!agentVisibleForSession(session, cmd.agentId)) break;
@@ -3324,18 +3578,22 @@ async function dispatchCommand(
       );
       break;
     case "claim_user": {
-      // Post-auth, the session cookie is authoritative for username.
-      // claim_user becomes a preferences-update path. Reject mismatched
-      // usernames so a client can't reach for someone else's record.
+      // Post-auth, the session cookie is authoritative for username. This is the
+      // one-shot localStorage->server migration of legacy view prefs (the UI
+      // clears its localStorage keys right after sending). Reject a mismatched
+      // username so a client can't reach for someone else's record, then route
+      // the prefs through the view core so they are CLAMPED to the caller's
+      // accessible rooms (a member with no grant can't migrate a default/notif
+      // for a room they can't access) and fanned out consistently — never a raw
+      // claimUser write that bypasses the invariant. A null/absent legacy default
+      // is "nothing to migrate" (undefined = no change), not an explicit clear.
       if (lowercaseKey(cmd.username) !== lowercaseKey(session.username)) {
         break;
       }
-      const user = claimUser(session.username, {
-        defaultRoomId: cmd.defaultRoomId,
+      applyViewChange(session.userId, {
+        defaultRoomId: cmd.defaultRoomId ?? undefined,
         notifRooms: cmd.notifRooms,
       });
-      broadcast({ type: "user_updated", user });
-      broadcast({ type: "users_list", users: listUsers() });
       break;
     }
     case "update_user": {
@@ -3435,26 +3693,49 @@ async function dispatchCommand(
         }
         break;
       }
-      // Enforce notifRooms ⊆ allowedRooms whenever either field is in
-      // the change set. A room you can't see can't deliver
-      // notifications, so the two settings can't disagree without
-      // leaving dead entries in users.json. Runs even when only
-      // notifRooms is being updated, so a stale or crafted client
-      // can't drift the invariant past this handler. Computed once
-      // so a single updateUser call applies both atomically and the
-      // user_updated broadcast picks up the consistent shape.
+      // Enforce notifRooms ⊆ ACCESSIBLE rooms whenever either field is in the
+      // change set. A room you can't access can't deliver notifications, so the
+      // two settings can't disagree without leaving dead entries in users.json.
+      // Phase 3b: the clamp set is the rule-based ACCESSIBLE set, NOT raw
+      // allowedRooms — owners now carry allowedRooms=[] but access every live
+      // room by rule, so clamping an owner's notifRooms against their grants
+      // would wrongly prune it to []. accessibleRoomIdsFor resolves owner→all
+      // live rooms, member→effective grants (the incoming allowedRooms override
+      // when an owner is changing this member's grants in the same command).
+      // Runs even when only notifRooms is being updated, so a stale or crafted
+      // client can't drift the invariant past this handler. Computed once so a
+      // single updateUser call applies both atomically and the broadcast picks
+      // up the consistent shape.
       if (
         effectiveChanges.allowedRooms !== undefined ||
-        effectiveChanges.notifRooms !== undefined
+        effectiveChanges.notifRooms !== undefined ||
+        effectiveChanges.defaultRoomId !== undefined
       ) {
         const targetUser = getUser(cmd.username);
-        const newAllowed =
-          effectiveChanges.allowedRooms ?? targetUser?.allowedRooms ?? [];
-        const baselineNotif =
-          effectiveChanges.notifRooms ?? targetUser?.notifRooms ?? [];
-        effectiveChanges.notifRooms = baselineNotif.filter((id) =>
-          newAllowed.includes(id),
-        );
+        if (targetUser) {
+          // Clamp through the shared view-invariant core (clampViewFields). The
+          // override threads the grants being set in THIS command so a grant
+          // change re-clamps in one atomic write (Isomuxer3: a demotion/revoke
+          // must not leave notif or a default pointing at a now-inaccessible
+          // room). order/hidden aren't editable via update_user.
+          const accessible = accessibleRoomIdsFor(
+            targetUser,
+            effectiveChanges.allowedRooms,
+          );
+          const clamped = clampViewFields(accessible, targetUser, {
+            notifRooms: effectiveChanges.notifRooms,
+            defaultRoomId: effectiveChanges.defaultRoomId,
+          });
+          effectiveChanges.notifRooms = clamped.notifRooms;
+          // Persist the re-clamped default when explicitly set, or when an
+          // access change pruned the existing default out of effective shown.
+          if (
+            effectiveChanges.defaultRoomId !== undefined ||
+            clamped.defaultRoomId !== targetUser.defaultRoomId
+          ) {
+            effectiveChanges.defaultRoomId = clamped.defaultRoomId;
+          }
+        }
       }
       const result = updateUser(cmd.username, effectiveChanges);
       if (!result.ok) {
@@ -3484,12 +3765,8 @@ async function dispatchCommand(
       // follow-up users_list rebroadcast.
       const renamed =
         cmd.username.toLowerCase() !== result.user.name.toLowerCase();
-      broadcast({
-        type: "user_updated",
-        user: result.user,
-        ...(renamed ? { prevName: cmd.username } : {}),
-      });
-      broadcast({ type: "users_list", users: listUsers() });
+      emitUserUpdated(result.user, renamed ? cmd.username : undefined);
+      emitUsersList();
       // If the owner changed this user's allowedRooms, push a fresh
       // projected full_state (with log replay) to every WS that user is
       // connected from — their visible rooms/agents and conversation
@@ -3585,7 +3862,7 @@ async function dispatchCommand(
       // broadcast below still fires so the client's users_list-watcher
       // sees the target absent and resolves the pending delete cleanly.
       deleteUser(cmd.username);
-      broadcast({ type: "users_list", users: listUsers() });
+      emitUsersList();
       // Evict any sessions the deleted user still had open: their
       // browsers get session_expired + close so they land on the login
       // wall instead of looping reconnect against a now-orphaned cookie.
@@ -4628,14 +4905,34 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
             context: sessionContextFor(ws.data.session, ws.data.connectionId),
           }),
         );
-        // Send users (boss profiles) so the full_state reducer can apply
-        // the current user's defaultRoomId from server-stored prefs.
+        // Roster hydration (3b.5): every socket gets the PUBLIC roster; owners
+        // additionally get the full admin roster; and the caller gets their OWN
+        // full record (user_self_updated) — the now-public users_list can no
+        // longer carry the caller's grants/notif/default/view, which the UI
+        // needs for the current user.
         ws.send(
           JSON.stringify({
             type: "users_list",
-            users: listUsers(),
+            users: listUsers().map(toPublicWire),
           }),
         );
+        if (ws.data.session.role === "owner") {
+          ws.send(
+            JSON.stringify({
+              type: "users_admin_list",
+              users: listUsers(),
+            }),
+          );
+        }
+        const selfUserForHydration = getUserById(ws.data.session.userId);
+        if (selfUserForHydration) {
+          ws.send(
+            JSON.stringify({
+              type: "user_self_updated",
+              user: selfUserForHydration,
+            }),
+          );
+        }
         // Send projected full_state (rooms + agents filtered to the
         // session's allowedRooms; sessions whose allowedRooms covers
         // every current room get the identity projection).
@@ -4906,7 +5203,7 @@ function runBackgroundBoot(
       console.log(
         `[startup] pruned stale room refs from ${pruned} user record(s)`,
       );
-      broadcast({ type: "users_list", users: listUsers() });
+      emitUsersList();
     }
   })();
 

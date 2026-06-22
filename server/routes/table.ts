@@ -456,7 +456,9 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PUT",
     path: "/api/me/view/shown",
     auth: cap("view:manage", authenticated),
-    emits: ["full_state"],
+    // full_state for the hidden change; user_updated when the notifRooms/
+    // defaultRoomId re-clamp (hiding a notified/default room) changes the record.
+    emits: ["full_state", "user_updated"],
   }),
   defineRoute<NotifRoomsReq, NoContent>({
     opId: "view.setNotifRooms",

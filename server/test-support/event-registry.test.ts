@@ -48,6 +48,10 @@ const SPEC_AUDIENCES: Record<string, AudienceStrategy> = {
   // Office-wide — all
   users_list: "all",
   user_updated: "all",
+  // Owners-audience full admin records + recipient-scoped self record (3b.5).
+  users_admin_list: "owners",
+  user_admin_updated: "owners",
+  user_self_updated: "recipient-scoped",
   tasks: "all",
   cronjobs_state: "all",
   cronjob_added: "all",

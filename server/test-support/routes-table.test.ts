@@ -229,7 +229,10 @@ const SPEC_ROUTE_CONTRACT: Record<
   // View preferences
   "view.get": { caps: ["view:manage"], emits: [] },
   "view.setOrder": { caps: ["view:manage"], emits: ["full_state"] },
-  "view.setShown": { caps: ["view:manage"], emits: ["full_state"] },
+  "view.setShown": {
+    caps: ["view:manage"],
+    emits: ["full_state", "user_updated"],
+  },
   "view.setNotifRooms": { caps: ["view:manage"], emits: ["user_updated"] },
   "view.setDefaultRoom": { caps: ["view:manage"], emits: ["user_updated"] },
   // Users

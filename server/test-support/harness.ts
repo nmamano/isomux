@@ -65,6 +65,13 @@ export interface TestServer extends ServerHandle {
   ): Promise<Response>;
   // Open a real authenticated WebSocket (cookie + matching Origin).
   connectWs(rawSessionId: string): Promise<TestSocket>;
+  // COLD-RELOAD this server WITHOUT wiping STATE_ROOT: stops the current
+  // instance and re-runs the real boot path against the on-disk state this run
+  // persisted. Returns a FRESH TestServer (new port + handle); the old one is
+  // dead. For persistence / boot-migration ORDERING tests — e.g. asserting the
+  // 3b owner-access migration runs at boot against real persisted owners +
+  // rooms. Test-support ONLY; see bootTestServer's header.
+  restart(): Promise<TestServer>;
 }
 
 export interface StartTestServerOpts {
@@ -81,6 +88,23 @@ let activeHarness = false;
 export async function startTestServer(
   opts: StartTestServerOpts = {},
 ): Promise<TestServer> {
+  return bootTestServer(opts, { wipe: true });
+}
+
+// Boot (or RE-boot, via restart()) a harness server. `wipe` controls whether
+// STATE_ROOT is reset to empty first:
+//   - startTestServer() passes wipe:true for a clean slate per test.
+//   - restart() passes wipe:false to COLD-RELOAD the same on-disk state, the
+//     seam persistence / migration-ordering tests need.
+// EITHER WAY the in-memory module caches that lazy-load from STATE_ROOT are
+// reset, so a restart is a TRUE cold boot that re-reads every persisted file —
+// the only difference from a fresh boot is that the files survive. The boot is
+// single-instance guarded like a fresh boot (preserving STATE_ROOT while a
+// second server existed would be unsafe). Test-support ONLY; never production.
+async function bootTestServer(
+  opts: StartTestServerOpts,
+  { wipe }: { wipe: boolean },
+): Promise<TestServer> {
   if (activeHarness) {
     throw new Error(
       "startTestServer: a harness server is already active in this process. " +
@@ -94,10 +118,15 @@ export async function startTestServer(
   assertSafeToDelete(STATE_ROOT);
   activeHarness = true;
   try {
-    // Clean slate per boot: wipe + recreate STATE_ROOT and reset the module
-    // caches that lazy-load from it, so each harness server starts empty.
-    removeStateDir(STATE_ROOT);
-    mkdirSync(STATE_ROOT, { recursive: true });
+    if (wipe) {
+      // Clean slate per boot: wipe + recreate STATE_ROOT so each fresh harness
+      // server starts empty. restart() skips this to preserve on-disk state.
+      removeStateDir(STATE_ROOT);
+      mkdirSync(STATE_ROOT, { recursive: true });
+    }
+    // Reset the module caches that lazy-load from STATE_ROOT — ALWAYS, even on a
+    // no-wipe restart, so the re-boot re-reads the persisted files instead of
+    // serving a stale in-memory cache from the prior instance.
     _testResetState();
     _testResetUsers();
     _testResetTokens();
@@ -242,6 +271,40 @@ export async function startTestServer(
       return socket;
     }
 
+    async function stop() {
+      for (const s of sockets) s.close();
+      try {
+        // Bun 1.3.11 bug: server.stop() (graceful OR forced) NEVER resolves if
+        // any ServerWebSocket was closed via ws.close() during the server's
+        // life — which the production force-expire path does on session
+        // revoke/logout (forceExpireSocketsForSession). Confirmed with a pure
+        // Bun.serve repro (no isomux involved). The harness binds an EPHEMERAL
+        // port (port:0), so a not-fully-drained server is inert and harmless
+        // between serial boots; cap the wait so a wedged stop() can't hold the
+        // single-instance lock forever. A clean stop resolves well under this
+        // cap, so non-force-close tests pay no real cost. The .catch() keeps a
+        // late stop() rejection from surfacing as an unhandled rejection after
+        // the timeout already won the race.
+        await Promise.race([
+          handle.stop().catch(() => {}),
+          new Promise<void>((r) => setTimeout(r, 500)),
+        ]);
+      } finally {
+        // Release the single-instance lock even if handle.stop() hangs/throws,
+        // so a failed teardown cannot wedge the whole test process.
+        activeHarness = false;
+      }
+    }
+
+    async function restart(): Promise<TestServer> {
+      // Stop this instance (releases the single-instance lock) and re-boot
+      // WITHOUT wiping STATE_ROOT, so every load() re-reads the files this run
+      // persisted — exercising the real boot path (incl. boot migrations)
+      // against real on-disk state. Returns the fresh TestServer.
+      await stop();
+      return bootTestServer(opts, { wipe: false });
+    }
+
     return {
       ...handle,
       stateRoot: STATE_ROOT,
@@ -251,30 +314,8 @@ export async function startTestServer(
       seedMember,
       http,
       connectWs,
-      async stop() {
-        for (const s of sockets) s.close();
-        try {
-          // Bun 1.3.11 bug: server.stop() (graceful OR forced) NEVER resolves if
-          // any ServerWebSocket was closed via ws.close() during the server's
-          // life — which the production force-expire path does on session
-          // revoke/logout (forceExpireSocketsForSession). Confirmed with a pure
-          // Bun.serve repro (no isomux involved). The harness binds an EPHEMERAL
-          // port (port:0), so a not-fully-drained server is inert and harmless
-          // between serial boots; cap the wait so a wedged stop() can't hold the
-          // single-instance lock forever. A clean stop resolves well under this
-          // cap, so non-force-close tests pay no real cost. The .catch() keeps a
-          // late stop() rejection from surfacing as an unhandled rejection after
-          // the timeout already won the race.
-          await Promise.race([
-            handle.stop().catch(() => {}),
-            new Promise<void>((r) => setTimeout(r, 500)),
-          ]);
-        } finally {
-          // Release the single-instance lock even if handle.stop() hangs/throws,
-          // so a failed teardown cannot wedge the whole test process.
-          activeHarness = false;
-        }
-      },
+      restart,
+      stop,
     };
   } catch (err) {
     activeHarness = false;

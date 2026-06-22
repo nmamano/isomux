@@ -164,10 +164,9 @@ describe("routes/office.setSettings REST", () => {
     expect(s.envFile).toBe(envPath);
     expect(s.name).toBe("Acme");
 
-    // KNOWN-LEAK BRIDGE: the all-broadcast still carries envFile. This assertion
-    // is intentional — see the file header. If a future slice converts this event
-    // to a typed liveEmit that drops envFile, THIS test must be updated as a
-    // conscious decision, not silently.
+    // 3b.5 CLOSED the deferred leak: the all-audience office_settings_updated no
+    // longer carries envFile (owner-only; owners read it via full_state /
+    // office.getSettings). The broadcast carries {name, prompt} only.
     await waitUntil(
       () =>
         sock.messages.some(
@@ -181,7 +180,7 @@ describe("routes/office.setSettings REST", () => {
     ) as { name?: string; prompt?: string; envFile?: string };
     expect(evt.name).toBe("Acme");
     expect(evt.prompt).toBe("office prompt");
-    expect(evt.envFile).toBe(envPath); // deferred leak, asserted on purpose
+    expect(evt.envFile).toBeUndefined(); // 3b.5: envFile no longer rides the all-event
   });
 
   it("invalid env path -> 400 and NO double-signal (state untouched, no broadcast)", async () => {

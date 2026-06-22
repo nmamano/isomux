@@ -8,18 +8,18 @@
 
 - **3b.1** emit/projection foundation — DONE, Reviewer1-signed-off, green.
 - **3b.2** view data model (`hidden`/`order`) + migration backfill — DONE, Reviewer1-signed-off, green.
-- **3b.3** rule-based access flip — steps **A+B+C DONE, green, but UNREVIEWED**:
+- **3b.3** rule-based access flip — **DONE, green, REVIEWED**:
   - A: `canAccess` flip across all access read-sites + boot owner-migration.
   - B: `auth.ts` stops materializing owner grants (bootstrap + invite-accept; owners seed grants=[], notifRooms preserved).
   - C: create_room fan-out removed (owners by rule via room_created; a member creator gets a grant + full_state; no grant broadcast).
-  - REMAINING **step E (tests)**: the boot owner-migration is UNVERIFIED (the harness seeds owners AFTER boot, so the migration runs on an empty set in every test). Write: migration tests (legacy `[]`→∅, all-stale-id→∅, partial→complement), demotion regression (ex-owner → grants-only), new-owner→grants=∅, multi-socket member-vs-owner suppression.
-  - "step D (setAccess core)" DISSOLVED: the grant write already works via owner-gated `update_user`; its refinements (no grant broadcast; notifRooms ⊆ shown) belong to 3b.5 / 3b.4.
-- **3b.4** view.* routes + delete reorder gate / rooms_reordered — NOT STARTED.
-- **3b.5** UserPublicWire user-wire projection (close the residual leak) — NOT STARTED.
+  - E: boot owner-migration extracted to PURE `planOwnerAccessMigration` (server/access-migration.ts) + a thin index.ts wrapper; covered by 8 planner unit cases + a real-boot harness `restart()` integration test (runs-at-boot-after-rooms + idempotent). Plus the `update_user` notifRooms clamp fixed to `accessibleRoomIdsFor` (owners are grants=[] but full-access by rule, so the old allowedRooms clamp wrongly pruned an owner's notif to []).
+  - Reviewer1 impl-cleared; Isomuxer3 ACL gate **PASS** (HARD condition: 3b.5 must land before any restart — grants are now the ACL boundary and the all-audience user broadcasts still ship full records).
+- **3b.4** view.* routes + per-user reorder — **DONE, green, Reviewer1-cleared**: `clampViewFields` (pure single invariant core) + `applyViewChange` + `getViewProjection`; 5 REST view.* handlers; reorder is now PER-USER (the `sessionHasFullRoomAccess` gate, `agentManager.reorderRooms`, the `OfficeState.reorderRooms` primitive, the `rooms_reordered` OfficeEvent + ServerMessage + index routing + UI reducer all removed); no-oracle writes + order dedupe + `notifRooms ⊆ effective shown`; `claim_user` routed through the core. UI change was pure dead-code removal (build deferred to the coordinated deploy).
+- **3b.5** UserPublicWire user-wire projection (close the residual leak) — **IN DESIGN** (with Reviewer1): user_updated/users_list → UserPublicWire (all) + a SEPARATE owners-audience user_admin_updated/users_admin_list; strip office envFile from the member full_state projection; flip the leak test; then Isomuxer3's HARD ACL gate.
 
-## ⚠️ DO NOT RESTART/DEPLOY until 3b.3 is reviewed + step-E-verified
+## ⚠️ DO NOT RESTART/DEPLOY until 3b.5 lands + the gates clear
 
-The boot owner-migration (`migrateOwnersToRuleBasedAccess` in index.ts) MUTATES persisted owner records (clears grants, seeds `hidden`) and is UNTESTED + UNREVIEWED. A restart deploys it against the REAL office's owner records. Gate any restart behind: step-E tests green + Reviewer1 (impl) + Isomuxer3 (ACL security, multi-socket) + an adversarial subagent review. Committed as WIP only — NOT deployed (office still runs on b8d1ba7).
+3b.3 + 3b.4 are WIP in the working tree (NOT committed; office still runs on b8d1ba7). The boot owner-migration MUTATES persisted owner records (clears grants, seeds `hidden`) and is now TESTED + REVIEWED — BUT 3b.3 is NOT independently deployable: the all-audience `user_updated`/`users_list` still ship full UserRecords, and post-3b grants ARE the ACL boundary, so they leak hidden room ids via other users' grant lists. **3b.5 (UserPublicWire) is a HARD restart-gating dependency** (Isomuxer3). Gate any restart behind: 3b.5 done + Reviewer1 (impl) + Isomuxer3 (ACL, multi-socket) on the 3b.5 diff + an adversarial subagent review of the FULL 3b diff + Nil's explicit go. Then one restart deploys all of 3b at once.
 
 ## As-built deltas to reconcile into generic-runtime-refactor.md at close-out
 
