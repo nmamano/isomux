@@ -27,8 +27,8 @@ export interface GuardDepsLiveReaders {
   // (both now route through canAccess: owners by rule, members by grants), with
   // session reduced to { userId }. The index.ts seam supplies this closure.
   hasRoomAccessForUser(userId: string, roomId: string): boolean;
-  // The live agent roster (AgentInfo.room is the GLOBAL room index in 2.3).
-  // Phase 3c: guards read the agent's authoritative roomId, not the dense index.
+  // The live agent roster. Phase 3c: guards read each agent's authoritative
+  // roomId — the dense AgentInfo.room index has been removed from the wire.
   getAllAgents(): readonly { id: string; roomId: string }[];
   // The live global rooms list (dense, creation order); index → roomId.
   getRooms(): readonly { id: string }[];
@@ -52,10 +52,10 @@ export function buildProductionGuardDeps(
       const agent = live.getAllAgents().find((a) => a.id === agentId);
       if (!agent) return null; // unknown agent collapses with inaccessible
       // Phase 3c: the agent's authoritative roomId IS the global room id — no
-      // dense-index hop. Validate it still names a live room so a dangling
-      // roomId collapses to inaccessible (preserving the pre-3c out-of-range →
-      // null contract). Guards reason over global ids; the dense per-recipient
-      // rewrite is a wire concern, never an authz one.
+      // index hop. Validate it still names a live room so a dangling roomId
+      // collapses to inaccessible (preserving the pre-3c out-of-range → null
+      // contract). Guards reason over global ids; the per-recipient room
+      // projection is a wire concern, never an authz one.
       return live.getRooms().some((r) => r.id === agent.roomId)
         ? agent.roomId
         : null;

@@ -19,9 +19,10 @@
 //   - Owner access is MATERIALIZED: seedOwner snapshots every current room id;
 //     create_room appends the new roomId to the creator + every owner's
 //     allowedRooms + notifRooms (the fan-out). A fresh member defaults to [].
-//   - full_state.agents carry a DENSE per-recipient room index (or are dropped
-//     if hidden); full_state.rooms is filtered to the recipient's visible set;
-//     all_rooms_list is owner-only and UNFILTERED.
+//   - full_state.agents carry a stable global roomId (or are dropped if their
+//     room is hidden from the recipient); full_state.rooms is filtered to the
+//     recipient's visible set; all_rooms_list is owner-only and UNFILTERED.
+//     (Phase 3c slice 4 removed the dense per-recipient agent.room index.)
 //   - reorder_rooms is GLOBAL and owner-only-gated (the gate 3b deletes).
 //
 // Determinism (no arbitrary sleeps): routeAgentEvent fans out to every socket
@@ -293,10 +294,10 @@ function makeRoomsBeforeOwner(srv: TestServer, names: string[]): string[] {
 }
 
 describe("full_state projection — connect-time ACL (Phase 1.2)", () => {
-  it("two users with overlapping non-identical access: rooms filtered + agent.room dense per recipient", async () => {
-    // Checklist: "Two users with overlapping but non-identical access connect
-    // simultaneously; full_state rooms are filtered and agent.room is dense per
-    // recipient." This is the dense-index contract 3c replaces.
+  it("two users with overlapping non-identical access: rooms filtered per recipient, agents carry stable roomIds", async () => {
+    // Post-cut: full_state.rooms is filtered to each recipient's visible set, and
+    // agents carry a stable global roomId (no per-recipient dense index). An
+    // agent whose room is hidden from the recipient is dropped entirely.
     server = await boot();
     const r1 = server.agentManager.getRooms()[0].id;
     const [r2, r3] = makeRoomsBeforeOwner(server, ["R2", "R3"]);
@@ -314,25 +315,24 @@ describe("full_state projection — connect-time ACL (Phase 1.2)", () => {
     const ofs = latestFullState(ownerSock)!;
     const mfs = latestFullState(memberSock)!;
 
-    // Owner: unfiltered rooms, global dense == identity indices.
+    // Owner: unfiltered rooms; every agent present with its stable roomId.
     expect(fullStateRoomIds(ofs)).toEqual([r1, r2, r3]);
-    expect(agentInFullState(ofs, a1.id)!.room).toBe(0);
-    expect(agentInFullState(ofs, a2.id)!.room).toBe(1);
-    expect(agentInFullState(ofs, a3.id)!.room).toBe(2);
+    expect(agentInFullState(ofs, a1.id)!.roomId).toBe(r1);
+    expect(agentInFullState(ofs, a2.id)!.roomId).toBe(r2);
+    expect(agentInFullState(ofs, a3.id)!.roomId).toBe(r3);
 
-    // Member: R2 filtered out; R3 collapses to dense index 1; the R2 agent is
-    // absent entirely.
+    // Member: R2 filtered out; the R2 agent absent; surviving agents keep the
+    // SAME global roomIds (no remap).
     expect(fullStateRoomIds(mfs)).toEqual([r1, r3]);
-    expect(agentInFullState(mfs, a1.id)!.room).toBe(0);
-    expect(agentInFullState(mfs, a3.id)!.room).toBe(1);
+    expect(agentInFullState(mfs, a1.id)!.roomId).toBe(r1);
+    expect(agentInFullState(mfs, a3.id)!.roomId).toBe(r3);
     expect(agentInFullState(mfs, a2.id)).toBeUndefined();
   });
 
-  it("3c slice 1: additive agent.roomId names the room at the dense agent.room index for every recipient (stable global id, same across recipients)", async () => {
-    // Slice-1 gate (agreed with Reviewer1): the additive stable roomId must name
-    // the SAME room the dense per-recipient `room` index points at, for owner and
-    // restricted member alike. This invariant is what lets slice 2 make roomId
-    // authoritative and slice 4 drop the dense index with no further wire change.
+  it("agent.roomId is the stable global id — identical across recipients and present in each recipient's filtered rooms", async () => {
+    // Post-cut invariant: every agent's roomId names a room that IS in that
+    // recipient's own filtered rooms list (we never ship an agent whose room the
+    // recipient can't see), and the id is recipient-independent.
     server = await boot();
     const r1 = server.agentManager.getRooms()[0].id;
     const [r2, r3] = makeRoomsBeforeOwner(server, ["R2", "R3"]);
@@ -347,25 +347,20 @@ describe("full_state projection — connect-time ACL (Phase 1.2)", () => {
     await setAccess(ownerSock, member.username, [r1, r3]); // member sees R1 + R3
     const memberSock = await connectSettled(server, member.rawSessionId);
 
-    // Invariant for BOTH recipients: every agent's additive roomId equals the id
-    // of the room its (recipient-dense) `room` index resolves to in that
-    // recipient's own filtered rooms list.
+    // Invariant for BOTH recipients: every agent's roomId names a room that IS in
+    // that recipient's own filtered rooms list.
     for (const sock of [ownerSock, memberSock]) {
       const fs = latestFullState(sock)!;
-      const rooms = fs.rooms as RoomWire[];
+      const roomIds = new Set((fs.rooms as RoomWire[]).map((r) => r.id));
       for (const agent of fs.agents as AgentInfo[]) {
-        expect(rooms[agent.room]).toBeDefined();
-        expect(agent.roomId).toBe(rooms[agent.room].id);
+        expect(roomIds.has(agent.roomId)).toBe(true);
       }
     }
 
-    // roomId is the STABLE GLOBAL id — identical across recipients even though
-    // the dense index differs (A3 is dense 2 for the owner, dense 1 for Mia who
-    // can't see R2). a1 is dense 0 for both.
+    // roomId is the STABLE GLOBAL id — identical across recipients (A3 is r3 for
+    // both the owner and Mia, who can't even see R2).
     const ownerA3 = agentInFullState(latestFullState(ownerSock)!, a3.id)!;
     const memberA3 = agentInFullState(latestFullState(memberSock)!, a3.id)!;
-    expect(ownerA3.room).toBe(2);
-    expect(memberA3.room).toBe(1);
     expect(ownerA3.roomId).toBe(r3);
     expect(memberA3.roomId).toBe(r3);
     expect(agentInFullState(latestFullState(ownerSock)!, a1.id)!.roomId).toBe(
@@ -580,9 +575,9 @@ describe("agent moves across visibility boundaries (Phase 1.2)", () => {
     );
 
     const mfs = latestFullState(memberSock)!;
-    expect(agentInFullState(mfs, x.id)!.room).toBe(0); // R1 = member's only room
+    expect(agentInFullState(mfs, x.id)!.roomId).toBe(r1); // now in member's only room
     // Transcript-preservation: the SPECIFIC prior entry is REPLAYED by the
-    // move's projected full_state (asserted by position — after the shift).
+    // move's projected full_state (asserted by position — after the move).
     await waitForLogSince(
       memberSock,
       x.id,
@@ -615,7 +610,7 @@ describe("agent moves across visibility boundaries (Phase 1.2)", () => {
     ).toBeUndefined();
   });
 
-  it("visible→visible: the dense index remaps and the transcript survives", async () => {
+  it("visible→visible: the agent's roomId updates and the transcript survives", async () => {
     server = await boot();
     const r1 = server.agentManager.getRooms()[0].id;
     const [, r3] = makeRoomsBeforeOwner(server, ["R2", "R3"]);
@@ -627,16 +622,19 @@ describe("agent moves across visibility boundaries (Phase 1.2)", () => {
     await setAccess(ownerSock, member.username, [r1, r3]); // member sees R1 + R3
     await driveTurn(ownerSock, x.id, "c3-history");
     const memberSock = await connectSettled(server, member.rawSessionId);
-    expect(agentInFullState(latestFullState(memberSock)!, x.id)!.room).toBe(0);
+    expect(agentInFullState(latestFullState(memberSock)!, x.id)!.roomId).toBe(
+      r1,
+    );
 
     const sinceIdx = bag(memberSock).length;
     ownerSock.send({ type: "move_agent", agentId: x.id, targetRoomId: r3 });
     await waitForMessageWhere(
       memberSock,
-      (m) => m.type === "full_state" && agentInFullState(m, x.id)?.room === 1,
+      (m) =>
+        m.type === "full_state" && agentInFullState(m, x.id)?.roomId === r3,
     );
     const mfs = latestFullState(memberSock)!;
-    expect(agentInFullState(mfs, x.id)!.room).toBe(1); // R3 = member's dense idx 1
+    expect(agentInFullState(mfs, x.id)!.roomId).toBe(r3); // now in R3, stable id
     // Replay-on-shift (NOT the connect-time copy): the entry must reappear AFTER
     // the move's full_state. X is visible at connect, so a plain existence check
     // would pass even if the move replay were removed.
@@ -650,13 +648,13 @@ describe("agent moves across visibility boundaries (Phase 1.2)", () => {
 });
 
 describe("room close / reorder with restricted members (Phase 1.2)", () => {
-  it("closing a visible room remaps the member's dense indices and replays transcripts", async () => {
+  it("closing a visible room sends a bare room_closed delta (no full_state refresh, no dense remap)", async () => {
     server = await boot();
     const [r2, r3] = makeRoomsBeforeOwner(server, ["R2", "R3"]);
     const owner = await server.seedOwner("Boss");
     const member = await server.seedMember("Mia");
 
-    const y = await spawnIn(server, "Y", r3); // member's dense idx 1 initially
+    const y = await spawnIn(server, "Y", r3);
     const ownerSock = await connectSettled(server, owner.rawSessionId);
     await setAccess(ownerSock, member.username, [r2, r3]); // sees R2 + R3, not R1
     await driveTurn(ownerSock, y.id, "d1-history");
@@ -664,25 +662,29 @@ describe("room close / reorder with restricted members (Phase 1.2)", () => {
 
     const before = latestFullState(memberSock)!;
     expect(fullStateRoomIds(before)).toEqual([r2, r3]);
-    expect(agentInFullState(before, y.id)!.room).toBe(1);
+    expect(agentInFullState(before, y.id)!.roomId).toBe(r3);
 
-    // Close R2 (empty; not index 0): shifts the member's dense space down.
-    const sinceIdx = bag(memberSock).length;
+    // Close R2 (empty; not index 0). Post-cut there are no dense indices to
+    // shift, so the close is a BARE room_closed delta — no projected full_state
+    // and no log replay. The member still holds R2 access at emit time, so the
+    // delta reaches them; the handler strips R2 from allowedRooms afterward.
+    const fullStatesBefore = bag(memberSock).filter(
+      (m) => m.type === "full_state",
+    ).length;
     ownerSock.send({ type: "close_room", roomId: r2 });
     await waitForMessageWhere(
       memberSock,
-      (m) => m.type === "full_state" && fullStateRoomIds(m).join() === r3,
+      (m) => m.type === "room_closed" && m.roomId === r2,
     );
-    const after = latestFullState(memberSock)!;
-    expect(fullStateRoomIds(after)).toEqual([r3]);
-    expect(agentInFullState(after, y.id)!.room).toBe(0); // R3 collapses to 0
-    // Replay-on-shift (NOT the connect-time copy): Y stays visible across the
-    // close, so the transcript must be re-sent AFTER the close's full_state.
-    await waitForLogSince(
-      memberSock,
-      y.id,
-      (e) => e.kind === "user_message" && e.content === "d1-history",
-      sinceIdx,
+    // No new full_state was sent on the close — the only refresh would have been
+    // the now-deleted dense-shift path.
+    expect(bag(memberSock).filter((m) => m.type === "full_state").length).toBe(
+      fullStatesBefore,
+    );
+    // Y (in R3) is untouched: it keeps its stable roomId from the connect
+    // full_state; the close did not move it.
+    expect(agentInFullState(latestFullState(memberSock)!, y.id)!.roomId).toBe(
+      r3,
     );
   });
 
@@ -828,7 +830,7 @@ describe("update_user room-access grant / revoke (Phase 1.2)", () => {
     );
     const mfs = latestFullState(memberSock)!;
     expect(fullStateRoomIds(mfs)).toEqual([r1, r2]);
-    expect(agentInFullState(mfs, z.id)!.room).toBe(1);
+    expect(agentInFullState(mfs, z.id)!.roomId).toBe(r2);
     // Newly-visible agent's transcript is REPLAYED (after the grant's full_state).
     await waitForLogSince(
       memberSock,
@@ -852,10 +854,10 @@ describe("update_user room-access grant / revoke (Phase 1.2)", () => {
     const memberSock = await connectSettled(server, member.rawSessionId);
     const memberCid = connectionIdOf(memberSock);
 
-    // Member parks their ghost in R2 (their dense index 1).
+    // Member parks their ghost in R2 (by stable id).
     memberSock.send({
       type: "presence_update",
-      currentRoom: 1,
+      currentRoomId: r2,
       focusedAgentId: null,
       viewMode: "office",
     });
@@ -864,8 +866,8 @@ describe("update_user room-access grant / revoke (Phase 1.2)", () => {
       (m) =>
         m.type === "presence_list" &&
         (
-          m.entries as { connectionId: string; currentRoom: number | null }[]
-        ).some((e) => e.connectionId === memberCid && e.currentRoom === 1),
+          m.entries as { connectionId: string; currentRoomId: string | null }[]
+        ).some((e) => e.connectionId === memberCid && e.currentRoomId === r2),
     );
 
     // Revoke R2: the member's view drops it AND their ghost is clamped off-scene.

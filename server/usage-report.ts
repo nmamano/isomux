@@ -222,9 +222,10 @@ export function renderUsageReport(
     `| Agent | Room | In (sess) | Out (sess) | $ (sess) | In (life) | Out (life) | $ (life) |`,
   );
   lines.push(`| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |`);
-  // Phase 3c: resolve each agent's room by its authoritative roomId (the dense
-  // AgentInfo.room index is wire-compat only). Local map mirrors the id-keyed
-  // bucket pass below, so no AgentManager helper needs threading in here.
+  // Phase 3c: resolve each agent's room by its authoritative roomId (the only
+  // room reference — the dense AgentInfo.room index has been removed). Local map
+  // mirrors the id-keyed bucket pass below, so no AgentManager helper needs
+  // threading in here.
   const roomByIdMap = new Map(rooms.map((r) => [r.id, r] as const));
   const rows = [...agents.values()].map((a) => {
     const usage = readAgentUsage(a.info.id, a.sessionId);

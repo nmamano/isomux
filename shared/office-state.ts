@@ -59,6 +59,11 @@ export interface OfficeStateData {
   recentCwds: string[];
 }
 
+// Canonical room input — a RoomWire without the derived `canCloseWhenEmpty`
+// capability, which OfficeState stamps from room order at materialization. Boot
+// and persistence supply this shape (they store room identity, not the flag).
+type RoomInput = Omit<RoomWire, "canCloseWhenEmpty">;
+
 export class OfficeState {
   private agents = new Map<string, AgentInfo>();
   private _rooms: RoomWire[] = [
@@ -66,6 +71,7 @@ export class OfficeState {
       id: generateRoomId(),
       name: "Room 1",
       prompt: null,
+      canCloseWhenEmpty: false, // protected canonical first room
     },
   ];
   private _office: OfficeSettings = {
@@ -77,9 +83,12 @@ export class OfficeState {
   private _recentCwds: string[] = [];
   private onChangeHandlers = new Set<(event: OfficeEvent) => void>();
 
-  constructor(initial?: { rooms?: RoomWire[]; office?: OfficeSettings }) {
+  constructor(initial?: { rooms?: RoomInput[]; office?: OfficeSettings }) {
     if (initial?.rooms && initial.rooms.length > 0)
-      this._rooms = [...initial.rooms];
+      this._rooms = initial.rooms.map((r, i) => ({
+        ...r,
+        canCloseWhenEmpty: i > 0, // derived: only index 0 is protected
+      }));
     if (initial?.office) this._office = { ...initial.office };
   }
 
@@ -131,15 +140,16 @@ export class OfficeState {
     this.agents.set(agent.id, agent);
   }
 
-  setRooms(rooms: RoomWire[]) {
+  setRooms(rooms: RoomInput[]) {
     this._rooms =
       rooms.length > 0
-        ? [...rooms]
+        ? rooms.map((r, i) => ({ ...r, canCloseWhenEmpty: i > 0 }))
         : [
             {
               id: generateRoomId(),
               name: "Room 1",
               prompt: null,
+              canCloseWhenEmpty: false,
             },
           ];
   }
@@ -185,13 +195,12 @@ export class OfficeState {
       if (a.name.toLowerCase() === nameLower) return null;
     }
 
-    let targetRoom = 0;
-    if (opts.roomId) {
-      const idx = this._rooms.findIndex((r) => r.id === opts.roomId);
-      if (idx >= 0) targetRoom = idx;
-    }
+    const targetRoomId =
+      opts.roomId && this._rooms.some((r) => r.id === opts.roomId)
+        ? opts.roomId
+        : this._rooms[0].id;
     const roomAgents = [...this.agents.values()].filter(
-      (a) => a.room === targetRoom,
+      (a) => a.roomId === targetRoomId,
     );
     const taken = new Set(roomAgents.map((a) => a.desk));
 
@@ -214,8 +223,7 @@ export class OfficeState {
       id,
       name: opts.name,
       desk,
-      room: targetRoom,
-      roomId: this._rooms[targetRoom].id,
+      roomId: targetRoomId,
       cwd: opts.cwd,
       outfit: opts.outfit ?? generateOutfit(),
       permissionMode: opts.permissionMode,
@@ -345,12 +353,15 @@ export class OfficeState {
   swapDesks(deskA: number, deskB: number, roomId: string): OfficeEvent[] {
     if (deskA === deskB || deskA < 0 || deskA > 7 || deskB < 0 || deskB > 7)
       return [];
-    const room = this._rooms.findIndex((r) => r.id === roomId);
-    if (room < 0) return [];
+    if (!this._rooms.some((r) => r.id === roomId)) return [];
 
     const allAgents = [...this.agents.values()];
-    const agentA = allAgents.find((a) => a.desk === deskA && a.room === room);
-    const agentB = allAgents.find((a) => a.desk === deskB && a.room === room);
+    const agentA = allAgents.find(
+      (a) => a.desk === deskA && a.roomId === roomId,
+    );
+    const agentB = allAgents.find(
+      (a) => a.desk === deskB && a.roomId === roomId,
+    );
     if (!agentA && !agentB) return [];
 
     const events: OfficeEvent[] = [];
@@ -383,6 +394,8 @@ export class OfficeState {
       id: generateRoomId(existingIds),
       name: displayName,
       prompt: null,
+      // Appended after the protected first room, so always closeable-when-empty.
+      canCloseWhenEmpty: true,
     };
     this._rooms.push(room);
     const events: OfficeEvent[] = [{ type: "room_created", room }];
@@ -392,27 +405,20 @@ export class OfficeState {
 
   closeRoom(roomId: string): OfficeEvent[] {
     const room = this._rooms.findIndex((r) => r.id === roomId);
-    if (room <= 0) return [];
-    const roomAgents = [...this.agents.values()].filter((a) => a.room === room);
+    if (room <= 0) return []; // index 0 is the protected canonical first room
+    const roomAgents = [...this.agents.values()].filter(
+      (a) => a.roomId === roomId,
+    );
     if (roomAgents.length > 0) return [];
 
     this._rooms.splice(room, 1);
-    const events: OfficeEvent[] = [];
-    for (const agent of this.agents.values()) {
-      if (agent.room > room) {
-        // Phase 3c: only the DENSE index shifts when a lower room closes — the
-        // agent's stable roomId is unchanged (it did not move), so roomId is
-        // deliberately absent from `changes`. This index-shift churn is exactly
-        // what the slice-4 id-keyed wire cut eliminates.
-        agent.room--;
-        events.push({
-          type: "agent_updated",
-          agentId: agent.id,
-          changes: { room: agent.room },
-        });
-      }
-    }
-    events.push({ type: "room_closed", roomId });
+    // Phase 3c slice 4: closing a room no longer shifts any wire index. Agents
+    // carry a stable roomId and rooms carry a stable id, so a visible close is
+    // just the room's removal and a non-visible close is a client no-op — the
+    // pre-cut per-agent `room--` agent_updated churn is gone. Splicing a non-zero
+    // index also can't change which room is index 0, so every remaining room's
+    // derived canCloseWhenEmpty stays correct without a re-stamp.
+    const events: OfficeEvent[] = [{ type: "room_closed", roomId }];
     this.emitEvents(events);
     return events;
   }
@@ -433,12 +439,11 @@ export class OfficeState {
   moveAgent(agentId: string, targetRoomId: string): OfficeEvent[] {
     const agent = this.agents.get(agentId);
     if (!agent) return [];
-    const targetRoom = this._rooms.findIndex((r) => r.id === targetRoomId);
-    if (targetRoom < 0) return [];
-    if (agent.room === targetRoom) return [];
+    if (!this._rooms.some((r) => r.id === targetRoomId)) return [];
+    if (agent.roomId === targetRoomId) return [];
 
     const targetAgents = [...this.agents.values()].filter(
-      (a) => a.room === targetRoom,
+      (a) => a.roomId === targetRoomId,
     );
     if (targetAgents.length >= 8) return [];
     const taken = new Set(targetAgents.map((a) => a.desk));
@@ -451,18 +456,17 @@ export class OfficeState {
     }
     if (newDesk === -1) return [];
 
-    agent.room = targetRoom;
-    agent.roomId = this._rooms[targetRoom].id;
+    agent.roomId = targetRoomId;
     agent.desk = newDesk;
     const events: OfficeEvent[] = [
       {
         type: "agent_updated",
         agentId,
-        // Phase 3c: the stable roomId rides additively next to the dense `room`
-        // index so slice-3 clients can track moves by id. Full-access sessions
-        // get this delta verbatim (global id, un-remapped); restricted sessions
-        // get a full_state refresh instead, which carries roomId via the agent.
-        changes: { room: targetRoom, roomId: agent.roomId, desk: newDesk },
+        // Phase 3c slice 4: the stable roomId IS the move on the wire. A present
+        // `roomId` in `changes` is the move discriminator the server keys on to
+        // route the old∪new audience (full-access sessions get this delta
+        // verbatim; restricted sessions get a full_state refresh).
+        changes: { roomId: targetRoomId, desk: newDesk },
       },
     ];
     this.emitEvents(events);

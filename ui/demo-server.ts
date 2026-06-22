@@ -221,7 +221,6 @@ function seedOffice() {
       id,
       name: char.name,
       desk: char.desk,
-      room: char.room,
       roomId: state.rooms[char.room].id,
       cwd: char.cwd,
       outfit: char.outfit,
@@ -245,7 +244,7 @@ function seedOffice() {
 
 // Demo presence: a single ghost for "Stephen (phone)" that cycles
 // through every agent in the office every 6 seconds, advertising a
-// different focusedAgentId / currentRoom on each tick. Clients render
+// different focusedAgentId / currentRoomId on each tick. Clients render
 // the ghost SE of whichever desk Stephen's "looking at"; when the
 // cycle lands on an agent in a room the viewer isn't on, the ghost
 // simply doesn't render (matches real-presence behavior) until the
@@ -276,7 +275,6 @@ function emitStephenPresence() {
     device: "Phone",
     avatarColor: stephen.avatarColor,
     avatarVariant: stephen.avatarVariant,
-    currentRoom: agent.room,
     currentRoomId: agent.roomId,
     focusedAgentId: agent.id,
     viewMode: "log",

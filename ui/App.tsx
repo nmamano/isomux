@@ -172,19 +172,10 @@ export function App() {
   // rather than the focusedAgent object identity keeps the effect quiet
   // through unrelated agent_updated noise (state/log changes).
   const presenceRoomId = focusedAgent?.roomId ?? currentRoomId;
-  // The running server still consumes the dense VISIBLE index, so send it
-  // additively (derived from the id via the visible `rooms` projection). A
-  // -1 (the id isn't in this session's visible set) is sent as null so the
-  // server clamps to off-scene instead of mis-indexing. Slice 4 drops this.
-  const presenceRoomIndex = presenceRoomId
-    ? rooms.findIndex((r) => r.id === presenceRoomId)
-    : -1;
-  const presenceRoom = presenceRoomIndex >= 0 ? presenceRoomIndex : null;
   useEffect(() => {
     if (!sessionContext) return;
     send({
       type: "presence_update",
-      currentRoom: presenceRoom,
       currentRoomId: presenceRoomId,
       focusedAgentId,
       viewMode,
@@ -194,7 +185,7 @@ export function App() {
       // and refires this effect with the fresh value.
       device: getDevice(),
     });
-  }, [sessionContext, presenceRoom, presenceRoomId, focusedAgentId, viewMode]);
+  }, [sessionContext, presenceRoomId, focusedAgentId, viewMode]);
 
   // Browser back button: navigate to office view instead of leaving the page.
   // Model: office = home, any other view = one level deep. Only one history

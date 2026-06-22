@@ -885,29 +885,23 @@ function broadcast(msg: ServerMessage) {
   }
 }
 
-// Build the per-recipient presence_list. Remaps each entry's
-// currentRoomId (stored as a global room id) into the recipient's
-// dense visible room index via visibleRoomProjection, the same
-// projection used for AgentInfo.room. Entries whose room isn't visible
-// to the recipient are omitted; off-scene entries (currentRoomId =
-// null) are also omitted from the wire per design (UI noise + privacy).
-// The recipient's own session is included on the same currentRoomId
-// gate; "self hidden in LogView" is a client-local concern.
+// Build the per-recipient presence_list. Each entry carries the sender's stable
+// currentRoomId; entries whose room isn't VISIBLE to the recipient are omitted
+// (per-recipient filter via visibleRoomProjection), as are off-scene entries
+// (currentRoomId = null) per design (UI noise + privacy). The recipient's own
+// session is included on the same gate; "self hidden in LogView" is a
+// client-local concern.
 function buildPresenceListFor(session: SessionLookup): PresenceInfo[] {
   const projection = visibleRoomProjection(session);
-  const rooms = agentManager.getRooms();
-  // Pre-index global roomId → global index for O(1) lookup per entry.
-  const roomIdToGlobalIdx = new Map<string, number>();
-  for (let i = 0; i < rooms.length; i++) {
-    roomIdToGlobalIdx.set(rooms[i].id, i);
-  }
   const out: PresenceInfo[] = [];
   for (const p of listAllPresence()) {
     if (p.currentRoomId === null) continue;
-    const globalIdx = roomIdToGlobalIdx.get(p.currentRoomId);
+    // Per-recipient visibility filter: drop ghosts whose room this session
+    // can't see — unknown id, or globalToVisible < 0. Reuses the projection's
+    // global roomId→index map rather than a second inline index.
+    const globalIdx = projection.globalRoomIdToIndex.get(p.currentRoomId);
     if (globalIdx === undefined) continue;
-    const visibleIdx = projection.globalToVisible[globalIdx];
-    if (visibleIdx === undefined || visibleIdx < 0) continue;
+    if (projection.globalToVisible[globalIdx] < 0) continue;
     out.push({
       connectionId: p.connectionId,
       userId: p.userId,
@@ -915,10 +909,6 @@ function buildPresenceListFor(session: SessionLookup): PresenceInfo[] {
       device: p.device,
       avatarColor: p.avatarColor,
       avatarVariant: p.avatarVariant,
-      currentRoom: visibleIdx,
-      // Phase 3c: additive global stable room id next to the dense index.
-      // p.currentRoomId is already the global id in the presence store; the null
-      // case was filtered out above, so this is always a concrete id here.
       currentRoomId: p.currentRoomId,
       focusedAgentId: p.focusedAgentId,
       viewMode: p.viewMode,
@@ -967,11 +957,12 @@ function pushPresenceListToEachWs() {
 // explicitly-granted rooms (UserRecord.allowedRooms == member grants). See
 // canAccess(). VIEW (non-security): layered ON TOP of access — `hidden`
 // (effective shown = accessible \ hidden) and sparse `order` decide WHICH
-// accessible rooms appear and in what order. The wire contract uses numeric
-// `room` indices on AgentInfo and on tab-bar order, so the projection rewrites
-// them into a dense per-recipient visible space (accessible ∩ shown, ordered).
-// Otherwise a restricted recipient's UI iterates a global rooms array with
-// holes and `agent.room === currentRoom` checks miss.
+// accessible rooms appear and in what order. The projection materializes each
+// recipient's visible rooms array (accessible ∩ shown, ordered) and filters
+// presence/agents to it. Agents and presence carry stable room ids (post-cut
+// there are no per-recipient dense `room` indices), so the projection no longer
+// rewrites any index — it only decides room-list membership/order and
+// per-recipient visibility.
 //
 // Helpers below are the single source of truth for those translations; per-WS
 // event routing and the connect-time full_state both go through them.
@@ -1085,9 +1076,10 @@ function buildLiveGuardDeps(): GuardDeps {
 // helper uses: audience -> recipient selection is computed in emit() from the
 // event registry; this adapter owns only recipient enumeration over the live
 // `browsers` set + per-recipient delivery. For 3a's groups the emits are
-// all/owners/recipient-scoped ONLY (no room-ACL), so the dense-index projection
-// is not exercised here; sessionsForRoomAccess is wired for completeness and the
-// 3b projection rewrite. deliver() stamps the event id as `type` and sends the
+// all/owners/recipient-scoped ONLY (no room-ACL), so the per-recipient room
+// projection is not exercised here; sessionsForRoomAccess is wired for
+// completeness and the 3b room-visibility projection. deliver() stamps the
+// event id as `type` and sends the
 // already-shaped payload (the core op does any per-user shaping before emit()).
 const liveEmitDeps: EmitDeps<ServerWebSocket<WsData>> = {
   allSessions: () => [...browsers],
@@ -1123,30 +1115,19 @@ const liveEmitDeps: EmitDeps<ServerWebSocket<WsData>> = {
     // and never broadens recipients (projectAgentForSession's visibility check
     // below is defensive shaping if state/projection disagree, not a second
     // audience gate):
-    //   - agent_added: rewrite agent.room to the recipient's dense visible index
-    //     (full-access sessions get the identity projection → verbatim bytes).
-    //   - room_closed: a closed room shifts a restricted recipient's dense space,
-    //     so send a projected full_state (+ log replay) rather than the bare
-    //     delta; full-access sessions take the verbatim close.
-    // Every other event (today's 3a all/owners/recipient-scoped set + the
-    // remaining room-ACL deltas that carry no dense room index) is byte-identical
-    // verbatim. This reproduces routeAgentEventToWs for the migrated events.
+    //   - agent_added: suppress the agent for recipients who can't see its room
+    //     (projectAgentForSession returns null). Post-cut there's no dense `room`
+    //     to rewrite, so visible recipients get the verbatim agent.
+    // Every other event — including room_closed, which post-cut just removes a
+    // stable room id and no longer shifts any recipient's dense space — is
+    // delivered byte-identical verbatim. This reproduces routeAgentEventToWs for
+    // the migrated events.
     if (id === "agent_added") {
       const agent = (payload as { agent: AgentInfo }).agent;
       for (const ws of recipients) {
         const projected = projectAgentForSession(ws.data.session, agent);
         if (projected) {
           ws.send(JSON.stringify({ type: "agent_added", agent: projected }));
-        }
-      }
-      return;
-    }
-    if (id === "room_closed") {
-      for (const ws of recipients) {
-        if (sessionHasFullRoomAccess(ws.data.session)) {
-          ws.send(JSON.stringify({ type: id, ...(payload as object) }));
-        } else {
-          sendProjectedFullState(ws, { replayLogsForVisible: true });
         }
       }
       return;
@@ -1697,14 +1678,15 @@ function wsIsOfficeOwner(session: SessionLookup): boolean {
 
 interface VisibleRoomProjection {
   rooms: RoomWire[];
-  // global room index → dense visible index, or -1 if hidden for this session
+  // global room index → dense visible index, or -1 if not visible for this
+  // session. Post-cut this is purely a per-recipient VISIBILITY predicate
+  // (>= 0 ⟺ visible); the dense value is no longer rewritten onto the wire.
   globalToVisible: number[];
-  // dense visible index → global room index
-  visibleToGlobal: number[];
   // Phase 3c: stable roomId → GLOBAL room index (covers every room, not just the
-  // visible ones). Lets roomId-authority callers derive the dense/global index
-  // without reading AgentInfo.room. A roomId absent here is corrupt (loud);
-  // present-but-not-visible is normal projection filtering (globalToVisible=-1).
+  // visible ones). Lets roomId-authority callers map an id to its global index
+  // for corrupt-id detection and, via globalToVisible, test visibility. A roomId
+  // absent here is corrupt (loud); present-but-globalToVisible<0 is normal
+  // projection filtering.
   globalRoomIdToIndex: Map<string, number>;
 }
 
@@ -1728,7 +1710,6 @@ function visibleRoomProjection(session: SessionLookup): VisibleRoomProjection {
     return {
       rooms: all,
       globalToVisible: identity,
-      visibleToGlobal: identity,
       globalRoomIdToIndex,
     };
   }
@@ -1765,19 +1746,18 @@ function visibleRoomProjection(session: SessionLookup): VisibleRoomProjection {
   });
   const rooms: RoomWire[] = [];
   const globalToVisible: number[] = new Array(all.length).fill(-1);
-  const visibleToGlobal: number[] = [];
   for (const i of visibleGlobal) {
     globalToVisible[i] = rooms.length;
-    visibleToGlobal.push(i);
     rooms.push(all[i]);
   }
-  return { rooms, globalToVisible, visibleToGlobal, globalRoomIdToIndex };
+  return { rooms, globalToVisible, globalRoomIdToIndex };
 }
 
-// Returns a fresh AgentInfo with `room` rewritten to the dense visible
-// index, or null if the agent's current room isn't visible to this
-// session. Callers must never mutate the shared AgentInfo from
-// AgentManager — we always shallow-copy.
+// Returns the agent UNCHANGED (the shared AgentManager reference) if its room is
+// visible to this session, or null if not. Post-cut there is no dense `room` to
+// rewrite — agents carry a stable roomId — so this is purely a per-recipient
+// visibility filter. Callers treat the result as read-only (serialize, never
+// mutate).
 function projectAgentForSession(
   session: SessionLookup,
   agent: AgentInfo,
@@ -1794,10 +1774,8 @@ function projectAgentForSession(
     );
     return null;
   }
-  const visible = proj.globalToVisible[globalIdx];
-  if (visible === undefined || visible < 0) return null;
-  if (visible === globalIdx) return agent; // identity (full-access fast path)
-  return { ...agent, room: visible };
+  if (proj.globalToVisible[globalIdx] < 0) return null;
+  return agent;
 }
 
 // True if a given agentId currently lives in a room visible to this
@@ -1902,9 +1880,10 @@ function pushProjectedFullStateForUserId(userId: string) {
 }
 
 // Push the presence_list to just ONE user's sockets (each per-recipient
-// projected). Used after a per-user view change reprojects that user's dense
-// room order: their cached ghost indices need remapping, but no other user's
-// projection changed — so this stays tighter than pushPresenceListToEachWs.
+// projected). Used after a per-user view change alters which rooms that user
+// sees (hidden/order): buildPresenceListFor re-filters their ghosts, but no
+// other user's projection changed — so this stays tighter than
+// pushPresenceListToEachWs.
 function pushPresenceListForUserId(userId: string) {
   for (const ws of browsers) {
     if (ws.data.session.userId === userId) sendPresenceListTo(ws);
@@ -2031,10 +2010,11 @@ function applyViewChange(targetUserId: string, change: ViewChange): boolean {
   }
 
   // Fanout, scoped to what actually changed. order/hidden change the PROJECTION
-  // (room list + dense agent indices) → projected full_state to the target's
-  // own sockets. notifRooms/defaultRoomId are scalar record fields not carried
-  // in full_state → emitUserUpdated (public wire to all, full record to owners
-  // via the admin channel and to the subject via the self channel) + emitUsersList.
+  // (which rooms the target sees and in what order) → projected full_state to the
+  // target's own sockets. notifRooms/defaultRoomId are scalar record fields not
+  // carried in full_state → emitUserUpdated (public wire to all, full record to
+  // owners via the admin channel and to the subject via the self channel) +
+  // emitUsersList.
   const projectionChanged =
     next.order.join(" ") !== prevOrderKey ||
     [...next.hidden].sort().join(" ") !== prevHiddenKey;
@@ -2043,7 +2023,8 @@ function applyViewChange(targetUserId: string, change: ViewChange): boolean {
     next.defaultRoomId !== prevDefault;
   if (projectionChanged) {
     pushProjectedFullStateForUserId(targetUserId);
-    // Reproject the target's OWN presence ghosts to their new dense room order
+    // Re-push the target's OWN presence list: hiding/reordering changes which
+    // rooms are visible to them, so buildPresenceListFor re-filters their ghosts
     // (full_state carries no presence; only this user's sockets are affected).
     pushPresenceListForUserId(targetUserId);
   }
@@ -2110,11 +2091,11 @@ function pushAllRoomsListToOwners() {
 // Sessions whose allowedRooms covers every current room id take the
 // fast path and receive the event verbatim. Sessions with partial
 // coverage get either:
-//   - a projected event (rewriting agent.room index), or
+//   - the event verbatim if its room/agent is visible (post-cut there's no
+//     dense index to rewrite — agents carry stable room ids), or
 //   - a suppressed event (the room/agent isn't visible), or
-//   - a fresh projected full_state when the event would have shifted
-//     their dense room index (room close/rename/reorder, or agent move
-//     across rooms).
+//   - a fresh projected full_state when a move could change which agents are
+//     visible to a restricted recipient (agent move across rooms).
 //
 // The full_state-on-shift approach is heavy-handed but keeps the UI's
 // existing positional contract intact. log entries are replayed for
@@ -2134,8 +2115,8 @@ function routeAgentEvent(event: AgentEvent) {
 // tightens the ACL:
 //   - agent_removed: domain {agentId} lacks the pre-removal roomId the room-ACL
 //     audience needs (and the agent is already gone from state here).
-//   - agent_updated MOVE (changes.room set): carries the NEW global index but
-//     drops the OLD room the old∪new move audience needs.
+//   - agent_updated MOVE (changes.roomId set): carries the NEW roomId but drops
+//     the OLD room the old∪new move audience needs.
 function emitAgentEvent(event: AgentEvent): void {
   switch (event.type) {
     case "log_entry":
@@ -2192,10 +2173,11 @@ function emitAgentEvent(event: AgentEvent): void {
       break;
     case "agent_updated":
       // NON-move updates project via agentLookup on the agent's CURRENT room.
-      // TODO(3b.3): a MOVE (changes.room set) needs the old∪new audience the
-      // domain event can't supply yet, so it rides the bridge (full_state-on-
-      // shift refresh) until oldRoomId is carried in the carried-context slice.
-      if (event.changes.room === undefined) {
+      // A MOVE is discriminated by a present `roomId` in changes; it needs the
+      // old∪new audience the domain event can't supply yet, so it rides the
+      // bridge (full_state refresh for restricted recipients) until oldRoomId is
+      // carried in the carried-context slice.
+      if (event.changes.roomId === undefined) {
         liveEmit("agent_updated", {
           agentId: event.agentId,
           changes: event.changes,
@@ -2207,7 +2189,7 @@ function emitAgentEvent(event: AgentEvent): void {
     default:
       // TODO(3b.3): the routeAgentEvent bridge is BOUNDED — after this slice
       // routeAgentEvent is allowed ONLY for agent_removed and agent_updated with
-      // changes.room set (handled in the case above), plus any explicitly
+      // changes.roomId set (handled in the case above), plus any explicitly
       // documented bridge case. Nothing else may be added here. agent_removed
       // keeps today's
       // broadcast-all (a minor id leak) until 3b.3 tightens it to room-ACL with a
@@ -2258,16 +2240,16 @@ function routeAgentEventToWs(ws: ServerWebSocket<WsData>, event: AgentEvent) {
       break;
     }
     case "agent_updated": {
-      if (event.changes.room !== undefined) {
-        // Room move: visibility could be entering, leaving, or staying
-        // (with a shifted dense index). Cheapest correct play is a
-        // targeted full_state refresh — but the UI's full_state reducer
-        // clears logs/slashCommands, so we must replay them for every
-        // currently-visible agent or the member loses transcripts.
+      if (event.changes.roomId !== undefined) {
+        // Room move (discriminated by a present roomId): for a restricted
+        // recipient the agent could be entering, leaving, or staying in their
+        // visible set, so a targeted full_state refresh is the cheapest correct
+        // play — but the UI's full_state reducer clears logs/slashCommands, so
+        // we replay them for every currently-visible agent or the member loses
+        // transcripts.
         sendProjectedFullState(ws, { replayLogsForVisible: true });
       } else if (agentVisibleForSession(session, event.agentId)) {
-        // No room index in the change — non-room fields are safe to
-        // forward verbatim.
+        // No room change — non-room fields are safe to forward verbatim.
         ws.send(JSON.stringify(event));
       }
       break;
@@ -2285,21 +2267,12 @@ function routeAgentEventToWs(ws: ServerWebSocket<WsData>, event: AgentEvent) {
     case "room_closed":
     case "room_renamed":
     case "room_settings_updated": {
-      const roomId = event.roomId;
-      if (!roomAllowedForSession(session, roomId)) {
-        // Room isn't visible — closing/renaming/settings-updating it has
-        // no effect on the member's view.
-        break;
-      }
-      // Closing a visible room shifts dense indices below it; rename and
-      // settings_updated don't. Cheaper to always refresh than to special-
-      // case rename, which would still need a stable currentRoom check.
-      // The refresh replays logs/slashCommands for currently-visible
-      // agents — full_state clears them in the client reducer, so a bare
-      // refresh would wipe every visible transcript.
-      if (event.type === "room_closed") {
-        sendProjectedFullState(ws, { replayLogsForVisible: true });
-      } else {
+      // Defensive/legacy branch: these room events are delivered via the emit()
+      // registry + deliver() path, not this bridge, so this case is not normally
+      // reached. Post-cut none of them shift any dense index (room ids are
+      // stable), so a visible recipient takes the verbatim delta and a
+      // non-visible one drops it.
+      if (roomAllowedForSession(session, event.roomId)) {
         ws.send(JSON.stringify(event));
       }
       break;
@@ -2500,34 +2473,29 @@ async function dispatchCommand(
       ws.send(JSON.stringify({ type: "pong" }));
       break;
     case "presence_update": {
-      // Live-avatars: the sender tells us where their ghost should
-      // appear. Resolve the dense visible room index they sent through
-      // their OWN visibleRoomProjection back to a global room id; an
-      // out-of-bounds index or a room that's not in their allowedRooms
-      // gets clamped to null (sanitize, don't reject — most common
-      // cause is a race with an allowedRooms change). Self user record
-      // supplies avatarColor + avatarVariant so the wire payload is
-      // self-contained and the recipients don't need to join.
+      // Live-avatars: the sender tells us where its ghost should appear, as a
+      // stable global room id. Validate it DIRECTLY — it must name a LIVE room
+      // the sender can access — and clamp to null otherwise (sanitize, don't
+      // reject; the common cause is a race with an allowedRooms change). No
+      // room-index projection on the inbound path post-cut. Access (not
+      // visible/shown) is the gate: hiding a room is a view preference, not an
+      // access restriction, and buildPresenceListFor still filters each
+      // recipient by their own visibility so this can't leak a ghost into a
+      // room a recipient can't see. Self user record supplies avatarColor +
+      // avatarVariant so the wire payload is self-contained.
       const user = getUserById(session.userId);
       if (!user) break;
-      const projection = visibleRoomProjection(session);
-      const rooms = agentManager.getRooms();
-      let roomId: string | null = null;
-      if (
-        cmd.currentRoom !== null &&
-        Number.isInteger(cmd.currentRoom) &&
-        cmd.currentRoom >= 0 &&
-        cmd.currentRoom < projection.visibleToGlobal.length
-      ) {
-        const globalIdx = projection.visibleToGlobal[cmd.currentRoom];
-        const r = rooms[globalIdx];
-        // Defensive: the room already came from this session's visible
-        // projection (access+shown filtered), so canAccess is redundant-but-
-        // safe. Phase 3b: rule-based, so an owner (grants=[]) is not rejected.
-        if (r && canAccess(user, r.id)) {
-          roomId = r.id;
-        }
-      }
+      // Liveness is a SILENT membership check, not roomById(): a stale inbound id
+      // (the client raced a room close) is an EXPECTED sanitize-to-null case, not
+      // server-state corruption, so it must not trip roomById's loud [3c] log the
+      // way a dangling AGENT roomId on the emit side does. canAccess first as the
+      // cheap short-circuit (a member without the grant never scans the rooms).
+      const roomId =
+        cmd.currentRoomId !== null &&
+        canAccess(user, cmd.currentRoomId) &&
+        agentManager.getRooms().some((r) => r.id === cmd.currentRoomId)
+          ? cmd.currentRoomId
+          : null;
       // Clamp focusedAgentId: must reference a real agent whose room
       // matches the claimed roomId (so a stale cross-room focus claim
       // becomes null server-side instead of degrading to lobby on the
@@ -3341,10 +3309,10 @@ async function dispatchCommand(
           pushProjectedFullStateForUserId(creator.id);
         }
       }
-      // Live-avatars: rebroadcast presence so the creator (and owners, who got
-      // the room by rule) render ghosts at the correct dense index. New rooms
-      // append to the global array so non-recipients' indices don't shift; the
-      // call keeps the room-mutation→presence invariant uniform across handlers.
+      // Live-avatars: rebroadcast presence to keep the room-mutation→presence
+      // invariant uniform across handlers. A new room is empty so no ghost moves
+      // post-cut (room ids are stable, nothing shifts); the re-push is harmless
+      // and keeps every room mutation paired with a presence refresh.
       pushPresenceListToEachWs();
       break;
     }
@@ -3381,16 +3349,12 @@ async function dispatchCommand(
         if (touched) {
           emitUsersList();
         }
-        // Live-avatars: closing a room shifts dense room indices for
-        // every user whose allowedRooms covered it (the now-gone room
-        // collapses out of their visible projection). Cached
-        // PresenceInfo.currentRoom values on clients become stale —
-        // ghosts would render in the wrong room or disappear until
-        // an unrelated presence broadcast happens. Rebroadcast forces
-        // each recipient to re-receive the dense-index remap. Orphan
-        // presence entries whose currentRoomId pointed at the closed
-        // room are dropped naturally by buildPresenceListFor (the
-        // roomId no longer resolves) on this same broadcast.
+        // Live-avatars: rebroadcast presence so any ghost orphaned by the close
+        // (its currentRoomId was the now-gone room) is dropped. Post-cut closing
+        // a room shifts no indices — remaining rooms and agents keep their stable
+        // ids — so this is purely orphan cleanup: buildPresenceListFor filters
+        // out entries whose currentRoomId no longer resolves on this same
+        // broadcast.
         pushPresenceListToEachWs();
       }
       break;
@@ -3413,8 +3377,8 @@ async function dispatchCommand(
       // sessionHasFullRoomAccess gate, no global agentManager.reorderRooms, no
       // rooms_reordered. applyViewChange persists the order (filtered to the
       // caller's accessible rooms), pushes a projected full_state to the caller's
-      // sockets, and reprojects the caller's own presence ghosts to the new dense
-      // order. Other users' projections are unaffected.
+      // sockets, and re-pushes the caller's own presence list (the rooms array
+      // they see is reordered). Other users' projections are unaffected.
       applyViewChange(session.userId, { order: cmd.order });
       break;
     case "edit_message":

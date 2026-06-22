@@ -227,12 +227,9 @@ export interface AgentInfo {
   id: string;
   name: string;
   desk: number; // 0-7
-  room: number; // 0-based room index (DENSE per-recipient on the wire)
-  // Stable global room id (matches RoomWire.id). Phase 3c migration target:
-  // additive in slice 1 (populated everywhere `room` is, never read yet),
-  // authoritative for internal logic in slice 2 (read `roomId`, never branch
-  // on `room`), and the sole room reference after the slice-4 wire cut drops
-  // the dense `room` index.
+  // Stable global room id (matches RoomWire.id) — the SOLE room reference on the
+  // wire and the authority for all room logic. Phase 3c slice 4 removed the
+  // legacy dense per-recipient `room` index; clients match agents to rooms by id.
   roomId: string;
   cwd: string;
   outfit: AgentOutfit;
@@ -632,6 +629,14 @@ export interface RoomWire {
   id: string; // 8-char hex, stable
   name: string; // display name
   prompt: string | null;
+  // Phase 3c slice 4: derived close-affordance capability. false ONLY for the
+  // protected canonical first room (room-order index 0); true for every other
+  // room. NOT an occupancy signal — the client ANDs it with its own reactive
+  // emptiness check, and the server stays authoritative on close (closeRoom
+  // rejects index 0 and non-empty rooms). Derived from canonical room order by
+  // OfficeState whenever rooms are materialized; never persisted (re-derived on
+  // load), so it cannot drift from the canonical order.
+  canCloseWhenEmpty: boolean;
 }
 
 // Per-user record stored server-side in ~/.isomux/users.json. Keyed by
@@ -747,7 +752,7 @@ export interface InviteWire {
 
 // Wire shape for a single live-presence entry (live-avatars feature).
 // One PresenceInfo per active WS connection whose ghost is renderable;
-// off-scene sessions (viewMode "away" with no currentRoom) are omitted
+// off-scene sessions (viewMode "away" with no currentRoomId) are omitted
 // from the broadcast entirely. Display fields (username, avatarColor,
 // avatarVariant) are baked into the wire so clients don't need to join
 // against the users map at render time — avoids races where a fresh
@@ -771,17 +776,11 @@ export interface PresenceInfo {
   device: string | null;
   avatarColor: string;
   avatarVariant: GhostVariant;
-  // Dense visible room index for the recipient (server rewrites this on
-  // a per-WS basis via visibleRoomProjection so the client filter
-  // `entry.currentRoom === state.currentRoom` works for restricted
-  // members the same as for full-access sessions). null when the
-  // session has not yet sent its first presence_update.
-  currentRoom: number | null;
-  // Global stable room id (matches RoomWire.id) — the id-keyed counterpart of
-  // the dense `currentRoom` index above, and ALWAYS a global id, never a
-  // dense/visible value. Phase 3c: additive in slice 1, consumed by clients in
-  // slice 3, and the sole presence room reference after the slice-4 cut drops
-  // the dense `currentRoom`.
+  // Global stable room id (matches RoomWire.id) where this session's ghost
+  // appears — the SOLE presence room reference, ALWAYS a global id. Recipients
+  // render the ghost only when it matches their OWN selected room id. null when
+  // the session has not yet sent its first presence_update or is off-scene.
+  // Phase 3c slice 4 removed the dense per-recipient `currentRoom` index.
   currentRoomId: string | null;
   focusedAgentId: string | null;
   viewMode: "office" | "log" | "away";
@@ -1307,16 +1306,15 @@ export type ClientCommand =
       // should appear. Sent on initial WS open (after session_context
       // arrives), on focus change, on room change, and on view-mode
       // transitions (TaskView/Cronjobs/Settings open or close).
-      // The server sanitizes currentRoom against the sender's
-      // allowedRooms — out-of-bounds room ids (e.g. from a race with
-      // an access revoke) are clamped to null rather than rejected.
+      // The server sanitizes currentRoomId against the sender's room access —
+      // a stale or inaccessible id (e.g. from a race with an access revoke) is
+      // clamped to null rather than rejected.
       type: "presence_update";
-      currentRoom: number | null;
-      // Phase 3c slice 3: additive global room id sent alongside the dense
-      // visible `currentRoom`. The running server still consumes the dense
-      // index; slice 4 switches inbound logic to this id and drops the dense
-      // `currentRoom`. Optional so an older client that omits it still parses.
-      currentRoomId?: string | null;
+      // Global stable room id where the sender's ghost should appear, or null
+      // when off-scene. Phase 3c slice 4: this replaced the dense visible
+      // `currentRoom` index and is now required on the wire; the server
+      // validates it directly (live room + canAccess), failing closed to null.
+      currentRoomId: string | null;
       focusedAgentId: string | null;
       viewMode: "office" | "log" | "away";
       // Client-supplied device label (from localStorage isomux-device).

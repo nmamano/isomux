@@ -457,7 +457,12 @@ async function waitUntil(
 }
 
 function rooms(...ids: string[]): RoomWire[] {
-  return ids.map((id) => ({ id, name: id, prompt: null }));
+  return ids.map((id, i) => ({
+    id,
+    name: id,
+    prompt: null,
+    canCloseWhenEmpty: i > 0,
+  }));
 }
 
 function capture() {

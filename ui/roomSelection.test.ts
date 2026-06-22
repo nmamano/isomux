@@ -8,7 +8,7 @@ import type { RoomWire } from "../shared/types.ts";
 import { resolveSelectedRoomId, applyRoomClose } from "./roomSelection.ts";
 
 function room(id: string): RoomWire {
-  return { id, name: id.toUpperCase(), prompt: null };
+  return { id, name: id.toUpperCase(), prompt: null, canCloseWhenEmpty: true };
 }
 
 const A = room("a");

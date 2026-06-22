@@ -10,9 +10,9 @@
 // Lifecycle:
 //   - WS open: nothing yet — wait for the client to send presence_update.
 //     The client emits one immediately after session_context arrives.
-//   - presence_update: server resolves the sender's currentRoom (dense
-//     index in the sender's visible projection) back to a global roomId,
-//     validates against the sender's allowedRooms, then setPresence().
+//   - presence_update: the client sends a global currentRoomId; the server
+//     validates it against the sender's room access (live room + canAccess,
+//     else null), then setPresence().
 //   - WS close: removePresence(); broadcast only if the entry existed.
 //   - heartbeat timeout: same as close.
 //
@@ -30,11 +30,10 @@ export interface PresenceState {
   device: string | null;
   avatarColor: string;
   avatarVariant: GhostVariant;
-  // GLOBAL room id (not a dense visible index). Per-recipient broadcast
-  // remaps this to each recipient's own visible index via their
-  // visibleRoomProjection. null when the session hasn't sent its first
-  // presence_update yet or when the sender's claimed room was rejected
-  // by the allowedRooms sanitizer.
+  // GLOBAL room id — the SOLE presence room reference. Per-recipient broadcast
+  // filters by each recipient's visible rooms but emits this SAME id (no dense
+  // remap post-cut). null when the session hasn't sent its first presence_update
+  // yet or when the sender's claimed room was rejected by the access sanitizer.
   currentRoomId: string | null;
   focusedAgentId: string | null;
   viewMode: "office" | "log" | "away";
@@ -79,10 +78,10 @@ export function getPresence(connectionId: string): PresenceState | undefined {
   return presences.get(connectionId);
 }
 
-// Snapshot of all current presence rows. Per-recipient filtering and
-// the global-id → visible-index remap happen in the broadcast helper
-// (server/index.ts) so this module stays free of room-projection
-// dependencies.
+// Snapshot of all current presence rows. Per-recipient VISIBILITY filtering
+// happens in the broadcast helper (server/index.ts) — entries carry the stable
+// currentRoomId unchanged (no remap) — so this module stays free of
+// room-projection dependencies.
 export function listAllPresence(): PresenceState[] {
   return Array.from(presences.values());
 }

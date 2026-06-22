@@ -488,10 +488,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return agents.get(agentId)?.sessionId ?? null;
   }
 
-  // Phase 3c (slice 2): resolve a stable roomId to its dense index in
-  // officeState.rooms. roomId is the authority; the dense `room` index is now a
-  // derived wire/persist/display field, recomputed from roomId here rather than
-  // read off AgentInfo.room. A live agent's roomId always names a real room
+  // Phase 3c: resolve a stable roomId to its GLOBAL index in officeState.rooms
+  // (canonical room order). roomId is the authority; this index is a derived
+  // persist/display value — the persistence bucket order and the manifest's
+  // human-readable room number — recomputed from roomId here. A live agent's
+  // roomId always names a real room
   // (closeRoom is empty-only; roomId is validated at spawn, move, and restore),
   // so a miss is a genuine invariant breach: log loud and return -1 — NEVER
   // silently coerce to room 0. Callers apply their own safe fallback off -1.
@@ -884,8 +885,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     const rooms = officeState.rooms;
     writeManifest(
       [...agents.values()].map((a) => {
-        // Phase 3c: the manifest's dense `room` (and its room name) is a derived
-        // wire-compat field, recomputed from the authoritative roomId.
+        // Phase 3c: the manifest's `room` number (and its room name) is a
+        // derived display field, recomputed from the authoritative roomId.
         const roomIdx = globalRoomIndexOf(a.info.roomId);
         return {
           id: a.info.id,
@@ -916,8 +917,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       agents: [] as PersistedAgent[],
     }));
     for (const a of agents.values()) {
-      // Phase 3c: bucket into the dense persisted array by the roomId-derived
-      // index, not AgentInfo.room (the dense field is now wire-compat only).
+      // Phase 3c: bucket into the persisted rooms array by the roomId-derived
+      // global index (AgentInfo no longer carries a dense room field).
       const roomIdx = globalRoomIndexOf(a.info.roomId);
       if (roomIdx >= 0 && roomIdx < persistedRooms.length) {
         persistedRooms[roomIdx].agents.push({
@@ -1092,10 +1093,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           ?.topicMessageCount ?? 0)
       : 0;
     const desk = opts.deskOverride ?? p.desk;
-    // Phase 3c: stamp the stable roomId next to the dense index. The container
-    // room (opts.roomIdx) is the physical truth; cross-check any persisted
-    // roomId and prefer the container, clamping + logging if the index is out
-    // of range (corrupt state) rather than silently mapping to 0.
+    // Phase 3c: resolve the agent's stable roomId from its container room
+    // (opts.roomIdx is the physical truth from the persisted bucket). Clamp +
+    // log if the index is out of range (corrupt state) rather than silently
+    // mapping to room 0.
     const containerRoom = officeState.rooms[opts.roomIdx];
     if (!containerRoom) {
       console.error(
@@ -1111,9 +1112,6 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       id: p.id,
       name: p.name,
       desk,
-      // Clamp the dense index together with roomId when the container is out of
-      // range, so the two never disagree (matches the "clamping to room 0" log).
-      room: containerRoom ? opts.roomIdx : 0,
       roomId,
       cwd: p.cwd,
       outfit: p.outfit,

@@ -117,8 +117,9 @@ interface HandlerDeps {
   // State accessors (live references — read at call time)
   agents: Map<string, ManagedAgent>;
   getRooms: () => RoomWire[];
-  // Phase 3c: roomId is the room authority; the dense index / room object are
-  // derived from it via these instead of reading AgentInfo.room.
+  // Phase 3c: roomId is the room authority; the global room index / room object
+  // are derived from it via these helpers (AgentInfo no longer carries a dense
+  // room index).
   globalRoomIndexOf: (roomId: string) => number;
   roomById: (roomId: string) => RoomWire | undefined;
   getOfficeConfig: () => OfficeSettings;
@@ -497,7 +498,8 @@ export function createCommandHandling(deps: HandlerDeps) {
       deps.addLogEntry(agentId, "user_message", rawText, userMeta);
 
       // Gather all agents grouped by room. Phase 3c: group/sort/label by the
-      // roomId-derived dense index, not AgentInfo.room.
+      // roomId-derived global room index (AgentInfo no longer carries a dense
+      // room field).
       const allAgents = [...deps.agents.values()];
       const roomMap = new Map<number, ManagedAgent[]>();
       for (const a of allAgents) {

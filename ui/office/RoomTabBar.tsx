@@ -327,12 +327,12 @@ export function RoomTabBar() {
               presences={roomPresences}
               selfConnectionId={selfConnectionId}
             />
-            {/* Close button: empty rooms only. `i > 0` is NOT semantically
-                correct under a custom view order; it is a temporary default-
-                order-compatible approximation of the server's protected-first-
-                room rule, until RoomWire carries an explicit protected/
-                deletable capability (slice 4). Server stays authoritative. */}
-            {i > 0 && isEmpty && (
+            {/* Close button: closeable-when-empty rooms only.
+                room.canCloseWhenEmpty is the server-authoritative
+                protected-first-room signal (false only for the canonical first
+                room, derived from canonical order — correct even under a custom
+                view order). Emptiness stays a client-side reactive check. */}
+            {room.canCloseWhenEmpty && isEmpty && (
               <button
                 onClick={(e) => {
                   e.stopPropagation();

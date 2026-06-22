@@ -1,17 +1,17 @@
-// Phase 1.2 — Presence projection characterization.
+// Phase 3c slice 4 — Presence projection, id-keyed wire.
 //
-// Presence is its own connectionId-keyed map (server/presence.ts) with a
-// recipient-specific remap layered on top in server/index.ts: an inbound
-// presence_update carries the sender's DENSE visible room index, which the
-// server resolves through the sender's visibleRoomProjection back to a GLOBAL
-// roomId (sanitized against allowedRooms, else null); the stored value is the
-// global roomId, and presence_list re-emits it per recipient using each
-// recipient's OWN dense index. This dense remap is exactly what 3c replaces
-// (id-keyed wire), so it is frozen here, through the wire only.
+// Presence is its own connectionId-keyed map (server/presence.ts). An inbound
+// presence_update carries the sender's GLOBAL currentRoomId, which the server
+// validates directly against the sender's room access (live room + canAccess,
+// else null) and stores as-is. presence_list re-emits that stable id to every
+// recipient, filtered to the rooms each recipient can see. There is no dense
+// per-recipient remap anymore — the id is identical across recipients; only
+// membership (is the room visible to this recipient?) is per-recipient.
 //
 // Determinism: a presence_update that changes visible state triggers a
 // synchronous pushPresenceListToEachWs; value-based waiters (or a count-based
-// wait when asserting an omission) settle without arbitrary sleeps.
+// wait when asserting an omission / a no-op-on-the-id change) settle without
+// arbitrary sleeps.
 
 import { describe, it, expect, afterEach } from "bun:test";
 import {
@@ -101,22 +101,35 @@ function presenceEntry(m: Msg, connectionId: string): PresenceInfo | undefined {
   );
 }
 
-function presenceUpdate(sock: TestSocket, currentRoom: number | null): void {
+function presenceUpdate(sock: TestSocket, currentRoomId: string | null): void {
   sock.send({
     type: "presence_update",
-    currentRoom,
+    currentRoomId,
     focusedAgentId: null,
     viewMode: "office",
   });
 }
 
-describe("presence projection — recipient-specific remap (Phase 1.2)", () => {
-  it("a restricted member's dense index is stored as a global roomId and re-emitted per recipient", async () => {
-    // Member sees [R2,R3] (R1 hidden) → their dense index 1 == global R3.
-    // The owner (full access, initial order) sees the SAME room at its global
-    // index 2; the member sees it at their dense index 1. The stored value is
-    // the global roomId; the wire is always recipient-dense (this distinction
-    // is what 3c's id-keyed wire makes explicit).
+// Count of presence_list messages a socket has received so far — for count-based
+// waits when asserting an omission or an id-stable (value-unchanged) rebroadcast.
+const presenceCount = (sock: TestSocket): number =>
+  bag(sock).filter((m) => m.type === "presence_list").length;
+
+async function waitForPresenceAfter(
+  sock: TestSocket,
+  before: number,
+  label: string,
+): Promise<void> {
+  const deadline = Date.now() + 2000;
+  while (presenceCount(sock) <= before) {
+    if (Date.now() > deadline)
+      throw new Error(`no presence rebroadcast: ${label}`);
+    await sleep(5);
+  }
+}
+
+describe("presence — id-keyed wire (Phase 3c slice 4)", () => {
+  it("currentRoomId is the stable global id, identical across recipients", async () => {
     server = await startTestServer();
     const [r2, r3] = makeRoomsBeforeOwner(server, ["R2", "R3"]);
     const owner = await server.seedOwner("Boss");
@@ -127,72 +140,29 @@ describe("presence projection — recipient-specific remap (Phase 1.2)", () => {
     const memberSock = await connectSettled(server, member.rawSessionId);
     const memberCid = connectionIdOf(memberSock);
 
-    presenceUpdate(memberSock, 1); // member's dense index 1 → R3
+    presenceUpdate(memberSock, r3);
 
-    // Owner sees the member's ghost at the GLOBAL index of R3 (== 2 here only
-    // because the owner is full-access and the order is the initial one).
+    // Both the owner (full access) and the member see the SAME stable id — no
+    // per-recipient remap. R3 is visible to both, so both render the ghost.
     const ownerView = await waitForMessageWhere(
       ownerSock,
       (m) =>
         m.type === "presence_list" &&
-        presenceEntry(m, memberCid)?.currentRoom === 2,
-    );
-    expect(presenceEntry(ownerView, memberCid)!.currentRoom).toBe(2);
-
-    // The member sees their OWN ghost at their dense index 1 — same underlying
-    // room (R3), different per-recipient index.
-    const memberView = await waitForMessageWhere(
-      memberSock,
-      (m) =>
-        m.type === "presence_list" &&
-        presenceEntry(m, memberCid)?.currentRoom === 1,
-    );
-    expect(presenceEntry(memberView, memberCid)!.currentRoom).toBe(1);
-  });
-
-  it("3c slice 1: additive presence.currentRoomId is the stable global roomId — identical across recipients while the dense currentRoom differs", async () => {
-    // Slice-1 gate (Reviewer1): presence carries an additive currentRoomId that
-    // is ALWAYS the global stable room id (never a dense/visible value), so it
-    // reads the same for every recipient even though the dense currentRoom is
-    // per-recipient. This is the invariant the slice-4 cut relies on when it
-    // drops the dense currentRoom.
-    server = await startTestServer();
-    const [r2, r3] = makeRoomsBeforeOwner(server, ["R2", "R3"]);
-    const owner = await server.seedOwner("Boss");
-    const member = await server.seedMember("Mia");
-
-    const ownerSock = await connectSettled(server, owner.rawSessionId);
-    await setAccess(ownerSock, member.username, [r2, r3]);
-    const memberSock = await connectSettled(server, member.rawSessionId);
-    const memberCid = connectionIdOf(memberSock);
-
-    presenceUpdate(memberSock, 1); // member dense index 1 → R3
-
-    // Owner sees dense index 2, member sees dense index 1 — same underlying room.
-    const ownerView = await waitForMessageWhere(
-      ownerSock,
-      (m) =>
-        m.type === "presence_list" &&
-        presenceEntry(m, memberCid)?.currentRoom === 2,
+        presenceEntry(m, memberCid)?.currentRoomId === r3,
     );
     const memberView = await waitForMessageWhere(
       memberSock,
       (m) =>
         m.type === "presence_list" &&
-        presenceEntry(m, memberCid)?.currentRoom === 1,
+        presenceEntry(m, memberCid)?.currentRoomId === r3,
     );
-    const ownerEntry = presenceEntry(ownerView, memberCid)!;
-    const memberEntry = presenceEntry(memberView, memberCid)!;
-    expect(ownerEntry.currentRoom).toBe(2);
-    expect(memberEntry.currentRoom).toBe(1);
-    // Additive global id: identical across recipients, the stable name of the
-    // room each per-recipient dense index resolves to.
-    expect(ownerEntry.currentRoomId).toBe(r3);
-    expect(memberEntry.currentRoomId).toBe(r3);
+    expect(presenceEntry(ownerView, memberCid)!.currentRoomId).toBe(r3);
+    expect(presenceEntry(memberView, memberCid)!.currentRoomId).toBe(r3);
   });
 
-  it("an out-of-bounds / out-of-allowed index is clamped to null and the ghost is omitted from the wire", async () => {
+  it("an inaccessible or unknown currentRoomId is clamped to null and the ghost is omitted", async () => {
     server = await startTestServer();
+    const r1 = server.agentManager.getRooms()[0].id;
     const [r2, r3] = makeRoomsBeforeOwner(server, ["R2", "R3"]);
     const owner = await server.seedOwner("Boss");
     const member = await server.seedMember("Mia");
@@ -203,33 +173,56 @@ describe("presence projection — recipient-specific remap (Phase 1.2)", () => {
     const memberCid = connectionIdOf(memberSock);
 
     // A valid ghost first, so we can observe it being dropped.
-    presenceUpdate(memberSock, 0); // R2
+    presenceUpdate(memberSock, r2);
     await waitForMessageWhere(
       ownerSock,
       (m) => m.type === "presence_list" && !!presenceEntry(m, memberCid),
     );
 
-    // Out-of-bounds dense index → clamped to null → ghost omitted entirely.
-    const before = bag(ownerSock).filter(
-      (m) => m.type === "presence_list",
-    ).length;
-    presenceUpdate(memberSock, 5);
-    const deadline = Date.now() + 2000;
-    while (
-      bag(ownerSock).filter((m) => m.type === "presence_list").length <= before
-    ) {
-      if (Date.now() > deadline)
-        throw new Error("no presence rebroadcast after OOB update");
-      await sleep(5);
-    }
+    // R1 is a real room but NOT in the member's access → canAccess fails →
+    // clamped to null → ghost omitted entirely. (An unknown id fails the
+    // live-room check the same way.) The flip from r2 to null is a change, so
+    // it rebroadcasts.
+    const before = presenceCount(ownerSock);
+    presenceUpdate(memberSock, r1);
+    await waitForPresenceAfter(ownerSock, before, "inaccessible update");
     const lists = bag(ownerSock).filter((m) => m.type === "presence_list");
     expect(presenceEntry(lists[lists.length - 1], memberCid)).toBeUndefined();
   });
 
-  it("reorder_rooms rebroadcasts presence with remapped indices while the global room identity is stable", async () => {
-    // The stored currentRoomId (a global roomId) is untouched by reorder; only
-    // the emitted dense index changes. Reorder chosen so the index DEFINITELY
-    // differs (R1: index 0 → index 2).
+  it("a ghost in a room the recipient can't see is omitted for that recipient", async () => {
+    server = await startTestServer();
+    const r1 = server.agentManager.getRooms()[0].id;
+    const [r2, r3] = makeRoomsBeforeOwner(server, ["R2", "R3"]);
+    const owner = await server.seedOwner("Boss");
+    const member = await server.seedMember("Mia");
+
+    const ownerSock = await connectSettled(server, owner.rawSessionId);
+    await setAccess(ownerSock, member.username, [r2, r3]);
+    const memberSock = await connectSettled(server, member.rawSessionId);
+    const ownerCid = connectionIdOf(ownerSock);
+
+    // Owner parks their ghost in R1 — a room the member has no access to. The
+    // id is recipient-independent, but VISIBILITY is per-recipient: buildPresence
+    // ListFor filters the owner's ghost out of the member's list.
+    const before = presenceCount(memberSock);
+    presenceUpdate(ownerSock, r1);
+    await waitForMessageWhere(
+      ownerSock,
+      (m) =>
+        m.type === "presence_list" &&
+        presenceEntry(m, ownerCid)?.currentRoomId === r1,
+    );
+    await waitForPresenceAfter(memberSock, before, "owner parked in R1");
+    const memberLists = bag(memberSock).filter(
+      (m) => m.type === "presence_list",
+    );
+    expect(
+      presenceEntry(memberLists[memberLists.length - 1], ownerCid),
+    ).toBeUndefined();
+  });
+
+  it("reorder_rooms keeps the ghost's stable currentRoomId (no dense remap, not dropped)", async () => {
     server = await startTestServer();
     const r1 = server.agentManager.getRooms()[0].id;
     const [r2, r3] = makeRoomsBeforeOwner(server, ["R2", "R3"]);
@@ -238,23 +231,24 @@ describe("presence projection — recipient-specific remap (Phase 1.2)", () => {
     const ownerSock = await connectSettled(server, owner.rawSessionId);
     const ownerCid = connectionIdOf(ownerSock);
 
-    presenceUpdate(ownerSock, 0); // R1 at global index 0
+    presenceUpdate(ownerSock, r1);
     await waitForMessageWhere(
       ownerSock,
       (m) =>
         m.type === "presence_list" &&
-        presenceEntry(m, ownerCid)?.currentRoom === 0,
+        presenceEntry(m, ownerCid)?.currentRoomId === r1,
     );
 
-    // Move R1 to the end of the global order; the ghost's room is still R1.
+    // Reorder R1 to the end of the owner's view. Pre-cut this remapped a dense
+    // index on the wire; post-cut the wire carries the stable id, so the ghost's
+    // currentRoomId is UNCHANGED and the ghost is not dropped (the reorder still
+    // rebroadcasts presence to the caller).
+    const before = presenceCount(ownerSock);
     ownerSock.send({ type: "reorder_rooms", order: [r3, r2, r1] });
-    const after = await waitForMessageWhere(
-      ownerSock,
-      (m) =>
-        m.type === "presence_list" &&
-        presenceEntry(m, ownerCid)?.currentRoom === 2,
-    );
-    // Same room (R1), new dense index (2) — the ghost was remapped, not dropped.
-    expect(presenceEntry(after, ownerCid)!.currentRoom).toBe(2);
+    await waitForPresenceAfter(ownerSock, before, "reorder");
+    const lists = bag(ownerSock).filter((m) => m.type === "presence_list");
+    expect(
+      presenceEntry(lists[lists.length - 1], ownerCid)!.currentRoomId,
+    ).toBe(r1);
   });
 });
