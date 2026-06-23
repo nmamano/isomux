@@ -1,12 +1,14 @@
 // Tasks resource handlers — Phase 3a slice 1. The global shared board on the
 // unified REST surface (opIds tasks.{list,get,create,update,claim,done,delete}).
 //
-// Strangler EXPAND: these REST handlers and the legacy /tasks HTTP routes + the
-// WS update_task/delete_task arms all delegate to the SAME core ops (the
-// AgentManager task methods, injected via TasksDeps). The manager emits the
-// domain tasks_changed event, which the wireEventSinks sink routes through the
-// emit() helper as the `all`-audience `tasks` event — so the handler never emits
-// directly. The HTTP response here is the caller's own outcome (double-signal).
+// Strangler: these REST handlers and the legacy loopback /tasks HTTP routes
+// delegate to the SAME core ops (the AgentManager task methods, injected via
+// TasksDeps). The office UI now drives create/update/delete through these REST
+// routes — the WS add_task/update_task/delete_task arms are retired. The manager
+// emits the domain tasks_changed event, which the wireEventSinks sink routes
+// through the emit() helper as the `all`-audience `tasks` event — so the handler
+// never emits directly. The HTTP response here is the caller's own outcome
+// (double-signal).
 //
 // [behavior-change] tasks.create: createdBy + username come from the TOKEN
 // identity (deps.attributionFor), NEVER the request body — so the boss cannot be

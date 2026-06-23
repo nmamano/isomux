@@ -744,16 +744,17 @@ async function applyAccessSettings(
   };
 }
 
-// --- Shared cores for the Phase 3a slice 3a.5 stranglers --------------------
-// office.setSettings / validate.env / backends.listModels each run through ONE
-// core called by BOTH the new REST handler and the still-living WS arm, so the
-// two transports cannot drift. Object-level AUTH is NOT here: REST enforces it in
-// the route table (guard + precondition), the WS arms keep their inline checks.
+// --- Validate-then-apply cores for the office/validate/backends REST handlers -
+// office.setSettings / validate.env / backends.listModels each delegate to ONE
+// core here (the single validation+mutation seam its REST handler calls). The WS
+// arms that once shared these cores are all retired (3d slices 1 and 2, and the
+// office/tasks slice). Object-level AUTH is NOT here: REST enforces it in the
+// route table (guard + precondition).
 
-// office.setSettings + update_office_settings. Validates COMPLETELY before it
-// mutates/emits (no double-signal on an invalid env path or over-long name).
-// name === undefined PRESERVES the current name (stale-tab safety); null/empty
-// CLEARS it. setOfficeSettings emits office_settings_updated via the event sink.
+// office.setSettings core. Validates COMPLETELY before it mutates/emits (no
+// double-signal on an invalid env path or over-long name). name === undefined
+// PRESERVES the current name (a caller that omits it, e.g. a stale tab); null or
+// empty CLEARS it. setOfficeSettings emits office_settings_updated via the sink.
 function applyOfficeSettings(input: {
   prompt: string | null;
   envFile: string | null;
@@ -3036,48 +3037,6 @@ async function dispatchCommand(
       }
       break;
     }
-    case "update_office_settings": {
-      // Office-wide settings (prompt, envFile, display name) are
-      // owner-only. Defense-in-depth: the UI also renders read-only for
-      // members, but the server is the authority.
-      if (session.role !== "owner") {
-        ws.send(
-          JSON.stringify({
-            type: "settings_save_response",
-            requestId: cmd.requestId,
-            ok: false,
-            error: "Only owners can edit office settings.",
-          }),
-        );
-        break;
-      }
-      // Validate-then-apply via the shared core (also used by office.setSettings
-      // REST): trims envFile, validates the env path + name length BEFORE any
-      // mutate/emit (no double-signal on invalid), preserves name omitted-vs-null,
-      // then emits office_settings_updated through the AgentManager event sink.
-      const r = applyOfficeSettings({
-        prompt: cmd.prompt,
-        envFile: cmd.envFile ?? null,
-        name: cmd.name,
-      });
-      ws.send(
-        JSON.stringify(
-          r.ok
-            ? {
-                type: "settings_save_response",
-                requestId: cmd.requestId,
-                ok: true,
-              }
-            : {
-                type: "settings_save_response",
-                requestId: cmd.requestId,
-                ok: false,
-                error: r.error,
-              },
-        ),
-      );
-      break;
-    }
     case "update_room_settings": {
       if (!roomAllowedForSession(session, cmd.roomId)) {
         ws.send(
@@ -3109,42 +3068,6 @@ async function dispatchCommand(
           }),
         );
       }
-      break;
-    }
-    case "add_task": {
-      agentManager.addTask(cmd.title, session.username, {
-        description: cmd.description,
-        priority:
-          cmd.priority && isValidPriority(cmd.priority)
-            ? cmd.priority
-            : undefined,
-        assignee: cmd.assignee,
-        username: session.username,
-      });
-      break;
-    }
-    case "update_task": {
-      const c = cmd.changes;
-      const changes: Partial<
-        Pick<
-          TaskItem,
-          "title" | "description" | "priority" | "status" | "assignee"
-        >
-      > = {};
-      if (c.title !== undefined) changes.title = String(c.title);
-      if (c.description !== undefined)
-        changes.description = c.description ? String(c.description) : undefined;
-      if (c.assignee !== undefined)
-        changes.assignee = c.assignee ? String(c.assignee) : undefined;
-      if (c.status !== undefined && isValidStatus(c.status))
-        changes.status = c.status;
-      if (c.priority !== undefined && isValidPriority(c.priority))
-        changes.priority = c.priority;
-      agentManager.updateTask(cmd.id, changes);
-      break;
-    }
-    case "delete_task": {
-      agentManager.deleteTask(cmd.id);
       break;
     }
     case "create_room": {

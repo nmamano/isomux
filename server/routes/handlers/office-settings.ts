@@ -3,11 +3,12 @@
 // office.{getSettings,setSettings}). Owner-only — the route table gates both with
 // office:admin + officeOwner.
 //
-// Strangler EXPAND: office.setSettings (REST) and the legacy update_office_settings
-// WS arm BOTH delegate to the SAME shared core (applyOfficeSettings in the index
-// seam). The core validates COMPLETELY before it mutates/emits, so an invalid
-// env path or over-long name never produces a double-signal (no partial write,
-// no office_settings_updated). setSettings emits office_settings_updated via the
+// Strangler: office.setSettings (REST) delegates to the shared core
+// (applyOfficeSettings in the index seam); the legacy update_office_settings WS
+// arm that once shared it is retired (the office-prompt UI now PUTs here). The
+// core validates COMPLETELY before it mutates/emits, so an invalid env path or
+// over-long name never produces a double-signal (no partial write, no
+// office_settings_updated). setSettings emits office_settings_updated via the
 // existing AgentManager event sink — the handler never emits.
 //
 // office.getSettings returns the FULL OfficeSettings (incl envFile); envFile is

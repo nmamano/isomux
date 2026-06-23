@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useAppState } from "../store.tsx";
-import { send, addRawListener, removeRawListener } from "../ws.ts";
 import { apiFetch, ApiError } from "../api.ts";
+import type { OfficeSettingsReq } from "../../shared/contract-shapes.ts";
 import {
   dialogInput,
   dialogCancelBtn,
@@ -17,8 +17,8 @@ type ValidationStatus =
 export function OfficePromptModal({ onClose }: { onClose: () => void }) {
   const { office, isMobile, sessionContext } = useAppState();
   // Members can open this modal but can't edit it. Read-only state grays
-  // inputs and hides the Save button; the server also rejects
-  // update_office_settings from non-owner sessions.
+  // inputs and hides the Save button; the server also rejects the save from
+  // non-owner sessions (office.setSettings is gated by the officeOwner guard).
   const isOwner = sessionContext?.role === "owner";
   const readOnly = !isOwner;
   const [text, setText] = useState(office.prompt ?? "");
@@ -27,7 +27,6 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
   const [status, setStatus] = useState<ValidationStatus>({ kind: "idle" });
   const [saving, setSaving] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const requestIdRef = useRef<string>("");
 
   // Ask the server to re-validate the stored env file on open. Members
   // can't validate office env files (the server gates that command to
@@ -66,31 +65,27 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
   }, [office.envFile, readOnly]);
 
   function handleSave() {
-    const reqId = `office-save-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-    requestIdRef.current = reqId;
+    // Response-driven: HTTP correlates the outcome natively (no requestId / raw
+    // WS listener). Success closes; an ApiError surfaces server.message in the
+    // shared status slot; finally clears the saving latch. The shared-state
+    // office_settings_updated broadcast still applies the change echo-first.
     setSaving(true);
-    const listener = (data: string) => {
-      try {
-        const msg = JSON.parse(data);
-        if (msg.type === "settings_save_response" && msg.requestId === reqId) {
-          setSaving(false);
-          removeRawListener(listener);
-          if (msg.ok) {
-            onClose();
-          } else {
-            setStatus({ kind: "error", message: msg.error || "Save failed" });
-          }
-        }
-      } catch {}
-    };
-    addRawListener(listener);
-    send({
-      type: "update_office_settings",
-      requestId: reqId,
+    // Typed body: `name: null` clears the office name, omitted would preserve it
+    // — the contract distinction is compile-checked here, not only in the handler.
+    const body: OfficeSettingsReq = {
       prompt: text.trim() ? text : null,
       envFile: envFile.trim() || null,
       name: name.trim() || null,
-    });
+    };
+    apiFetch<void>("PUT", "/api/office/settings", body)
+      .then(() => onClose())
+      .catch((e) => {
+        setStatus({
+          kind: "error",
+          message: e instanceof ApiError ? e.message : "Save failed",
+        });
+      })
+      .finally(() => setSaving(false));
   }
 
   // Place cursor at end of text on mount. Skip for read-only mode so we

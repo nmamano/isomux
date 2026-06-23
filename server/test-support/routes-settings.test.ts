@@ -1,25 +1,19 @@
-// Phase 1.4(b) — Office / room settings command characterization.
+// Phase 1.4(b) — Room settings command characterization.
 //
-// These are WebSocket commands (update_office_settings / update_room_settings),
-// not HTTP routes — but the Phase 1.4 net (build-order item 8) explicitly lists
-// "settings", and they are the current transport surface Phase 3 strangles onto
-// office.setSettings / rooms.setSettings. They are characterized here in their
-// CURRENT command form: this file is included because settings are part of the
-// current transport surface, not because it is HTTP. projection.test.ts already
-// freezes the update_user (room-access) slice; these settings slices were
-// uncovered.
+// update_room_settings is the remaining WebSocket settings command (rooms get
+// strangled onto rooms.setSettings in a later 3d slice). The office-settings WS
+// arm (update_office_settings) was retired when the UI cut over to
+// office.setSettings; its characterization now lives in
+// routes-office-settings-rest.test.ts (REST behavior + shared-core parity).
+// projection.test.ts freezes the update_user room-access slice; this file
+// freezes the room-prompt slice.
 //
 // Boundary = the settings_save_response ack (matched by requestId — the harness
 // waitFor only filters by type, so a stale buffered ack would otherwise be
-// returned) AND the broadcast event, with agentManager office/room state as
-// persistence confirmation.
+// returned) AND the room_settings_updated broadcast, with agentManager room
+// state as persistence confirmation.
 //
-// Notable current behaviors frozen here:
-//   - Office settings are owner-only; a member is rejected at the command.
-//   - Name length is capped at 60; an absolute env path is required (a relative
-//     path is rejected deterministically, touching no real home).
-//   - Name omitted-vs-null: omitting `name` preserves the current name; an
-//     explicit null/empty clears it. (A stale client tab omits the field.)
+// Notable current behavior frozen here:
 //   - update_room_settings checks ACCESS before existence, so an unknown room
 //     id returns "You don't have access to that room" even for an owner — the
 //     "Room not found" branch is effectively unreachable via this command.
@@ -82,98 +76,6 @@ async function settingsCmd(
   await waitUntil(() => !!find(), 2000, `settings_save_response ${requestId}`);
   return find()!;
 }
-
-describe("routes/settings: office settings (owner-only) (Phase 1.4b)", () => {
-  it("owner update succeeds, persists, and broadcasts office_settings_updated", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Boss");
-    const sock = await srv.connectWs(owner.rawSessionId);
-    const resp = await settingsCmd(sock, {
-      type: "update_office_settings",
-      prompt: "office prompt",
-      name: "Acme Office",
-    });
-    expect(resp.ok).toBe(true);
-    // Persistence confirmation.
-    const settings = srv.agentManager.getOfficeSettings();
-    expect(settings.prompt).toBe("office prompt");
-    expect(settings.name).toBe("Acme Office");
-    // Broadcast confirmation (office settings are not room-scoped).
-    await sock.waitFor("office_settings_updated");
-  });
-
-  it("a member is rejected -> Only owners can edit office settings", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Boss");
-    const member = await srv.seedMember("Mia");
-    const sock = await srv.connectWs(member.rawSessionId);
-    const resp = await settingsCmd(sock, {
-      type: "update_office_settings",
-      prompt: "nope",
-    });
-    expect(resp.ok).toBe(false);
-    expect(resp.error).toBe("Only owners can edit office settings.");
-    // Office state untouched.
-    expect(srv.agentManager.getOfficeSettings().prompt).toBeNull();
-  });
-
-  it("name over 60 chars is rejected", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Boss");
-    const sock = await srv.connectWs(owner.rawSessionId);
-    const resp = await settingsCmd(sock, {
-      type: "update_office_settings",
-      name: "x".repeat(61),
-    });
-    expect(resp.ok).toBe(false);
-    expect(resp.error).toBe("Office name must be 60 characters or fewer");
-  });
-
-  it("a relative env path is rejected (must be absolute) without touching home", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Boss");
-    const sock = await srv.connectWs(owner.rawSessionId);
-    const resp = await settingsCmd(sock, {
-      type: "update_office_settings",
-      envFile: "./does-not-exist.env",
-    });
-    expect(resp.ok).toBe(false);
-    expect(resp.error).toBe("env file path must be absolute");
-  });
-
-  it("name omitted-vs-null: omitting preserves, explicit null clears (the fragile slice)", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Boss");
-    const sock = await srv.connectWs(owner.rawSessionId);
-    // Establish a name. Primary signal is the ack; state is confirmation.
-    const established = await settingsCmd(sock, {
-      type: "update_office_settings",
-      prompt: "P1",
-      name: "KeepMe",
-    });
-    expect(established.ok).toBe(true);
-    // Omit `name` while changing prompt -> name preserved (stale-tab safety).
-    const omitted = await settingsCmd(sock, {
-      type: "update_office_settings",
-      prompt: "P2",
-    });
-    expect(omitted.ok).toBe(true);
-    expect(srv.agentManager.getOfficeSettings().name).toBe("KeepMe");
-    // Explicit null -> cleared.
-    const nulled = await settingsCmd(sock, {
-      type: "update_office_settings",
-      prompt: "P3",
-      name: null,
-    });
-    expect(nulled.ok).toBe(true);
-    expect(srv.agentManager.getOfficeSettings().name).toBeNull();
-  });
-});
 
 describe("routes/settings: room settings (access-gated) (Phase 1.4b)", () => {
   it("owner update succeeds, persists the room prompt, and broadcasts room_settings_updated", async () => {

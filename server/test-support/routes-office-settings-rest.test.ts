@@ -7,9 +7,8 @@
 //   - setSettings validates COMPLETELY before mutate/emit: an invalid env path or
 //     over-long name returns 400 and does NOT mutate state or emit (no double-
 //     signal). Valid save 204 + persists + emits office_settings_updated.
-//   - name omitted-vs-null at the REST boundary (shared core with the WS arm).
-//   - WS parity: the legacy update_office_settings arm goes through the SAME
-//     applyOfficeSettings core.
+//   - name omitted-vs-null at the REST boundary: omitting preserves the current
+//     name, explicit null clears it (the validate-then-apply core's semantics).
 //
 // KNOWN-LEAK BRIDGE (do NOT "fix" by accident): office_settings_updated still
 // broadcasts envFile to every browser via the legacy broadcast(event) bridge.
@@ -24,11 +23,7 @@
 import { describe, it, expect, afterEach } from "bun:test";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
-import {
-  startTestServer,
-  type TestServer,
-  type TestSocket,
-} from "./harness.ts";
+import { startTestServer, type TestServer } from "./harness.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import type { AgentInfo, OfficeSettings } from "../../shared/types.ts";
 
@@ -296,55 +291,5 @@ describe("routes/office.setSettings REST", () => {
     ).toBe(401);
     // Owner-only write never mutated.
     expect(srv.agentManager.getOfficeSettings().prompt).toBeNull();
-  });
-});
-
-describe("routes/office.setSettings: WS parity (shared core)", () => {
-  it("legacy update_office_settings goes through applyOfficeSettings: same validation + persist", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Boss");
-    const sock: TestSocket = await srv.connectWs(owner.rawSessionId);
-
-    // Valid save via WS.
-    sock.send({
-      type: "update_office_settings",
-      prompt: "via ws",
-      name: "WsName",
-      requestId: "w1",
-    });
-    const okResp = (await sock.waitFor("settings_save_response")) as {
-      ok?: boolean;
-    };
-    expect(okResp.ok).toBe(true);
-    expect(srv.agentManager.getOfficeSettings().prompt).toBe("via ws");
-    expect(srv.agentManager.getOfficeSettings().name).toBe("WsName");
-
-    // Invalid env path via WS -> same core rejection, no mutation of prompt.
-    sock.send({
-      type: "update_office_settings",
-      prompt: "should not stick",
-      envFile: "./relative.env",
-      requestId: "w2",
-    });
-    await waitUntil(
-      () =>
-        sock.messages.some(
-          (m) =>
-            (m as { type?: string; requestId?: string }).type ===
-              "settings_save_response" &&
-            (m as { requestId?: string }).requestId === "w2",
-        ),
-      2000,
-      "w2 ack",
-    );
-    const errResp = sock.messages.find(
-      (m) =>
-        (m as { type?: string; requestId?: string }).type ===
-          "settings_save_response" &&
-        (m as { requestId?: string }).requestId === "w2",
-    ) as { ok?: boolean };
-    expect(errResp.ok).toBe(false);
-    expect(srv.agentManager.getOfficeSettings().prompt).toBe("via ws");
   });
 });

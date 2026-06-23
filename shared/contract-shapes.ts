@@ -187,7 +187,10 @@ export interface AccessSettingsReq {
 export interface OfficeSettingsReq {
   prompt: string | null;
   envFile: string | null;
-  name?: string;
+  // Optional: omitted preserves the current office name (a stale client tab),
+  // explicit null/empty clears it, a string sets it. The handler keys on the
+  // undefined-vs-null distinction, so null must be representable in the contract.
+  name?: string | null;
 }
 
 export interface ValidateCwdReq {

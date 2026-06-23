@@ -1,7 +1,11 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { useAppState } from "../store.tsx";
-import { send } from "../ws.ts";
+import { apiFetch } from "../api.ts";
 import type { TaskItem, TaskStatus, TaskPriority } from "../../shared/types.ts";
+import type {
+  TaskCreateReq,
+  TaskUpdateReq,
+} from "../../shared/contract-shapes.ts";
 import { dialogLabel, dialogInput } from "./dialog-styles.ts";
 
 type SortField =
@@ -56,7 +60,6 @@ function timeAgo(ts: number): string {
 function TaskDetailPanel({
   task,
   onClose,
-  username,
   mode = "edit",
   agents = [],
   closeRef,
@@ -64,7 +67,6 @@ function TaskDetailPanel({
 }: {
   task?: TaskItem;
   onClose: () => void;
-  username: string;
   mode?: "edit" | "create";
   agents?: { name: string }[];
   closeRef?: React.MutableRefObject<(() => void) | null>;
@@ -142,26 +144,32 @@ function TaskDetailPanel({
   function handleSave() {
     if (!title.trim()) return;
     if (mode === "create") {
-      send({
-        type: "add_task",
+      // Fire-and-forget (parity with the old WS arm): the `tasks` broadcast
+      // applies the change echo-first, so the optimistic onClose() below stays.
+      // `username` is dropped — the server derives createdBy + username from the
+      // caller's token identity (attributionFor), never the request body.
+      const body: TaskCreateReq = {
         title: title.trim(),
         description: description.trim() || undefined,
         priority: priority || undefined,
         assignee: assignee.trim() || undefined,
-        username,
-      });
+      };
+      apiFetch<TaskItem>("POST", "/api/tasks", body).catch(() => {});
     } else if (task) {
-      send({
-        type: "update_task",
-        id: task.id,
-        changes: {
-          title: title.trim(),
-          description: description.trim() || undefined,
-          priority: priority || undefined,
-          status,
-          assignee: assignee.trim() || undefined,
-        },
-      });
+      // FLAT body (TaskUpdateReq), NOT { changes }. Blank fields are sent as
+      // explicit `undefined` properties exactly as the WS arm did; JSON.stringify
+      // drops them, so the server leaves those fields untouched (unchanged
+      // semantics — a blank does not clear an existing value).
+      const body: TaskUpdateReq = {
+        title: title.trim(),
+        description: description.trim() || undefined,
+        priority: priority || undefined,
+        status,
+        assignee: assignee.trim() || undefined,
+      };
+      apiFetch<TaskItem>("PATCH", `/api/tasks/${task.id}`, body).catch(
+        () => {},
+      );
     }
     onClose();
   }
@@ -171,7 +179,8 @@ function TaskDetailPanel({
       setConfirmDelete(true);
       return;
     }
-    if (task) send({ type: "delete_task", id: task.id });
+    // Fire-and-forget: the `tasks` broadcast removes the row; optimistic close.
+    if (task) apiFetch<void>("DELETE", `/api/tasks/${task.id}`).catch(() => {});
     onClose();
   }
 
@@ -477,11 +486,9 @@ function TaskDetailPanel({
 }
 
 export function TaskView({
-  username,
   onClose,
   onFocusAgent,
 }: {
-  username: string;
   onClose: () => void;
   onFocusAgent?: (agentId: string) => void;
 }) {
@@ -1075,7 +1082,6 @@ export function TaskView({
               closeRef={closeRef}
               mode="create"
               onClose={() => setCreating(false)}
-              username={username}
               agents={agents}
             />
           ) : selectedTask ? (
@@ -1083,7 +1089,6 @@ export function TaskView({
               closeRef={closeRef}
               task={selectedTask}
               onClose={() => setSelectedId(null)}
-              username={username}
               agents={agents}
             />
           ) : null)}
@@ -1096,7 +1101,6 @@ export function TaskView({
             closeRef={closeRef}
             mode="create"
             onClose={() => setCreating(false)}
-            username={username}
             agents={agents}
             fullScreen
           />
@@ -1105,7 +1109,6 @@ export function TaskView({
             closeRef={closeRef}
             task={selectedTask}
             onClose={() => setSelectedId(null)}
-            username={username}
             agents={agents}
             fullScreen
           />

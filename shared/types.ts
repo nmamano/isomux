@@ -1074,42 +1074,11 @@ export type ClientCommand =
     }
   | { type: "editor_close"; agentId: string; path: string }
   | {
-      type: "update_office_settings";
-      requestId: string;
-      prompt: string | null;
-      envFile: string | null;
-      // Optional rather than `string | null` so a stale client tab from
-      // before the name field existed (which sends no `name` property)
-      // is distinguishable from an explicit clear. The server handler
-      // preserves the current name when this is undefined; explicit null
-      // or empty string clears it.
-      name?: string | null;
-    }
-  | {
       type: "update_room_settings";
       requestId: string;
       roomId: string;
       prompt: string | null;
     }
-  | {
-      type: "add_task";
-      title: string;
-      description?: string;
-      priority?: TaskPriority;
-      assignee?: string;
-      username: string;
-    }
-  | {
-      type: "update_task";
-      id: string;
-      changes: Partial<
-        Pick<
-          TaskItem,
-          "title" | "description" | "priority" | "status" | "assignee"
-        >
-      >;
-    }
-  | { type: "delete_task"; id: string }
   | { type: "create_room"; name?: string }
   | { type: "close_room"; roomId: string }
   | { type: "rename_room"; roomId: string; name: string }

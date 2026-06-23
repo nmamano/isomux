@@ -354,7 +354,6 @@ export function App() {
       )}
       {tasksOpen ? (
         <TaskView
-          username={username ?? ""}
           onClose={goHome}
           onFocusAgent={(agentId) => {
             setTasksOpen(false);

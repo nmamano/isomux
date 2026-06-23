@@ -3,6 +3,8 @@ import type {
   CronCreateReq,
   CronUpdateReq,
   CronPromptReq,
+  OfficeSettingsReq,
+  TaskCreateReq,
 } from "../shared/contract-shapes.ts";
 import type {
   AgentInfo,
@@ -864,6 +866,37 @@ export async function demoApi(
       shimEmit({ type: "cronjobs_prompt_updated", value: cronjobsPrompt });
       return undefined;
     }
+    // office.setSettings — set + broadcast office_settings_updated; no body
+    // (204-like). Mirrors the retired update_office_settings handleCommand:
+    // name === undefined preserves the current name (a stale tab), else it sets
+    // or clears. The demo has no env validation, so every save succeeds.
+    case "PUT /api/office/settings": {
+      const b = (body ?? {}) as OfficeSettingsReq;
+      const envFile = b.envFile && b.envFile.trim() ? b.envFile.trim() : null;
+      const name =
+        b.name === undefined
+          ? state.office.name
+          : b.name && b.name.trim()
+            ? b.name.trim()
+            : null;
+      emitEvents(state.setOfficeSettings(b.prompt, envFile, name));
+      return undefined;
+    }
+    // tasks.create — push + broadcast the `tasks` event; return the created task
+    // (the caller ignores it — fire-and-forget — but the contract shape is
+    // TaskItem). createdBy/username are token-derived in prod; demo user = Ricky.
+    case "POST /api/tasks": {
+      const b = (body ?? {}) as TaskCreateReq;
+      emitEvents(
+        state.addTask(b.title, "Ricky", {
+          description: b.description,
+          priority: b.priority,
+          assignee: b.assignee,
+          username: "Ricky",
+        }),
+      );
+      return state.tasks.at(-1);
+    }
   }
   // Param routes (matched by shape, since the id/agentType segment varies).
   // backends.listModels — the demo has no backend process to probe; an empty
@@ -927,6 +960,23 @@ export async function demoApi(
   // cron.runNow — the demo never fires runs; return a placeholder id (ignored).
   if (method === "POST" && /^\/api\/cronjobs\/[^/]+\/runs$/.test(pathname)) {
     return { runId: "demo-run" };
+  }
+  // tasks.update (PATCH) / tasks.delete (DELETE) — mutate the demo board and
+  // broadcast the `tasks` event. PATCH takes a FLAT TaskUpdateReq body and
+  // returns the merged task (caller ignores it); DELETE returns no body. The raw
+  // body is applied as-is (matching the retired update_task handleCommand), so a
+  // key carrying `undefined` clears that field — the demo's pre-cutover behavior.
+  const taskIdMatch = pathname.match(/^\/api\/tasks\/([^/]+)$/);
+  if (taskIdMatch && (method === "PATCH" || method === "DELETE")) {
+    const id = decodeURIComponent(taskIdMatch[1]);
+    if (method === "PATCH") {
+      // Raw body applied as-is (it satisfies the Partial change shape); a key
+      // carrying `undefined` clears that field — the demo's pre-cutover behavior.
+      emitEvents(state.updateTask(id, body ?? {}));
+      return state.tasks.find((t) => t.id === id);
+    }
+    emitEvents(state.deleteTask(id));
+    return undefined;
   }
   throw new Error(`demoApi: unhandled route ${route}`);
 }
@@ -1036,25 +1086,6 @@ export function handleCommand(cmd: ClientCommand) {
       emitEvents(state.resetTopic(cmd.agentId));
       break;
     }
-    case "update_office_settings": {
-      const envFile =
-        cmd.envFile && cmd.envFile.trim() ? cmd.envFile.trim() : null;
-      // Match the real server's stale-client preservation behavior; see
-      // server/index.ts update_office_settings.
-      const name =
-        cmd.name === undefined
-          ? state.office.name
-          : cmd.name && cmd.name.trim()
-            ? cmd.name.trim()
-            : null;
-      emitEvents(state.setOfficeSettings(cmd.prompt, envFile, name));
-      shimEmit({
-        type: "settings_save_response",
-        requestId: cmd.requestId,
-        ok: true,
-      });
-      break;
-    }
     case "update_room_settings": {
       emitEvents(state.setRoomSettings(cmd.roomId, cmd.prompt));
       shimEmit({
@@ -1062,25 +1093,6 @@ export function handleCommand(cmd: ClientCommand) {
         requestId: cmd.requestId,
         ok: true,
       });
-      break;
-    }
-    case "add_task": {
-      emitEvents(
-        state.addTask(cmd.title, cmd.username, {
-          description: cmd.description,
-          priority: cmd.priority,
-          assignee: cmd.assignee,
-          username: cmd.username,
-        }),
-      );
-      break;
-    }
-    case "update_task": {
-      emitEvents(state.updateTask(cmd.id, cmd.changes));
-      break;
-    }
-    case "delete_task": {
-      emitEvents(state.deleteTask(cmd.id));
       break;
     }
     case "send_message": {
