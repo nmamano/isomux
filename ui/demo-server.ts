@@ -11,6 +11,8 @@ import type {
   MoveAgentReq,
   SwapDesksReq,
   TopicReq,
+  SpawnReq,
+  EditAgentReq,
 } from "../shared/contract-shapes.ts";
 import type {
   AgentInfo,
@@ -39,7 +41,7 @@ import {
   normalizeHexColor,
 } from "../shared/avatar.ts";
 import { shimEmit } from "./ws.ts";
-import type { ApiMethod } from "./api.ts";
+import { ApiError, type ApiMethod } from "./api.ts";
 
 const state = new OfficeState();
 let embedMode = false;
@@ -919,6 +921,40 @@ export async function demoApi(
     // reorder_rooms had no handleCommand case and was silently dropped).
     case "PUT /api/me/view/order":
       return undefined;
+    // agents.spawn — build a demo agent, broadcast agent_added + a system log,
+    // RETURN { agent } (the dialog awaits the HTTP result; the old
+    // agent_save_response emit is gone). username is server-derived in prod; the
+    // demo user is Ricky.
+    case "POST /api/agents": {
+      const b = (body ?? {}) as SpawnReq;
+      const result = state.spawn({
+        name: b.name,
+        cwd: b.cwd,
+        permissionMode: b.permissionMode ?? "default",
+        desk: b.desk,
+        roomId: b.roomId,
+        customInstructions: b.customInstructions,
+        outfit: b.outfit,
+        modelFamily: b.modelFamily,
+        effort: b.effort,
+        agentType: b.agentType,
+        codexSandbox: b.codexSandbox,
+        username: "Ricky",
+      });
+      if (!result) {
+        throw new ApiError(409, "spawn_failed", "Could not spawn the agent.");
+      }
+      emitEvents(result.events);
+      shimEmit({
+        type: "log_entry",
+        entry: makeLogEntry(
+          result.agent.id,
+          "system",
+          `Agent "${b.name}" ready. Working in ${b.cwd}. (Demo mode)`,
+        ),
+      });
+      return { agent: result.agent };
+    }
   }
   // Param routes (matched by shape, since the id/agentType segment varies).
   // backends.listModels — the demo has no backend process to probe; an empty
@@ -1072,11 +1108,34 @@ export async function demoApi(
     }
     return undefined;
   }
-  // agents.kill (DELETE /api/agents/:id) — despawn + broadcast. PATCH (edit)
-  // joins this bare-:id route in 7b.
+  // agents.revive (POST .../revive) — unreachable in the demo (no killed agents
+  // -> no chips), but demoApi throws on an unmapped route, so map it; mirror the
+  // retired handleCommand's clean failure.
+  if (method === "POST" && /^\/api\/agents\/[^/]+\/revive$/.test(pathname)) {
+    throw new ApiError(
+      400,
+      "revive_unsupported",
+      "Revive is not supported in the demo.",
+    );
+  }
+  // agents.kill (DELETE /api/agents/:id) + agents.update (PATCH /api/agents/:id).
   const agentIdMatch = pathname.match(/^\/api\/agents\/([^/]+)$/);
-  if (agentIdMatch && method === "DELETE") {
-    emitEvents(state.kill(decodeURIComponent(agentIdMatch[1])));
+  if (agentIdMatch && (method === "DELETE" || method === "PATCH")) {
+    const id = decodeURIComponent(agentIdMatch[1]);
+    if (method === "PATCH") {
+      const changes = (body ?? {}) as EditAgentReq;
+      // OfficeState.editAgent wants customInstructions string|undefined; the REST
+      // type widens it to allow null (the AgentInfo Pick). The dialog clears via
+      // "", never null, so coerce to preserve parity.
+      emitEvents(
+        state.editAgent(id, {
+          ...changes,
+          customInstructions: changes.customInstructions ?? undefined,
+        }),
+      );
+      return { agent: state.getAgent(id) };
+    }
+    emitEvents(state.kill(id));
     return undefined;
   }
   // rooms.swapDesks (POST /api/rooms/:roomId/swap-desks) — swap + broadcast.
@@ -1092,77 +1151,6 @@ export async function demoApi(
 
 export function handleCommand(cmd: ClientCommand) {
   switch (cmd.type) {
-    case "spawn": {
-      const result = state.spawn({
-        name: cmd.name,
-        cwd: cmd.cwd,
-        permissionMode: cmd.permissionMode,
-        desk: cmd.desk,
-        roomId: cmd.roomId,
-        customInstructions: cmd.customInstructions,
-        outfit: cmd.outfit,
-        modelFamily: cmd.modelFamily,
-        effort: cmd.effort,
-        agentType: cmd.agentType,
-        codexSandbox: cmd.codexSandbox,
-        username: cmd.username,
-      });
-      if (result) {
-        emitEvents(result.events);
-        // System message
-        const entry = makeLogEntry(
-          result.agent.id,
-          "system",
-          `Agent "${cmd.name}" ready. Working in ${cmd.cwd}. (Demo mode)`,
-        );
-        shimEmit({ type: "log_entry", entry });
-      }
-      if (cmd.requestId) {
-        shimEmit({
-          type: "agent_save_response",
-          requestId: cmd.requestId,
-          ok: true,
-        });
-      }
-      break;
-    }
-    case "revive": {
-      // The demo never populates state.killedAgents, so no chip is ever
-      // rendered and this branch is unreachable from the UI. Stub here
-      // for type coverage on the ClientCommand union; if a hand-crafted
-      // command arrives, report a clean failure rather than crashing.
-      if (cmd.requestId) {
-        shimEmit({
-          type: "agent_save_response",
-          requestId: cmd.requestId,
-          ok: false,
-          error: "Revive is not supported in the demo.",
-        });
-      }
-      break;
-    }
-    case "edit_agent": {
-      emitEvents(
-        state.editAgent(cmd.agentId, {
-          name: cmd.name,
-          cwd: cmd.cwd,
-          outfit: cmd.outfit,
-          customInstructions: cmd.customInstructions,
-          permissionMode: cmd.permissionMode,
-          modelFamily: cmd.modelFamily,
-          effort: cmd.effort,
-          codexSandbox: cmd.codexSandbox,
-        }),
-      );
-      if (cmd.requestId) {
-        shimEmit({
-          type: "agent_save_response",
-          requestId: cmd.requestId,
-          ok: true,
-        });
-      }
-      break;
-    }
     case "send_message": {
       // Log the user message
       const userEntry = makeLogEntry(

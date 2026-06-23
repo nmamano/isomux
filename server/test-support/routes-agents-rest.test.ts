@@ -18,6 +18,7 @@
 
 import { describe, it, expect, afterEach } from "bun:test";
 import { startTestServer, type TestServer } from "./harness.ts";
+import { FakeBackend } from "./fake-backend.ts";
 
 let server: TestServer | null = null;
 
@@ -298,5 +299,221 @@ describe("agents.setTopic / clearTopic REST (Phase 3d slice 7a)", () => {
     expect(res.status).toBe(422);
     expect(errCode(res.body)).toBe("invalid_topic");
     expect(srv.agentManager.getAgent(x.id)?.topic).toBe(null);
+  });
+});
+
+describe("agents.spawn REST (Phase 3d slice 7b)", () => {
+  const spawnBody = (
+    srv: TestServer,
+    name: string,
+    roomId: string,
+    desk: number,
+  ) => ({
+    name,
+    cwd: srv.stateRoot,
+    roomId,
+    desk,
+    permissionMode: "default" as const,
+  });
+
+  it("owner spawns -> 201 { agent } in the target room", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const res = await req(srv, "POST", "/api/agents", {
+      body: spawnBody(srv, "Aria", r1, 0),
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(201);
+    const agent = (
+      res.body as { agent?: { id?: string; name?: string; roomId?: string } }
+    ).agent;
+    expect(agent?.name).toBe("Aria");
+    expect(agent?.roomId).toBe(r1);
+    expect(
+      srv.agentManager.getAllAgents().some((a) => a.id === agent!.id),
+    ).toBe(true);
+  });
+
+  it("duplicate name -> 409 name_taken (field hint for the dialog)", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    await spawnAt(srv, "Dup", r1, 0);
+    const res = await req(srv, "POST", "/api/agents", {
+      body: spawnBody(srv, "Dup", r1, 1),
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(409);
+    expect(errCode(res.body)).toBe("name_taken");
+  });
+
+  it("full target room -> 409 no_free_desk", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    for (let d = 0; d < 8; d++) await spawnAt(srv, `Fill${d}`, r1, d);
+    const res = await req(srv, "POST", "/api/agents", {
+      body: spawnBody(srv, "Extra", r1, 0),
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(409);
+    expect(errCode(res.body)).toBe("no_free_desk");
+  });
+
+  it("invalid cwd -> 400 invalid_cwd", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const res = await req(srv, "POST", "/api/agents", {
+      body: {
+        name: "BadCwd",
+        cwd: "/no/such/dir/anywhere",
+        roomId: r1,
+        desk: 0,
+        permissionMode: "default",
+      },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(400);
+    expect(errCode(res.body)).toBe("invalid_cwd");
+  });
+
+  it("member without access to the target room -> 403 (bodyRoom guard)", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const member = await srv.seedMember("Mia");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const res = await req(srv, "POST", "/api/agents", {
+      body: spawnBody(srv, "X", r1, 0),
+      rawSessionId: member.rawSessionId,
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("no identity -> 401", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const res = await req(srv, "POST", "/api/agents", {
+      body: spawnBody(srv, "X", r1, 0),
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("malformed optional field -> 422 invalid_request (not a 500)", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const res = await req(srv, "POST", "/api/agents", {
+      body: { name: "X", cwd: srv.stateRoot, roomId: r1, desk: 0, outfit: 123 },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(422);
+    expect(errCode(res.body)).toBe("invalid_request");
+  });
+});
+
+describe("agents.update REST (Phase 3d slice 7b)", () => {
+  it("owner edits -> 200 { agent } with the change applied", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const x = await spawnAt(srv, "X", r1, 0);
+    const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
+      body: { name: "Renamed" },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(200);
+    expect((res.body as { agent?: { name?: string } }).agent?.name).toBe(
+      "Renamed",
+    );
+    expect(srv.agentManager.getAgent(x.id)?.name).toBe("Renamed");
+  });
+
+  it("invalid cwd -> 400 invalid_cwd", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const x = await spawnAt(srv, "X", r1, 0);
+    const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
+      body: { cwd: "/no/such/dir/anywhere" },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(400);
+    expect(errCode(res.body)).toBe("invalid_cwd");
+  });
+
+  it("member with no access -> 403", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const member = await srv.seedMember("Mia");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const x = await spawnAt(srv, "X", r1, 0);
+    const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
+      body: { name: "Z" },
+      rawSessionId: member.rawSessionId,
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("malformed body field -> 422 invalid_request (not a 500); agent untouched", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const x = await spawnAt(srv, "X", r1, 0);
+    const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
+      body: { name: 123 }, // truthy non-string would break the string path
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(422);
+    expect(errCode(res.body)).toBe("invalid_request");
+    expect(srv.agentManager.getAgent(x.id)?.name).toBe("X");
+  });
+});
+
+describe("agents.revive REST (Phase 3d slice 7b)", () => {
+  // autoSystemInit:false so the killed agent's lastSessionId is null and the
+  // revive takes the fresh-session path (no resume preflight warning). The HTTP
+  // contract is what we pin here; the lastRoomId/target-room ACL lives in
+  // projection.test.ts.
+  it("owner revives a killed agent -> 200 { agent }", async () => {
+    const srv = await startTestServer({
+      fakeBackend: new FakeBackend({ session: { autoSystemInit: false } }),
+    });
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const x = await spawnAt(srv, "K", r1, 0);
+    await srv.agentManager.kill(x.id);
+    const res = await req(srv, "POST", `/api/agents/${x.id}/revive`, {
+      body: { roomId: r1, desk: 0 },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(200);
+    expect((res.body as { agent?: { id?: string } }).agent?.id).toBe(x.id);
+    expect(srv.agentManager.getAgent(x.id)).toBeDefined();
+  });
+
+  it("no identity -> 401", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const res = await req(srv, "POST", "/api/agents/whatever/revive", {
+      body: { roomId: r1, desk: 0 },
+    });
+    expect(res.status).toBe(401);
   });
 });

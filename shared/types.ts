@@ -805,20 +805,6 @@ export interface SettingsSaveResponse {
   error?: string;
 }
 
-// Response to spawn / edit_agent (sent only to the requesting client, when requestId provided)
-export interface AgentSaveResponse {
-  type: "agent_save_response";
-  requestId: string;
-  ok: boolean;
-  error?: string;
-  // Optional hint for the UI on which form field the error belongs to,
-  // so the message can render inline next to that field (e.g., a
-  // name-conflict error renders under the Name input, not under cwd).
-  // Absent for errors that don't map to a single field — the UI falls
-  // back to its general save-error location.
-  field?: "name" | "cwd";
-}
-
 // Backend-reported effort option for a model. `level` is the backend-specific
 // effort enum value (Codex: ReasoningEffort string; Claude: EffortLevel string).
 export interface BackendEffortOptionWire {
@@ -980,7 +966,6 @@ export type ServerMessage =
       reason: string;
     }
   | SettingsSaveResponse
-  | AgentSaveResponse
   | {
       type: "update_status";
       updateAvailable: boolean;
@@ -1002,33 +987,6 @@ export type ServerMessage =
 // Browser → Server commands
 export type ClientCommand =
   | {
-      type: "spawn";
-      requestId?: string;
-      name: string;
-      cwd: string;
-      permissionMode: AgentInfo["permissionMode"];
-      desk: number;
-      roomId?: string;
-      customInstructions?: string;
-      outfit?: AgentOutfit;
-      modelFamily?: string;
-      effort?: EffortLevel;
-      username?: string;
-      agentType?: AgentBackendType;
-      codexSandbox?: CodexSandboxMode;
-    }
-  | {
-      // Revive a killed agent. Restores its config from agent-history
-      // (cwd/outfit/model/etc.) at the target desk in the caller's
-      // current room. Same id as the original — log history and any
-      // resumable lastSessionId continue from where they left off.
-      type: "revive";
-      requestId?: string;
-      agentId: string;
-      desk: number;
-      roomId: string;
-    }
-  | {
       type: "send_message";
       agentId: string;
       text: string;
@@ -1041,19 +999,6 @@ export type ClientCommand =
   | { type: "new_conversation"; agentId: string }
   | { type: "resume"; agentId: string; sessionId: string }
   | { type: "list_sessions"; agentId: string }
-  | {
-      type: "edit_agent";
-      requestId?: string;
-      agentId: string;
-      name?: string;
-      cwd?: string;
-      outfit?: AgentOutfit;
-      customInstructions?: string;
-      modelFamily?: string;
-      effort?: EffortLevel;
-      permissionMode?: AgentInfo["permissionMode"];
-      codexSandbox?: CodexSandboxMode;
-    }
   | { type: "terminal_open"; agentId: string }
   | { type: "terminal_input"; agentId: string; data: string }
   | { type: "terminal_resize"; agentId: string; cols: number; rows: number }

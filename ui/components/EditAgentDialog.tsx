@@ -1,10 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type {
   AgentBackendType,
   AgentInfo,
   AgentOutfit,
   BackendModelWire,
-  ClientCommand,
   CodexSandboxMode,
   EffortLevel,
 } from "../../shared/types.ts";
@@ -27,9 +26,12 @@ import {
   ACCESSORIES,
 } from "../../shared/outfit-options.ts";
 import { Character } from "../office/Character.tsx";
-import { send, addRawListener, removeRawListener } from "../ws.ts";
 import { apiFetch, ApiError } from "../api.ts";
-import type { MoveAgentReq } from "../../shared/contract-shapes.ts";
+import type {
+  MoveAgentReq,
+  SpawnReq,
+  EditAgentReq,
+} from "../../shared/contract-shapes.ts";
 import { useAppState } from "../store.tsx";
 import { getUsername } from "../device-settings.ts";
 import {
@@ -158,13 +160,12 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     AgentInfo["permissionMode"]
   >(initialPermissionMode);
   const [saving, setSaving] = useState(false);
-  // Save-time errors route to either the Name input or the Cwd input
-  // based on `agent_save_response.field`. Errors that don't map to a
-  // specific field (the common case, e.g. cwd validation) fall back to
-  // cwdError, where the inline render lives.
+  // Save-time errors route to either the Name input or the Cwd input based on
+  // the REST error code (name_taken -> Name). Errors that don't map to a specific
+  // field (the common case, e.g. cwd validation) fall back to cwdError, where the
+  // inline render lives.
   const [nameError, setNameError] = useState<string | null>(null);
   const [cwdError, setCwdError] = useState<string | null>(null);
-  const pendingListener = useRef<((data: string) => void) | null>(null);
   const recentCwds = allRecentCwds.filter((c) => c !== cwd);
 
   // Fetched model list. null = not yet attempted; [] with error set = fetch
@@ -182,12 +183,6 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     message: string;
     authError: boolean;
   } | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (pendingListener.current) removeRawListener(pendingListener.current);
-    };
-  }, []);
 
   // Validate the existing cwd when the edit dialog opens, so the user sees
   // immediately if the stored directory is gone. Depend only on agent.id.
@@ -281,100 +276,93 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   }, [isCodex, agentType]);
 
   function handleSave() {
-    const reqId = `agent-save-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-    const listener = (data: string) => {
-      try {
-        const msg = JSON.parse(data);
-        if (msg.type === "agent_save_response" && msg.requestId === reqId) {
-          removeRawListener(listener);
-          pendingListener.current = null;
-          setSaving(false);
-          if (msg.ok) {
-            onClose();
-          } else {
-            // Route the error inline next to the offending field so the
-            // user doesn't read "name already taken" under cwd.
-            if (msg.field === "name") {
-              setNameError(msg.error || "Save failed");
-              setCwdError(null);
-            } else {
-              setCwdError(msg.error || "Save failed");
-              setNameError(null);
-            }
-          }
-        }
-      } catch {}
+    // name_taken routes under the Name input; everything else under cwd (the
+    // prior agent_save_response.field === "name" routing, now keyed on the REST
+    // ApiError.code).
+    const showError = (e: unknown) => {
+      // ApiError carries the server message; anything else (network failure, demo
+      // shim throw, apiFetch guard) falls back to a generic message so the dialog
+      // never clears `saving` without surfacing the failure.
+      const msg =
+        e instanceof ApiError ? e.message || "Save failed" : "Save failed";
+      if (e instanceof ApiError && e.code === "name_taken") {
+        setNameError(msg);
+        setCwdError(null);
+      } else {
+        setCwdError(msg);
+        setNameError(null);
+      }
     };
 
     if (isSpawn) {
-      const targetRoomId = props.roomId;
       setCwdError(null);
+      setNameError(null);
       setSaving(true);
-      addRawListener(listener);
-      pendingListener.current = listener;
-      send({
-        type: "spawn",
-        requestId: reqId,
+      // username is server-derived (attributionFor) — not sent. The created
+      // agent rides the agent_added broadcast; the { agent } body is ignored.
+      apiFetch("POST", "/api/agents", {
         name: name || `Agent ${props.deskIndex + 1}`,
         cwd,
-        permissionMode,
+        roomId: props.roomId,
         desk: props.deskIndex,
-        roomId: targetRoomId,
+        permissionMode,
         outfit,
         customInstructions: customInstructions.trim() || undefined,
         modelFamily,
         effort,
-        username: getUsername() ?? undefined,
         agentType,
         ...(isCodex ? { codexSandbox } : {}),
-      });
+      } satisfies SpawnReq)
+        .then(() => onClose())
+        .catch(showError)
+        .finally(() => setSaving(false));
     } else {
-      const cmd: Extract<ClientCommand, { type: "edit_agent" }> = {
-        type: "edit_agent",
-        agentId: agent!.id,
-      };
-      if (name.trim() && name.trim() !== agent!.name) cmd.name = name.trim();
-      if (cwd.trim() && cwd.trim() !== agent!.cwd) cmd.cwd = cwd.trim();
+      const changes: EditAgentReq = {};
+      if (name.trim() && name.trim() !== agent!.name)
+        changes.name = name.trim();
+      if (cwd.trim() && cwd.trim() !== agent!.cwd) changes.cwd = cwd.trim();
       if (JSON.stringify(outfit) !== JSON.stringify(agent!.outfit))
-        cmd.outfit = outfit;
+        changes.outfit = outfit;
       const trimmedInstructions = customInstructions.trim();
       if (trimmedInstructions !== (agent!.customInstructions ?? ""))
-        cmd.customInstructions = trimmedInstructions;
-      if (modelFamily !== agent!.modelFamily) cmd.modelFamily = modelFamily;
-      if (effort !== agent!.effort) cmd.effort = effort;
+        changes.customInstructions = trimmedInstructions;
+      if (modelFamily !== agent!.modelFamily) changes.modelFamily = modelFamily;
+      if (effort !== agent!.effort) changes.effort = effort;
       if (permissionMode !== agent!.permissionMode)
-        cmd.permissionMode = permissionMode;
+        changes.permissionMode = permissionMode;
       if (
         isCodex &&
         codexSandbox !== (agent!.codexSandbox ?? "workspace-write")
       )
-        cmd.codexSandbox = codexSandbox;
+        changes.codexSandbox = codexSandbox;
       if (
         !(
-          cmd.name ||
-          cmd.cwd ||
-          cmd.outfit ||
-          cmd.customInstructions !== undefined ||
-          cmd.modelFamily ||
-          cmd.effort ||
-          cmd.permissionMode ||
-          cmd.codexSandbox
+          changes.name ||
+          changes.cwd ||
+          changes.outfit ||
+          changes.customInstructions !== undefined ||
+          changes.modelFamily ||
+          changes.effort ||
+          changes.permissionMode ||
+          changes.codexSandbox
         )
       ) {
         onClose();
         return;
       }
       setCwdError(null);
-      // Only round-trip through the server when we need cwd validation; other
-      // edits have no failure mode worth blocking the dialog on.
-      if (cmd.cwd) {
-        cmd.requestId = reqId;
+      setNameError(null);
+      // Block the dialog (await + surface errors) ONLY when cwd changed — it's
+      // the one edit with a server validation failure worth showing. Other edits
+      // stay fire-and-forget with an optimistic close (prior behavior).
+      if (changes.cwd) {
         setSaving(true);
-        addRawListener(listener);
-        pendingListener.current = listener;
-        send(cmd);
+        apiFetch("PATCH", `/api/agents/${agent!.id}`, changes)
+          .then(() => onClose())
+          .catch(showError)
+          .finally(() => setSaving(false));
       } else {
-        send(cmd);
+        apiFetch("PATCH", `/api/agents/${agent!.id}`, changes).catch(() => {});
         onClose();
       }
     }

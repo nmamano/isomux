@@ -1072,58 +1072,41 @@ describe("killed-agent summary ACL (Phase 1.2)", () => {
 
     const ownerSock = await connectSettled(server, owner.rawSessionId);
     await setAccess(ownerSock, member.username, [r1]);
-    const memberSock = await connectSettled(server, member.rawSessionId);
+    // member.rawSessionId drives REST directly; no member socket needed.
 
-    // Into a visible room, but lastRoomId is hidden → blocked on the kill ACL.
-    const rid1 = nextReqId();
-    memberSock.send({
-      type: "revive",
-      requestId: rid1,
-      agentId: k.id,
-      desk: 0,
-      roomId: r1,
-    });
-    const resp1 = await waitForMessageWhere(
-      memberSock,
-      (m) => m.type === "agent_save_response" && m.requestId === rid1,
-    );
-    expect(resp1.ok).toBe(false);
-    expect(String(resp1.error)).toContain("not available to revive");
+    // POST revive over REST as the given session.
+    const reviveHttp = async (rawSessionId: string, roomId: string) => {
+      const res = await server!.http(`/api/agents/${k.id}/revive`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ desk: 0, roomId }),
+        rawSessionId,
+      });
+      return { status: res.status, body: await res.json().catch(() => null) };
+    };
 
-    // Into the hidden room itself → blocked on the target-room ACL.
-    const rid2 = nextReqId();
-    memberSock.send({
-      type: "revive",
-      requestId: rid2,
-      agentId: k.id,
-      desk: 0,
-      roomId: r2,
-    });
-    const resp2 = await waitForMessageWhere(
-      memberSock,
-      (m) => m.type === "agent_save_response" && m.requestId === rid2,
-    );
-    expect(resp2.ok).toBe(false);
-    expect(String(resp2.error)).toContain("access to that room");
+    // Into a visible room, but lastRoomId is hidden → blocked by the
+    // reviveLastRoomAccess precondition (the lastRoomId ACL).
+    const blocked1 = await reviveHttp(member.rawSessionId, r1);
+    expect(blocked1.status).toBe(403);
+    expect(
+      String(
+        (blocked1.body as { error?: { message?: string } }).error?.message,
+      ),
+    ).toContain("not available to revive");
+
+    // Into the hidden room itself → blocked by the bodyRoom(roomId) guard
+    // (the target-room ACL) before the precondition runs.
+    const blocked2 = await reviveHttp(member.rawSessionId, r2);
+    expect(blocked2.status).toBe(403);
 
     expect(
       server.agentManager.getKilledAgentSummaries().some((s) => s.id === k.id),
     ).toBe(true); // still killed after both blocked attempts
 
-    // Owner can see both rooms → revive succeeds.
-    const rid3 = nextReqId();
-    ownerSock.send({
-      type: "revive",
-      requestId: rid3,
-      agentId: k.id,
-      desk: 0,
-      roomId: r1,
-    });
-    const resp3 = await waitForMessageWhere(
-      ownerSock,
-      (m) => m.type === "agent_save_response" && m.requestId === rid3,
-    );
-    expect(resp3.ok).toBe(true);
+    // Owner can see both rooms → revive succeeds (200 { agent }).
+    const okRevive = await reviveHttp(owner.rawSessionId, r1);
+    expect(okRevive.status).toBe(200);
     expect(server.agentManager.getAgent(k.id)).toBeDefined();
   });
 });

@@ -11,13 +11,14 @@
 // same outfit, and its preserved config — picking up the conversation from
 // the resumable lastSessionId if the rollout/jsonl still exists.
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import type {
   AgentBackendType,
   KilledAgentSummary,
 } from "../../shared/types.ts";
 import { useAppState } from "../store.tsx";
-import { send, addRawListener, removeRawListener } from "../ws.ts";
+import { apiFetch, ApiError } from "../api.ts";
+import type { ReviveReq } from "../../shared/contract-shapes.ts";
 
 type Props = {
   // The empty desk the user clicked. Used as the placement target for
@@ -67,54 +68,25 @@ export function EngineChooserDialog({
   const killedAgents = state.killedAgents;
   const [reviving, setReviving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Track the in-flight revive listener so we can detach it on unmount or
-  // when the dialog is dismissed mid-request. Without this, a delayed
-  // response after dialog close would invoke a stale state setter — React
-  // tolerates it but ESLint and good hygiene want a clean teardown.
-  const pendingListener = useRef<((data: string) => void) | null>(null);
-  useEffect(() => {
-    return () => {
-      if (pendingListener.current) {
-        removeRawListener(pendingListener.current);
-        pendingListener.current = null;
-      }
-    };
-  }, []);
-
   function handleRevive(agent: KilledAgentSummary) {
     if (reviving) return; // one revive at a time per dialog
     setError(null);
     setReviving(agent.id);
-    // handleRevive is an event handler (button onClick), so the Date.now
-    // / Math.random calls happen outside React's render cycle. The
-    // react-hooks/purity rule can't prove that statically — false
-    // positive matching how EditAgentDialog generates its own reqIds.
-    // eslint-disable-next-line react-hooks/purity
-    const reqId = `revive-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-    const listener = (data: string) => {
-      try {
-        const msg = JSON.parse(data);
-        if (msg.type === "agent_save_response" && msg.requestId === reqId) {
-          removeRawListener(listener);
-          pendingListener.current = null;
-          setReviving(null);
-          if (msg.ok) {
-            onCancel(); // close dialog; killed_agent_removed event will drop the chip
-          } else {
-            setError(msg.error || "Revive failed");
-          }
-        }
-      } catch {}
-    };
-    addRawListener(listener);
-    pendingListener.current = listener;
-    send({
-      type: "revive",
-      requestId: reqId,
-      agentId: agent.id,
+    apiFetch("POST", `/api/agents/${agent.id}/revive`, {
       desk: deskIndex,
       roomId,
-    });
+    } satisfies ReviveReq)
+      .then(() => onCancel()) // close; killed_agent_removed drops the chip
+      .catch((e) => {
+        // ApiError carries the server message; anything else (network/shim) falls
+        // back to a generic message so the dialog never fails silently.
+        setError(
+          e instanceof ApiError
+            ? e.message || "Revive failed"
+            : "Revive failed",
+        );
+      })
+      .finally(() => setReviving(null));
   }
 
   return (

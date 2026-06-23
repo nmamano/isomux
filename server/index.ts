@@ -1642,13 +1642,14 @@ function buildExecutorDeps(): ExecutorDeps {
         agentManager.setRoomSettings(roomId, prompt),
     }),
   );
-  // 3d.7a — agent lifecycle, FIRE-AND-FORGET subset. The cores own the token
-  // lifecycle + the agent_*/killed_* broadcasts, so these closures just delegate
-  // (handlers stay contract-shaped). move returns a DISCRIMINATED result the
-  // handler maps to status: moved / same-room idempotent -> { agent }; full
-  // target -> no_free_desk; absent target (owner-only) / post-guard race ->
-  // room_not_found / agent_not_found. The response-driven trio (spawn/revive/
-  // update) + the reviveLastRoomAccess precondition land in 7b.
+  // 3d.7 — agent lifecycle. The cores own the token lifecycle (spawn/revive mint,
+  // kill/rollback revoke) + the agent_*/killed_* broadcasts, so these closures
+  // just delegate (handlers stay contract-shaped). move returns a DISCRIMINATED
+  // result the handler maps to status: moved / same-room idempotent -> { agent };
+  // full target -> no_free_desk; absent target (owner-only) / post-guard race ->
+  // room_not_found / agent_not_found. spawn/edit add validateCwd + saveRecentCwd
+  // + null-disambiguation; revive delegates straight through (its lastRoomId ACL
+  // is the reviveLastRoomAccess precondition below).
   register(
     agentsHandlers({
       kill: (agentId) => agentManager.kill(agentId),
@@ -1679,8 +1680,128 @@ function buildExecutorDeps(): ExecutorDeps {
         agentManager.swapDesks(deskA, deskB, roomId),
       setTopic: (agentId, topic) => agentManager.setTopic(agentId, topic),
       clearTopic: (agentId) => agentManager.resetTopic(agentId),
+      // 7b response-driven trio. attributionFor derives the spawning user from
+      // the token (never the body). spawn/edit do validateCwd + saveRecentCwd;
+      // spawn disambiguates a null return; revive delegates to the core.
+      attributionFor,
+      spawn: async (input) => {
+        try {
+          agentManager.validateCwd(input.cwd);
+        } catch (err) {
+          return {
+            ok: false,
+            reason: "invalid_cwd",
+            message: errMessage(err, "Invalid directory"),
+          };
+        }
+        saveRecentCwd(input.cwd);
+        try {
+          const spawned = await agentManager.spawn(
+            input.name,
+            input.cwd,
+            input.permissionMode ?? "default",
+            input.desk,
+            input.customInstructions,
+            input.roomId,
+            input.outfit,
+            input.modelFamily,
+            input.effort,
+            input.username,
+            input.agentType,
+            input.codexSandbox,
+            input.userId,
+          );
+          if (spawned) return { ok: true, agent: spawned };
+          // null = duplicate name OR full room (neither throws). Disambiguate
+          // AFTER the null, exactly as the WS arm did, so the dialog routes the
+          // error to the right field.
+          const trimmed = input.name.trim();
+          const dup = agentManager
+            .getAllAgents()
+            .some((a) => a.name.toLowerCase() === trimmed.toLowerCase());
+          return dup
+            ? {
+                ok: false,
+                reason: "name_taken",
+                message: `Name "${trimmed}" is already taken.`,
+              }
+            : {
+                ok: false,
+                reason: "no_free_desk",
+                message: "The target room has no free desks.",
+              };
+        } catch (err) {
+          return {
+            ok: false,
+            reason: "spawn_failed",
+            message: errMessage(err, "Spawn failed"),
+          };
+        }
+      },
+      revive: (agentId, roomId, desk) =>
+        agentManager.revive(agentId, roomId, desk),
+      edit: async (agentId, changes) => {
+        if (changes.cwd) {
+          try {
+            agentManager.validateCwd(changes.cwd);
+          } catch (err) {
+            return {
+              ok: false,
+              reason: "invalid_cwd",
+              message: errMessage(err, "Invalid directory"),
+            };
+          }
+          saveRecentCwd(changes.cwd);
+        }
+        try {
+          // EditAgentReq.customInstructions is string|null|undefined (the
+          // AgentInfo Pick widens it); editAgent wants string|undefined. The WS
+          // edit_agent command never carried null (the dialog clears via ""), so
+          // coerce null->undefined to preserve parity.
+          await agentManager.editAgent(agentId, {
+            ...changes,
+            customInstructions: changes.customInstructions ?? undefined,
+          });
+          const agent = agentManager.getAgent(agentId);
+          return agent
+            ? { ok: true, agent }
+            : {
+                ok: false,
+                reason: "agent_not_found",
+                message: "Agent not found.",
+              };
+        } catch (err) {
+          return {
+            ok: false,
+            reason: "edit_failed",
+            message: errMessage(err, "Edit failed"),
+          };
+        }
+      },
     }),
   );
+  // 3d.7b — reviveLastRoomAccess: revive needs access to BOTH the target room
+  // (the bodyRoom("roomId") guard) AND the killed agent's lastRoomId. A killed
+  // summary that is MISSING or whose lastRoomId the caller can't access BOTH
+  // collapse to the same 403 (no existence oracle): the killed-chip list the UI
+  // saw was already ACL-filtered by lastRoomId, so a well-behaved client only
+  // sends visible ids; this catches stale / hand-crafted commands.
+  preconditions.set("reviveLastRoomAccess", (ctx) => {
+    const denied = fail(
+      403,
+      "forbidden",
+      "That killed agent is not available to revive.",
+    );
+    const user = ctx.identity.userId
+      ? getUserById(ctx.identity.userId)
+      : undefined;
+    if (!user) return denied;
+    const summary = agentManager
+      .getKilledAgentSummaries()
+      .find((s) => s.id === ctx.params.id);
+    if (!summary || !canAccess(user, summary.lastRoomId)) return denied;
+    return null;
+  });
   // 3b.4 — per-user view preferences. REST view.* is the live surface; the legacy
   // WS arm that still delegates here is the update_user notif/default slice
   // (group 7). reorder_rooms was cut over to view.setOrder in slice 6.
@@ -2517,19 +2638,6 @@ function surfaceCommandError(
         }),
       );
       return;
-    case "spawn":
-    case "edit_agent":
-      if (cmd.requestId) {
-        ws.send(
-          JSON.stringify({
-            type: "agent_save_response",
-            requestId: cmd.requestId,
-            ok: false,
-            error: errorMsg,
-          }),
-        );
-      }
-      return;
     case "update_user":
       if (cmd.requestId) {
         ws.send(
@@ -2635,209 +2743,6 @@ async function dispatchCommand(
       }
       break;
     }
-    case "spawn": {
-      // ACL gate: spawn target room must be visible to this session.
-      // cmd.roomId is optional on the wire — for restricted sessions we
-      // can't trust the AgentManager fallback (which lands the agent in
-      // global room 0), so resolve to the first visible room and pass
-      // that down explicitly. Owners / "all"-access members preserve the
-      // legacy behavior of passing undefined through.
-      let resolvedRoomId: string | undefined = cmd.roomId;
-      if (resolvedRoomId !== undefined) {
-        if (!roomAllowedForSession(session, resolvedRoomId)) {
-          if (cmd.requestId) {
-            ws.send(
-              JSON.stringify({
-                type: "agent_save_response",
-                requestId: cmd.requestId,
-                ok: false,
-                error: "You don't have access to that room.",
-              }),
-            );
-          }
-          break;
-        }
-      } else if (!sessionHasFullRoomAccess(session)) {
-        const visible = visibleRoomProjection(session).rooms;
-        if (visible.length === 0) {
-          if (cmd.requestId) {
-            ws.send(
-              JSON.stringify({
-                type: "agent_save_response",
-                requestId: cmd.requestId,
-                ok: false,
-                error: "You have no visible rooms in this office.",
-              }),
-            );
-          }
-          break;
-        }
-        resolvedRoomId = visible[0].id;
-      }
-      try {
-        agentManager.validateCwd(cmd.cwd);
-      } catch (err) {
-        if (cmd.requestId) {
-          ws.send(
-            JSON.stringify({
-              type: "agent_save_response",
-              requestId: cmd.requestId,
-              ok: false,
-              error: errMessage(err, "Invalid directory"),
-            }),
-          );
-        }
-        break;
-      }
-      saveRecentCwd(cmd.cwd);
-      try {
-        const created = await agentManager.spawn(
-          cmd.name,
-          cmd.cwd,
-          cmd.permissionMode,
-          cmd.desk,
-          cmd.customInstructions,
-          resolvedRoomId,
-          cmd.outfit,
-          cmd.modelFamily,
-          cmd.effort,
-          session.username,
-          cmd.agentType,
-          cmd.codexSandbox,
-          session.userId,
-        );
-        if (cmd.requestId) {
-          if (created) {
-            ws.send(
-              JSON.stringify({
-                type: "agent_save_response",
-                requestId: cmd.requestId,
-                ok: true,
-              }),
-            );
-          } else {
-            // spawn() returns null on duplicate name or full room — neither
-            // throws, so without this branch we'd report ok:true on logical
-            // failure and the UI would close the dialog as if it worked.
-            // Disambiguate post-hoc so the UI can render the error under
-            // the right field rather than under cwd by default.
-            const trimmedName = cmd.name.trim();
-            const dupName = agentManager
-              .getAllAgents()
-              .some((a) => a.name.toLowerCase() === trimmedName.toLowerCase());
-            ws.send(
-              JSON.stringify({
-                type: "agent_save_response",
-                requestId: cmd.requestId,
-                ok: false,
-                error: dupName
-                  ? `Name "${trimmedName}" is already taken.`
-                  : "The target room has no free desks.",
-                field: dupName ? "name" : undefined,
-              }),
-            );
-          }
-        }
-      } catch (err) {
-        if (cmd.requestId) {
-          ws.send(
-            JSON.stringify({
-              type: "agent_save_response",
-              requestId: cmd.requestId,
-              ok: false,
-              error: errMessage(err, "Spawn failed"),
-            }),
-          );
-        }
-      }
-      break;
-    }
-    case "revive": {
-      // ACL gate: target roomId must be visible to this session AND the
-      // killed agent's lastRoomId must also be visible (so a member
-      // can't revive an agent from a private room they can't enter).
-      // Killed agent ACL is checked via the history lookup inside
-      // agentManager.revive — but we need to do the lookup here to
-      // enforce the read side too. The chip list the UI saw was already
-      // ACL-filtered at send time, so a well-behaved client only sends
-      // visible agent ids; this guard catches stale or hand-crafted
-      // commands.
-      if (!roomAllowedForSession(session, cmd.roomId)) {
-        if (cmd.requestId) {
-          ws.send(
-            JSON.stringify({
-              type: "agent_save_response",
-              requestId: cmd.requestId,
-              ok: false,
-              error: "You don't have access to that room.",
-            }),
-          );
-        }
-        break;
-      }
-      const summaries = agentManager.getKilledAgentSummaries();
-      const visible = summaries.find(
-        (s) =>
-          s.id === cmd.agentId && roomAllowedForSession(session, s.lastRoomId),
-      );
-      if (!visible) {
-        if (cmd.requestId) {
-          ws.send(
-            JSON.stringify({
-              type: "agent_save_response",
-              requestId: cmd.requestId,
-              ok: false,
-              error: "That killed agent is not available to revive.",
-            }),
-          );
-        }
-        break;
-      }
-      try {
-        const result = await agentManager.revive(
-          cmd.agentId,
-          cmd.roomId,
-          cmd.desk,
-        );
-        if (cmd.requestId) {
-          if (result.ok) {
-            ws.send(
-              JSON.stringify({
-                type: "agent_save_response",
-                requestId: cmd.requestId,
-                ok: true,
-              }),
-            );
-          } else {
-            // AgentSaveResponse.field is narrowed to "name" | "cwd";
-            // pass through only when it matches. desk/room errors land
-            // as generic toasts in the chip flow (no form field to
-            // highlight).
-            ws.send(
-              JSON.stringify({
-                type: "agent_save_response",
-                requestId: cmd.requestId,
-                ok: false,
-                error: result.error,
-                field: result.field === "name" ? "name" : undefined,
-              }),
-            );
-          }
-        }
-      } catch (err) {
-        if (cmd.requestId) {
-          ws.send(
-            JSON.stringify({
-              type: "agent_save_response",
-              requestId: cmd.requestId,
-              ok: false,
-              error: errMessage(err, "Revive failed"),
-            }),
-          );
-        }
-      }
-      break;
-    }
     case "send_message":
       if (!agentVisibleForSession(session, cmd.agentId)) break;
       // Don't await — let it stream in the background. Username comes from the
@@ -2866,72 +2771,6 @@ async function dispatchCommand(
       if (!agentVisibleForSession(session, cmd.agentId)) break;
       await agentManager.resume(cmd.agentId, cmd.sessionId);
       break;
-    case "edit_agent": {
-      if (!agentVisibleForSession(session, cmd.agentId)) {
-        if (cmd.requestId) {
-          ws.send(
-            JSON.stringify({
-              type: "agent_save_response",
-              requestId: cmd.requestId,
-              ok: false,
-              error: "You don't have access to that agent.",
-            }),
-          );
-        }
-        break;
-      }
-      if (cmd.cwd) {
-        try {
-          agentManager.validateCwd(cmd.cwd);
-        } catch (err) {
-          if (cmd.requestId) {
-            ws.send(
-              JSON.stringify({
-                type: "agent_save_response",
-                requestId: cmd.requestId,
-                ok: false,
-                error: errMessage(err, "Invalid directory"),
-              }),
-            );
-          }
-          break;
-        }
-        saveRecentCwd(cmd.cwd);
-      }
-      try {
-        await agentManager.editAgent(cmd.agentId, {
-          name: cmd.name,
-          cwd: cmd.cwd,
-          outfit: cmd.outfit,
-          customInstructions: cmd.customInstructions,
-          modelFamily: cmd.modelFamily,
-          effort: cmd.effort,
-          permissionMode: cmd.permissionMode,
-          codexSandbox: cmd.codexSandbox,
-        });
-        if (cmd.requestId) {
-          ws.send(
-            JSON.stringify({
-              type: "agent_save_response",
-              requestId: cmd.requestId,
-              ok: true,
-            }),
-          );
-        }
-      } catch (err) {
-        if (cmd.requestId) {
-          ws.send(
-            JSON.stringify({
-              type: "agent_save_response",
-              requestId: cmd.requestId,
-              ok: false,
-              error: errMessage(err, "Edit failed"),
-            }),
-          );
-        }
-      }
-      break;
-    }
     case "list_sessions": {
       if (!agentVisibleForSession(session, cmd.agentId)) break;
       const sessions = agentManager.listSessions(cmd.agentId);

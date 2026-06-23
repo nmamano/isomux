@@ -5,20 +5,20 @@
 // Strangler EXPAND+CUT in one slice (like rooms slice 6): 3a/3b declared these
 // rows in table.ts but NEVER built a handler — the agent lifecycle stayed
 // WS-only. This slice builds the handlers AND deletes the WS cases.
-//   - 7a (this commit): the FIRE-AND-FORGET mutations
+//   - 7a: the FIRE-AND-FORGET mutations
 //     (kill/abort/move/swapDesks/setTopic/clearTopic).
 //   - 7b: the RESPONSE-DRIVEN trio (spawn/revive/update) + the
-//     reviveLastRoomAccess precondition.
+//     reviveLastRoomAccess precondition (enforced in the index seam).
 //
 // TOKEN LIFECYCLE IS CORE-OWNED: agent-manager mints on spawn/revive and revokes
 // on kill / revive-rollback, so these handlers NEVER touch tokens — they
 // delegate to the same cores the deleted WS cases called. The agent wire shape
 // (AgentInfo) carries no token, so an { agent } response cannot leak it.
 //
-// COMPOUND effects (validateCwd / saveRecentCwd / spawn null-disambiguation,
-// added in 7b) live in the injected AgentsDeps closures (the index seam), not
-// here — the access/invites/rooms EMIT-IN-DEP pattern. These handlers stay
-// contract-shaped: parse the body, call the dep, map the outcome to an envelope.
+// COMPOUND effects (validateCwd / saveRecentCwd / spawn null-disambiguation)
+// live in the injected AgentsDeps closures (the index seam), not here — the
+// access/invites/rooms EMIT-IN-DEP pattern. These handlers stay contract-shaped:
+// parse the body, call the dep, map the outcome to an envelope.
 //
 // ACL is the declared guards (table.ts): agentParam(:id) resolves an agent to
 // its room and checks access, so a NON-EXISTENT or INACCESSIBLE agent both
@@ -28,8 +28,43 @@
 //
 // LEAF over the executor + the injected AgentsDeps.
 
-import { ok, noContent, fail, type RouteHandler } from "../executor.ts";
+import {
+  ok,
+  created,
+  noContent,
+  fail,
+  type RouteHandler,
+} from "../executor.ts";
+import type { Identity } from "../../identity/index.ts";
 import type { AgentInfo } from "../../../shared/types.ts";
+import type {
+  SpawnReq,
+  EditAgentReq,
+  ReviveReq,
+} from "../../../shared/contract-shapes.ts";
+
+// Discriminated results for the response-driven trio: the index closures own the
+// compound logic (validateCwd / saveRecentCwd / spawn null-disambiguation) and
+// return a `reason` the handler maps to a status + stable error code. spawn/edit
+// codes drive the EditAgentDialog field routing (name_taken -> name field).
+export type SpawnResult =
+  | { ok: true; agent: AgentInfo }
+  | {
+      ok: false;
+      reason: "invalid_cwd" | "name_taken" | "no_free_desk" | "spawn_failed";
+      message: string;
+    };
+export type EditResult =
+  | { ok: true; agent: AgentInfo }
+  | {
+      ok: false;
+      reason: "invalid_cwd" | "agent_not_found" | "edit_failed";
+      message: string;
+    };
+// revive delegates to the core, which already returns this discriminated shape.
+export type ReviveResult =
+  | { ok: true; agent: AgentInfo }
+  | { ok: false; error: string; field?: "name" | "desk" | "room" };
 
 export interface AgentsDeps {
   // Despawns a live agent (core revokes its token). No-op safe: the agentParam
@@ -60,6 +95,69 @@ export interface AgentsDeps {
   setTopic(agentId: string, topic: string): void;
   // Clears an agent's topic (back to auto-generated). No-op safe.
   clearTopic(agentId: string): void;
+
+  // --- response-driven trio (7b) -------------------------------------------
+  // Token-derived attribution (createdBy/username from identity, NEVER the body),
+  // so a spawning user can't be spoofed; spawn reads userId off the identity too.
+  attributionFor(identity: Identity): {
+    createdBy: string;
+    username: string | undefined;
+  };
+  // Validates cwd (-> invalid_cwd), saves the recent-cwd list, spawns (the core
+  // MINTS the agent token), and disambiguates a null return (duplicate name ->
+  // name_taken, else the target room is full -> no_free_desk).
+  spawn(input: {
+    name: string;
+    cwd: string;
+    roomId: string;
+    desk: number;
+    permissionMode?: AgentInfo["permissionMode"];
+    customInstructions?: string;
+    outfit?: AgentInfo["outfit"];
+    modelFamily?: string;
+    effort?: AgentInfo["effort"];
+    agentType?: AgentInfo["agentType"];
+    codexSandbox?: AgentInfo["codexSandbox"];
+    username: string | undefined;
+    userId: string | null;
+  }): Promise<SpawnResult>;
+  // Revives a killed agent (the core RE-MINTS its token; revokes on rollback).
+  // The target-room + lastRoomId ACL is enforced upstream (bodyRoom guard +
+  // reviveLastRoomAccess precondition), so this just delegates to the core.
+  revive(agentId: string, roomId: string, desk: number): Promise<ReviveResult>;
+  // Validates cwd when present (-> invalid_cwd), applies the edit, returns the
+  // updated agent. A no-op edit (no effective change) still returns the current
+  // agent (200), never a failure.
+  edit(agentId: string, changes: EditAgentReq): Promise<EditResult>;
+}
+
+// Reject a present-but-wrong-typed optional agent field at the boundary, so
+// malformed input is a 422 contract error rather than a 500 from a string path
+// (trim / resolveCwd) or wire corruption from a non-string stored verbatim. null
+// and undefined are tolerated (falsy: the cores' `if (changes.x)` guards skip
+// them, and EditAgentReq permits null for customInstructions). Shared by spawn +
+// update (the two write paths carrying these fields).
+function malformedAgentFields(b: Record<string, unknown>): boolean {
+  const badStr = (v: unknown) =>
+    v !== undefined && v !== null && typeof v !== "string";
+  if (
+    badStr(b.name) ||
+    badStr(b.cwd) ||
+    badStr(b.customInstructions) ||
+    badStr(b.modelFamily) ||
+    badStr(b.effort) ||
+    badStr(b.permissionMode) ||
+    badStr(b.codexSandbox)
+  ) {
+    return true;
+  }
+  // outfit is an AgentOutfit object; tolerate its inner shape but reject a
+  // non-object (number / string / array) the core would store verbatim.
+  return (
+    b.outfit !== undefined &&
+    b.outfit !== null &&
+    (typeof b.outfit !== "object" || Array.isArray(b.outfit))
+  );
 }
 
 export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
@@ -119,6 +217,87 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
     "agents.clearTopic": (ctx) => {
       deps.clearTopic(ctx.params.id);
       return noContent();
+    },
+
+    "agents.spawn": async (ctx) => {
+      const b = (ctx.body ?? {}) as Partial<SpawnReq>;
+      if (typeof b.name !== "string" || b.name.trim().length === 0) {
+        return fail(422, "invalid_name", "name is required");
+      }
+      if (typeof b.cwd !== "string" || b.cwd.length === 0) {
+        return fail(422, "invalid_cwd", "cwd is required");
+      }
+      // roomId is guaranteed by the bodyRoom("roomId") guard; read defensively.
+      if (typeof b.roomId !== "string" || b.roomId.length === 0) {
+        return fail(422, "invalid_request", "roomId is required");
+      }
+      if (typeof b.desk !== "number") {
+        return fail(422, "invalid_desk", "desk is required");
+      }
+      if (malformedAgentFields(b)) {
+        return fail(422, "invalid_request", "malformed agent field");
+      }
+      const { username } = deps.attributionFor(ctx.identity);
+      const r = await deps.spawn({
+        name: b.name,
+        cwd: b.cwd,
+        roomId: b.roomId,
+        desk: b.desk,
+        permissionMode: b.permissionMode,
+        customInstructions: b.customInstructions,
+        outfit: b.outfit,
+        modelFamily: b.modelFamily,
+        effort: b.effort,
+        agentType: b.agentType,
+        codexSandbox: b.codexSandbox,
+        username,
+        userId: ctx.identity.userId,
+      });
+      if (r.ok) return created({ agent: r.agent });
+      const status =
+        r.reason === "invalid_cwd"
+          ? 400
+          : r.reason === "spawn_failed"
+            ? 500
+            : 409;
+      return fail(status, r.reason, r.message);
+    },
+
+    "agents.revive": async (ctx) => {
+      // bodyRoom("roomId") + reviveLastRoomAccess already gated room access; desk
+      // is unguarded, so shape-check it.
+      const b = (ctx.body ?? {}) as Partial<ReviveReq>;
+      if (typeof b.roomId !== "string" || typeof b.desk !== "number") {
+        return fail(422, "invalid_request", "roomId and desk are required");
+      }
+      const r = await deps.revive(ctx.params.id, b.roomId, b.desk);
+      if (r.ok) return ok({ agent: r.agent });
+      // The revive dialog surfaces e.message; the code mirrors the field hint.
+      const code =
+        r.field === "name"
+          ? "name_taken"
+          : r.field === "desk"
+            ? "desk_taken"
+            : r.field === "room"
+              ? "room_not_found"
+              : "revive_failed";
+      return fail(r.field === "room" ? 404 : 409, code, r.error);
+    },
+
+    "agents.update": async (ctx) => {
+      const b = (ctx.body ?? {}) as Record<string, unknown>;
+      if (malformedAgentFields(b)) {
+        return fail(422, "invalid_request", "malformed agent field");
+      }
+      const r = await deps.edit(ctx.params.id, b);
+      if (r.ok) return ok({ agent: r.agent });
+      const status =
+        r.reason === "invalid_cwd"
+          ? 400
+          : r.reason === "agent_not_found"
+            ? 404
+            : 400;
+      return fail(status, r.reason, r.message);
     },
   };
 }
