@@ -76,9 +76,6 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 type Msg = Record<string, unknown>;
 const bag = (sock: TestSocket): Msg[] => sock.messages as Msg[];
 
-let reqSeq = 0;
-const nextReqId = () => `req-${++reqSeq}`;
-
 // A FakeBackend that completes every turn (so the agent lands back at
 // waiting_for_response). Assertions anchor on the RAW human `user_message` log
 // entry — logged verbatim before the orchestrator wraps the text with sender
@@ -226,26 +223,23 @@ async function connectSettled(
   return sock;
 }
 
-// Owner grants/sets a member's room access via the real WS update_user seam
-// (the owner-gated allowedRooms path). Awaits the ack so the grant is applied.
+// Owner grants/sets a member's room access via the real REST users.setAccess
+// route (PUT /api/users/:username/access, owner-gated). 3d.9b: this is the
+// allowedRooms path; the seam prune-clamps notif/default in the same write,
+// pushes a projected full_state to the target, and fans out the scoped lists.
 async function setAccess(
-  ownerSock: TestSocket,
+  srv: TestServer,
+  ownerRawSessionId: string,
   username: string,
   roomIds: string[],
 ): Promise<void> {
-  const requestId = nextReqId();
-  ownerSock.send({
-    type: "update_user",
-    requestId,
-    username,
-    changes: { allowedRooms: roomIds },
-  });
-  const resp = await waitForMessageWhere(
-    ownerSock,
-    (m) => m.type === "settings_save_response" && m.requestId === requestId,
+  await httpMut(
+    srv,
+    ownerRawSessionId,
+    "PUT",
+    `/api/users/${encodeURIComponent(username)}/access`,
+    { allowedRooms: roomIds },
   );
-  if (resp.ok !== true)
-    throw new Error(`setAccess failed: ${String(resp.error)}`);
 }
 
 async function spawnIn(
@@ -346,7 +340,7 @@ describe("full_state projection — connect-time ACL (Phase 1.2)", () => {
     const a3 = await spawnIn(server, "A3", r3);
 
     const ownerSock = await connectSettled(server, owner.rawSessionId);
-    await setAccess(ownerSock, member.username, [r1, r3]); // member sees R1 + R3, not R2
+    await setAccess(server, owner.rawSessionId, member.username, [r1, r3]); // member sees R1 + R3, not R2
     const memberSock = await connectSettled(server, member.rawSessionId);
 
     const ofs = latestFullState(ownerSock)!;
@@ -381,7 +375,7 @@ describe("full_state projection — connect-time ACL (Phase 1.2)", () => {
     const a3 = await spawnIn(server, "A3", r3);
 
     const ownerSock = await connectSettled(server, owner.rawSessionId);
-    await setAccess(ownerSock, member.username, [r1, r3]); // member sees R1 + R3
+    await setAccess(server, owner.rawSessionId, member.username, [r1, r3]); // member sees R1 + R3
     const memberSock = await connectSettled(server, member.rawSessionId);
 
     // Invariant for BOTH recipients: every agent's roomId names a room that IS in
@@ -436,7 +430,7 @@ describe("full_state projection — connect-time ACL (Phase 1.2)", () => {
     // Writing the owner's allowedRooms (grants) is a NO-OP on their view: rule
     // access still covers every room. setAccess pushes a projected full_state to
     // the target; for an owner it MUST still contain all three rooms.
-    await setAccess(ownerSock, owner.username, [r1, r2]);
+    await setAccess(server, owner.rawSessionId, owner.username, [r1, r2]);
     await waitForMessageWhere(ownerSock, (m) => m.type === "full_state");
     expect(fullStateRoomIds(latestFullState(ownerSock)!)).toEqual([r1, r2, r3]);
 
@@ -477,7 +471,7 @@ describe("per-recipient event ACL — mid-session (Phase 1.2)", () => {
     const hid = await spawnIn(server, "Hid", r2);
 
     const ownerSock = await connectSettled(server, owner.rawSessionId);
-    await setAccess(ownerSock, member.username, [r1]);
+    await setAccess(server, owner.rawSessionId, member.username, [r1]);
     const memberSock = await connectSettled(server, member.rawSessionId);
 
     // Hidden-room turn. Barrier = the turn's ASSISTANT text (its LAST log_entry)
@@ -528,7 +522,7 @@ describe("per-recipient event ACL — mid-session (Phase 1.2)", () => {
     const hid = await spawnIn(server, "Hid", r2);
 
     const ownerSock = await connectSettled(server, owner.rawSessionId);
-    await setAccess(ownerSock, member.username, [r1]);
+    await setAccess(server, owner.rawSessionId, member.username, [r1]);
     await driveTurn(server, owner.rawSessionId, ownerSock, vis.id, "vis-log");
     await driveTurn(server, owner.rawSessionId, ownerSock, hid.id, "hid-log");
 
@@ -569,8 +563,8 @@ describe("per-recipient event ACL — mid-session (Phase 1.2)", () => {
     const vis = await spawnIn(server, "Vis", r1);
     const hid = await spawnIn(server, "Hid", r2);
 
-    const ownerSock = await connectSettled(server, owner.rawSessionId);
-    await setAccess(ownerSock, member.username, [r1]);
+    await connectSettled(server, owner.rawSessionId);
+    await setAccess(server, owner.rawSessionId, member.username, [r1]);
 
     // Hidden agent: the owner can read its sessions; the restricted member is
     // denied (uniform 403, no existence oracle).
@@ -601,7 +595,7 @@ describe("agent moves across visibility boundaries (Phase 1.2)", () => {
 
     const x = await spawnIn(server, "X", r2); // hidden from member
     const ownerSock = await connectSettled(server, owner.rawSessionId);
-    await setAccess(ownerSock, member.username, [r1]);
+    await setAccess(server, owner.rawSessionId, member.username, [r1]);
     await driveTurn(server, owner.rawSessionId, ownerSock, x.id, "c1-history");
 
     const memberSock = await connectSettled(server, member.rawSessionId);
@@ -646,7 +640,7 @@ describe("agent moves across visibility boundaries (Phase 1.2)", () => {
 
     const x = await spawnIn(server, "X", r1); // visible to member
     const ownerSock = await connectSettled(server, owner.rawSessionId);
-    await setAccess(ownerSock, member.username, [r1]);
+    await setAccess(server, owner.rawSessionId, member.username, [r1]);
     await driveTurn(server, owner.rawSessionId, ownerSock, x.id, "c2-history");
     const memberSock = await connectSettled(server, member.rawSessionId);
     expect(agentInFullState(latestFullState(memberSock)!, x.id)).toBeDefined();
@@ -678,7 +672,7 @@ describe("agent moves across visibility boundaries (Phase 1.2)", () => {
 
     const x = await spawnIn(server, "X", r1);
     const ownerSock = await connectSettled(server, owner.rawSessionId);
-    await setAccess(ownerSock, member.username, [r1, r3]); // member sees R1 + R3
+    await setAccess(server, owner.rawSessionId, member.username, [r1, r3]); // member sees R1 + R3
     await driveTurn(server, owner.rawSessionId, ownerSock, x.id, "c3-history");
     const memberSock = await connectSettled(server, member.rawSessionId);
     expect(agentInFullState(latestFullState(memberSock)!, x.id)!.roomId).toBe(
@@ -719,8 +713,8 @@ describe("agent moves across visibility boundaries (Phase 1.2)", () => {
     const [r2] = makeRoomsBeforeOwner(server, ["R2"]);
     const owner = await server.seedOwner("Boss");
     const member = await server.seedMember("Mia");
-    const ownerSock = await connectSettled(server, owner.rawSessionId);
-    await setAccess(ownerSock, member.username, [r1]); // member sees r1 only
+    await connectSettled(server, owner.rawSessionId);
+    await setAccess(server, owner.rawSessionId, member.username, [r1]); // member sees r1 only
 
     const inR1 = await spawnIn(server, "InR1", r1); // source visible to member
     const inR2 = await spawnIn(server, "InR2", r2); // source hidden from member
@@ -756,7 +750,7 @@ describe("room close / reorder with restricted members (Phase 1.2)", () => {
 
     const y = await spawnIn(server, "Y", r3);
     const ownerSock = await connectSettled(server, owner.rawSessionId);
-    await setAccess(ownerSock, member.username, [r2, r3]); // sees R2 + R3, not R1
+    await setAccess(server, owner.rawSessionId, member.username, [r2, r3]); // sees R2 + R3, not R1
     await driveTurn(server, owner.rawSessionId, ownerSock, y.id, "d1-history");
     const memberSock = await connectSettled(server, member.rawSessionId);
 
@@ -810,7 +804,7 @@ describe("room close / reorder with restricted members (Phase 1.2)", () => {
     const member = await server.seedMember("Mia");
 
     const ownerSock = await connectSettled(server, owner.rawSessionId);
-    await setAccess(ownerSock, member.username, [r1, r2]); // member sees R1, R2
+    await setAccess(server, owner.rawSessionId, member.username, [r1, r2]); // member sees R1, R2
     const memberSock = await connectSettled(server, member.rawSessionId);
     expect(fullStateRoomIds(latestFullState(memberSock)!)).toEqual([r1, r2]);
 
@@ -929,14 +923,14 @@ describe("update_user room-access grant / revoke (Phase 1.2)", () => {
 
     const z = await spawnIn(server, "Z", r2);
     const ownerSock = await connectSettled(server, owner.rawSessionId);
-    await setAccess(ownerSock, member.username, [r1]);
+    await setAccess(server, owner.rawSessionId, member.username, [r1]);
     await driveTurn(server, owner.rawSessionId, ownerSock, z.id, "z-history");
     const memberSock = await connectSettled(server, member.rawSessionId);
     expect(fullStateRoomIds(latestFullState(memberSock)!)).toEqual([r1]);
 
     // Grant R2 on the member's EXISTING socket (no reconnect).
     const sinceIdx = bag(memberSock).length;
-    await setAccess(ownerSock, member.username, [r1, r2]);
+    await setAccess(server, owner.rawSessionId, member.username, [r1, r2]);
     await waitForMessageWhere(
       memberSock,
       (m) =>
@@ -966,7 +960,7 @@ describe("update_user room-access grant / revoke (Phase 1.2)", () => {
     const member = await server.seedMember("Mia");
 
     const ownerSock = await connectSettled(server, owner.rawSessionId);
-    await setAccess(ownerSock, member.username, [r1, r2]);
+    await setAccess(server, owner.rawSessionId, member.username, [r1, r2]);
     const memberSock = await connectSettled(server, member.rawSessionId);
     const memberCid = connectionIdOf(memberSock);
 
@@ -990,7 +984,7 @@ describe("update_user room-access grant / revoke (Phase 1.2)", () => {
     const presBefore = bag(ownerSock).filter(
       (m) => m.type === "presence_list",
     ).length;
-    await setAccess(ownerSock, member.username, [r1]);
+    await setAccess(server, owner.rawSessionId, member.username, [r1]);
     await waitForMessageWhere(
       memberSock,
       (m) => m.type === "full_state" && fullStateRoomIds(m).join() === r1,
@@ -1028,7 +1022,7 @@ describe("killed-agent summary ACL (Phase 1.2)", () => {
     await server.agentManager.kill(vk.id);
 
     const ownerSock = await connectSettled(server, owner.rawSessionId);
-    await setAccess(ownerSock, member.username, [r1]);
+    await setAccess(server, owner.rawSessionId, member.username, [r1]);
     const memberSock = await connectSettled(server, member.rawSessionId);
 
     const ownerKilled = (
@@ -1081,8 +1075,8 @@ describe("killed-agent summary ACL (Phase 1.2)", () => {
     const k = await spawnIn(server, "K", r2); // lastRoomId = R2 (hidden)
     await server.agentManager.kill(k.id);
 
-    const ownerSock = await connectSettled(server, owner.rawSessionId);
-    await setAccess(ownerSock, member.username, [r1]);
+    await connectSettled(server, owner.rawSessionId);
+    await setAccess(server, owner.rawSessionId, member.username, [r1]);
     // member.rawSessionId drives REST directly; no member socket needed.
 
     // POST revive over REST as the given session.

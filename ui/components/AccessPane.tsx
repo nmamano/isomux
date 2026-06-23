@@ -3,9 +3,10 @@
 // the current session's role is "owner".
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useAppState } from "../store.tsx";
-import { send, addRawListener, removeRawListener } from "../ws.ts";
+import { useAppState, useDispatch } from "../store.tsx";
+import { apiFetch, ApiError } from "../api.ts";
 import type { InviteWire, SessionWire, UserRole } from "../../shared/types.ts";
+import type { AccessSettings } from "../../shared/contract-shapes.ts";
 import { type UserView } from "../user-merge.ts";
 import { lowercaseKey } from "../../shared/identity.ts";
 import { normalizePublicOrigin } from "../../shared/public-origin.ts";
@@ -19,35 +20,33 @@ import {
 export function AccessPane() {
   const { invitesList, invitesLoaded, activeSessions, activeSessionsLoaded } =
     useAppState();
-  // Holds the most recent server-side lockout-prevention rejection so the
-  // banner stays visible until the user dismisses or retries. Cleared on
-  // any successful state change (which we proxy via activeSessions length
-  // change — a successful revoke shrinks the list).
+  const dispatch = useDispatch();
+  // Holds the most recent server-side lockout-prevention rejection (a 409 from
+  // sessions.revoke, surfaced by SessionsTable) so the banner stays visible
+  // until the user dismisses or retries. Cleared on any successful state change
+  // (proxied via activeSessions length change: a successful revoke shrinks it).
   const [blockedNote, setBlockedNote] = useState<string | null>(null);
   const prevSessionsLenRef = useRef<number>(activeSessions.length);
 
-  // Lazily fetch the owner-only lists. The session_context reducer resets
-  // both loaded flags on every WS open (including reconnects), so this
-  // effect re-runs and keeps the lists fresh across socket bounces.
+  // Lazily seed the owner-only lists via GET. The session_context reducer resets
+  // both loaded flags on every WS open (including reconnects), so this effect
+  // re-runs and keeps the lists fresh across socket bounces. Mutations still
+  // arrive as recipient-scoped invites_list / sessions_active_list broadcasts;
+  // these GETs only seed the initial (and post-reconnect) snapshot.
   useEffect(() => {
-    if (!invitesLoaded) send({ type: "list_invites" });
-    if (!activeSessionsLoaded) send({ type: "list_active_sessions" });
-  }, [invitesLoaded, activeSessionsLoaded]);
-
-  // Listen for the server's lockout-prevention rejections. Component-
-  // scoped raw listener so it doesn't leak across pane mounts.
-  useEffect(() => {
-    const fn = (data: string) => {
-      try {
-        const m = JSON.parse(data);
-        if (m.type === "revoke_blocked" && typeof m.reason === "string") {
-          setBlockedNote(m.reason);
-        }
-      } catch {}
-    };
-    addRawListener(fn);
-    return () => removeRawListener(fn);
-  }, []);
+    if (!invitesLoaded) {
+      apiFetch<{ invites: InviteWire[] }>("GET", "/api/invites")
+        .then((r) => dispatch({ type: "invites_list", invites: r.invites }))
+        .catch(() => {});
+    }
+    if (!activeSessionsLoaded) {
+      apiFetch<{ sessions: SessionWire[] }>("GET", "/api/sessions")
+        .then((r) =>
+          dispatch({ type: "sessions_active_list", sessions: r.sessions }),
+        )
+        .catch(() => {});
+    }
+  }, [invitesLoaded, activeSessionsLoaded, dispatch]);
 
   // Auto-clear the banner on any successful active-session change. The
   // user fixed whatever the rejection was about (typically by minting an
@@ -113,7 +112,7 @@ export function AccessPane() {
 
       <h5 style={subsectionHeader}>Active sessions</h5>
       {renderListSection(activeSessions, activeSessionsLoaded, (rows) => (
-        <SessionsTable sessions={rows} />
+        <SessionsTable sessions={rows} onBlocked={setBlockedNote} />
       ))}
     </div>
   );
@@ -157,7 +156,6 @@ function ExternalAccessSection() {
   const [error, setError] = useState<string | null>(null);
   const [signInUrl, setSignInUrl] = useState<string | null>(null);
   const [restartRequired, setRestartRequired] = useState(false);
-  const pendingListenerRef = useRef<((data: string) => void) | null>(null);
 
   // Snapshot of the last-saved state. Compared against the form during
   // render to drive the Save-button enabled/disabled state, so kept as
@@ -168,73 +166,52 @@ function ExternalAccessSection() {
   }>({ enabled: false, urlInput: "" });
 
   useEffect(() => {
-    const fn = (data: string) => {
-      try {
-        const m = JSON.parse(data);
-        if (m.type === "access_settings" && m.ok) {
-          const nextEnabled = !!m.externalAccess;
-          const nextUrl =
-            typeof m.publicOrigin === "string" ? m.publicOrigin : "";
-          setEnabled(nextEnabled);
-          setUrlInput(nextUrl);
-          setEnvOriginSet(!!m.envOriginSet);
-          setEnvOrigin(typeof m.envOrigin === "string" ? m.envOrigin : null);
-          setBoundLoopback(!!m.boundLoopback);
-          setSavedSnapshot({ enabled: nextEnabled, urlInput: nextUrl });
-          setLoaded(true);
-        }
-      } catch {}
-    };
-    addRawListener(fn);
-    send({ type: "get_access_settings" });
-    return () => removeRawListener(fn);
-  }, []);
-
-  // Clean up the in-flight save listener if the pane unmounts mid-request.
-  useEffect(() => {
+    let cancelled = false;
+    apiFetch<AccessSettings>("GET", "/api/office/access")
+      .then((s) => {
+        if (cancelled) return;
+        const nextEnabled = !!s.externalAccess;
+        const nextUrl =
+          typeof s.publicOrigin === "string" ? s.publicOrigin : "";
+        setEnabled(nextEnabled);
+        setUrlInput(nextUrl);
+        setEnvOriginSet(!!s.envOriginSet);
+        setEnvOrigin(typeof s.envOrigin === "string" ? s.envOrigin : null);
+        setBoundLoopback(!!s.boundLoopback);
+        setSavedSnapshot({ enabled: nextEnabled, urlInput: nextUrl });
+        setLoaded(true);
+      })
+      .catch(() => {});
     return () => {
-      const fn = pendingListenerRef.current;
-      if (fn) removeRawListener(fn);
+      cancelled = true;
     };
   }, []);
 
   function submit() {
-    const reqId = `access-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-    const trimmed = urlInput.trim();
+    const nextEnabled = enabled;
+    const nextUrl = nextEnabled ? urlInput.trim() : "";
     setPending(true);
     setError(null);
     setSignInUrl(null);
     setRestartRequired(false);
-    const listener = (data: string) => {
-      try {
-        const m = JSON.parse(data);
-        if (m.type === "access_settings_updated" && m.requestId === reqId) {
-          setPending(false);
-          removeRawListener(listener);
-          pendingListenerRef.current = null;
-          if (m.ok) {
-            const nextEnabled = !!m.externalAccess;
-            const nextUrl =
-              typeof m.publicOrigin === "string" ? m.publicOrigin : "";
-            setEnabled(nextEnabled);
-            setUrlInput(nextUrl);
-            setSavedSnapshot({ enabled: nextEnabled, urlInput: nextUrl });
-            setSignInUrl(typeof m.signInUrl === "string" ? m.signInUrl : null);
-            setRestartRequired(!!m.restartRequired);
-          } else {
-            setError(m.error || "Failed to update settings");
-          }
-        }
-      } catch {}
-    };
-    pendingListenerRef.current = listener;
-    addRawListener(listener);
-    send({
-      type: "update_access_settings",
-      requestId: reqId,
-      externalAccess: enabled,
-      publicOrigin: enabled ? trimmed : null,
-    });
+    apiFetch<{ signInUrl: string | null; restartRequired: boolean }>(
+      "PUT",
+      "/api/office/access",
+      { externalAccess: nextEnabled, publicOrigin: nextUrl },
+    )
+      .then((r) => {
+        setEnabled(nextEnabled);
+        setUrlInput(nextUrl);
+        setSavedSnapshot({ enabled: nextEnabled, urlInput: nextUrl });
+        setSignInUrl(typeof r.signInUrl === "string" ? r.signInUrl : null);
+        setRestartRequired(!!r.restartRequired);
+      })
+      .catch((err) => {
+        setError(
+          err instanceof ApiError ? err.message : "Failed to update settings",
+        );
+      })
+      .finally(() => setPending(false));
   }
 
   const dirty =
@@ -393,15 +370,6 @@ function IssueInviteForm() {
   const [mintedUrl, setMintedUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
-  // Track the in-flight raw listener so a navigation away mid-mint doesn't
-  // leak the one-shot subscription past the form's lifetime.
-  const pendingListenerRef = useRef<((data: string) => void) | null>(null);
-  useEffect(() => {
-    return () => {
-      const fn = pendingListenerRef.current;
-      if (fn) removeRawListener(fn);
-    };
-  }, []);
 
   // Existing-user detection uses the same lowercase key the server uses
   // (lowercaseKey, not raw toLowerCase) so unicode/whitespace handling
@@ -423,36 +391,25 @@ function IssueInviteForm() {
   function submit() {
     const trimmed = name.trim();
     if (!trimmed) return;
-    const reqId = `invite-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     setPending(true);
     setError(null);
     setMintedUrl(null);
-    const listener = (data: string) => {
-      try {
-        const msg = JSON.parse(data);
-        if (msg.type === "invite_minted" && msg.requestId === reqId) {
-          setPending(false);
-          removeRawListener(listener);
-          pendingListenerRef.current = null;
-          if (msg.ok) {
-            setMintedUrl(msg.url);
-            setName("");
-            setAllowExisting(false);
-          } else {
-            setError(msg.error || "Failed to mint invite");
-          }
-        }
-      } catch {}
-    };
-    pendingListenerRef.current = listener;
-    addRawListener(listener);
-    send({
-      type: "mint_invite",
-      requestId: reqId,
+    apiFetch<{ url: string; invite: InviteWire }>("POST", "/api/invites", {
       username: trimmed,
       role: effectiveRole,
       allowExisting: existing ? allowExisting : false,
-    });
+    })
+      .then((r) => {
+        setMintedUrl(r.url);
+        setName("");
+        setAllowExisting(false);
+      })
+      .catch((err) => {
+        setError(
+          err instanceof ApiError ? err.message : "Failed to mint invite",
+        );
+      })
+      .finally(() => setPending(false));
   }
 
   return (
@@ -666,9 +623,12 @@ export function InvitesTable({ invites }: { invites: InviteWire[] }) {
             <td style={mono}>{i.tokenPrefix}…</td>
             <td style={td}>
               <button
-                onClick={() =>
-                  send({ type: "revoke_invite", tokenPrefix: i.tokenPrefix })
-                }
+                onClick={() => {
+                  apiFetch(
+                    "DELETE",
+                    `/api/invites/${encodeURIComponent(i.tokenPrefix)}`,
+                  ).catch(() => {});
+                }}
                 style={smallBtn}
               >
                 Revoke
@@ -681,7 +641,13 @@ export function InvitesTable({ invites }: { invites: InviteWire[] }) {
   );
 }
 
-export function SessionsTable({ sessions }: { sessions: SessionWire[] }) {
+export function SessionsTable({
+  sessions,
+  onBlocked,
+}: {
+  sessions: SessionWire[];
+  onBlocked?: (reason: string) => void;
+}) {
   const { sessionContext } = useAppState();
   const currentPrefix = sessionContext?.currentSessionPrefix ?? null;
   return (
@@ -725,12 +691,16 @@ export function SessionsTable({ sessions }: { sessions: SessionWire[] }) {
                   </span>
                 ) : (
                   <button
-                    onClick={() =>
-                      send({
-                        type: "revoke_session",
-                        sessionPrefix: s.sessionPrefix,
-                      })
-                    }
+                    onClick={() => {
+                      apiFetch(
+                        "DELETE",
+                        `/api/sessions/${encodeURIComponent(s.sessionPrefix)}`,
+                      ).catch((err) => {
+                        if (err instanceof ApiError && err.status === 409) {
+                          onBlocked?.(err.message);
+                        }
+                      });
+                    }}
                     style={smallBtn}
                   >
                     Revoke

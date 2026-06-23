@@ -836,6 +836,38 @@ export async function demoApi(
       return { ok: true };
     case "POST /api/validate/env":
       return { ok: true };
+    // 3d.9a auth surface (invites / login-sessions / access). Mirrors the retired
+    // list_invites / list_active_sessions / logout / mint_* handleCommand cases;
+    // the recipient-scoped broadcasts still drive the lists, so the reads return
+    // the same seed snapshots.
+    case "GET /api/invites":
+      return { invites: [...invitesListSeed] };
+    case "GET /api/sessions":
+      return { sessions: [...activeSessionsList] };
+    case "POST /api/invites":
+    case "POST /api/invites/self":
+      throw new ApiError(
+        403,
+        "invites_disabled",
+        "Invites are disabled in the demo.",
+      );
+    case "DELETE /api/sessions/current":
+      // logout: no real auth to tear down; emit session_expired so the store
+      // reloads (landing back on the same seeded demo identity).
+      shimEmit({ type: "session_expired" });
+      return undefined;
+    case "GET /api/office/access":
+      // The demo binds loopback-only and has no external-access policy to read.
+      return {
+        externalAccess: false,
+        publicOrigin: null,
+        envOriginSet: false,
+        envOrigin: null,
+        boundLoopback: true,
+      };
+    case "PUT /api/office/access":
+      // No-op in the demo (no bind/origin policy to persist).
+      return { signInUrl: null, restartRequired: false };
     // cron.listAllRuns — demo cron jobs never fire, so there are no runs.
     case "GET /api/cron-runs":
       return { jobs: [] };
@@ -921,6 +953,13 @@ export async function demoApi(
     // demo, so reorder is a no-op (matching the pre-cutover demo, where
     // reorder_rooms had no handleCommand case and was silently dropped).
     case "PUT /api/me/view/order":
+      return undefined;
+    // 3d.9b view.setNotifRooms / view.setDefaultRoom — self view prefs aren't
+    // modeled per-user in the single-user demo (same as view/order). No-op; the
+    // modal + the legacy-pref migration close optimistically. Replaces the demo
+    // update_user notif/default handling and the claim_user prefs migration.
+    case "PUT /api/me/view/notif-rooms":
+    case "PUT /api/me/view/default-room":
       return undefined;
     // agents.spawn — build a demo agent, broadcast agent_added + a system log,
     // RETURN { agent } (the dialog awaits the HTTP result; the old
@@ -1036,6 +1075,128 @@ export async function demoApi(
     }
     emitEvents(state.deleteTask(id));
     return undefined;
+  }
+  // 3d.9a invites.revoke (DELETE /api/invites/:tokenPrefix): drop the seed row
+  // + broadcast invite_revoked (mirrors the retired revoke_invite handleCommand).
+  const inviteRevokeMatch = pathname.match(/^\/api\/invites\/([^/]+)$/);
+  if (inviteRevokeMatch && method === "DELETE") {
+    const prefix = decodeURIComponent(inviteRevokeMatch[1]);
+    invitesListSeed = invitesListSeed.filter((i) => i.tokenPrefix !== prefix);
+    shimEmit({ type: "invite_revoked", tokenPrefix: prefix });
+    return undefined;
+  }
+  // 3d.9a sessions.revoke (DELETE /api/sessions/:sessionPrefix): drop the row +
+  // broadcast session_revoked. DELETE /api/sessions/current is an exact route in
+  // the switch above, so it never reaches this shape matcher.
+  const sessionRevokeMatch = pathname.match(/^\/api\/sessions\/([^/]+)$/);
+  if (sessionRevokeMatch && method === "DELETE") {
+    const prefix = decodeURIComponent(sessionRevokeMatch[1]);
+    activeSessionsList = activeSessionsList.filter(
+      (s) => s.sessionPrefix !== prefix,
+    );
+    shimEmit({ type: "session_revoked", sessionPrefix: prefix });
+    return undefined;
+  }
+  // 3d.9b users.setAccess (PUT /api/users/:username/access) — set allowedRooms +
+  // prune notif/default to the new access (mirror the server clamp). An owner
+  // target accesses all rooms by rule, so don't prune theirs. Listed before the
+  // bare /:username route.
+  const userAccessMatch = pathname.match(/^\/api\/users\/([^/]+)\/access$/);
+  if (userAccessMatch && method === "PUT") {
+    const uname = decodeURIComponent(userAccessMatch[1]);
+    const existing = users.get(uname.toLowerCase());
+    if (!existing) {
+      throw new ApiError(404, "not_found", `User ${uname} not found`);
+    }
+    const b = (body ?? {}) as { allowedRooms?: string[] };
+    const allowedRooms = Array.isArray(b.allowedRooms)
+      ? b.allowedRooms
+      : existing.allowedRooms;
+    const accessible =
+      existing.role === "owner"
+        ? new Set(state.getState().rooms.map((r) => r.id))
+        : new Set(allowedRooms);
+    const notifRooms = existing.notifRooms.filter((id) => accessible.has(id));
+    const defaultRoomId =
+      existing.defaultRoomId && accessible.has(existing.defaultRoomId)
+        ? existing.defaultRoomId
+        : null;
+    const updated: UserRecord = {
+      ...existing,
+      allowedRooms,
+      notifRooms,
+      defaultRoomId,
+    };
+    users.set(updated.name.toLowerCase(), updated);
+    shimEmit({ type: "user_updated", user: updated });
+    shimEmit({ type: "users_list", users: [...users.values()] });
+    return { user: updated };
+  }
+  // 3d.9b users.update (PATCH) / users.delete (DELETE) on /api/users/:username.
+  // PATCH = record fields only (Option A; view prefs ride the no-op view.*
+  // routes); mirrors the retired update_user record path (rename-collision 409,
+  // missing 404). DELETE removes the record + broadcasts users_list.
+  const userIdMatch = pathname.match(/^\/api\/users\/([^/]+)$/);
+  if (userIdMatch && (method === "PATCH" || method === "DELETE")) {
+    const uname = decodeURIComponent(userIdMatch[1]);
+    const key = uname.toLowerCase();
+    if (method === "DELETE") {
+      if (users.has(key)) {
+        users.delete(key);
+        shimEmit({ type: "users_list", users: [...users.values()] });
+      }
+      return undefined;
+    }
+    const existing = users.get(key);
+    if (!existing) {
+      throw new ApiError(404, "not_found", `User ${uname} not found`);
+    }
+    const c = (body ?? {}) as {
+      name?: string;
+      envFile?: string | null;
+      memberPrompt?: string | null;
+      avatarColor?: string;
+      avatarVariant?: string;
+    };
+    const trimmedName = c.name?.trim();
+    const renamed = !!trimmedName && trimmedName !== existing.name;
+    if (renamed && trimmedName) {
+      const newKey = trimmedName.toLowerCase();
+      if (newKey !== key && users.has(newKey)) {
+        throw new ApiError(
+          409,
+          "name_taken",
+          `User "${trimmedName}" already exists`,
+        );
+      }
+    }
+    const updated: UserRecord = {
+      ...existing,
+      ...(renamed && trimmedName ? { name: trimmedName } : {}),
+      ...(c.envFile !== undefined ? { envFile: c.envFile } : {}),
+      ...(c.memberPrompt !== undefined
+        ? {
+            memberPrompt: c.memberPrompt?.trim() ? c.memberPrompt.trim() : null,
+          }
+        : {}),
+      ...(c.avatarColor !== undefined && isHexColor(c.avatarColor)
+        ? { avatarColor: normalizeHexColor(c.avatarColor) }
+        : {}),
+      ...(c.avatarVariant !== undefined && isGhostVariant(c.avatarVariant)
+        ? { avatarVariant: c.avatarVariant }
+        : {}),
+    };
+    if (renamed) users.delete(key);
+    users.set(updated.name.toLowerCase(), updated);
+    shimEmit({
+      type: "user_updated",
+      user: updated,
+      ...(renamed ? { prevName: existing.name } : {}),
+    });
+    shimEmit({ type: "users_list", users: [...users.values()] });
+    const stephen = users.get("stephen");
+    if (stephen && updated.id === stephen.id) emitStephenPresence();
+    return { user: updated };
   }
   // rooms.setSettings (PUT .../settings) — set the prompt + broadcast
   // room_settings_updated. No settings_save_response (the dialog reads the HTTP
@@ -1241,180 +1402,6 @@ export async function demoApi(
 
 export function handleCommand(cmd: ClientCommand) {
   switch (cmd.type) {
-    case "claim_user": {
-      const trimmed = cmd.username.trim();
-      if (!trimmed) break;
-      const key = trimmed.toLowerCase();
-      // The modal pre-checks for duplicates, but guard anyway so a stale
-      // claim doesn't overwrite an existing record.
-      if (users.has(key)) break;
-      const roomIds = state.getState().rooms.map((r) => r.id);
-      const defaultRoomId =
-        cmd.defaultRoomId !== undefined
-          ? cmd.defaultRoomId
-          : (roomIds[0] ?? null);
-      const newId = generateUserId([...users.values()].map((u) => u.id));
-      const newUser: UserRecord = {
-        id: newId,
-        name: trimmed,
-        defaultRoomId,
-        notifRooms: cmd.notifRooms ?? (roomIds[0] ? [roomIds[0]] : []),
-        envFile: null,
-        createdAt: Date.now(),
-        role: "member",
-        allowedRooms: [...roomIds],
-        hidden: [],
-        order: [],
-        memberPrompt: null,
-        avatarColor: defaultGhostColorForUserId(newId),
-        avatarVariant: "classic",
-      };
-      users.set(key, newUser);
-      shimEmit({ type: "user_updated", user: newUser });
-      shimEmit({ type: "users_list", users: [...users.values()] });
-      break;
-    }
-    case "update_user": {
-      const key = cmd.username.toLowerCase();
-      const existing = users.get(key);
-      if (!existing) {
-        if (cmd.requestId) {
-          shimEmit({
-            type: "settings_save_response",
-            requestId: cmd.requestId,
-            ok: false,
-            error: `User '${cmd.username}' not found.`,
-          });
-        }
-        break;
-      }
-      const trimmedName = cmd.changes.name?.trim();
-      const renamed = !!trimmedName && trimmedName !== existing.name;
-      if (renamed && trimmedName) {
-        const newKey = trimmedName.toLowerCase();
-        if (newKey !== key && users.has(newKey)) {
-          if (cmd.requestId) {
-            shimEmit({
-              type: "settings_save_response",
-              requestId: cmd.requestId,
-              ok: false,
-              error: `Name '${trimmedName}' is taken.`,
-            });
-          }
-          break;
-        }
-      }
-      const updated: UserRecord = {
-        ...existing,
-        ...(renamed && trimmedName ? { name: trimmedName } : {}),
-        ...(cmd.changes.defaultRoomId !== undefined
-          ? { defaultRoomId: cmd.changes.defaultRoomId }
-          : {}),
-        ...(cmd.changes.notifRooms !== undefined
-          ? { notifRooms: cmd.changes.notifRooms }
-          : {}),
-        ...(cmd.changes.envFile !== undefined
-          ? { envFile: cmd.changes.envFile }
-          : {}),
-        ...(cmd.changes.allowedRooms !== undefined
-          ? { allowedRooms: cmd.changes.allowedRooms }
-          : {}),
-        ...(cmd.changes.memberPrompt !== undefined
-          ? {
-              memberPrompt: cmd.changes.memberPrompt?.trim()
-                ? cmd.changes.memberPrompt.trim()
-                : null,
-            }
-          : {}),
-        ...(cmd.changes.avatarColor !== undefined &&
-        isHexColor(cmd.changes.avatarColor)
-          ? { avatarColor: normalizeHexColor(cmd.changes.avatarColor) }
-          : {}),
-        ...(cmd.changes.avatarVariant !== undefined &&
-        isGhostVariant(cmd.changes.avatarVariant)
-          ? { avatarVariant: cmd.changes.avatarVariant }
-          : {}),
-      };
-      if (renamed) users.delete(key);
-      users.set(updated.name.toLowerCase(), updated);
-      shimEmit({
-        type: "user_updated",
-        user: updated,
-        ...(renamed ? { prevName: existing.name } : {}),
-      });
-      shimEmit({ type: "users_list", users: [...users.values()] });
-      // Live-avatars: if the edited user is Stephen (whose phone ghost
-      // cycles through room 0), re-emit his presence now so a color /
-      // variant change takes effect immediately instead of waiting up
-      // to 6 seconds for the next cycle tick. Mirrors what the real
-      // server does via refreshPresenceForUser + pushPresenceListToEachWs.
-      const stephen = users.get("stephen");
-      if (stephen && updated.id === stephen.id) {
-        emitStephenPresence();
-      }
-      if (cmd.requestId) {
-        shimEmit({
-          type: "settings_save_response",
-          requestId: cmd.requestId,
-          ok: true,
-        });
-      }
-      break;
-    }
-    case "delete_user": {
-      const key = cmd.username.toLowerCase();
-      if (users.has(key)) {
-        users.delete(key);
-        // The edit panel's raw listener resolves the pending delete when it
-        // sees a users_list without the target — no need for an extra
-        // delete_user_blocked path here since the demo has nothing to block.
-        shimEmit({ type: "users_list", users: [...users.values()] });
-      }
-      break;
-    }
-    case "logout": {
-      // The demo emits a session_context so this button is reachable, but
-      // there's no real auth to tear down — emit session_expired so the
-      // store reloads the page (which lands on the same seeded demo
-      // identity again).
-      shimEmit({ type: "session_expired" });
-      break;
-    }
-    case "list_invites": {
-      shimEmit({ type: "invites_list", invites: [...invitesListSeed] });
-      break;
-    }
-    case "list_active_sessions": {
-      shimEmit({
-        type: "sessions_active_list",
-        sessions: [...activeSessionsList],
-      });
-      break;
-    }
-    case "revoke_session": {
-      activeSessionsList = activeSessionsList.filter(
-        (s) => s.sessionPrefix !== cmd.sessionPrefix,
-      );
-      shimEmit({ type: "session_revoked", sessionPrefix: cmd.sessionPrefix });
-      break;
-    }
-    case "revoke_invite": {
-      invitesListSeed = invitesListSeed.filter(
-        (i) => i.tokenPrefix !== cmd.tokenPrefix,
-      );
-      shimEmit({ type: "invite_revoked", tokenPrefix: cmd.tokenPrefix });
-      break;
-    }
-    case "mint_invite":
-    case "mint_self_invite": {
-      shimEmit({
-        type: "invite_minted",
-        requestId: cmd.requestId,
-        ok: false,
-        error: "Invites are disabled in the demo.",
-      });
-      break;
-    }
     // Silent no-ops
     case "terminal_open":
     case "terminal_input":

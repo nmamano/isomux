@@ -66,7 +66,6 @@ import {
   getUserById,
   getUserByName,
   pruneStaleRoomRefs,
-  updateUser,
   updateUserById,
   deleteUser,
   wouldDeleteLeaveNoOwner,
@@ -137,6 +136,7 @@ import { uploadsHandlers } from "./routes/handlers/uploads.ts";
 import { invitesHandlers } from "./routes/handlers/invites.ts";
 import { sessionsHandlers } from "./routes/handlers/sessions.ts";
 import { accessHandlers } from "./routes/handlers/access.ts";
+import { usersHandlers } from "./routes/handlers/users.ts";
 import { officeSettingsHandlers } from "./routes/handlers/office-settings.ts";
 import { validateHandlers } from "./routes/handlers/validate.ts";
 import { backendsHandlers } from "./routes/handlers/backends.ts";
@@ -1548,6 +1548,204 @@ function buildExecutorDeps(): ExecutorDeps {
     }),
   );
 
+  // 3d.9b — Users (auth surface; EXPAND+CUT). The users.* handlers were never
+  // registered (Phase 1 probe: legacy-shape 401), so this BUILDS them. The
+  // update_user SPLIT lands as OPTION A (Nil-gated): users.update = record fields
+  // only; users.setAccess = allowedRooms + a prune-clamp of the target's existing
+  // notif/default; view prefs stay self-only via view.*. EMIT-IN-DEP (no user
+  // event sink): the seam runs updateUserById/deleteUser + the fanout, mirroring
+  // the retired WS arms. Role/self authz is the route guard's (selfOrOwner /
+  // officeOwner); the two delete preconditions add owner!=self + not-last-owner.
+  register(
+    usersHandlers({
+      listScoped: (identity) => {
+        const all = listUsers();
+        const caller = identity.userId
+          ? getUserById(identity.userId)
+          : undefined;
+        // Record-role scoping (Option A, as for invites/sessions): an owner sees
+        // full admin records; a member sees public wires with their OWN entry as
+        // their full self record. Never a foreign private field.
+        if (caller?.role === "owner") return all;
+        return all.map((u) => (u.id === identity.userId ? u : toPublicWire(u)));
+      },
+      update: async ({ username, changes }) => {
+        const target = getUser(username);
+        if (!target) {
+          return {
+            ok: false,
+            status: 404,
+            code: "not_found",
+            error: `User ${username} not found`,
+          };
+        }
+        // Validate envFile against the same seam the WS arm used.
+        if (changes.envFile && changes.envFile.trim()) {
+          try {
+            agentManager.validateEnvPath(changes.envFile.trim());
+          } catch (err) {
+            return {
+              ok: false,
+              status: 400,
+              code: "invalid_env",
+              error: errMessage(err, "Invalid env file"),
+            };
+          }
+        }
+        // Record fields ONLY — allowedRooms/notif/default are NOT in
+        // UserUpdateReq (access → users.setAccess; view prefs → view.*). Resolve
+        // by id so a rename can't strand the write.
+        const result = updateUserById(target.id, {
+          name: changes.name,
+          envFile: changes.envFile,
+          memberPrompt: changes.memberPrompt,
+          avatarColor: changes.avatarColor,
+          avatarVariant: changes.avatarVariant,
+        });
+        if (!result.ok) {
+          const taken = /already exists/i.test(result.error);
+          return {
+            ok: false,
+            status: taken ? 409 : 400,
+            code: taken ? "name_taken" : "invalid_request",
+            error: result.error,
+          };
+        }
+        const renamed =
+          username.toLowerCase() !== result.user.name.toLowerCase();
+        // DELIBERATE (Reviewer1): unlike setAccess (always private), users.update
+        // can change PUBLIC fields (name/avatar), so it keeps the full public
+        // refresh (user_updated + users_list) — matching the old WS update_user.
+        // A private-only edit (env/prompt) therefore still emits a public event
+        // with no public-field change (a benign timing signal, far less sensitive
+        // than an access grant). Conditioning this on a public-field delta is a
+        // deferred cleanup, not a leak (the public payload is toPublicWire only).
+        emitUserUpdated(result.user, renamed ? username : undefined);
+        emitUsersList();
+        const presenceTouched = refreshPresenceForUser(result.user.id, {
+          name: result.user.name,
+          avatarColor: result.user.avatarColor,
+          avatarVariant: result.user.avatarVariant,
+        });
+        if (presenceTouched) pushPresenceListToEachWs();
+        return { ok: true, user: result.user };
+      },
+      setAccess: async ({ username, allowedRooms }) => {
+        const target = getUser(username);
+        if (!target) {
+          return {
+            ok: false,
+            status: 404,
+            code: "not_found",
+            error: `User ${username} not found`,
+          };
+        }
+        // ATOMIC clamp (deferred from slice 6): compute the new accessible set
+        // from the INCOMING allowedRooms and prune the target's existing
+        // notif/default to fit, in ONE updateUserById write. An empty `change`
+        // re-clamps the current view fields (clampViewFields reads `current`).
+        const accessible = accessibleRoomIdsFor(target, allowedRooms);
+        const clamped = clampViewFields(accessible, target, {});
+        const changes: {
+          allowedRooms: string[];
+          notifRooms: string[];
+          defaultRoomId?: string | null;
+        } = { allowedRooms, notifRooms: clamped.notifRooms };
+        if (clamped.defaultRoomId !== target.defaultRoomId) {
+          changes.defaultRoomId = clamped.defaultRoomId;
+        }
+        const result = updateUserById(target.id, changes);
+        if (!result.ok) {
+          return {
+            ok: false,
+            status: 500,
+            code: "set_access_failed",
+            error: result.error,
+          };
+        }
+        // setAccess is a PRIVATE-only mutation (allowedRooms + the notif/default
+        // clamp), so it emits ONLY the scoped channels — NO public user_updated /
+        // users_list, which would leak the timing+target of an access change to
+        // every user (Option A boundary, Reviewer1). Owners get the new grants via
+        // the owners-only admin event; the target re-projects via full_state +
+        // its own self event; presence sanitizes currentRoomId.
+        liveEmit("user_admin_updated", { user: result.user });
+        liveEmit(
+          "user_self_updated",
+          { user: result.user },
+          { userId: result.user.id },
+        );
+        pushProjectedFullStateForUserId(result.user.id);
+        const presenceTouched = refreshPresenceForUser(
+          result.user.id,
+          {
+            name: result.user.name,
+            avatarColor: result.user.avatarColor,
+            avatarVariant: result.user.avatarVariant,
+          },
+          accessibleRoomIdsFor(result.user),
+        );
+        if (presenceTouched) pushPresenceListToEachWs();
+        return { ok: true, user: result.user };
+      },
+      delete: async ({ username }) => {
+        const target = getUser(username);
+        // Re-check the lockout invariant atomically (the precondition is TOCTOU-
+        // prone). owner!=self is enforced by userDeleteNotSelfOwner upstream.
+        if (target && wouldDeleteLeaveNoOwner(target.id)) {
+          return {
+            ok: false,
+            status: 409,
+            code: "would_strand_office",
+            error:
+              "This is the last owner record. Promote another user to owner first, then retry.",
+          };
+        }
+        // Idempotent: deleteUser is a no-op for an unknown username; the
+        // users_list broadcast still fires so a watcher sees the target absent.
+        deleteUser(username);
+        emitUsersList();
+        if (target) await evictSessionsForUserId(target.id);
+        return { ok: true };
+      },
+    }),
+  );
+
+  // 3d.9b — delete_user preconditions (audit-pinned in routes-table.test.ts; kept
+  // SEPARATE so an audit/test failure names the policy that moved). Both run
+  // AFTER the selfOrOwner guard, so a member only ever reaches them for their OWN
+  // record. userDeleteNotSelfOwner: an owner may not delete their own record
+  // (would brick in-browser recovery; sign out / transfer ownership instead).
+  preconditions.set("userDeleteNotSelfOwner", (ctx) => {
+    if (ctx.identity.scope !== "user" || ctx.identity.role !== "owner") {
+      return null;
+    }
+    const target = getUser(ctx.params.username);
+    if (target && target.id === ctx.identity.userId) {
+      return fail(
+        403,
+        "owner_self_delete",
+        "An owner can't delete their own user record. Sign out from this session or transfer ownership first.",
+      );
+    }
+    return null;
+  });
+  // userDeleteNotLastOwner: refuse a delete that would leave the office with no
+  // owner record (defense-in-depth; the same invariant the session-revoke lockout
+  // guards). Owner-reachable for any :username; a member reaches it only for their
+  // own record (the guard), and a member is never the last owner, so it passes.
+  preconditions.set("userDeleteNotLastOwner", (ctx) => {
+    const target = getUser(ctx.params.username);
+    if (target && wouldDeleteLeaveNoOwner(target.id)) {
+      return fail(
+        409,
+        "would_strand_office",
+        "This is the last owner record. Promote another user to owner first, then retry.",
+      );
+    }
+    return null;
+  });
+
   // 3a.5 — Office settings (owner-only) + validation probes + backend models.
   // Four narrow deps over the shared cores so REST and the legacy WS arms stay in
   // lockstep. office.setSettings emits office_settings_updated via the
@@ -2055,9 +2253,9 @@ function buildExecutorDeps(): ExecutorDeps {
       },
     }),
   );
-  // 3b.4 — per-user view preferences. REST view.* is the live surface; the legacy
-  // WS arm that still delegates here is the update_user notif/default slice
-  // (group 7). reorder_rooms was cut over to view.setOrder in slice 6.
+  // 3b.4 — per-user view preferences. REST view.* is the SOLE surface now: group 7
+  // (3d.9b) retired the WS update_user notif/default arm, and under Option A
+  // notif/default are self-only. reorder_rooms cut over to view.setOrder in slice 6.
   register(
     viewHandlers({
       getView: (userId) => getViewProjection(userId),
@@ -2400,9 +2598,9 @@ interface ViewChange {
 // accessible rooms NOT in the desired shown set (or the stored hidden re-
 // filtered to accessible); notifRooms within effective shown; defaultRoomId
 // within effective shown else null (inaccessible and accessible-but-hidden both
-// miss effective shown -> null, so no existence oracle). applyViewChange (the
-// new view surface) and the legacy update_user bridge both clamp through this,
-// so the invariant lives in exactly one place.
+// miss effective shown -> null, so no existence oracle). applyViewChange (view.*)
+// and the users.setAccess prune-clamp (3d.9b) both clamp through this, so the
+// invariant lives in exactly one place.
 function clampViewFields(
   accessible: ReadonlySet<string>,
   current: {
@@ -2853,61 +3051,12 @@ async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<WsData>) {
   try {
     await dispatchCommand(cmd, ws, session);
   } catch (err) {
-    // Top-level guard for async throws the per-case logic doesn't catch
-    // (most relevant: persistence failures from auth mutations). Surface a
-    // typed error response when the command carried a requestId so the UI
-    // can react; otherwise log so the operator sees the failure.
-    const msg = errMessage(err);
+    // Top-level guard for async throws the per-case logic doesn't catch. Every
+    // command that carried a *_response shape has migrated to REST (group 7
+    // retired the last one, settings_save_response), so the remaining inbound
+    // commands (ping / presence_update / terminal IO) are fire-and-forget: log
+    // and move on. The dispatchCommand switch + this seam collapse in Phase 4.
     console.error(`[handleCommand] ${cmd.type} failed:`, err);
-    surfaceCommandError(cmd, ws, msg);
-  }
-}
-
-function surfaceCommandError(
-  cmd: ClientCommand,
-  ws: ServerWebSocket<WsData>,
-  errorMsg: string,
-): void {
-  // Each case maps a failed command to its response shape so the requesting
-  // client can stop waiting on a reply that would otherwise never arrive.
-  switch (cmd.type) {
-    case "mint_invite":
-      ws.send(
-        JSON.stringify({
-          type: "invite_minted",
-          requestId: cmd.requestId,
-          ok: false,
-          error: errorMsg,
-        }),
-      );
-      return;
-    case "update_access_settings":
-      ws.send(
-        JSON.stringify({
-          type: "access_settings_updated",
-          requestId: cmd.requestId,
-          ok: false,
-          error: errorMsg,
-        }),
-      );
-      return;
-    case "update_user":
-      if (cmd.requestId) {
-        ws.send(
-          JSON.stringify({
-            type: "settings_save_response",
-            requestId: cmd.requestId,
-            ok: false,
-            error: errorMsg,
-          }),
-        );
-      }
-      return;
-    default:
-      // Fire-and-forget commands (revoke_*, logout, list_*, send_message,
-      // etc.) don't have a response shape we can reach for; we already
-      // logged above.
-      return;
   }
 }
 
@@ -3024,607 +3173,6 @@ async function dispatchCommand(
       if (!agentVisibleForSession(session, cmd.agentId)) break;
       agentManager.closeTerminal(cmd.agentId);
       break;
-    case "claim_user": {
-      // Post-auth, the session cookie is authoritative for username. This is the
-      // one-shot localStorage->server migration of legacy view prefs (the UI
-      // clears its localStorage keys right after sending). Reject a mismatched
-      // username so a client can't reach for someone else's record, then route
-      // the prefs through the view core so they are CLAMPED to the caller's
-      // accessible rooms (a member with no grant can't migrate a default/notif
-      // for a room they can't access) and fanned out consistently — never a raw
-      // claimUser write that bypasses the invariant. A null/absent legacy default
-      // is "nothing to migrate" (undefined = no change), not an explicit clear.
-      if (lowercaseKey(cmd.username) !== lowercaseKey(session.username)) {
-        break;
-      }
-      applyViewChange(session.userId, {
-        defaultRoomId: cmd.defaultRoomId ?? undefined,
-        notifRooms: cmd.notifRooms,
-      });
-      break;
-    }
-    case "update_user": {
-      // Members can edit only their own record. Owners can edit any user's
-      // preferences but cannot change the `role` field through this path
-      // (role changes go through an admin/CLI path, not in V1).
-      const targetIsSelf =
-        lowercaseKey(cmd.username) === lowercaseKey(session.username);
-      if (!targetIsSelf && session.role !== "owner") {
-        if (cmd.requestId) {
-          ws.send(
-            JSON.stringify({
-              type: "settings_save_response",
-              requestId: cmd.requestId,
-              ok: false,
-              error: "Only the office owner can edit other users.",
-            }),
-          );
-        }
-        break;
-      }
-      // Field-level gate: only owners can mutate allowedRooms, even on
-      // self-edit. Without this a member could send
-      // `changes.allowedRooms = "all"` and grant themselves full access.
-      if (cmd.changes.allowedRooms !== undefined && session.role !== "owner") {
-        if (cmd.requestId) {
-          ws.send(
-            JSON.stringify({
-              type: "settings_save_response",
-              requestId: cmd.requestId,
-              ok: false,
-              error: "Only owners can change room access.",
-            }),
-          );
-        }
-        break;
-      }
-      // Validate envFile if present.
-      if (cmd.changes.envFile && cmd.changes.envFile.trim()) {
-        try {
-          agentManager.validateEnvPath(cmd.changes.envFile.trim());
-        } catch (err) {
-          if (cmd.requestId) {
-            ws.send(
-              JSON.stringify({
-                type: "settings_save_response",
-                requestId: cmd.requestId,
-                ok: false,
-                error: errMessage(err, "Invalid env file"),
-              }),
-            );
-          }
-          break;
-        }
-      }
-      // Runtime-validate allowedRooms + notifRooms shapes on the wire.
-      // Both are now strict string[]; a stale tab from before either
-      // refactor could still send the legacy "all" sentinel, and
-      // treating a string as a string[] in the auto-prune logic below
-      // would expand it to per-char garbage. Reject malformed values
-      // explicitly so the user sees an error rather than silently
-      // corrupting their record.
-      const effectiveChanges = { ...cmd.changes };
-      const isStringArray = (v: unknown): boolean =>
-        Array.isArray(v) && v.every((x) => typeof x === "string");
-      if (
-        effectiveChanges.allowedRooms !== undefined &&
-        !isStringArray(effectiveChanges.allowedRooms)
-      ) {
-        if (cmd.requestId) {
-          ws.send(
-            JSON.stringify({
-              type: "settings_save_response",
-              requestId: cmd.requestId,
-              ok: false,
-              error:
-                "Invalid allowedRooms (must be an array of room ids). Reload the page and retry.",
-            }),
-          );
-        }
-        break;
-      }
-      if (
-        effectiveChanges.notifRooms !== undefined &&
-        !isStringArray(effectiveChanges.notifRooms)
-      ) {
-        if (cmd.requestId) {
-          ws.send(
-            JSON.stringify({
-              type: "settings_save_response",
-              requestId: cmd.requestId,
-              ok: false,
-              error:
-                "Invalid notifRooms (must be an array of room ids). Reload the page and retry.",
-            }),
-          );
-        }
-        break;
-      }
-      // Enforce notifRooms ⊆ ACCESSIBLE rooms whenever either field is in the
-      // change set. A room you can't access can't deliver notifications, so the
-      // two settings can't disagree without leaving dead entries in users.json.
-      // Phase 3b: the clamp set is the rule-based ACCESSIBLE set, NOT raw
-      // allowedRooms — owners now carry allowedRooms=[] but access every live
-      // room by rule, so clamping an owner's notifRooms against their grants
-      // would wrongly prune it to []. accessibleRoomIdsFor resolves owner→all
-      // live rooms, member→effective grants (the incoming allowedRooms override
-      // when an owner is changing this member's grants in the same command).
-      // Runs even when only notifRooms is being updated, so a stale or crafted
-      // client can't drift the invariant past this handler. Computed once so a
-      // single updateUser call applies both atomically and the broadcast picks
-      // up the consistent shape.
-      if (
-        effectiveChanges.allowedRooms !== undefined ||
-        effectiveChanges.notifRooms !== undefined ||
-        effectiveChanges.defaultRoomId !== undefined
-      ) {
-        const targetUser = getUser(cmd.username);
-        if (targetUser) {
-          // Clamp through the shared view-invariant core (clampViewFields). The
-          // override threads the grants being set in THIS command so a grant
-          // change re-clamps in one atomic write (Isomuxer3: a demotion/revoke
-          // must not leave notif or a default pointing at a now-inaccessible
-          // room). order/hidden aren't editable via update_user.
-          const accessible = accessibleRoomIdsFor(
-            targetUser,
-            effectiveChanges.allowedRooms,
-          );
-          const clamped = clampViewFields(accessible, targetUser, {
-            notifRooms: effectiveChanges.notifRooms,
-            defaultRoomId: effectiveChanges.defaultRoomId,
-          });
-          effectiveChanges.notifRooms = clamped.notifRooms;
-          // Persist the re-clamped default when explicitly set, or when an
-          // access change pruned the existing default out of effective shown.
-          if (
-            effectiveChanges.defaultRoomId !== undefined ||
-            clamped.defaultRoomId !== targetUser.defaultRoomId
-          ) {
-            effectiveChanges.defaultRoomId = clamped.defaultRoomId;
-          }
-        }
-      }
-      const result = updateUser(cmd.username, effectiveChanges);
-      if (!result.ok) {
-        if (cmd.requestId) {
-          ws.send(
-            JSON.stringify({
-              type: "settings_save_response",
-              requestId: cmd.requestId,
-              ok: false,
-              error: result.error,
-            }),
-          );
-        }
-        break;
-      }
-      if (cmd.requestId) {
-        ws.send(
-          JSON.stringify({
-            type: "settings_save_response",
-            requestId: cmd.requestId,
-            ok: true,
-          }),
-        );
-      }
-      // Tell the client the old key when a re-key rename happened, so it can
-      // drop the stale entry from its keyed map without waiting for the
-      // follow-up users_list rebroadcast.
-      const renamed =
-        cmd.username.toLowerCase() !== result.user.name.toLowerCase();
-      emitUserUpdated(result.user, renamed ? cmd.username : undefined);
-      emitUsersList();
-      // If the owner changed this user's allowedRooms, push a fresh
-      // projected full_state (with log replay) to every WS that user is
-      // connected from — their visible rooms/agents and conversation
-      // history reflect the new access without a reload.
-      if (cmd.changes.allowedRooms !== undefined) {
-        pushProjectedFullStateForUserId(result.user.id);
-      }
-      // Live-avatars: keep denormalized presence fields (display name,
-      // avatarColor, avatarVariant) in sync, and sanitize currentRoomId
-      // against any new allowedRooms. Rebroadcast only if anything
-      // actually changed; common case (name-only edit on a user with no
-      // active ghost) is a no-op.
-      const allowedSet =
-        cmd.changes.allowedRooms !== undefined
-          ? accessibleRoomIdsFor(result.user)
-          : undefined;
-      const presenceTouched = refreshPresenceForUser(
-        result.user.id,
-        {
-          name: result.user.name,
-          avatarColor: result.user.avatarColor,
-          avatarVariant: result.user.avatarVariant,
-        },
-        allowedSet,
-      );
-      if (presenceTouched) {
-        pushPresenceListToEachWs();
-      }
-      break;
-    }
-    case "delete_user": {
-      // Owners can delete any user (except themselves; deleting your own
-      // owner record while it's the only owner would brick the office).
-      // Members can delete only their own record.
-      //
-      // Every refusal path emits delete_user_blocked so the client can
-      // surface a reason and clear its pending state. Silent breaks here
-      // would hang the panel (handleDelete waits for either blocked or
-      // users_list-with-target-absent before clearing pendingDeleteReqRef).
-      const targetIsSelf =
-        lowercaseKey(cmd.username) === lowercaseKey(session.username);
-      if (!targetIsSelf && session.role !== "owner") {
-        ws.send(
-          JSON.stringify({
-            type: "delete_user_blocked",
-            requestId: cmd.requestId,
-            username: cmd.username,
-            reason: "Refused: only owners can delete other users.",
-          }),
-        );
-        break;
-      }
-      if (targetIsSelf && session.role === "owner") {
-        // Refuse to let the current session erase its own owner record. If
-        // the boss wants to transfer ownership they'll go through the (V2)
-        // role-change flow.
-        ws.send(
-          JSON.stringify({
-            type: "delete_user_blocked",
-            requestId: cmd.requestId,
-            username: cmd.username,
-            reason:
-              "Refused: an owner can't delete their own user record. " +
-              "Sign out from this session or transfer ownership first.",
-          }),
-        );
-        break;
-      }
-      // Lockout-prevention: refuse deletion that would leave the office
-      // without any owner record on disk. Without this, deleting the last
-      // owner brings the office to a state where hasOwner() stays true on
-      // restart (well, would be false here, but the deletion itself
-      // already finished). Defense in depth: same invariant as the
-      // session-revoke check, applied to user records.
-      const targetUser = getUser(cmd.username);
-      if (targetUser && wouldDeleteLeaveNoOwner(targetUser.id)) {
-        console.warn(
-          `[auth] delete_user "${cmd.username}" refused: would leave office with no owners`,
-        );
-        ws.send(
-          JSON.stringify({
-            type: "delete_user_blocked",
-            requestId: cmd.requestId,
-            username: cmd.username,
-            reason:
-              "Refused: this is the last owner record. Promote another " +
-              "user to owner first, then retry.",
-          }),
-        );
-        break;
-      }
-      // deleteUser is a no-op when the username doesn't exist; the
-      // broadcast below still fires so the client's users_list-watcher
-      // sees the target absent and resolves the pending delete cleanly.
-      deleteUser(cmd.username);
-      emitUsersList();
-      // Evict any sessions the deleted user still had open: their
-      // browsers get session_expired + close so they land on the login
-      // wall instead of looping reconnect against a now-orphaned cookie.
-      // Covers both self-delete (member) and owner-deletes-member; the
-      // owner-deletes-self path was already refused above.
-      if (targetUser) {
-        await evictSessionsForUserId(targetUser.id);
-      }
-      break;
-    }
-    case "mint_invite": {
-      if (session.role !== "owner") {
-        ws.send(
-          JSON.stringify({
-            type: "invite_minted",
-            requestId: cmd.requestId,
-            ok: false,
-            error:
-              "Only owners can mint invites. Use mint_self_invite to add another of your own devices.",
-          }),
-        );
-        break;
-      }
-      const r = await mintInvite({
-        username: cmd.username,
-        role: cmd.role,
-        createdBy: session.username,
-        allowExisting: !!cmd.allowExisting,
-      });
-      if (!r.ok) {
-        ws.send(
-          JSON.stringify({
-            type: "invite_minted",
-            requestId: cmd.requestId,
-            ok: false,
-            error: r.error,
-          }),
-        );
-        break;
-      }
-      const { origin } = buildPublicOrigin();
-      const url = `${origin}/i/${r.rawToken}`;
-      ws.send(
-        JSON.stringify({
-          type: "invite_minted",
-          requestId: cmd.requestId,
-          ok: true,
-          url,
-          invite: {
-            tokenPrefix: r.invite.tokenPrefix,
-            username: r.invite.username,
-            role: r.invite.role,
-            createdBy: r.invite.createdBy,
-            createdAt: r.invite.createdAt,
-            expiresAt: r.invite.expiresAt,
-          },
-        }),
-      );
-      // Owner-issued invites can land in a member's "My devices" pane
-      // when they're bound to that member's name (the existing
-      // "additional invite for this identity" flow), so push scoped
-      // lists to every WS rather than only owners.
-      emitInvitesList();
-      break;
-    }
-    case "mint_self_invite": {
-      // Tailscale-style "additional device" flow. The command carries
-      // no overridable knobs — the server binds the invite to the
-      // caller's own user record (via stable session.userId, so a
-      // rename mid-flow doesn't matter), mirrors the caller's current
-      // role (members mint member invites, owners mint owner invites),
-      // and uses the tighter self-invite TTL (SELF_INVITE_TTL_MS in
-      // auth.ts — currently 1h; the legitimate flow is "both devices
-      // are with me, click it now"). replacePriorForUsername enforces
-      // the 1-outstanding-per-user rule atomically AND is the marker
-      // mintInvite uses to pick the self-invite TTL. Available to any
-      // authenticated session — members reach this from the My
-      // devices pane; owners could surface a quick-add path on top of
-      // the same handler.
-      const me = getUserById(session.userId);
-      if (!me) {
-        ws.send(
-          JSON.stringify({
-            type: "invite_minted",
-            requestId: cmd.requestId,
-            ok: false,
-            error: "Your user record is missing; reload and try again.",
-          }),
-        );
-        break;
-      }
-      const r = await mintInvite({
-        username: me.name,
-        role: me.role === "owner" ? "owner" : "member",
-        createdBy: session.username,
-        allowExisting: true,
-        replacePriorForUsername: true,
-      });
-      if (!r.ok) {
-        ws.send(
-          JSON.stringify({
-            type: "invite_minted",
-            requestId: cmd.requestId,
-            ok: false,
-            error: r.error,
-          }),
-        );
-        break;
-      }
-      const { origin } = buildPublicOrigin();
-      const url = `${origin}/i/${r.rawToken}`;
-      ws.send(
-        JSON.stringify({
-          type: "invite_minted",
-          requestId: cmd.requestId,
-          ok: true,
-          url,
-          invite: {
-            tokenPrefix: r.invite.tokenPrefix,
-            username: r.invite.username,
-            role: r.invite.role,
-            createdBy: r.invite.createdBy,
-            createdAt: r.invite.createdAt,
-            expiresAt: r.invite.expiresAt,
-          },
-        }),
-      );
-      emitInvitesList();
-      break;
-    }
-    case "get_access_settings": {
-      // Owners read the current bind/origin policy. Members would see nothing
-      // actionable, so we don't bother with a scoped version. Strangler: the
-      // effective-state computation is the shared computeAccessSettings() core,
-      // identical to REST office.getAccess.
-      if (session.role !== "owner") {
-        ws.send(
-          JSON.stringify({
-            type: "access_settings",
-            ok: false,
-            error: "Only owners can view access settings.",
-          }),
-        );
-        break;
-      }
-      ws.send(
-        JSON.stringify({
-          type: "access_settings",
-          ok: true,
-          ...computeAccessSettings(),
-        }),
-      );
-      break;
-    }
-    case "update_access_settings": {
-      // Owners flip the toggle. The change persists to office-config.json
-      // immediately, but the running process keeps its boot-frozen bind
-      // and origin policy until the operator restarts isomux. We respond
-      // with restartRequired:true so the UI can spell that out, plus a
-      // freshly-minted owner self-invite URL bound to the NEW public
-      // origin so the operator has a sign-in link ready for the
-      // post-restart address.
-      if (session.role !== "owner") {
-        ws.send(
-          JSON.stringify({
-            type: "access_settings_updated",
-            requestId: cmd.requestId,
-            ok: false,
-            error: "Only owners can change access settings.",
-          }),
-        );
-        break;
-      }
-      // Strangler: delegate validate → save → owner self-invite →
-      // emitInvitesList to the shared applyAccessSettings() core (identical to
-      // REST office.setAccess). This arm keeps its bespoke access_settings_updated
-      // wire payload; the richer success fields come straight from the result.
-      // envOrigin rides only the env-mismatch reply (and success), matching legacy.
-      const r = await applyAccessSettings(
-        !!cmd.externalAccess,
-        typeof cmd.publicOrigin === "string" ? cmd.publicOrigin : "",
-        session.userId,
-      );
-      if (!r.ok) {
-        ws.send(
-          JSON.stringify({
-            type: "access_settings_updated",
-            requestId: cmd.requestId,
-            ok: false,
-            error: r.error,
-            ...(r.envOrigin !== undefined ? { envOrigin: r.envOrigin } : {}),
-          }),
-        );
-        break;
-      }
-      ws.send(
-        JSON.stringify({
-          type: "access_settings_updated",
-          requestId: cmd.requestId,
-          ok: true,
-          externalAccess: r.externalAccess,
-          publicOrigin: r.publicOrigin,
-          signInUrl: r.signInUrl,
-          restartRequired: r.restartRequired,
-          envOrigin: r.envOrigin,
-        }),
-      );
-      break;
-    }
-    case "list_invites": {
-      // Direct reply to the requesting socket ONLY (a pure read must never fan
-      // out to other users). Scoped via the shared record-role projection so the
-      // WS list matches the REST GET /api/invites payload exactly.
-      ws.send(
-        JSON.stringify({
-          type: "invites_list",
-          invites: scopedInvitesFor(session.userId),
-        }),
-      );
-      break;
-    }
-    case "revoke_invite": {
-      // Strangler: delegate to the SAME shared core as the REST invites.revoke
-      // (revokeInviteForUserRecord) — record-role branch, atomic scoped mutate
-      // for members, and on success invite_revoked (owners-only via liveEmit) +
-      // the scoped invites_list fan-out. One path for both transports; a foreign
-      // or unknown prefix is a silent no-op (the scoped mutator returns
-      // not_found), so the member never learns the row exists.
-      const me = getUserById(session.userId);
-      if (!me) break;
-      await revokeInviteForUserRecord(me, cmd.tokenPrefix);
-      break;
-    }
-    case "list_active_sessions": {
-      // Direct reply to the requesting socket only; scoped via the shared
-      // record-role projection so the WS list matches GET /api/sessions exactly.
-      ws.send(
-        JSON.stringify({
-          type: "sessions_active_list",
-          sessions: scopedSessionsFor(session.userId),
-        }),
-      );
-      break;
-    }
-    case "revoke_session": {
-      // Strangler: delegate to the SAME shared core as the REST sessions.revoke
-      // (revokeSessionForUserRecord) — record-role branch; on ok session_revoked
-      // (owners via liveEmit) + sessions_active_list via the hook + session_expired
-      // /close via the force-expire bridge. The WS path has no executor
-      // precondition, so the OWNER global-revoke lockout pre-check lives here; the
-      // member path's lockout folds into the mutator, so "would_strand_office"
-      // (and the revoke_blocked reply) only ever surfaces for a row they own.
-      const me = getUserById(session.userId);
-      if (!me) break;
-      if (me.role === "owner") {
-        const targetHash = resolveSessionHashByPrefix(cmd.sessionPrefix);
-        if (targetHash && wouldRevokeLeaveOfficeUnreachable(targetHash)) {
-          ws.send(
-            JSON.stringify({
-              type: "revoke_blocked",
-              sessionPrefix: cmd.sessionPrefix,
-              reason: SESSION_REVOKE_LOCKOUT_REASON,
-            }),
-          );
-          break;
-        }
-      }
-      const result = await revokeSessionForUserRecord(me, cmd.sessionPrefix);
-      if (result === "would_strand_office") {
-        ws.send(
-          JSON.stringify({
-            type: "revoke_blocked",
-            sessionPrefix: cmd.sessionPrefix,
-            reason: SESSION_REVOKE_LOCKOUT_REASON,
-          }),
-        );
-      }
-      break;
-    }
-    case "logout": {
-      // Self-logout: revoke current session, then close socket. The HTTP
-      // /auth/logout path mirrors this for the browser cookie-clear case;
-      // both paths converge on the same revoke logic.
-      //
-      // Lockout-prevention: refuse if this is the office's last active
-      // owner session. Operator must mint an additional invite first to
-      // preserve the recovery path. Cookie stays valid; socket stays
-      // open; the UI surfaces the reason inline.
-      if (wouldRevokeLeaveOfficeUnreachable(session.sessionIdHash)) {
-        ws.send(
-          JSON.stringify({
-            type: "logout_blocked",
-            reason:
-              "You're the only owner with an active session. Sign out " +
-              "would lock the office out of in-browser recovery. Mint " +
-              "an additional invite for yourself (Issue invite → your " +
-              'name → tick "additional invite for this identity") and ' +
-              "accept it on another device first.",
-          }),
-        );
-        break;
-      }
-      // We catch persistence failures here (rather than relying on the
-      // outer guard) so we never close the socket on a failed logout —
-      // the rollback inside logoutBySessionHash restored the in-memory
-      // session, and closing the WS would mislead the user into thinking
-      // they were signed out when their cookie still works.
-      try {
-        await logoutBySessionHash(session.sessionIdHash);
-        ws.close();
-      } catch (err) {
-        console.error("[auth] logout persist failed; session preserved:", err);
-      }
-      break;
-    }
   }
 }
 

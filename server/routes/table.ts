@@ -132,7 +132,13 @@ export type RoutePrecondition =
   | "messageRecipientExists"
   // agents.sendMessage: while a pendingPermission is set for :id, the next
   // message to THAT agent is its allow/deny — interpretation binds to :id.
-  | "messagePendingPermissionBindsParam";
+  | "messagePendingPermissionBindsParam"
+  // users.delete: an owner may not delete their OWN record (would brick in-browser
+  // recovery; sign out / transfer ownership instead). Runs after selfOrOwner.
+  | "userDeleteNotSelfOwner"
+  // users.delete: refuse a delete that would leave the office with no owner record
+  // (defense-in-depth; same invariant as the session-revoke lockout).
+  | "userDeleteNotLastOwner";
 
 export interface RouteDef<Req = unknown, Res = unknown> {
   opId: string;
@@ -506,14 +512,21 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PATCH",
     path: "/api/users/:username",
     auth: cap(["user:self", "user:admin"], selfOrOwner),
-    emits: ["user_updated", "full_state"],
+    // Option A (Nil-gated): record fields only (name/env/prompt/avatar).
+    // emitUserUpdated + emitUsersList; NO full_state — access/view prefs are not
+    // editable here, so nothing re-projects the subject's rooms.
+    emits: ["user_updated", "users_list"],
   }),
   defineRoute<SetAccessReq, { user: UserAdminWire }>({
     opId: "users.setAccess",
     method: "PUT",
     path: "/api/users/:username/access",
     auth: cap("user:admin", officeOwner),
-    emits: ["full_state"],
+    // allowedRooms + the atomic notif/default prune-clamp — a PRIVATE-only change,
+    // so SCOPED events only (no public user_updated/users_list): owners see the
+    // new grants via user_admin_updated, the target re-projects via full_state +
+    // its own user_self_updated. (Option A boundary.)
+    emits: ["user_admin_updated", "user_self_updated", "full_state"],
   }),
   defineRoute<void, NoContent>({
     opId: "users.delete",
@@ -521,6 +534,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/users/:username",
     auth: cap(["user:self", "user:admin"], selfOrOwner),
     emits: ["users_list", "session_expired"],
+    preconditions: ["userDeleteNotSelfOwner", "userDeleteNotLastOwner"],
   }),
 
   // --- Sessions, invites, access (auth surface) -----------------------------

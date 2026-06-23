@@ -6,8 +6,9 @@
 // UserManagementModal when the session role is not "owner".
 
 import { useEffect, useRef, useState } from "react";
-import { useAppState } from "../store.tsx";
-import { send, addRawListener, removeRawListener } from "../ws.ts";
+import { useAppState, useDispatch } from "../store.tsx";
+import { apiFetch, ApiError } from "../api.ts";
+import type { InviteWire, SessionWire } from "../../shared/types.ts";
 import { dialogSaveBtn } from "./dialog-styles.ts";
 import {
   InvitesTable,
@@ -23,34 +24,32 @@ import {
 export function MyDevicesPane() {
   const { invitesList, invitesLoaded, activeSessions, activeSessionsLoaded } =
     useAppState();
+  const dispatch = useDispatch();
 
-  // Server-side lockout-prevention rejections (revoke_blocked) are
-  // owner-relevant in practice — a member's session can't be the office's
-  // last owner session — but the banner is wired in case a future
-  // role-change races a revoke.
+  // Server-side lockout-prevention rejections (a 409 from sessions.revoke,
+  // surfaced by SessionsTable's onBlocked) are owner-relevant in practice (a
+  // member's session can't be the office's last owner session), but the banner
+  // is wired in case a future role-change races a revoke.
   const [blockedNote, setBlockedNote] = useState<string | null>(null);
   const prevSessionsLenRef = useRef<number>(activeSessions.length);
 
-  // Same lazy-fetch pattern as AccessPane. The server returns the
-  // member-scoped subset for non-owner callers; the same store slice
-  // backs both views, so a member never sees foreign rows.
+  // Same lazy-seed pattern as AccessPane. The server returns the member-scoped
+  // subset for non-owner callers; the same store slice backs both views, so a
+  // member never sees foreign rows. Mutations still arrive as scoped broadcasts.
   useEffect(() => {
-    if (!invitesLoaded) send({ type: "list_invites" });
-    if (!activeSessionsLoaded) send({ type: "list_active_sessions" });
-  }, [invitesLoaded, activeSessionsLoaded]);
-
-  useEffect(() => {
-    const fn = (data: string) => {
-      try {
-        const m = JSON.parse(data);
-        if (m.type === "revoke_blocked" && typeof m.reason === "string") {
-          setBlockedNote(m.reason);
-        }
-      } catch {}
-    };
-    addRawListener(fn);
-    return () => removeRawListener(fn);
-  }, []);
+    if (!invitesLoaded) {
+      apiFetch<{ invites: InviteWire[] }>("GET", "/api/invites")
+        .then((r) => dispatch({ type: "invites_list", invites: r.invites }))
+        .catch(() => {});
+    }
+    if (!activeSessionsLoaded) {
+      apiFetch<{ sessions: SessionWire[] }>("GET", "/api/sessions")
+        .then((r) =>
+          dispatch({ type: "sessions_active_list", sessions: r.sessions }),
+        )
+        .catch(() => {});
+    }
+  }, [invitesLoaded, activeSessionsLoaded, dispatch]);
 
   useEffect(() => {
     const prev = prevSessionsLenRef.current;
@@ -110,7 +109,7 @@ export function MyDevicesPane() {
 
       <h5 style={subsectionHeader}>Active sessions</h5>
       {renderListSection(activeSessions, activeSessionsLoaded, (rows) => (
-        <SessionsTable sessions={rows} />
+        <SessionsTable sessions={rows} onBlocked={setBlockedNote} />
       ))}
     </div>
   );
@@ -120,43 +119,24 @@ function GenerateDeviceLinkForm() {
   const [mintedUrl, setMintedUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
-  // One-shot WS listener for the mint response; cleared on unmount so a
-  // navigation away mid-mint doesn't leak the subscription.
-  const pendingListenerRef = useRef<((data: string) => void) | null>(null);
-  useEffect(() => {
-    return () => {
-      const fn = pendingListenerRef.current;
-      if (fn) removeRawListener(fn);
-    };
-  }, []);
 
   function generate() {
-    const reqId = `dev-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     setPending(true);
     setError(null);
     setMintedUrl(null);
-    const listener = (data: string) => {
-      try {
-        const msg = JSON.parse(data);
-        if (msg.type === "invite_minted" && msg.requestId === reqId) {
-          setPending(false);
-          removeRawListener(listener);
-          pendingListenerRef.current = null;
-          if (msg.ok) {
-            setMintedUrl(msg.url);
-          } else {
-            setError(msg.error || "Failed to generate device link");
-          }
-        }
-      } catch {}
-    };
-    pendingListenerRef.current = listener;
-    addRawListener(listener);
-    // mint_self_invite carries no client-supplied knobs: the server
-    // derives target/role/TTL from session.userId and the self-invite
-    // cap, so a tampered client cannot extend the window or
-    // impersonate another user.
-    send({ type: "mint_self_invite", requestId: reqId });
+    // mint_self_invite carries no client-supplied knobs: the server derives
+    // target/role/TTL from the caller's session and the self-invite cap, so a
+    // tampered client cannot extend the window or impersonate another user.
+    apiFetch<{ url: string; invite: InviteWire }>("POST", "/api/invites/self")
+      .then((r) => setMintedUrl(r.url))
+      .catch((err) => {
+        setError(
+          err instanceof ApiError
+            ? err.message
+            : "Failed to generate device link",
+        );
+      })
+      .finally(() => setPending(false));
   }
 
   return (

@@ -33,9 +33,6 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 type Msg = Record<string, unknown>;
 const bag = (sock: TestSocket): Msg[] => sock.messages as Msg[];
 
-let reqSeq = 0;
-const nextReqId = () => `preq-${++reqSeq}`;
-
 async function waitForMessageWhere(
   sock: TestSocket,
   pred: (m: Msg) => boolean,
@@ -72,23 +69,25 @@ async function connectSettled(
 }
 
 async function setAccess(
-  ownerSock: TestSocket,
+  srv: TestServer,
+  ownerRawSessionId: string,
   username: string,
   roomIds: string[],
 ): Promise<void> {
-  const requestId = nextReqId();
-  ownerSock.send({
-    type: "update_user",
-    requestId,
-    username,
-    changes: { allowedRooms: roomIds },
-  });
-  const resp = await waitForMessageWhere(
-    ownerSock,
-    (m) => m.type === "settings_save_response" && m.requestId === requestId,
+  // 3d.9b: the real REST users.setAccess route (owner-gated allowedRooms +
+  // notif/default prune-clamp) replaces the retired WS update_user arm.
+  const res = await srv.http(
+    `/api/users/${encodeURIComponent(username)}/access`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ allowedRooms: roomIds }),
+      rawSessionId: ownerRawSessionId,
+    },
   );
-  if (resp.ok !== true)
-    throw new Error(`setAccess failed: ${String(resp.error)}`);
+  if (res.status >= 400) {
+    throw new Error(`setAccess failed: ${res.status}`);
+  }
 }
 
 function makeRoomsBeforeOwner(srv: TestServer, names: string[]): string[] {
@@ -136,7 +135,7 @@ describe("presence — id-keyed wire (Phase 3c slice 4)", () => {
     const member = await server.seedMember("Mia");
 
     const ownerSock = await connectSettled(server, owner.rawSessionId);
-    await setAccess(ownerSock, member.username, [r2, r3]);
+    await setAccess(server, owner.rawSessionId, member.username, [r2, r3]);
     const memberSock = await connectSettled(server, member.rawSessionId);
     const memberCid = connectionIdOf(memberSock);
 
@@ -168,7 +167,7 @@ describe("presence — id-keyed wire (Phase 3c slice 4)", () => {
     const member = await server.seedMember("Mia");
 
     const ownerSock = await connectSettled(server, owner.rawSessionId);
-    await setAccess(ownerSock, member.username, [r2, r3]);
+    await setAccess(server, owner.rawSessionId, member.username, [r2, r3]);
     const memberSock = await connectSettled(server, member.rawSessionId);
     const memberCid = connectionIdOf(memberSock);
 
@@ -198,7 +197,7 @@ describe("presence — id-keyed wire (Phase 3c slice 4)", () => {
     const member = await server.seedMember("Mia");
 
     const ownerSock = await connectSettled(server, owner.rawSessionId);
-    await setAccess(ownerSock, member.username, [r2, r3]);
+    await setAccess(server, owner.rawSessionId, member.username, [r2, r3]);
     const memberSock = await connectSettled(server, member.rawSessionId);
     const ownerCid = connectionIdOf(ownerSock);
 

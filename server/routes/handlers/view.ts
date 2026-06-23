@@ -82,14 +82,15 @@ export function viewHandlers(deps: ViewDeps): Record<string, RouteHandler> {
       const userId = ctx.identity.userId;
       if (!userId) return fail(401, "not_a_user", "view is per-user");
       const b = (ctx.body ?? {}) as { defaultRoomId?: unknown };
-      // The contract carries a string (set a default). The core clamps an
-      // inaccessible / accessible-but-hidden id to null on the SAME path (no
-      // oracle); clearing-to-null is via the legacy update_user bridge.
-      if (typeof b.defaultRoomId !== "string") {
+      // The contract carries a room id (set a default) OR null (clear it). The
+      // core clamps an inaccessible / accessible-but-hidden id to null on the
+      // SAME path (no oracle). Group 7 (3d.9b) folded the clear-to-null path
+      // here from the retired update_user bridge; any other type is rejected.
+      if (b.defaultRoomId !== null && typeof b.defaultRoomId !== "string") {
         return fail(
           422,
           "invalid_default_room",
-          "defaultRoomId must be a room id string",
+          "defaultRoomId must be a room id string or null",
         );
       }
       if (!deps.applyView(userId, { defaultRoomId: b.defaultRoomId })) {

@@ -797,14 +797,6 @@ export interface SessionWire {
   userAgent: string | null;
 }
 
-// Response to update_*_settings (sent only to the requesting client)
-export interface SettingsSaveResponse {
-  type: "settings_save_response";
-  requestId: string;
-  ok: boolean;
-  error?: string;
-}
-
 // Backend-reported effort option for a model. `level` is the backend-specific
 // effort enum value (Codex: ReasoningEffort string; Claude: EffortLevel string).
 export interface BackendEffortOptionWire {
@@ -903,30 +895,9 @@ export type ServerMessage =
   | { type: "all_rooms_list"; rooms: RoomWire[] }
   | { type: "invites_list"; invites: InviteWire[] }
   | { type: "sessions_active_list"; sessions: SessionWire[] }
-  | {
-      type: "invite_minted";
-      requestId?: string;
-      ok: boolean;
-      url?: string;
-      invite?: InviteWire;
-      error?: string;
-    }
   | { type: "session_revoked"; sessionPrefix: string }
   | { type: "invite_revoked"; tokenPrefix: string }
   | { type: "session_expired" }
-  // Lockout-prevention rejections. The server refuses to revoke or log
-  // out when the operation would leave the office with no owner who has
-  // an active session, since recovery would then require shell access.
-  // Carries a human-readable reason for the UI to surface.
-  | { type: "revoke_blocked"; sessionPrefix: string; reason: string }
-  | { type: "logout_blocked"; reason: string }
-  | {
-      type: "delete_user_blocked";
-      requestId?: string;
-      username: string;
-      reason: string;
-    }
-  | SettingsSaveResponse
   | {
       type: "update_status";
       updateAvailable: boolean;
@@ -951,72 +922,6 @@ export type ClientCommand =
   | { type: "terminal_input"; agentId: string; data: string }
   | { type: "terminal_resize"; agentId: string; cols: number; rows: number }
   | { type: "terminal_close"; agentId: string }
-  | {
-      type: "claim_user";
-      username: string;
-      defaultRoomId?: string | null;
-      notifRooms?: NotifRoomsSetting;
-    }
-  | {
-      type: "update_user";
-      requestId?: string;
-      username: string;
-      // `allowedRooms` is part of the wire so owners can set it through
-      // the same handler that edits other preferences. The server-side
-      // handler refuses any change to allowedRooms from non-owner
-      // sessions, including self-edits. Type is strict `string[]` —
-      // no "all" sentinel; client sends the complete list to grant.
-      changes: Partial<
-        Pick<
-          UserRecord,
-          | "name"
-          | "defaultRoomId"
-          | "notifRooms"
-          | "envFile"
-          | "allowedRooms"
-          | "memberPrompt"
-          | "avatarColor"
-          | "avatarVariant"
-        >
-      >;
-    }
-  | { type: "delete_user"; requestId?: string; username: string }
-  | {
-      type: "mint_invite";
-      requestId: string;
-      username: string;
-      role: UserRole;
-      allowExisting?: boolean;
-    }
-  // Self-invite: no client-supplied knobs. The server binds the invite
-  // to the caller's own user record (via stable session.userId), sets
-  // role to mirror the caller's current role (members mint member
-  // invites, owners mint owner invites), and uses the tighter
-  // self-invite TTL (currently 1h; the legitimate flow is "both my
-  // devices are with me, click it now"). Available to any
-  // authenticated session; members use it for the "My devices" pane,
-  // and owners could use it from a future quick-add path. Keeping
-  // this as a separate wire shape from mint_invite means the type
-  // system — not a runtime check — prevents the caller from supplying
-  // overridable fields.
-  | { type: "mint_self_invite"; requestId: string }
-  | { type: "list_invites" }
-  | { type: "revoke_invite"; tokenPrefix: string }
-  | { type: "list_active_sessions" }
-  | { type: "revoke_session"; sessionPrefix: string }
-  | { type: "logout" }
-  // Access-settings: external-access toggle + public-origin URL. Owner-only.
-  // get_access_settings reads the current effective state (including a
-  // resolution of the unset-and-migrating case); update_access_settings
-  // persists the new state, mints a self-invite for the new URL, and
-  // returns restartRequired so the UI can prompt the operator.
-  | { type: "get_access_settings" }
-  | {
-      type: "update_access_settings";
-      requestId: string;
-      externalAccess: boolean;
-      publicOrigin: string | null;
-    }
   | {
       // Live-avatars feature: client tells the server where its ghost
       // should appear. Sent on initial WS open (after session_context

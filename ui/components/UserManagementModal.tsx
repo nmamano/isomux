@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppState } from "../store.tsx";
-import { send, addRawListener, removeRawListener } from "../ws.ts";
 import { apiFetch, ApiError } from "../api.ts";
 import {
   setUsername as saveLocalUsername,
@@ -87,18 +86,6 @@ export function UserManagementModal({
   const [logoutBlockedReason, setLogoutBlockedReason] = useState<string | null>(
     null,
   );
-  useEffect(() => {
-    const fn = (data: string) => {
-      try {
-        const m = JSON.parse(data);
-        if (m.type === "logout_blocked" && typeof m.reason === "string") {
-          setLogoutBlockedReason(m.reason);
-        }
-      } catch {}
-    };
-    addRawListener(fn);
-    return () => removeRawListener(fn);
-  }, []);
 
   const dismissable = !!onClose;
 
@@ -314,12 +301,16 @@ export function UserManagementModal({
             <button
               onClick={() => {
                 setLogoutBlockedReason(null);
-                send({ type: "logout" });
-                // The WS will close after the server-side revoke; the page
-                // reload triggered by session_expired will land us on the
-                // login wall. If the server refuses (lockout prevention),
-                // the raw listener above will set logoutBlockedReason and
-                // we'll render the inline note below.
+                // DELETE /api/sessions/current revokes this session; the server
+                // core then fans out session_expired and closes the socket, so
+                // the page reload lands us on the login wall. A 409 means the
+                // lockout-prevention refused it (last owner session); surface
+                // the reason inline.
+                apiFetch("DELETE", "/api/sessions/current").catch((err) => {
+                  if (err instanceof ApiError && err.status === 409) {
+                    setLogoutBlockedReason(err.message);
+                  }
+                });
               }}
               style={{
                 padding: "8px 14px",
@@ -426,6 +417,14 @@ function UserEditPanel({
   // but we also hide the editor here so members don't see disabled
   // controls they can't use.
   const isOwner = sessionContext?.role === "owner";
+  // Self-edit vs owner-editing-another. Option A (Nil-gated): Default Room +
+  // Notifications are SELF-only (view.*), so they render only when isMe; an
+  // owner editing a member manages record fields + access, not their prefs.
+  const isMe = sessionContext?.userId === user.id;
+  // The TARGET's access is rule-based for owners (they reach every room without
+  // materialized grants), literal allowedRooms for members. Drives the self-pref
+  // rendering (Default Room / Notifications) and whether a save writes grants.
+  const targetIsOwner = user.role === "owner";
   // Use the unfiltered global rooms list when available so the owner
   // can manage other users' access to rooms they've hidden from their
   // own view, and so the Notifications list reflects every room the
@@ -442,6 +441,13 @@ function UserEditPanel({
   const [allowedSetting, setAllowedSetting] = useState<string[]>(
     user.allowedRooms,
   );
+  // The room ids the TARGET can reach, for rendering their self prefs: an owner
+  // reaches every live room by rule; a member only their (editable) allowedSetting.
+  // Without this an owner self-editing sees no default-room options and disabled
+  // notification toggles (their allowedRooms is [] by rule).
+  const accessibleForPrefs = targetIsOwner
+    ? editorRooms.map((r) => r.id)
+    : allowedSetting;
   const [envFile, setEnvFile] = useState<string>(user.envFile ?? "");
   const [memberPrompt, setMemberPrompt] = useState<string>(
     user.memberPrompt ?? "",
@@ -474,64 +480,10 @@ function UserEditPanel({
   const [deleteBlockedReason, setDeleteBlockedReason] = useState<string | null>(
     null,
   );
-  // Tracks the requestId of an in-flight delete so we can correlate the
-  // server's delete_user_blocked / users_list responses. Kept in a ref
-  // because it's read inside a raw listener closure that doesn't need to
-  // trigger a re-render when it changes.
-  const pendingDeleteReqRef = useRef<string | null>(null);
-  // Mirror the latest onDeleted into a ref so the raw-listener effect can
-  // mount once and stay subscribed — re-running it on every parent render
-  // (the parent re-creates the callback inline) would churn the listener
-  // and open a tiny race window where a server message lands between
-  // remove + re-add.
-  const onDeletedRef = useRef(onDeleted);
-  useEffect(() => {
-    onDeletedRef.current = onDeleted;
-  }, [onDeleted]);
-  const userNameRef = useRef(user.name);
-  useEffect(() => {
-    userNameRef.current = user.name;
-  }, [user.name]);
-
-  // Correlate the server's response to delete_user. The raw listener fires
-  // before the store dispatch so calling onDeleted here runs synchronously
-  // alongside the users_list state update — the parent batches both into
-  // one render (editingKey cleared + user gone from the list).
-  useEffect(() => {
-    const fn = (data: string) => {
-      // Cheap early-out: skip JSON.parse on every server message when we
-      // don't have a delete in flight.
-      if (!pendingDeleteReqRef.current) return;
-      try {
-        const m = JSON.parse(data);
-        if (
-          m.type === "delete_user_blocked" &&
-          m.requestId === pendingDeleteReqRef.current
-        ) {
-          pendingDeleteReqRef.current = null;
-          setDeleteBlockedReason(
-            typeof m.reason === "string" ? m.reason : "Refused.",
-          );
-          setConfirmDelete(false);
-          return;
-        }
-        if (m.type === "users_list" && Array.isArray(m.users)) {
-          const targetLower = userNameRef.current.toLowerCase();
-          const stillPresent = m.users.some(
-            (u: { name?: unknown }) =>
-              typeof u?.name === "string" &&
-              u.name.toLowerCase() === targetLower,
-          );
-          if (!stillPresent) {
-            pendingDeleteReqRef.current = null;
-            onDeletedRef.current?.();
-          }
-        }
-      } catch {}
-    };
-    addRawListener(fn);
-    return () => removeRawListener(fn);
-  }, []);
+  // Marks a delete as in-flight so the button can't double-submit. Kept in a
+  // ref (no re-render needed); REST gives a definitive 204/4xx so there is no
+  // longer a raw listener to correlate.
+  const pendingDeleteReqRef = useRef<boolean>(false);
 
   function handleDelete() {
     if (!confirmDelete) {
@@ -539,10 +491,24 @@ function UserEditPanel({
       return;
     }
     if (pendingDeleteReqRef.current) return;
-    const reqId = `delete-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-    pendingDeleteReqRef.current = reqId;
+    pendingDeleteReqRef.current = true;
     setDeleteBlockedReason(null);
-    send({ type: "delete_user", requestId: reqId, username: user.name });
+    // DELETE is definitive: a 204 means the server removed the record, evicted
+    // the target's sessions, and fanned out users_list, so resolve directly. A
+    // 403 (owner!=self) / 409 (last-owner lockout) carries the reason the
+    // retired delete_user_blocked used to surface.
+    apiFetch("DELETE", `/api/users/${encodeURIComponent(user.name)}`)
+      .then(() => {
+        pendingDeleteReqRef.current = false;
+        onDeleted?.();
+      })
+      .catch((err) => {
+        pendingDeleteReqRef.current = false;
+        setDeleteBlockedReason(
+          err instanceof ApiError ? err.message : "Delete failed",
+        );
+        setConfirmDelete(false);
+      });
   }
 
   // Validate the stored envFile on open.
@@ -657,7 +623,7 @@ function UserEditPanel({
     };
   });
 
-  function handleSave() {
+  async function handleSave() {
     const trimmed = name.trim();
     if (!trimmed) return;
     // Save supersedes any in-flight discard prompt: the user picked Save
@@ -666,46 +632,65 @@ function UserEditPanel({
     // Discard click would execute against the user's expectations.
     pendingDiscardActionRef.current = null;
     setConfirmDiscard(false);
-    const reqId = `user-save-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     setSaving(true);
     setError(null);
     const renamed = trimmed !== user.name;
-    const listener = (data: string) => {
-      try {
-        const msg = JSON.parse(data);
-        if (msg.type === "settings_save_response" && msg.requestId === reqId) {
-          setSaving(false);
-          removeRawListener(listener);
-          if (msg.ok) {
-            if (renamed) onRenamed?.(trimmed);
-            onClose();
-          } else {
-            setError(msg.error || "Save failed");
-          }
-        }
-      } catch {}
-    };
-    addRawListener(listener);
-    send({
-      type: "update_user",
-      requestId: reqId,
-      username: user.name,
-      // Only owners can change allowedRooms (server enforces and the UI
-      // hides the section). Omit the field for member self-edits so the
-      // payload doesn't trip the server-side field-level gate.
-      changes: {
-        name: renamed ? trimmed : undefined,
-        defaultRoomId,
-        notifRooms: notifSetting,
-        envFile: envFile.trim() || null,
-        memberPrompt: memberPrompt.trim() || null,
-        avatarColor: isHexColor(avatarColor)
-          ? normalizeHexColor(avatarColor)
-          : user.avatarColor,
-        avatarVariant,
-        ...(isOwner ? { allowedRooms: allowedSetting } : {}),
-      },
-    });
+    const origName = user.name; // URL target BEFORE any rename takes effect
+    const normalizedColor = isHexColor(avatarColor)
+      ? normalizeHexColor(avatarColor)
+      : user.avatarColor;
+    const recordChanged =
+      renamed ||
+      (envFile.trim() || null) !== (user.envFile ?? null) ||
+      (memberPrompt.trim() || null) !== (user.memberPrompt ?? null) ||
+      normalizedColor !== user.avatarColor ||
+      avatarVariant !== user.avatarVariant;
+    try {
+      // The update_user SPLIT (Option A), sequenced to preserve the WS atomicity
+      // guarantees and dodge the rename->404. (1) Owner access change FIRST,
+      // against the ORIGINAL username, so a combined rename + grant doesn't 404
+      // the access PUT after the record renames; setAccess prune-clamps the
+      // target's notif/default server-side in one write.
+      if (
+        isOwner &&
+        !targetIsOwner &&
+        !sameRoomSet(allowedSetting, user.allowedRooms)
+      ) {
+        // Owners are rule-based (no materialized grants), so an owner target
+        // never writes allowedRooms — only a member's access is editable here.
+        await apiFetch(
+          "PUT",
+          `/api/users/${encodeURIComponent(origName)}/access`,
+          { allowedRooms: allowedSetting },
+        );
+      }
+      // (2) Record fields (name/env/prompt/avatar), against the original name.
+      if (recordChanged) {
+        await apiFetch("PATCH", `/api/users/${encodeURIComponent(origName)}`, {
+          name: renamed ? trimmed : undefined,
+          envFile: envFile.trim() || null,
+          memberPrompt: memberPrompt.trim() || null,
+          avatarColor: normalizedColor,
+          avatarVariant,
+        });
+      }
+      // (3) View prefs are SELF-only (Option A: the fields render only for isMe).
+      // default-room accepts null (clear); notif-rooms takes the full list.
+      if (isMe && defaultRoomId !== user.defaultRoomId) {
+        await apiFetch("PUT", "/api/me/view/default-room", { defaultRoomId });
+      }
+      if (isMe && !sameRoomSet(notifSetting, user.notifRooms)) {
+        await apiFetch("PUT", "/api/me/view/notif-rooms", {
+          notifRooms: notifSetting,
+        });
+      }
+      if (renamed) onRenamed?.(trimmed);
+      onClose();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -724,31 +709,39 @@ function UserEditPanel({
         style={inputStyle}
       />
 
-      <label style={subLabelStyle}>
-        Default Room <span style={hintStyle}>(opens when you load Isomux)</span>
-      </label>
-      <select
-        value={defaultRoomId ?? ""}
-        onChange={(e) => setDefaultRoomId(e.target.value || null)}
-        style={inputStyle}
-      >
-        <option value="">Whichever is first</option>
-        {editorRooms
-          .filter((r) => allowedSetting.includes(r.id))
-          .map((r) => (
-            <option key={r.id} value={r.id}>
-              {r.name}
-            </option>
-          ))}
-      </select>
+      {isMe && (
+        <>
+          <label style={subLabelStyle}>
+            Default Room{" "}
+            <span style={hintStyle}>(opens when you load Isomux)</span>
+          </label>
+          <select
+            value={defaultRoomId ?? ""}
+            onChange={(e) => setDefaultRoomId(e.target.value || null)}
+            style={inputStyle}
+          >
+            <option value="">Whichever is first</option>
+            {editorRooms
+              .filter((r) => accessibleForPrefs.includes(r.id))
+              .map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+          </select>
+        </>
+      )}
 
-      {isOwner ? (
+      {isOwner && (!targetIsOwner || isMe) ? (
         <>
           <label style={subLabelStyle}>
             Rooms{" "}
             <span style={hintStyle}>
-              (Access: rooms this user can see and act in. Notifications: sound
-              when an agent in that room finishes.)
+              (
+              {!targetIsOwner && "Access: rooms this user can see and act in. "}
+              {isMe &&
+                "Notifications: sound when an agent in that room finishes."}
+              )
             </span>
           </label>
           <div
@@ -771,10 +764,14 @@ function UserEditPanel({
               }}
             >
               <span style={{ flex: 1, minWidth: 0 }}>Room</span>
-              <span style={{ width: 90, textAlign: "center" }}>Access</span>
-              <span style={{ width: 90, textAlign: "center" }}>
-                Notifications
-              </span>
+              {!targetIsOwner && (
+                <span style={{ width: 90, textAlign: "center" }}>Access</span>
+              )}
+              {isMe && (
+                <span style={{ width: 90, textAlign: "center" }}>
+                  Notifications
+                </span>
+              )}
             </div>
             {editorRooms.length === 0 ? (
               <div
@@ -788,7 +785,7 @@ function UserEditPanel({
               </div>
             ) : (
               editorRooms.map((r) => {
-                const hasAccess = allowedSetting.includes(r.id);
+                const hasAccess = accessibleForPrefs.includes(r.id);
                 const wantsNotif = hasAccess && notifSetting.includes(r.id);
                 return (
                   <div
@@ -814,57 +811,61 @@ function UserEditPanel({
                     >
                       {r.name}
                     </span>
-                    <span
-                      style={{
-                        width: 90,
-                        display: "flex",
-                        justifyContent: "center",
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={hasAccess}
-                        onChange={() => toggleRoomAllowed(r.id)}
-                        aria-label={`Access to ${r.name}`}
+                    {!targetIsOwner && (
+                      <span
                         style={{
-                          accentColor: "var(--accent)",
-                          cursor: "pointer",
+                          width: 90,
+                          display: "flex",
+                          justifyContent: "center",
                         }}
-                      />
-                    </span>
-                    <span
-                      style={{
-                        width: 90,
-                        display: "flex",
-                        justifyContent: "center",
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={wantsNotif}
-                        disabled={!hasAccess}
-                        onChange={() => {
-                          // Defensive: also gate at the handler, not just
-                          // via `disabled`, so a future refactor or stale
-                          // click can't add notif for an inaccessible room.
-                          if (!hasAccess) return;
-                          toggleRoomNotif(r.id);
-                        }}
-                        aria-label={`Notifications for ${r.name}`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={hasAccess}
+                          onChange={() => toggleRoomAllowed(r.id)}
+                          aria-label={`Access to ${r.name}`}
+                          style={{
+                            accentColor: "var(--accent)",
+                            cursor: "pointer",
+                          }}
+                        />
+                      </span>
+                    )}
+                    {isMe && (
+                      <span
                         style={{
-                          accentColor: "var(--accent)",
-                          cursor: hasAccess ? "pointer" : "default",
-                          opacity: hasAccess ? 1 : 0.35,
+                          width: 90,
+                          display: "flex",
+                          justifyContent: "center",
                         }}
-                      />
-                    </span>
+                      >
+                        <input
+                          type="checkbox"
+                          checked={wantsNotif}
+                          disabled={!hasAccess}
+                          onChange={() => {
+                            // Defensive: also gate at the handler, not just
+                            // via `disabled`, so a future refactor or stale
+                            // click can't add notif for an inaccessible room.
+                            if (!hasAccess) return;
+                            toggleRoomNotif(r.id);
+                          }}
+                          aria-label={`Notifications for ${r.name}`}
+                          style={{
+                            accentColor: "var(--accent)",
+                            cursor: hasAccess ? "pointer" : "default",
+                            opacity: hasAccess ? 1 : 0.35,
+                          }}
+                        />
+                      </span>
+                    )}
                   </div>
                 );
               })
             )}
           </div>
         </>
-      ) : (
+      ) : !isOwner ? (
         <>
           <label style={subLabelStyle}>
             Notifications{" "}
@@ -885,7 +886,7 @@ function UserEditPanel({
               // is the projected `rooms` slice for non-owner WSes, so the
               // filter is effectively a no-op but kept defensive.
               const notifRoomsToShow = editorRooms.filter((r) =>
-                allowedSetting.includes(r.id),
+                accessibleForPrefs.includes(r.id),
               );
               if (notifRoomsToShow.length === 0) {
                 return (
@@ -931,7 +932,7 @@ function UserEditPanel({
             })()}
           </div>
         </>
-      )}
+      ) : null}
 
       <label style={subLabelStyle}>
         Env File Path{" "}
@@ -1092,7 +1093,7 @@ function UserEditPanel({
             Cancel
           </button>
           <button
-            onClick={handleSave}
+            onClick={() => void handleSave()}
             disabled={saving || !name.trim()}
             style={{
               ...saveBtnStyle,

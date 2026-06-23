@@ -21,7 +21,6 @@ import type {
   OfficeSettings,
   OfficeWire,
   RoomWire,
-  SettingsSaveResponse,
   Cronjob,
   CronjobRun,
   PresenceInfo,
@@ -37,7 +36,8 @@ import {
   rebuildUserViews,
 } from "./user-merge.ts";
 import { resolveSelectedRoomId, applyRoomClose } from "./roomSelection.ts";
-import { connect, send } from "./ws.ts";
+import { connect } from "./ws.ts";
+import { apiFetch } from "./api.ts";
 import { type Features, PRODUCTION_FEATURES } from "../shared/features.ts";
 import {
   getUsername,
@@ -221,18 +221,9 @@ type Action =
   | { type: "all_rooms_list"; rooms: RoomWire[] }
   | { type: "invites_list"; invites: InviteWire[] }
   | { type: "sessions_active_list"; sessions: SessionWire[] }
-  | {
-      type: "invite_minted";
-      requestId?: string;
-      ok: boolean;
-      url?: string;
-      invite?: InviteWire;
-      error?: string;
-    }
   | { type: "invite_revoked"; tokenPrefix: string }
   | { type: "session_revoked"; sessionPrefix: string }
   | { type: "session_expired" }
-  | SettingsSaveResponse
   | {
       type: "update_status";
       updateAvailable: boolean;
@@ -613,16 +604,6 @@ export function reducer(state: AppState, action: Action): AppState {
         activeSessions: action.sessions,
         activeSessionsLoaded: true,
       };
-    case "invite_minted": {
-      // Surfacing the URL is handled by the AccessPane via a one-shot raw
-      // listener; the reducer only needs to keep the optimistic invite list
-      // fresh. The server also broadcasts a fresh invites_list, so this is
-      // belt-and-suspenders.
-      if (action.ok && action.invite) {
-        return { ...state, invitesList: [action.invite, ...state.invitesList] };
-      }
-      return state;
-    }
     case "invite_revoked":
       return {
         ...state,
@@ -795,13 +776,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         // to coerce the device's old localStorage name onto the session.
         if (msg.type === "session_context" && !legacyMigrated) {
           const legacy = readLegacyUserPrefs();
-          if (legacy.defaultRoomId || legacy.notifRooms) {
-            send({
-              type: "claim_user",
-              username: msg.context.username,
+          // One-shot localStorage->server migration of legacy view prefs (the
+          // former claim_user). Each PRESENT value goes to its own self-only
+          // view.* route; an absent/empty value is "nothing to migrate" (no
+          // request), never a clear-to-null/[], so a reload with no legacy keys
+          // can't wipe server-side prefs. Fire-and-forget; the server clamps to
+          // the caller's accessible rooms.
+          const hasLegacy =
+            !!legacy.defaultRoomId || legacy.notifRooms.length > 0;
+          if (legacy.defaultRoomId) {
+            apiFetch("PUT", "/api/me/view/default-room", {
               defaultRoomId: legacy.defaultRoomId,
+            }).catch(() => {});
+          }
+          if (legacy.notifRooms.length > 0) {
+            apiFetch("PUT", "/api/me/view/notif-rooms", {
               notifRooms: legacy.notifRooms,
-            });
+            }).catch(() => {});
+          }
+          if (hasLegacy) {
             clearLegacyUserPrefs();
           }
           // Keep localStorage's name aligned to the session so other UI bits

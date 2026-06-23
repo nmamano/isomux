@@ -39,9 +39,6 @@ const SENSITIVE = [
   "memberPrompt",
 ] as const;
 
-let reqSeq = 0;
-const nextReqId = () => `uw-${++reqSeq}`;
-
 // Connect + block until the WHOLE handshake arrived (presence_list is last).
 async function connectSettled(
   srv: TestServer,
@@ -89,17 +86,27 @@ function expectPublicOnly(user: Msg): void {
   expect(typeof user.role).toBe("string");
 }
 
-async function ownerUpdateUser(
-  ownerSock: TestSocket,
+async function ownerSetAccess(
+  srv: TestServer,
+  ownerRawSessionId: string,
   username: string,
-  changes: Record<string, unknown>,
+  allowedRooms: string[],
 ): Promise<void> {
-  const requestId = nextReqId();
-  ownerSock.send({ type: "update_user", requestId, username, changes });
-  await waitForWhere(
-    ownerSock,
-    (m) => m.type === "settings_save_response" && m.requestId === requestId,
+  // 3d.9b: a grant change goes through the real REST users.setAccess route
+  // (owner-gated), which fans out self(full)/admin(full)/public-only exactly as
+  // the retired WS update_user arm did.
+  const res = await srv.http(
+    `/api/users/${encodeURIComponent(username)}/access`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ allowedRooms }),
+      rawSessionId: ownerRawSessionId,
+    },
   );
+  if (res.status >= 400) {
+    throw new Error(`setAccess failed: ${res.status}`);
+  }
 }
 
 describe("user-wire projection leak closure (3b.5)", () => {
@@ -152,7 +159,7 @@ describe("user-wire projection leak closure (3b.5)", () => {
     );
   });
 
-  it("a grant change fans out self(full) to the subject, admin(full) to owners, public-only to other members", async () => {
+  it("a grant change (setAccess, private-only) fans out self(full) to the subject + admin(full) to owners, and NOTHING to other members", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Boss");
     const mia = await server.seedMember("Mia");
@@ -163,9 +170,11 @@ describe("user-wire projection leak closure (3b.5)", () => {
     const miaSock = await connectSettled(server, mia.rawSessionId);
     const bobSock = await connectSettled(server, bob.rawSessionId);
 
-    await ownerUpdateUser(ownerSock, mia.username, { allowedRooms: [r1] });
+    await ownerSetAccess(server, owner.rawSessionId, mia.username, [r1]);
 
-    // Subject (Mia): self carries the NEW grants; the public user_updated does not.
+    // Subject (Mia): self carries the NEW grants. 3d.9b made setAccess a
+    // PRIVATE-only emit (Option A), so there is NO public user_updated for it —
+    // the timing+target of an access change never broadcasts to `all`.
     const miaSelf = await waitForWhere(
       miaSock,
       (m) =>
@@ -174,8 +183,6 @@ describe("user-wire projection leak closure (3b.5)", () => {
           true,
     );
     expect((miaSelf.user as Msg).allowedRooms).toEqual([r1]);
-    const miaPublic = latest(miaSock, "user_updated")!;
-    expectPublicOnly(miaPublic.user as Msg);
 
     // Owner: admin event carries Mia's full record incl the grant.
     const ownerAdmin = await waitForWhere(
@@ -186,17 +193,18 @@ describe("user-wire projection leak closure (3b.5)", () => {
     );
     expect((ownerAdmin.user as Msg).allowedRooms).toEqual([r1]);
 
-    // Other member (Bob): public user_updated only — NEVER admin or self for Mia.
+    // Other member (Bob): NOTHING about Mia — not admin, not self, and NOT a
+    // public user_updated (a pure access change never reaches `all`).
     await pingPong(bobSock);
-    expect(bag(bobSock).some((m) => m.type === "user_admin_updated")).toBe(
-      false,
-    );
-    const bobSelfForMia = bag(bobSock).filter(
+    const miaId = getUserByName(mia.username)!.id;
+    const bobForMia = bag(bobSock).filter(
       (m) =>
-        m.type === "user_self_updated" &&
-        (m.user as Msg).id === getUserByName(mia.username)!.id,
+        (m.type === "user_admin_updated" ||
+          m.type === "user_self_updated" ||
+          m.type === "user_updated") &&
+        (m.user as Msg).id === miaId,
     );
-    expect(bobSelfForMia).toHaveLength(0);
+    expect(bobForMia).toHaveLength(0);
   });
 
   it("office envFile is stripped for members (full_state.office + office_settings_updated) and kept for owners", async () => {

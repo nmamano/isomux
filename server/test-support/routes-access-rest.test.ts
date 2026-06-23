@@ -16,11 +16,7 @@
 // Seam: startTestServer(). Zero LLM.
 
 import { describe, it, expect, afterEach } from "bun:test";
-import {
-  startTestServer,
-  type TestServer,
-  type TestSocket,
-} from "./harness.ts";
+import { startTestServer, type TestServer } from "./harness.ts";
 import { loadServerConfig } from "../persistence.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import type { AgentInfo, InviteWire } from "../../shared/types.ts";
@@ -274,41 +270,5 @@ describe("routes/office access REST: setAccess", () => {
       if (prevEnv === undefined) delete process.env.ISOMUX_PUBLIC_ORIGIN;
       else process.env.ISOMUX_PUBLIC_ORIGIN = prevEnv;
     }
-  });
-});
-
-describe("routes/office access REST: WS parity (shared core)", () => {
-  it("WS update_access_settings goes through applyAccessSettings: ok:true richer payload + invites_list", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Boss");
-    const sock: TestSocket = await srv.connectWs(owner.rawSessionId);
-
-    sock.send({
-      type: "update_access_settings",
-      externalAccess: true,
-      publicOrigin: "https://ws.example",
-      requestId: "p1",
-    });
-    const updated = (await sock.waitFor("access_settings_updated")) as {
-      ok?: boolean;
-      externalAccess?: boolean;
-      publicOrigin?: string;
-      signInUrl?: string;
-      restartRequired?: boolean;
-    };
-    expect(updated.ok).toBe(true);
-    expect(updated.externalAccess).toBe(true);
-    expect(updated.publicOrigin).toBe("https://ws.example");
-    expect(updated.signInUrl?.startsWith("https://ws.example/i/")).toBe(true);
-    expect(updated.restartRequired).toBe(true);
-
-    // Shared core fanned out the scoped invites_list (the self-invite mint).
-    await sock.waitFor("invites_list");
-
-    // Persisted via the same saveServerConfig core as REST.
-    const cfg = loadServerConfig();
-    expect(cfg.externalAccess).toBe(true);
-    expect(cfg.publicOrigin).toBe("https://ws.example");
   });
 });

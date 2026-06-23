@@ -242,9 +242,12 @@ const SPEC_ROUTE_CONTRACT: Record<
   "users.list": { caps: ["office:read"], emits: [] },
   "users.update": {
     caps: ["user:self", "user:admin"],
-    emits: ["user_updated", "full_state"],
+    emits: ["user_updated", "users_list"],
   },
-  "users.setAccess": { caps: ["user:admin"], emits: ["full_state"] },
+  "users.setAccess": {
+    caps: ["user:admin"],
+    emits: ["user_admin_updated", "user_self_updated", "full_state"],
+  },
   "users.delete": {
     caps: ["user:self", "user:admin"],
     emits: ["users_list", "session_expired"],
@@ -348,6 +351,7 @@ const SPEC_PRECONDITIONS: Record<string, RoutePrecondition[]> = {
   "invites.revoke": ["inviteOwnerOrSelf"],
   "sessions.revoke": ["sessionOwnerOrSelf", "notLastOwnerLockout"],
   "sessions.logout": ["notLastOwnerLockout"],
+  "users.delete": ["userDeleteNotSelfOwner", "userDeleteNotLastOwner"],
   "validate.env": ["validateEnvBodySelfSubject"],
 };
 
