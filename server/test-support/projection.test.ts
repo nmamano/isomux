@@ -1,38 +1,43 @@
 // Phase 1.2 — Projection / ACL characterization.
 //
-// Freezes TODAY's per-recipient projection — which lives IMPLICITLY in the
-// per-WebSocket fanout in server/index.ts (sendProjectedFullState +
-// routeAgentEventToWs + the per-WS push helpers), there is no projection
-// service yet — so the Phase 3 rewrites have a before/after safety net:
-//   - 3b extracts the implicit projection into a declared ACL/view service and
-//     replaces materialized owner access + the create_room fan-out with
-//     rule-based access, and deletes the global owner-only reorder gate.
-//   - 3c replaces the DENSE per-recipient numeric agent.room index with an
+// Per-recipient projection / ACL net. Began as a Phase 1.2 characterization of
+// the implicit per-WebSocket fanout in server/index.ts (sendProjectedFullState +
+// routeAgentEventToWs + the per-WS push helpers); the Phase 3 rewrites then
+// FLIPPED these tests in place as they landed, so the file now pins the CURRENT
+// (post-3b/3c/3d) model, through the wire only (WS messages + REST responses),
+// never internals:
+//   - 3b extracted the implicit projection into a declared ACL/view service:
+//     materialized owner access + the create_room fan-out became RULE-BASED
+//     access, and the global owner-only reorder gate was deleted.
+//   - 3c replaced the DENSE per-recipient numeric agent.room index with an
 //     id-keyed wire.
-// These tests pin the CURRENT model verbatim, through the wire only (WS
-// messages + REST responses), never internals. They are expected to change
-// (or be deliberately flipped) when 3b/3c land; that is the point.
+//   - 3d cut the room mutations (create/close/rename/settings) and reorder off
+//     the WS command bus onto REST; these tests drive them over authenticated
+//     HTTP now (the cores + broadcasts are unchanged, so the ACL assertions hold).
 //
 // Current model frozen here (verified against index.ts / shared/office-state.ts
 // / auth.ts):
-//   - Access == UserRecord.allowedRooms (literal string[]; no "all" sentinel).
-//   - Owner access is MATERIALIZED: seedOwner snapshots every current room id;
-//     create_room appends the new roomId to the creator + every owner's
-//     allowedRooms + notifRooms (the fan-out). A fresh member defaults to [].
+//   - Access == UserRecord.allowedRooms for MEMBERS (literal string[]; no "all"
+//     sentinel); OWNERS access every room by RULE (canAccess), carrying no
+//     materialized grants. A fresh member defaults to [].
+//   - create grants ONLY a non-owner creator (+ a projected full_state catch-up);
+//     owners reach the new room by rule, with NO fan-out and NO grant broadcast.
 //   - full_state.agents carry a stable global roomId (or are dropped if their
 //     room is hidden from the recipient); full_state.rooms is filtered to the
 //     recipient's visible set; all_rooms_list is owner-only and UNFILTERED.
 //     (Phase 3c slice 4 removed the dense per-recipient agent.room index.)
-//   - reorder_rooms is GLOBAL and owner-only-gated (the gate 3b deletes).
+//   - reorder is a PER-USER view preference (view.setOrder), always allowed; the
+//     global owner-only gate is gone.
 //
 // Determinism (no arbitrary sleeps): routeAgentEvent fans out to every socket
 // SYNCHRONOUSLY, so "a full-access owner socket received event X" implies every
 // restricted socket's decision on X already ran — that is the barrier for
 // negative assertions. The connect handshake sends presence_list LAST, so
 // awaiting it guarantees the whole handshake (incl. per-agent log_entry +
-// slash_commands replay) arrived. Mutation handlers (create_room / update_user
-// / close / reorder) run fully synchronously incl. their pushes, so awaiting one
-// recipient's resulting full_state settles all of them.
+// slash_commands replay) arrived. The mutation cores (room create/close/rename,
+// update_user, reorder) fan out fully synchronously incl. their pushes — for the
+// REST mutations the broadcast fires inside the handler before the HTTP response
+// resolves — so awaiting one recipient's resulting full_state settles all of them.
 //
 // Scope note — terminal: routeAgentEventToWs gates terminal_output/terminal_exit
 // in the SAME agentVisibleForSession switch arm as log_entry/slash_commands, and
@@ -287,6 +292,31 @@ async function pingPong(sock: TestSocket): Promise<void> {
   }
 }
 
+// REST mutation helper. The room-structure mutations (create/close/rename) and
+// reorder cut over from WS to /api in slice 6, so the projection net drives them
+// over authenticated HTTP now. The downstream broadcasts (room_*/full_state/
+// all_rooms_list) are emitted by the SAME cores, so the per-recipient ACL
+// assertions are unchanged — only the command entry transport moved. Awaiting
+// the response also closes the old event-before-ack race (the broadcast fired
+// synchronously inside the handler, before this resolves).
+async function httpMut(
+  srv: TestServer,
+  rawSessionId: string,
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<void> {
+  const res = await srv.http(path, {
+    method,
+    headers: body !== undefined ? { "Content-Type": "application/json" } : {},
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+    rawSessionId,
+  });
+  if (res.status >= 400) {
+    throw new Error(`httpMut ${method} ${path} -> ${res.status}`);
+  }
+}
+
 // Create N extra rooms BEFORE seeding the owner, so the owner's seed snapshot
 // covers every room (owner = full access, no create_room fan-out noise).
 function makeRoomsBeforeOwner(srv: TestServer, names: string[]): string[] {
@@ -408,7 +438,9 @@ describe("full_state projection — connect-time ACL (Phase 1.2)", () => {
     const arBefore = bag(ownerSock).filter(
       (m) => m.type === "all_rooms_list",
     ).length;
-    ownerSock.send({ type: "rename_room", roomId: r1, name: "R1-renamed" });
+    await httpMut(server, owner.rawSessionId, "PATCH", `/api/rooms/${r1}`, {
+      name: "R1-renamed",
+    });
     await waitForTypeCount(ownerSock, "all_rooms_list", arBefore + 1);
     const arList = bag(ownerSock).filter((m) => m.type === "all_rooms_list");
     expect(
@@ -671,11 +703,21 @@ describe("room close / reorder with restricted members (Phase 1.2)", () => {
     const fullStatesBefore = bag(memberSock).filter(
       (m) => m.type === "full_state",
     ).length;
-    ownerSock.send({ type: "close_room", roomId: r2 });
+    await httpMut(server, owner.rawSessionId, "DELETE", `/api/rooms/${r2}`);
     await waitForMessageWhere(
       memberSock,
       (m) => m.type === "room_closed" && m.roomId === r2,
     );
+    // Close-cleanup: the dead R2 id is stripped from the member's allowedRooms,
+    // reaching their OWN socket via user_self_updated (the full self record). No
+    // all-audience broadcast carries another user's grants (no leak).
+    const selfUpd = await waitForMessageWhere(
+      memberSock,
+      (m) =>
+        m.type === "user_self_updated" &&
+        !((m.user as UserRecord).allowedRooms ?? []).includes(r2),
+    );
+    expect((selfUpd.user as UserRecord).allowedRooms).not.toContain(r2);
     // No new full_state was sent on the close — the only refresh would have been
     // the now-deleted dense-shift path.
     expect(bag(memberSock).filter((m) => m.type === "full_state").length).toBe(
@@ -707,7 +749,9 @@ describe("room close / reorder with restricted members (Phase 1.2)", () => {
     // Member reorders their OWN visible slice (R2 before R1) — always allowed,
     // no owner gate. They get a projected full_state in their new order; an
     // inaccessible id in the request (none here) would be silently filtered.
-    memberSock.send({ type: "reorder_rooms", order: [r2, r1] });
+    await httpMut(server, member.rawSessionId, "PUT", "/api/me/view/order", {
+      order: [r2, r1],
+    });
     await waitForMessageWhere(
       memberSock,
       (m) =>
@@ -728,7 +772,9 @@ describe("room close / reorder with restricted members (Phase 1.2)", () => {
 
     // The owner reorders THEIR own (full) view; this is independent of the
     // member's order and of the global list.
-    ownerSock.send({ type: "reorder_rooms", order: [r3, r2, r1] });
+    await httpMut(server, owner.rawSessionId, "PUT", "/api/me/view/order", {
+      order: [r3, r2, r1],
+    });
     await waitForMessageWhere(
       ownerSock,
       (m) =>
@@ -766,7 +812,9 @@ describe("create_room under rule-based access (Phase 3b flip of the owner fan-ou
     const creatorSock = await connectSettled(server, creator.rawSessionId);
     const otherSock = await connectSettled(server, other.rawSessionId);
 
-    creatorSock.send({ type: "create_room", name: "NewRoom" });
+    await httpMut(server, creator.rawSessionId, "POST", "/api/rooms", {
+      name: "NewRoom",
+    });
 
     // Member creator catches up via a projected full_state that includes the new
     // room (the grant path — NOT a fan-out).

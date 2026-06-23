@@ -1073,17 +1073,7 @@ export type ClientCommand =
       force?: boolean;
     }
   | { type: "editor_close"; agentId: string; path: string }
-  | {
-      type: "update_room_settings";
-      requestId: string;
-      roomId: string;
-      prompt: string | null;
-    }
-  | { type: "create_room"; name?: string }
-  | { type: "close_room"; roomId: string }
-  | { type: "rename_room"; roomId: string; name: string }
   | { type: "move_agent"; agentId: string; targetRoomId: string }
-  | { type: "reorder_rooms"; order: string[] }
   | {
       type: "edit_message";
       agentId: string;

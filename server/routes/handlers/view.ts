@@ -3,8 +3,10 @@
 // the unified REST surface. SELF-scoped: the route table gates every op with
 // view:manage + authenticated, and each handler acts on the CALLER's own userId.
 //
-// Strangler EXPAND: these routes and the legacy WS arms (reorder_rooms; the
-// notifRooms/defaultRoomId fields of update_user) BOTH delegate to the SAME core
+// Strangler EXPAND→CUT: these routes are the live view surface. reorder_rooms was
+// cut over to view.setOrder (slice 6); the only legacy WS arm still delegating to
+// this core is the update_user notifRooms/defaultRoomId slice (deferred to group
+// 7). Both REST and that arm delegate to the SAME core
 // (applyViewChange / getViewProjection in the index seam), so the view
 // invariants — order deduped + filtered to accessible; effective shown =
 // accessible minus hidden; notifRooms within effective shown; defaultRoomId

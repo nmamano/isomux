@@ -142,6 +142,7 @@ import { validateHandlers } from "./routes/handlers/validate.ts";
 import { backendsHandlers } from "./routes/handlers/backends.ts";
 import { systemHandlers } from "./routes/handlers/system.ts";
 import { viewHandlers } from "./routes/handlers/view.ts";
+import { roomsHandlers } from "./routes/handlers/rooms.ts";
 import type {
   AccessSettings,
   UserPublicWire,
@@ -1564,8 +1565,85 @@ function buildExecutorDeps(): ExecutorDeps {
       applySettings: (input) => applyOfficeSettings(input),
     }),
   );
-  // 3b.4 — per-user view preferences. Both REST view.* and the legacy WS arms
-  // (reorder_rooms; update_user notif/default) delegate to this same core.
+  // 3d.6 — room-structure mutations (rooms CRUD). The handlers stay thin; the
+  // COMPOUND effects live here in the dep closures (the access/invites
+  // EMIT-IN-DEP pattern), faithfully mirroring the now-deleted WS create_room/
+  // close_room cases:
+  //  - create: rule-based access — anyone authenticated with room:manage creates
+  //    a room. OWNERS reach it by RULE (already in the room_created audience,
+  //    received live, NO fan-out). A MEMBER creator needs an explicit GRANT to
+  //    see their own creation (room_created fired during createRoom, before the
+  //    grant, so it was suppressed for them); grant it, then push a projected
+  //    full_state to catch them up. No owner allowedRooms/notifRooms fan-out and
+  //    NO user_updated broadcast of the creator's grant (that broadcast was the
+  //    hidden-room-id leak — a grant change reaches only its own subject).
+  //  - close: strip the closed roomId from every user's allowedRooms/notifRooms
+  //    so stale references don't accumulate, fanning out user_updated per touched
+  //    record + a single users_list.
+  // Both re-push presence to keep the room-mutation→presence invariant uniform.
+  register(
+    roomsHandlers({
+      create: ({ name, creatorUserId }) => {
+        const newRoomId = agentManager.createRoom(name);
+        const creator = creatorUserId ? getUserById(creatorUserId) : undefined;
+        if (
+          creator &&
+          creator.role !== "owner" &&
+          !creator.allowedRooms.includes(newRoomId)
+        ) {
+          const result = updateUserById(creator.id, {
+            allowedRooms: [...creator.allowedRooms, newRoomId],
+          });
+          if (result.ok) pushProjectedFullStateForUserId(creator.id);
+        }
+        // A new room is empty so no ghost moves post-cut (room ids are stable);
+        // the re-push is harmless and keeps every room mutation paired with a
+        // presence refresh.
+        pushPresenceListToEachWs();
+        const room = agentManager.getRooms().find((r) => r.id === newRoomId);
+        if (!room) {
+          throw new Error(
+            `rooms.create: created room ${newRoomId} missing from getRooms()`,
+          );
+        }
+        return { room };
+      },
+      close: (roomId) => {
+        const closed = agentManager.closeRoom(roomId);
+        if (!closed) return false;
+        let touched = false;
+        for (const u of listUsers()) {
+          const inAllowed = u.allowedRooms.includes(roomId);
+          const inNotif = u.notifRooms.includes(roomId);
+          if (!inAllowed && !inNotif) continue;
+          const changes: { allowedRooms?: string[]; notifRooms?: string[] } =
+            {};
+          if (inAllowed) {
+            changes.allowedRooms = u.allowedRooms.filter((id) => id !== roomId);
+          }
+          if (inNotif) {
+            changes.notifRooms = u.notifRooms.filter((id) => id !== roomId);
+          }
+          const r = updateUserById(u.id, changes);
+          if (r.ok) {
+            emitUserUpdated(r.user);
+            touched = true;
+          }
+        }
+        if (touched) emitUsersList();
+        // Drop any ghost orphaned by the close (its currentRoomId was the
+        // now-gone room); buildPresenceListFor filters dangling entries.
+        pushPresenceListToEachWs();
+        return true;
+      },
+      rename: (roomId, name) => agentManager.renameRoom(roomId, name),
+      setSettings: (roomId, prompt) =>
+        agentManager.setRoomSettings(roomId, prompt),
+    }),
+  );
+  // 3b.4 — per-user view preferences. REST view.* is the live surface; the legacy
+  // WS arm that still delegates here is the update_user notif/default slice
+  // (group 7). reorder_rooms was cut over to view.setOrder in slice 6.
   register(
     viewHandlers({
       getView: (userId) => getViewProjection(userId),
@@ -3037,117 +3115,6 @@ async function dispatchCommand(
       }
       break;
     }
-    case "update_room_settings": {
-      if (!roomAllowedForSession(session, cmd.roomId)) {
-        ws.send(
-          JSON.stringify({
-            type: "settings_save_response",
-            requestId: cmd.requestId,
-            ok: false,
-            error: "You don't have access to that room.",
-          }),
-        );
-        break;
-      }
-      const ok = agentManager.setRoomSettings(cmd.roomId, cmd.prompt);
-      if (!ok) {
-        ws.send(
-          JSON.stringify({
-            type: "settings_save_response",
-            requestId: cmd.requestId,
-            ok: false,
-            error: "Room not found",
-          }),
-        );
-      } else {
-        ws.send(
-          JSON.stringify({
-            type: "settings_save_response",
-            requestId: cmd.requestId,
-            ok: true,
-          }),
-        );
-      }
-      break;
-    }
-    case "create_room": {
-      // Rule-based access (Phase 3b): anyone can create a room. OWNERS reach it
-      // by RULE — they are already in the room_created audience and receive it
-      // live, with NO fan-out. A MEMBER creator needs an explicit GRANT to see
-      // their own creation (room_created fired during createRoom, before the
-      // grant, so it was suppressed for them); grant it, then push a projected
-      // full_state to catch them up. Other members get nothing until an owner
-      // grants access. There is NO owner allowedRooms/notifRooms fan-out, and NO
-      // user_updated broadcast of the creator's grant — that broadcast was the
-      // hidden-room-id leak (a grant change reaches only its own subject).
-      const newRoomId = agentManager.createRoom(cmd.name);
-      const creator = getUserById(session.userId);
-      if (
-        creator &&
-        creator.role !== "owner" &&
-        !creator.allowedRooms.includes(newRoomId)
-      ) {
-        const result = updateUserById(creator.id, {
-          allowedRooms: [...creator.allowedRooms, newRoomId],
-        });
-        if (result.ok) {
-          pushProjectedFullStateForUserId(creator.id);
-        }
-      }
-      // Live-avatars: rebroadcast presence to keep the room-mutation→presence
-      // invariant uniform across handlers. A new room is empty so no ghost moves
-      // post-cut (room ids are stable, nothing shifts); the re-push is harmless
-      // and keeps every room mutation paired with a presence refresh.
-      pushPresenceListToEachWs();
-      break;
-    }
-    case "close_room": {
-      if (!roomAllowedForSession(session, cmd.roomId)) break;
-      const closed = agentManager.closeRoom(cmd.roomId);
-      if (closed) {
-        // Strip the closed roomId from every user's allowedRooms /
-        // notifRooms so stale references don't accumulate. Without
-        // this the User Settings summary will keep counting closed
-        // rooms, and any future close_room/create_room sequence
-        // could grow the on-disk lists indefinitely.
-        let touched = false;
-        for (const u of listUsers()) {
-          const inAllowed = u.allowedRooms.includes(cmd.roomId);
-          const inNotif = u.notifRooms.includes(cmd.roomId);
-          if (!inAllowed && !inNotif) continue;
-          const changes: { allowedRooms?: string[]; notifRooms?: string[] } =
-            {};
-          if (inAllowed) {
-            changes.allowedRooms = u.allowedRooms.filter(
-              (id) => id !== cmd.roomId,
-            );
-          }
-          if (inNotif) {
-            changes.notifRooms = u.notifRooms.filter((id) => id !== cmd.roomId);
-          }
-          const r = updateUserById(u.id, changes);
-          if (r.ok) {
-            emitUserUpdated(r.user);
-            touched = true;
-          }
-        }
-        if (touched) {
-          emitUsersList();
-        }
-        // Live-avatars: rebroadcast presence so any ghost orphaned by the close
-        // (its currentRoomId was the now-gone room) is dropped. Post-cut closing
-        // a room shifts no indices — remaining rooms and agents keep their stable
-        // ids — so this is purely orphan cleanup: buildPresenceListFor filters
-        // out entries whose currentRoomId no longer resolves on this same
-        // broadcast.
-        pushPresenceListToEachWs();
-      }
-      break;
-    }
-    case "rename_room":
-      if (!roomAllowedForSession(session, cmd.roomId)) break;
-      agentManager.renameRoom(cmd.roomId, cmd.name);
-      break;
     case "move_agent": {
       // Source and target rooms must both be visible to the session.
       // agentVisibleForSession looks up the agent's current global room.
@@ -3156,16 +3123,6 @@ async function dispatchCommand(
       agentManager.moveAgent(cmd.agentId, cmd.targetRoomId);
       break;
     }
-    case "reorder_rooms":
-      // Per-user view preference (Phase 3b.4): reorder sets the CALLER's own
-      // sparse room order, always allowed for an authenticated session — no
-      // sessionHasFullRoomAccess gate, no global agentManager.reorderRooms, no
-      // rooms_reordered. applyViewChange persists the order (filtered to the
-      // caller's accessible rooms), pushes a projected full_state to the caller's
-      // sockets, and re-pushes the caller's own presence list (the rooms array
-      // they see is reordered). Other users' projections are unaffected.
-      applyViewChange(session.userId, { order: cmd.order });
-      break;
     case "edit_message":
       if (!agentVisibleForSession(session, cmd.agentId)) break;
       // Don't await — let it stream in the background (like send_message)

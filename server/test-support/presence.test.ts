@@ -244,7 +244,14 @@ describe("presence — id-keyed wire (Phase 3c slice 4)", () => {
     // currentRoomId is UNCHANGED and the ghost is not dropped (the reorder still
     // rebroadcasts presence to the caller).
     const before = presenceCount(ownerSock);
-    ownerSock.send({ type: "reorder_rooms", order: [r3, r2, r1] });
+    // reorder cut over to view.setOrder (PUT /api/me/view/order) in slice 6; the
+    // applyViewChange core still re-pushes presence to the caller's sockets.
+    await server.http("/api/me/view/order", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ order: [r3, r2, r1] }),
+      rawSessionId: owner.rawSessionId,
+    });
     await waitForPresenceAfter(ownerSock, before, "reorder");
     const lists = bag(ownerSock).filter((m) => m.type === "presence_list");
     expect(

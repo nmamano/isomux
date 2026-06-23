@@ -1,6 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import { useAppState } from "../store.tsx";
-import { send, addRawListener, removeRawListener } from "../ws.ts";
+import { apiFetch, ApiError } from "../api.ts";
+import type {
+  RoomRenameReq,
+  RoomSettingsReq,
+} from "../../shared/contract-shapes.ts";
 import {
   dialogInput,
   dialogCancelBtn,
@@ -33,30 +37,27 @@ export function RoomSettingsModal({
   function handleSave() {
     const trimmedName = name.trim();
     if (!trimmedName) return;
-    if (room && trimmedName !== room.name) {
-      send({ type: "rename_room", roomId, name: trimmedName });
-    }
-    const reqId = `room-save-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     setSaving(true);
     setError(null);
-    const listener = (data: string) => {
-      try {
-        const msg = JSON.parse(data);
-        if (msg.type === "settings_save_response" && msg.requestId === reqId) {
-          setSaving(false);
-          removeRawListener(listener);
-          if (msg.ok) onClose();
-          else setError(msg.error || "Save failed");
-        }
-      } catch {}
-    };
-    addRawListener(listener);
-    send({
-      type: "update_room_settings",
-      requestId: reqId,
-      roomId,
+    // Rename is an independent, cosmetic field; fire-and-forget, parity with the
+    // old WS rename_room (which never blocked the dialog). It shares the settings
+    // PUT's room:manage guard, so a rename that would 403 already fails the
+    // settings save below — no separate error surface needed.
+    if (room && trimmedName !== room.name) {
+      const renameBody: RoomRenameReq = { name: trimmedName };
+      apiFetch<void>("PATCH", `/api/rooms/${roomId}`, renameBody).catch(
+        () => {},
+      );
+    }
+    // The settings save drives the dialog: success closes it, an ApiError shows
+    // inline (the HTTP response replaces the old settings_save_response correlation).
+    const settingsBody: RoomSettingsReq = {
       prompt: prompt.trim() ? prompt : null,
-    });
+    };
+    apiFetch<void>("PUT", `/api/rooms/${roomId}/settings`, settingsBody)
+      .then(() => onClose())
+      .catch((e) => setError(e instanceof ApiError ? e.message : "Save failed"))
+      .finally(() => setSaving(false));
   }
 
   useEffect(() => {
@@ -194,7 +195,11 @@ export function RoomSettingsModal({
           {canDeleteRoom && (
             <button
               onClick={() => {
-                send({ type: "close_room", roomId });
+                // Fire-and-forget + optimistic close, parity with the old WS
+                // close_room (the room_closed broadcast removes the tab).
+                apiFetch<void>("DELETE", `/api/rooms/${roomId}`).catch(
+                  () => {},
+                );
                 onClose();
               }}
               style={deleteBtnStyle}

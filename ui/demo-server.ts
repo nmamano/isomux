@@ -5,6 +5,9 @@ import type {
   CronPromptReq,
   OfficeSettingsReq,
   TaskCreateReq,
+  RoomCreateReq,
+  RoomRenameReq,
+  RoomSettingsReq,
 } from "../shared/contract-shapes.ts";
 import type {
   AgentInfo,
@@ -897,6 +900,22 @@ export async function demoApi(
       );
       return state.tasks.at(-1);
     }
+    // rooms.create — create + broadcast room_created; RETURN { room } (the
+    // contract shape; the UI ignores it and relies on the broadcast). No
+    // rule-based creator grant in the demo: the single demo user (Ricky) is an
+    // owner and reaches every room by rule, matching the production no-fan-out.
+    case "POST /api/rooms": {
+      const b = (body ?? {}) as RoomCreateReq;
+      const events = state.createRoom(b.name);
+      emitEvents(events);
+      const created = events.find((e) => e.type === "room_created");
+      return { room: created?.room };
+    }
+    // view.setOrder — per-user view order is not modeled in the single-user
+    // demo, so reorder is a no-op (matching the pre-cutover demo, where
+    // reorder_rooms had no handleCommand case and was silently dropped).
+    case "PUT /api/me/view/order":
+      return undefined;
   }
   // Param routes (matched by shape, since the id/agentType segment varies).
   // backends.listModels — the demo has no backend process to probe; an empty
@@ -976,6 +995,32 @@ export async function demoApi(
       return state.tasks.find((t) => t.id === id);
     }
     emitEvents(state.deleteTask(id));
+    return undefined;
+  }
+  // rooms.setSettings (PUT .../settings) — set the prompt + broadcast
+  // room_settings_updated. No settings_save_response (the dialog reads the HTTP
+  // response now); returns no body (204-like). Listed before the bare /:id route.
+  const roomSettingsMatch = pathname.match(/^\/api\/rooms\/([^/]+)\/settings$/);
+  if (roomSettingsMatch && method === "PUT") {
+    const id = decodeURIComponent(roomSettingsMatch[1]);
+    const b = (body ?? {}) as RoomSettingsReq;
+    emitEvents(state.setRoomSettings(id, b.prompt));
+    return undefined;
+  }
+  // rooms.rename (PATCH) / rooms.close (DELETE) — mutate + broadcast
+  // room_renamed / room_closed; no body (204-like). The production close also
+  // strips the dead roomId from user records, but the single demo user is an
+  // owner (rule-based access, no materialized allowedRooms), so there is nothing
+  // to clean up — matching the pre-cutover demo close_room handleCommand.
+  const roomIdMatch = pathname.match(/^\/api\/rooms\/([^/]+)$/);
+  if (roomIdMatch && (method === "PATCH" || method === "DELETE")) {
+    const id = decodeURIComponent(roomIdMatch[1]);
+    if (method === "PATCH") {
+      const b = (body ?? {}) as RoomRenameReq;
+      emitEvents(state.renameRoom(id, b.name));
+      return undefined;
+    }
+    emitEvents(state.closeRoom(id));
     return undefined;
   }
   throw new Error(`demoApi: unhandled route ${route}`);
@@ -1062,18 +1107,6 @@ export function handleCommand(cmd: ClientCommand) {
       emitEvents(state.swapDesks(cmd.deskA, cmd.deskB, cmd.roomId));
       break;
     }
-    case "create_room": {
-      emitEvents(state.createRoom(cmd.name));
-      break;
-    }
-    case "close_room": {
-      emitEvents(state.closeRoom(cmd.roomId));
-      break;
-    }
-    case "rename_room": {
-      emitEvents(state.renameRoom(cmd.roomId, cmd.name));
-      break;
-    }
     case "move_agent": {
       emitEvents(state.moveAgent(cmd.agentId, cmd.targetRoomId));
       break;
@@ -1084,15 +1117,6 @@ export function handleCommand(cmd: ClientCommand) {
     }
     case "reset_topic": {
       emitEvents(state.resetTopic(cmd.agentId));
-      break;
-    }
-    case "update_room_settings": {
-      emitEvents(state.setRoomSettings(cmd.roomId, cmd.prompt));
-      shimEmit({
-        type: "settings_save_response",
-        requestId: cmd.requestId,
-        ok: true,
-      });
       break;
     }
     case "send_message": {

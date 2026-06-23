@@ -1,31 +1,26 @@
-// Phase 1.4(b) — Room settings command characterization.
+// Phase 3d slice 6 — rooms.setSettings REST characterization.
 //
-// update_room_settings is the remaining WebSocket settings command (rooms get
-// strangled onto rooms.setSettings in a later 3d slice). The office-settings WS
-// arm (update_office_settings) was retired when the UI cut over to
-// office.setSettings; its characterization now lives in
-// routes-office-settings-rest.test.ts (REST behavior + shared-core parity).
-// projection.test.ts freezes the update_user room-access slice; this file
-// freezes the room-prompt slice.
+// The room-prompt save moved from the WS update_room_settings command (deleted
+// in slice 6) to PUT /api/rooms/:roomId/settings (rooms.setSettings). This file
+// freezes the REST behavior:
+//   - owner save persists the prompt and broadcasts room_settings_updated;
+//   - owner + unknown room id -> 404 "Room not found". Under rule-based access
+//     canAccess(owner, anyId) is true, so the requiresRoomAccess guard passes and
+//     the core's existence check is reachable (doc Follow-up #6). Not a leak: an
+//     owner already sees every real room, so disclosing non-existence reveals
+//     nothing hidden.
+//   - member with no access -> 403 (the uniform FORBIDDEN; no exists-vs-hidden
+//     oracle), prompt untouched.
 //
-// Boundary = the settings_save_response ack (matched by requestId — the harness
-// waitFor only filters by type, so a stale buffered ack would otherwise be
-// returned) AND the room_settings_updated broadcast, with agentManager room
-// state as persistence confirmation.
+// The room-structure mutations (create/close/rename) are in
+// routes-rooms-rest.test.ts; the per-recipient projection/ACL of these events is
+// in projection.test.ts.
 //
-// Notable current behavior frozen here:
-//   - update_room_settings checks ACCESS before existence, so an unknown room
-//     id returns "You don't have access to that room" even for an owner — the
-//     "Room not found" branch is effectively unreachable via this command.
-//
-// Seam: startTestServer() WS sockets. Zero LLM.
+// Seam: startTestServer() — real auth + /api executor, plus a WS socket to
+// observe the broadcast. Zero LLM.
 
 import { describe, it, expect, afterEach } from "bun:test";
-import {
-  startTestServer,
-  type TestServer,
-  type TestSocket,
-} from "./harness.ts";
+import { startTestServer, type TestServer } from "./harness.ts";
 
 let server: TestServer | null = null;
 
@@ -34,103 +29,69 @@ afterEach(async () => {
   server = null;
 });
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+interface Res {
+  status: number;
+  body: unknown;
+}
 
-async function waitUntil(
-  pred: () => boolean,
-  timeoutMs = 2000,
-  label = "condition",
-): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    if (pred()) return;
-    if (Date.now() > deadline) throw new Error(`waitUntil timed out: ${label}`);
-    await sleep(10);
+async function putSettings(
+  srv: TestServer,
+  roomId: string,
+  prompt: string | null,
+  rawSessionId: string,
+): Promise<Res> {
+  const res = await srv.http(`/api/rooms/${roomId}/settings`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prompt }),
+    rawSessionId,
+  });
+  let body: unknown = null;
+  try {
+    body = await res.json();
+  } catch {
+    body = null;
   }
+  return { status: res.status, body };
 }
 
-interface SaveResp {
-  type: string;
-  requestId: string;
-  ok?: boolean;
-  error?: string;
-}
-
-let ridSeq = 0;
-
-// Send a settings command and resolve with the settings_save_response carrying
-// the SAME requestId — never just the first response of that type (the harness
-// waitFor matches type only, so a buffered earlier ack would race in).
-async function settingsCmd(
-  sock: TestSocket,
-  cmd: Record<string, unknown>,
-): Promise<SaveResp> {
-  const requestId = `req-${++ridSeq}`;
-  sock.send({ ...cmd, requestId });
-  const find = () =>
-    sock.messages.find(
-      (m) =>
-        (m as SaveResp).type === "settings_save_response" &&
-        (m as SaveResp).requestId === requestId,
-    ) as SaveResp | undefined;
-  await waitUntil(() => !!find(), 2000, `settings_save_response ${requestId}`);
-  return find()!;
-}
-
-describe("routes/settings: room settings (access-gated) (Phase 1.4b)", () => {
-  it("owner update succeeds, persists the room prompt, and broadcasts room_settings_updated", async () => {
+describe("rooms.setSettings REST (Phase 3d slice 6)", () => {
+  it("owner save returns 204, persists the room prompt, and broadcasts room_settings_updated", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
     const room = srv.agentManager.getRooms()[0];
     const sock = await srv.connectWs(owner.rawSessionId);
-    const resp = await settingsCmd(sock, {
-      type: "update_room_settings",
-      roomId: room.id,
-      prompt: "room prompt",
-    });
-    expect(resp.ok).toBe(true);
+    const res = await putSettings(
+      srv,
+      room.id,
+      "room prompt",
+      owner.rawSessionId,
+    );
+    expect(res.status).toBe(204);
     expect(srv.agentManager.getRooms()[0].prompt).toBe("room prompt");
     await sock.waitFor("room_settings_updated");
   });
 
-  it("rule-based owner access: an unknown room id now PASSES the owner gate (rule) and reaches the existence check -> Room not found (3b flip; was unreachable under materialized access)", async () => {
-    // 3b FLIP. Under materialized access an owner's allowedRooms never contained
-    // an unknown id, so the access check rejected first ("You don't have access")
-    // and the "Room not found" branch was DEAD (doc Follow-up 6). Rule-based
-    // access grants an owner EVERY room id by rule — including a nonexistent one
-    // — so the access gate passes and the existence check is now reachable. Not
-    // a leak: an owner can already see every real room, so distinguishing
-    // "doesn't exist" reveals nothing hidden. (Members are unchanged: an unknown
-    // id still fails their grant check -> "You don't have access" -> no oracle.)
+  it("owner + unknown room id -> 404 Room not found (rule access passes the guard, reaching the existence check; Follow-up #6)", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
-    const sock = await srv.connectWs(owner.rawSessionId);
-    const resp = await settingsCmd(sock, {
-      type: "update_room_settings",
-      roomId: "deadbeef",
-      prompt: "x",
-    });
-    expect(resp.ok).toBe(false);
-    expect(resp.error).toBe("Room not found");
+    const res = await putSettings(srv, "deadbeef", "x", owner.rawSessionId);
+    expect(res.status).toBe(404);
+    expect((res.body as { error?: { code?: string } }).error?.code).toBe(
+      "room_not_found",
+    );
   });
 
-  it("a member with no access to the room is rejected", async () => {
+  it("member with no access -> 403 (uniform FORBIDDEN, no oracle), prompt untouched", async () => {
     const srv = await startTestServer();
     server = srv;
     await srv.seedOwner("Boss");
     const member = await srv.seedMember("Mia");
     const room = srv.agentManager.getRooms()[0];
-    const sock = await srv.connectWs(member.rawSessionId);
-    const resp = await settingsCmd(sock, {
-      type: "update_room_settings",
-      roomId: room.id,
-      prompt: "y",
-    });
-    expect(resp.ok).toBe(false);
-    expect(resp.error).toBe("You don't have access to that room.");
-    // Room prompt untouched.
+    const res = await putSettings(srv, room.id, "y", member.rawSessionId);
+    expect(res.status).toBe(403);
     expect(srv.agentManager.getRooms()[0].prompt).toBeNull();
   });
 });

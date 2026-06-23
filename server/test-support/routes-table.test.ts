@@ -219,7 +219,10 @@ const SPEC_ROUTE_CONTRACT: Record<
   "agents.getFile": { caps: ["office:read"], emits: [] },
   // Rooms
   "rooms.create": { caps: ["room:manage"], emits: ["room_created"] },
-  "rooms.close": { caps: ["room:manage"], emits: ["room_closed"] },
+  "rooms.close": {
+    caps: ["room:manage"],
+    emits: ["room_closed", "user_updated", "users_list"],
+  },
   "rooms.rename": { caps: ["room:manage"], emits: ["room_renamed"] },
   "rooms.setSettings": {
     caps: ["room:manage"],

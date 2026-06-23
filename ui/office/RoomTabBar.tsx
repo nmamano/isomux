@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { useAppState, useDispatch } from "../store.tsx";
-import { send } from "../ws.ts";
+import { apiFetch } from "../api.ts";
+import type { ViewOrderReq } from "../../shared/contract-shapes.ts";
 import { RoomSettingsModal } from "../components/RoomSettingsModal.tsx";
 import { GhostGraphic } from "./ghostVariants.tsx";
 import type { PresenceInfo } from "../../shared/types.ts";
@@ -185,7 +186,10 @@ export function RoomTabBar() {
     const order = rooms.map((r) => r.id);
     const [removed] = order.splice(dragFrom, 1);
     order.splice(dropIdx, 0, removed);
-    send({ type: "reorder_rooms", order });
+    // Per-user view order; fire-and-forget (the projected full_state re-renders
+    // the tabs). Parity with the old WS reorder_rooms, which carried no ack.
+    const body: ViewOrderReq = { order };
+    apiFetch<void>("PUT", "/api/me/view/order", body).catch(() => {});
     setDragFrom(null);
   }
 
@@ -336,7 +340,9 @@ export function RoomTabBar() {
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  send({ type: "close_room", roomId: room.id });
+                  apiFetch<void>("DELETE", `/api/rooms/${room.id}`).catch(
+                    () => {},
+                  );
                 }}
                 style={{
                   width: 16,
@@ -363,7 +369,11 @@ export function RoomTabBar() {
       })}
       {/* Add room button */}
       <button
-        onClick={() => send({ type: "create_room" })}
+        onClick={() => {
+          // Fire-and-forget; the room_created broadcast adds the tab (parity
+          // with the old WS create_room, which carried no name and no ack).
+          apiFetch<void>("POST", "/api/rooms", {}).catch(() => {});
+        }}
         style={{
           padding: "4px 8px",
           borderRadius: 6,

@@ -404,7 +404,11 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "DELETE",
     path: "/api/rooms/:roomId",
     auth: cap("room:manage", roomParam("roomId")),
-    emits: ["room_closed"],
+    // room_closed is the structure delta; closing also strips the dead roomId
+    // from every user's allowedRooms/notifRooms, fanning out the representative
+    // public user events (user_updated per touched record + users_list). Declared
+    // for ACL/projection honesty (presence is out-of-band, never route-declared).
+    emits: ["room_closed", "user_updated", "users_list"],
   }),
   defineRoute<RoomRenameReq, NoContent>({
     opId: "rooms.rename",
