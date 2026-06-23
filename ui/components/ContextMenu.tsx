@@ -2,6 +2,7 @@ import { useRef, useEffect } from "react";
 import type { AgentInfo } from "../../shared/types.ts";
 import { useAppState, useFeatures } from "../store.tsx";
 import { send } from "../ws.ts";
+import { apiFetch } from "../api.ts";
 
 interface ContextMenuProps {
   x: number;
@@ -52,7 +53,7 @@ export function ContextMenu({
         if (sessionId) send({ type: "resume", agentId: agent.id, sessionId });
         break;
       case "kill":
-        send({ type: "kill", agentId: agent.id });
+        apiFetch("DELETE", `/api/agents/${agent.id}`).catch(() => {});
         break;
     }
     onClose();

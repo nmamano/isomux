@@ -8,7 +8,11 @@ import { EmptySlot } from "./EmptySlot.tsx";
 import { GhostBody, GhostTag } from "./Ghost.tsx";
 import { useGhostTransitions, type DoorCoord } from "./useGhostTransitions.ts";
 import { SCENE_W, SCENE_H } from "./grid.ts";
-import { send } from "../ws.ts";
+import { apiFetch } from "../api.ts";
+import type {
+  MoveAgentReq,
+  SwapDesksReq,
+} from "../../shared/contract-shapes.ts";
 import { SunIcon, MoonIcon } from "../components/ThemeIcons.tsx";
 import { ThemePicker } from "../components/ThemePicker.tsx";
 import { MobileHeader, getRoomCounts } from "../components/MobileHeader.tsx";
@@ -585,7 +589,9 @@ export function OfficeView({
                     setTimeout(() => setLeftDoorReject(false), 400);
                     return false;
                   }
-                  send({ type: "move_agent", agentId: a.id, targetRoomId });
+                  apiFetch("POST", `/api/agents/${a.id}/move`, {
+                    targetRoomId,
+                  } satisfies MoveAgentReq).catch(() => {});
                   return true;
                 }}
               />
@@ -618,7 +624,9 @@ export function OfficeView({
                     setTimeout(() => setRightDoorReject(false), 400);
                     return false;
                   }
-                  send({ type: "move_agent", agentId: a.id, targetRoomId });
+                  apiFetch("POST", `/api/agents/${a.id}/move`, {
+                    targetRoomId,
+                  } satisfies MoveAgentReq).catch(() => {});
                   return true;
                 }}
               />
@@ -641,12 +649,10 @@ export function OfficeView({
                     onSwap={(a, b) => {
                       const rid = currentRoomId;
                       if (rid)
-                        send({
-                          type: "swap_desks",
+                        apiFetch("POST", `/api/rooms/${rid}/swap-desks`, {
                           deskA: a,
                           deskB: b,
-                          roomId: rid,
-                        });
+                        } satisfies SwapDesksReq).catch(() => {});
                     }}
                     stateChangedAt={stateChangedAt.get(agent.id)}
                   />
@@ -660,12 +666,10 @@ export function OfficeView({
                   onSwap={(a, b) => {
                     const rid = currentRoomId;
                     if (rid)
-                      send({
-                        type: "swap_desks",
+                      apiFetch("POST", `/api/rooms/${rid}/swap-desks`, {
                         deskA: a,
                         deskB: b,
-                        roomId: rid,
-                      });
+                      } satisfies SwapDesksReq).catch(() => {});
                   }}
                 />
               );

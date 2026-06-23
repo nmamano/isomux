@@ -1017,7 +1017,6 @@ export type ClientCommand =
       agentType?: AgentBackendType;
       codexSandbox?: CodexSandboxMode;
     }
-  | { type: "kill"; agentId: string }
   | {
       // Revive a killed agent. Restores its config from agent-history
       // (cwd/outfit/model/etc.) at the target desk in the caller's
@@ -1029,7 +1028,6 @@ export type ClientCommand =
       desk: number;
       roomId: string;
     }
-  | { type: "abort"; agentId: string }
   | {
       type: "send_message";
       agentId: string;
@@ -1056,9 +1054,6 @@ export type ClientCommand =
       permissionMode?: AgentInfo["permissionMode"];
       codexSandbox?: CodexSandboxMode;
     }
-  | { type: "swap_desks"; deskA: number; deskB: number; roomId: string }
-  | { type: "set_topic"; agentId: string; topic: string }
-  | { type: "reset_topic"; agentId: string }
   | { type: "terminal_open"; agentId: string }
   | { type: "terminal_input"; agentId: string; data: string }
   | { type: "terminal_resize"; agentId: string; cols: number; rows: number }
@@ -1073,7 +1068,6 @@ export type ClientCommand =
       force?: boolean;
     }
   | { type: "editor_close"; agentId: string; path: string }
-  | { type: "move_agent"; agentId: string; targetRoomId: string }
   | {
       type: "edit_message";
       agentId: string;

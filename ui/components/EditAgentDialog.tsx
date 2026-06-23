@@ -29,6 +29,7 @@ import {
 import { Character } from "../office/Character.tsx";
 import { send, addRawListener, removeRawListener } from "../ws.ts";
 import { apiFetch, ApiError } from "../api.ts";
+import type { MoveAgentReq } from "../../shared/contract-shapes.ts";
 import { useAppState } from "../store.tsx";
 import { getUsername } from "../device-settings.ts";
 import {
@@ -1103,11 +1104,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                       onClick={() => {
                         const targetRoomId = rooms[i]?.id;
                         if (!targetRoomId) return;
-                        send({
-                          type: "move_agent",
-                          agentId: agent!.id,
+                        apiFetch("POST", `/api/agents/${agent!.id}/move`, {
                           targetRoomId,
-                        });
+                        } satisfies MoveAgentReq).catch(() => {});
                         onClose();
                       }}
                       style={{

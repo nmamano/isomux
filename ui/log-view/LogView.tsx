@@ -18,6 +18,8 @@ import { familyDisplayLabel } from "../../shared/types.ts";
 import { StatusLight } from "../office/StatusLight.tsx";
 import { Character } from "../office/Character.tsx";
 import { send } from "../ws.ts";
+import { apiFetch } from "../api.ts";
+import type { TopicReq } from "../../shared/contract-shapes.ts";
 import { useAppState, useDispatch, useFeatures, useTheme } from "../store.tsx";
 import {
   LogEntryCard,
@@ -129,7 +131,7 @@ function sendAbortDebounced(agentId: string) {
   const last = lastAbortAtPerAgent.get(agentId) ?? 0;
   if (now - last < 2000) return;
   lastAbortAtPerAgent.set(agentId, now);
-  send({ type: "abort", agentId });
+  apiFetch("POST", `/api/agents/${agentId}/abort`).catch(() => {});
 }
 
 function ActivityIndicator({
@@ -1719,9 +1721,11 @@ export function LogView({
                     {agent.topic}
                   </span>
                   <button
-                    onClick={() =>
-                      send({ type: "reset_topic", agentId: agent.id })
-                    }
+                    onClick={() => {
+                      apiFetch("DELETE", `/api/agents/${agent.id}/topic`).catch(
+                        () => {},
+                      );
+                    }}
                     disabled={!agent.topicStale}
                     title={
                       agent.topicStale
@@ -1761,11 +1765,9 @@ export function LogView({
                     if (e.key === "Enter") {
                       const trimmed = topicDraft.trim();
                       if (trimmed && trimmed !== agent.topic) {
-                        send({
-                          type: "set_topic",
-                          agentId: agent.id,
+                        apiFetch("PUT", `/api/agents/${agent.id}/topic`, {
                           topic: trimmed,
-                        });
+                        } satisfies TopicReq).catch(() => {});
                       }
                       topicSavedRef.current = true;
                       setEditingTopic(false);
@@ -1783,11 +1785,9 @@ export function LogView({
                     }
                     const trimmed = topicDraft.trim();
                     if (trimmed && trimmed !== agent.topic) {
-                      send({
-                        type: "set_topic",
-                        agentId: agent.id,
+                      apiFetch("PUT", `/api/agents/${agent.id}/topic`, {
                         topic: trimmed,
-                      });
+                      } satisfies TopicReq).catch(() => {});
                     }
                     setEditingTopic(false);
                   }}

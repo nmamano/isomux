@@ -1,0 +1,302 @@
+// Phase 3d slice 7 — agent-lifecycle REST contract.
+//
+// HTTP-contract layer for the agent-lifecycle mutations cut over from WS in
+// slice 7. Pins status codes + guard behavior for the cores built in
+// server/routes/handlers/agents.ts.
+//
+//   7a (this file's first blocks): the FIRE-AND-FORGET mutations
+//   (kill/abort/move/swapDesks/setTopic/clearTopic). agentParam(:id) resolves an
+//   agent to its room and checks access, so a NON-EXISTENT or INACCESSIBLE agent
+//   both collapse to a uniform 403 (no existence oracle) — even for an owner,
+//   since roomIdForAgent(missing) is null before the owner rule is consulted.
+//   move requires BOTH source-agent and target-room access; swapDesks requires
+//   room access. The per-recipient projection of the move (and the two-guard
+//   cross-room ACL) is frozen in projection.test.ts.
+//
+// Seam: startTestServer() — real auth + the /api executor. Zero LLM (the
+// FakeBackend auto-completes), so spawn/kill/move are deterministic.
+
+import { describe, it, expect, afterEach } from "bun:test";
+import { startTestServer, type TestServer } from "./harness.ts";
+
+let server: TestServer | null = null;
+
+afterEach(async () => {
+  await server?.stop();
+  server = null;
+});
+
+interface Res {
+  status: number;
+  body: unknown;
+}
+
+async function req(
+  srv: TestServer,
+  method: string,
+  path: string,
+  init: { body?: unknown; rawSessionId?: string } = {},
+): Promise<Res> {
+  const headers: Record<string, string> = {};
+  if (init.body !== undefined) headers["Content-Type"] = "application/json";
+  const res = await srv.http(path, {
+    method,
+    headers,
+    body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
+    rawSessionId: init.rawSessionId,
+  });
+  let body: unknown = null;
+  try {
+    body = await res.json();
+  } catch {
+    body = null;
+  }
+  return { status: res.status, body };
+}
+
+const errCode = (body: unknown): string | undefined =>
+  (body as { error?: { code?: string } }).error?.code;
+
+// Spawn directly via the core (transport-agnostic setup), at an explicit desk.
+async function spawnAt(
+  srv: TestServer,
+  name: string,
+  roomId: string,
+  desk: number,
+) {
+  const a = await srv.agentManager.spawn(
+    name,
+    srv.stateRoot,
+    "default",
+    desk,
+    undefined,
+    roomId,
+  );
+  if (!a) throw new Error(`spawn failed: ${name}`);
+  return a;
+}
+
+describe("agents.kill REST (Phase 3d slice 7a)", () => {
+  it("owner kills a live agent -> 204; agent leaves the live set", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const x = await spawnAt(srv, "X", r1, 0);
+    const res = await req(srv, "DELETE", `/api/agents/${x.id}`, {
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(204);
+    expect(srv.agentManager.getAllAgents().some((a) => a.id === x.id)).toBe(
+      false,
+    );
+  });
+
+  it("no identity -> 401", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const x = await spawnAt(srv, "X", r1, 0);
+    const res = await req(srv, "DELETE", `/api/agents/${x.id}`);
+    expect(res.status).toBe(401);
+    expect(srv.agentManager.getAllAgents().some((a) => a.id === x.id)).toBe(
+      true,
+    );
+  });
+
+  it("owner + nonexistent agent -> uniform 403 (no existence oracle)", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const res = await req(srv, "DELETE", "/api/agents/nope", {
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("member with no access -> 403; agent untouched", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const member = await srv.seedMember("Mia");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const x = await spawnAt(srv, "X", r1, 0);
+    const res = await req(srv, "DELETE", `/api/agents/${x.id}`, {
+      rawSessionId: member.rawSessionId,
+    });
+    expect(res.status).toBe(403);
+    expect(srv.agentManager.getAllAgents().some((a) => a.id === x.id)).toBe(
+      true,
+    );
+  });
+});
+
+describe("agents.abort REST (Phase 3d slice 7a)", () => {
+  it("owner aborts an idle agent -> 204 (no-op safe)", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const x = await spawnAt(srv, "X", r1, 0);
+    const res = await req(srv, "POST", `/api/agents/${x.id}/abort`, {
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(204);
+  });
+});
+
+describe("agents.move REST (Phase 3d slice 7a)", () => {
+  it("owner moves an agent -> 200 { agent } with the new roomId", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const r2 = srv.agentManager.createRoom("R2");
+    const x = await spawnAt(srv, "X", r1, 0);
+    const res = await req(srv, "POST", `/api/agents/${x.id}/move`, {
+      body: { targetRoomId: r2 },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(200);
+    const agent = (res.body as { agent?: { roomId?: string } }).agent;
+    expect(agent?.roomId).toBe(r2);
+    expect(srv.agentManager.getAgent(x.id)?.roomId).toBe(r2);
+  });
+
+  it("no identity -> 401", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const r2 = srv.agentManager.createRoom("R2");
+    const x = await spawnAt(srv, "X", r1, 0);
+    const res = await req(srv, "POST", `/api/agents/${x.id}/move`, {
+      body: { targetRoomId: r2 },
+    });
+    expect(res.status).toBe(401);
+  });
+
+  it("same-room move -> 200 { agent } (idempotent no-op, not a 404)", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const x = await spawnAt(srv, "X", r1, 0);
+    const res = await req(srv, "POST", `/api/agents/${x.id}/move`, {
+      body: { targetRoomId: r1 },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(200);
+    expect((res.body as { agent?: { roomId?: string } }).agent?.roomId).toBe(
+      r1,
+    );
+  });
+
+  it("full target room -> 409 no_free_desk (not a false agent_not_found)", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const r2 = srv.agentManager.createRoom("R2");
+    for (let d = 0; d < 8; d++) await spawnAt(srv, `F${d}`, r2, d); // fill r2
+    const x = await spawnAt(srv, "X", r1, 0);
+    const res = await req(srv, "POST", `/api/agents/${x.id}/move`, {
+      body: { targetRoomId: r2 },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(409);
+    expect(errCode(res.body)).toBe("no_free_desk");
+    expect(srv.agentManager.getAgent(x.id)?.roomId).toBe(r1); // untouched
+  });
+});
+
+describe("rooms.swapDesks REST (Phase 3d slice 7a)", () => {
+  it("owner swaps two desks -> 204; the agents trade desks", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const a = await spawnAt(srv, "A", r1, 0);
+    const b = await spawnAt(srv, "B", r1, 1);
+    const res = await req(srv, "POST", `/api/rooms/${r1}/swap-desks`, {
+      body: { deskA: 0, deskB: 1 },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(204);
+    expect(srv.agentManager.getAgent(a.id)?.desk).toBe(1);
+    expect(srv.agentManager.getAgent(b.id)?.desk).toBe(0);
+  });
+
+  it("missing desk indices -> 422 invalid_desks", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const res = await req(srv, "POST", `/api/rooms/${r1}/swap-desks`, {
+      body: {},
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(422);
+    expect(errCode(res.body)).toBe("invalid_desks");
+  });
+
+  it("member with no room access -> 403", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const member = await srv.seedMember("Mia");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    await spawnAt(srv, "A", r1, 0);
+    await spawnAt(srv, "B", r1, 1);
+    const res = await req(srv, "POST", `/api/rooms/${r1}/swap-desks`, {
+      body: { deskA: 0, deskB: 1 },
+      rawSessionId: member.rawSessionId,
+    });
+    expect(res.status).toBe(403);
+  });
+});
+
+describe("agents.setTopic / clearTopic REST (Phase 3d slice 7a)", () => {
+  it("owner sets a topic -> 204; the topic lands", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const x = await spawnAt(srv, "X", r1, 0);
+    const res = await req(srv, "PUT", `/api/agents/${x.id}/topic`, {
+      body: { topic: "Refactor planning" },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(204);
+    expect(srv.agentManager.getAgent(x.id)?.topic).toBe("Refactor planning");
+  });
+
+  it("owner clears a topic -> 204", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const x = await spawnAt(srv, "X", r1, 0);
+    srv.agentManager.setTopic(x.id, "to be cleared");
+    const res = await req(srv, "DELETE", `/api/agents/${x.id}/topic`, {
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(204);
+  });
+
+  it("missing topic -> 422 invalid_topic (malformed body, not an empty-topic write)", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const x = await spawnAt(srv, "X", r1, 0);
+    const res = await req(srv, "PUT", `/api/agents/${x.id}/topic`, {
+      body: {},
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(422);
+    expect(errCode(res.body)).toBe("invalid_topic");
+    expect(srv.agentManager.getAgent(x.id)?.topic).toBe(null);
+  });
+});

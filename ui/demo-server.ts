@@ -8,6 +8,9 @@ import type {
   RoomCreateReq,
   RoomRenameReq,
   RoomSettingsReq,
+  MoveAgentReq,
+  SwapDesksReq,
+  TopicReq,
 } from "../shared/contract-shapes.ts";
 import type {
   AgentInfo,
@@ -1023,6 +1026,67 @@ export async function demoApi(
     emitEvents(state.closeRoom(id));
     return undefined;
   }
+  // 3d.7a — agent lifecycle, fire-and-forget mutations. The demo OfficeState
+  // owns the agent_updated / agent_removed broadcasts; these routes mirror the
+  // retired handleCommand cases (no agent_save_response — that is 7b's
+  // response-driven trio). The FF call sites ignore the body; mapped because
+  // demoApi throws on an unmapped route.
+  // agents.move (POST .../move) — move + broadcast agent_updated; return { agent }.
+  const agentMoveMatch = pathname.match(/^\/api\/agents\/([^/]+)\/move$/);
+  if (agentMoveMatch && method === "POST") {
+    const id = decodeURIComponent(agentMoveMatch[1]);
+    const b = (body ?? {}) as MoveAgentReq;
+    emitEvents(state.moveAgent(id, b.targetRoomId));
+    return { agent: state.getAgent(id) };
+  }
+  // agents.abort (POST .../abort) — mirror the retired abort handleCommand:
+  // cancel any pending demo reply, flip to waiting, log the interrupt. No body.
+  const agentAbortMatch = pathname.match(/^\/api\/agents\/([^/]+)\/abort$/);
+  if (agentAbortMatch && method === "POST") {
+    const id = decodeURIComponent(agentAbortMatch[1]);
+    const pending = pendingReplies.get(id);
+    if (pending) {
+      clearTimeout(pending);
+      pendingReplies.delete(id);
+    }
+    shimEmit({
+      type: "agent_updated",
+      agentId: id,
+      changes: { state: "waiting_for_response" },
+    });
+    shimEmit({
+      type: "log_entry",
+      entry: makeLogEntry(id, "system", "Agent interrupted."),
+    });
+    return undefined;
+  }
+  // agents.setTopic (PUT .../topic) / agents.clearTopic (DELETE .../topic).
+  const agentTopicMatch = pathname.match(/^\/api\/agents\/([^/]+)\/topic$/);
+  if (agentTopicMatch && (method === "PUT" || method === "DELETE")) {
+    const id = decodeURIComponent(agentTopicMatch[1]);
+    if (method === "PUT") {
+      const b = (body ?? {}) as TopicReq;
+      emitEvents(state.setTopic(id, b.topic));
+    } else {
+      emitEvents(state.resetTopic(id));
+    }
+    return undefined;
+  }
+  // agents.kill (DELETE /api/agents/:id) — despawn + broadcast. PATCH (edit)
+  // joins this bare-:id route in 7b.
+  const agentIdMatch = pathname.match(/^\/api\/agents\/([^/]+)$/);
+  if (agentIdMatch && method === "DELETE") {
+    emitEvents(state.kill(decodeURIComponent(agentIdMatch[1])));
+    return undefined;
+  }
+  // rooms.swapDesks (POST /api/rooms/:roomId/swap-desks) — swap + broadcast.
+  const swapDesksMatch = pathname.match(/^\/api\/rooms\/([^/]+)\/swap-desks$/);
+  if (swapDesksMatch && method === "POST") {
+    const roomId = decodeURIComponent(swapDesksMatch[1]);
+    const b = (body ?? {}) as SwapDesksReq;
+    emitEvents(state.swapDesks(b.deskA, b.deskB, roomId));
+    return undefined;
+  }
   throw new Error(`demoApi: unhandled route ${route}`);
 }
 
@@ -1062,10 +1126,6 @@ export function handleCommand(cmd: ClientCommand) {
       }
       break;
     }
-    case "kill": {
-      emitEvents(state.kill(cmd.agentId));
-      break;
-    }
     case "revive": {
       // The demo never populates state.killedAgents, so no chip is ever
       // rendered and this branch is unreachable from the UI. Stub here
@@ -1103,22 +1163,6 @@ export function handleCommand(cmd: ClientCommand) {
       }
       break;
     }
-    case "swap_desks": {
-      emitEvents(state.swapDesks(cmd.deskA, cmd.deskB, cmd.roomId));
-      break;
-    }
-    case "move_agent": {
-      emitEvents(state.moveAgent(cmd.agentId, cmd.targetRoomId));
-      break;
-    }
-    case "set_topic": {
-      emitEvents(state.setTopic(cmd.agentId, cmd.topic));
-      break;
-    }
-    case "reset_topic": {
-      emitEvents(state.resetTopic(cmd.agentId));
-      break;
-    }
     case "send_message": {
       // Log the user message
       const userEntry = makeLogEntry(
@@ -1150,26 +1194,6 @@ export function handleCommand(cmd: ClientCommand) {
           });
         }, 800),
       );
-      break;
-    }
-    case "abort": {
-      // Cancel any pending reply
-      const pendingAbort = pendingReplies.get(cmd.agentId);
-      if (pendingAbort) {
-        clearTimeout(pendingAbort);
-        pendingReplies.delete(cmd.agentId);
-      }
-      shimEmit({
-        type: "agent_updated",
-        agentId: cmd.agentId,
-        changes: { state: "waiting_for_response" },
-      });
-      const abortEntry = makeLogEntry(
-        cmd.agentId,
-        "system",
-        "Agent interrupted.",
-      );
-      shimEmit({ type: "log_entry", entry: abortEntry });
       break;
     }
     case "claim_user": {

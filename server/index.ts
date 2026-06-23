@@ -143,6 +143,7 @@ import { backendsHandlers } from "./routes/handlers/backends.ts";
 import { systemHandlers } from "./routes/handlers/system.ts";
 import { viewHandlers } from "./routes/handlers/view.ts";
 import { roomsHandlers } from "./routes/handlers/rooms.ts";
+import { agentsHandlers } from "./routes/handlers/agents.ts";
 import type {
   AccessSettings,
   UserPublicWire,
@@ -1641,6 +1642,45 @@ function buildExecutorDeps(): ExecutorDeps {
         agentManager.setRoomSettings(roomId, prompt),
     }),
   );
+  // 3d.7a — agent lifecycle, FIRE-AND-FORGET subset. The cores own the token
+  // lifecycle + the agent_*/killed_* broadcasts, so these closures just delegate
+  // (handlers stay contract-shaped). move returns a DISCRIMINATED result the
+  // handler maps to status: moved / same-room idempotent -> { agent }; full
+  // target -> no_free_desk; absent target (owner-only) / post-guard race ->
+  // room_not_found / agent_not_found. The response-driven trio (spawn/revive/
+  // update) + the reviveLastRoomAccess precondition land in 7b.
+  register(
+    agentsHandlers({
+      kill: (agentId) => agentManager.kill(agentId),
+      abort: (agentId) => agentManager.abort(agentId),
+      move: (agentId, targetRoomId) => {
+        const current = agentManager.getAgent(agentId);
+        // agentParam proved the agent existed; a miss here is a post-guard race.
+        if (!current) return { ok: false, reason: "agent_not_found" };
+        // Same-room move is an idempotent no-op (the core returns no events);
+        // return the unchanged agent, not a false failure.
+        if (current.roomId === targetRoomId)
+          return { ok: true, agent: current };
+        if (agentManager.moveAgent(agentId, targetRoomId)) {
+          const moved = agentManager.getAgent(agentId);
+          return moved
+            ? { ok: true, agent: moved }
+            : { ok: false, reason: "agent_not_found" };
+        }
+        // Move didn't apply, agent exists, not same-room: the target room is
+        // FULL, or (for an owner whose rule-based access passed bodyRoom) ABSENT.
+        return agentManager.getRooms().some((r) => r.id === targetRoomId)
+          ? { ok: false, reason: "no_free_desk" }
+          : { ok: false, reason: "room_not_found" };
+      },
+      // agent-manager.swapDesks is (deskA, deskB, roomId); the dep takes
+      // (roomId, deskA, deskB) so the handler reads room from the path param.
+      swapDesks: (roomId, deskA, deskB) =>
+        agentManager.swapDesks(deskA, deskB, roomId),
+      setTopic: (agentId, topic) => agentManager.setTopic(agentId, topic),
+      clearTopic: (agentId) => agentManager.resetTopic(agentId),
+    }),
+  );
   // 3b.4 — per-user view preferences. REST view.* is the live surface; the legacy
   // WS arm that still delegates here is the update_user notif/default slice
   // (group 7). reorder_rooms was cut over to view.setOrder in slice 6.
@@ -2712,10 +2752,6 @@ async function dispatchCommand(
       }
       break;
     }
-    case "kill":
-      if (!agentVisibleForSession(session, cmd.agentId)) break;
-      await agentManager.kill(cmd.agentId);
-      break;
     case "revive": {
       // ACL gate: target roomId must be visible to this session AND the
       // killed agent's lastRoomId must also be visible (so a member
@@ -2802,10 +2838,6 @@ async function dispatchCommand(
       }
       break;
     }
-    case "abort":
-      if (!agentVisibleForSession(session, cmd.agentId)) break;
-      await agentManager.abort(cmd.agentId);
-      break;
     case "send_message":
       if (!agentVisibleForSession(session, cmd.agentId)) break;
       // Don't await — let it stream in the background. Username comes from the
@@ -2900,18 +2932,6 @@ async function dispatchCommand(
       }
       break;
     }
-    case "swap_desks":
-      if (!roomAllowedForSession(session, cmd.roomId)) break;
-      agentManager.swapDesks(cmd.deskA, cmd.deskB, cmd.roomId);
-      break;
-    case "set_topic":
-      if (!agentVisibleForSession(session, cmd.agentId)) break;
-      agentManager.setTopic(cmd.agentId, cmd.topic);
-      break;
-    case "reset_topic":
-      if (!agentVisibleForSession(session, cmd.agentId)) break;
-      agentManager.resetTopic(cmd.agentId);
-      break;
     case "list_sessions": {
       if (!agentVisibleForSession(session, cmd.agentId)) break;
       const sessions = agentManager.listSessions(cmd.agentId);
@@ -3113,14 +3133,6 @@ async function dispatchCommand(
         stopWatch(w);
         map.delete(key);
       }
-      break;
-    }
-    case "move_agent": {
-      // Source and target rooms must both be visible to the session.
-      // agentVisibleForSession looks up the agent's current global room.
-      if (!agentVisibleForSession(session, cmd.agentId)) break;
-      if (!roomAllowedForSession(session, cmd.targetRoomId)) break;
-      agentManager.moveAgent(cmd.agentId, cmd.targetRoomId);
       break;
     }
     case "edit_message":

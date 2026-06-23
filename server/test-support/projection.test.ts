@@ -600,7 +600,15 @@ describe("agent moves across visibility boundaries (Phase 1.2)", () => {
     expect(logEntriesFor(memberSock, x.id)).toHaveLength(0);
 
     const sinceIdx = bag(memberSock).length;
-    ownerSock.send({ type: "move_agent", agentId: x.id, targetRoomId: r1 });
+    await httpMut(
+      server,
+      owner.rawSessionId,
+      "POST",
+      `/api/agents/${x.id}/move`,
+      {
+        targetRoomId: r1,
+      },
+    );
     await waitForMessageWhere(
       memberSock,
       (m) => m.type === "full_state" && !!agentInFullState(m, x.id),
@@ -632,7 +640,15 @@ describe("agent moves across visibility boundaries (Phase 1.2)", () => {
     const memberSock = await connectSettled(server, member.rawSessionId);
     expect(agentInFullState(latestFullState(memberSock)!, x.id)).toBeDefined();
 
-    ownerSock.send({ type: "move_agent", agentId: x.id, targetRoomId: r2 });
+    await httpMut(
+      server,
+      owner.rawSessionId,
+      "POST",
+      `/api/agents/${x.id}/move`,
+      {
+        targetRoomId: r2,
+      },
+    );
     await waitForMessageWhere(
       memberSock,
       (m) => m.type === "full_state" && !agentInFullState(m, x.id),
@@ -659,7 +675,15 @@ describe("agent moves across visibility boundaries (Phase 1.2)", () => {
     );
 
     const sinceIdx = bag(memberSock).length;
-    ownerSock.send({ type: "move_agent", agentId: x.id, targetRoomId: r3 });
+    await httpMut(
+      server,
+      owner.rawSessionId,
+      "POST",
+      `/api/agents/${x.id}/move`,
+      {
+        targetRoomId: r3,
+      },
+    );
     await waitForMessageWhere(
       memberSock,
       (m) =>
@@ -676,6 +700,39 @@ describe("agent moves across visibility boundaries (Phase 1.2)", () => {
       (e) => e.kind === "user_message" && e.content === "c3-history",
       sinceIdx,
     );
+  });
+
+  it("move ACL (3d.7a): needs BOTH source-agent and target-room access -> uniform 403", async () => {
+    server = await boot();
+    const r1 = server.agentManager.getRooms()[0].id;
+    const [r2] = makeRoomsBeforeOwner(server, ["R2"]);
+    const owner = await server.seedOwner("Boss");
+    const member = await server.seedMember("Mia");
+    const ownerSock = await connectSettled(server, owner.rawSessionId);
+    await setAccess(ownerSock, member.username, [r1]); // member sees r1 only
+
+    const inR1 = await spawnIn(server, "InR1", r1); // source visible to member
+    const inR2 = await spawnIn(server, "InR2", r2); // source hidden from member
+
+    // Target-room guard: member owns the source agent but NOT the target room.
+    const toHidden = await server.http(`/api/agents/${inR1.id}/move`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ targetRoomId: r2 }),
+      rawSessionId: member.rawSessionId,
+    });
+    expect(toHidden.status).toBe(403);
+    expect(server.agentManager.getAgent(inR1.id)!.roomId).toBe(r1); // untouched
+
+    // Source-agent guard: member can reach the target room but not the agent.
+    const fromHidden = await server.http(`/api/agents/${inR2.id}/move`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ targetRoomId: r1 }),
+      rawSessionId: member.rawSessionId,
+    });
+    expect(fromHidden.status).toBe(403);
+    expect(server.agentManager.getAgent(inR2.id)!.roomId).toBe(r2); // untouched
   });
 });
 
