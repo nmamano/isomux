@@ -1,9 +1,9 @@
 // Phase 3a slice 2 — Cronjobs on the unified REST surface (opIds cron.*).
 //
 // TDD'd against the typed route table: cronjob metadata + runs reads/CRUD on the
-// /api surface, with the [behavior-change] authz tightenings ENFORCED on BOTH
-// transports (REST guard + the legacy WS shim's shared assertion) so the
-// strangler leaves no WS-path bypass. Attribution (createdBy/username/userId) is
+// /api surface, with the [behavior-change] authz tightenings ENFORCED by the
+// REST route guards (the legacy WS command arms + their shims were retired in
+// 3d.4). Attribution (createdBy/username/userId) is
 // token-derived. The legacy /cronjobs HTTP reads stay loopback-trusted +
 // byte-identical (frozen in routes-cronjobs.test.ts).
 //
@@ -190,7 +190,7 @@ describe("routes/cron REST: create + attribution", () => {
   });
 });
 
-describe("routes/cron REST: ownership tightening on BOTH transports", () => {
+describe("routes/cron REST: ownership tightening", () => {
   it("a member cannot update/delete/run another user's cronjob via REST (403) but can manage their own", async () => {
     const srv = await startTestServer();
     server = srv;
@@ -260,53 +260,7 @@ describe("routes/cron REST: ownership tightening on BOTH transports", () => {
     ).toBe(204);
   });
 
-  it("the legacy WS update_cronjob arm ALSO blocks a non-owner (no bypass)", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Boss");
-    const member = await srv.seedMember("Mallory");
-    const ownersJob = seedJob(srv, "Boss", "Locked");
-
-    const sock: TestSocket = await srv.connectWs(member.rawSessionId);
-    sock.send({
-      type: "update_cronjob",
-      id: ownersJob.id,
-      changes: { name: "WSHACK" },
-      requestId: "r1",
-    });
-    // The shim replies with an ok:false agent_save_response; the mutation must not happen.
-    const resp = await sock.waitFor("agent_save_response");
-    expect(resp.ok).toBe(false);
-    expect(
-      srv.cronjobManager.listCronjobs().find((c) => c.id === ownersJob.id)
-        ?.name,
-    ).toBe("Locked");
-  });
-
-  it("the legacy WS delete_cronjob + run_cronjob_now arms also block a non-owner (silent no-op)", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    await srv.seedOwner("Boss");
-    const member = await srv.seedMember("Mallory");
-    const ownersJob = seedJob(srv, "Boss", "Untouchable");
-
-    const sock: TestSocket = await srv.connectWs(member.rawSessionId);
-    // delete_cronjob + run_cronjob_now are no-response arms; a ping/pong barrier
-    // guarantees both were processed in order before we assert no effect (the
-    // denial arms are synchronous, so pong implies they already ran).
-    sock.send({ type: "delete_cronjob", id: ownersJob.id });
-    sock.send({ type: "run_cronjob_now", id: ownersJob.id });
-    sock.send({ type: "ping" });
-    await sock.waitFor("pong");
-
-    // Job survives (delete blocked) and no run was created (run blocked).
-    expect(
-      srv.cronjobManager.listCronjobs().some((c) => c.id === ownersJob.id),
-    ).toBe(true);
-    expect(srv.cronjobManager.getRunsForCronjob(ownersJob.id)).toEqual([]);
-  });
-
-  it("cron-prompt is office-owner-only on both transports", async () => {
+  it("cron-prompt is office-owner-only (REST)", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
@@ -322,16 +276,7 @@ describe("routes/cron REST: ownership tightening on BOTH transports", () => {
       ).status,
     ).toBe(403);
 
-    // WS transport: a member's update_cronjobs_prompt is denied (ok:false) and
-    // leaves the prompt unchanged — matching the REST 403 (no WS-path bypass).
-    const memberSock: TestSocket = await srv.connectWs(member.rawSessionId);
-    memberSock.send({
-      type: "update_cronjobs_prompt",
-      value: "ws members can't",
-      requestId: "p1",
-    });
-    const denied = await memberSock.waitFor("settings_save_response");
-    expect(denied.ok).toBe(false);
+    // The denied PUT left the prompt unchanged.
     expect(srv.cronjobManager.getCronjobsPrompt()).toBe(null);
 
     expect(

@@ -1124,47 +1124,6 @@ export type ClientCommand =
       device?: string;
     }
   | {
-      type: "add_cronjob";
-      requestId?: string;
-      name: string;
-      schedule: Schedule;
-      prompt: string;
-      cwd: string;
-      // Optional on the wire so a stale client (no engine picker) still
-      // creates Claude-typed cronjobs without breaking. Server defaults
-      // to "claude" when absent.
-      agentType?: AgentBackendType;
-      modelFamily: CronjobModel;
-      effort: EffortLevel;
-      permissionMode: CronjobPermissionMode;
-      codexSandbox?: CodexSandboxMode;
-      username: string;
-    }
-  | {
-      type: "update_cronjob";
-      requestId?: string;
-      id: string;
-      // agentType is immutable on edit (mirrors agents) — clients must not
-      // include it; the server will ignore it via Partial<Pick<...>> below.
-      changes: Partial<
-        Pick<
-          Cronjob,
-          | "name"
-          | "schedule"
-          | "prompt"
-          | "cwd"
-          | "modelFamily"
-          | "effort"
-          | "permissionMode"
-          | "codexSandbox"
-          | "enabled"
-        >
-      >;
-    }
-  | { type: "delete_cronjob"; id: string }
-  | { type: "run_cronjob_now"; id: string; username: string }
-  | { type: "update_cronjobs_prompt"; requestId: string; value: string | null }
-  | {
       type: "claim_user";
       username: string;
       defaultRoomId?: string | null;

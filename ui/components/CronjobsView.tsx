@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAppState, useDispatch } from "../store.tsx";
-import { send } from "../ws.ts";
 import { apiFetch } from "../api.ts";
+import type { CronUpdateReq } from "../../shared/contract-shapes.ts";
 import { CronjobDialog } from "./CronjobDialog.tsx";
 import { CronjobsPromptDialog } from "./CronjobsPromptDialog.tsx";
 import { CronjobRunView } from "./CronjobRunView.tsx";
@@ -74,13 +74,7 @@ function formatStartedAt(ts: number): string {
   return `${d.toLocaleDateString([], { month: "short", day: "numeric" })} ${time}`;
 }
 
-export function CronjobsView({
-  username,
-  onClose,
-}: {
-  username: string;
-  onClose: () => void;
-}) {
+export function CronjobsView({ onClose }: { onClose: () => void }) {
   const {
     cronjobs,
     cronjobsLoaded,
@@ -323,16 +317,20 @@ export function CronjobsView({
               setTab("runs");
             }}
             onEdit={(c) => setEditing(c)}
-            onToggleEnabled={(c) =>
-              send({
-                type: "update_cronjob",
-                id: c.id,
-                changes: { enabled: !c.enabled },
-              })
-            }
-            onRunNow={(c) =>
-              send({ type: "run_cronjob_now", id: c.id, username })
-            }
+            onToggleEnabled={(c) => {
+              const body: CronUpdateReq = { enabled: !c.enabled };
+              apiFetch(
+                "PATCH",
+                `/api/cronjobs/${encodeURIComponent(c.id)}`,
+                body,
+              ).catch(() => {});
+            }}
+            onRunNow={(c) => {
+              apiFetch(
+                "POST",
+                `/api/cronjobs/${encodeURIComponent(c.id)}/runs`,
+              ).catch(() => {});
+            }}
           />
         ) : (
           <RunsTable
@@ -345,15 +343,9 @@ export function CronjobsView({
         )}
       </div>
 
-      {creating && (
-        <CronjobDialog username={username} onClose={() => setCreating(false)} />
-      )}
+      {creating && <CronjobDialog onClose={() => setCreating(false)} />}
       {editing && (
-        <CronjobDialog
-          cronjob={editing}
-          username={username}
-          onClose={() => setEditing(null)}
-        />
+        <CronjobDialog cronjob={editing} onClose={() => setEditing(null)} />
       )}
       {editingPrompt && (
         <CronjobsPromptDialog onClose={() => setEditingPrompt(false)} />

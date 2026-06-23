@@ -1,7 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useAppState } from "../store.tsx";
-import { send, addRawListener, removeRawListener } from "../ws.ts";
 import { apiFetch, ApiError } from "../api.ts";
+import type {
+  CronCreateReq,
+  CronUpdateReq,
+} from "../../shared/contract-shapes.ts";
 import {
   MODEL_FAMILIES,
   EFFORT_LEVELS,
@@ -39,11 +42,9 @@ type ScheduleType = "daily" | "weekly" | "interval";
 
 export function CronjobDialog({
   cronjob,
-  username,
   onClose,
 }: {
   cronjob?: Cronjob;
-  username: string;
   onClose: () => void;
 }) {
   const isEdit = !!cronjob;
@@ -126,13 +127,6 @@ export function CronjobDialog({
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const recentCwdsFiltered = recentCwds.filter((c) => c !== cwd);
-  const pendingListener = useRef<((data: string) => void) | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (pendingListener.current) removeRawListener(pendingListener.current);
-    };
-  }, []);
 
   // Engine change resets dependent fields to the new backend's safe defaults
   // so a stale Claude-flavored model/effort/permission doesn't survive a flip
@@ -244,47 +238,34 @@ export function CronjobDialog({
       setError("Prompt cannot be empty.");
       return;
     }
-    const reqId = `cronjob-save-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     setError(null);
     setSaving(true);
-    const listener = (data: string) => {
-      try {
-        const msg = JSON.parse(data);
-        if (msg.type === "agent_save_response" && msg.requestId === reqId) {
-          removeRawListener(listener);
-          pendingListener.current = null;
-          setSaving(false);
-          if (msg.ok) onClose();
-          else setError(msg.error || "Save failed");
-        }
-      } catch {}
-    };
-    addRawListener(listener);
-    pendingListener.current = listener;
-
+    // HTTP correlates the response natively; on success close the dialog, on an
+    // ApiError surface the server's validation message (parity with the old
+    // agent_save_response.error). Same .then/.catch shape as the model load.
+    let req: Promise<unknown>;
     if (isEdit) {
-      // agentType is intentionally omitted — immutable on edit. The server's
-      // update_cronjob wire shape doesn't accept it either.
-      send({
-        type: "update_cronjob",
-        requestId: reqId,
-        id: cronjob.id,
-        changes: {
-          name: name.trim() || cronjob.name,
-          schedule: buildSchedule(),
-          prompt,
-          cwd,
-          modelFamily,
-          effort,
-          permissionMode,
-          ...(isCodex ? { codexSandbox } : {}),
-          enabled,
-        },
-      });
+      // agentType is intentionally omitted — immutable on edit. CronUpdateReq is
+      // the changes FLAT (not wrapped in { changes } like the old WS command).
+      const body: CronUpdateReq = {
+        name: name.trim() || cronjob.name,
+        schedule: buildSchedule(),
+        prompt,
+        cwd,
+        modelFamily,
+        effort,
+        permissionMode,
+        ...(isCodex ? { codexSandbox } : {}),
+        enabled,
+      };
+      req = apiFetch(
+        "PATCH",
+        `/api/cronjobs/${encodeURIComponent(cronjob.id)}`,
+        body,
+      );
     } else {
-      send({
-        type: "add_cronjob",
-        requestId: reqId,
+      // username is omitted — the server derives attribution from identity.
+      const body: CronCreateReq = {
         name: name.trim() || "Untitled cron job",
         schedule: buildSchedule(),
         prompt,
@@ -294,9 +275,13 @@ export function CronjobDialog({
         effort,
         permissionMode,
         ...(isCodex ? { codexSandbox } : {}),
-        username,
-      });
+      };
+      req = apiFetch("POST", "/api/cronjobs", body);
     }
+    req
+      .then(() => onClose())
+      .catch((e) => setError(e instanceof ApiError ? e.message : "Save failed"))
+      .finally(() => setSaving(false));
   }
 
   function handleDelete() {
@@ -305,7 +290,11 @@ export function CronjobDialog({
       setConfirmDelete(true);
       return;
     }
-    send({ type: "delete_cronjob", id: cronjob.id });
+    // Fire-and-forget (parity with the old WS delete); the cronjob_deleted event
+    // removes it from the list. Optimistically close.
+    apiFetch("DELETE", `/api/cronjobs/${encodeURIComponent(cronjob.id)}`).catch(
+      () => {},
+    );
     onClose();
   }
 

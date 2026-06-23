@@ -3,17 +3,17 @@
 // /listRuns/listAllRuns/getRun). The run-message + RUN-bearer affordance handlers
 // live alongside these once 3a.2b lands.
 //
-// Strangler EXPAND: these REST handlers + the legacy /cronjobs HTTP reads + the
-// WS add/update/delete/run/prompt arms all delegate to the SAME CronjobManager
-// core ops (injected via CronDeps). The manager emits the cronjob_* / run-state
-// domain events, which the wireEventSinks sink routes through the emit() helper
-// (audience `all`). Handlers never emit directly.
+// These REST handlers + the legacy /cronjobs HTTP reads delegate to the SAME
+// CronjobManager core ops (injected via CronDeps); the WS command arms that once
+// shared them were retired across 3d.3 (run-messages) and 3d.4 (config muts).
+// The manager emits the cronjob_* / run-state domain events, which the
+// wireEventSinks sink routes through the emit() helper (audience `all`).
+// Handlers never emit directly.
 //
 // [behavior-change] cron.update/delete/runNow tighten to cronjobOwnerOrOfficeOwner
-// and cron.setPrompt to officeOwner (today neither has a role check). The REST
-// routes enforce via authorize(); the legacy WS arms enforce the SAME assertion
-// at the shared boundary (server/index.ts wsCanMutateCronjob / wsIsOfficeOwner)
-// so the strangler leaves no WS-path bypass.
+// and cron.setPrompt to officeOwner (the legacy WS arms had no role check). The
+// REST routes are now the SOLE path and enforce via authorize(); the WS command
+// arms (and their wsCanMutateCronjob / wsIsOfficeOwner shims) were retired in 3d.4.
 //
 // LEAF over the executor + shared types. Only the injected CronDeps surface.
 
@@ -62,8 +62,8 @@ export interface CronDeps {
     jobId: string,
     runId: string,
   ): { run: CronjobRun | null; entries: LogEntry[] };
-  // 3a.2b — run-message + RUN-affordance core ops, shared with the legacy WS
-  // arms / loopback HTTP affordance handlers. Run-messages are fire-and-forget
+  // 3a.2b — run-message + RUN-affordance core ops (run-message WS arms retired in
+  // 3d.3; the RUN-bearer affordance handlers remain). Run-messages are fire-and-forget
   // (the turn streams in the background); the REST handler threads a boundary
   // `messageId` so the persisted/broadcast user_message entry id === the ack.
   // The affordance ops return the manager's own { ok } | { ok:false,status,error }
@@ -162,7 +162,8 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
 
     "cron.update": (ctx) => {
       // Authorization (cronjobOwnerOrOfficeOwner) was already enforced by the
-      // route guard. Re-validate cwd if it's being changed (parity with the WS arm).
+      // route guard. Re-validate cwd if it's being changed (the now-retired WS
+      // arm did the same).
       const body = (ctx.body ?? {}) as CronUpdateReq;
       if (body.cwd !== undefined) {
         const cwdErr = deps.validateCwd(body.cwd);
@@ -216,7 +217,7 @@ export function cronHandlers(deps: CronDeps): Record<string, RouteHandler> {
     // 3a.2b — run-messages (fire-and-forget; the manager threads our messageId
     // into the persisted user_message so the ack === the eventual transcript
     // entry id). Resumability / cwd / provider errors stay transcript-level (not
-    // HTTP) to preserve the legacy WS contract; only an unknown run is a cheap
+    // HTTP) to preserve the original fire-and-forget contract; only an unknown run is a cheap
     // 404 pre-flight. The cronjobOwnerOrOfficeOwner guard already ran.
     "cron.runMessage": (ctx) => {
       const body = (ctx.body ?? {}) as Partial<CronRunMessageReq>;

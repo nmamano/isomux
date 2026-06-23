@@ -362,7 +362,7 @@ export function App() {
           }}
         />
       ) : cronjobsOpen ? (
-        <CronjobsView username={username ?? ""} onClose={goHome} />
+        <CronjobsView onClose={goHome} />
       ) : focusedAgent ? (
         <LogView
           key={focusedAgent.id}

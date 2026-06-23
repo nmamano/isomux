@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useAppState } from "../store.tsx";
-import { send, addRawListener, removeRawListener } from "../ws.ts";
+import { apiFetch, ApiError } from "../api.ts";
+import type { CronPromptReq } from "../../shared/contract-shapes.ts";
 
 export function CronjobsPromptDialog({ onClose }: { onClose: () => void }) {
   const { cronjobsPrompt, isMobile } = useAppState();
@@ -29,26 +30,13 @@ export function CronjobsPromptDialog({ onClose }: { onClose: () => void }) {
   }, [onClose]);
 
   function handleSave() {
-    const reqId = `cronjobs-prompt-save-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     setSaving(true);
     setError(null);
-    const listener = (data: string) => {
-      try {
-        const msg = JSON.parse(data);
-        if (msg.type === "settings_save_response" && msg.requestId === reqId) {
-          removeRawListener(listener);
-          setSaving(false);
-          if (msg.ok) onClose();
-          else setError(msg.error || "Save failed");
-        }
-      } catch {}
-    };
-    addRawListener(listener);
-    send({
-      type: "update_cronjobs_prompt",
-      requestId: reqId,
-      value: text.trim() ? text : null,
-    });
+    const body: CronPromptReq = { value: text.trim() ? text : null };
+    apiFetch("PUT", "/api/cron-prompt", body)
+      .then(() => onClose())
+      .catch((e) => setError(e instanceof ApiError ? e.message : "Save failed"))
+      .finally(() => setSaving(false));
   }
 
   return (

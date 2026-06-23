@@ -59,11 +59,7 @@ import {
   buildProductionGuardDeps,
   type GuardDepsLiveReaders,
 } from "./identity/guard-deps.ts";
-import {
-  cronjobOwnerOrOfficeOwner,
-  officeOwner,
-  type GuardDeps,
-} from "./identity/guards.ts";
+import { type GuardDeps } from "./identity/guards.ts";
 import {
   listUsers,
   getUser,
@@ -154,7 +150,7 @@ import { createIdempotencyCache } from "./transport/idempotency.ts";
 import { emit, type EmitContext, type EmitDeps } from "./events/emit.ts";
 import type { EventId, EventPayloads } from "./events/registry.ts";
 import { planOwnerAccessMigration } from "./access-migration.ts";
-import { identityFromSession, type Identity } from "./identity/index.ts";
+import { type Identity } from "./identity/index.ts";
 
 // Boot is extracted into startServer() at the end of this file. The CLI
 // fast-path (`bun run server/index.ts owner-login`) and the production
@@ -1652,31 +1648,6 @@ function buildExecutorDeps(): ExecutorDeps {
 // boundary so the strangler doesn't leave a WS-path bypass (the [behavior-change]
 // the route table declares). One impl: these wrap the very guards the route
 // table names, fed the live GuardDeps.
-function wsCanMutateCronjob(session: SessionLookup, jobId: string): boolean {
-  const identity = identityFromSession({
-    userId: session.userId,
-    role: session.role,
-  });
-  return cronjobOwnerOrOfficeOwner("id")({
-    identity,
-    params: { id: jobId },
-    body: undefined,
-    deps: buildLiveGuardDeps(),
-  }).ok;
-}
-function wsIsOfficeOwner(session: SessionLookup): boolean {
-  const identity = identityFromSession({
-    userId: session.userId,
-    role: session.role,
-  });
-  return officeOwner({
-    identity,
-    params: {},
-    body: undefined,
-    deps: buildLiveGuardDeps(),
-  }).ok;
-}
-
 interface VisibleRoomProjection {
   rooms: RoomWire[];
   // global room index → dense visible index, or -1 if not visible for this
@@ -3281,120 +3252,6 @@ async function dispatchCommand(
         cmd.newText,
         session.username,
         cmd.device,
-      );
-      break;
-    case "add_cronjob": {
-      try {
-        agentManager.validateCwd(cmd.cwd);
-      } catch (err) {
-        if (cmd.requestId) {
-          ws.send(
-            JSON.stringify({
-              type: "agent_save_response",
-              requestId: cmd.requestId,
-              ok: false,
-              error: errMessage(err, "Invalid directory"),
-            }),
-          );
-        }
-        break;
-      }
-      saveRecentCwd(cmd.cwd);
-      cronjobManager.addCronjob({
-        name: cmd.name,
-        schedule: cmd.schedule,
-        prompt: cmd.prompt,
-        cwd: cmd.cwd,
-        agentType: cmd.agentType ?? "claude",
-        modelFamily: cmd.modelFamily,
-        effort: cmd.effort,
-        permissionMode: cmd.permissionMode,
-        codexSandbox: cmd.codexSandbox,
-        username: session.username,
-        userId: session.userId,
-      });
-      if (cmd.requestId) {
-        ws.send(
-          JSON.stringify({
-            type: "agent_save_response",
-            requestId: cmd.requestId,
-            ok: true,
-          }),
-        );
-      }
-      break;
-    }
-    case "update_cronjob": {
-      if (!wsCanMutateCronjob(session, cmd.id)) {
-        if (cmd.requestId) {
-          ws.send(
-            JSON.stringify({
-              type: "agent_save_response",
-              requestId: cmd.requestId,
-              ok: false,
-              error: "You don't have permission to edit this cron job.",
-            }),
-          );
-        }
-        break;
-      }
-      if (cmd.changes.cwd) {
-        try {
-          agentManager.validateCwd(cmd.changes.cwd);
-        } catch (err) {
-          if (cmd.requestId) {
-            ws.send(
-              JSON.stringify({
-                type: "agent_save_response",
-                requestId: cmd.requestId,
-                ok: false,
-                error: errMessage(err, "Invalid directory"),
-              }),
-            );
-          }
-          break;
-        }
-        saveRecentCwd(cmd.changes.cwd);
-      }
-      cronjobManager.updateCronjob(cmd.id, cmd.changes);
-      if (cmd.requestId) {
-        ws.send(
-          JSON.stringify({
-            type: "agent_save_response",
-            requestId: cmd.requestId,
-            ok: true,
-          }),
-        );
-      }
-      break;
-    }
-    case "delete_cronjob":
-      if (!wsCanMutateCronjob(session, cmd.id)) break;
-      cronjobManager.deleteCronjob(cmd.id);
-      break;
-    case "run_cronjob_now":
-      if (!wsCanMutateCronjob(session, cmd.id)) break;
-      cronjobManager.runCronjobNow(cmd.id, session.username);
-      break;
-    case "update_cronjobs_prompt":
-      if (!wsIsOfficeOwner(session)) {
-        ws.send(
-          JSON.stringify({
-            type: "settings_save_response",
-            requestId: cmd.requestId,
-            ok: false,
-            error: "Only an office owner can edit the cron jobs prompt.",
-          }),
-        );
-        break;
-      }
-      cronjobManager.setCronjobsPrompt(cmd.value);
-      ws.send(
-        JSON.stringify({
-          type: "settings_save_response",
-          requestId: cmd.requestId,
-          ok: true,
-        }),
       );
       break;
     case "claim_user": {

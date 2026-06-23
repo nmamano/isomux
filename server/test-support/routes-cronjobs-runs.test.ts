@@ -15,9 +15,9 @@
 //     the legacy cron-run POST handlers, so it falls through to the 405 method
 //     gate (/cronjobs stays loopback-trusted for GET this milestone, so it is a
 //     405, not a 401) and writes nothing to the transcript.
-//   - run-message ownership tightening on BOTH transports: REST via the route
-//     guard (cronjobOwnerOrOfficeOwner), the legacy WS arms via the shared
-//     wsCanMutateCronjob shim — same bypass class the 2a cron-mutation arms closed.
+//   - run-message ownership tightening: REST via the route guard
+//     (cronjobOwnerOrOfficeOwner). The legacy WS run-message arms were retired in
+//     3d.3 and the shared wsCanMutateCronjob shim in 3d.4.
 //   - The boundary messageId is threaded into the manager so the response ack
 //     equals the eventual persisted user_message id (handler-boundary unit test;
 //     the full resume e2e needs an on-disk session file FakeBackend doesn't write,
@@ -409,7 +409,7 @@ describe("routes/cron run-affordances: RUN-bearer authz (no active run needed)",
   });
 });
 
-describe("routes/cron run-messages: ownership tightening on BOTH transports", () => {
+describe("routes/cron run-messages: ownership tightening (REST)", () => {
   it("REST: a member cannot message another user's run (403); 400 empty text; 404 unknown run", async () => {
     const srv = await startTestServer();
     server = srv;

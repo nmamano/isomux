@@ -1,5 +1,10 @@
 import { OfficeState, type OfficeEvent } from "../shared/office-state.ts";
 import type {
+  CronCreateReq,
+  CronUpdateReq,
+  CronPromptReq,
+} from "../shared/contract-shapes.ts";
+import type {
   AgentInfo,
   ClientCommand,
   InviteWire,
@@ -807,6 +812,7 @@ function makeLogEntry(
 export async function demoApi(
   method: ApiMethod,
   path: string,
+  body?: unknown,
 ): Promise<unknown> {
   // Split the query string off before matching: query/param routes (e.g.
   // backends.listModels carries ?cwd=) can't be matched by exact full-path.
@@ -822,6 +828,42 @@ export async function demoApi(
     // cron.listAllRuns — demo cron jobs never fire, so there are no runs.
     case "GET /api/cron-runs":
       return { jobs: [] };
+    // cron.create — build a demo cronjob, broadcast cronjob_added, and RETURN
+    // it (the dialog awaits the HTTP result; the old agent_save_response emit is
+    // gone). username is server-derived in production; the demo user is Ricky.
+    case "POST /api/cronjobs": {
+      const b = (body ?? {}) as CronCreateReq;
+      const now = Date.now();
+      const cronjob: Cronjob = {
+        id: generateCronjobId(cronjobs.map((c) => c.id)),
+        name: b.name,
+        schedule: b.schedule,
+        prompt: b.prompt,
+        cwd: b.cwd,
+        agentType: b.agentType ?? "claude",
+        modelFamily: b.modelFamily,
+        effort: b.effort,
+        permissionMode: b.permissionMode,
+        codexSandbox: b.codexSandbox,
+        enabled: true,
+        createdBy: "Ricky",
+        userId: null,
+        username: "Ricky",
+        createdAt: now,
+        lastFireAt: null,
+        nextFireAt: computeNextFireDemo(b.schedule, now, now),
+      };
+      cronjobs.push(cronjob);
+      shimEmit({ type: "cronjob_added", cronjob });
+      return cronjob;
+    }
+    // cron.setPrompt — set + broadcast; no body returned (204-like).
+    case "PUT /api/cron-prompt": {
+      const b = (body ?? {}) as CronPromptReq;
+      cronjobsPrompt = b.value && b.value.trim() ? b.value : null;
+      shimEmit({ type: "cronjobs_prompt_updated", value: cronjobsPrompt });
+      return undefined;
+    }
   }
   // Param routes (matched by shape, since the id/agentType segment varies).
   // backends.listModels — the demo has no backend process to probe; an empty
@@ -853,6 +895,38 @@ export async function demoApi(
       /^\/api\/cronjobs\/[^/]+\/runs\/[^/]+\/messages\/[^/]+$/.test(pathname))
   ) {
     return { messageId: "demo" };
+  }
+  // cron.update (PATCH) / cron.delete (DELETE) — mutate the demo cronjob and
+  // broadcast the event; PATCH returns the merged job, DELETE returns no body.
+  const cronIdMatch = pathname.match(/^\/api\/cronjobs\/([^/]+)$/);
+  if (cronIdMatch && (method === "PATCH" || method === "DELETE")) {
+    const id = decodeURIComponent(cronIdMatch[1]);
+    const idx = cronjobs.findIndex((c) => c.id === id);
+    if (method === "PATCH") {
+      if (idx < 0) return undefined;
+      const changes = (body ?? {}) as CronUpdateReq;
+      const merged: Cronjob = { ...cronjobs[idx], ...changes };
+      if (changes.schedule) {
+        const anchor = merged.lastFireAt ?? merged.createdAt;
+        merged.nextFireAt = computeNextFireDemo(
+          changes.schedule,
+          anchor,
+          Date.now(),
+        );
+      }
+      cronjobs[idx] = merged;
+      shimEmit({ type: "cronjob_updated", cronjob: merged });
+      return merged;
+    }
+    if (idx >= 0) {
+      cronjobs.splice(idx, 1);
+      shimEmit({ type: "cronjob_deleted", id });
+    }
+    return undefined;
+  }
+  // cron.runNow — the demo never fires runs; return a placeholder id (ignored).
+  if (method === "POST" && /^\/api\/cronjobs\/[^/]+\/runs$/.test(pathname)) {
+    return { runId: "demo-run" };
   }
   throw new Error(`demoApi: unhandled route ${route}`);
 }
@@ -1062,81 +1136,6 @@ export function handleCommand(cmd: ClientCommand) {
       shimEmit({ type: "log_entry", entry: abortEntry });
       break;
     }
-    case "add_cronjob": {
-      const now = Date.now();
-      const id = generateCronjobId(cronjobs.map((c) => c.id));
-      const cronjob: Cronjob = {
-        id,
-        name: cmd.name,
-        schedule: cmd.schedule,
-        prompt: cmd.prompt,
-        cwd: cmd.cwd,
-        agentType: cmd.agentType ?? "claude",
-        modelFamily: cmd.modelFamily,
-        effort: cmd.effort,
-        permissionMode: cmd.permissionMode,
-        codexSandbox: cmd.codexSandbox,
-        enabled: true,
-        createdBy: cmd.username,
-        userId: null,
-        username: cmd.username,
-        createdAt: now,
-        lastFireAt: null,
-        nextFireAt: computeNextFireDemo(cmd.schedule, now, now),
-      };
-      cronjobs.push(cronjob);
-      shimEmit({ type: "cronjob_added", cronjob });
-      if (cmd.requestId) {
-        shimEmit({
-          type: "agent_save_response",
-          requestId: cmd.requestId,
-          ok: true,
-        });
-      }
-      break;
-    }
-    case "update_cronjob": {
-      const idx = cronjobs.findIndex((c) => c.id === cmd.id);
-      if (idx >= 0) {
-        const merged: Cronjob = { ...cronjobs[idx], ...cmd.changes };
-        if (cmd.changes.schedule) {
-          const anchor = merged.lastFireAt ?? merged.createdAt;
-          merged.nextFireAt = computeNextFireDemo(
-            cmd.changes.schedule,
-            anchor,
-            Date.now(),
-          );
-        }
-        cronjobs[idx] = merged;
-        shimEmit({ type: "cronjob_updated", cronjob: merged });
-      }
-      if (cmd.requestId) {
-        shimEmit({
-          type: "agent_save_response",
-          requestId: cmd.requestId,
-          ok: true,
-        });
-      }
-      break;
-    }
-    case "delete_cronjob": {
-      const idx = cronjobs.findIndex((c) => c.id === cmd.id);
-      if (idx >= 0) {
-        cronjobs.splice(idx, 1);
-        shimEmit({ type: "cronjob_deleted", id: cmd.id });
-      }
-      break;
-    }
-    case "update_cronjobs_prompt": {
-      cronjobsPrompt = cmd.value && cmd.value.trim() ? cmd.value : null;
-      shimEmit({ type: "cronjobs_prompt_updated", value: cronjobsPrompt });
-      shimEmit({
-        type: "settings_save_response",
-        requestId: cmd.requestId,
-        ok: true,
-      });
-      break;
-    }
     case "claim_user": {
       const trimmed = cmd.username.trim();
       if (!trimmed) break;
@@ -1319,7 +1318,6 @@ export function handleCommand(cmd: ClientCommand) {
     case "new_conversation":
     case "resume":
     case "list_sessions":
-    case "run_cronjob_now":
       break;
   }
 }
