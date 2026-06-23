@@ -35,7 +35,16 @@ import type { IdempotencyCache } from "../transport/idempotency.ts";
 // executor renders it (status, envelope, idempotency storage). `file` is for
 // byte/stream responses (agents.getFile); everything else is JSON / no-content /
 // an error envelope.
-export type HandlerErrorStatus = 400 | 401 | 403 | 404 | 405 | 409 | 422 | 500;
+export type HandlerErrorStatus =
+  | 400
+  | 401
+  | 403
+  | 404
+  | 405
+  | 409
+  | 422
+  | 429
+  | 500;
 export type HandlerResult =
   | { kind: "json"; status?: number; body: unknown }
   | { kind: "noContent" }
@@ -50,6 +59,10 @@ export type HandlerResult =
       status: HandlerErrorStatus;
       code: string;
       message?: string;
+      // Extra fields spread into the envelope's `error` object alongside
+      // code/message — for a structured failure that must carry data past the
+      // envelope (e.g. the editor's 409 stale-save `currentMtime`).
+      detail?: Record<string, unknown>;
     };
 
 // Convenience constructors so handlers stay terse and never hand-roll an
@@ -76,7 +89,8 @@ export const fail = (
   status: HandlerErrorStatus,
   code: string,
   message?: string,
-): HandlerResult => ({ kind: "error", status, code, message });
+  detail?: Record<string, unknown>,
+): HandlerResult => ({ kind: "error", status, code, message, detail });
 
 // What every resource handler / precondition sees. `body` is the parsed JSON
 // body (undefined for GET / multipart / empty); `rawBody` is the exact received
@@ -142,7 +156,13 @@ function render(result: HandlerResult): Response {
     case "error":
       return new Response(
         JSON.stringify({
-          error: { code: result.code, message: result.message ?? result.code },
+          // Spread detail FIRST so the canonical code/message always win — a
+          // (future, user-influenced) detail key can never clobber them.
+          error: {
+            ...result.detail,
+            code: result.code,
+            message: result.message ?? result.code,
+          },
         }),
         { status: result.status, headers: JSON_HEADERS },
       );

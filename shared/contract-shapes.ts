@@ -94,6 +94,10 @@ export interface SendMessageReq {
   // Optional legacy input. Sender authority is ALWAYS the token; rejected if
   // present and ≠ token.agentId, ignored otherwise (see guards.senderMustEqualTokenAgent).
   senderAgentId?: string;
+  // Optional retry-dedup key for the AGENT (inter-agent) branch — folds into the
+  // manager's queue dedupe, the same field the retired POST /agents/:id/message
+  // accepted. The UI (USER branch) omits it.
+  clientMessageId?: string;
 }
 
 export interface EditMessageReq {

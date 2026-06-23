@@ -171,6 +171,10 @@ type Action =
   | { type: "focus"; agentId: string | null }
   | { type: "connected" }
   | { type: "disconnected" }
+  // CLIENT-LOCAL (no longer a ServerMessage): ContextMenu dispatches this after
+  // the REST agents.listSessions fetch (GET /api/agents/:id/sessions) to seed the
+  // per-agent sessions map. The WS sessions_list push it replaced was retired in
+  // Phase 3d slice 6a.
   | {
       type: "sessions_list";
       agentId: string;

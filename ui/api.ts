@@ -14,11 +14,15 @@ export type ApiMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 // Thrown for any non-2xx /api response. Carries the server's error envelope
 // ({ error: { code, message } }) so call sites can branch on `code` and render
 // `message` — the same strings the retired `*_response.error` fields carried.
+// `detail` is the FULL error object (code + message + any extra fields the server
+// spread in), so a structured failure can carry data past the envelope — e.g. the
+// editor's 409 stale-save carries `currentMtime` for the conflict banner.
 export class ApiError extends Error {
   constructor(
     readonly status: number,
     readonly code: string,
     message: string,
+    readonly detail?: Record<string, unknown>,
   ) {
     super(message);
     this.name = "ApiError";
@@ -49,6 +53,10 @@ export async function apiFetch<T = unknown>(
   method: ApiMethod,
   path: string,
   body?: unknown,
+  // Extra request headers (network path only — the demo shim ignores them). The
+  // editor rides X-Isomux-Connection-Id here to bind a file watch to this tab's
+  // socket (see Conventions › Connection binding).
+  opts?: { headers?: Record<string, string> },
 ): Promise<T> {
   // Dev guard: every route on this surface is under /api/. A caller passing a
   // bare path (e.g. a leftover "/validate/cwd") would silently miss the shim and
@@ -63,10 +71,12 @@ export async function apiFetch<T = unknown>(
   }
 
   const init: RequestInit = { method, credentials: "same-origin" };
+  const headers: Record<string, string> = { ...(opts?.headers ?? {}) };
   if (body !== undefined) {
-    init.headers = { "Content-Type": "application/json" };
+    headers["Content-Type"] = "application/json";
     init.body = JSON.stringify(body);
   }
+  if (Object.keys(headers).length > 0) init.headers = headers;
 
   const res = await fetch(path, init);
 
@@ -81,7 +91,9 @@ export async function apiFetch<T = unknown>(
     const code = env?.error?.code ?? `http_${res.status}`;
     const message =
       env?.error?.message ?? res.statusText ?? `Request failed (${res.status})`;
-    throw new ApiError(res.status, code, message);
+    // Carry the full error object as `detail` so structured failures (e.g. the
+    // editor's 409 { code:"stale", currentMtime }) reach the call site.
+    throw new ApiError(res.status, code, message, env?.error);
   }
 
   return data as T;

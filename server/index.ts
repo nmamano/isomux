@@ -144,6 +144,8 @@ import { systemHandlers } from "./routes/handlers/system.ts";
 import { viewHandlers } from "./routes/handlers/view.ts";
 import { roomsHandlers } from "./routes/handlers/rooms.ts";
 import { agentsHandlers } from "./routes/handlers/agents.ts";
+import { conversationHandlers } from "./routes/handlers/conversation.ts";
+import { editorHandlers } from "./routes/handlers/editor.ts";
 import type {
   AccessSettings,
   UserPublicWire,
@@ -435,25 +437,16 @@ const idempotencyCache = createIdempotencyCache();
 // startServer once the managers exist; read by the fetch handler at request time.
 let executorDeps: ExecutorDeps;
 
-// Per-WS editor file watchers. Each open file gets one fs.watch handle keyed
-// by `${agentId}\0${absPath}` so the same path can be watched independently
-// across agents. Watchers close on editor_close or WS disconnect.
-const editorWatchers = new WeakMap<
-  ServerWebSocket<WsData>,
-  Map<string, FileWatcher>
->();
+// Editor file watchers, keyed by connectionId -> (`${agentId}\0${absPath}` ->
+// watcher). Rekeyed from a per-WS WeakMap when the editor moved to REST (3d.6b):
+// the GET handler has no socket, only the client-supplied X-Isomux-Connection-Id,
+// so each open file's fs.watch + its editor_external_change push bind to the
+// connectionId (resolved back to a socket by the connectionId emit projection).
+// Watchers close on closeFile (DELETE) or WS disconnect (swept by connectionId).
+const editorWatchers = new Map<string, Map<string, FileWatcher>>();
 
 function editorKey(agentId: string, absPath: string): string {
   return `${agentId}\0${absPath}`;
-}
-
-function getWatcherMap(ws: ServerWebSocket<WsData>): Map<string, FileWatcher> {
-  let map = editorWatchers.get(ws);
-  if (!map) {
-    map = new Map();
-    editorWatchers.set(ws, map);
-  }
-  return map;
 }
 
 // (broadcastToOwners removed in 3a.4b: the only owner-scoped events,
@@ -1802,6 +1795,266 @@ function buildExecutorDeps(): ExecutorDeps {
     if (!summary || !canAccess(user, summary.lastRoomId)) return denied;
     return null;
   });
+  // 3d.6a — conversation (send/edit/cancel/sendNow/newConversation/resume/
+  // listSessions). CALL-IN-DEP closures mirror the deleted WS cases: the
+  // streaming sends void-discard the manager promise (the turn streams over WS;
+  // HTTP only acks), and sendMessage UNIFIES the two messageSend branches (USER
+  // chat -> sendMessage with the approval overload; AGENT inter-agent ->
+  // enqueueMessage with a server-derived structured sender, the retired POST
+  // /agents/:id/message path).
+  register(
+    conversationHandlers({
+      attributionFor,
+      sendAsUser: (agentId, text, username, device, attachments) => {
+        // Bare void mirrors the deleted WS send_message case: sendMessage owns the
+        // echo / queue / recovery / slash / approval-reply overload and streams
+        // the turn over WS; it handles its own errors as log entries (no reject).
+        void agentManager.sendMessage(
+          agentId,
+          text,
+          username,
+          device,
+          attachments,
+        );
+      },
+      sendAsAgent: (receiverId, senderAgentId, text, clientMessageId) => {
+        if (senderAgentId === receiverId)
+          return {
+            ok: false,
+            status: 400,
+            code: "self_send",
+            message: "Cannot send a message to self.",
+          };
+        // Server-derived structured sender (name + room) — never body-trusted —
+        // blocks identity spoof + prefix-delimiter injection into the prompt.
+        const senderInfo = agentManager.getAgentDisplay(senderAgentId);
+        if (!senderInfo)
+          return {
+            ok: false,
+            status: 400,
+            code: "unknown_sender",
+            message: "Sender is not a known agent.",
+          };
+        const result = agentManager.enqueueMessage(receiverId, {
+          sender: {
+            kind: "agent",
+            agentId: senderAgentId,
+            agentName: senderInfo.name,
+            roomName: senderInfo.roomName,
+          },
+          text,
+          clientMessageId,
+        });
+        if (result.ok) return { ok: true, messageId: result.messageId };
+        // enqueueMessage's error code passes through verbatim ("agent not found"
+        // 404 — normally pre-empted by the messageRecipientExists precondition;
+        // agent_stopped / agent_error 409; queue_full 429), preserving the legacy
+        // endpoint's status + code contract.
+        return {
+          ok: false,
+          status: result.status as 400 | 404 | 409 | 429,
+          code: result.error,
+          message: result.error,
+        };
+      },
+      editMessage: (agentId, logEntryId, newText, username, device) => {
+        void agentManager.editMessage(
+          agentId,
+          logEntryId,
+          newText,
+          username,
+          device,
+        );
+      },
+      cancelQueued: (agentId, messageId) => {
+        agentManager.cancelQueued(agentId, messageId);
+      },
+      sendNow: (agentId) => {
+        void agentManager.sendNow(agentId);
+      },
+      newConversation: (agentId) => {
+        // The WS case awaited this purely for handler sequencing; the clear_logs
+        // + turn events stream over WS regardless, so void-discard for an
+        // immediate ack. .catch swallows (the WS path had no error surface).
+        void agentManager.newConversation(agentId).catch(() => {});
+      },
+      resume: (agentId, sessionId) => {
+        void agentManager.resume(agentId, sessionId).catch(() => {});
+      },
+      listSessions: (agentId) => ({
+        sessions: agentManager.listSessions(agentId),
+        currentSessionId: agentManager.getCurrentSessionId(agentId),
+      }),
+    }),
+  );
+  // 3d.6a — send-message preconditions (audit-pinned in routes-table.test.ts;
+  // kept out of the pure messageSend guard, which is caller-authorization only).
+  preconditions.set("messageRecipientExists", (ctx) => {
+    // The AGENT (send-as-self) branch skips the room check (cross-room delivery is
+    // allowed), so an absent recipient reaches here -> 404 (recipient existence is
+    // never an ACL leak for an agent sender, per the doc). The USER branch was
+    // already denied by requiresRoomAccess (403) before preconditions run, so this
+    // only meaningfully fires for an agent sender / a post-spawn race.
+    if (!agentManager.getAgent(ctx.params.id)) {
+      return fail(404, "recipient_not_found", "Recipient not found.");
+    }
+    return null;
+  });
+  preconditions.set("messagePendingPermissionBindsParam", () => {
+    // The route interprets the text as an allow/deny ONLY for the agent named by
+    // the path :id: the USER branch routes to agentManager.sendMessage(:id), which
+    // consults :id's OWN pendingPermission; the AGENT branch routes to
+    // enqueueMessage (a plain queued message, never a permission reply). The
+    // request carries no alternate permission target, so the interpretation binds
+    // to :id by construction. We deliberately DON'T reject an inter-agent message
+    // to an agent that has a pending permission — the legacy HTTP inter-agent path
+    // queued it normally, and rejecting would be a behavior change. This
+    // precondition is the explicit, audit-pinned record of that structural bind.
+    return null;
+  });
+  // 3d.6b — editor (open/save/close). EMIT/CALL-IN-DEP closures own the stateful
+  // watch lifecycle (the seam has `browsers` + the editorWatchers registry +
+  // liveEmit in scope). openFile arms a watch bound to the caller's connectionId
+  // that pushes editor_external_change to that socket; closeFile disarms it; the
+  // connection is verified to belong to the caller's EXACT session first.
+  register(
+    editorHandlers({
+      verifyConnection: (connectionId, callerSessionIdHash) => {
+        // Exact-session match (not just same-user): a client can't aim a watch /
+        // external-change push at another tab's socket. A bearer caller has no
+        // callerSessionIdHash and fails closed (editor:use is USER-only).
+        if (!callerSessionIdHash) return false;
+        for (const ws of browsers) {
+          if (ws.data.connectionId === connectionId)
+            return ws.data.session.sessionIdHash === callerSessionIdHash;
+        }
+        return false;
+      },
+      openFile: (agentId, path, connectionId) => {
+        const probe = agentManager.openEditorFile(agentId, path);
+        if (!probe.ok) {
+          // not_agent is normally pre-empted by the agentParam guard (403); a miss
+          // here is a post-guard race. bad_path -> 400.
+          return probe.error === "not_agent"
+            ? {
+                ok: false as const,
+                status: 404,
+                code: "agent_not_found",
+                message: "Agent not found.",
+              }
+            : {
+                ok: false as const,
+                status: 400,
+                code: "bad_path",
+                message: "Invalid path.",
+              };
+        }
+        const r = probe.result;
+        if (r.kind === "not_found")
+          return {
+            ok: false,
+            status: 404,
+            code: "not_found",
+            message: "File not found.",
+          };
+        if (r.kind === "not_file")
+          return {
+            ok: false,
+            status: 422,
+            code: "not_a_file",
+            message: "Not a file.",
+          };
+        if (r.kind === "binary")
+          return {
+            ok: false,
+            status: 422,
+            code: "binary",
+            message: "Binary file (text only).",
+          };
+        if (r.kind === "too_large")
+          return {
+            ok: false,
+            status: 422,
+            code: "too_large",
+            message: `File is too large (${(r.size / 1024).toFixed(1)} KB, 1 MB limit).`,
+          };
+        if (r.kind === "io_error")
+          return {
+            ok: false,
+            status: 500,
+            code: "io_error",
+            message: r.message,
+          };
+        // r.kind === "ok": install (or replace) the watch for this connection; the
+        // callback pushes editor_external_change to the connection's socket.
+        const map =
+          editorWatchers.get(connectionId) ?? new Map<string, FileWatcher>();
+        editorWatchers.set(connectionId, map);
+        const key = editorKey(agentId, r.path);
+        const old = map.get(key);
+        if (old) {
+          stopWatch(old);
+          map.delete(key); // drop the stale entry up front; re-set below only if
+          // the new watch installs (a vanished file -> watchFile null -> no
+          // dangling closed watcher left under the key).
+        }
+        const watcher = watchFile(r.path, agentId, (mtime) => {
+          liveEmit(
+            "editor_external_change",
+            { agentId, path: r.path, mtime },
+            { connectionId },
+          );
+        });
+        if (watcher) map.set(key, watcher);
+        return {
+          ok: true,
+          path: r.path,
+          content: r.content,
+          mtime: r.mtime,
+          language: r.language,
+          size: r.size,
+        };
+      },
+      saveFile: (agentId, path, content, expectedMtime, force) => {
+        const abs = agentManager.resolveEditorPathForAgent(agentId, path);
+        if (!abs)
+          return {
+            ok: false,
+            status: 404,
+            code: "agent_not_found",
+            message: "Agent not found.",
+          };
+        const result = agentManager.saveEditorFile(
+          abs,
+          content,
+          expectedMtime,
+          force,
+        );
+        if (result.kind === "ok") return { ok: true, mtime: result.mtime };
+        if (result.kind === "stale")
+          return { ok: false, stale: true, currentMtime: result.currentMtime };
+        return {
+          ok: false,
+          status: 500,
+          code: "io_error",
+          message: result.message,
+        };
+      },
+      closeFile: (agentId, path, connectionId) => {
+        const abs = agentManager.resolveEditorPathForAgent(agentId, path);
+        if (!abs) return;
+        const map = editorWatchers.get(connectionId);
+        if (!map) return;
+        const key = editorKey(agentId, abs);
+        const w = map.get(key);
+        if (w) {
+          stopWatch(w);
+          map.delete(key);
+        }
+        if (map.size === 0) editorWatchers.delete(connectionId);
+      },
+    }),
+  );
   // 3b.4 — per-user view preferences. REST view.* is the live surface; the legacy
   // WS arm that still delegates here is the update_user notif/default slice
   // (group 7). reorder_rooms was cut over to view.setOrder in slice 6.
@@ -2743,56 +2996,6 @@ async function dispatchCommand(
       }
       break;
     }
-    case "send_message":
-      if (!agentVisibleForSession(session, cmd.agentId)) break;
-      // Don't await — let it stream in the background. Username comes from the
-      // session so a member can't spoof another member's display name in chat.
-      void agentManager.sendMessage(
-        cmd.agentId,
-        cmd.text,
-        session.username,
-        cmd.device,
-        cmd.attachments,
-      );
-      break;
-    case "cancel_queued":
-      if (!agentVisibleForSession(session, cmd.agentId)) break;
-      agentManager.cancelQueued(cmd.agentId, cmd.messageId);
-      break;
-    case "send_now":
-      if (!agentVisibleForSession(session, cmd.agentId)) break;
-      void agentManager.sendNow(cmd.agentId);
-      break;
-    case "new_conversation":
-      if (!agentVisibleForSession(session, cmd.agentId)) break;
-      await agentManager.newConversation(cmd.agentId);
-      break;
-    case "resume":
-      if (!agentVisibleForSession(session, cmd.agentId)) break;
-      await agentManager.resume(cmd.agentId, cmd.sessionId);
-      break;
-    case "list_sessions": {
-      if (!agentVisibleForSession(session, cmd.agentId)) break;
-      const sessions = agentManager.listSessions(cmd.agentId);
-      const currentSessionId = agentManager.getCurrentSessionId(cmd.agentId);
-      // Fan out per-WS, only to sessions that can see this agent.
-      // A plain broadcast() would leak session metadata (ids, topics,
-      // timestamps) for a hidden agent to every restricted member —
-      // even if their UI doesn't render it without the agent row, the
-      // payload would still cross the wire to them.
-      const data = JSON.stringify({
-        type: "sessions_list",
-        agentId: cmd.agentId,
-        sessions,
-        currentSessionId,
-      });
-      for (const subscriber of browsers) {
-        if (agentVisibleForSession(subscriber.data.session, cmd.agentId)) {
-          subscriber.send(data);
-        }
-      }
-      break;
-    }
     case "terminal_open": {
       if (!agentVisibleForSession(session, cmd.agentId)) break;
       const opened = agentManager.openTerminal(cmd.agentId);
@@ -2820,170 +3023,6 @@ async function dispatchCommand(
     case "terminal_close":
       if (!agentVisibleForSession(session, cmd.agentId)) break;
       agentManager.closeTerminal(cmd.agentId);
-      break;
-    case "editor_open": {
-      if (!agentVisibleForSession(session, cmd.agentId)) {
-        ws.send(
-          JSON.stringify({
-            type: "editor_open_error",
-            agentId: cmd.agentId,
-            path: cmd.path,
-            reason: "io_error",
-            message: "agent not found",
-          }),
-        );
-        break;
-      }
-      const probe = agentManager.openEditorFile(cmd.agentId, cmd.path);
-      if (!probe.ok) {
-        ws.send(
-          JSON.stringify({
-            type: "editor_open_error",
-            agentId: cmd.agentId,
-            path: cmd.path,
-            reason: probe.error === "not_agent" ? "io_error" : "bad_path",
-            message:
-              probe.error === "not_agent" ? "agent not found" : undefined,
-          }),
-        );
-        break;
-      }
-      const r = probe.result;
-      if (r.kind !== "ok") {
-        ws.send(
-          JSON.stringify({
-            type: "editor_open_error",
-            agentId: cmd.agentId,
-            path: r.path,
-            reason: r.kind,
-            message: r.kind === "io_error" ? r.message : undefined,
-            size: r.kind === "too_large" ? r.size : undefined,
-          }),
-        );
-        break;
-      }
-      ws.send(
-        JSON.stringify({
-          type: "editor_content",
-          agentId: cmd.agentId,
-          path: r.path,
-          content: r.content,
-          mtime: r.mtime,
-          language: r.language,
-          size: r.size,
-        }),
-      );
-      // Install (or replace) the per-WS watcher so external edits surface as
-      // `editor_external_change`. Replacing collapses duplicate opens.
-      const map = getWatcherMap(ws);
-      const key = editorKey(cmd.agentId, r.path);
-      const old = map.get(key);
-      if (old) stopWatch(old);
-      const watcher = watchFile(r.path, cmd.agentId, (mtime) => {
-        ws.send(
-          JSON.stringify({
-            type: "editor_external_change",
-            agentId: cmd.agentId,
-            path: r.path,
-            mtime,
-          }),
-        );
-      });
-      if (watcher) map.set(key, watcher);
-      break;
-    }
-    case "editor_save": {
-      if (!agentVisibleForSession(session, cmd.agentId)) {
-        ws.send(
-          JSON.stringify({
-            type: "editor_save_response",
-            agentId: cmd.agentId,
-            path: cmd.path,
-            ok: false,
-            error: "agent not found",
-          }),
-        );
-        break;
-      }
-      // Resolve against the agent's cwd in case the client sent a relative
-      // path (it shouldn't, but the resolution is cheap and matches open).
-      const abs = agentManager.resolveEditorPathForAgent(cmd.agentId, cmd.path);
-      if (!abs) {
-        ws.send(
-          JSON.stringify({
-            type: "editor_save_response",
-            agentId: cmd.agentId,
-            path: cmd.path,
-            ok: false,
-            error: "agent not found",
-          }),
-        );
-        break;
-      }
-      const result = agentManager.saveEditorFile(
-        abs,
-        cmd.content,
-        cmd.expectedMtime,
-        cmd.force ?? false,
-      );
-      if (result.kind === "ok") {
-        ws.send(
-          JSON.stringify({
-            type: "editor_save_response",
-            agentId: cmd.agentId,
-            path: result.path,
-            ok: true,
-            mtime: result.mtime,
-          }),
-        );
-      } else if (result.kind === "stale") {
-        ws.send(
-          JSON.stringify({
-            type: "editor_save_response",
-            agentId: cmd.agentId,
-            path: result.path,
-            ok: false,
-            reason: "stale",
-            currentMtime: result.currentMtime,
-            error: "File changed on disk since you opened it.",
-          }),
-        );
-      } else {
-        ws.send(
-          JSON.stringify({
-            type: "editor_save_response",
-            agentId: cmd.agentId,
-            path: result.path,
-            ok: false,
-            error: result.message,
-          }),
-        );
-      }
-      break;
-    }
-    case "editor_close": {
-      if (!agentVisibleForSession(session, cmd.agentId)) break;
-      const abs = agentManager.resolveEditorPathForAgent(cmd.agentId, cmd.path);
-      if (!abs) break;
-      const map = getWatcherMap(ws);
-      const key = editorKey(cmd.agentId, abs);
-      const w = map.get(key);
-      if (w) {
-        stopWatch(w);
-        map.delete(key);
-      }
-      break;
-    }
-    case "edit_message":
-      if (!agentVisibleForSession(session, cmd.agentId)) break;
-      // Don't await — let it stream in the background (like send_message)
-      void agentManager.editMessage(
-        cmd.agentId,
-        cmd.logEntryId,
-        cmd.newText,
-        session.username,
-        cmd.device,
-      );
       break;
     case "claim_user": {
       // Post-auth, the session cookie is authoritative for username. This is the
@@ -4055,127 +4094,18 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         });
       }
 
-      // POST /agents/:id/message — queue an inter-agent message into the
-      // receiving agent's chat. The sender's identity (name + room) is looked
-      // up server-side so callers can't inject prefix-delimiter characters into
-      // the prompt the receiver sees.
-      //
-      // This is the one legacy /agents/ HTTP handler that stays (now bearer-
-      // required): the /api/agents/:id/messages route is declared but not yet
-      // wired (the conversation group is unmigrated). The self-affordance POSTs
-      // that used to live here (diff / edit-file / read-file / terminal-command)
-      // were removed in the loopback-bypass removal milestone; agents now use
-      // the token-required /api/agents/:id/* equivalents.
-      //
-      // Sender authority: the AGENT bearer (auto-injected ISOMUX_AGENT_TOKEN) IS
-      // the sender. A present-but-mismatched body.senderAgentId is a spoof
-      // attempt (403). A valid non-agent identity (USER cookie / RUN bearer) is
-      // rejected (403). There is no loopback body-trust: a no/invalid-bearer
-      // request is rejected with 401 upstream (the cookie wall) before reaching
-      // this handler, because /agents/ is no longer in isAgentApiPath.
-      // Body: { text, senderAgentId?, clientMessageId? }
+      // POST /agents/:id/* — the legacy non-/api agent surface is fully retired
+      // (Phase 3d slice 6a). The inter-agent message endpoint moved to POST
+      // /api/agents/:id/messages (the unified agents.sendMessage route: the AGENT
+      // bearer IS the sender, the structured sender is server-derived, and a
+      // mismatched body.senderAgentId -> 403 via the messageSend guard). The
+      // self-affordance POSTs (diff / edit-file / read-file / terminal-command)
+      // moved to /api/agents/:id/* in the loopback-bypass removal milestone. So
+      // any POST under /agents/ is now a stale/unknown path: fail closed with a
+      // JSON 404 rather than fall through to the SPA shell (which would return
+      // 200 text/html and mask the caller). No-bearer requests never reach here —
+      // they 401 at the cookie wall above, since /agents/ is off isAgentApiPath.
       if (url.pathname.startsWith("/agents/") && req.method === "POST") {
-        const parts = url.pathname.split("/").filter(Boolean);
-        if (parts.length === 3 && parts[2] === "message") {
-          const corsHeaders = {
-            "Access-Control-Allow-Origin": "*",
-            "Content-Type": "application/json",
-          };
-          const receiverId = parts[1];
-          let body: Record<string, unknown> | null = null;
-          try {
-            body = (await req.json()) as Record<string, unknown> | null;
-          } catch {}
-          if (!body) {
-            return new Response(
-              JSON.stringify({ error: "invalid JSON body" }),
-              {
-                status: 400,
-                headers: corsHeaders,
-              },
-            );
-          }
-          const text = typeof body.text === "string" ? body.text : null;
-          const claimedSender =
-            typeof body.senderAgentId === "string" ? body.senderAgentId : null;
-          const clientMessageId =
-            typeof body.clientMessageId === "string"
-              ? body.clientMessageId
-              : undefined;
-          // Sender authority is the AGENT bearer; there is no loopback body-
-          // trust. A no/invalid-bearer request is already rejected with 401 at
-          // the cookie wall above (now that /agents/ is off isAgentApiPath), so
-          // auth.kind === "ok" here in practice. The kind !== "ok" guard fails
-          // closed with the correct contract (401: no identity) in case future
-          // routing ever makes it reachable.
-          if (auth.kind !== "ok") {
-            return new Response(JSON.stringify({ error: "unauthenticated" }), {
-              status: 401,
-              headers: corsHeaders,
-            });
-          }
-          if (auth.identity.scope !== "agent" || !auth.identity.agentId) {
-            // A valid non-agent identity (USER cookie / RUN bearer) cannot send
-            // as an agent and must not body-trust senderAgentId.
-            return new Response(
-              JSON.stringify({ error: "agent identity required" }),
-              { status: 403, headers: corsHeaders },
-            );
-          }
-          const senderAgentId = auth.identity.agentId;
-          // A present-but-mismatched senderAgentId is a spoof attempt; an absent
-          // or matching value is tolerated (legacy input).
-          if (claimedSender && claimedSender !== senderAgentId) {
-            return new Response(
-              JSON.stringify({
-                error: "senderAgentId does not match the authenticated agent",
-              }),
-              { status: 403, headers: corsHeaders },
-            );
-          }
-          if (!text) {
-            return new Response(JSON.stringify({ error: "required: text" }), {
-              status: 400,
-              headers: corsHeaders,
-            });
-          }
-          if (senderAgentId === receiverId) {
-            return new Response(
-              JSON.stringify({ error: "cannot send to self" }),
-              { status: 400, headers: corsHeaders },
-            );
-          }
-          const senderInfo = agentManager.getAgentDisplay(senderAgentId);
-          if (!senderInfo) {
-            return new Response(
-              JSON.stringify({ error: "senderAgentId is not a known agent" }),
-              { status: 400, headers: corsHeaders },
-            );
-          }
-          const result = agentManager.enqueueMessage(receiverId, {
-            sender: {
-              kind: "agent",
-              agentId: senderAgentId,
-              agentName: senderInfo.name,
-              roomName: senderInfo.roomName,
-            },
-            text,
-            clientMessageId,
-          });
-          if (!result.ok) {
-            return new Response(JSON.stringify({ error: result.error }), {
-              status: result.status,
-              headers: corsHeaders,
-            });
-          }
-          return new Response(JSON.stringify(result), { headers: corsHeaders });
-        }
-        // Any other POST /agents/:id/:action is a deleted or unknown affordance
-        // path (the self-affordances moved to the token-required /api surface).
-        // Fail closed with a JSON 404 instead of falling through to the SPA shell
-        // (which would return 200 text/html and mask stale callers). No-bearer
-        // requests never reach here — they 401 at the cookie wall above, since
-        // /agents/ is off isAgentApiPath (allowLoopback:false).
         return new Response(JSON.stringify({ error: "not found" }), {
           status: 404,
           headers: {
@@ -4432,11 +4362,13 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
       close(ws) {
         browsers.delete(ws);
         unregisterSocket(ws.data.session.sessionIdHash, ws);
-        // Drop any per-WS editor watchers on disconnect.
-        const map = editorWatchers.get(ws);
-        if (map) {
-          for (const w of map.values()) stopWatch(w);
-          editorWatchers.delete(ws);
+        // Drop this connection's editor watchers on disconnect (keyed by
+        // connectionId now that the editor is REST — a leaked watch leaks an
+        // inotify slot for the life of the tab).
+        const watchMap = editorWatchers.get(ws.data.connectionId);
+        if (watchMap) {
+          for (const w of watchMap.values()) stopWatch(w);
+          editorWatchers.delete(ws.data.connectionId);
         }
         // Live-avatars cleanup. Idempotent: removePresence returns true
         // only if an entry existed. Key is the per-WS connectionId, NOT
@@ -4698,7 +4630,7 @@ async function stopServer(server: Server<WsData>): Promise<void> {
   // Force-close active sockets and stop accepting, freeing the (ephemeral) port
   // before the next harness boot.
   await server.stop(true);
-  // Editor file-watches are per-WS (keyed by socket in editorWatchers); the WS
+  // Editor file-watches are keyed by connectionId in editorWatchers; the WS
   // close handlers that server.stop(true) triggers unregister them. There is no
   // global watch registry, and 0.3 opens no editor files, so a stopAllWatches()
   // is intentionally out of 0.3 scope — add a real registry only if a later

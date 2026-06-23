@@ -352,7 +352,16 @@ export const API_ROUTES: readonly RouteDef[] = [
   // --- Agents — editor (browser) --------------------------------------------
   defineRoute<
     void,
-    { content: string; mtime: number; language: string; size: number }
+    // `path` is the RESOLVED absolute path (the client opens by a possibly-relative
+    // path but keys the tab + matches editor_external_change by the resolved one,
+    // exactly as the retired editor_content event echoed it back).
+    {
+      path: string;
+      content: string;
+      mtime: number;
+      language: string;
+      size: number;
+    }
   >({
     opId: "agents.openFile",
     method: "GET",

@@ -13,6 +13,7 @@ import type {
   TopicReq,
   SpawnReq,
   EditAgentReq,
+  SendMessageReq,
 } from "../shared/contract-shapes.ts";
 import type {
   AgentInfo,
@@ -1146,44 +1147,100 @@ export async function demoApi(
     emitEvents(state.swapDesks(b.deskA, b.deskB, roomId));
     return undefined;
   }
+  // 3d.6a — conversation (send/edit/cancel/sendNow/newConversation/resume/
+  // listSessions). The demo simulates a chat reply for sendMessage (the retired
+  // send_message handleCommand); the rest are no-ops the demo never exercises but
+  // must map (demoApi throws on an unmapped route). The turn "streams" via the
+  // same shimEmit log_entry events; the { messageId } ack is ignored by the UI.
+  // agents.listSessions (GET .../sessions) — the demo has no sessions.
+  if (method === "GET" && /^\/api\/agents\/[^/]+\/sessions$/.test(pathname)) {
+    return { sessions: [], currentSessionId: null };
+  }
+  // agents.sendMessage (POST .../messages) — log the user message, show
+  // "thinking", then reply after a beat. username is server-derived in prod, so
+  // the demo user message carries no username label.
+  const messagesMatch = pathname.match(/^\/api\/agents\/([^/]+)\/messages$/);
+  if (messagesMatch && method === "POST") {
+    const id = decodeURIComponent(messagesMatch[1]);
+    const b = (body ?? {}) as SendMessageReq;
+    shimEmit({
+      type: "log_entry",
+      entry: makeLogEntry(id, "user_message", b.text ?? ""),
+    });
+    const prev = pendingReplies.get(id);
+    if (prev) clearTimeout(prev);
+    shimEmit({
+      type: "agent_updated",
+      agentId: id,
+      changes: { state: "thinking" },
+    });
+    pendingReplies.set(
+      id,
+      setTimeout(() => {
+        pendingReplies.delete(id);
+        shimEmit({
+          type: "log_entry",
+          entry: makeLogEntry(id, "text", DEMO_REPLY),
+        });
+        shimEmit({
+          type: "agent_updated",
+          agentId: id,
+          changes: { state: "waiting_for_response" },
+        });
+      }, 800),
+    );
+    return { messageId: "demo" };
+  }
+  // agents.editMessage (PATCH .../messages/:logEntryId) — no-op in the demo.
+  if (
+    method === "PATCH" &&
+    /^\/api\/agents\/[^/]+\/messages\/[^/]+$/.test(pathname)
+  ) {
+    return { messageId: "demo" };
+  }
+  // agents.cancelQueued (DELETE .../queue/:messageId) — no-op (no demo queue).
+  if (
+    method === "DELETE" &&
+    /^\/api\/agents\/[^/]+\/queue\/[^/]+$/.test(pathname)
+  ) {
+    return undefined;
+  }
+  // agents.sendNow / newConversation / resume — no-ops the demo never exercises.
+  if (
+    method === "POST" &&
+    /^\/api\/agents\/[^/]+\/(send-now|new-conversation|resume)$/.test(pathname)
+  ) {
+    return undefined;
+  }
+  // 3d.6b — editor (open/save/close). The demo has no filesystem: open returns a
+  // placeholder (echoing the requested path so the client keys its tab), save is a
+  // no-op ack, close (watch teardown) is a no-op. Unreachable in practice (demo
+  // agents emit no edit affordances) but must map — demoApi throws on an unmapped
+  // route.
+  if (method === "GET" && /^\/api\/agents\/[^/]+\/file$/.test(pathname)) {
+    const p = new URLSearchParams(path.split("?")[1] ?? "").get("path") ?? "";
+    return {
+      path: p,
+      content: "// File contents are not available in the demo.\n",
+      mtime: 0,
+      language: "plaintext",
+      size: 0,
+    };
+  }
+  if (method === "PUT" && /^\/api\/agents\/[^/]+\/file$/.test(pathname)) {
+    return { ok: true, mtime: 0 };
+  }
+  if (
+    method === "DELETE" &&
+    /^\/api\/agents\/[^/]+\/file\/watch$/.test(pathname)
+  ) {
+    return undefined;
+  }
   throw new Error(`demoApi: unhandled route ${route}`);
 }
 
 export function handleCommand(cmd: ClientCommand) {
   switch (cmd.type) {
-    case "send_message": {
-      // Log the user message
-      const userEntry = makeLogEntry(
-        cmd.agentId,
-        "user_message",
-        cmd.text,
-        cmd.username ? { username: cmd.username } : undefined,
-      );
-      shimEmit({ type: "log_entry", entry: userEntry });
-      // Cancel any pending reply for this agent (prevents flickering on rapid sends)
-      const prev = pendingReplies.get(cmd.agentId);
-      if (prev) clearTimeout(prev);
-      // Briefly show "thinking" state, then reply
-      shimEmit({
-        type: "agent_updated",
-        agentId: cmd.agentId,
-        changes: { state: "thinking" },
-      });
-      pendingReplies.set(
-        cmd.agentId,
-        setTimeout(() => {
-          pendingReplies.delete(cmd.agentId);
-          const replyEntry = makeLogEntry(cmd.agentId, "text", DEMO_REPLY);
-          shimEmit({ type: "log_entry", entry: replyEntry });
-          shimEmit({
-            type: "agent_updated",
-            agentId: cmd.agentId,
-            changes: { state: "waiting_for_response" },
-          });
-        }, 800),
-      );
-      break;
-    }
     case "claim_user": {
       const trimmed = cmd.username.trim();
       if (!trimmed) break;
@@ -1363,9 +1420,6 @@ export function handleCommand(cmd: ClientCommand) {
     case "terminal_input":
     case "terminal_resize":
     case "terminal_close":
-    case "new_conversation":
-    case "resume":
-    case "list_sessions":
       break;
   }
 }

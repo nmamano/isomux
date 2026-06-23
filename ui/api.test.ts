@@ -142,4 +142,41 @@ describe("apiFetch", () => {
     expect(networkHit).toBe(false);
     expect(shimHit).toBe(false);
   });
+
+  // --- Phase 3d slice 8b harness extensions ---------------------------------
+  it("sends opts.headers on the request (the editor's connection header)", async () => {
+    let seenInit: RequestInit | undefined;
+    mockFetch(
+      new Response(JSON.stringify({ ok: true }), { status: 200 }),
+      (_p, i) => {
+        seenInit = i;
+      },
+    );
+    await apiFetch("GET", "/api/agents/a/file", undefined, {
+      headers: { "X-Isomux-Connection-Id": "conn-1" },
+    });
+    expect(
+      (seenInit?.headers as Record<string, string>)["X-Isomux-Connection-Id"],
+    ).toBe("conn-1");
+  });
+
+  it("ApiError.detail carries the full error envelope (extra fields past code/message)", async () => {
+    mockFetch(
+      new Response(
+        JSON.stringify({
+          error: { code: "stale", message: "changed", currentMtime: 42 },
+        }),
+        { status: 409 },
+      ),
+    );
+    let err: unknown;
+    try {
+      await apiFetch("PUT", "/api/agents/a/file", {});
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).code).toBe("stale");
+    expect((err as ApiError).detail?.currentMtime).toBe(42);
+  });
 });

@@ -27,8 +27,9 @@ import { python } from "@codemirror/lang-python";
 import { rust } from "@codemirror/lang-rust";
 import { go } from "@codemirror/lang-go";
 import { oneDark } from "@codemirror/theme-one-dark";
-import { send, addRawListener, removeRawListener } from "../ws.ts";
-import { useTheme } from "../store.tsx";
+import { addRawListener, removeRawListener } from "../ws.ts";
+import { useAppState, useTheme } from "../store.tsx";
+import { apiFetch, ApiError } from "../api.ts";
 import type { ServerMessage } from "../../shared/types.ts";
 import {
   getEditorState,
@@ -122,6 +123,12 @@ export function EditorPanel({
   mobile?: boolean;
 }) {
   const { mode } = useTheme();
+  const { sessionContext } = useAppState();
+  // This tab's connectionId binds the editor file-watch to THIS socket: the GET
+  // (open) and DELETE (close) carry it as X-Isomux-Connection-Id and
+  // editor_external_change pushes back over it. Empty only before the first
+  // session_context arrives — the editor isn't reachable that early.
+  const connectionId = sessionContext?.connectionId ?? "";
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const langCompartmentRef = useRef<Compartment>(new Compartment());
@@ -194,20 +201,150 @@ export function EditorPanel({
     setEditorState(agentId, { tabs: snapshot, activePath });
   }, [agentId, tabs, activePath]);
 
-  // Open a file by sending editor_open and waiting for editor_content.
+  // Open (or reload) a file: GET its content, (re)arm the watch on the resolved
+  // path, and merge it into the tab list — keyed by the RESOLVED path the server
+  // returns (so it matches editor_external_change). Replaces the editor_open WS
+  // command + the editor_content / editor_open_error events (now .then / .catch).
   const openPath = useCallback(
     (path: string) => {
       setPendingError(null);
-      send({ type: "editor_open", agentId, path });
+      apiFetch<{
+        path: string;
+        content: string;
+        mtime: number;
+        language: string;
+        size: number;
+      }>(
+        "GET",
+        `/api/agents/${agentId}/file?path=${encodeURIComponent(path)}`,
+        undefined,
+        { headers: { "X-Isomux-Connection-Id": connectionId } },
+      )
+        .then((m) => {
+          setTabsAndPersist((prev) => {
+            const idx = prev.findIndex((t) => t.path === m.path);
+            if (idx >= 0) {
+              const existing = prev[idx];
+              const next = prev.slice();
+              if (existing.dirty) {
+                // Preserve the dirty buffer — this happens after agent-switch
+                // re-mounts when we re-fetch to reinstall the watch. Refresh only
+                // the metadata fields the server is authoritative for.
+                next[idx] = {
+                  ...existing,
+                  mtime: m.mtime,
+                  language: m.language,
+                  size: m.size,
+                };
+              } else {
+                next[idx] = {
+                  path: m.path,
+                  content: m.content,
+                  mtime: m.mtime,
+                  language: m.language,
+                  size: m.size,
+                  dirty: false,
+                  banner: null,
+                };
+              }
+              return next;
+            }
+            return [
+              ...prev,
+              {
+                path: m.path,
+                content: m.content,
+                mtime: m.mtime,
+                language: m.language,
+                size: m.size,
+                dirty: false,
+                banner: null,
+              },
+            ];
+          });
+          setActivePath((prev) => prev ?? m.path);
+        })
+        .catch((err) => {
+          // The server formats the open-error message per reason (not found / not
+          // a file / binary / too large / bad path / io), so just surface it.
+          setPendingError(
+            `${path}: ${err instanceof ApiError ? err.message : "failed to open"}`,
+          );
+        });
     },
-    [agentId],
+    [agentId, connectionId, setTabsAndPersist],
+  );
+
+  // Disarm a file watch (DELETE) — used on tab close + panel unmount. The
+  // connection header binds the unwatch to THIS socket. Fire-and-forget.
+  const closeWatch = useCallback(
+    (path: string) => {
+      apiFetch(
+        "DELETE",
+        `/api/agents/${agentId}/file/watch?path=${encodeURIComponent(path)}`,
+        undefined,
+        { headers: { "X-Isomux-Connection-Id": connectionId } },
+      ).catch(() => {});
+    },
+    [agentId, connectionId],
+  );
+
+  // Save (PUT) a tab. Replaces editor_save + the editor_save_response event:
+  // .then applies the new mtime / clears dirty; .catch maps the 409 stale
+  // conflict (currentMtime rides ApiError.detail) to the stale banner, else a
+  // save_error banner.
+  const saveTab = useCallback(
+    (path: string, content: string, expectedMtime: number, force: boolean) => {
+      apiFetch<{ ok: true; mtime: number }>(
+        "PUT",
+        `/api/agents/${agentId}/file`,
+        {
+          path,
+          content,
+          expectedMtime,
+          force,
+        },
+      )
+        .then((m) => {
+          setTabsAndPersist((prev) =>
+            prev.map((t) =>
+              t.path === path
+                ? { ...t, mtime: m.mtime, dirty: false, banner: null }
+                : t,
+            ),
+          );
+        })
+        .catch((err) => {
+          setTabsAndPersist((prev) =>
+            prev.map((t) => {
+              if (t.path !== path) return t;
+              if (err instanceof ApiError && err.code === "stale") {
+                const currentMtime =
+                  typeof err.detail?.currentMtime === "number"
+                    ? err.detail.currentMtime
+                    : t.mtime;
+                return { ...t, banner: { kind: "stale", currentMtime } };
+              }
+              return {
+                ...t,
+                banner: {
+                  kind: "save_error",
+                  message:
+                    err instanceof ApiError ? err.message : "save failed",
+                },
+              };
+            }),
+          );
+        });
+    },
+    [agentId, setTabsAndPersist],
   );
 
   // First mount: figure out where to load from.
   //   1. Module store (set by a previous mount of this agent's editor) wins
-  //      because it preserves dirty buffers. We still send editor_open for
-  //      each restored path so the server reinstalls fs.watch — the
-  //      editor_content handler is careful to keep the dirty buffer.
+  //      because it preserves dirty buffers. We still re-open each restored path
+  //      (the GET) so the server reinstalls the watch — openPath is careful to
+  //      keep the dirty buffer.
   //   2. Else, if the parent passed an initialPath, the [initialPath] effect
   //      below handles it.
   //   3. Else, fall back to localStorage paths from a prior session and open
@@ -241,7 +378,10 @@ export function EditorPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialPath]);
 
-  // Wire raw WebSocket listener for editor_* messages addressed to this agent.
+  // Wire a raw WebSocket listener for editor_external_change — the one editor
+  // event that stays on the WS (the file-watch push). open/save are now apiFetch
+  // (.then/.catch), so editor_content / editor_open_error / editor_save_response
+  // are retired and no longer handled here.
   useEffect(() => {
     const handler = (data: string) => {
       let msg: ServerMessage | null = null;
@@ -251,100 +391,10 @@ export function EditorPanel({
         return;
       }
       if (!msg) return;
-      if (msg.type === "editor_content" && msg.agentId === agentId) {
-        const m = msg;
-        setTabsAndPersist((prev) => {
-          const idx = prev.findIndex((t) => t.path === m.path);
-          if (idx >= 0) {
-            const existing = prev[idx];
-            const next = prev.slice();
-            if (existing.dirty) {
-              // Preserve the dirty buffer — this happens after agent-switch
-              // re-mounts when we re-fetch on disk to reinstall fs.watch.
-              // Refresh only the metadata fields the server is authoritative for.
-              next[idx] = {
-                ...existing,
-                mtime: m.mtime,
-                language: m.language,
-                size: m.size,
-              };
-            } else {
-              next[idx] = {
-                path: m.path,
-                content: m.content,
-                mtime: m.mtime,
-                language: m.language,
-                size: m.size,
-                dirty: false,
-                banner: null,
-              };
-            }
-            return next;
-          }
-          return [
-            ...prev,
-            {
-              path: m.path,
-              content: m.content,
-              mtime: m.mtime,
-              language: m.language,
-              size: m.size,
-              dirty: false,
-              banner: null,
-            },
-          ];
-        });
-        setActivePath((prev) => prev ?? m.path);
-      } else if (msg.type === "editor_open_error" && msg.agentId === agentId) {
-        const m = msg;
-        const reason =
-          m.reason === "not_found"
-            ? "not found"
-            : m.reason === "not_file"
-              ? "not a file"
-              : m.reason === "binary"
-                ? "binary file (text only)"
-                : m.reason === "too_large"
-                  ? `too large (${m.size ? (m.size / 1024).toFixed(1) + " KB" : ""}, 1 MB limit)`
-                  : m.reason === "io_error"
-                    ? `error: ${m.message ?? "unknown"}`
-                    : "bad path";
-        setPendingError(`${m.path}: ${reason}`);
-      } else if (
-        msg.type === "editor_save_response" &&
-        msg.agentId === agentId
-      ) {
-        const m = msg;
-        setTabsAndPersist((prev) =>
-          prev.map((t) => {
-            if (t.path !== m.path) return t;
-            if (m.ok) {
-              return {
-                ...t,
-                mtime: m.mtime ?? t.mtime,
-                dirty: false,
-                banner: null,
-              };
-            }
-            if (m.reason === "stale" && m.currentMtime !== undefined) {
-              return {
-                ...t,
-                banner: { kind: "stale", currentMtime: m.currentMtime },
-              };
-            }
-            return {
-              ...t,
-              banner: { kind: "save_error", message: m.error ?? "save failed" },
-            };
-          }),
-        );
-      } else if (
-        msg.type === "editor_external_change" &&
-        msg.agentId === agentId
-      ) {
+      if (msg.type === "editor_external_change" && msg.agentId === agentId) {
         const m = msg;
         // Decide outside the state updater so React strict-mode's double
-        // invocation doesn't fire two `editor_open` round-trips.
+        // invocation doesn't fire two open round-trips.
         const existing = tabsRef.current.find((t) => t.path === m.path);
         if (!existing) return;
         if (existing.dirty) {
@@ -356,14 +406,14 @@ export function EditorPanel({
             ),
           );
         } else {
-          // Clean buffer → silently re-fetch by triggering an open.
-          send({ type: "editor_open", agentId, path: m.path });
+          // Clean buffer → silently re-fetch by re-opening.
+          openPath(m.path);
         }
       }
     };
     addRawListener(handler);
     return () => removeRawListener(handler);
-  }, [agentId, setTabsAndPersist]);
+  }, [agentId, setTabsAndPersist, openPath]);
 
   // Release server-side fs.watch handles when the panel unmounts (LogView
   // reset, agent switch, etc.). Without this, watchers persist on the WS
@@ -373,10 +423,10 @@ export function EditorPanel({
   useEffect(() => {
     return () => {
       for (const t of tabsRef.current) {
-        send({ type: "editor_close", agentId, path: t.path });
+        closeWatch(t.path);
       }
     };
-  }, [agentId]);
+  }, [closeWatch]);
 
   // Initialize the CodeMirror EditorView once. We swap content in and out
   // via dispatch when the active tab changes — no remount.
@@ -502,14 +552,8 @@ export function EditorPanel({
     if (!path) return;
     const tab = tabsRef.current.find((t) => t.path === path);
     if (!tab) return;
-    send({
-      type: "editor_save",
-      agentId,
-      path,
-      content: tab.content,
-      expectedMtime: tab.mtime,
-    });
-  }, [agentId]);
+    saveTab(path, tab.content, tab.mtime, false);
+  }, [saveTab]);
 
   // Save with Ctrl+S / Cmd+S — must capture to suppress browser save dialog.
   useEffect(() => {
@@ -544,7 +588,7 @@ export function EditorPanel({
 
   const closeTab = useCallback(
     (path: string) => {
-      send({ type: "editor_close", agentId, path });
+      closeWatch(path);
       setTabsAndPersist((prev) => prev.filter((t) => t.path !== path));
       setActivePath((prev) => {
         if (prev !== path) return prev;
@@ -554,13 +598,13 @@ export function EditorPanel({
           : null;
       });
       // If we just closed the last tab, force the mobile dropdown shut so a
-      // fresh editor_content arrival (e.g. an EditRequestCard tap) doesn't
-      // surprise the user by re-opening the menu they thought they'd left.
+      // freshly opened file (e.g. an EditRequestCard tap) doesn't surprise the
+      // user by re-opening the menu they thought they'd left.
       if (tabsRef.current.length <= 1) {
         setTabMenuOpen(false);
       }
     },
-    [agentId, setTabsAndPersist],
+    [closeWatch, setTabsAndPersist],
   );
 
   const activeTab = useMemo(
@@ -570,21 +614,14 @@ export function EditorPanel({
 
   const overwrite = useCallback(() => {
     if (!activeTab) return;
-    // Force-save: bypass mtime check.
-    send({
-      type: "editor_save",
-      agentId,
-      path: activeTab.path,
-      content: activeTab.content,
-      expectedMtime: activeTab.mtime,
-      force: true,
-    });
-  }, [activeTab, agentId]);
+    // Force-save: bypass the mtime check.
+    saveTab(activeTab.path, activeTab.content, activeTab.mtime, true);
+  }, [activeTab, saveTab]);
 
   const reloadFromDisk = useCallback(() => {
     if (!activeTab) return;
-    send({ type: "editor_open", agentId, path: activeTab.path });
-  }, [activeTab, agentId]);
+    openPath(activeTab.path);
+  }, [activeTab, openPath]);
 
   const dismissBanner = useCallback(() => {
     if (!activeTab) return;

@@ -1,7 +1,6 @@
 import { useRef, useEffect } from "react";
-import type { AgentInfo } from "../../shared/types.ts";
-import { useAppState, useFeatures } from "../store.tsx";
-import { send } from "../ws.ts";
+import type { AgentInfo, SessionInfo } from "../../shared/types.ts";
+import { useAppState, useDispatch, useFeatures } from "../store.tsx";
 import { apiFetch } from "../api.ts";
 
 interface ContextMenuProps {
@@ -21,6 +20,7 @@ export function ContextMenu({
 }: ContextMenuProps) {
   const ref = useRef<HTMLDivElement>(null);
   const { sessionsList } = useAppState();
+  const dispatch = useDispatch();
   const features = useFeatures();
   const sessionsData = sessionsList.get(agent.id);
   const sessions = sessionsData?.sessions ?? [];
@@ -39,18 +39,39 @@ export function ContextMenu({
     };
   }, [onClose]);
 
-  // Request sessions list when menu opens (only if sessions feature enabled)
+  // Fetch the sessions list when the menu opens (only if the feature is on).
+  // Read-as-data: GET the agent's sessions and seed the store via the same (now
+  // CLIENT-LOCAL) sessions_list action the WS push used to feed. .catch swallows
+  // — a closed menu / missing agent simply renders no resume list.
   useEffect(() => {
-    if (features.sessions) send({ type: "list_sessions", agentId: agent.id });
-  }, [agent.id, features.sessions]);
+    if (!features.sessions) return;
+    apiFetch<{ sessions: SessionInfo[]; currentSessionId: string | null }>(
+      "GET",
+      `/api/agents/${agent.id}/sessions`,
+    )
+      .then((data) =>
+        dispatch({
+          type: "sessions_list",
+          agentId: agent.id,
+          sessions: data.sessions,
+          currentSessionId: data.currentSessionId,
+        }),
+      )
+      .catch(() => {});
+  }, [agent.id, features.sessions, dispatch]);
 
   function handleAction(action: string, sessionId?: string) {
     switch (action) {
       case "new_conversation":
-        send({ type: "new_conversation", agentId: agent.id });
+        apiFetch("POST", `/api/agents/${agent.id}/new-conversation`).catch(
+          () => {},
+        );
         break;
       case "resume":
-        if (sessionId) send({ type: "resume", agentId: agent.id, sessionId });
+        if (sessionId)
+          apiFetch("POST", `/api/agents/${agent.id}/resume`, {
+            sessionId,
+          }).catch(() => {});
         break;
       case "kill":
         apiFetch("DELETE", `/api/agents/${agent.id}`).catch(() => {});

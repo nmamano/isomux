@@ -851,12 +851,6 @@ export type ServerMessage =
   | { type: "killed_agent_removed"; agentId: string; lastRoomId: string }
   | { type: "log_entry"; entry: LogEntry }
   | {
-      type: "sessions_list";
-      agentId: string;
-      sessions: SessionInfo[];
-      currentSessionId: string | null;
-    }
-  | {
       type: "slash_commands";
       agentId: string;
       commands: { name: string; description?: string; aliasFor?: string }[];
@@ -866,43 +860,10 @@ export type ServerMessage =
   | { type: "terminal_output"; agentId: string; data: string }
   | { type: "terminal_exit"; agentId: string; exitCode: number }
   | {
-      type: "editor_content";
-      agentId: string;
-      path: string;
-      content: string;
-      mtime: number;
-      language: string;
-      size: number;
-    }
-  | {
-      type: "editor_save_response";
-      agentId: string;
-      path: string;
-      ok: boolean;
-      mtime?: number;
-      error?: string;
-      reason?: "stale";
-      currentMtime?: number;
-    }
-  | {
       type: "editor_external_change";
       agentId: string;
       path: string;
       mtime: number;
-    }
-  | {
-      type: "editor_open_error";
-      agentId: string;
-      path: string;
-      reason:
-        | "not_found"
-        | "not_file"
-        | "binary"
-        | "too_large"
-        | "io_error"
-        | "bad_path";
-      message?: string;
-      size?: number;
     }
   | {
       type: "office_settings_updated";
@@ -986,41 +947,10 @@ export type ServerMessage =
 
 // Browser → Server commands
 export type ClientCommand =
-  | {
-      type: "send_message";
-      agentId: string;
-      text: string;
-      username?: string;
-      device?: string;
-      attachments?: Attachment[];
-    }
-  | { type: "cancel_queued"; agentId: string; messageId: string }
-  | { type: "send_now"; agentId: string }
-  | { type: "new_conversation"; agentId: string }
-  | { type: "resume"; agentId: string; sessionId: string }
-  | { type: "list_sessions"; agentId: string }
   | { type: "terminal_open"; agentId: string }
   | { type: "terminal_input"; agentId: string; data: string }
   | { type: "terminal_resize"; agentId: string; cols: number; rows: number }
   | { type: "terminal_close"; agentId: string }
-  | { type: "editor_open"; agentId: string; path: string }
-  | {
-      type: "editor_save";
-      agentId: string;
-      path: string;
-      content: string;
-      expectedMtime: number;
-      force?: boolean;
-    }
-  | { type: "editor_close"; agentId: string; path: string }
-  | {
-      type: "edit_message";
-      agentId: string;
-      logEntryId: string;
-      newText: string;
-      username?: string;
-      device?: string;
-    }
   | {
       type: "claim_user";
       username: string;

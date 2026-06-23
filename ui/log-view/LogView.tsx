@@ -327,7 +327,9 @@ function QueueChips({
           {queue.length} queued
         </span>
         <button
-          onClick={() => send({ type: "send_now", agentId })}
+          onClick={() => {
+            apiFetch("POST", `/api/agents/${agentId}/send-now`).catch(() => {});
+          }}
           style={{
             padding: "2px 10px",
             borderRadius: 4,
@@ -426,9 +428,12 @@ function QueueChips({
                 )}
               </div>
               <button
-                onClick={() =>
-                  send({ type: "cancel_queued", agentId, messageId: msg.id })
-                }
+                onClick={() => {
+                  apiFetch(
+                    "DELETE",
+                    `/api/agents/${agentId}/queue/${msg.id}`,
+                  ).catch(() => {});
+                }}
                 style={{
                   background: "none",
                   border: "none",
@@ -482,7 +487,6 @@ export function LogView({
   logs,
   onBack,
   onEditAgent,
-  username,
   onOpenTasks,
   onSwipeLeft,
   onSwipeRight,
@@ -491,7 +495,6 @@ export function LogView({
   logs: LogEntry[];
   onBack: () => void;
   onEditAgent: () => void;
-  username: string;
   onOpenTasks?: () => void;
   onSwipeLeft?: () => void;
   onSwipeRight?: () => void;
@@ -1057,16 +1060,14 @@ export function LogView({
   const handleSubmitEdit = useCallback(
     (id: string, newText: string) => {
       setEditingLogEntryId(null);
-      send({
-        type: "edit_message",
-        agentId: agent.id,
-        logEntryId: id,
+      // Fire-and-forget: the corrected turn streams back over WS; the ack is
+      // ignored. username is server-derived (attributionFor), not body-sent.
+      apiFetch("PATCH", `/api/agents/${agent.id}/messages/${id}`, {
         newText,
-        username,
         device: device || undefined,
-      });
+      }).catch(() => {});
     },
-    [agent.id, username, device],
+    [agent.id, device],
   );
 
   const handleCopy = useCallback(async () => {
@@ -1460,21 +1461,23 @@ export function LogView({
             ({ id: _id, uploading: _u, error: _e, ...att }) => att,
           )
         : undefined;
-    const ok = send({
-      type: "send_message",
-      agentId: agent.id,
-      text,
-      username,
-      device: device || undefined,
-      attachments,
-    });
-    if (!ok) {
-      // Socket isn't open — leave the composer state intact so the user can
-      // retry once the banner clears. We only flag the inline error; the
-      // top-level ConnectionBanner explains the broader state.
+    if (!connected) {
+      // Socket isn't open — the message route is reachable over HTTP, but the
+      // streamed echo won't arrive, so a "sent" message would mislead. Leave the
+      // composer state intact so the user can retry once the banner clears
+      // (matches the old send()===false path). The top-level ConnectionBanner
+      // explains the broader state.
       setSendError(true);
       return;
     }
+    // Fire-and-forget: the user_message echo + reply stream back over WS; the
+    // ack ({ messageId: "" } for a USER send) is ignored. username is
+    // server-derived (attributionFor), not body-sent.
+    apiFetch("POST", `/api/agents/${agent.id}/messages`, {
+      text,
+      device: device || undefined,
+      attachments,
+    }).catch(() => {});
     setSendError(false);
     setInput("");
     setStagedAttachments([]);

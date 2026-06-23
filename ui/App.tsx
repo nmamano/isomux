@@ -88,7 +88,10 @@ export function App() {
     agent: AgentInfo;
   } | null>(null);
   const [editAgent, setEditAgent] = useState<AgentInfo | null>(null);
-  const [username, setUsername] = useState<string | null>(() => getUsername());
+  // The display name is tracked for the user-switch handler, but the server now
+  // derives message attribution from the session identity (the send/edit routes
+  // no longer carry a username), so the value itself is no longer read in the UI.
+  const [, setUsername] = useState<string | null>(() => getUsername());
   const [editingDeviceSettings, setEditingDeviceSettings] = useState(false);
   const [editingUserSettings, setEditingUserSettings] = useState(false);
   // Live-avatars: when a ghost is clicked, the user-settings modal opens
@@ -369,7 +372,6 @@ export function App() {
           logs={logs.get(focusedAgent.id) ?? []}
           onBack={goHome}
           onEditAgent={() => setEditAgent(focusedAgent)}
-          username={username ?? ""}
           onOpenTasks={() => setTasksOpen(true)}
           onSwipeLeft={swipeAgentNext}
           onSwipeRight={swipeAgentPrev}

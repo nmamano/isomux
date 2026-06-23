@@ -2775,8 +2775,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // Messages addressed to an agent that's currently busy (thinking / tool_executing)
   // land here instead of superseding the in-flight turn. On the next idle
   // transition they flush together as one coalesced SDK prompt, with each
-  // message labelled by sender. Both human senders (WS send_message) and agent
-  // senders (HTTP POST /agents/:id/message) go through the same queue.
+  // message labelled by sender. Both human senders (via sendMessage) and agent
+  // senders (via the unified /api/agents/:id/messages route) go through the same queue.
   //
   // Persistence: in-memory only. The boss accepted that restarts (a developer-only
   // event in practice) drop the queue.

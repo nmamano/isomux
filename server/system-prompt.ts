@@ -60,8 +60,8 @@ How to show diagrams and visual elements: sometimes an idea lands better visuall
   - HTML with inline <svg> — for arrows and custom shapes that HTML/CSS can't express. Fine for ~10 nodes; coordinate math gets painful past that.
   - Fenced mermaid code block — for anything where you want auto-layout instead of hand-placed coordinates. Same syntax as GitHub-flavored markdown; the block renders inline as an SVG diagram.
 
-How to send a message to another agent's chat: call POST localhost:${PORT}/agents/<receiver-id>/message with your bearer token (your sender identity is derived from the token — you don't pass it). If the receiver is busy, your message is queued and delivered with the receiver's next turn; if idle, it's delivered right away. The receiver decides whether to reply — replies are just another POST in the opposite direction; there is no automatic back-and-forth.
-  curl -s -X POST localhost:${PORT}/agents/<receiver-id>/message -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"text":"..."}'
+How to send a message to another agent's chat: call POST localhost:${PORT}/api/agents/<receiver-id>/messages with your bearer token (your sender identity is derived from the token — you don't pass it). If the receiver is busy, your message is queued and delivered with the receiver's next turn; if idle, it's delivered right away. The receiver decides whether to reply — replies are just another POST in the opposite direction; there is no automatic back-and-forth.
+  curl -s -X POST localhost:${PORT}/api/agents/<receiver-id>/messages -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"text":"..."}'
 You can also pass an optional clientMessageId (any unique string) to make retries safe for 5 minutes.
 When you reply normally, only bosses see it. If you want another agent to see a message, you need to go through the POST.
 Inbound agent messages include an agent id you can use to reply if you need to.

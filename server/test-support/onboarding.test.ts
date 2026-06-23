@@ -16,7 +16,7 @@
 // welcome agents (incl. detectAuthError + getLoginInstructions). Spawn creates a
 // session synchronously but never auto-sends; every normal/error behavior here
 // surfaces on the FIRST user message, so each state is driven by a WS
-// send_message and observed on the wire (log_entry) plus the in-memory state.
+// the message endpoint and observed on the wire (log_entry) plus in-memory state.
 //
 // The first user message also kicks off fire-and-forget topic generation
 // (oneShotPrompt); the fake resolves it synchronously so its tail settles before
@@ -221,7 +221,12 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
     const claude = requireAgentByName(server, CLAUDE_WELCOME);
     const sock = await connectAsOwner(server, rawSessionId);
 
-    sock.send({ type: "send_message", agentId: claude.id, text: "hi" });
+    await server.http(`/api/agents/${claude.id}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "hi" }),
+      rawSessionId,
+    });
 
     // The completed turn streams the assistant text, then lands the agent in
     // waiting_for_response (deriveStateFromEvent: completed -> waiting_for_response;
@@ -255,7 +260,12 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
     const claude = requireAgentByName(server, CLAUDE_WELCOME);
     const sock = await connectAsOwner(server, rawSessionId);
 
-    sock.send({ type: "send_message", agentId: claude.id, text: "hi" });
+    await server.http(`/api/agents/${claude.id}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "hi" }),
+      rawSessionId,
+    });
 
     // Observable shape: an error log, the backend's login text as a system log,
     // and a clickable terminal-command card for the login command.
@@ -297,7 +307,12 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
     const codex = requireAgentByName(server, CODEX_WELCOME);
     const sock = await connectAsOwner(server, rawSessionId);
 
-    sock.send({ type: "send_message", agentId: codex.id, text: "hi" });
+    await server.http(`/api/agents/${codex.id}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "hi" }),
+      rawSessionId,
+    });
 
     await waitForLog(
       sock,

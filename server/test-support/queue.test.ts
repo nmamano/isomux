@@ -21,9 +21,9 @@
 // per-state scripting and gives clean, explicit turn boundaries.
 //
 // Zero LLM calls. The two agent entry points are deliberately distinguished:
-//   - human WS send_message when IDLE -> immediate turn (no enqueue), only
+//   - human (USER cookie) send when IDLE -> immediate turn (no enqueue), only
 //     enqueues when busy (state thinking/tool_executing, non-slash, no pending);
-//   - agent HTTP POST -> always enqueueMessage, which accepts-then-flushes when
+//   - agent (AGENT bearer) send -> always enqueueMessage, accepts-then-flushes when
 //     idle (queued:false) and queues when busy (queued:true).
 
 import { describe, it, expect, afterEach } from "bun:test";
@@ -114,22 +114,23 @@ async function spawnAgent(
 
 interface PostResult {
   status: number;
+  // The unified agents.sendMessage route (3d.6a) returns MessageAck { messageId }
+  // on success or the standard error envelope { error: { code, message } } — not
+  // the raw EnqueueResult the legacy endpoint exposed. The queued / deduped /
+  // accept-then-flush semantics are now read off the live queue (queueOf) + state,
+  // not the HTTP body.
   body: {
-    ok?: boolean;
-    queued?: boolean;
-    deduped?: boolean;
     messageId?: string;
-    error?: string;
+    error?: { code: string; message: string };
   };
 }
 
-// Agent-to-agent entry point: POST /agents/:receiverId/message. Bearer-required
-// after the loopback-bypass removal: the sender's auto-injected AGENT bearer
-// (ISOMUX_AGENT_TOKEN, resolved here via getAgentTokenRaw) IS the sender, so the
-// body no longer carries senderAgentId on the happy path — it's token-derived.
-// A null senderId (or one with no minted token) sends NO bearer, exercising the
-// no-identity 401 path (the harness fetches 127.0.0.1, but loopback is no longer
-// trusted for /agents/).
+// Agent-to-agent entry point: POST /api/agents/:receiverId/messages (3d.6a — the
+// unified agents.sendMessage route, AGENT branch). Bearer-required: the sender's
+// auto-injected AGENT bearer (ISOMUX_AGENT_TOKEN, resolved here via
+// getAgentTokenRaw) IS the sender, so the body no longer carries senderAgentId on
+// the happy path — it's token-derived. A null senderId (or one with no minted
+// token) sends NO bearer, exercising the no-identity 401 path.
 async function postAgentMessage(
   srv: TestServer,
   receiverId: string,
@@ -145,12 +146,44 @@ async function postAgentMessage(
   };
   const bearer = senderId !== null ? getAgentTokenRaw(senderId) : null;
   if (bearer) headers["Authorization"] = `Bearer ${bearer}`;
-  const res = await srv.http(`/agents/${receiverId}/message`, {
+  const res = await srv.http(`/api/agents/${receiverId}/messages`, {
     method: "POST",
     headers,
     body: JSON.stringify(payload),
   });
   return { status: res.status, body: (await res.json()) as PostResult["body"] };
+}
+
+// Human (USER cookie) chat send: POST /api/agents/:id/messages, the same unified
+// route, USER branch. Replaces the retired WS `send_message` command — the turn
+// streams back over the socket; the { messageId:"" } ack is ignored. username is
+// server-derived (attributionFor), so the body carries only the text.
+async function sendHuman(
+  srv: TestServer,
+  rawSessionId: string,
+  agentId: string,
+  text: string,
+): Promise<void> {
+  const res = await srv.http(`/api/agents/${agentId}/messages`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+    rawSessionId,
+  });
+  if (res.status >= 400) throw new Error(`sendHuman -> ${res.status}`);
+}
+
+// Authenticated USER mutation with no response body (cancelQueued / sendNow /
+// newConversation — the retired WS commands, now 204 REST routes).
+async function userMut(
+  srv: TestServer,
+  rawSessionId: string,
+  method: string,
+  path: string,
+): Promise<void> {
+  const res = await srv.http(path, { method, rawSessionId });
+  if (res.status >= 400)
+    throw new Error(`userMut ${method} ${path} -> ${res.status}`);
 }
 
 // All log_entry events on a socket for one agent, in arrival order.
@@ -223,7 +256,7 @@ describe("queue: entry points (Phase 1.4a)", () => {
     const sock = await server.connectWs(owner.rawSessionId);
     await sock.waitFor("full_state");
 
-    sock.send({ type: "send_message", agentId: a.id, text: "hello" });
+    await sendHuman(server, owner.rawSessionId, a.id, "hello");
 
     // The turn runs to completion; the queue is never populated.
     await waitUntil(
@@ -245,8 +278,9 @@ describe("queue: entry points (Phase 1.4a)", () => {
     // Idle receiver: enqueueMessage accepts and immediately flushes.
     const r1 = await postAgentMessage(server, recv.id, sender.id, "first");
     expect(r1.status).toBe(200);
-    expect(r1.body).toMatchObject({ ok: true, queued: false });
     expect(typeof r1.body.messageId).toBe("string");
+    // queued:false (immediate accept-then-flush) is now observable as the agent
+    // parking busy below, not an HTTP-body field.
 
     // That flush parks the receiver busy (onSend pushed assistant_text).
     await waitUntil(
@@ -258,7 +292,7 @@ describe("queue: entry points (Phase 1.4a)", () => {
     // Busy receiver: the next POST queues.
     const r2 = await postAgentMessage(server, recv.id, sender.id, "second");
     expect(r2.status).toBe(200);
-    expect(r2.body).toMatchObject({ ok: true, queued: true });
+    // queued:true is observable as the live queue holding the message.
     expect(queueOf(server, recv.id).length).toBe(1);
   });
 });
@@ -274,7 +308,7 @@ describe("queue: coalescing (Phase 1.4a)", () => {
     await sock.waitFor("full_state");
 
     // msg1 (human, idle) -> immediate turn, parks the agent busy.
-    sock.send({ type: "send_message", agentId: recv.id, text: "kickoff" });
+    await sendHuman(server, owner.rawSessionId, recv.id, "kickoff");
     await waitUntil(
       () => stateOf(server!, recv.id) === "thinking",
       2000,
@@ -287,8 +321,8 @@ describe("queue: coalescing (Phase 1.4a)", () => {
     // confirms nothing is coalesced yet.
     await waitUntil(() => session.sent.length === 1, 2000, "kickoff sent");
 
-    // msg2 (human, WS) + msg3 (agent, HTTP) arrive while busy -> queue in order.
-    sock.send({ type: "send_message", agentId: recv.id, text: "human-two" });
+    // msg2 (human) + msg3 (agent) arrive while busy -> queue in order.
+    await sendHuman(server, owner.rawSessionId, recv.id, "human-two");
     await waitUntil(() => queueOf(server!, recv.id).length === 1, 2000, "q=1");
     await postAgentMessage(server, recv.id, sender.id, "agent-three");
     await waitUntil(() => queueOf(server!, recv.id).length === 2, 2000, "q=2");
@@ -415,7 +449,7 @@ describe("queue: notifications / turnHadHumanInput (Phase 1.4a)", () => {
     expect(agentOf(server, recv.id).turnHadHumanInput).toBe(false);
 
     // --- mixed human + agent flush -> flips false to true ---
-    sock.send({ type: "send_message", agentId: recv.id, text: "human" });
+    await sendHuman(server, owner.rawSessionId, recv.id, "human");
     await waitUntil(() => queueOf(server!, recv.id).length === 1, 2000, "q=1");
     await postAgentMessage(server, recv.id, sender.id, "agent");
     await waitUntil(() => queueOf(server!, recv.id).length === 2, 2000, "q=2");
@@ -482,7 +516,7 @@ describe("queue: dedupe / cap / reject contracts (Phase 1.4a)", () => {
       "dup",
       "cid-1",
     );
-    expect(first.body).toMatchObject({ ok: true, queued: true });
+    expect(first.status).toBe(200);
     const repeat = await postAgentMessage(
       server,
       recvA.id,
@@ -490,11 +524,8 @@ describe("queue: dedupe / cap / reject contracts (Phase 1.4a)", () => {
       "dup",
       "cid-1",
     );
-    expect(repeat.body).toMatchObject({
-      ok: true,
-      queued: false,
-      deduped: true,
-    });
+    expect(repeat.status).toBe(200);
+    // Dedupe is observable as the queue NOT growing on the repeated cid.
     expect(queueOf(server, recvA.id).length).toBe(1); // no second copy
 
     // Same clientMessageId to a DIFFERENT receiver is not deduped.
@@ -505,8 +536,8 @@ describe("queue: dedupe / cap / reject contracts (Phase 1.4a)", () => {
       "dup",
       "cid-1",
     );
-    expect(other.body).toMatchObject({ ok: true, queued: true });
-    expect(other.body.deduped).toBeUndefined();
+    expect(other.status).toBe(200);
+    // Same cid to a DIFFERENT receiver is not deduped: it queues normally.
     expect(queueOf(server, recvB.id).length).toBe(1);
   });
 
@@ -526,7 +557,7 @@ describe("queue: dedupe / cap / reject contracts (Phase 1.4a)", () => {
 
     for (let i = 0; i < 50; i++) {
       const r = await postAgentMessage(server, recv.id, sender.id, `q${i}`);
-      expect(r.body.queued).toBe(true);
+      expect(r.status).toBe(200);
     }
     expect(queueOf(server, recv.id).length).toBe(50);
 
@@ -537,7 +568,7 @@ describe("queue: dedupe / cap / reject contracts (Phase 1.4a)", () => {
       "too-many",
     );
     expect(overflow.status).toBe(429);
-    expect(overflow.body.error).toBe("queue_full");
+    expect(overflow.body.error?.code).toBe("queue_full");
     expect(queueOf(server, recv.id).length).toBe(50); // unchanged
   });
 
@@ -588,12 +619,12 @@ describe("queue: dedupe / cap / reject contracts (Phase 1.4a)", () => {
       "after-error",
     );
     expect(rejected.status).toBe(409);
-    expect(rejected.body.error).toBe("agent_error");
+    expect(rejected.body.error?.code).toBe("agent_error");
   });
 });
 
 describe("queue: cancel / send-now / new-conversation (Phase 1.4a)", () => {
-  it("cancel_queued (WS) removes a queued item and re-emits the queue without it", async () => {
+  it("cancel_queued (REST) removes a queued item and re-emits the queue without it", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
     const owner = await server.seedOwner("Boss");
     const room = server.agentManager.getRooms()[0];
@@ -613,11 +644,12 @@ describe("queue: cancel / send-now / new-conversation (Phase 1.4a)", () => {
     await waitUntil(() => queueOf(server!, recv.id).length === 2, 2000, "q=2");
 
     // Drive the real WS command (the boundary), not the manager method directly.
-    sock.send({
-      type: "cancel_queued",
-      agentId: recv.id,
-      messageId: drop.body.messageId,
-    });
+    await userMut(
+      server,
+      owner.rawSessionId,
+      "DELETE",
+      `/api/agents/${recv.id}/queue/${drop.body.messageId!}`,
+    );
 
     await waitUntil(() => queueOf(server!, recv.id).length === 1, 2000, "q=1");
     expect(queueOf(server, recv.id)[0].id).toBe(keep.body.messageId!);
@@ -629,7 +661,7 @@ describe("queue: cancel / send-now / new-conversation (Phase 1.4a)", () => {
     );
   });
 
-  it("send_now (WS) drains the queue to the backend", async () => {
+  it("send_now (REST) drains the queue to the backend", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
     const owner = await server.seedOwner("Boss");
     const room = server.agentManager.getRooms()[0];
@@ -656,7 +688,12 @@ describe("queue: cancel / send-now / new-conversation (Phase 1.4a)", () => {
     await postAgentMessage(server, recv.id, sender.id, "queued-1");
     await waitUntil(() => queueOf(server!, recv.id).length === 1, 2000, "q=1");
 
-    sock.send({ type: "send_now", agentId: recv.id });
+    await userMut(
+      server,
+      owner.rawSessionId,
+      "POST",
+      `/api/agents/${recv.id}/send-now`,
+    );
 
     // The queued item leaves the queue and reaches a backend session (today's
     // contract; not pinning which concrete session, since send-now aborts +
@@ -672,7 +709,7 @@ describe("queue: cancel / send-now / new-conversation (Phase 1.4a)", () => {
     expect(reached).toBe(true);
   });
 
-  it("new_conversation (WS) clears the queue and no queued prompt bleeds into the new session", async () => {
+  it("new_conversation (REST) clears the queue and no queued prompt bleeds into the new session", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
     const owner = await server.seedOwner("Boss");
     const room = server.agentManager.getRooms()[0];
@@ -694,7 +731,12 @@ describe("queue: cancel / send-now / new-conversation (Phase 1.4a)", () => {
       .filter((s) => s.opts.agentId === recv.id)
       .reduce((n, s) => n + s.sent.length, 0);
 
-    sock.send({ type: "new_conversation", agentId: recv.id });
+    await userMut(
+      server,
+      owner.rawSessionId,
+      "POST",
+      `/api/agents/${recv.id}/new-conversation`,
+    );
 
     // Queue cleared (and emitted as such), state reset to idle.
     await waitUntil(
@@ -738,20 +780,22 @@ describe("queue: cancel / send-now / new-conversation (Phase 1.4a)", () => {
   });
 });
 
-// Loopback-bypass removal (deletion): the legacy POST /agents/:id/message is now
-// bearer-required. A valid AGENT bearer (auto-injected ISOMUX_AGENT_TOKEN) IS the
-// sender; a mismatched body.senderAgentId is a spoof (403); a valid non-agent
-// identity (USER/RUN) is rejected (403); a no/invalid-bearer request is rejected
-// 401 at the cookie wall — loopback body-trust is gone (/agents/ is off
-// isAgentApiPath).
+// Unified agents.sendMessage route (3d.6a), AGENT branch — sender authority via
+// the messageSend guard. A valid AGENT bearer (auto-injected ISOMUX_AGENT_TOKEN)
+// IS the sender; a mismatched body.senderAgentId is a spoof (403); a valid
+// non-agent identity (USER/RUN) is rejected (403); a no/invalid-bearer request is
+// rejected 401 at the /api auth wall — no anonymous-loopback body-trust.
 describe("queue: message endpoint sender authority (bearer-required)", () => {
   async function postBearer(
     srv: TestServer,
     receiverId: string,
     bearer: string,
     body: Record<string, unknown>,
-  ): Promise<{ status: number; body: { ok?: boolean; error?: string } }> {
-    const res = await srv.http(`/agents/${receiverId}/message`, {
+  ): Promise<{
+    status: number;
+    body: { messageId?: string; error?: { code: string; message: string } };
+  }> {
+    const res = await srv.http(`/api/agents/${receiverId}/messages`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -761,7 +805,10 @@ describe("queue: message endpoint sender authority (bearer-required)", () => {
     });
     return {
       status: res.status,
-      body: (await res.json()) as { ok?: boolean; error?: string },
+      body: (await res.json()) as {
+        messageId?: string;
+        error?: { code: string; message: string };
+      },
     };
   }
 
@@ -771,10 +818,10 @@ describe("queue: message endpoint sender authority (bearer-required)", () => {
     const recv = await spawnAgent(server, "Receiver", room.id);
     const sender = await spawnAgent(server, "Sender", room.id);
 
-    // No Authorization header. Previously the anonymous-loopback path body-
-    // trusted senderAgentId; now /agents/ is off isAgentApiPath, so the cookie
-    // wall rejects it (401) before the handler runs.
-    const res = await server.http(`/agents/${recv.id}/message`, {
+    // No Authorization header. The unified /api/agents/:id/messages route is
+    // bearer/cookie-required, so the /api auth wall rejects it (401) before the
+    // handler runs — no anonymous-loopback body-trust.
+    const res = await server.http(`/api/agents/${recv.id}/messages`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text: "anon", senderAgentId: sender.id }),
@@ -799,7 +846,7 @@ describe("queue: message endpoint sender authority (bearer-required)", () => {
       text: "hi from token",
     });
     expect(r.status).toBe(200);
-    expect(r.body.ok).toBe(true);
+    expect(typeof r.body.messageId).toBe("string");
 
     await waitUntil(
       () =>
@@ -843,7 +890,7 @@ describe("queue: message endpoint sender authority (bearer-required)", () => {
       senderAgentId: sender.id,
     });
     expect(r.status).toBe(200);
-    expect(r.body.ok).toBe(true);
+    expect(typeof r.body.messageId).toBe("string");
   });
 
   it("a valid non-agent bearer (RUN token) cannot send -> 403 (no body-trust bypass)", async () => {

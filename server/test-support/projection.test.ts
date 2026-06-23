@@ -270,11 +270,18 @@ async function spawnIn(
 // synchronous-fanout barrier, and the specific entry whose replay the
 // transcript-preservation cases assert.
 async function driveTurn(
+  srv: TestServer,
+  rawSessionId: string,
   ownerSock: TestSocket,
   agentId: string,
   marker: string,
 ): Promise<void> {
-  ownerSock.send({ type: "send_message", agentId, text: marker });
+  // send_message migrated to REST (3d.6a): POST the human message over HTTP, then
+  // block on the streamed user_message marker landing on the socket (the
+  // synchronous-fanout barrier the transcript-preservation cases rely on).
+  await httpMut(srv, rawSessionId, "POST", `/api/agents/${agentId}/messages`, {
+    text: marker,
+  });
   await waitForLog(
     ownerSock,
     agentId,
@@ -478,11 +485,13 @@ describe("per-recipient event ACL — mid-session (Phase 1.2)", () => {
     // the assistant reply routes async via the orchestrator stream loop, so
     // waiting on the later of the two guarantees the member's suppression
     // decision has run for EVERY log_entry of this turn (synchronous fanout).
-    ownerSock.send({
-      type: "send_message",
-      agentId: hid.id,
-      text: "secret-hidden",
-    });
+    await httpMut(
+      server,
+      owner.rawSessionId,
+      "POST",
+      `/api/agents/${hid.id}/messages`,
+      { text: "secret-hidden" },
+    );
     await waitForLog(
       ownerSock,
       hid.id,
@@ -492,11 +501,13 @@ describe("per-recipient event ACL — mid-session (Phase 1.2)", () => {
 
     // Positive control: a visible-room turn DOES reach the member (so the
     // absence above is ACL, not a dead pipe).
-    ownerSock.send({
-      type: "send_message",
-      agentId: vis.id,
-      text: "open-visible",
-    });
+    await httpMut(
+      server,
+      owner.rawSessionId,
+      "POST",
+      `/api/agents/${vis.id}/messages`,
+      { text: "open-visible" },
+    );
     await waitForLog(
       memberSock,
       vis.id,
@@ -518,8 +529,8 @@ describe("per-recipient event ACL — mid-session (Phase 1.2)", () => {
 
     const ownerSock = await connectSettled(server, owner.rawSessionId);
     await setAccess(ownerSock, member.username, [r1]);
-    await driveTurn(ownerSock, vis.id, "vis-log");
-    await driveTurn(ownerSock, hid.id, "hid-log");
+    await driveTurn(server, owner.rawSessionId, ownerSock, vis.id, "vis-log");
+    await driveTurn(server, owner.rawSessionId, ownerSock, hid.id, "hid-log");
 
     // Restricted member connects fresh: replay must be ACL-filtered.
     const memberSock = await connectSettled(server, member.rawSessionId);
@@ -543,9 +554,12 @@ describe("per-recipient event ACL — mid-session (Phase 1.2)", () => {
     expect(slashCommandsFor(ownerTab2, hid.id).length).toBeGreaterThan(0);
   });
 
-  it("list_sessions fans out only to sockets that can see the agent", async () => {
-    // Checklist: "list_sessions/... for hidden agents do not leak ids/topics/
-    // timestamps." Barrier = owner receives sessions_list for the hidden agent.
+  it("listSessions (GET) is allowed only for a requester with room access", async () => {
+    // The per-WS sessions_list fan-out is retired (3d.6a). agents.listSessions is
+    // now a guarded GET (office:read ∧ requiresRoomAccess(:id)) that returns ONLY
+    // to the caller, so the ACL is enforced at the request, not the fan-out: a
+    // restricted member may read a VISIBLE agent's sessions but is denied a HIDDEN
+    // one — no ids/topics/timestamps cross to them.
     server = await boot();
     const r1 = server.agentManager.getRooms()[0].id;
     const [r2] = makeRoomsBeforeOwner(server, ["R2"]);
@@ -557,26 +571,23 @@ describe("per-recipient event ACL — mid-session (Phase 1.2)", () => {
 
     const ownerSock = await connectSettled(server, owner.rawSessionId);
     await setAccess(ownerSock, member.username, [r1]);
-    const memberSock = await connectSettled(server, member.rawSessionId);
 
-    // Hidden agent: only the owner gets the sessions_list.
-    ownerSock.send({ type: "list_sessions", agentId: hid.id });
-    await waitForMessageWhere(
-      ownerSock,
-      (m) => m.type === "sessions_list" && m.agentId === hid.id,
-    );
-    expect(
-      bag(memberSock).some(
-        (m) => m.type === "sessions_list" && m.agentId === hid.id,
-      ),
-    ).toBe(false);
+    // Hidden agent: the owner can read its sessions; the restricted member is
+    // denied (uniform 403, no existence oracle).
+    const ownerHidden = await server.http(`/api/agents/${hid.id}/sessions`, {
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(ownerHidden.status).toBe(200);
+    const memberHidden = await server.http(`/api/agents/${hid.id}/sessions`, {
+      rawSessionId: member.rawSessionId,
+    });
+    expect(memberHidden.status).toBe(403);
 
-    // Visible agent: the member (who can see it) also receives the fan-out.
-    ownerSock.send({ type: "list_sessions", agentId: vis.id });
-    await waitForMessageWhere(
-      memberSock,
-      (m) => m.type === "sessions_list" && m.agentId === vis.id,
-    );
+    // Visible agent: the member (who can see it) is allowed.
+    const memberVisible = await server.http(`/api/agents/${vis.id}/sessions`, {
+      rawSessionId: member.rawSessionId,
+    });
+    expect(memberVisible.status).toBe(200);
   });
 });
 
@@ -591,7 +602,7 @@ describe("agent moves across visibility boundaries (Phase 1.2)", () => {
     const x = await spawnIn(server, "X", r2); // hidden from member
     const ownerSock = await connectSettled(server, owner.rawSessionId);
     await setAccess(ownerSock, member.username, [r1]);
-    await driveTurn(ownerSock, x.id, "c1-history");
+    await driveTurn(server, owner.rawSessionId, ownerSock, x.id, "c1-history");
 
     const memberSock = await connectSettled(server, member.rawSessionId);
     expect(
@@ -636,7 +647,7 @@ describe("agent moves across visibility boundaries (Phase 1.2)", () => {
     const x = await spawnIn(server, "X", r1); // visible to member
     const ownerSock = await connectSettled(server, owner.rawSessionId);
     await setAccess(ownerSock, member.username, [r1]);
-    await driveTurn(ownerSock, x.id, "c2-history");
+    await driveTurn(server, owner.rawSessionId, ownerSock, x.id, "c2-history");
     const memberSock = await connectSettled(server, member.rawSessionId);
     expect(agentInFullState(latestFullState(memberSock)!, x.id)).toBeDefined();
 
@@ -668,7 +679,7 @@ describe("agent moves across visibility boundaries (Phase 1.2)", () => {
     const x = await spawnIn(server, "X", r1);
     const ownerSock = await connectSettled(server, owner.rawSessionId);
     await setAccess(ownerSock, member.username, [r1, r3]); // member sees R1 + R3
-    await driveTurn(ownerSock, x.id, "c3-history");
+    await driveTurn(server, owner.rawSessionId, ownerSock, x.id, "c3-history");
     const memberSock = await connectSettled(server, member.rawSessionId);
     expect(agentInFullState(latestFullState(memberSock)!, x.id)!.roomId).toBe(
       r1,
@@ -746,7 +757,7 @@ describe("room close / reorder with restricted members (Phase 1.2)", () => {
     const y = await spawnIn(server, "Y", r3);
     const ownerSock = await connectSettled(server, owner.rawSessionId);
     await setAccess(ownerSock, member.username, [r2, r3]); // sees R2 + R3, not R1
-    await driveTurn(ownerSock, y.id, "d1-history");
+    await driveTurn(server, owner.rawSessionId, ownerSock, y.id, "d1-history");
     const memberSock = await connectSettled(server, member.rawSessionId);
 
     const before = latestFullState(memberSock)!;
@@ -919,7 +930,7 @@ describe("update_user room-access grant / revoke (Phase 1.2)", () => {
     const z = await spawnIn(server, "Z", r2);
     const ownerSock = await connectSettled(server, owner.rawSessionId);
     await setAccess(ownerSock, member.username, [r1]);
-    await driveTurn(ownerSock, z.id, "z-history");
+    await driveTurn(server, owner.rawSessionId, ownerSock, z.id, "z-history");
     const memberSock = await connectSettled(server, member.rawSessionId);
     expect(fullStateRoomIds(latestFullState(memberSock)!)).toEqual([r1]);
 
@@ -1113,10 +1124,11 @@ describe("killed-agent summary ACL (Phase 1.2)", () => {
 
 describe("agent-to-agent message endpoint is outside browser room ACL (Phase 1.2)", () => {
   it("permits cross-room enqueue (existence-only gate), regardless of either agent's room visibility", async () => {
-    // The bearer-required /agents/:id/message endpoint has NO session and no
-    // room ACL: it gates on agent EXISTENCE only, and the sender's identity
-    // (incl. its roomName) is derived from the AGENT bearer server-side. Cross-
-    // room enqueue is intentional — the room boundary does not block delivery.
+    // The AGENT branch of /api/agents/:id/messages takes the senderMustEqualToken
+    // guard (NO room ACL — cross-room delivery is allowed) plus the
+    // messageRecipientExists precondition (existence-only). The sender's identity
+    // (incl. its roomName) is derived from the AGENT bearer server-side, so a
+    // hidden-room sender still reaches a receiver in another room.
     server = await boot();
     const r1 = server.agentManager.getRooms()[0].id;
     const [r2] = makeRoomsBeforeOwner(server, ["R2"]);
@@ -1127,7 +1139,7 @@ describe("agent-to-agent message endpoint is outside browser room ACL (Phase 1.2
 
     // Sender authenticates with its own AGENT bearer (the sender is token-
     // derived, not body-sourced). Delivery crosses the room boundary.
-    const ok = await server.http(`/agents/${receiver.id}/message`, {
+    const ok = await server.http(`/api/agents/${receiver.id}/messages`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -1136,12 +1148,15 @@ describe("agent-to-agent message endpoint is outside browser room ACL (Phase 1.2
       body: JSON.stringify({ text: "ping" }),
     });
     expect(ok.status).toBe(200);
-    expect(((await ok.json()) as { ok?: boolean }).ok).toBe(true);
+    expect(typeof ((await ok.json()) as { messageId?: string }).messageId).toBe(
+      "string",
+    );
 
-    // Existence is the ONLY gate (no exists-but-hidden distinction — there is no
-    // ACL here at all): an unknown RECEIVER is a generic 404, never a leak of
-    // whether a hidden agent exists.
-    const bad = await server.http(`/agents/no-such-agent/message`, {
+    // Existence is the ONLY gate (no exists-but-hidden distinction — no room ACL
+    // on the AGENT branch): an unknown RECEIVER is a generic 404 from the
+    // messageRecipientExists precondition, never a leak of whether a hidden agent
+    // exists.
+    const bad = await server.http(`/api/agents/no-such-agent/messages`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
