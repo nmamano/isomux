@@ -98,136 +98,14 @@ These are gates, not open decisions:
 
 ## Testing strategy
 
-### Why now
+The testing net's design decisions, in brief. The maintained, as-built reference now lives in [`testing-guide.md`](testing-guide.md) (registered in the doc index); this section stays as the decision record.
 
-The two deepest pieces of this refactor are the projection/ACL service (today the per-session ACL projection lives implicitly in the per-WebSocket fanout) and stable room IDs (migrating `agent.room` from a mutable array index to a stable id). Both are cross-cutting and invariant-heavy, so we want a behavioral safety net in place before touching them. isomux currently has tests only at the Claude backend adapter seam (`claude.test.ts`, `claude.session.test.ts`, `claude.v1-adapter.test.ts`, `plugin-hooks.test.ts`); the orchestrator, OfficeState, persistence, projection, and the WS/REST surface are untested.
+- Four tiers: T0 pure, T1 FakeBackend integration (the main tier), T2 adapter-contract replay, T3 gated live smoke. Default `bun test` makes zero LLM calls; `bun run test:live` adds T3.
+- Characterize existing behavior before strangling it; TDD red-green-refactor for new code. Tests assert at public boundaries (WS messages, REST responses, persisted files) so they survive the refactor.
+- `FakeBackend` plus constructor DI (`ManagerDeps`/`CronjobManagerDeps`) is the main T1 seam; surfaces above the Backend seam (auth, projection, presence, routes, persistence) get their own focused harnesses.
+- The feature inventory (`docs/features.md`) is a coverage map, not a mandate: every feature has a behavioral test of its critical mechanism at the lowest deterministic tier, tracked by the traceability matrix.
 
-### Principles
-
-1. Test behavior through public interfaces, not implementation. Tests must survive the refactor, so they assert observable behavior at public boundaries (WS messages, REST responses, persisted files), never private internals.
-2. Two modes, two jobs. Characterization tests for the existing server freeze its current externally visible behavior (the refactor safety net; writing imagined behavior is wrong here). TDD red-green-refactor for the new code the refactor introduces (projection service, REST contract, token auth, stable room IDs).
-3. README as a coverage map, not a mandate. Goal: every README feature has at least one behavioral test of its critical mechanism at the lowest deterministic tier, prioritizing refactor-adjacent features. Tracked via the traceability matrix.
-4. Avoid horizontal slicing. Do not write all tests up front against speculation. Characterization tests are grounded by observation; new-code tests follow red-green-refactor.
-
-### LLM-call policy (test tiers)
-
-Default `bun test` (CI, PR, pre-commit) makes zero LLM calls.
-
-| Tier | LLM? | What | When |
-|---|---|---|---|
-| T0 pure/unit | none | pure functions: prompt assembly, diff summary, fork-chain assembly, usage math, projection helpers | always |
-| T1 integration (FakeBackend + non-backend harnesses) | none | the main tier: orchestrator/queue/fork/persistence/OfficeState, plus auth/projection/presence/route harnesses; real temp FS, in-process server | always |
-| T2 adapter contract | none (replay) | real Claude/Codex adapters translate recorded/curated event streams correctly | always; refresh on SDK bumps |
-| T3 live smoke | yes, a few | real-subscription end-to-end; assert invariants only (turn completes, a tool runs, resume works, topic non-empty and at most 8 words), never exact text | opt-in only |
-
-T3 is gated behind an env flag plus a separate `test:live` script, run manually or nightly, serial, on cheap models. Never in CI or pre-commit.
-
-### Test seams
-
-`FakeBackend` (implements the `Backend` interface, scripts `NormalizedEvent`s) is the main deterministic engine for T1, because the Backend seam is already clean and metaphor-free and the projection/stable-id work sits above it. It is injected through the constructor DI described in Decided (`ManagerDeps` into `AgentManager`, `CronjobManagerDeps` into `CronjobManager`). It is not the only seam; the following surfaces are not below Backend and need focused harnesses:
-
-- Auth/session/invite/token: cookie auth, token auth, owner/member roles, origin/CSRF where practical, session revocation, the now-removed loopback bypass. Token lifecycle (generate/rotate on spawn/revive, revoke on kill/delete) and redaction (the token never appears in prompts, logs, errors, diffs, or over WS). Object-level guards (`agentParamMustEqualTokenAgent`, `requiresRoomAccess`, `cronjobOwnerOrOfficeOwner`, `selfOrOwner`). AGENT tokens cannot read cronjob transcripts.
-- Projection/fanout: multi-WebSocket tests with different users and access grants, not a single in-process client. The event registry: every event type has a declared audience and projection, a single emit helper is the only wire path, and no raw `ws.send`/`broadcast` exists outside the dispatcher. Preference writes (view-preference/order/notifRooms/defaultRoomId) never leak hidden-room existence.
-- Presence: its own `connectionId` map and recipient-specific room remapping.
-- Terminal/PTY: narrow fake/stubbed terminal-deps test for routing/ACL; real PTY only opt-in/local.
-- Editor/file/upload/read-file/diff affordances: HTTP routes plus FS helpers; test visibility/auth and path safety explicitly.
-- Cronjobs: own manager/persistence/transcript/manual-run/edit surface; `FakeBackend` injected via `CronjobManager`'s own `CronjobManagerDeps` (backend resolver, event sink, env/user resolution, run persistence, clock/scheduler seam).
-- Safety hooks / plugin hooks / env loading: pre/post orchestration and prompt/env assembly. Includes a mem0-plugin compatibility test pinning that plugin pre/post hooks fire and their injected content reaches the prompt.
-- Codex App Server subprocess lifecycle: adapter contract plus opt-in live/subprocess smoke, not part of the main net.
-
-### Infrastructure prerequisites
-
-1. Configurable state root, plus a cleanup guard (see Decided: Infrastructure prereq). Do this carefully or tests will mix real `~/.isomux` state with temp state.
-2. Constructor DI so `FakeBackend`, the event sink, and collaborators are injectable: `ManagerDeps` (backend resolver, event sink, `officeState`) into `AgentManager`, and `CronjobManagerDeps` (backend resolver, event sink, env/user resolution, run persistence, clock/scheduler seam; no `officeState`) into `CronjobManager`. The entire T1 tier depends on this.
-3. An in-process server harness that can connect multiple authenticated users/sockets against temp state.
-4. `package.json` scripts: `test` (no LLM) versus `test:live` (gated).
-
-### Flagship test: onboarding / fresh install
-
-The highest-priority characterization-plus-TDD target, sequenced right after config-root and DI land. On a fresh install the welcome agents must spawn correctly across the three backend-availability states:
-
-- Fresh-install T1: empty temp `ISOMUX_HOME`, boot, assert the welcome-agent seed (one Opus, one Codex) is created and spawn is attempted.
-- Backend not installed: binary missing, the agent surfaces "backend not configured", no crash.
-- Backend installed but not logged in: `detectAuthError` fires, the "needs sign-in" state and login instructions surface.
-- Backend logged in: normal events, the welcome agent completes its first turn.
-- Optional opt-in T3 live smoke for the real logged-in happy path.
-
-### Projection / ACL characterization checklist (capture before stable room IDs)
-
-This is the highest-value net for both the projection/ACL service and stable room IDs. Freeze current behavior for:
-
-- Two users with overlapping but non-identical access connect simultaneously; `full_state` rooms are filtered per recipient. (Slice 4 removed the dense per-recipient `agent.room`; the test now pins that agents carry a stable `roomId`, identical across recipients.)
-- A hidden-room agent emits `log_entry`/`slash_commands`/`terminal_output`/session list; the restricted user never receives it.
-- Moving an agent visible-to-hidden, hidden-to-visible, visible-to-visible triggers the right refresh/replay and no stale transcript loss.
-- Room close/reorder with restricted users: visible agents stay correct, presence is rebroadcast, logs/slash commands replay where expected. (Reorder behavior changed to per-user; characterized the old global behavior first, then replaced. Slice 4: a close is now a bare `room_closed` delta — no dense remap, no full_state-on-close — which the projection test pins.)
-- Owner with hidden rooms: main view respects access, owner-only `all_rooms_list` stays unfiltered. (Owner access becomes rule-based; this confirms the materialized-to-computed migration preserves behavior.)
-- `create_room` under the new model: the creator has access, owners have access by rule (no fan-out), other members do not until granted.
-- `update_user` allowedRooms by an owner pushes a projected `full_state` to that user's existing sockets and clamps presence if access was revoked.
-- Killed-agent summaries are filtered by `lastRoomId` before the cap; revive requires access to both the target room and `lastRoomId`.
-- `list_sessions`/load logs for hidden agents do not leak ids/topics/timestamps.
-- `presence_update` from a restricted user sends a global `currentRoomId`; the server validates it against the user's access and stores it, and presence_list emits the same id to every recipient, filtered to each recipient's visible rooms. (Slice 4 removed the dense visible-index round-trip; the test pins the id-keyed behavior.)
-- Agent-to-agent `POST /agents/:id/message` identity lookup does not become a room/ACL leak when one agent is in a hidden room.
-
-### Persistence and migration tests
-
-- Round-trip: write then load agents/users/tasks/cronjobs; assert shape and field preservation.
-- Existing load-time migrations (for example `modelFamily`/`agentType` backfill, per-room envFile strip).
-- Stable-room-IDs migration: today `agents.json` nests `PersistedAgent`s under rooms and `agent.room` is derived on load, not persisted. The new shape flattens so each agent carries an explicit stable `roomId`. Seed pre-migration persisted state with room ids referenced in users (`allowedRooms`/`notifRooms`/`defaultRoomId`) and killed-agent summaries; assert the post-migration flattened shape. Migration bugs are likely and expensive.
-
-### API contract tests before implementation
-
-The full API spec (the first deliverable, captured below in the **Server API Spec** section) is the contract: every resource, its method, its required capability, its request/response shape, and the audience of any event it emits. Tests are TDD'd against that spec, and the typed route table enforces it in code (validation plus types). This doubles as the refactor's contract-first deliverable.
-
-### Test-net build order (dependencies, not the implementation plan)
-
-These are ordering constraints for standing up the test net, not the overall implementation plan (that is the **Implementation plan** section below):
-
-1. Configurable state root plus cleanup guard.
-2. Constructor DI: `ManagerDeps` (FakeBackend, event sink, officeState) into `AgentManager`, and `CronjobManagerDeps` (FakeBackend, event sink, env/user resolution, run persistence, clock/scheduler seam) into `CronjobManager`.
-3. In-process server harness with multiple authenticated users/sockets and temp state.
-4. Flagship onboarding/fresh-install test.
-5. Projection/ACL characterization (highest-value net).
-6. Persistence/migration characterization.
-7. Queue/resume/fork/usage tests.
-8. Route-level tests for tasks/cronjobs/uploads/settings/recentCwds/auth policy.
-9. Adapter fixtures (hand-curated, minimized), then opt-in live smoke. Build a recorder only when fixture refresh becomes painful.
-
-UI E2E (Playwright) stays thin: browser connects, renders projected state, performs a core command. The server harness carries the combinatorics.
-
-### Resolved policy edge (loopback affordances)
-
-Today's loopback affordance endpoints (agent-to-agent `/message`, `/diff`, `/read-file`, `/edit-file`, `/terminal-command`) were trusted local IPC. Resolution: there is no loopback bypass in the end state, and that end state is now reached. The self-affordance endpoints (`/diff`, `/read-file`, `/edit-file`, `/terminal-command`, plus the cron-run `/read-file`/`/diff`) moved to the token-required `/api` surface and the legacy loopback handlers were deleted; agents authenticate with their auto-injected `ISOMUX_AGENT_TOKEN` (zero setup). The message endpoint keeps its legacy path (the `/api` conversation route is not yet wired) but is now bearer-required: the AGENT bearer IS the sender, a mismatched `senderAgentId` is rejected (403), a valid non-agent identity is rejected (403), and a no/invalid-bearer request is rejected (401) at the cookie wall. Tests cover that the deleted legacy affordance paths fail closed and that a token-authed agent cannot spoof another agent's identity. (The `/tasks`, `/cronjobs` GET, and `/backup/status` loopback surfaces remain trusted; their removal is a separate later step.)
-
-### Traceability matrix (seed)
-
-Columns: README claim, risk tier, deterministic test path, live/manual coverage.
-
-| README claim | tier | deterministic test path | live/manual |
-|---|---|---|---|
-| Onboarding / fresh install (welcome agents spawn across not-installed / not-logged-in / logged-in) | T1 (+opt-in T3) | fresh-install harness: temp ISOMUX_HOME, welcome-agent seed, FakeBackend per backend state | T3 live logged-in happy path |
-| Multi-provider (mix Claude + Codex) | T2/T3 | adapter contract fixtures per backend | T3 smoke per provider |
-| Subscription auth (works if CLI works) | T3 | env-detect unit; login-instructions unit | T3 manual login |
-| Agents message each other (queue) | T1 | FakeBackend: POST /message enqueues; coalescing order | - |
-| Shared task board | T1 | route + OfficeState task CRUD; attribution from token | - |
-| Hierarchical system prompts | T0 | prompt assembly office/room/agent layering | - |
-| Custom commands | T1 | slash_commands surfaced to client | - |
-| Collaborate in conversations (multi-user) | T1 | multi-socket mixed human/agent queue | - |
-| Live presence (ghosts) | T1 | presence harness: connectionId map, recipient indices | - |
-| Invite-link access | T1 | auth harness: mint/accept/consume/expire | - |
-| Self-hosted reachable / real-time | T1 | full_state on connect + delta sync | - |
-| Mobile UI | manual | - | visual |
-| Visual office / animated characters / skeuomorphic / themes | manual | - | visual |
-| Auto-generated topic | T1/T3 | endpoint returns non-empty, at most 8 words (mechanism) | T3 quality spot-check |
-| Terminal | T1 | routing/ACL with stubbed PTY | opt-in real PTY |
-| Editor | T1 | editor_open/save/external-change routes + path safety | - |
-| Diff tool | T0/T1 | diff summary unit + POST /diff route | - |
-| Voice-to-text / TTS | manual | - | browser manual |
-| Cron jobs | T1 | CronjobManager + FakeBackend: schedule/fire/run transcript/manual-run | - |
-| Image/PDF attachments | T0/T1 | buildUserMessage attachment inlining (exists: `server/backends/claude.ts`) + upload route | - |
-| Conversation branching | T1 | fork-chain assembly + usage accounting | - |
-| Notifications | T1 | turnHadHumanInput gating (mechanism) | - |
-| Pre-tool-call safety hooks | T0/T1 | hook blocks dangerous commands | - |
-| Plugin system (incl. mem0 memory) | T1 | plugin pre/post turn hooks; mem0 injected content reaches the prompt | - |
+See [`testing-guide.md`](testing-guide.md) for the tiers in full, how to run them, the seam-to-test-file map, the projection/ACL and persistence checklists, and the traceability matrix.
 
 ## Server API Spec
 
@@ -591,7 +469,7 @@ Exit: a T1 test can boot the server against a temp `ISOMUX_HOME`, connect multip
 Goal: freeze current observable behavior before any of it is refactored. Tests assert at public boundaries (WS messages, REST responses, persisted files) so they survive the refactor.
 
 - **1.1 Flagship onboarding / fresh-install** across the three backend-availability states. Sequenced first so config-root plus FakeBackend immediately prove the net is real.
-- **1.2 Projection/ACL characterization** (the checklist in the Testing strategy section). Highest-value net: it freezes the dense-index projection, per-recipient ACL filtering, the old global reorder behavior, the `create_room` owner fan-out, and presence projection, all of which Phase 3 rewrites. This is the before-and-after net that lets the ACL/view split (3b) proceed safely while the wire is still dense-index.
+- **1.2 Projection/ACL characterization** (the projection/ACL checklist, now in `testing-guide.md`). Highest-value net: it freezes the dense-index projection, per-recipient ACL filtering, the old global reorder behavior, the `create_room` owner fan-out, and presence projection, all of which Phase 3 rewrites. This is the before-and-after net that lets the ACL/view split (3b) proceed safely while the wire is still dense-index.
 - **1.3 Persistence/migration characterization.** Round-trip plus the existing load-time migrations, and the pre-flatten persisted shape, before stable room IDs touch it.
 - **1.4 Remaining net.** Queue/resume/fork/usage; route-level tests of the current HTTP surface (tasks, cronjobs, uploads, affordances, settings, auth policy) so the strangler has a before-picture; adapter fixtures plus opt-in live smoke.
 
@@ -649,10 +527,10 @@ Exit: the `dispatchCommand` switch is deleted; the WS carries only the event str
 
 - **4.1 Route reconciliation — DONE (in tree).** Reconciled the four DECLARED-but-not-live routes before the switch deletion so the route table has no dead rows. All four were Nil-gated to REMOVE — each is callerless and the read it would serve already rides `full_state` / the `users_list` / `all_rooms_list` broadcasts (the UI is echo-authoritative): `rooms.list` (GET `/api/rooms`, table-declared but never registered — fell through to the legacy path), `view.get` + `view.setShown` (handler-live, no UI caller), `users.list` (handler-live recipient-scoped, no UI caller). Removed each route's table row + `SPEC_ROUTE_CONTRACT` entry + handler entry + the now-dead deps (`getView`/`getViewProjection`, the users `listScoped` dep) + the `ShownRoomsReq` shape. The shown/hidden RECORD machinery (`clampViewFields`, projection filtering, the `change.shown` clamp branch) STAYS intact, so re-adding `view.setShown` is a one-line handler entry + table row when a hide-rooms UI lands. Tests: the view.get/setShown route tests were removed; the two view tests that used `setShown` as setup now set `hidden` via direct persisted state (mirroring the migration seed), and the notif/default re-clamp invariant stays covered (here + the `users.setAccess` revoke-clamp in `user-settings.test.ts`).
 - **4.2 Dead-surface deletion — DONE (in tree).** Collapsed the `handleCommand`/`dispatchCommand` indirection into ONE minimal inbound-message handler carrying only the three permanent inbound exceptions (terminal IO, `presence_update`, `ping`); the top-level try/catch (log, never tear down the WS loop) and `pong` stay byte-identical. The other items on the original close-out list were already retired incrementally by the Phase 3 slices and needed no Phase-4 deletion: the bespoke `*_response` messages and the `rooms_reordered` broadcast are gone (only their permanent `RETIRED_WIRE_MESSAGES` leak-guards remain — KEPT), the materialized owner-access fan-out was removed when `create_room` became rule-based (3b / slice 6; `access-migration.ts` is the idempotent boot migration, KEPT), and the ~1,940-line switch had already shrunk to the three exceptions across Phase 3. The known `terminal_open` buffered-output ACL leak (buffer replayed via broadcast-to-all) is left byte-identical with an explicit comment pointing at its filed task (`39ce6225`); fixing it is a focused security patch out of this deletion's scope (Nil-gated DEFER).
-- Doc sweep once the WS command surface is gone: dated snapshots that enumerate live WS commands drift as commands migrate to REST. `docs/security-audit.md` Appendix C.1 still lists `load_cronjob_run`, `list_cronjob_runs`, `list_all_cronjob_runs` (already migrated) alongside the still-WS cron commands; the findings stand (transcripts office-wide-readable, per Follow-up #3) but the command-name mechanism is stale. Sweep these references when the strangler retires the WS commands they name — not per-slice (premature edits re-drift as more commands migrate).
+- **Doc sweep — DONE (in tree).** `docs/security-audit.md` Appendix C.1 rewritten for post-refactor reality: the stale WS-command enumeration is replaced by the REST cron surface and its actual guards (reads via `cron:read` for any authenticated user; mutations gated by `cronjobOwnerOrOfficeOwner` / `officeOwner` / authenticated-create), so the "globally mutable" half of the finding is retired (mutations are owner-gated; the stored `userId` is now the policy input) while the still-valid office-wide-read exposure and the trusted same-host `GET /cronjobs/*` note are kept. Appendix C's intro is adjusted in the same edit so it no longer claims a member can mutate other rooms' cronjobs. Nil-gated on wording (published page, his voice).
 - Full suite plus ESLint, and a final review pass.
-- Extract the Testing strategy section into a standalone, maintained testing guide (tiers, how to run them, seams, conventions, reflecting what was actually built) and register it in `internal-docs/documentation.md` in the same change, so the doc index does not drift. This document stays the design and decision record; the testing guide becomes the living reference.
-- File the follow-ups below as tracked tasks.
+- **Testing-guide extraction — DONE (in tree).** The Testing strategy section was extracted into a standalone, maintained reference at `internal-docs/testing-guide.md` (tiers, how to run, seams mapped to the as-built test files, conventions, the projection/ACL + persistence checklists, the traceability matrix), registered in `internal-docs/documentation.md` (marked the maintained exception among the otherwise-historical internal-docs), and the section above is replaced by a short decision summary plus a pointer. This document stays the design and decision record; the guide is the living reference.
+- **Follow-ups filed — DONE.** The open/actionable follow-ups below were filed as tracked tasks (createdBy Isomuxer1, username Nil): #2 `03a21715`, #3 `9e392fc9`, #4 `90da9396`, #5 `0a870309`, #8 `9fc5d488`, #9 `5acf4941`, #12 `1e90d563`, #13 `0236f470`. Not filed: #1 (existing `f48a9d52`), #6 + #7 (resolved inline above), #10 (deliberate-decision note, no action), #11 (done, ce44458); the terminal_open buffered-output leak is already filed (`39ce6225`).
 
 ## Follow-ups (filed as tracked tasks during close-out)
 

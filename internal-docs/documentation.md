@@ -124,7 +124,8 @@ Keep these consistent across all surfaces below.
 These aren't user-facing docs, but they do describe features and can fall out of date:
 
 - `AGENTS.md` — developer/agent-facing overview of the codebase (read by Claude Code, Codex, and other tools that follow the AGENTS.md convention). `CLAUDE.md` is a one-line pointer to it. Update when architecture or conventions change.
-- `internal-docs/` — design documents for individual features. Historical/reference only; not expected to stay current. (Operator-facing docs live in `docs/`; see section 4.)
+- `internal-docs/` — design documents for individual features. Historical/reference only; not expected to stay current, with one maintained exception (below). (Operator-facing docs live in `docs/`; see section 4.)
+- `internal-docs/testing-guide.md` — the **maintained** living reference for the test suite: the tiers (T0-T3), how to run (`bun test` vs `bun run test:live`), the seam-to-test-file map, and conventions. Unlike the rest of `internal-docs/`, keep this current as the test suite evolves. (Its companion `internal-docs/generic-runtime-refactor.md` stays the historical design/decision record.)
 - `server/commands.ts` — per-command `description` fields surface in the slash-command autocomplete UI.
 - `server/agent-manager.ts` `buildSystemPrompt()` (around lines 194–225) — the system prompt injected into every spawned agent. Update when the agent's role or capabilities change.
 
