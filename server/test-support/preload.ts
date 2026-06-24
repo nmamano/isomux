@@ -11,6 +11,7 @@
 // STATE_ROOT once at import; importing it here (directly or transitively) before
 // we set ISOMUX_HOME would freeze STATE_ROOT to the real home. temp-state.ts
 // pulls in only os/fs/path, so it is safe to import.
+import { afterAll } from "bun:test";
 import { mkdtempSync, realpathSync } from "fs";
 import { homedir, tmpdir } from "os";
 import { join, sep } from "path";
@@ -48,10 +49,14 @@ if (preset) {
 } else {
   const home = mkdtempSync(join(realpathSync(tmpdir()), "isomux-test-home-"));
   process.env.ISOMUX_HOME = home;
-  // Best-effort guarded cleanup at process exit. removeStateDir refuses any
-  // target not strictly under the OS temp dir (and the real ~/.isomux), so a
-  // misconfig fails loudly rather than wiping user state.
-  process.on("exit", () => {
+  // Best-effort guarded cleanup after the whole suite. Bun's test runner does
+  // NOT fire preload-registered process "exit"/"beforeExit" handlers (verified:
+  // they silently never run), so the prior process.on("exit") cleanup leaked one
+  // temp home per `bun test` invocation. A preload-level afterAll runs once after
+  // all tests, on the runner's own lifecycle. removeStateDir refuses any target
+  // not strictly under the OS temp dir (and the real ~/.isomux), so a misconfig
+  // fails loudly rather than wiping user state.
+  afterAll(() => {
     try {
       removeStateDir(home);
     } catch {
