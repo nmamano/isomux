@@ -611,9 +611,8 @@ describe("CodexSession token usage", () => {
 // ---------------------------------------------------------------------------
 describe("CodexSession misc notifications", () => {
   // The wire type (ContextCompactedNotification) is { threadId, turnId } — there
-  // is no `summary` field, so the adapter's params.summary read is always
-  // undefined and the compacted event's summary is currently never populated
-  // from this path. (Surfaced as a minor divergence in the 1.4c findings.)
+  // is no `summary` field, so the adapter emits the bare compacted marker (the
+  // dead params.summary read was removed, 9fc5d488); summary stays undefined.
   it("thread/compacted -> compacted (no summary on the wire)", async () => {
     const { fake, it } = await bootstrapped();
     fake.fireNotification("thread/compacted", {
@@ -659,6 +658,49 @@ describe("CodexSession misc notifications", () => {
     fake.fireNotification("warning", { message: "heads up" });
     const ev = expectKind(await nextEvent(it, "system_text"), "system_text");
     expect(ev.text).toBe("[warning] heads up");
+  });
+
+  it("model/rerouted -> system_text built from fromModel/toModel/reason (5acf4941)", async () => {
+    const { fake, it } = await bootstrapped();
+    fake.fireNotification("model/rerouted", {
+      threadId: FIXTURE_THREAD_ID,
+      turnId: "t1",
+      fromModel: "gpt-5-codex",
+      toModel: "gpt-5",
+      reason: "highRiskCyberActivity",
+    });
+    const ev = expectKind(await nextEvent(it, "system_text"), "system_text");
+    expect(ev.text).toBe(
+      "[model/rerouted] model rerouted from gpt-5-codex to gpt-5 (highRiskCyberActivity)",
+    );
+  });
+
+  it("deprecationNotice -> system_text from summary (+ details)", async () => {
+    const { fake, it } = await bootstrapped();
+    fake.fireNotification("deprecationNotice", {
+      summary: "tool foo is deprecated",
+      details: "use bar instead",
+    });
+    const ev = expectKind(await nextEvent(it, "system_text"), "system_text");
+    expect(ev.text).toBe(
+      "[deprecationNotice] tool foo is deprecated (use bar instead)",
+    );
+  });
+
+  it("configWarning -> system_text; an auth-shaped one still surfaces (NOT via the auth funnel)", async () => {
+    const { fake, it } = await bootstrapped();
+    // The summary carries auth-shaped tokens (openai_api_key + 401). If this
+    // were routed through enqueueAuthAwareSystemText, the per-turn auth gate
+    // (authSignalsAllowedThisTurn=false outside a turn) would DROP it. A plain
+    // enqueue must surface it as a normal advisory.
+    fake.fireNotification("configWarning", {
+      summary: "openai_api_key in config is malformed (401)",
+      details: null,
+    });
+    const ev = expectKind(await nextEvent(it, "system_text"), "system_text");
+    expect(ev.text).toBe(
+      "[configWarning] openai_api_key in config is malformed (401)",
+    );
   });
 
   it("notification for a foreign thread id is ignored", async () => {

@@ -1014,8 +1014,11 @@ export class CodexSession implements BackendSession {
 
       // ---- Mid-conversation compaction ----
       case "thread/compacted": {
-        const summary = params?.summary as string | undefined;
-        this.enqueue({ kind: "compacted", summary });
+        // ContextCompactedNotification is { threadId, turnId } — no `summary`
+        // on the wire, so the old params.summary read was always undefined.
+        // Emit the bare marker (matches the contextCompaction item path in
+        // translateCompletedItem).
+        this.enqueue({ kind: "compacted" });
         break;
       }
 
@@ -1025,13 +1028,49 @@ export class CodexSession implements BackendSession {
         if (message) this.enqueue({ kind: "error", message });
         break;
       }
+      // Warning/GuardianWarningNotification carry a ready `message`. Route it
+      // through the auth-aware funnel: an auth-shaped warning IS the one allowed
+      // auth signal for the turn (the coalescing/self-interrupt is intended).
       case "warning":
-      case "guardianWarning":
-      case "deprecationNotice":
-      case "configWarning":
-      case "model/rerouted": {
+      case "guardianWarning": {
         const text = params?.message as string | undefined;
         if (text) this.enqueueAuthAwareSystemText(`[${n.method}] ${text}`);
+        break;
+      }
+      // ModelReroutedNotification has NO `message` (the old read silently
+      // dropped it, 5acf4941); build the notice from { fromModel, toModel,
+      // reason }. PLAIN enqueue, not the auth-aware funnel — a safety reroute is
+      // not an auth signal and must not coalesce with or trip the auth interrupt.
+      case "model/rerouted": {
+        const from = params?.fromModel as string | undefined;
+        const to = params?.toModel as string | undefined;
+        const reason = params?.reason as string | undefined;
+        if (from && to) {
+          const why = reason ? ` (${reason})` : "";
+          this.enqueue({
+            kind: "system_text",
+            text: `[${n.method}] model rerouted from ${from} to ${to}${why}`,
+          });
+        }
+        break;
+      }
+      // Deprecation/ConfigWarningNotification carry { summary, details? }, NOT
+      // `message` — also silently dropped before (same bug class as
+      // model/rerouted; an unfiled extension of 5acf4941). PLAIN enqueue, not
+      // the auth-aware funnel: a configWarning text can legitimately contain an
+      // auth-shaped token (a malformed `openai_api_key` config key, a 401/403),
+      // which the funnel would drop or latch as the turn's auth interrupt.
+      case "deprecationNotice":
+      case "configWarning": {
+        const summary = params?.summary as string | undefined;
+        const details = params?.details as string | undefined;
+        if (summary) {
+          const extra = details ? ` (${details})` : "";
+          this.enqueue({
+            kind: "system_text",
+            text: `[${n.method}] ${summary}${extra}`,
+          });
+        }
         break;
       }
 
