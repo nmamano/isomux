@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
   AgentBackendType,
   AgentInfo,
@@ -114,7 +114,13 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   const agent = props.agent;
   const agentType: AgentBackendType =
     agent?.agentType ?? props.spawnAgentType ?? "claude";
-  const isCodex = agentType === "codex";
+  // Edit-mode engine switch. The model/effort/approval menus below follow the
+  // SELECTED engine (targetEngine), not the agent's current one, so switching
+  // re-populates them with the new engine's valid options instead of leaving
+  // stale ones. Spawn never changes it (the select is edit-only), so
+  // targetEngine === agentType there and behavior is unchanged.
+  const [targetEngine, setTargetEngine] = useState<AgentBackendType>(agentType);
+  const isCodex = targetEngine === "codex";
 
   const { recentCwds: allRecentCwds, isMobile, agents, rooms } = useAppState();
   const roomCount = rooms.length;
@@ -228,7 +234,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       error?: string;
     }>(
       "GET",
-      `/api/backends/${encodeURIComponent(agentType)}/models?cwd=${encodeURIComponent(cwd)}`,
+      `/api/backends/${encodeURIComponent(targetEngine)}/models?cwd=${encodeURIComponent(cwd)}`,
     )
       .then((r) => {
         if (cancelled) return;
@@ -245,7 +251,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         // models so the value always matches a rendered <option>. The model
         // select is disabled during loading, so the user can't have made a
         // choice we'd be overriding.
-        if (isSpawn) {
+        if (isSpawn || targetEngine !== agentType) {
           const preferredModelId = CODEX_MODELS[0].value;
           const visibleModels = r.models.filter((m) => !m.hidden);
           const def =
@@ -272,8 +278,53 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     // Intentionally not depending on cwd: re-fetching on every keystroke
     // would spawn a codex subprocess per character. The cwd inherited by
     // model/list rarely affects the result anyway (auth is global).
+    // Re-fetches when the dialog's selected engine flips to codex.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isCodex, agentType]);
+  }, [isCodex, targetEngine]);
+
+  // When the engine is switched in the dialog, re-seed model/effort/approval/
+  // sandbox so the menus carry valid options for the newly selected engine (no
+  // stale cross-engine values). Switching back to the agent's current engine
+  // restores its real settings. Skips the initial mount. For codex the model/
+  // effort here are provisional — the model/list effect above refines them once
+  // the auth-appropriate list loads.
+  const didInitEngine = useRef(false);
+  useEffect(() => {
+    if (!didInitEngine.current) {
+      didInitEngine.current = true;
+      return;
+    }
+    // Synchronous re-seed in response to the engine flip — same intentional
+    // pattern (and rule suppression) as the model/list effect above.
+    /* eslint-disable react-hooks/set-state-in-effect */
+    if (targetEngine === agentType) {
+      setModelFamily(
+        agent?.modelFamily ??
+          (agentType === "codex"
+            ? CODEX_MODELS[0].value
+            : MODEL_FAMILIES[0].family),
+      );
+      setEffort(
+        agent?.effort ?? (agentType === "codex" ? "medium" : DEFAULT_EFFORT),
+      );
+      setPermissionMode(initialPermissionMode);
+      setCodexSandbox(agent?.codexSandbox ?? "workspace-write");
+    } else if (targetEngine === "codex") {
+      setModelFamily(CODEX_MODELS[0].value);
+      setEffort("medium");
+      setPermissionMode("on-request");
+      setCodexSandbox("workspace-write");
+    } else {
+      const claudeDefault = MODEL_FAMILIES[0].family;
+      setModelFamily(claudeDefault);
+      setEffort(DEFAULT_EFFORT);
+      setPermissionMode(
+        claudeFamilySupportsAutoPermission(claudeDefault) ? "auto" : "default",
+      );
+    }
+    /* eslint-enable react-hooks/set-state-in-effect */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetEngine]);
 
   function handleSave() {
     // name_taken routes under the Name input; everything else under cwd (the
@@ -317,6 +368,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         .catch(showError)
         .finally(() => setSaving(false));
     } else {
+      const engineChanged = targetEngine !== agentType;
       const changes: EditAgentReq = {};
       if (name.trim() && name.trim() !== agent!.name)
         changes.name = name.trim();
@@ -326,15 +378,27 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       const trimmedInstructions = customInstructions.trim();
       if (trimmedInstructions !== (agent!.customInstructions ?? ""))
         changes.customInstructions = trimmedInstructions;
-      if (modelFamily !== agent!.modelFamily) changes.modelFamily = modelFamily;
-      if (effort !== agent!.effort) changes.effort = effort;
-      if (permissionMode !== agent!.permissionMode)
+      if (engineChanged) {
+        // The menus now show the new engine's options, so send the chosen
+        // values along with the switch; the server validates each against the
+        // target engine.
+        changes.agentType = targetEngine;
+        changes.modelFamily = modelFamily;
+        changes.effort = effort;
         changes.permissionMode = permissionMode;
-      if (
-        isCodex &&
-        codexSandbox !== (agent!.codexSandbox ?? "workspace-write")
-      )
-        changes.codexSandbox = codexSandbox;
+        if (targetEngine === "codex") changes.codexSandbox = codexSandbox;
+      } else {
+        if (modelFamily !== agent!.modelFamily)
+          changes.modelFamily = modelFamily;
+        if (effort !== agent!.effort) changes.effort = effort;
+        if (permissionMode !== agent!.permissionMode)
+          changes.permissionMode = permissionMode;
+        if (
+          isCodex &&
+          codexSandbox !== (agent!.codexSandbox ?? "workspace-write")
+        )
+          changes.codexSandbox = codexSandbox;
+      }
       if (
         !(
           changes.name ||
@@ -344,7 +408,8 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
           changes.modelFamily ||
           changes.effort ||
           changes.permissionMode ||
-          changes.codexSandbox
+          changes.codexSandbox ||
+          changes.agentType
         )
       ) {
         onClose();
@@ -352,10 +417,11 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       }
       setCwdError(null);
       setNameError(null);
-      // Block the dialog (await + surface errors) ONLY when cwd changed — it's
-      // the one edit with a server validation failure worth showing. Other edits
-      // stay fire-and-forget with an optimistic close (prior behavior).
-      if (changes.cwd) {
+      // Block the dialog (await + surface errors) when cwd changed (server cwd
+      // validation) or the engine changed (a fresh conversation is starting —
+      // worth confirming it took before closing). Other edits stay
+      // fire-and-forget with an optimistic close (prior behavior).
+      if (changes.cwd || changes.agentType) {
         setSaving(true);
         apiFetch("PATCH", `/api/agents/${agent!.id}`, changes)
           .then(() => onClose())
@@ -542,31 +608,58 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
             loads on each session (see User Settings).
           </p>
 
-          {/* Engine badge — agentType is fixed at spawn (Round 3) and shown here
-            for clarity in edit mode. Spawn flow already locked it via the
-            EngineChooserDialog. */}
+          {/* Engine. Locked at spawn (chosen via the EngineChooserDialog before
+            this opens). Editable in edit mode: switching it starts a fresh
+            conversation on the new engine — the current one is preserved in the
+            agent's resume history, and the model/effort/approval menus below
+            repopulate with the selected engine's options. */}
           <label style={{ ...labelStyle, marginTop: 12 }}>Engine</label>
-          <div
-            title={
-              isSpawn
-                ? "Pick a different engine by cancelling and using the other button."
-                : "agentType is fixed at spawn — to switch engines, create a new agent."
-            }
-            style={{
-              ...inputStyle,
-              display: "flex",
-              alignItems: "center",
-              color: "var(--text-muted)",
-              fontFamily: "'JetBrains Mono',monospace",
-              textTransform: "uppercase",
-              letterSpacing: 0.5,
-              fontWeight: 600,
-              cursor: "not-allowed",
-              background: "var(--bg-elevated)",
-            }}
-          >
-            {agentType}
-          </div>
+          {isSpawn ? (
+            <div
+              title="Pick a different engine by cancelling and using the other button."
+              style={{
+                ...inputStyle,
+                display: "flex",
+                alignItems: "center",
+                color: "var(--text-muted)",
+                fontFamily: "'JetBrains Mono',monospace",
+                textTransform: "uppercase",
+                letterSpacing: 0.5,
+                fontWeight: 600,
+                cursor: "not-allowed",
+                background: "var(--bg-elevated)",
+              }}
+            >
+              {agentType}
+            </div>
+          ) : (
+            <>
+              <select
+                value={targetEngine}
+                onChange={(e) =>
+                  setTargetEngine(e.target.value as AgentBackendType)
+                }
+                style={{ ...inputStyle, appearance: "none", cursor: "pointer" }}
+              >
+                <option value="claude">Claude</option>
+                <option value="codex">Codex</option>
+              </select>
+              {targetEngine !== agentType && (
+                <p
+                  style={{
+                    margin: "6px 0 0",
+                    fontSize: 11,
+                    color: "var(--text-muted)",
+                    lineHeight: 1.4,
+                  }}
+                >
+                  Switching to {targetEngine === "codex" ? "Codex" : "Claude"}{" "}
+                  starts a new conversation. The current one stays in this
+                  agent's resume history.
+                </p>
+              )}
+            </>
+          )}
 
           <label style={{ ...labelStyle, marginTop: 12 }}>
             {isCodex ? "Approval Policy" : "Permission Mode"}

@@ -1,5 +1,9 @@
 import { useRef, useEffect } from "react";
-import type { AgentInfo, SessionInfo } from "../../shared/types.ts";
+import type {
+  AgentInfo,
+  SessionInfo,
+  AgentBackendType,
+} from "../../shared/types.ts";
 import { useAppState, useDispatch, useFeatures } from "../store.tsx";
 import { apiFetch } from "../api.ts";
 
@@ -25,6 +29,11 @@ export function ContextMenu({
   const sessionsData = sessionsList.get(agent.id);
   const sessions = sessionsData?.sessions ?? [];
   const currentSessionId = sessionsData?.currentSessionId ?? null;
+  // The engine you can start a fresh conversation in without switching away from
+  // the current one. Switching engine always starts a new conversation.
+  const otherEngine: AgentBackendType =
+    agent.agentType === "codex" ? "claude" : "codex";
+  const otherEngineLabel = otherEngine === "codex" ? "Codex" : "Claude";
 
   useEffect(() => {
     function handleDismiss(e: Event) {
@@ -60,12 +69,18 @@ export function ContextMenu({
       .catch(() => {});
   }, [agent.id, features.sessions, dispatch]);
 
-  function handleAction(action: string, sessionId?: string) {
+  function handleAction(
+    action: string,
+    sessionId?: string,
+    agentType?: AgentBackendType,
+  ) {
     switch (action) {
       case "new_conversation":
-        apiFetch("POST", `/api/agents/${agent.id}/new-conversation`).catch(
-          () => {},
-        );
+        apiFetch(
+          "POST",
+          `/api/agents/${agent.id}/new-conversation`,
+          agentType ? { agentType } : undefined,
+        ).catch(() => {});
         break;
       case "resume":
         if (sessionId)
@@ -125,6 +140,14 @@ export function ContextMenu({
           onClick={() => handleAction("new_conversation")}
         />
       )}
+      {features.sessions && (
+        <MenuItem
+          label={`New ${otherEngineLabel} Conversation`}
+          onClick={() =>
+            handleAction("new_conversation", undefined, otherEngine)
+          }
+        />
+      )}
 
       {features.sessions && sessions.length > 1 && (
         <>
@@ -152,9 +175,17 @@ export function ContextMenu({
             const rawLabel = s.topic || s.sessionId.slice(0, 8) + "...";
             const label = s.forked ? `↳ ${rawLabel}` : rawLabel;
             const branchedSuffix = s.branched ? " (branched)" : "";
+            // Engine badge so a mixed Claude/Codex session list is legible at a
+            // glance; selecting a row flips the agent to that session's engine.
+            const engineSuffix =
+              s.agentType === "codex"
+                ? "  · Codex"
+                : s.agentType === "claude"
+                  ? "  · Claude"
+                  : "";
             const displayLabel = isCurrent
-              ? `● ${label}  ${formatTime(s.lastModified)}  (current)`
-              : `${label}  ${formatTime(s.lastModified)}${branchedSuffix}`;
+              ? `● ${label}  ${formatTime(s.lastModified)}${engineSuffix}  (current)`
+              : `${label}  ${formatTime(s.lastModified)}${engineSuffix}${branchedSuffix}`;
             return (
               <MenuItem
                 key={s.sessionId}

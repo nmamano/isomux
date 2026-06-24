@@ -12,6 +12,7 @@
 import type {
   UserRecord,
   AgentInfo,
+  AgentBackendType,
   TaskItem,
   Cronjob,
   Attachment,
@@ -70,6 +71,11 @@ export type EditAgentReq = Partial<
     | "effort"
     | "permissionMode"
     | "codexSandbox"
+    // Changing the engine starts a fresh conversation on the new engine (the old
+    // one is preserved in the resume history). Cross-engine model/effort/
+    // permission don't carry, so the server resets them to the new engine's
+    // defaults and ignores any model/effort/permission sent in the same edit.
+    | "agentType"
   >
 >;
 
@@ -107,6 +113,13 @@ export interface EditMessageReq {
 
 export interface ResumeReq {
   sessionId: string;
+}
+
+// A new conversation may target a specific engine. Omitted => keep the agent's
+// current engine. When it differs, the agent switches engine and the fresh
+// conversation starts with that engine's default model/effort/permission.
+export interface NewConversationReq {
+  agentType?: AgentBackendType;
 }
 
 export interface TopicReq {

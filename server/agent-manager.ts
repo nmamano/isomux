@@ -38,6 +38,10 @@ import {
   persistSessionCwd,
   getSessionCwd,
   ensureSessionCwd,
+  getSessionEngineConfig,
+  stampSessionEngineConfig,
+  backfillSessionEngineConfigs,
+  type SessionEngineConfig,
   accumulateSessionUsage,
   appendSessionUsageSnapshot,
   rollSessionUsageOnResume,
@@ -566,10 +570,44 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       effort?: EffortLevel;
       permissionMode?: AgentInfo["permissionMode"];
       codexSandbox?: AgentInfo["codexSandbox"];
+      agentType?: AgentInfo["agentType"];
     },
   ) {
     const managed = agents.get(agentId);
     if (!managed) return;
+
+    // Engine switch. Changing the engine isn't a normal field edit: it starts a
+    // FRESH conversation on the new engine (the current one is preserved in the
+    // resume history, not lost). The dialog sends the new engine's chosen
+    // model/effort/permission/sandbox, which we hand to newConversation as
+    // overrides — it validates each against the target engine (undefined falls
+    // back to that engine's default), recomputes capabilities, persists the old
+    // session's topic (so it shows in the resume picker), and wipes the live
+    // chat. Metadata edited in the same save (name/cwd/outfit/customInstructions)
+    // is applied first; cwd was already validated by the route handler. We
+    // deliberately do NOT move the old session's files — it's abandoned to
+    // history under its own engine/cwd.
+    if (
+      (changes.agentType === "claude" || changes.agentType === "codex") &&
+      changes.agentType !== managed.info.agentType
+    ) {
+      const meta: Parameters<typeof officeState.editAgent>[1] = {};
+      if (changes.name) meta.name = changes.name;
+      if (changes.cwd) meta.cwd = resolveCwd(changes.cwd);
+      if (changes.outfit) meta.outfit = changes.outfit;
+      if (changes.customInstructions !== undefined)
+        meta.customInstructions = changes.customInstructions;
+      if (Object.keys(meta).length > 0) {
+        for (const event of officeState.editAgent(agentId, meta)) emit(event);
+      }
+      await newConversation(agentId, changes.agentType, {
+        modelFamily: changes.modelFamily,
+        effort: changes.effort,
+        permissionMode: changes.permissionMode,
+        codexSandbox: changes.codexSandbox,
+      });
+      return;
+    }
 
     // Backend-specific validation. OfficeState can't reach the backend layer,
     // so we validate here and pass already-canonicalized values to it.
@@ -1071,6 +1109,18 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     const effort = validateEffort(agentType, modelFamily, p.effort);
     const codexSandbox =
       agentType === "codex" ? validateCodexSandbox(p.codexSandbox) : undefined;
+    // Tag any pre-feature sessions (no stored engine) with this agent's current
+    // engine before it can switch. Runs once per agent at boot/revive; at this
+    // point current-engine == the engine every existing session ran under, so a
+    // later cross-engine resume of an old session flips back correctly instead of
+    // dead-ending on a wrong-backend createSession. (See backfill comment.)
+    backfillSessionEngineConfigs(p.id, {
+      agentType,
+      modelFamily,
+      effort,
+      permissionMode,
+      codexSandbox,
+    });
     // Codex auto-resume policy: thread must have on-disk history to resume.
     // Claude trusts lastSessionId (createSession surfaces a missing-file error).
     let resumeSessionId: string | null = null;
@@ -1890,6 +1940,30 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           // persistSessionFork so this no-ops there; a plain fresh session
           // (spawn / new conversation) gets the agent's current mirror cwd here.
           ensureSessionCwd(agentId, sessionId, managed.info.cwd);
+          // Record the engine config (agentType + model/effort/permission/
+          // sandbox) this session is running under. Overwrite, not backfill:
+          // every model/effort/permission/engine change funnels through a
+          // session replace -> fresh system_init, so re-stamping the live
+          // config here keeps the active session's stored config in lockstep,
+          // which is what a later resume restores. (For a cross-engine resume
+          // managed.info was already set to the session's engine before
+          // createSession, so this writes the same values back — a no-op.)
+          //
+          // LOAD-BEARING: this is the ONLY thing that keeps a session's stored
+          // engine/model in sync with the live agent. The invariant relies on
+          // EVERY change to agentType/modelFamily/effort/permissionMode/
+          // codexSandbox going through a session replace (which re-fires
+          // system_init). A future code path that mutates those fields via a
+          // bare officeState.updateAgent WITHOUT replacing the session would
+          // silently desync the stored config and break resume fidelity — route
+          // it through replaceSession, or re-stamp here.
+          stampSessionEngineConfig(agentId, sessionId, {
+            agentType: managed.info.agentType,
+            modelFamily: managed.info.modelFamily,
+            effort: managed.info.effort,
+            permissionMode: managed.info.permissionMode,
+            codexSandbox: managed.info.codexSandbox,
+          });
           // Backfill: write any cached log entries that were created before sessionId was known.
           // Skip ephemeral entries — they're UI-only by design and must not reach disk.
           if (!hadPreviousSession) {
@@ -3467,11 +3541,20 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           // before spawning (transactional — rolled back if the resume fails).
           const { prevCwd, switched, storedCwdInvalid } =
             applySessionCwdForResume(agentId, managed, picked.sessionId);
+          // Restore the picked session's engine before spawning so a cross-engine
+          // pick uses the right backend (rolled back if the resume fails).
+          const engine = applySessionEngineForResume(
+            agentId,
+            managed,
+            picked.sessionId,
+          );
           try {
             const newSession = createSession(managed, picked.sessionId);
             await replaceSession(agentId, managed, newSession);
           } catch (err) {
             if (switched) rollbackSessionCwd(agentId, prevCwd);
+            if (engine.switched && engine.prevConfig)
+              rollbackSessionEngine(agentId, engine.prevConfig);
             throw err;
           }
           managed.sessionId = picked.sessionId;
@@ -4145,7 +4228,19 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return { ok: true, agent: managed.info };
   }
 
-  async function newConversation(agentId: string) {
+  async function newConversation(
+    agentId: string,
+    targetAgentType?: AgentBackendType,
+    // Engine-switch only: the new engine's model/effort/permission/sandbox to
+    // apply. Each is validated against the target engine; undefined falls back
+    // to that engine's default. Ignored when no engine change happens.
+    engineOverrides?: {
+      modelFamily?: string;
+      effort?: EffortLevel;
+      permissionMode?: AgentInfo["permissionMode"];
+      codexSandbox?: AgentInfo["codexSandbox"];
+    },
+  ) {
     const managed = agents.get(agentId);
     if (!managed) return;
     managed.pendingResume = false;
@@ -4159,6 +4254,41 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       emitQueueUpdate(agentId, managed);
     }
     persistCurrentSessionTopic(agentId, managed);
+
+    // Switching engine always starts a fresh conversation. Cross-engine model/
+    // effort/permission values aren't interchangeable (a Claude model slug is
+    // meaningless to Codex and vice-versa), so reset to the target engine's
+    // defaults rather than coercing the current values, and recompute
+    // capabilities so UI affordances follow. The fresh session is stamped with
+    // this config at its system_init.
+    if (targetAgentType && targetAgentType !== managed.info.agentType) {
+      // Validate any provided override against the TARGET engine (undefined ->
+      // that engine's default). Never coerce a source-engine value: e.g.
+      // validateModelFamily(codex, "opus") would pass "opus" straight through.
+      const modelFamily = validateModelFamily(
+        targetAgentType,
+        engineOverrides?.modelFamily,
+      );
+      for (const event of officeState.updateAgent(agentId, {
+        agentType: targetAgentType,
+        modelFamily,
+        effort: validateEffort(
+          targetAgentType,
+          modelFamily,
+          engineOverrides?.effort,
+        ),
+        permissionMode: validatePermissionMode(
+          targetAgentType,
+          engineOverrides?.permissionMode,
+        ),
+        codexSandbox:
+          targetAgentType === "codex"
+            ? validateCodexSandbox(engineOverrides?.codexSandbox)
+            : undefined,
+        capabilities: getBackend(targetAgentType).capabilities,
+      }))
+        emit(event);
+    }
 
     try {
       const newSession = createSession(managed);
@@ -4249,6 +4379,67 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       emit(event);
   }
 
+  // Engine config (agentType + model/effort/permission/sandbox) is a property of
+  // the session, mirroring cwd. Before a resume, restore the session's stored
+  // engine onto the agent so createSession picks the right backend, runs the
+  // right backend's preflight, and starts with the right model. Recomputes
+  // capabilities from the new backend so UI affordances follow. Returns the prior
+  // config so the caller can roll back if the resume fails. Legacy sessions with
+  // no stored engine (agentType undefined) leave the agent untouched — a
+  // pre-feature agent only ever ran the one engine it still has.
+  function applySessionEngineForResume(
+    agentId: string,
+    managed: ManagedAgent,
+    sessionId: string,
+  ): { prevConfig: SessionEngineConfig | null; switched: boolean } {
+    const stored = getSessionEngineConfig(agentId, sessionId);
+    if (!stored || !stored.agentType)
+      return { prevConfig: null, switched: false };
+    const cur = managed.info;
+    const same =
+      stored.agentType === cur.agentType &&
+      stored.modelFamily === cur.modelFamily &&
+      stored.effort === cur.effort &&
+      stored.permissionMode === cur.permissionMode &&
+      (stored.codexSandbox ?? undefined) === (cur.codexSandbox ?? undefined);
+    if (same) return { prevConfig: null, switched: false };
+    const prevConfig: SessionEngineConfig = {
+      agentType: cur.agentType,
+      modelFamily: cur.modelFamily,
+      effort: cur.effort,
+      permissionMode: cur.permissionMode,
+      codexSandbox: cur.codexSandbox,
+    };
+    for (const event of officeState.updateAgent(agentId, {
+      agentType: stored.agentType,
+      modelFamily: stored.modelFamily ?? cur.modelFamily,
+      effort: stored.effort ?? cur.effort,
+      permissionMode: stored.permissionMode ?? cur.permissionMode,
+      codexSandbox: stored.codexSandbox,
+      capabilities: getBackend(stored.agentType).capabilities,
+    }))
+      emit(event);
+    return { prevConfig, switched: true };
+  }
+
+  // Roll the agent's engine config back after a failed resume (pairs with
+  // applySessionEngineForResume) so a switch that didn't take doesn't leave the
+  // agent pointing at the wrong backend.
+  function rollbackSessionEngine(
+    agentId: string,
+    prevConfig: SessionEngineConfig,
+  ) {
+    for (const event of officeState.updateAgent(agentId, {
+      agentType: prevConfig.agentType,
+      modelFamily: prevConfig.modelFamily,
+      effort: prevConfig.effort,
+      permissionMode: prevConfig.permissionMode,
+      codexSandbox: prevConfig.codexSandbox,
+      capabilities: getBackend(prevConfig.agentType).capabilities,
+    }))
+      emit(event);
+  }
+
   async function resume(agentId: string, sessionId: string) {
     const managed = agents.get(agentId);
     if (!managed) return;
@@ -4272,12 +4463,17 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         managed,
         sessionId,
       );
+      // Engine is also a property of the session: restore it before createSession
+      // so the right backend is used (and rolled back below if the resume fails).
+      const engine = applySessionEngineForResume(agentId, managed, sessionId);
       let newSession;
       try {
         newSession = createSession(managed, sessionId);
         await replaceSession(agentId, managed, newSession);
       } catch (err) {
         if (switched) rollbackSessionCwd(agentId, prevCwd);
+        if (engine.switched && engine.prevConfig)
+          rollbackSessionEngine(agentId, engine.prevConfig);
         throw err;
       }
       managed.sessionId = sessionId;
@@ -4595,6 +4791,19 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           managed.info.cwd,
           parentBase,
         );
+        // Stamp the fork's inherited engine inline (a fork runs the parent's
+        // engine, like cwd). The fork's own system_init would stamp it anyway,
+        // but doing it here too closes the narrow window where the process dies
+        // before that init: an un-tagged orphan fork resumed after a later engine
+        // switch would dead-end on the wrong backend (same trap as legacy
+        // sessions). managed.info holds the current engine at fork time.
+        stampSessionEngineConfig(agentId, newSessionId, {
+          agentType: managed.info.agentType,
+          modelFamily: managed.info.modelFamily,
+          effort: managed.info.effort,
+          permissionMode: managed.info.permissionMode,
+          codexSandbox: managed.info.codexSandbox,
+        });
       }
 
       // 4. Create new session from fork (or fresh session for non-linked

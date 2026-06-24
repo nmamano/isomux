@@ -423,10 +423,19 @@ export function createCommandHandling(deps: HandlerDeps) {
         // directory each session will resume into (it can differ per session).
         // Abbreviate the home prefix to `~` to save horizontal space.
         const cwdStr = s.cwd ? `  ${tildifyCwd(s.cwd)}` : "";
+        // Engine each session ran under — the list mixes Claude and Codex, and
+        // picking one resumes into that engine.
+        const engineStr = s.agentType
+          ? `  · ${s.agentType === "codex" ? "Codex" : "Claude"}`
+          : "";
         if (s.sessionId === managed.sessionId) {
-          lines.push(`  ● ${label}  ${dateStr}${cwdStr}  (current)`);
+          lines.push(
+            `  ● ${label}  ${dateStr}${cwdStr}${engineStr}  (current)`,
+          );
         } else {
-          lines.push(`  ${num}. ${label}  ${dateStr}${cwdStr}${suffix}`);
+          lines.push(
+            `  ${num}. ${label}  ${dateStr}${cwdStr}${engineStr}${suffix}`,
+          );
           pickable.push(s);
           num++;
         }

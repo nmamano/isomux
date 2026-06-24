@@ -147,7 +147,8 @@ function malformedAgentFields(b: Record<string, unknown>): boolean {
     badStr(b.modelFamily) ||
     badStr(b.effort) ||
     badStr(b.permissionMode) ||
-    badStr(b.codexSandbox)
+    badStr(b.codexSandbox) ||
+    badStr(b.agentType)
   ) {
     return true;
   }

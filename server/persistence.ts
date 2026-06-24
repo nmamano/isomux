@@ -168,6 +168,19 @@ type SessionsMap = Record<
     // persisted before this field existed — callers backfill from the agent
     // cwd then (see getSessionCwd / ensureSessionCwd).
     cwd?: string;
+    // The engine config this session runs under. Source of truth for
+    // per-session engine + model; the agent's own agentType/modelFamily/effort/
+    // permissionMode/codexSandbox fields are denormalized mirrors of the ACTIVE
+    // session's values. An agent's engine is therefore a projection of whichever
+    // session is live: resuming a session restores its stored engine, and a new
+    // conversation can target a different one. Absent on sessions persisted
+    // before per-session engine existed — callers fall back to the agent's
+    // current engine then (a pre-feature agent only ever ran one engine).
+    agentType?: AgentInfo["agentType"];
+    modelFamily?: AgentInfo["modelFamily"];
+    effort?: AgentInfo["effort"];
+    permissionMode?: AgentInfo["permissionMode"];
+    codexSandbox?: AgentInfo["codexSandbox"];
     forkedFrom?: string;
     forkMessageId?: string;
     usage?: PersistedUsage;
@@ -262,6 +275,94 @@ export function ensureSessionCwd(
   };
   saveSessionsMap(agentId, map);
   return fallbackCwd;
+}
+
+// The engine config a session runs under. Mirrors the per-session cwd model:
+// stored in sessions.json, with the agent's own fields as a denormalized mirror
+// of the active session's values.
+export type SessionEngineConfig = {
+  agentType: AgentInfo["agentType"];
+  modelFamily: AgentInfo["modelFamily"];
+  effort: AgentInfo["effort"];
+  permissionMode: AgentInfo["permissionMode"];
+  codexSandbox: AgentInfo["codexSandbox"];
+};
+
+// Read a session's stored engine config. Returns null for an unknown session and
+// leaves individual fields undefined for a legacy session that predates
+// per-session engine — `agentType` undefined is the sentinel callers check.
+export function getSessionEngineConfig(
+  agentId: string,
+  sessionId: string,
+): Partial<SessionEngineConfig> | null {
+  const map = loadSessionsMap(agentId);
+  const e = map[sessionId];
+  if (!e) return null;
+  return {
+    agentType: e.agentType,
+    modelFamily: e.modelFamily,
+    effort: e.effort,
+    permissionMode: e.permissionMode,
+    codexSandbox: e.codexSandbox,
+  };
+}
+
+// Overwrite a session's stored engine config to match the agent's current
+// values. Unlike ensureSessionCwd this is a deliberate overwrite, not a
+// backfill: it's called at every session bootstrap (system_init), and because
+// every model/effort/permission/engine change funnels through a session replace
+// (and thus a fresh system_init), this keeps the active session's stored config
+// in lockstep with the live agent — so a later resume restores exactly what the
+// session last ran as. Does not touch lastModified, so it never reorders the
+// resume picker.
+export function stampSessionEngineConfig(
+  agentId: string,
+  sessionId: string,
+  cfg: SessionEngineConfig,
+) {
+  const map = loadSessionsMap(agentId);
+  const existing = map[sessionId] ?? { topic: null, lastModified: 0 };
+  map[sessionId] = {
+    ...existing,
+    agentType: cfg.agentType,
+    modelFamily: cfg.modelFamily,
+    effort: cfg.effort,
+    permissionMode: cfg.permissionMode,
+    codexSandbox: cfg.codexSandbox,
+  };
+  saveSessionsMap(agentId, map);
+}
+
+// One-time backfill: stamp the agent's CURRENT engine config onto every session
+// that predates per-session engine (no stored agentType). Called at agent
+// load/revive, BEFORE the agent can switch engines — at that moment the agent's
+// engine is exactly the engine every existing session ran under, so this tags
+// legacy sessions correctly by construction. Without it a legacy session would
+// stay engine-less, and after the agent later switched engines, resuming it
+// wouldn't flip back: createSession would dispatch the wrong backend (e.g. open
+// a Claude .jsonl as a Codex rollout) and the user could never re-enter that
+// conversation. Idempotent — only touches entries missing agentType, never bumps
+// lastModified.
+export function backfillSessionEngineConfigs(
+  agentId: string,
+  cfg: SessionEngineConfig,
+) {
+  const map = loadSessionsMap(agentId);
+  let changed = false;
+  for (const sid of Object.keys(map)) {
+    const e = map[sid];
+    if (e.agentType) continue;
+    map[sid] = {
+      ...e,
+      agentType: cfg.agentType,
+      modelFamily: cfg.modelFamily,
+      effort: cfg.effort,
+      permissionMode: cfg.permissionMode,
+      codexSandbox: cfg.codexSandbox,
+    };
+    changed = true;
+  }
+  if (changed) saveSessionsMap(agentId, map);
 }
 
 export function persistSessionFork(
@@ -386,6 +487,8 @@ export function listAgentSessions(agentId: string): {
   topic: string | null;
   topicMessageCount: number;
   cwd: string | null;
+  agentType: AgentInfo["agentType"] | null;
+  modelFamily: AgentInfo["modelFamily"] | null;
   branched?: boolean;
   forked?: boolean;
 }[] {
@@ -412,6 +515,8 @@ export function listAgentSessions(agentId: string): {
           topic: entry?.topic ?? null,
           topicMessageCount: entry?.topicMessageCount ?? 0,
           cwd: entry?.cwd ?? null,
+          agentType: entry?.agentType ?? null,
+          modelFamily: entry?.modelFamily ?? null,
           ...(branchedFromIds.has(sid) ? { branched: true as const } : {}),
           ...(entry?.forkedFrom ? { forked: true as const } : {}),
         };

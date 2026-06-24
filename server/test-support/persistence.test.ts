@@ -43,6 +43,11 @@ import {
   saveOfficeConfig,
   loadServerConfig,
   saveServerConfig,
+  ensureSessionCwd,
+  stampSessionEngineConfig,
+  getSessionEngineConfig,
+  backfillSessionEngineConfigs,
+  listAgentSessions,
   type Room,
   type PersistedAgent,
   type AgentHistory,
@@ -655,5 +660,83 @@ describe("nested persisted shape + stable-room-IDs migration (Phase 1.3 / 3c.1)"
     // The upgraded shape lands on the next saveAgents (agent-manager's job),
     // never as a side effect of loadAgents.
     expect(readFileSync(stateFile("agents.json"), "utf-8")).toBe(original);
+  });
+});
+
+describe("per-session engine config (Claude <-> Codex switching)", () => {
+  const AGENT = "agent-engine-test";
+
+  it("stamps and reads back a session's engine config", () => {
+    stampSessionEngineConfig(AGENT, "S1", {
+      agentType: "codex",
+      modelFamily: "gpt-5.5",
+      effort: "high",
+      permissionMode: "on-request",
+      codexSandbox: "workspace-write",
+    });
+    const cfg = getSessionEngineConfig(AGENT, "S1");
+    expect(cfg?.agentType).toBe("codex");
+    expect(cfg?.modelFamily).toBe("gpt-5.5");
+    expect(cfg?.effort).toBe("high");
+    expect(cfg?.permissionMode).toBe("on-request");
+    expect(cfg?.codexSandbox).toBe("workspace-write");
+  });
+
+  it("getSessionEngineConfig returns null for an unknown session", () => {
+    expect(getSessionEngineConfig(AGENT, "missing")).toBeNull();
+  });
+
+  it("backfill tags legacy (engine-less) sessions but leaves stamped ones untouched", () => {
+    // A legacy session: created with cwd only, no engine (pre-feature shape).
+    ensureSessionCwd(AGENT, "legacy", "/home/u/proj");
+    expect(getSessionEngineConfig(AGENT, "legacy")?.agentType).toBeUndefined();
+    // An already-stamped session must not be rewritten by the backfill.
+    stampSessionEngineConfig(AGENT, "stamped", {
+      agentType: "codex",
+      modelFamily: "gpt-5.5",
+      effort: "high",
+      permissionMode: "on-request",
+      codexSandbox: "workspace-write",
+    });
+
+    backfillSessionEngineConfigs(AGENT, {
+      agentType: "claude",
+      modelFamily: "opus",
+      effort: "medium",
+      permissionMode: "auto",
+      codexSandbox: undefined,
+    });
+
+    // Legacy session adopts the agent's current engine...
+    const legacy = getSessionEngineConfig(AGENT, "legacy");
+    expect(legacy?.agentType).toBe("claude");
+    expect(legacy?.modelFamily).toBe("opus");
+    // ...while the already-tagged Codex session is preserved verbatim.
+    const stamped = getSessionEngineConfig(AGENT, "stamped");
+    expect(stamped?.agentType).toBe("codex");
+    expect(stamped?.modelFamily).toBe("gpt-5.5");
+  });
+
+  it("backfill preserves the legacy session's cwd and does not reorder it", () => {
+    ensureSessionCwd(AGENT, "legacy", "/home/u/proj");
+    // listAgentSessions enumerates by on-disk .jsonl transcript, so create one
+    // for the session to appear (its metadata still comes from sessions.json).
+    writeFileSync(stateFile(`logs/${AGENT}/legacy.jsonl`), "");
+    const before = listAgentSessions(AGENT).find(
+      (s) => s.sessionId === "legacy",
+    );
+    backfillSessionEngineConfigs(AGENT, {
+      agentType: "claude",
+      modelFamily: "opus",
+      effort: "medium",
+      permissionMode: "auto",
+      codexSandbox: undefined,
+    });
+    const after = listAgentSessions(AGENT).find(
+      (s) => s.sessionId === "legacy",
+    );
+    expect(after?.cwd).toBe("/home/u/proj");
+    expect(after?.lastModified).toBe(before?.lastModified);
+    expect(after?.agentType).toBe("claude");
   });
 });

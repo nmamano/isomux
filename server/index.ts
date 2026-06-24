@@ -2076,11 +2076,11 @@ function buildExecutorDeps(): ExecutorDeps {
       sendNow: (agentId) => {
         void agentManager.sendNow(agentId);
       },
-      newConversation: (agentId) => {
+      newConversation: (agentId, agentType) => {
         // The WS case awaited this purely for handler sequencing; the clear_logs
         // + turn events stream over WS regardless, so void-discard for an
         // immediate ack. .catch swallows (the WS path had no error surface).
-        void agentManager.newConversation(agentId).catch(() => {});
+        void agentManager.newConversation(agentId, agentType).catch(() => {});
       },
       resume: (agentId, sessionId) => {
         void agentManager.resume(agentId, sessionId).catch(() => {});

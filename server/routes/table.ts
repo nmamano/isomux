@@ -59,6 +59,7 @@ import type {
   SendMessageReq,
   EditMessageReq,
   ResumeReq,
+  NewConversationReq,
   TopicReq,
   AffordanceReadFileReq,
   AffordanceEditFileReq,
@@ -298,7 +299,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("agent:converse", agentParam("id")),
     emits: ["log_entry"],
   }),
-  defineRoute<void, NoContent>({
+  defineRoute<NewConversationReq, NoContent>({
     opId: "agents.newConversation",
     method: "POST",
     path: "/api/agents/:id/new-conversation",

@@ -27,9 +27,12 @@ export interface AgentOutfit {
   accessory: "glasses" | "headphones" | "bow_tie" | "tie" | "earrings" | null;
 }
 
-// Agent engine. New agents are spawned with one of these; the field is fixed
-// at spawn time (Round 3 decision: edit-agent treats it as read-only, with a
-// tooltip pointing users at "spawn a new agent" for the other engine).
+// Agent engine. An agent is spawned with one of these, but its engine isn't
+// frozen: it's a projection of the active conversation. Each session records the
+// engine it ran under (sessions.json), so resuming a session restores its engine
+// and starting a new conversation can target a different one. The edit dialog
+// shows the current engine read-only; switching happens via resume / new
+// conversation, not by editing this field.
 export type AgentBackendType = "claude" | "codex";
 
 // Claude's 4-mode permission enum.
@@ -560,6 +563,13 @@ export interface SessionInfo {
   // active session's cwd. Optional/null for legacy sessions persisted before
   // per-session cwd existed — callers fall back to the agent cwd then.
   cwd?: string | null;
+  // The engine + model this session runs under. Source of truth is per-session
+  // metadata (sessions.json). null for legacy sessions persisted before
+  // per-session engine existed — the resume picker omits the badge then.
+  // Selecting a session whose engine differs from the agent's current one flips
+  // the agent to that engine; agentType is thus a projection of the live session.
+  agentType?: AgentBackendType | null;
+  modelFamily?: string | null;
   branched?: boolean; // true if another session was forked from this one
   forked?: boolean; // true if this session is a fork (was created by editing a message)
 }

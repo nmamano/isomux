@@ -27,11 +27,16 @@
 
 import { ok, noContent, fail, type RouteHandler } from "../executor.ts";
 import type { Identity } from "../../identity/index.ts";
-import type { Attachment, SessionInfo } from "../../../shared/types.ts";
+import type {
+  Attachment,
+  SessionInfo,
+  AgentBackendType,
+} from "../../../shared/types.ts";
 import type {
   SendMessageReq,
   EditMessageReq,
   ResumeReq,
+  NewConversationReq,
 } from "../../../shared/contract-shapes.ts";
 
 // The AGENT (inter-agent) send outcome. The failure carries the status + stable
@@ -80,7 +85,7 @@ export interface ConversationDeps {
   ): void;
   cancelQueued(agentId: string, messageId: string): void;
   sendNow(agentId: string): void;
-  newConversation(agentId: string): void;
+  newConversation(agentId: string, agentType?: AgentBackendType): void;
   resume(agentId: string, sessionId: string): void;
   listSessions(agentId: string): {
     sessions: SessionInfo[];
@@ -184,7 +189,14 @@ export function conversationHandlers(
     },
 
     "agents.newConversation": (ctx) => {
-      deps.newConversation(ctx.params.id);
+      const b = (ctx.body ?? {}) as Partial<NewConversationReq>;
+      // Narrow to the known engines; ignore anything else so a stale/hand-crafted
+      // client can't push an unknown agentType into the switch.
+      const agentType =
+        b.agentType === "claude" || b.agentType === "codex"
+          ? b.agentType
+          : undefined;
+      deps.newConversation(ctx.params.id, agentType);
       return noContent();
     },
 
