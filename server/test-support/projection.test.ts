@@ -40,13 +40,14 @@
 // resolves — so awaiting one recipient's resulting full_state settles all of them.
 //
 // Scope note — terminal: routeAgentEventToWs gates terminal_output/terminal_exit
-// in the SAME agentVisibleForSession switch arm as log_entry/slash_commands, and
-// terminal_open additionally replays buffered output via a broadcast guarded by
-// an agentVisibleForSession check on the requester. FakeBackend has no PTY and
-// the testing strategy carves terminal into its own stubbed-PTY/opt-in seam, so
-// terminal is NOT characterized here; proving the shared event arm via
-// log/slash/sessions does not stand in for the terminal_open replay path. Both
-// belong with the future terminal seam.
+// in the SAME agentVisibleForSession switch arm as log_entry/slash_commands. The
+// terminal_open buffered REPLAY is now characterized below (task 39ce6225): it
+// seeds the agent's buffered output to ONLY the requesting socket, so a member
+// without room access never receives a hidden agent's backlog. That case seeds
+// the buffer through the manager's test-only stubbed-terminal seam
+// (_testSeedTerminalBuffer), since FakeBackend has no PTY. The broader
+// interactive PTY path (live input/resize/close routing) stays carved into a
+// future stubbed-PTY/opt-in seam and is NOT characterized here.
 
 import { describe, it, expect, afterEach } from "bun:test";
 import {
@@ -583,6 +584,83 @@ describe("per-recipient event ACL — mid-session (Phase 1.2)", () => {
       rawSessionId: member.rawSessionId,
     });
     expect(memberVisible.status).toBe(200);
+  });
+});
+
+describe("terminal_open buffered-replay ACL (task 39ce6225)", () => {
+  it("seeds the buffered output to ONLY the requesting socket — restricted and other-visible sockets receive none", async () => {
+    // The terminal_open handler ACL-gates the requester, then replays the
+    // agent's buffered PTY output. The bug: it replayed via broadcast() to EVERY
+    // socket, leaking a hidden-room agent's terminal backlog to members without
+    // room access (and duplicating it into other already-open panels). The fix
+    // seeds only the requesting ws; the live terminal_output stream
+    // (routeAgentEventToWs, the same agentVisibleForSession arm as log/slash)
+    // keeps other visible sockets current. FakeBackend has no node-pty, so the
+    // buffer is seeded through the manager's test-only stubbed-terminal seam.
+    server = await boot();
+    const r1 = server.agentManager.getRooms()[0].id;
+    const [r2] = makeRoomsBeforeOwner(server, ["R2"]);
+    const owner = await server.seedOwner("Boss"); // full access = the requester
+    const restricted = await server.seedMember("Mia"); // r1 only — can't see Hid
+    const visible = await server.seedMember("Val"); // r1 + r2 — CAN see Hid
+
+    const hid = await spawnIn(server, "Hid", r2); // hidden from Mia, visible to Val
+
+    const ownerSock = await connectSettled(server, owner.rawSessionId);
+    await setAccess(server, owner.rawSessionId, restricted.username, [r1]);
+    await setAccess(server, owner.rawSessionId, visible.username, [r1, r2]);
+    const restrictedSock = await connectSettled(
+      server,
+      restricted.rawSessionId,
+    );
+    const visibleSock = await connectSettled(server, visible.rawSessionId);
+
+    // Seed a NON-EMPTY terminal buffer for the hidden agent without a real PTY:
+    // the seam sets the "already running" state openTerminal early-returns on,
+    // so the real handler path runs (openTerminal returns true with no spawn,
+    // getTerminalBuffer returns the buffer).
+    const BACKLOG = "SECRET-PTY-BACKLOG\r\n$ ";
+    expect(server.agentManager._testSeedTerminalBuffer(hid.id, BACKLOG)).toBe(
+      true,
+    );
+
+    const terminalOutFor = (sock: TestSocket): Msg[] =>
+      bag(sock).filter(
+        (m) => m.type === "terminal_output" && m.agentId === hid.id,
+      );
+
+    // No replay anywhere before the open.
+    expect(terminalOutFor(ownerSock)).toHaveLength(0);
+    expect(terminalOutFor(restrictedSock)).toHaveLength(0);
+    expect(terminalOutFor(visibleSock)).toHaveLength(0);
+
+    // The owner (requester) opens the terminal.
+    ownerSock.send({ type: "terminal_open", agentId: hid.id });
+
+    // Barrier: the requester receives the buffered replay. handleInboundMessage
+    // runs synchronously to the ws.send, so once the owner has it the server's
+    // per-socket decision for Mia and Val has already run.
+    const replay = await waitForMessageWhere(
+      ownerSock,
+      (m) => m.type === "terminal_output" && m.agentId === hid.id,
+    );
+    expect(replay.data).toBe(BACKLOG);
+    // Requester-only positive: exactly one replay, no duplicate to the owner.
+    expect(terminalOutFor(ownerSock)).toHaveLength(1);
+
+    // Per-socket FIFO flush: a ping->pong round-trip on each other socket
+    // guarantees anything the OLD broadcast() would have dispatched to them
+    // (dispatched server-side BEFORE these pings) is already in their buffer. So
+    // a count of zero FAILS against the old broadcast and PASSES on
+    // requester-only.
+    await pingPong(restrictedSock);
+    await pingPong(visibleSock);
+
+    // Security: the restricted member never receives the hidden agent's buffer.
+    expect(terminalOutFor(restrictedSock)).toHaveLength(0);
+    // Scope: a DIFFERENT visible user is not re-seeded — the replay is for the
+    // requester only, not an ACL-scoped broadcast to everyone who can see Hid.
+    expect(terminalOutFor(visibleSock)).toHaveLength(0);
   });
 });
 

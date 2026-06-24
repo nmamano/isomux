@@ -4793,6 +4793,30 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     closeTerminalImpl(agentId, terminalDeps);
   }
 
+  // Test-only seam (projection/ACL net). Seed a fake PTY sidecar + buffered
+  // output so the terminal_open buffered-replay path can be exercised without a
+  // real node-pty sidecar: node-pty's native binding won't run under Bun, so
+  // FakeBackend has no PTY. This sets the exact "already running" state
+  // openTerminal early-returns on, so the REAL openTerminal (no spawn) and the
+  // REAL getTerminalBuffer run against it. Throws on an unknown agent so a test
+  // can't silently seed nothing. Never called in production; exposed only as
+  // `_testSeedTerminalBuffer`, not part of the production terminal API.
+  function _testSeedTerminalBuffer(agentId: string, buffer: string): boolean {
+    const managed = agents.get(agentId);
+    if (!managed) {
+      throw new Error(`_testSeedTerminalBuffer: unknown agent ${agentId}`);
+    }
+    // Only the truthiness of ptySidecar is read on the replay path; cleanup
+    // paths tolerate a missing stdin and only ever call kill().
+    managed.ptySidecar = {
+      kill() {
+        /* test stub: no real PTY process to signal */
+      },
+    } as unknown as import("bun").Subprocess;
+    managed.ptyBuffer = buffer;
+    return true;
+  }
+
   // --- Editor file open/save — implementation in file-editor.ts ---
   //
   // The editor is per-WS state (watchers, dirty buffers, tabs); these wrappers
@@ -4884,6 +4908,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     terminalInput,
     terminalResize,
     closeTerminal,
+    _testSeedTerminalBuffer,
     openEditorFile,
     saveEditorFile,
     resolveEditorPathForAgent,

@@ -46,7 +46,7 @@ Surfaces that are not below the Backend seam have their own harnesses. Tests und
 - **Onboarding / fresh install** — welcome agents spawn across the three backend-availability states. Tests: `onboarding.test.ts`.
 - **UI** — store-reducer invariants, the `apiFetch` harness, office grid, and room selection. Tests: `ui/store.test.ts`, `ui/api.test.ts`, `ui/office/grid.test.ts`, `ui/roomSelection.test.ts`, `ui/user-merge.test.ts`.
 
-Most server harnesses live under `server/test-support/`; the in-process server harness (`harness.test.ts`) boots the server against temp state with multiple authenticated users and sockets. Interactive terminal coverage is deferred to a future terminal seam: today only the event-registry audience for `terminal_output`/`terminal_exit` is pinned (`event-registry.test.ts`), while the PTY routing/ACL and the `terminal_open` buffered-replay path are explicitly not yet characterized (`projection.test.ts` carves terminal into its own stubbed-PTY/opt-in seam; the `terminal_open` buffer-replay ACL leak is filed as task `39ce6225`). The Codex subprocess lifecycle is adapter-contract plus opt-in live, not part of the main net.
+Most server harnesses live under `server/test-support/`; the in-process server harness (`harness.test.ts`) boots the server against temp state with multiple authenticated users and sockets. Interactive terminal coverage is PARTIAL: the event-registry audience for `terminal_output`/`terminal_exit` is pinned (`event-registry.test.ts`), and the `terminal_open` buffered-replay ACL is now characterized (`projection.test.ts`: a restricted member receives zero `terminal_output` for a hidden agent, the requester gets exactly one, and a second visible user is not re-seeded; the buffer is seeded through the manager's test-only stubbed-terminal seam since FakeBackend has no PTY; task `39ce6225` closed). The broader interactive PTY path (live input/resize/close routing) stays deferred to a future stubbed-PTY/opt-in seam. The Codex subprocess lifecycle is adapter-contract plus opt-in live, not part of the main net.
 
 ## Infrastructure
 
@@ -111,7 +111,7 @@ Feature → risk tier → deterministic test path → live/manual coverage. A co
 | Mobile UI | manual | - | visual |
 | Visual office / animated characters / skeuomorphic / themes | manual | - | visual |
 | Auto-generated topic | T1/T3 | endpoint returns non-empty, at most 8 words (mechanism) | T3 quality spot-check |
-| Terminal | T1 (partial) | event-registry audience for terminal_output/terminal_exit; interactive PTY routing/replay deferred to a future seam | opt-in real PTY |
+| Terminal | T1 (partial) | event-registry audience for terminal_output/terminal_exit; terminal_open buffered-replay ACL covered (projection.test.ts, task 39ce6225); interactive PTY input/resize/close routing deferred to a future seam | opt-in real PTY |
 | Editor | T1 | editor_open/save/external-change routes + path safety | - |
 | Diff tool | T0/T1 | diff summary unit + POST diff route | - |
 | Voice-to-text / TTS | manual | - | browser manual |

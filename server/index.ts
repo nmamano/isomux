@@ -3100,20 +3100,22 @@ async function handleInboundMessage(
         if (!agentVisibleForSession(session, cmd.agentId)) break;
         const opened = agentManager.openTerminal(cmd.agentId);
         if (opened) {
-          // Replay buffered output so the browser catches up.
-          // KNOWN ACL LEAK (task 39ce6225, deliberately DEFERRED in the Phase 4
-          // close-out — Nil-gated): this buffer replay broadcasts to ALL sockets,
-          // not the room-ACL audience terminal_output declares, so a user without
-          // access to the agent's room receives the buffered output. Left
-          // byte-identical here (Phase 4 deletes dead surface; it does not change
-          // ACL behavior); the fix is a separate focused security patch.
+          // Seed ONLY the requester that just opened the terminal. The live
+          // terminal_output stream is ACL-gated on the live emit path (it is a
+          // room-ACL event), so other visible sockets stay current without this
+          // replay; broadcasting the backlog to every socket leaked it to
+          // sockets without access to the agent's room (task 39ce6225) and could
+          // duplicate the backlog into another already-open terminal panel for
+          // the same agent.
           const buffer = agentManager.getTerminalBuffer(cmd.agentId);
           if (buffer) {
-            broadcast({
-              type: "terminal_output",
-              agentId: cmd.agentId,
-              data: buffer,
-            });
+            ws.send(
+              JSON.stringify({
+                type: "terminal_output",
+                agentId: cmd.agentId,
+                data: buffer,
+              }),
+            );
           }
         }
         break;
