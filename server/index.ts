@@ -2640,9 +2640,9 @@ function applyViewChange(targetUserId: string, change: ViewChange): boolean {
   // Snapshot prior values (as keys) BEFORE the write so the post-write fanout
   // can tell what actually changed (sets compared order-insensitively; `order`
   // is order-sensitive).
-  const prevOrderKey = user.order.join(" ");
-  const prevHiddenKey = [...user.hidden].sort().join(" ");
-  const prevNotifKey = [...user.notifRooms].sort().join(" ");
+  const prevOrderKey = user.order.join("\u0000");
+  const prevHiddenKey = [...user.hidden].sort().join("\u0000");
+  const prevNotifKey = [...user.notifRooms].sort().join("\u0000");
   const prevDefault = user.defaultRoomId;
 
   const next = clampViewFields(accessible, user, change);
@@ -2667,10 +2667,10 @@ function applyViewChange(targetUserId: string, change: ViewChange): boolean {
   // owners via the admin channel and to the subject via the self channel) +
   // emitUsersList.
   const projectionChanged =
-    next.order.join(" ") !== prevOrderKey ||
-    [...next.hidden].sort().join(" ") !== prevHiddenKey;
+    next.order.join("\u0000") !== prevOrderKey ||
+    [...next.hidden].sort().join("\u0000") !== prevHiddenKey;
   const recordChanged =
-    [...next.notifRooms].sort().join(" ") !== prevNotifKey ||
+    [...next.notifRooms].sort().join("\u0000") !== prevNotifKey ||
     next.defaultRoomId !== prevDefault;
   if (projectionChanged) {
     pushProjectedFullStateForUserId(targetUserId);
