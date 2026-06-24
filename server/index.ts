@@ -1602,15 +1602,32 @@ function buildExecutorDeps(): ExecutorDeps {
         }
         const renamed =
           username.toLowerCase() !== result.user.name.toLowerCase();
-        // DELIBERATE (Reviewer1): unlike setAccess (always private), users.update
-        // can change PUBLIC fields (name/avatar), so it keeps the full public
-        // refresh (user_updated + users_list) — matching the old WS update_user.
-        // A private-only edit (env/prompt) therefore still emits a public event
-        // with no public-field change (a benign timing signal, far less sensitive
-        // than an access grant). Conditioning this on a public-field delta is a
-        // deferred cleanup, not a leak (the public payload is toPublicWire only).
-        emitUserUpdated(result.user, renamed ? username : undefined);
-        emitUsersList();
+        // Condition the PUBLIC refresh on an actual public-field delta (0236f470).
+        // users.update can touch PUBLIC fields or PRIVATE-only ones. UserPublicWire
+        // is id|name|role|avatarColor|avatarVariant|createdAt, and of those this
+        // route mutates only name/avatarColor/avatarVariant; env/prompt are private.
+        // A private-only edit changes nothing in the public projection, so a public
+        // user_updated/users_list would be a pure timing signal that the record
+        // changed — the leak setAccess avoids. Mirror setAccess: owners always get
+        // the full record via the owners-only admin event and the subject via its
+        // own self event; the all-audience public channels fire ONLY when a public
+        // field actually changed. (`target` is the pre-image: updateUserById writes
+        // a new record, it does not mutate the object getUser returned.)
+        const publicChanged =
+          result.user.name !== target.name ||
+          result.user.avatarColor !== target.avatarColor ||
+          result.user.avatarVariant !== target.avatarVariant;
+        if (publicChanged) {
+          emitUserUpdated(result.user, renamed ? username : undefined);
+          emitUsersList();
+        } else {
+          liveEmit("user_admin_updated", { user: result.user });
+          liveEmit(
+            "user_self_updated",
+            { user: result.user },
+            { userId: result.user.id },
+          );
+        }
         const presenceTouched = refreshPresenceForUser(result.user.id, {
           name: result.user.name,
           avatarColor: result.user.avatarColor,

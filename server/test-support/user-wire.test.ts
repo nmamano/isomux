@@ -109,6 +109,26 @@ async function ownerSetAccess(
   }
 }
 
+// 0236f470: a record edit goes through the real REST users.update route (PATCH,
+// selfOrOwner). A PRIVATE-only edit (env/prompt) must NOT broadcast a public
+// user_updated/users_list; a PUBLIC edit (name/avatar) must.
+async function ownerUpdate(
+  srv: TestServer,
+  ownerRawSessionId: string,
+  username: string,
+  changes: Record<string, unknown>,
+): Promise<void> {
+  const res = await srv.http(`/api/users/${encodeURIComponent(username)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(changes),
+    rawSessionId: ownerRawSessionId,
+  });
+  if (res.status >= 400) {
+    throw new Error(`update failed: ${res.status}`);
+  }
+}
+
 describe("user-wire projection leak closure (3b.5)", () => {
   it("a member receives UserPublicWire only on users_list, their OWN full record via self, and NO admin events", async () => {
     server = await startTestServer();
@@ -205,6 +225,86 @@ describe("user-wire projection leak closure (3b.5)", () => {
         (m.user as Msg).id === miaId,
     );
     expect(bobForMia).toHaveLength(0);
+  });
+
+  it("a private-only record edit (memberPrompt) fans self(full)+admin(full), and NOTHING public to other members (0236f470)", async () => {
+    server = await startTestServer();
+    const owner = await server.seedOwner("Boss");
+    const mia = await server.seedMember("Mia");
+    const bob = await server.seedMember("Bob");
+
+    const ownerSock = await connectSettled(server, owner.rawSessionId);
+    const miaSock = await connectSettled(server, mia.rawSessionId);
+    const bobSock = await connectSettled(server, bob.rawSessionId);
+
+    const miaId = getUserByName(mia.username)!.id;
+    // Bob's connect hydration already delivered one users_list; baseline it so
+    // we can assert the edit fires NO new public roster broadcast to him.
+    const bobUsersListBefore = bag(bobSock).filter(
+      (m) => m.type === "users_list",
+    ).length;
+
+    await ownerUpdate(server, owner.rawSessionId, mia.username, {
+      memberPrompt: "be concise",
+    });
+
+    // Subject (Mia): own full record via self, carrying the new private field.
+    const miaSelf = await waitForWhere(
+      miaSock,
+      (m) =>
+        m.type === "user_self_updated" &&
+        (m.user as Msg).id === miaId &&
+        (m.user as Msg).memberPrompt === "be concise",
+    );
+    expect((miaSelf.user as Msg).memberPrompt).toBe("be concise");
+
+    // Owner: full record via the owners-only admin event.
+    const ownerAdmin = await waitForWhere(
+      ownerSock,
+      (m) =>
+        m.type === "user_admin_updated" &&
+        (m.user as Msg).id === miaId &&
+        (m.user as Msg).memberPrompt === "be concise",
+    );
+    expect((ownerAdmin.user as Msg).memberPrompt).toBe("be concise");
+
+    // Other member (Bob): NO per-record event about Mia, and NO new public
+    // users_list. A private-only edit must not broadcast a timing signal to all.
+    await pingPong(bobSock);
+    const bobForMia = bag(bobSock).filter(
+      (m) =>
+        (m.type === "user_updated" ||
+          m.type === "user_admin_updated" ||
+          m.type === "user_self_updated") &&
+        (m.user as Msg).id === miaId,
+    );
+    expect(bobForMia).toHaveLength(0);
+    expect(bag(bobSock).filter((m) => m.type === "users_list").length).toBe(
+      bobUsersListBefore,
+    );
+  });
+
+  it("a public record edit (name) DOES fan a public user_updated to other members", async () => {
+    server = await startTestServer();
+    const owner = await server.seedOwner("Boss");
+    const mia = await server.seedMember("Mia");
+    const bob = await server.seedMember("Bob");
+
+    const bobSock = await connectSettled(server, bob.rawSessionId);
+    const miaId = getUserByName(mia.username)!.id;
+
+    await ownerUpdate(server, owner.rawSessionId, mia.username, {
+      name: "Mia Renamed",
+    });
+
+    // A public field changed, so the all-audience public channel fires to
+    // everyone (public wire only).
+    const pub = await waitForWhere(
+      bobSock,
+      (m) => m.type === "user_updated" && (m.user as Msg).id === miaId,
+    );
+    expect((pub.user as Msg).name).toBe("Mia Renamed");
+    expectPublicOnly(pub.user as Msg);
   });
 
   it("office envFile is stripped for members (full_state.office + office_settings_updated) and kept for owners", async () => {
