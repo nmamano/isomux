@@ -274,16 +274,17 @@ Reference document: `docs/access-and-invites.md`.
 
 ## Appendix C — Internal authorization gaps (out of primary scope)
 
-Known **post-acceptance** authorization gaps fall outside this report's external-access scope: an authenticated member with access to a single room can read and mutate resources belonging to members of other rooms (cronjobs, file attachments, tasks), and uploaded HTML can execute in the office's same-origin context. In the documented trust model (`docs/access-and-invites.md`, "Trust model boundaries"), every invited user is treated as equally privileged inside the office; the items below become findings only if that trust model is tightened.
+Known **post-acceptance** authorization gaps fall outside this report's external-access scope: an authenticated member with access to a single room can read resources belonging to members of other rooms (cronjob metadata and run transcripts, file attachments, tasks) and mutate those members' file attachments and tasks (cronjob mutation is creator-or-office-owner gated; see C.1), and uploaded HTML can execute in the office's same-origin context. In the documented trust model (`docs/access-and-invites.md`, "Trust model boundaries"), every invited user is treated as equally privileged inside the office; the items below become findings only if that trust model is tightened.
 
-### C.1 Cronjobs and cronjob run transcripts are office-wide-readable and globally mutable
+### C.1 Cronjob metadata and run transcripts are office-wide-readable
 
-- `server/index.ts` — every WebSocket open broadcasts the full cronjob list to the connecting session.
-- `server/index.ts` — `add_cronjob`, `update_cronjob`, `delete_cronjob`, `run_cronjob_now`, `update_cronjobs_prompt`, `list_cronjob_runs`, `list_all_cronjob_runs`, `load_cronjob_run`, `send_cronjob_run_message`, `edit_cronjob_run_message` — none verify the calling session owns the cronjob.
-- `server/index.ts` — HTTP `GET /cronjobs/*` is loopback-bypassable and unscoped.
-- The `userId`/`username` fields are stored on each cronjob but no policy currently consumes them.
+- Cronjob config and run transcripts are readable by every authenticated user. The full cronjob list is delivered to each session on connect (office-wide metadata read by design), and the cron read routes (`cron.list`, `cron.get`, `cron.listRuns`, `cron.listAllRuns`, `cron.getRun`) require only `cron:read`, which every authenticated user holds, so any member can read any creator's config and runs.
+- Run transcripts execute with the creator's env and can contain their secrets, so transcript read, not metadata, is the sharp edge here.
+- `server/index.ts` — the legacy `GET /cronjobs/*` read route is a trusted same-host (loopback) bypass: a process on the server reads cronjob metadata and transcripts without a token. Its removal is deferred.
 
-**If tightening is desired:** decide per-user vs office-wide-read + owner-only-write; gate the WS commands and HTTP routes accordingly.
+Cronjob mutation is owner-gated: edit, delete, and run-now (`cron.update`/`cron.delete`/`cron.runNow`) require the creator or an office owner (`cronjobOwnerOrOfficeOwner`, keyed on the stored `userId`); the shared cron prompt (`cron.setPrompt`) requires an office owner; create (`cron.create`) is open to any authenticated user.
+
+**If tightening is desired:** restrict run-transcript reads to the creator plus office owners (metadata can stay office-wide-read), and remove the loopback `GET /cronjobs/*` route.
 
 ### C.2 File serving and uploads bypass the room/agent ACL
 
