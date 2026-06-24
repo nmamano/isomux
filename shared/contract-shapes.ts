@@ -153,10 +153,6 @@ export interface ViewOrderReq {
   order: string[];
 }
 
-export interface ShownRoomsReq {
-  shown: string[];
-}
-
 export interface NotifRoomsReq {
   notifRooms: string[];
 }

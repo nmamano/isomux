@@ -1,6 +1,6 @@
 // Phase 3d slice 9b — the users.* REST EXPAND contract (Group 7 auth surface).
 //
-// users.{list,update,setAccess,delete} were table-declared but NEVER registered
+// users.{update,setAccess,delete} were table-declared but NEVER registered
 // (Phase 1 probe: an unauth probe returned the LEGACY flat {error:"..."} shape,
 // identical to a nonexistent path), so this slice BUILDS them. What it freezes:
 //   - The update_user SPLIT (Option A, Nil-gated): users.update carries ONLY the
@@ -11,16 +11,17 @@
 //     editing/deleting another's is a uniform 403 (no existence oracle).
 //   - The two delete preconditions: owner!=self (403 owner_self_delete) and
 //     not-last-owner; missing target is an idempotent 204.
-//   - Recipient-scoped list: owner sees full admin records; a member sees public
-//     wires with their OWN entry full — never a foreign private field.
 //   - AGENT bearer can never reach the user-management routes (USER-scoped guards).
+//
+// (users.list — built recipient-scoped in 9b — was removed as callerless in the
+// Phase 4 close-out: the UI hydrates the roster from the users_list broadcasts.)
 //
 // Seam: startTestServer(). Zero LLM.
 
 import { describe, it, expect, afterEach } from "bun:test";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { mintInvite, acceptInvite } from "../auth.ts";
-import { getUserByName, getUserById } from "../users.ts";
+import { getUserByName } from "../users.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 
 let server: TestServer | null = null;
@@ -289,38 +290,5 @@ describe("routes/users REST — delete (preconditions + non-leak)", () => {
       rawSessionId: owner.rawSessionId,
     });
     expect(ownerGhost.status).toBe(204);
-  });
-});
-
-describe("routes/users REST — list (recipient-scoped)", () => {
-  it("owner sees full admin records; a member sees public wires + their OWN full self record", async () => {
-    server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
-    const mia = await server.seedMember("Mia");
-    const miaId = getUserByName(mia.username)!.id;
-    // Give Mia an env file (a private field) so the leak check is meaningful.
-    expect(getUserById(miaId) && getUserByName("Boss")).toBeDefined();
-
-    const asOwner = await api(server, `/api/users`, {
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(asOwner.status).toBe(200);
-    const ownerUsers = (asOwner.body as { users: Record<string, unknown>[] })
-      .users;
-    // Owner gets the full admin record: allowedRooms is present on every entry.
-    for (const u of ownerUsers) expect("allowedRooms" in u).toBe(true);
-
-    const asMember = await api(server, `/api/users`, {
-      rawSessionId: mia.rawSessionId,
-    });
-    expect(asMember.status).toBe(200);
-    const memberUsers = (asMember.body as { users: Record<string, unknown>[] })
-      .users;
-    const ownEntry = memberUsers.find((u) => u.id === miaId)!;
-    const otherEntry = memberUsers.find((u) => u.id !== miaId)!;
-    // Own entry = full self record (allowedRooms present); others = public only.
-    expect("allowedRooms" in ownEntry).toBe(true);
-    expect("allowedRooms" in otherEntry).toBe(false);
-    expect("envFile" in otherEntry).toBe(false);
   });
 });

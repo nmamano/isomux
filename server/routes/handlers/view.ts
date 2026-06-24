@@ -1,35 +1,29 @@
 // View-preference resource handlers — Phase 3b slice 4. The per-user visibility
-// surface (opIds view.{get,setOrder,setShown,setNotifRooms,setDefaultRoom}) on
-// the unified REST surface. SELF-scoped: the route table gates every op with
-// view:manage + authenticated, and each handler acts on the CALLER's own userId.
+// surface (opIds view.{setOrder,setNotifRooms,setDefaultRoom}) on the unified
+// REST surface. SELF-scoped: the route table gates every op with view:manage +
+// authenticated, and each handler acts on the CALLER's own userId.
 //
-// Strangler EXPAND→CUT: these routes are the live view surface. reorder_rooms was
-// cut over to view.setOrder (slice 6); the only legacy WS arm still delegating to
-// this core is the update_user notifRooms/defaultRoomId slice (deferred to group
-// 7). Both REST and that arm delegate to the SAME core
-// (applyViewChange / getViewProjection in the index seam), so the view
-// invariants — order deduped + filtered to accessible; effective shown =
-// accessible minus hidden; notifRooms within effective shown; defaultRoomId
-// within effective shown else null — live in exactly one place. The handler
-// NEVER emits; the core fans out (projected full_state for order/shown,
-// user_updated for notifRooms/defaultRoomId).
+// Phase 4 close-out removed view.get and view.setShown as callerless: the UI is
+// echo-authoritative and reads view prefs from full_state (never a dedicated
+// GET), and no hide-rooms affordance ever called setShown. The shown/hidden
+// RECORD machinery — clampViewFields, projection filtering, the change.shown
+// clamp branch — stays intact, so re-adding view.setShown is a one-line handler
+// entry + table row when a hide-rooms UI lands.
+//
+// All three live ops delegate to the SAME core (applyViewChange in the index
+// seam), so the view invariants — order deduped + filtered to accessible;
+// notifRooms within effective shown; defaultRoomId within effective shown else
+// null — live in exactly one place. The handler NEVER emits; the core fans out
+// (projected full_state for order, user_updated for notifRooms/defaultRoomId).
 //
 // NO-ORACLE (Isomuxer3 Q2): handlers reject malformed body SHAPES (a non-array
 // where room ids are expected), but NEVER an unknown / inaccessible /
 // accessible-but-hidden room id — the core silently filters/clamps those, so a
-// write is not an existence oracle. view.get returns the EFFECTIVE projection
-// only (never a stored id the caller cannot access).
+// write is not an existence oracle.
 //
 // LEAF over the executor + the injected ViewDeps.
 
-import { ok, noContent, fail, type RouteHandler } from "../executor.ts";
-
-export interface ViewProjectionWire {
-  order: string[];
-  shown: string[];
-  notifRooms: string[];
-  defaultRoomId: string | null;
-}
+import { noContent, fail, type RouteHandler } from "../executor.ts";
 
 export interface ViewChangeInput {
   order?: string[];
@@ -39,7 +33,6 @@ export interface ViewChangeInput {
 }
 
 export interface ViewDeps {
-  getView(userId: string): ViewProjectionWire;
   // Applies + clamps + persists + fans out. Returns false only if the target
   // user record vanished (rendered as 404 here).
   applyView(userId: string, change: ViewChangeInput): boolean;
@@ -52,7 +45,7 @@ export function viewHandlers(deps: ViewDeps): Record<string, RouteHandler> {
   // Set one view field from a string[] body field. Rejects only a malformed
   // SHAPE; the core silently filters unknown/inaccessible/hidden ids.
   const setIdList =
-    (field: "order" | "shown" | "notifRooms", code: string): RouteHandler =>
+    (field: "order" | "notifRooms", code: string): RouteHandler =>
     (ctx) => {
       const userId = ctx.identity.userId;
       if (!userId) return fail(401, "not_a_user", "view is per-user");
@@ -68,14 +61,7 @@ export function viewHandlers(deps: ViewDeps): Record<string, RouteHandler> {
     };
 
   return {
-    "view.get": (ctx) => {
-      const userId = ctx.identity.userId;
-      if (!userId) return fail(401, "not_a_user", "view is per-user");
-      return ok(deps.getView(userId));
-    },
-
     "view.setOrder": setIdList("order", "invalid_order"),
-    "view.setShown": setIdList("shown", "invalid_shown"),
     "view.setNotifRooms": setIdList("notifRooms", "invalid_notif_rooms"),
 
     "view.setDefaultRoom": (ctx) => {

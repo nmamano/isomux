@@ -1,9 +1,14 @@
-// Phase 3b slice 4 — view.* REST routes + the per-user view core (applyViewChange
-// / getViewProjection), exercised through the real REST surface. Covers the
-// NO-ORACLE write rules (Isomuxer3 Q2: malformed SHAPES rejected, unknown/
-// inaccessible/hidden ROOM IDS silently filtered/clamped) and the clamp
-// invariants (order deduped + accessible; effective shown = accessible \ hidden;
+// Phase 3b slice 4 — view.* REST routes + the per-user view core (applyViewChange),
+// exercised through the real REST surface. Covers the NO-ORACLE write rules
+// (Isomuxer3 Q2: malformed SHAPES rejected, unknown/inaccessible/hidden ROOM IDS
+// silently filtered/clamped) and the clamp invariants (order deduped + accessible;
 // notifRooms ⊆ effective shown; defaultRoomId ∈ effective shown else null).
+//
+// Phase 4 close-out removed view.get + view.setShown (callerless). The remaining
+// routes are view.{setOrder,setNotifRooms,setDefaultRoom}; the `hidden` set is set
+// via direct persisted-state setup (the hide() helper, mirroring the migration
+// seed), and writes are read back from the stored record (full_state carries view
+// prefs at runtime — there is no dedicated GET to assert against).
 
 import { describe, it, expect, afterEach } from "bun:test";
 import {
@@ -27,21 +32,6 @@ const bagLen = (sock: TestSocket, type: string): number =>
   (sock.messages as Record<string, unknown>[]).filter((m) => m.type === type)
     .length;
 
-interface ViewBody {
-  order: string[];
-  shown: string[];
-  notifRooms: string[];
-  defaultRoomId: string | null;
-}
-
-async function getView(
-  srv: TestServer,
-  rawSessionId: string,
-): Promise<{ status: number; body: ViewBody }> {
-  const resp = await srv.http("/api/me/view", { rawSessionId });
-  return { status: resp.status, body: (await resp.json()) as ViewBody };
-}
-
 async function putView(
   srv: TestServer,
   rawSessionId: string,
@@ -62,6 +52,16 @@ function grant(username: string, roomIds: string[]): void {
   const id = getUserByName(username)!.id;
   const r = updateUserById(id, { allowedRooms: roomIds });
   if (!r.ok) throw new Error(`grant failed: ${r.error}`);
+}
+
+// Hide accessible rooms directly (test setup). view.setShown was removed in the
+// Phase 4 close-out (callerless); the `hidden` set is now seeded only by the
+// owner-access migration, so tests set it via the persisted record. The clamp
+// still fires on the next view/access write (clampViewFields), as live paths do.
+function hide(username: string, roomIds: string[]): void {
+  const id = getUserByName(username)!.id;
+  const r = updateUserById(id, { hidden: roomIds });
+  if (!r.ok) throw new Error(`hide failed: ${r.error}`);
 }
 
 async function connectSettled(
@@ -90,32 +90,6 @@ async function waitForFullState(
 }
 
 describe("view.* routes — no-oracle writes + clamp invariants (3b.4)", () => {
-  it("view.get returns ONLY effective values (no inaccessible id; shown filters hidden)", async () => {
-    server = await startTestServer();
-    await server.seedOwner("Boss");
-    const member = await server.seedMember("Mia");
-    const r1 = server.agentManager.getRooms()[0].id;
-    const r2 = server.agentManager.createRoom("R2");
-    const r3 = server.agentManager.createRoom("R3"); // never granted to member
-    grant(member.username, [r1, r2]);
-
-    expect(
-      await putView(server, member.rawSessionId, "shown", { shown: [r1] }),
-    ).toBe(204); // hide r2
-    expect(
-      await putView(server, member.rawSessionId, "order", {
-        order: [r2, r1, r3],
-      }),
-    ).toBe(204);
-
-    const { status, body } = await getView(server, member.rawSessionId);
-    expect(status).toBe(200);
-    expect(body.shown).toEqual([r1]); // r2 hidden, r3 inaccessible
-    expect(body.order).toEqual([r2, r1]); // r2 kept (accessible), r3 dropped
-    expect(body.order).not.toContain(r3);
-    expect(body.shown).not.toContain(r3);
-  });
-
   it("setOrder dedupes (first occurrence wins), filters inaccessible, keeps hidden-but-accessible", async () => {
     server = await startTestServer();
     await server.seedOwner("Boss");
@@ -124,7 +98,7 @@ describe("view.* routes — no-oracle writes + clamp invariants (3b.4)", () => {
     const r2 = server.agentManager.createRoom("R2");
     server.agentManager.createRoom("R3"); // r3 inaccessible
     grant(member.username, [r1, r2]);
-    await putView(server, member.rawSessionId, "shown", { shown: [r1] }); // hide r2
+    hide(member.username, [r2]); // r2 accessible but hidden
 
     const memberId = getUserByName(member.username)!.id;
     await putView(server, member.rawSessionId, "order", {
@@ -134,31 +108,31 @@ describe("view.* routes — no-oracle writes + clamp invariants (3b.4)", () => {
     expect(getUserById(memberId)!.order).toEqual([r2, r1]);
   });
 
-  it("setShown re-clamps notifRooms AND defaultRoomId when a room is hidden", async () => {
+  it("a directly-hidden room is excluded from effective notif/default on the next view write", async () => {
+    // view.setShown is gone (Phase 4); a hidden room now arrives via the
+    // migration seed (here: direct setup). The clamp still fires on the next
+    // view write — the same clampViewFields path the retired setShown used, and
+    // the same one users.setAccess uses on revoke (covered in user-settings.test).
     server = await startTestServer();
     await server.seedOwner("Boss");
     const member = await server.seedMember("Mia");
     const r1 = server.agentManager.getRooms()[0].id;
     const r2 = server.agentManager.createRoom("R2");
     grant(member.username, [r1, r2]);
+    hide(member.username, [r2]); // r2 accessible but hidden
+    const memberId = getUserByName(member.username)!.id;
 
+    // notifRooms write clamps to effective shown (accessible \ hidden) → r2 dropped.
     await putView(server, member.rawSessionId, "notif-rooms", {
       notifRooms: [r1, r2],
     });
+    expect(getUserById(memberId)!.notifRooms).toEqual([r1]);
+
+    // defaultRoom write to the hidden r2 clamps to null (no oracle).
     await putView(server, member.rawSessionId, "default-room", {
       defaultRoomId: r2,
     });
-    let v = (await getView(server, member.rawSessionId)).body;
-    expect([...v.notifRooms].sort()).toEqual([r1, r2].sort());
-    expect(v.defaultRoomId).toBe(r2);
-
-    // Hide r2 → notif drops r2; default (was r2) re-clamps to null.
-    expect(
-      await putView(server, member.rawSessionId, "shown", { shown: [r1] }),
-    ).toBe(204);
-    v = (await getView(server, member.rawSessionId)).body;
-    expect(v.notifRooms).toEqual([r1]);
-    expect(v.defaultRoomId).toBeNull();
+    expect(getUserById(memberId)!.defaultRoomId).toBeNull();
   });
 
   it("setDefaultRoom: inaccessible and accessible-but-hidden BOTH clamp to null (no oracle)", async () => {
@@ -169,7 +143,8 @@ describe("view.* routes — no-oracle writes + clamp invariants (3b.4)", () => {
     const r2 = server.agentManager.createRoom("R2");
     const r3 = server.agentManager.createRoom("R3"); // inaccessible
     grant(member.username, [r1, r2]);
-    await putView(server, member.rawSessionId, "shown", { shown: [r1] }); // hide r2
+    hide(member.username, [r2]); // r2 accessible but hidden
+    const memberId = getUserByName(member.username)!.id;
 
     // Inaccessible r3 → null.
     expect(
@@ -177,27 +152,21 @@ describe("view.* routes — no-oracle writes + clamp invariants (3b.4)", () => {
         defaultRoomId: r3,
       }),
     ).toBe(204);
-    expect(
-      (await getView(server, member.rawSessionId)).body.defaultRoomId,
-    ).toBeNull();
+    expect(getUserById(memberId)!.defaultRoomId).toBeNull();
     // Accessible-but-hidden r2 → null (IDENTICAL outcome — no oracle).
     expect(
       await putView(server, member.rawSessionId, "default-room", {
         defaultRoomId: r2,
       }),
     ).toBe(204);
-    expect(
-      (await getView(server, member.rawSessionId)).body.defaultRoomId,
-    ).toBeNull();
+    expect(getUserById(memberId)!.defaultRoomId).toBeNull();
     // A visible room sticks.
     expect(
       await putView(server, member.rawSessionId, "default-room", {
         defaultRoomId: r1,
       }),
     ).toBe(204);
-    expect(
-      (await getView(server, member.rawSessionId)).body.defaultRoomId,
-    ).toBe(r1);
+    expect(getUserById(memberId)!.defaultRoomId).toBe(r1);
   });
 
   it("rejects a malformed body SHAPE (422) but silently accepts an unknown room id", async () => {

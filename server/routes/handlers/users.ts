@@ -31,9 +31,7 @@ import {
   type RouteHandler,
   type HandlerErrorStatus,
 } from "../executor.ts";
-import type { Identity } from "../../identity/index.ts";
 import type {
-  UserPublicWire,
   UserSelfWire,
   UserUpdateReq,
 } from "../../../shared/contract-shapes.ts";
@@ -50,12 +48,6 @@ type DeleteOutcome =
   | { ok: false; status: HandlerErrorStatus; code: string; error: string };
 
 export interface UsersDeps {
-  // Recipient-scoped roster (record role): owner → full UserAdminWire[]; member →
-  // UserPublicWire[] with their OWN entry as the full UserSelfWire. No fan-out (a
-  // pure read never emits). Dormant in this slice — the UI hydrates the roster
-  // via the users_list/users_admin_list broadcasts; built for resource-
-  // completeness + to retire the legacy-shape probe (Reviewer1: build-thin now).
-  listScoped(identity: Identity): (UserPublicWire | UserSelfWire)[];
   // Record edit (name/env/prompt/avatar). selfOrOwner already passed. Validates
   // envFile via the shared seam; on ok emits user_updated + users_list + presence.
   update(input: {
@@ -114,8 +106,6 @@ function malformedUserUpdate(body: Partial<UserUpdateReq>): string | null {
 
 export function usersHandlers(deps: UsersDeps): Record<string, RouteHandler> {
   return {
-    "users.list": (ctx) => ok({ users: deps.listScoped(ctx.identity) }),
-
     "users.update": async (ctx) => {
       const body = (ctx.body ?? {}) as Partial<UserUpdateReq>;
       const malformed = malformedUserUpdate(body);

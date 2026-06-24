@@ -404,7 +404,8 @@ describe("full_state projection — connect-time ACL (Phase 1.2)", () => {
     // Under rule-based access an owner reaches every room by RULE, so writing
     // their allowedRooms (now a member-only GRANT store) no longer restricts
     // their own view — they keep seeing all rooms. Owner self-hide moves to the
-    // `hidden` VIEW preference (view.setShown, slice 4), tested there. The two
+    // `hidden` VIEW preference (seeded by the owner-access migration; the
+    // view.setShown route was removed as callerless in Phase 4). The two
     // invariants that survive UNCHANGED: the owner-only all_rooms_list stays
     // unfiltered, and members never receive all_rooms_list at all.
     server = await boot();

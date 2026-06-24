@@ -228,18 +228,11 @@ const SPEC_ROUTE_CONTRACT: Record<
     caps: ["room:manage"],
     emits: ["room_settings_updated"],
   },
-  "rooms.list": { caps: ["office:read"], emits: [] },
   // View preferences
-  "view.get": { caps: ["view:manage"], emits: [] },
   "view.setOrder": { caps: ["view:manage"], emits: ["full_state"] },
-  "view.setShown": {
-    caps: ["view:manage"],
-    emits: ["full_state", "user_updated"],
-  },
   "view.setNotifRooms": { caps: ["view:manage"], emits: ["user_updated"] },
   "view.setDefaultRoom": { caps: ["view:manage"], emits: ["user_updated"] },
   // Users
-  "users.list": { caps: ["office:read"], emits: [] },
   "users.update": {
     caps: ["user:self", "user:admin"],
     emits: ["user_updated", "users_list"],

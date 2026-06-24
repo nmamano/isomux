@@ -1558,17 +1558,6 @@ function buildExecutorDeps(): ExecutorDeps {
   // officeOwner); the two delete preconditions add owner!=self + not-last-owner.
   register(
     usersHandlers({
-      listScoped: (identity) => {
-        const all = listUsers();
-        const caller = identity.userId
-          ? getUserById(identity.userId)
-          : undefined;
-        // Record-role scoping (Option A, as for invites/sessions): an owner sees
-        // full admin records; a member sees public wires with their OWN entry as
-        // their full self record. Never a foreign private field.
-        if (caller?.role === "owner") return all;
-        return all.map((u) => (u.id === identity.userId ? u : toPublicWire(u)));
-      },
       update: async ({ username, changes }) => {
         const target = getUser(username);
         if (!target) {
@@ -2258,7 +2247,6 @@ function buildExecutorDeps(): ExecutorDeps {
   // notif/default are self-only. reorder_rooms cut over to view.setOrder in slice 6.
   register(
     viewHandlers({
-      getView: (userId) => getViewProjection(userId),
       applyView: (userId, change) => applyViewChange(userId, change),
     }),
   );
@@ -2698,38 +2686,6 @@ function applyViewChange(targetUserId: string, change: ViewChange): boolean {
   return true;
 }
 
-// view.get — the effective view projection for a user. Returns ONLY accessible
-// ids (Isomuxer3 Q2: view.get is not a read-back oracle): shown = effective
-// visible rooms in office order, order = the stored sparse order ∩ accessible,
-// notifRooms ∩ effective shown, defaultRoomId clamped to effective shown / null.
-function getViewProjection(userId: string): {
-  order: string[];
-  shown: string[];
-  notifRooms: string[];
-  defaultRoomId: string | null;
-} {
-  const user = getUserById(userId);
-  if (!user) {
-    return { order: [], shown: [], notifRooms: [], defaultRoomId: null };
-  }
-  const accessible = accessibleRoomIdsFor(user);
-  const hiddenSet = new Set(user.hidden);
-  const effectiveShown = new Set(
-    [...accessible].filter((id) => !hiddenSet.has(id)),
-  );
-  const order = dedupeFirstWins(user.order).filter((id) => accessible.has(id));
-  const shown = agentManager
-    .getRooms()
-    .map((room) => room.id)
-    .filter((id) => effectiveShown.has(id));
-  const notifRooms = user.notifRooms.filter((id) => effectiveShown.has(id));
-  const defaultRoomId =
-    user.defaultRoomId && effectiveShown.has(user.defaultRoomId)
-      ? user.defaultRoomId
-      : null;
-  return { order, shown, notifRooms, defaultRoomId };
-}
-
 // Push the unfiltered global rooms list to every owner WS. Used after
 // any change to the global rooms array so the owner-only admin view
 // (currently: the Allowed Rooms editor in UserManagementModal) keeps
@@ -3046,133 +3002,137 @@ function wireEventSinks(): void {
   });
 } // end wireEventSinks
 
-async function handleCommand(cmd: ClientCommand, ws: ServerWebSocket<WsData>) {
-  const session = ws.data.session;
-  try {
-    await dispatchCommand(cmd, ws, session);
-  } catch (err) {
-    // Top-level guard for async throws the per-case logic doesn't catch. Every
-    // command that carried a *_response shape has migrated to REST (group 7
-    // retired the last one, settings_save_response), so the remaining inbound
-    // commands (ping / presence_update / terminal IO) are fire-and-forget: log
-    // and move on. The dispatchCommand switch + this seam collapse in Phase 4.
-    console.error(`[handleCommand] ${cmd.type} failed:`, err);
-  }
-}
-
-async function dispatchCommand(
+// Inbound WS messages. Phase 3 moved every durable command to REST, so the WS is
+// no longer a command bus: the only inbound messages are the three permanent
+// exceptions — interactive terminal IO, presence_update (ephemeral cursor
+// telemetry), and ping. None is a durable command with an outcome worth
+// idempotency, so they are fire-and-forget. The top-level try/catch keeps a
+// per-message throw from tearing down the socket loop (log and move on); no
+// *_response remains (those all migrated to REST). The wire still carries
+// `username` on presence_update, but the server authority is always
+// session.username; trusting cmd.username would let a member spoof another's
+// display name. (Switch body left at its prior indentation; prettier normalizes
+// post-review.)
+async function handleInboundMessage(
   cmd: ClientCommand,
   ws: ServerWebSocket<WsData>,
-  session: SessionLookup,
 ) {
-  // The wire still carries `username` on several command types, but the
-  // server-side authority is always session.username. Trusting cmd.username
-  // would let a member spoof another member's display name on messages.
-  switch (cmd.type) {
-    case "ping":
-      ws.send(JSON.stringify({ type: "pong" }));
-      break;
-    case "presence_update": {
-      // Live-avatars: the sender tells us where its ghost should appear, as a
-      // stable global room id. Validate it DIRECTLY — it must name a LIVE room
-      // the sender can access — and clamp to null otherwise (sanitize, don't
-      // reject; the common cause is a race with an allowedRooms change). No
-      // room-index projection on the inbound path post-cut. Access (not
-      // visible/shown) is the gate: hiding a room is a view preference, not an
-      // access restriction, and buildPresenceListFor still filters each
-      // recipient by their own visibility so this can't leak a ghost into a
-      // room a recipient can't see. Self user record supplies avatarColor +
-      // avatarVariant so the wire payload is self-contained.
-      const user = getUserById(session.userId);
-      if (!user) break;
-      // Liveness is a SILENT membership check, not roomById(): a stale inbound id
-      // (the client raced a room close) is an EXPECTED sanitize-to-null case, not
-      // server-state corruption, so it must not trip roomById's loud [3c] log the
-      // way a dangling AGENT roomId on the emit side does. canAccess first as the
-      // cheap short-circuit (a member without the grant never scans the rooms).
-      const roomId =
-        cmd.currentRoomId !== null &&
-        canAccess(user, cmd.currentRoomId) &&
-        agentManager.getRooms().some((r) => r.id === cmd.currentRoomId)
-          ? cmd.currentRoomId
-          : null;
-      // Clamp focusedAgentId: must reference a real agent whose room
-      // matches the claimed roomId (so a stale cross-room focus claim
-      // becomes null server-side instead of degrading to lobby on the
-      // recipient). Membership in user.allowedRooms is implicit in the
-      // roomId === agentRoomId check, since roomId was already
-      // sanitized against allowedRooms above.
-      let focusedAgentId: string | null = null;
-      if (
-        typeof cmd.focusedAgentId === "string" &&
-        cmd.focusedAgentId &&
-        roomId !== null
-      ) {
-        const agent = agentManager
-          .getAllAgents()
-          .find((a) => a.id === cmd.focusedAgentId);
-        // Phase 3c: read the agent's authoritative roomId directly.
-        const agentRoomId = agent?.roomId ?? null;
-        if (agentRoomId === roomId) {
-          focusedAgentId = cmd.focusedAgentId;
+  const session = ws.data.session;
+  try {
+    switch (cmd.type) {
+      case "ping":
+        ws.send(JSON.stringify({ type: "pong" }));
+        break;
+      case "presence_update": {
+        // Live-avatars: the sender tells us where its ghost should appear, as a
+        // stable global room id. Validate it DIRECTLY — it must name a LIVE room
+        // the sender can access — and clamp to null otherwise (sanitize, don't
+        // reject; the common cause is a race with an allowedRooms change). No
+        // room-index projection on the inbound path post-cut. Access (not
+        // visible/shown) is the gate: hiding a room is a view preference, not an
+        // access restriction, and buildPresenceListFor still filters each
+        // recipient by their own visibility so this can't leak a ghost into a
+        // room a recipient can't see. Self user record supplies avatarColor +
+        // avatarVariant so the wire payload is self-contained.
+        const user = getUserById(session.userId);
+        if (!user) break;
+        // Liveness is a SILENT membership check, not roomById(): a stale inbound id
+        // (the client raced a room close) is an EXPECTED sanitize-to-null case, not
+        // server-state corruption, so it must not trip roomById's loud [3c] log the
+        // way a dangling AGENT roomId on the emit side does. canAccess first as the
+        // cheap short-circuit (a member without the grant never scans the rooms).
+        const roomId =
+          cmd.currentRoomId !== null &&
+          canAccess(user, cmd.currentRoomId) &&
+          agentManager.getRooms().some((r) => r.id === cmd.currentRoomId)
+            ? cmd.currentRoomId
+            : null;
+        // Clamp focusedAgentId: must reference a real agent whose room
+        // matches the claimed roomId (so a stale cross-room focus claim
+        // becomes null server-side instead of degrading to lobby on the
+        // recipient). Membership in user.allowedRooms is implicit in the
+        // roomId === agentRoomId check, since roomId was already
+        // sanitized against allowedRooms above.
+        let focusedAgentId: string | null = null;
+        if (
+          typeof cmd.focusedAgentId === "string" &&
+          cmd.focusedAgentId &&
+          roomId !== null
+        ) {
+          const agent = agentManager
+            .getAllAgents()
+            .find((a) => a.id === cmd.focusedAgentId);
+          // Phase 3c: read the agent's authoritative roomId directly.
+          const agentRoomId = agent?.roomId ?? null;
+          if (agentRoomId === roomId) {
+            focusedAgentId = cmd.focusedAgentId;
+          }
         }
-      }
-      const viewMode: "office" | "log" | "away" =
-        cmd.viewMode === "log" || cmd.viewMode === "away"
-          ? cmd.viewMode
-          : "office";
-      // Device label is client-supplied; trim and treat empty as null
-      // so a device that hasn't named itself doesn't add "()" noise to
-      // the name-tag chip.
-      const device =
-        typeof cmd.device === "string" && cmd.device.trim()
-          ? cmd.device.trim().slice(0, 24)
-          : null;
-      const changed = setPresence({
-        connectionId: ws.data.connectionId,
-        userId: session.userId,
-        username: user.name,
-        device,
-        avatarColor: user.avatarColor,
-        avatarVariant: user.avatarVariant,
-        currentRoomId: roomId,
-        focusedAgentId,
-        viewMode,
-        lastSeenAt: Date.now(),
-      });
-      if (changed) {
-        pushPresenceListToEachWs();
-      }
-      break;
-    }
-    case "terminal_open": {
-      if (!agentVisibleForSession(session, cmd.agentId)) break;
-      const opened = agentManager.openTerminal(cmd.agentId);
-      if (opened) {
-        // Replay buffered output so the browser catches up
-        const buffer = agentManager.getTerminalBuffer(cmd.agentId);
-        if (buffer) {
-          broadcast({
-            type: "terminal_output",
-            agentId: cmd.agentId,
-            data: buffer,
-          });
+        const viewMode: "office" | "log" | "away" =
+          cmd.viewMode === "log" || cmd.viewMode === "away"
+            ? cmd.viewMode
+            : "office";
+        // Device label is client-supplied; trim and treat empty as null
+        // so a device that hasn't named itself doesn't add "()" noise to
+        // the name-tag chip.
+        const device =
+          typeof cmd.device === "string" && cmd.device.trim()
+            ? cmd.device.trim().slice(0, 24)
+            : null;
+        const changed = setPresence({
+          connectionId: ws.data.connectionId,
+          userId: session.userId,
+          username: user.name,
+          device,
+          avatarColor: user.avatarColor,
+          avatarVariant: user.avatarVariant,
+          currentRoomId: roomId,
+          focusedAgentId,
+          viewMode,
+          lastSeenAt: Date.now(),
+        });
+        if (changed) {
+          pushPresenceListToEachWs();
         }
+        break;
       }
-      break;
+      case "terminal_open": {
+        if (!agentVisibleForSession(session, cmd.agentId)) break;
+        const opened = agentManager.openTerminal(cmd.agentId);
+        if (opened) {
+          // Replay buffered output so the browser catches up.
+          // KNOWN ACL LEAK (task 39ce6225, deliberately DEFERRED in the Phase 4
+          // close-out — Nil-gated): this buffer replay broadcasts to ALL sockets,
+          // not the room-ACL audience terminal_output declares, so a user without
+          // access to the agent's room receives the buffered output. Left
+          // byte-identical here (Phase 4 deletes dead surface; it does not change
+          // ACL behavior); the fix is a separate focused security patch.
+          const buffer = agentManager.getTerminalBuffer(cmd.agentId);
+          if (buffer) {
+            broadcast({
+              type: "terminal_output",
+              agentId: cmd.agentId,
+              data: buffer,
+            });
+          }
+        }
+        break;
+      }
+      case "terminal_input":
+        if (!agentVisibleForSession(session, cmd.agentId)) break;
+        agentManager.terminalInput(cmd.agentId, cmd.data);
+        break;
+      case "terminal_resize":
+        if (!agentVisibleForSession(session, cmd.agentId)) break;
+        agentManager.terminalResize(cmd.agentId, cmd.cols, cmd.rows);
+        break;
+      case "terminal_close":
+        if (!agentVisibleForSession(session, cmd.agentId)) break;
+        agentManager.closeTerminal(cmd.agentId);
+        break;
     }
-    case "terminal_input":
-      if (!agentVisibleForSession(session, cmd.agentId)) break;
-      agentManager.terminalInput(cmd.agentId, cmd.data);
-      break;
-    case "terminal_resize":
-      if (!agentVisibleForSession(session, cmd.agentId)) break;
-      agentManager.terminalResize(cmd.agentId, cmd.cols, cmd.rows);
-      break;
-    case "terminal_close":
-      if (!agentVisibleForSession(session, cmd.agentId)) break;
-      agentManager.closeTerminal(cmd.agentId);
-      break;
+  } catch (err) {
+    console.error(`[inbound] ${cmd.type} failed:`, err);
   }
 }
 
@@ -3902,7 +3862,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         ws.data.session = fresh;
         try {
           const cmd = JSON.parse(data as string) as ClientCommand;
-          void handleCommand(cmd, ws);
+          void handleInboundMessage(cmd, ws);
         } catch (e) {
           console.error("Invalid command:", e);
         }

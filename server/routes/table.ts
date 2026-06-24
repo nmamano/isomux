@@ -69,7 +69,6 @@ import type {
   RoomRenameReq,
   RoomSettingsReq,
   ViewOrderReq,
-  ShownRoomsReq,
   NotifRoomsReq,
   DefaultRoomReq,
   UserUpdateReq,
@@ -87,7 +86,6 @@ import type {
   CronUpdateReq,
   CronRunMessageReq,
   CronPromptReq,
-  UserPublicWire,
   UserSelfWire,
   UserAdminWire,
 } from "../../shared/contract-shapes.ts";
@@ -439,45 +437,13 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("room:manage", roomParam("roomId")),
     emits: ["room_settings_updated"],
   }),
-  defineRoute<void, { rooms: RoomWire[] }>({
-    opId: "rooms.list",
-    method: "GET",
-    path: "/api/rooms",
-    auth: cap("office:read", authenticated),
-    emits: [],
-  }),
-
   // --- View preferences (per-user; visibility, never security) --------------
-  defineRoute<
-    void,
-    {
-      order: string[];
-      shown: string[];
-      notifRooms: string[];
-      defaultRoomId: string | null;
-    }
-  >({
-    opId: "view.get",
-    method: "GET",
-    path: "/api/me/view",
-    auth: cap("view:manage", authenticated),
-    emits: [],
-  }),
   defineRoute<ViewOrderReq, NoContent>({
     opId: "view.setOrder",
     method: "PUT",
     path: "/api/me/view/order",
     auth: cap("view:manage", authenticated),
     emits: ["full_state"],
-  }),
-  defineRoute<ShownRoomsReq, NoContent>({
-    opId: "view.setShown",
-    method: "PUT",
-    path: "/api/me/view/shown",
-    auth: cap("view:manage", authenticated),
-    // full_state for the hidden change; user_updated when the notifRooms/
-    // defaultRoomId re-clamp (hiding a notified/default room) changes the record.
-    emits: ["full_state", "user_updated"],
   }),
   defineRoute<NotifRoomsReq, NoContent>({
     opId: "view.setNotifRooms",
@@ -495,16 +461,6 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
 
   // --- Users ----------------------------------------------------------------
-  // Recipient-scoped at runtime: owner → UserAdminWire[], member → UserPublicWire[]
-  // (own entry as UserSelfWire). UserAdminWire/UserSelfWire share the UserRecord
-  // shape, so the type collapses to these two distinct constituents.
-  defineRoute<void, { users: (UserPublicWire | UserSelfWire)[] }>({
-    opId: "users.list",
-    method: "GET",
-    path: "/api/users",
-    auth: cap("office:read", authenticated),
-    emits: [],
-  }),
   // Response is UserSelfWire (self) or UserAdminWire (owner) — same UserRecord
   // shape; the audience distinction is enforced by the handler, not the type.
   defineRoute<UserUpdateReq, { user: UserSelfWire }>({
