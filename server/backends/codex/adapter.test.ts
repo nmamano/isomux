@@ -629,14 +629,11 @@ describe("CodexSession misc notifications", () => {
     expectKind(await nextEvent(it, "compacted"), "compacted");
   });
 
-  // KNOWN BUG, frozen by this test (see the 1.4c findings filed for Nil): the
-  // real `error` notification carries its text at params.error.message
-  // (ErrorNotification { error: TurnError }), but the adapter reads
-  // params.message — so a real error notification is currently SWALLOWED (the
-  // `if (message)` guard drops the undefined). We feed the REAL wire shape and
-  // assert nothing surfaces today; when the adapter read is fixed, this flips to
-  // asserting an `error` event (the one-shot path has the same misread).
-  it("error notification (real wire shape) is currently swallowed [known bug]", async () => {
+  // ErrorNotification carries its text at params.error.message (TurnError), not
+  // params.message. The adapter now reads the correct field (both the streaming
+  // arm and the one-shot path), so a real error notification surfaces as an
+  // `error` event instead of being silently swallowed.
+  it("error notification (real wire shape) -> error event from params.error.message", async () => {
     const { fake, it } = await bootstrapped();
     fake.fireNotification("error", {
       error: { message: "stream broke" },
@@ -644,13 +641,8 @@ describe("CodexSession misc notifications", () => {
       threadId: FIXTURE_THREAD_ID,
       turnId: "t1",
     });
-    // The sentinel is the next thing emitted, proving the error produced nothing.
-    fireItem(fake, { type: "agentMessage", text: "after error" });
-    const ev = expectKind(
-      await nextEvent(it, "assistant_text"),
-      "assistant_text",
-    );
-    expect(ev.text).toBe("after error");
+    const ev = expectKind(await nextEvent(it, "error"), "error");
+    expect(ev.message).toBe("stream broke");
   });
 
   it("warning-family notification -> tagged system_text", async () => {

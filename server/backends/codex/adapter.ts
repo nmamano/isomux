@@ -1024,7 +1024,11 @@ export class CodexSession implements BackendSession {
 
       // ---- Failure / warnings ----
       case "error": {
-        const message = params?.message as string | undefined;
+        // ErrorNotification carries the text at params.error.message (TurnError),
+        // not params.message; the old read was always undefined and silently
+        // swallowed real errors. Same misread as the one-shot path below.
+        const err = params?.error as { message?: string } | undefined;
+        const message = err?.message;
         if (message) this.enqueue({ kind: "error", message });
         break;
       }
@@ -1978,7 +1982,10 @@ export const codexBackend: Backend = {
               resolve();
             }
           } else if (n.method === "error") {
-            const msg = params?.message;
+            // ErrorNotification text is at params.error.message (TurnError), not
+            // params.message (mirrors the streaming error arm in handleNotification).
+            const err = params?.error as { message?: string } | undefined;
+            const msg = err?.message;
             failure = new Error(
               `Codex one-shot error: ${typeof msg === "string" ? msg : "unknown"}`,
             );
