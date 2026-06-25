@@ -578,6 +578,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         managed.info.customInstructions,
         managed.info.username,
         ownerRecord?.memberPrompt ?? null,
+        managed.info.privileged ?? false,
       );
       // Pick a fence longer than any backtick run inside the prompt so the block
       // renders verbatim regardless of what office/room/agent prompts contain.

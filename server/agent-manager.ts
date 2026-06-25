@@ -2681,6 +2681,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       managed.info.customInstructions,
       managed.info.username,
       ownerRecord?.memberPrompt ?? null,
+      managed.info.privileged ?? false,
     );
     if (resumeSessionId) {
       // The SDK reports cost cumulative-per-process, so a resumed session's
