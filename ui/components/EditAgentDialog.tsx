@@ -31,6 +31,7 @@ import type {
   MoveAgentReq,
   SpawnReq,
   EditAgentReq,
+  SetPrivilegedReq,
 } from "../../shared/contract-shapes.ts";
 import { useAppState } from "../store.tsx";
 import { getUsername } from "../device-settings.ts";
@@ -122,7 +123,21 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   const [targetEngine, setTargetEngine] = useState<AgentBackendType>(agentType);
   const isCodex = targetEngine === "codex";
 
-  const { recentCwds: allRecentCwds, isMobile, agents, rooms } = useAppState();
+  const {
+    recentCwds: allRecentCwds,
+    isMobile,
+    agents,
+    rooms,
+    sessionContext,
+  } = useAppState();
+  // Privilege toggle visibility mirrors the (i-b) server gate (agents.setPrivileged):
+  // an office owner may toggle any agent; otherwise only the agent's MANAGER (its
+  // spawning user) may. At spawn the current user IS the manager. Hiding it for
+  // everyone else avoids surfacing a control that would 403 on save.
+  const canTogglePrivilege =
+    isSpawn ||
+    sessionContext?.role === "owner" ||
+    (sessionContext?.userId != null && agent?.userId === sessionContext.userId);
   const roomCount = rooms.length;
   // Room of the agent being edited, resolved by stable id. The index is used
   // only for ordinal fallbacks; name is "" when the room isn't visible.
@@ -165,6 +180,10 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   const [permissionMode, setPermissionMode] = useState<
     AgentInfo["permissionMode"]
   >(initialPermissionMode);
+  // Privileged operator access. Conferred ONLY via the dedicated, user-gated
+  // PUT /api/agents/:id/privileged route (never the spawn/edit PATCH), so an
+  // agent can't self-confer. At spawn we two-step: create, then toggle.
+  const [privileged, setPrivileged] = useState(agent?.privileged ?? false);
   const [saving, setSaving] = useState(false);
   // Save-time errors route to either the Name input or the Cwd input based on
   // the REST error code (name_taken -> Name). Errors that don't map to a specific
@@ -350,8 +369,10 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       setNameError(null);
       setSaving(true);
       // username is server-derived (attributionFor) — not sent. The created
-      // agent rides the agent_added broadcast; the { agent } body is ignored.
-      apiFetch("POST", "/api/agents", {
+      // agent rides the agent_added broadcast. We read the { agent } body only
+      // to get its id for the privileged two-step (privilege is its own
+      // user-gated route, never a spawn field — so no agent can self-confer).
+      apiFetch<{ agent: AgentInfo }>("POST", "/api/agents", {
         name: name || `Agent ${props.deskIndex + 1}`,
         cwd,
         roomId: props.roomId,
@@ -364,6 +385,13 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         agentType,
         ...(isCodex ? { codexSandbox } : {}),
       } satisfies SpawnReq)
+        .then((res) =>
+          privileged
+            ? apiFetch("PUT", `/api/agents/${res.agent.id}/privileged`, {
+                privileged: true,
+              } satisfies SetPrivilegedReq)
+            : undefined,
+        )
         .then(() => onClose())
         .catch(showError)
         .finally(() => setSaving(false));
@@ -399,36 +427,55 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         )
           changes.codexSandbox = codexSandbox;
       }
-      if (
-        !(
-          changes.name ||
-          changes.cwd ||
-          changes.outfit ||
-          changes.customInstructions !== undefined ||
-          changes.modelFamily ||
-          changes.effort ||
-          changes.permissionMode ||
-          changes.codexSandbox ||
-          changes.agentType
-        )
-      ) {
+      const hasChanges = !!(
+        changes.name ||
+        changes.cwd ||
+        changes.outfit ||
+        changes.customInstructions !== undefined ||
+        changes.modelFamily ||
+        changes.effort ||
+        changes.permissionMode ||
+        changes.codexSandbox ||
+        changes.agentType
+      );
+      // Privilege is its OWN user-gated route (PUT /privileged), never part of
+      // the PATCH — it re-mints the token and restarts the session like a model
+      // change. Toggled independently of the other field edits.
+      const privilegedChanged = privileged !== (agent!.privileged ?? false);
+      if (!hasChanges && !privilegedChanged) {
         onClose();
         return;
       }
       setCwdError(null);
       setNameError(null);
-      // Block the dialog (await + surface errors) when cwd changed (server cwd
-      // validation) or the engine changed (a fresh conversation is starting —
-      // worth confirming it took before closing). Other edits stay
+      // Thunks, run SEQUENTIALLY (not Promise.all): a cwd/engine PATCH and a
+      // privilege PUT each trigger a server-side session-swap, and two
+      // overlapping swaps on one agent would race replaceSession. Ordering them
+      // keeps each swap clean (both re-read the freshly re-minted token).
+      const ops: Array<() => Promise<unknown>> = [];
+      if (hasChanges)
+        ops.push(() => apiFetch("PATCH", `/api/agents/${agent!.id}`, changes));
+      if (privilegedChanged)
+        ops.push(() =>
+          apiFetch("PUT", `/api/agents/${agent!.id}/privileged`, {
+            privileged,
+          } satisfies SetPrivilegedReq),
+        );
+      const runSeq = () =>
+        ops.reduce<Promise<unknown>>((p, op) => p.then(op), Promise.resolve());
+      // Block the dialog (await + surface errors) when something restarts the
+      // session — a cwd change (server cwd validation), an engine switch (fresh
+      // conversation), or a privilege toggle (token re-mint + session-swap) —
+      // so the user sees it took before closing. Other edits stay
       // fire-and-forget with an optimistic close (prior behavior).
-      if (changes.cwd || changes.agentType) {
+      if (changes.cwd || changes.agentType || privilegedChanged) {
         setSaving(true);
-        apiFetch("PATCH", `/api/agents/${agent!.id}`, changes)
+        runSeq()
           .then(() => onClose())
           .catch(showError)
           .finally(() => setSaving(false));
       } else {
-        apiFetch("PATCH", `/api/agents/${agent!.id}`, changes).catch(() => {});
+        runSeq().catch(() => {});
         onClose();
       }
     }
@@ -607,6 +654,54 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
             Locked to the spawning user. Controls which <code>envFile</code>{" "}
             loads on each session (see User Settings).
           </p>
+
+          {/* Privileged operator access. Grants this agent its spawning user's
+            room-scoped operator powers (drive other agents' sessions: resume,
+            new conversation, send-now, lifecycle; plus cron over the user's own
+            jobs). Scope stays the agent — it never posts as the user. Conferred
+            via the dedicated user-gated route, so toggling a running agent
+            re-mints its token and restarts its session, like a model change.
+            Shown only to a user who may actually set it (owner, or the agent's
+            manager — see canTogglePrivilege). */}
+          {canTogglePrivilege && (
+            <>
+              <label
+                style={{
+                  marginTop: 14,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: "var(--text-muted)",
+                  cursor: "pointer",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={privileged}
+                  onChange={(e) => setPrivileged(e.target.checked)}
+                  style={{ cursor: "pointer", margin: 0 }}
+                />
+                Privileged operator access
+              </label>
+              <p
+                style={{
+                  fontSize: 10,
+                  color: "var(--text-ghost)",
+                  margin: "3px 0 0",
+                }}
+              >
+                Lets this agent drive other agents' sessions (resume, new
+                conversation, send-now) and manage its own cronjobs, with the
+                spawning user's room-scoped permissions. It still acts as the
+                agent, never as the user.
+                {!isSpawn &&
+                  privileged !== (agent!.privileged ?? false) &&
+                  " Saving restarts the agent's session."}
+              </p>
+            </>
+          )}
 
           {/* Engine. Locked at spawn (chosen via the EngineChooserDialog before
             this opens). Editable in edit mode: switching it starts a fresh

@@ -1975,6 +1975,8 @@ function buildExecutorDeps(): ExecutorDeps {
           };
         }
       },
+      setPrivileged: (agentId, privileged) =>
+        agentManager.setPrivileged(agentId, privileged),
     }),
   );
   // 3d.7b — reviveLastRoomAccess: revive needs access to BOTH the target room
@@ -2305,14 +2307,21 @@ function buildExecutorDeps(): ExecutorDeps {
   );
 
   // 3a.5 — validateEnvBodySelfSubject: the SOLE object-level policy for
-  // validate.env (its guard is just `authenticated`). office:read (stage 1)
-  // already restricted the caller to USER scope; here an owner may validate any
+  // validate.env (its guard is just `authenticated`). An owner may validate any
   // scope/user, a member ONLY their own user env. Non-leak: office scope or
   // another user's env both deny with the same 403. (This replaced the equivalent
   // inline checks in the now-retired request_settings_validation WS arm.) It is
   // what keeps the precondition reachable (a member validating their own env is
   // allowed HERE, not denied at the guard as the prior or(officeOwner, selfUser) did).
+  //
+  // SCOPE GATE (task 98d63ef7): historically office:read (stage 1) implied USER
+  // scope, but a PRIVILEGED agent now also holds office:read. The subject policy
+  // below keys on the resolved user's RECORD role, so an owner-spawned agent
+  // would otherwise inherit owner reach and probe any user's/office env-file
+  // metadata (key count, parse errors). Env validation is a human/UI affordance —
+  // fail closed for any non-user scope so a privileged agent can never reach it.
   preconditions.set("validateEnvBodySelfSubject", (ctx) => {
+    if (ctx.identity.scope !== "user") return fail(403, "forbidden");
     const u = ctx.identity.userId
       ? getUserById(ctx.identity.userId)
       : undefined;

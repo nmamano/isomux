@@ -28,7 +28,7 @@ Run ESLint during development. A good time to do it is right before human review
 - Agent = persistent identity. Conversation = resumable session.
 - 8 desks per room.
 - Subscription auth via the provider's own CLI — Isomux never handles API keys.
-- Browser auth: invite-link cookie sessions. The first owner claims via a tokenless name-picker form served on loopback (the server binds 127.0.0.1 pre-claim); once an owner exists, only owners can mint further invites. Agents inherit no special auth privileges. See `docs/access-and-invites.md`.
+- Browser auth: invite-link cookie sessions. The first owner claims via a tokenless name-picker form served on loopback (the server binds 127.0.0.1 pre-claim); once an owner exists, only owners can mint further invites. By default agents inherit no special auth privileges; an opt-in per-agent `privileged` flag grants a curated subset of the spawning user's room-scoped operator capabilities (drive other agents' sessions + cron over its own jobs) while keeping agent scope (never impersonates the user, never reaches owner/user administration). See `docs/access-and-invites.md`.
 - REST API to give agents extra affordances (like messaging other agents or showing a diff).
 - Codex integration uses the App Server, not `@openai/codex-sdk`. App Server is OpenAI's first-class integration for UI clients.
 - React/SVG for rendering. Bun's bundler, no Vite.

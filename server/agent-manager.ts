@@ -976,6 +976,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           userId: a.info.userId,
           username: a.info.username,
           roomId: a.info.roomId,
+          privileged: a.info.privileged ?? false,
         });
       }
     }
@@ -1011,6 +1012,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         customInstructions: a.info.customInstructions,
         userId: a.info.userId,
         username: a.info.username,
+        privileged: a.info.privileged ?? false,
       };
     }
     saveAgentHistory(history);
@@ -1178,6 +1180,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       capabilities: getBackend(agentType).capabilities,
       userId,
       username: p.username ?? null,
+      privileged: p.privileged ?? false,
       queue: [],
       sessionSwapping: false,
       turnHadHumanInput: false,
@@ -1222,8 +1225,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // Mint (or rotate, on revive) the agent's bearer token before any
     // createSession/resumeSession below reads it via buildSessionEnv. Boot
     // restore and revive both funnel here, so "rotated on revive" is automatic;
-    // revoked when the agent leaves the map (kill, or the revive rollback).
-    mintAgentToken(p.id, userId);
+    // revoked when the agent leaves the map (kill, or the revive rollback). The
+    // persisted privileged flag stamps the token's capability set.
+    mintAgentToken(p.id, userId, p.privileged ?? false);
 
     if (resumeSessionId) {
       const history = loadLogWithAncestors(p.id, resumeSessionId);
@@ -2442,6 +2446,40 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // 154e2c14's STILL OPEN section for context. The current sendMessage
   // papers over the user-visible delay by echoing the typed message to the
   // log before awaiting abortPromise (see echoEarly there).
+  // Toggle an agent's privileged flag (task 98d63ef7). Authorization (a USER
+  // with room access; NEVER an agent) is the agents.setPrivileged route's job —
+  // this is the core mutation only. Persists the flag (onChange → persistAll),
+  // re-mints the bearer token with the new capability set, and for a LIVE agent
+  // session-swaps onto the new token (resuming the current session so context is
+  // preserved — same machinery as /model; interrupts an in-flight turn). A lazy
+  // agent (no live session) needs no swap: the re-minted token is already in the
+  // store, so its next createSession picks it up via buildSessionEnv. Idempotent:
+  // toggling to the current value is a no-op (no re-mint, no interruption).
+  // Returns the updated AgentInfo, or null if the agent isn't live (killed/
+  // unknown — the route guard already rejects those, this is defensive).
+  async function setPrivileged(
+    agentId: string,
+    privileged: boolean,
+  ): Promise<AgentInfo | null> {
+    const managed = agents.get(agentId);
+    if (!managed) return null;
+    if ((managed.info.privileged ?? false) === privileged) return managed.info;
+    for (const event of officeState.updateAgent(agentId, { privileged }))
+      emit(event);
+    // Re-mint REVOKES the old token, so a live agent MUST be swapped below or its
+    // in-flight token dies mid-turn.
+    mintAgentToken(agentId, managed.info.userId, privileged);
+    if (managed.session !== null) {
+      const sessionId = pickAutoResumeSessionId(managed);
+      await replaceSession(
+        agentId,
+        managed,
+        sessionId ? createSession(managed, sessionId) : createSession(managed),
+      );
+    }
+    return managed.info;
+  }
+
   async function replaceSession(
     agentId: string,
     managed: ManagedAgent,
@@ -2787,7 +2825,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     agents.set(id, managed);
     // Mint the agent's bearer token before the first createSession below reads
     // it via buildSessionEnv. Revoked in kill() when the agent leaves the map.
-    mintAgentToken(id, info.userId);
+    mintAgentToken(id, info.userId, info.privileged ?? false);
     for (const event of events) emit(event);
     // Send commands immediately so autocomplete works before SDK init
     emit({
@@ -4008,6 +4046,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           customInstructions: managed.info.customInstructions,
           userId: managed.info.userId,
           username: managed.info.username,
+          // Snapshot privilege so a kill→revive round-trip restores it (this
+          // kill-time entry is authoritative — updateAgentHistory skips killed
+          // agents, and revive reads entry.privileged).
+          privileged: managed.info.privileged ?? false,
         };
         saveAgentHistory(history);
       }
@@ -4183,6 +4225,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       customInstructions: entry.customInstructions ?? null,
       userId: entry.userId,
       username: entry.username,
+      privileged: entry.privileged ?? false,
     };
 
     const installResult = restoreOrReviveAgent({
@@ -5086,6 +5129,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     getCurrentSessionId,
     getAgentDisplay,
     editAgent,
+    setPrivileged,
     swapDesks,
     createRoom,
     closeRoom,

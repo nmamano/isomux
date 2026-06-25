@@ -29,7 +29,13 @@ export interface GuardDepsLiveReaders {
   hasRoomAccessForUser(userId: string, roomId: string): boolean;
   // The live agent roster. Phase 3c: guards read each agent's authoritative
   // roomId — the dense AgentInfo.room index has been removed from the wire.
-  getAllAgents(): readonly { id: string; roomId: string }[];
+  // `userId` is the agent's MANAGER (its spawning user) — used by the
+  // agents.setPrivileged manager-match gate. The live AgentInfo carries it.
+  getAllAgents(): readonly {
+    id: string;
+    roomId: string;
+    userId: string | null;
+  }[];
   // The live global rooms list (dense, creation order); index → roomId.
   getRooms(): readonly { id: string }[];
   // Username → user record (or null). users.getUserByName.
@@ -68,6 +74,12 @@ export function buildProductionGuardDeps(
     cronjobCreatorUserId(cronjobId: string): string | null {
       const job = live.listCronjobs().find((j) => j.id === cronjobId);
       return job?.userId ?? null;
+    },
+
+    agentManagerUserId(agentId: string): string | null {
+      const agent = live.getAllAgents().find((a) => a.id === agentId);
+      // Unknown agent collapses with unowned into the same null (non-leak deny).
+      return agent?.userId ?? null;
     },
   };
 }

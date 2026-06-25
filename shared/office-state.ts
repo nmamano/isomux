@@ -238,6 +238,9 @@ export class OfficeState {
       ...(opts.codexSandbox ? { codexSandbox: opts.codexSandbox } : {}),
       userId: opts.userId ?? null,
       username: opts.username ?? null,
+      // Privilege is never conferred at spawn — it is granted only via the
+      // user-gated agents.setPrivileged route (so no agent can self-confer).
+      privileged: false,
       queue: [],
       sessionSwapping: false,
       turnHadHumanInput: false,

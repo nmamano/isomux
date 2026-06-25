@@ -322,6 +322,16 @@ Cronjob mutation is owner-gated: edit, delete, and run-now (`cron.update`/`cron.
 
 **If tightening is desired:** decide ownership semantics for rooms — closing/renaming requires creator-or-owner.
 
+### C.7 Privileged agents (deliberate, owner/manager-gated capability grant)
+
+Unlike C.1 through C.6, this is an intentional mechanism rather than a gap. It is documented here because it is the one place an agent's narrow default authority (C.4) is widened on purpose.
+
+- By default an agent's bearer token carries only its own loopback surface: messaging other agents as itself, the shared task board, and the self-affordances on its own chat. An office owner (for any agent), or an agent's manager (for the agents that user spawned), can opt an agent into **privileged** operator access. This widens the token to a curated subset of the spawning user's capabilities: driving other agents' sessions (resume, new-conversation, send-now, cancel, lifecycle), full cron management over the cronjobs that user created, and room management (creating rooms office-wide, and renaming, configuring, or closing the rooms the spawning user can access).
+- **The identity scope stays `agent`.** Privilege only adds capabilities; it never changes scope. A privileged agent's outbound messages still attribute to the agent, and the routes gated on `scope === "user"` stay unreachable to it: invite minting, login-session administration, user-record and access administration, office-wide settings, and the cronjob prompt. Room management is the room-level grant above; office-level administration is not part of it.
+- **Authority is a subset of the spawning user's.** Each added capability reaches only what that user could already reach from the UI: the room operations are scoped to the rooms the spawning user can access (room-create adds the new room to that user's and the owners' access lists, exactly as that user creating it would), and cron is limited to the jobs that user owns. A privileged agent gains no office-owner powers and no cross-user reach. The conferral itself is gated the same way: a member may privilege only the agents they manage, never another member's, and no agent (privileged or not) can set the flag.
+- **Blast radius.** The flip side of the subset bound: a privileged agent inherits its spawning user's destructive reach. A compromised or prompt-injected one can spam-create rooms and close any shared room that user can access (which evicts co-members), on top of the destructive operations the operator set already implies (killing agents, rewriting files). All of it is bounded by that user's own ability and is the accepted cost of granting operator access, not a new boundary. Grant it deliberately, as you would hand over your own operator seat.
+- This does not change the external-access surface assessed in Sections 1 through 5: the token is still injected only into a local agent subprocess and is never minted to an external party. The privileged set deliberately excludes the credential-minting (invite) and login-session paths, so a confused or compromised privileged agent cannot bootstrap durable or owner-equivalent access.
+
 ---
 
 _End of report._

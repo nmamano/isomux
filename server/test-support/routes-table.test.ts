@@ -127,6 +127,7 @@ describe("route table: public routes are routed AROUND authorize()", () => {
       roomIdForAgent: () => "r1",
       userIdForUsername: () => null,
       cronjobCreatorUserId: () => null,
+      agentManagerUserId: () => null,
     };
     const cap = API_ROUTES.find((r) => r.auth.kind === "capability");
     if (!cap || cap.auth.kind !== "capability") throw new Error("no cap route");
@@ -187,6 +188,10 @@ const SPEC_ROUTE_CONTRACT: Record<
   },
   "agents.abort": { caps: ["agent:manage"], emits: [] },
   "agents.update": { caps: ["agent:manage"], emits: ["agent_updated"] },
+  "agents.setPrivileged": {
+    caps: ["agent:privilege"],
+    emits: ["agent_updated"],
+  },
   "agents.move": { caps: ["agent:manage"], emits: ["agent_updated"] },
   "agents.setTopic": { caps: ["agent:manage"], emits: ["agent_updated"] },
   "agents.clearTopic": { caps: ["agent:manage"], emits: ["agent_updated"] },

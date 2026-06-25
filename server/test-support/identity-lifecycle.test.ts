@@ -12,6 +12,7 @@ import { describe, it, expect, afterEach } from "bun:test";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
 import { getAgentTokenRaw, resolveToken } from "../identity/tokens.ts";
+import { identityHasCapability } from "../identity/index.ts";
 
 let server: TestServer | null = null;
 afterEach(async () => {
@@ -120,5 +121,91 @@ describe("identity: agent token redaction (Phase 2.1)", () => {
     // ...nor in the backend-visible system prompt.
     const sess = srv.fakeBackend.sessionForAgent(info.id);
     expect(sess?.opts.systemPrompt ?? "").not.toContain(raw);
+  });
+});
+
+describe("identity: privileged toggle via the manager (task 98d63ef7)", () => {
+  it("live GRANT re-mints with the privileged set and session-swaps the new token in", async () => {
+    // autoSystemInit:false -> the live session carries no sessionId, so the swap
+    // starts a fresh session (no Claude resume-file preflight) while still
+    // re-injecting the new token — which is what we assert here.
+    const srv = await startTestServer({
+      fakeBackend: new FakeBackend({ session: { autoSystemInit: false } }),
+    });
+    server = srv;
+    const { info } = await spawnAgent(srv, "PrivAgent");
+
+    const raw1 = getAgentTokenRaw(info.id) as string;
+    expect(identityHasCapability(resolveToken(raw1)!, "agent:manage")).toBe(
+      false,
+    ); // narrow to start
+    expect(srv.agentManager.getAgent(info.id)?.privileged ?? false).toBe(false);
+
+    await srv.agentManager.setPrivileged(info.id, true);
+
+    const raw2 = getAgentTokenRaw(info.id) as string;
+    expect(raw2).not.toBe(raw1); // re-minted
+    expect(resolveToken(raw1)).toBeNull(); // old token revoked
+    const id2 = resolveToken(raw2)!;
+    expect(id2.scope).toBe("agent"); // STILL agent — no impersonation
+    expect(identityHasCapability(id2, "agent:manage")).toBe(true);
+    expect(identityHasCapability(id2, "cron:manage")).toBe(true);
+    expect(srv.agentManager.getAgent(info.id)?.privileged).toBe(true);
+
+    // The session swap re-injected the fresh token into the live subprocess env.
+    const sess = srv.fakeBackend.sessionForAgent(info.id);
+    expect(sess?.opts.env?.ISOMUX_AGENT_TOKEN).toBe(raw2);
+  });
+
+  it("live REVOKE re-mints back down to the narrow set", async () => {
+    const srv = await startTestServer({
+      fakeBackend: new FakeBackend({ session: { autoSystemInit: false } }),
+    });
+    server = srv;
+    const { info } = await spawnAgent(srv, "PrivAgent2");
+    await srv.agentManager.setPrivileged(info.id, true);
+    const privRaw = getAgentTokenRaw(info.id) as string;
+
+    await srv.agentManager.setPrivileged(info.id, false);
+    const narrowRaw = getAgentTokenRaw(info.id) as string;
+    expect(resolveToken(privRaw)).toBeNull(); // privileged token gone
+    expect(
+      identityHasCapability(resolveToken(narrowRaw)!, "agent:manage"),
+    ).toBe(false);
+    expect(srv.agentManager.getAgent(info.id)?.privileged).toBe(false);
+  });
+
+  it("idempotent: toggling to the current value does NOT re-mint or interrupt", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const { info } = await spawnAgent(srv, "PrivAgent3");
+    const raw1 = getAgentTokenRaw(info.id) as string;
+    await srv.agentManager.setPrivileged(info.id, false); // already false
+    expect(getAgentTokenRaw(info.id)).toBe(raw1); // same token, no rotation
+  });
+
+  it("privilege survives kill -> revive (restored from the kill-time history entry)", async () => {
+    // autoSystemInit:false -> no sessionId stamped, so revive takes the fresh
+    // path (no Claude resume-file preflight). Regression test: kill() writes the
+    // authoritative history entry, so it must carry `privileged` or a revived
+    // agent silently comes back narrow.
+    const srv = await startTestServer({
+      fakeBackend: new FakeBackend({ session: { autoSystemInit: false } }),
+    });
+    server = srv;
+    const { info, roomId } = await spawnAgent(srv, "PrivRevive");
+    await srv.agentManager.setPrivileged(info.id, true);
+    expect(srv.agentManager.getAgent(info.id)?.privileged).toBe(true);
+
+    await srv.agentManager.kill(info.id);
+    const res = await srv.agentManager.revive(info.id, roomId, info.desk);
+    expect(res.ok).toBe(true);
+
+    // Privilege restored, and the freshly re-minted revive token carries it.
+    expect(srv.agentManager.getAgent(info.id)?.privileged).toBe(true);
+    const raw = getAgentTokenRaw(info.id) as string;
+    expect(identityHasCapability(resolveToken(raw)!, "agent:manage")).toBe(
+      true,
+    );
   });
 });

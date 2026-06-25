@@ -15,7 +15,9 @@ import { describe, it, expect, afterEach } from "bun:test";
 import {
   USER_CAPABILITIES,
   AGENT_CAPABILITIES,
+  PRIVILEGED_AGENT_CAPABILITIES,
   RUN_CAPABILITIES,
+  agentCapabilities,
   capabilitiesForScope,
   identityHasCapability,
   identityFromSession,
@@ -77,6 +79,59 @@ describe("identity: capability sets (Phase 2.1)", () => {
     // not an agent and has no own-chat).
     expect(USER_CAPABILITIES).not.toContain("agent:send-as-self" as Capability);
     expect(USER_CAPABILITIES).not.toContain("self:affordance" as Capability);
+  });
+
+  it("PRIVILEGED agent set = AGENT base + the curated operator caps, and EXCLUDES the escalation caps", () => {
+    // The whole baseline AGENT set is included...
+    for (const c of AGENT_CAPABILITIES) {
+      expect(PRIVILEGED_AGENT_CAPABILITIES).toContain(c);
+    }
+    // ...plus exactly the curated operator delta (drive other agents' sessions
+    // + full cron over own jobs). Nil-locked set (task 98d63ef7).
+    for (const c of [
+      "agent:converse",
+      "office:read",
+      "agent:manage",
+      "room:manage",
+      "editor:use",
+      "file:upload",
+      "cron:read",
+      "cron:manage",
+    ] as Capability[]) {
+      expect(PRIVILEGED_AGENT_CAPABILITIES).toContain(c);
+    }
+    // The escalation / owner-admin caps are DELIBERATELY absent — this is the
+    // crux of the audit. invites.* (durable login mint), sessions.* (kill the
+    // human's browser session), user/office administration, view prefs, and the
+    // privilege-toggle cap itself must never reach a privileged agent. (room:manage
+    // was added by Nil-approved expansion — it is now INCLUDED above.)
+    for (const c of [
+      "invite:manage",
+      "session:manage",
+      "user:self",
+      "user:admin",
+      "office:admin",
+      "view:manage",
+      "terminal:use",
+      "agent:privilege",
+    ] as Capability[]) {
+      expect(PRIVILEGED_AGENT_CAPABILITIES).not.toContain(c);
+    }
+  });
+
+  it("agent:privilege is held by USER scope only — not AGENT, not the privileged set", () => {
+    // The stage-1 half of the agents.setPrivileged double-gate: only a user can
+    // even clear stage 1, so no agent (privileged or not) can flip the flag.
+    expect(USER_CAPABILITIES).toContain("agent:privilege" as Capability);
+    expect(AGENT_CAPABILITIES).not.toContain("agent:privilege" as Capability);
+    expect(PRIVILEGED_AGENT_CAPABILITIES).not.toContain(
+      "agent:privilege" as Capability,
+    );
+  });
+
+  it("agentCapabilities maps the privileged flag to the set", () => {
+    expect(agentCapabilities(false)).toBe(AGENT_CAPABILITIES);
+    expect(agentCapabilities(true)).toBe(PRIVILEGED_AGENT_CAPABILITIES);
   });
 
   it("capabilitiesForScope maps scope -> set", () => {
@@ -170,6 +225,56 @@ describe("identity: agent token mint/resolve/rotate/revoke (Phase 2.1)", () => {
     revokeAgentToken("agent-a");
     expect(resolveToken(a)).toBeNull();
     expect(resolveToken(b)?.agentId).toBe("agent-b");
+  });
+});
+
+describe("identity: privileged agent tokens (task 98d63ef7)", () => {
+  it("a privileged-minted token resolves to an AGENT identity with the PRIVILEGED set (scope STILL agent)", () => {
+    const raw = mintAgentToken("agent-p", "user-1", true);
+    const id = resolveToken(raw)!;
+    expect(id.scope).toBe("agent"); // privilege never changes scope (no impersonation)
+    expect(id.agentId).toBe("agent-p");
+    expect([...id.capabilities].sort()).toEqual(
+      [...PRIVILEGED_AGENT_CAPABILITIES].sort(),
+    );
+    // Operator caps present; the toggle cap + escalation caps absent.
+    expect(identityHasCapability(id, "agent:manage")).toBe(true);
+    expect(identityHasCapability(id, "cron:manage")).toBe(true);
+    expect(identityHasCapability(id, "agent:privilege")).toBe(false);
+    expect(identityHasCapability(id, "invite:manage")).toBe(false);
+    expect(identityHasCapability(id, "session:manage")).toBe(false);
+  });
+
+  it("the default (and explicit false) mint is the narrow AGENT set", () => {
+    const a = resolveToken(mintAgentToken("agent-a", "user-1"))!; // default
+    const b = resolveToken(mintAgentToken("agent-b", "user-1", false))!;
+    expect([...a.capabilities].sort()).toEqual([...AGENT_CAPABILITIES].sort());
+    expect([...b.capabilities].sort()).toEqual([...AGENT_CAPABILITIES].sort());
+  });
+
+  it("toggling GRANT re-mints: old token dead, new one carries the privileged set", () => {
+    const before = mintAgentToken("agent-x", "user-1", false);
+    expect([...resolveToken(before)!.capabilities].sort()).toEqual(
+      [...AGENT_CAPABILITIES].sort(),
+    );
+    const after = mintAgentToken("agent-x", "user-1", true); // re-mint = toggle
+    expect(after).not.toBe(before);
+    expect(resolveToken(before)).toBeNull(); // old token revoked by rotation
+    expect([...resolveToken(after)!.capabilities].sort()).toEqual(
+      [...PRIVILEGED_AGENT_CAPABILITIES].sort(),
+    );
+  });
+
+  it("toggling REVOKE re-mints back down to the narrow set; old privileged token dead", () => {
+    const priv = mintAgentToken("agent-x", "user-1", true);
+    expect(identityHasCapability(resolveToken(priv)!, "agent:manage")).toBe(
+      true,
+    );
+    const narrowed = mintAgentToken("agent-x", "user-1", false);
+    expect(resolveToken(priv)).toBeNull(); // privileged token no longer resolves
+    expect([...resolveToken(narrowed)!.capabilities].sort()).toEqual(
+      [...AGENT_CAPABILITIES].sort(),
+    );
   });
 });
 

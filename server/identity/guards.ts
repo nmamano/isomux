@@ -18,7 +18,7 @@
 // `allowedRooms` → rule-based) by replacing the GuardDeps implementation, never
 // a guard signature.
 
-import type { Identity } from "./index.ts";
+import { identityHasCapability, type Identity } from "./index.ts";
 
 // --- Outcome envelope -------------------------------------------------------
 // Every guard (and the dispatcher) returns this. Shared, frozen singletons keep
@@ -69,6 +69,10 @@ export interface GuardDeps {
   userIdForUsername(username: string): string | null;
   // The creator userId of `cronjobId`, or null if unknown / unowned.
   cronjobCreatorUserId(cronjobId: string): string | null;
+  // The MANAGER userId of `agentId` — the spawning user (AgentInfo.userId) — or
+  // null if the agent is unknown / unowned. Gates agents.setPrivileged: a member
+  // may toggle privilege only on agents they manage.
+  agentManagerUserId(agentId: string): string | null;
 }
 
 // What a guard sees. `params`/`body` are extracted by the route layer (Phase
@@ -143,6 +147,15 @@ export const authenticated: Guard = () => ALLOW;
 export const officeOwner: Guard = ({ identity }) =>
   identity.scope === "user" && identity.role === "owner" ? ALLOW : FORBIDDEN;
 
+// USER-scope gate. Any user identity (owner OR member) passes; AGENT and
+// CRON-RUN never do — a privileged agent stays scope==="agent", so it cannot
+// pass either. This is the scope half of the agents.setPrivileged double-gate:
+// composed with a room-access guard (agentParam) so a user may toggle privilege
+// only on an agent they can reach (owner office-wide, member their own rooms),
+// while no agent — privileged or not — can ever flip the flag.
+export const userScope: Guard = ({ identity }) =>
+  identity.scope === "user" ? ALLOW : FORBIDDEN;
+
 // USER-only self gate for /users/:username routes: `:username` must resolve to
 // the caller's own userId. scope-gated so an AGENT (which carries its spawning
 // user's userId) can never pass as that user.
@@ -207,6 +220,27 @@ export const runParamMustEqualTokenRun: Guard = ({ identity, params }) =>
     ? ALLOW
     : FORBIDDEN;
 
+// USER manages the agent: `:id`'s manager (its spawning user's userId) equals
+// the caller's userId. Gates the agents.setPrivileged toggle for a member (an
+// owner takes the officeOwner branch). NON-LEAK: an unknown agent (null manager)
+// denies identically to a foreign one. A null caller userId never matches.
+//
+// COMPOSE UNDER userScope: this checks ONLY the userId match, so a non-user
+// identity whose userId coincided with the agent's manager would pass it in
+// ISOLATION. The route wraps it as `and(userScope, or(officeOwner, this))`, where
+// userScope is what keeps every agent (privileged or not) out at stage 2 — do
+// NOT use this bare, or a userId coincidence would leak the toggle to an agent.
+export function agentManagerMatch(idParamName = "id"): Guard {
+  return ({ identity, params, deps }) => {
+    const agentId = params[idParamName];
+    if (!agentId) return FORBIDDEN;
+    const managerUserId = deps.agentManagerUserId(agentId);
+    return managerUserId !== null && managerUserId === identity.userId
+      ? ALLOW
+      : FORBIDDEN;
+  };
+}
+
 // Room/agent-scoped access. Resolves the room reference (agent → room when the
 // ref is an agentId) and then checks access. NON-LEAK: a missing/blank ref, an
 // unknown agent, and an inaccessible-but-existing room ALL deny with the
@@ -219,15 +253,36 @@ export function requiresRoomAccess(ref: RoomRef): Guard {
   };
 }
 
-// Cronjob mutate/run: the USER who created the cronjob, OR an office owner.
-// `scope === "user"` is REQUIRED: an AGENT carries its spawning user's userId,
-// and without this gate an agent could inherit that user's cronjob ownership
-// (confused deputy — the exact thing the narrow agent token exists to prevent).
-// Office owners pass regardless of creator.
+// Cronjob mutate/run: the USER who created the cronjob, OR an office owner, OR
+// a PRIVILEGED agent whose spawning user created it.
+//
+// By default an AGENT carries its spawning user's userId, so a NARROW agent
+// inheriting that user's cronjob ownership would be a confused-deputy
+// escalation — which is why a normal agent never holds `cron:manage` and is
+// blocked at stage 1 before this guard runs. A PRIVILEGED agent is granted
+// cron:manage deliberately (task 98d63ef7, Nil-approved), so here we let it
+// own-match exactly like its user would. The privilege signal is the capability
+// itself (keying authz on scope + capabilities, never a separate role/flag
+// axis), so a cron-run or normal-agent identity — neither of which carries
+// cron:manage — still can't reach the owner-match.
+//
+// The officeOwner branch is unchanged and still requires scope==="user" + owner,
+// so a privileged agent can NEVER get office-wide cron powers — only its own
+// jobs. (cron.setPrompt keeps its own officeOwner guard and stays owner-only.)
 export function cronjobOwnerOrOfficeOwner(idParamName = "id"): Guard {
   return (ctx) => {
     const { identity, params, deps } = ctx;
-    if (identity.scope !== "user") return FORBIDDEN;
+    const isUser = identity.scope === "user";
+    // The in-guard cap check is the PRIVILEGE SIGNAL, not redundant bookkeeping:
+    // do NOT delete it assuming stage-1 `cron:manage` covers it. This guard is
+    // contract-tested in isolation (no stage 1), and the check is what tells a
+    // privileged agent (granted cron:manage) apart from a narrow one — and from
+    // a cron-run, which never holds it. Removing it (or simplifying to a bare
+    // `scope === "agent"`) would let any agent own-match cronjobs.
+    const isPrivilegedAgent =
+      identity.scope === "agent" &&
+      identityHasCapability(identity, "cron:manage");
+    if (!isUser && !isPrivilegedAgent) return FORBIDDEN;
     if (officeOwner(ctx).ok) return ALLOW;
     const cronjobId = params[idParamName];
     if (!cronjobId) return FORBIDDEN;

@@ -32,20 +32,25 @@ import {
   publicGuard,
   authenticated,
   officeOwner,
+  userScope,
   selfUser,
   selfOrOwner,
   agentParamMustEqualTokenAgent,
+  agentManagerMatch,
   senderMustEqualTokenAgent,
   runParamMustEqualTokenRun,
   requiresRoomAccess,
   cronjobOwnerOrOfficeOwner,
   messageSend,
+  and,
+  or,
   type GuardDeps,
   type GuardContext,
 } from "../identity/guards.ts";
 import {
   USER_CAPABILITIES,
   AGENT_CAPABILITIES,
+  PRIVILEGED_AGENT_CAPABILITIES,
   RUN_CAPABILITIES,
   type Identity,
 } from "../identity/index.ts";
@@ -71,6 +76,16 @@ const agent: Identity = {
   role: "member",
   capabilities: AGENT_CAPABILITIES,
 };
+// A privileged agent: scope STILL "agent" (no impersonation), but carrying the
+// privileged operator capability set (includes cron:manage). Same spawning
+// userId as `agent` so the cron owner-match fixtures line up.
+const privilegedAgent: Identity = {
+  scope: "agent",
+  userId: "u-spawn",
+  agentId: "a-1",
+  role: "member",
+  capabilities: PRIVILEGED_AGENT_CAPABILITIES,
+};
 const run: Identity = {
   scope: "cron-run",
   userId: "u-cron",
@@ -89,6 +104,7 @@ function makeDeps(over: Partial<GuardDeps> = {}): GuardDeps {
     roomIdForAgent: () => null,
     userIdForUsername: () => null,
     cronjobCreatorUserId: () => null,
+    agentManagerUserId: () => null,
     ...over,
   };
 }
@@ -138,6 +154,20 @@ describe("guard: officeOwner", () => {
     const ownerRoleRun: Identity = { ...run, role: "owner" };
     expect(officeOwner(ctx(ownerRoleAgent))).toEqual(DENY);
     expect(officeOwner(ctx(ownerRoleRun))).toEqual(DENY);
+  });
+});
+
+// --- userScope --------------------------------------------------------------
+
+describe("guard: userScope", () => {
+  it("allows any USER (owner OR member)", () => {
+    expect(userScope(ctx(userOwner))).toEqual(OK);
+    expect(userScope(ctx(userMember))).toEqual(OK);
+  });
+  it("denies AGENT and CRON-RUN — including a PRIVILEGED agent (scope stays 'agent')", () => {
+    expect(userScope(ctx(agent))).toEqual(DENY);
+    expect(userScope(ctx(privilegedAgent))).toEqual(DENY);
+    expect(userScope(ctx(run))).toEqual(DENY);
   });
 });
 
@@ -441,10 +471,106 @@ describe("guard: cronjobOwnerOrOfficeOwner", () => {
     ).toEqual(DENY);
     expect(guard(ctx(userMember, {}, undefined, makeDeps()))).toEqual(DENY);
   });
-  it("scope-gate / no confused deputy: an AGENT whose userId equals the creator is STILL denied", () => {
+  it("scope-gate / no confused deputy: a NARROW agent whose userId equals the creator is STILL denied", () => {
+    // A normal agent lacks cron:manage, so it is not a privileged agent and is
+    // denied even on a userId match — the confused-deputy guard the narrow token
+    // exists for. (cron-run likewise.)
     const deps = makeDeps({ cronjobCreatorUserId: () => "u-spawn" });
     expect(guard(ctx(agent, { id: "job-1" }, undefined, deps))).toEqual(DENY);
     expect(guard(ctx(run, { id: "job-1" }, undefined, deps))).toEqual(DENY);
+  });
+  it("privileged agent owner-match: a PRIVILEGED agent whose userId created the job is ALLOWED (Nil-approved loosening)", () => {
+    const deps = makeDeps({ cronjobCreatorUserId: () => "u-spawn" }); // == privilegedAgent.userId
+    expect(
+      guard(ctx(privilegedAgent, { id: "job-1" }, undefined, deps)),
+    ).toEqual(OK);
+  });
+  it("privileged agent NON-owner: a privileged agent whose userId did NOT create the job is denied", () => {
+    const deps = makeDeps({ cronjobCreatorUserId: () => "someone-else" });
+    expect(
+      guard(ctx(privilegedAgent, { id: "job-1" }, undefined, deps)),
+    ).toEqual(DENY);
+  });
+  it("privileged agent gets NO office-owner shortcut: it only ever own-matches, never the officeOwner branch", () => {
+    // officeOwner requires scope==="user"+owner, so a privileged agent (scope
+    // "agent") can never inherit office-wide cron powers — only its own jobs.
+    // Force a creator mismatch: if the officeOwner branch leaked, this would OK.
+    const deps = makeDeps({ cronjobCreatorUserId: () => "not-u-spawn" });
+    expect(
+      guard(ctx(privilegedAgent, { id: "job-1" }, undefined, deps)),
+    ).toEqual(DENY);
+  });
+});
+
+// --- agentManagerMatch (+ the agents.setPrivileged composition) -------------
+
+describe("guard: agentManagerMatch", () => {
+  const guard = agentManagerMatch("id");
+  it("allows the user who MANAGES the agent (userId === agent's manager)", () => {
+    const deps = makeDeps({ agentManagerUserId: () => "u-mem" });
+    expect(guard(ctx(userMember, { id: "a-1" }, undefined, deps))).toEqual(OK);
+  });
+  it("denies a non-manager, an unknown/unowned agent, and a missing :id", () => {
+    expect(
+      guard(
+        ctx(
+          userMember,
+          { id: "a-1" },
+          undefined,
+          makeDeps({ agentManagerUserId: () => "u-other" }),
+        ),
+      ),
+    ).toEqual(DENY);
+    expect(
+      guard(
+        ctx(
+          userMember,
+          { id: "a-1" },
+          undefined,
+          makeDeps({ agentManagerUserId: () => null }),
+        ),
+      ),
+    ).toEqual(DENY);
+    expect(
+      guard(
+        ctx(
+          userMember,
+          {},
+          undefined,
+          makeDeps({ agentManagerUserId: () => "u-mem" }),
+        ),
+      ),
+    ).toEqual(DENY);
+  });
+
+  // The agents.setPrivileged composition: and(userScope, or(officeOwner, this)).
+  // This pins WHY agentManagerMatch must compose under userScope — bare, it is
+  // scope-agnostic and an agent with a coincidental userId match would pass.
+  describe("composed as the agents.setPrivileged gate", () => {
+    const composed = and(userScope, or(officeOwner, guard));
+    it("an AGENT whose userId matches the manager passes the BARE match but is blocked by userScope", () => {
+      const deps = makeDeps({ agentManagerUserId: () => "u-spawn" }); // == agent.userId
+      expect(guard(ctx(agent, { id: "a-1" }, undefined, deps))).toEqual(OK); // bare: passes
+      expect(composed(ctx(agent, { id: "a-1" }, undefined, deps))).toEqual(
+        DENY,
+      ); // composed: userScope blocks
+      expect(
+        composed(ctx(privilegedAgent, { id: "a-1" }, undefined, deps)),
+      ).toEqual(DENY);
+    });
+    it("a member toggles only agents they manage; an owner toggles any", () => {
+      const mine = makeDeps({ agentManagerUserId: () => "u-mem" });
+      const theirs = makeDeps({ agentManagerUserId: () => "u-other" });
+      expect(composed(ctx(userMember, { id: "a-1" }, undefined, mine))).toEqual(
+        OK,
+      );
+      expect(
+        composed(ctx(userMember, { id: "a-1" }, undefined, theirs)),
+      ).toEqual(DENY); // cross-user conferral blocked
+      expect(
+        composed(ctx(userOwner, { id: "a-1" }, undefined, theirs)),
+      ).toEqual(OK); // owner via officeOwner
+    });
   });
 });
 

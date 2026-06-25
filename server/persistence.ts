@@ -593,6 +593,13 @@ export interface PersistedAgent {
   // there is no structural flatten to {rooms, agents} in 3c (deferred/not
   // required).
   roomId?: string;
+  // Privileged-token flag (default false). Stamped into the agent's bearer
+  // token at mint time so it carries its spawning user's room-scoped operator
+  // capabilities. Absent on agents persisted before this field landed; read
+  // sites coerce a missing value with `?? false`, so there is NO migration
+  // backfill (which keeps the saveAgents→loadAgents round-trip lossless — see
+  // migratePersistedAgent).
+  privileged?: boolean;
 }
 
 export interface PersistedUsage {
@@ -608,6 +615,10 @@ export interface PersistedUsage {
 function migratePersistedAgent(
   agent: PersistedAgent & { model?: string },
 ): void {
+  // NOTE: `privileged` needs no backfill here. It's an optional field and every
+  // read site coerces a missing value with `?? false`, so a legacy agent (no
+  // field) already behaves as not-privileged — and NOT rewriting it keeps the
+  // saveAgents->loadAgents round-trip lossless.
   if (agent.modelFamily) return;
   if (typeof agent.model === "string") {
     agent.modelFamily = familyFromLegacyModel(agent.model);
@@ -1173,6 +1184,9 @@ export interface AgentHistoryEntry {
   customInstructions?: string | null;
   userId?: string | null;
   username?: string | null;
+  // Privileged-token flag, snapshotted so a killed agent revives with the
+  // same privilege it had. Absent ⇒ false (legacy/normal agents).
+  privileged?: boolean;
 }
 export type AgentHistory = Record<string, AgentHistoryEntry>;
 

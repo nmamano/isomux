@@ -274,6 +274,15 @@ export interface AgentInfo {
   // on legacy unowned agents that pre-date the user/device split.
   userId: string | null;
   username: string | null;
+  // Privileged agents carry their spawning user's room-scoped operator
+  // capabilities in their bearer token (drive other agents' sessions: resume,
+  // listSessions, sendNow, newConversation, lifecycle, cron over their own
+  // jobs). Scope STAYS "agent" — privilege only adds capabilities, never
+  // impersonates the user. Bound to the token (re-minted on toggle), mirrored
+  // here for the UI toggle state. Settable only by a user via the dedicated
+  // agents.setPrivileged route; never by an agent. Absent/false on normal
+  // agents.
+  privileged?: boolean;
   // In-memory only; never persisted. Empty after server restart.
   queue: QueuedMessage[];
   // True while server is closing the old SDK session and installing a new one

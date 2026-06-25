@@ -129,6 +129,16 @@ export interface AgentsDeps {
   // updated agent. A no-op edit (no effective change) still returns the current
   // agent (200), never a failure.
   edit(agentId: string, changes: EditAgentReq): Promise<EditResult>;
+  // Toggles the agent's privileged flag: persists it, re-mints the bearer token
+  // with the new capability set, and session-swaps a LIVE agent onto it (see
+  // agent-manager.setPrivileged). Authorization (a USER with room access, never
+  // an agent) is the route guard's job; this just applies the mutation. Returns
+  // the updated agent, or null for a killed/unknown agent (the guard already
+  // rejects those -> defensive 404).
+  setPrivileged(
+    agentId: string,
+    privileged: boolean,
+  ): Promise<AgentInfo | null>;
 }
 
 // Reject a present-but-wrong-typed optional agent field at the boundary, so
@@ -299,6 +309,19 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
             ? 404
             : 400;
       return fail(status, r.reason, r.message);
+    },
+
+    "agents.setPrivileged": async (ctx) => {
+      // The route is double-gated (agent:privilege cap + userScope guard), so by
+      // here the caller is a USER with access to :id. Shape-check the body and
+      // apply the toggle; the heavy lifting (re-mint + session-swap) is the core's.
+      const b = (ctx.body ?? {}) as { privileged?: unknown };
+      if (typeof b.privileged !== "boolean") {
+        return fail(422, "invalid_request", "privileged (boolean) is required");
+      }
+      const agent = await deps.setPrivileged(ctx.params.id, b.privileged);
+      if (!agent) return fail(404, "agent_not_found", "Agent not found");
+      return ok({ agent });
     },
   };
 }

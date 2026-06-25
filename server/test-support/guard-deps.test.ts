@@ -24,9 +24,9 @@ describe("guard-deps (unit): roomIdForAgent resolves the GLOBAL room id", () => 
     hasRoomAccessForUser: (userId, roomId) =>
       userId === "u1" && roomId === "r1",
     getAllAgents: () => [
-      { id: "a1", roomId: "r1" },
-      { id: "a2", roomId: "r2" },
-      { id: "aDangling", roomId: "rGone" }, // roomId names no live room
+      { id: "a1", roomId: "r1", userId: "u1" },
+      { id: "a2", roomId: "r2", userId: "u2" },
+      { id: "aDangling", roomId: "rGone", userId: null }, // roomId names no live room; unowned
     ],
     getRooms: () => [{ id: "r1" }, { id: "r2" }],
     getUserByName: (name) => (name === "Nil" ? { id: "u1" } : null),
@@ -58,6 +58,12 @@ describe("guard-deps (unit): roomIdForAgent resolves the GLOBAL room id", () => 
     expect(deps.cronjobCreatorUserId("j1")).toBe("u7");
     expect(deps.cronjobCreatorUserId("jNull")).toBeNull();
     expect(deps.cronjobCreatorUserId("ghost")).toBeNull();
+  });
+  it("agentManagerUserId resolves the agent's manager, null for unknown/unowned", () => {
+    expect(deps.agentManagerUserId("a1")).toBe("u1");
+    expect(deps.agentManagerUserId("a2")).toBe("u2");
+    expect(deps.agentManagerUserId("aDangling")).toBeNull(); // unowned
+    expect(deps.agentManagerUserId("ghost")).toBeNull(); // unknown
   });
 });
 

@@ -18,11 +18,7 @@
 // keeping this leaf-like (no auth-middleware / manager imports).
 
 import { randomBytes, createHash, timingSafeEqual } from "crypto";
-import {
-  AGENT_CAPABILITIES,
-  RUN_CAPABILITIES,
-  type Identity,
-} from "./index.ts";
+import { agentCapabilities, RUN_CAPABILITIES, type Identity } from "./index.ts";
 
 const TOKEN_BYTES = 32; // 256 bits of entropy, matching auth.ts session/invite tokens
 
@@ -34,6 +30,11 @@ interface StoredToken {
   agentId?: string;
   cronjobId?: string;
   runId?: string;
+  // AGENT scope only: stamps the privileged capability set into the resolved
+  // identity (see agentCapabilities). Always false for cron-run. Bound at mint
+  // time so changing the setting requires a re-mint (rotation), never a
+  // per-request recompute.
+  privileged: boolean;
 }
 
 // Primary store keyed by a stable store-key (agent:<id> / run:<job>:<run>) so
@@ -82,12 +83,26 @@ function remove(key: string): void {
 
 // Mint (or rotate) the agent's token. Re-minting for the same agentId revokes
 // the prior token in the same call, so spawn/restore/revive all funnel here and
-// "rotated on revive" falls out for free. Returns the raw secret to inject into
-// the agent's session env.
-export function mintAgentToken(agentId: string, userId: string | null): string {
+// "rotated on revive" falls out for free. `privileged` stamps the capability
+// set the token resolves to — toggling the setting re-mints (revoking the old
+// token), so a live agent MUST be session-swapped onto the new token or its
+// in-flight one goes dead. Returns the raw secret to inject into the agent's
+// session env.
+export function mintAgentToken(
+  agentId: string,
+  userId: string | null,
+  privileged = false,
+): string {
   revokeAgentToken(agentId); // rotation: drop any prior token for this agent
   const { raw, hash } = newToken();
-  store(agentKey(agentId), { scope: "agent", hash, raw, userId, agentId });
+  store(agentKey(agentId), {
+    scope: "agent",
+    hash,
+    raw,
+    userId,
+    agentId,
+    privileged,
+  });
   return raw;
 }
 
@@ -119,6 +134,7 @@ export function mintRunToken(
     userId,
     cronjobId,
     runId,
+    privileged: false, // cron-run tokens are never privileged
   });
   return raw;
 }
@@ -154,8 +170,13 @@ export function resolveToken(raw: string): Identity | null {
     cronjobId: token.cronjobId,
     runId: token.runId,
     role: "member", // inert filler for non-user scope (see Identity.role)
+    // AGENT scope resolves to the baseline or privileged set by the token's
+    // stamped flag; cron-run is always the run set. Scope itself never changes
+    // (privilege only ADDS capabilities — no impersonation).
     capabilities:
-      token.scope === "agent" ? AGENT_CAPABILITIES : RUN_CAPABILITIES,
+      token.scope === "agent"
+        ? agentCapabilities(token.privileged)
+        : RUN_CAPABILITIES,
   };
 }
 

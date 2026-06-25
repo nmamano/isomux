@@ -27,12 +27,15 @@ import {
   authenticated,
   selfOrOwner,
   officeOwner,
+  userScope,
   requiresRoomAccess,
   agentParamMustEqualTokenAgent,
+  agentManagerMatch,
   messageSend,
   cronjobOwnerOrOfficeOwner,
   runParamMustEqualTokenRun,
   and,
+  or,
   type Guard,
 } from "../identity/guards.ts";
 import type { EventId } from "../events/registry.ts";
@@ -53,6 +56,7 @@ import type {
 import type {
   SpawnReq,
   EditAgentReq,
+  SetPrivilegedReq,
   ReviveReq,
   MoveAgentReq,
   SwapDesksReq,
@@ -233,6 +237,29 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PATCH",
     path: "/api/agents/:id",
     auth: cap("agent:manage", agentParam("id")),
+    emits: ["agent_updated"],
+  }),
+  // Owner-administrative privilege toggle. Its OWN route (not a field on
+  // agents.update), mirroring users.setAccess vs users.update: editing normal
+  // props is agent:manage, but conferring privilege needs higher authority and a
+  // heavy side effect (token re-mint + session-swap) that earns its own handler.
+  // DOUBLE-GATED so no agent — privileged or not — can ever flip the flag:
+  // stage-1 cap `agent:privilege` is absent from both the AGENT and the
+  // privileged-agent capability sets (only USER scope holds it), and stage-2
+  // `userScope` blocks any non-user scope. CONFERRAL SCOPE is (i-b), Nil-ruled:
+  // an office owner toggles any agent; a member toggles ONLY agents they manage
+  // (manager-match on AgentInfo.userId) — NOT mere room co-membership, which
+  // would let a member elevate another member's agent (cross-user confused
+  // deputy). `userScope` stays OUTERMOST so an agent whose userId coincides with
+  // the target's manager still can't pass the manager-match branch.
+  defineRoute<SetPrivilegedReq, AgentEnvelope>({
+    opId: "agents.setPrivileged",
+    method: "PUT",
+    path: "/api/agents/:id/privileged",
+    auth: cap(
+      "agent:privilege",
+      and(userScope, or(officeOwner, agentManagerMatch("id"))),
+    ),
     emits: ["agent_updated"],
   }),
   defineRoute<MoveAgentReq, AgentEnvelope>({

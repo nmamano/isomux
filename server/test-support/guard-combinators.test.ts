@@ -18,6 +18,7 @@ const deps: GuardDeps = {
   roomIdForAgent: () => "r1",
   userIdForUsername: () => null,
   cronjobCreatorUserId: () => null,
+  agentManagerUserId: () => null,
 };
 const identity: Identity = {
   scope: "user",

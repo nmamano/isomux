@@ -285,6 +285,49 @@ describe("routes/validate.env REST: object-level policy (the dead-precondition r
       ).status,
     ).toBe(401);
   });
+
+  it("PRIVILEGED agent (owner-spawned, HAS office:read) -> 403: the scope gate blocks env probing (task 98d63ef7)", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const room = srv.agentManager.getRooms()[0];
+    // Owned by the owner (userId resolves from the "Boss" username snapshot), so
+    // its identity resolves to an OWNER record. WITHOUT the scope gate, the
+    // role-based subject policy would grant it owner reach and let it probe any
+    // env file's metadata. A privileged agent clears stage 1 (office:read is in
+    // the privileged set), unlike the normal agent above.
+    const agent = await srv.agentManager.spawn(
+      "Ops",
+      srv.stateRoot,
+      "default",
+      undefined,
+      undefined,
+      room.id,
+      undefined,
+      undefined,
+      undefined,
+      "Boss", // username -> resolves the agent's userId to the owner record
+      "claude",
+    );
+    if (!agent) throw new Error("spawn returned null");
+    expect(agent.userId).toBeTruthy(); // confirm it really is owner-owned
+    await srv.agentManager.setPrivileged(agent.id, true);
+    const token = getAgentTokenRaw(agent.id)!;
+    // Fails closed for non-user scope: office, another user, AND its own owner's
+    // env are all 403 — a privileged agent never validates env files.
+    for (const body of [
+      { scope: "office" },
+      { scope: "user", username: "Boss" },
+      { scope: "user" },
+    ]) {
+      const res = await api(srv, "/api/validate/env", {
+        method: "POST",
+        bearer: token,
+        body,
+      });
+      expect(res.status).toBe(403);
+    }
+  });
 });
 
 describe("routes/validate.env REST: resolution core (keyCount + error)", () => {

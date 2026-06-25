@@ -84,6 +84,15 @@ export interface ReviveReq {
   desk: number;
 }
 
+// Body for agents.setPrivileged (PUT /api/agents/:id/privileged). Deliberately
+// its OWN request type, NOT a member of the EditAgentReq Pick — privilege is an
+// owner-administrative mutation gated to scope==="user" (mirrors users.setAccess
+// vs users.update), so it must never ride the agent:manage edit path where a
+// privileged agent could reach it.
+export interface SetPrivilegedReq {
+  privileged: boolean;
+}
+
 export interface MoveAgentReq {
   targetRoomId: string;
 }

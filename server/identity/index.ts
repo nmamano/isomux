@@ -29,6 +29,11 @@ export type Capability =
   | "office:read"
   | "agent:manage"
   | "agent:converse"
+  // Grant/revoke an agent's `privileged` flag. USER-only and deliberately
+  // ABSENT from both AGENT and the privileged-agent set, so it is the stage-1
+  // half of the double-gate on agents.setPrivileged: no agent — privileged or
+  // not — can ever flip the flag (stage 2 additionally requires scope==="user").
+  | "agent:privilege"
   | "room:manage"
   | "view:manage"
   | "user:self"
@@ -78,6 +83,7 @@ export const USER_CAPABILITIES: readonly Capability[] = [
   "office:read",
   "agent:manage",
   "agent:converse",
+  "agent:privilege",
   "room:manage",
   "view:manage",
   "user:self",
@@ -104,6 +110,46 @@ export const AGENT_CAPABILITIES: readonly Capability[] = [
   "task:write",
   "self:affordance",
 ];
+
+// PRIVILEGED AGENT set: the baseline AGENT set PLUS a curated allowlist of the
+// spawning user's operator capabilities. A privileged agent's token carries
+// this so it can drive other agents' sessions the way its user can from the UI
+// (resume / listSessions / sendNow / newConversation / cancelQueued / lifecycle
+// / editor / uploads), fully manage cron over its OWN jobs (cron:read +
+// cron:manage; the cronjobOwnerOrOfficeOwner guard additionally owner-matches a
+// privileged agent — see guards.ts), and manage rooms it can access (room:manage:
+// create / rename / settings / close, Nil-approved expansion; create is
+// office-wide, the rest are room-access-scoped on its spawning user's id).
+//
+// This is a CURATED allowlist, NOT union(AGENT, USER): the audit (task 98d63ef7)
+// found the literal union exposes capability-only owner routes — invites.mintSelf
+// (mints a durable owner LOGIN), sessions.revoke (kills the human's browser
+// session). So invite:manage, session:manage, user:* (user records / access),
+// office:admin (office settings + access), view:manage, terminal:use, and
+// agent:privilege (the toggle itself) are DELIBERATELY excluded. Scope stays
+// "agent" regardless, so every scope==="user" guard (officeOwner/selfUser/the
+// messageSend user-path) still blocks a privileged agent — those exclusions are
+// defense-in-depth on top of that. Whenever a new capability is added, decide
+// explicitly whether a privileged agent should hold it; do NOT let it ride in by
+// default.
+export const PRIVILEGED_AGENT_CAPABILITIES: readonly Capability[] = [
+  ...AGENT_CAPABILITIES,
+  "agent:converse",
+  "office:read",
+  "agent:manage",
+  "room:manage",
+  "editor:use",
+  "file:upload",
+  "cron:read",
+  "cron:manage",
+];
+
+// The capability set an AGENT-scope token resolves to, by its privileged flag.
+// The ONE place that maps the persisted/minted flag to a capability set, so the
+// token store (resolveToken) and any future caller agree.
+export function agentCapabilities(privileged: boolean): readonly Capability[] {
+  return privileged ? PRIVILEGED_AGENT_CAPABILITIES : AGENT_CAPABILITIES;
+}
 
 // CRON-RUN set: only the self-affordances, bound to its {cronjobId, runId}. The
 // cron-run analogue of an agent token; closes the loopback hole for a firing
