@@ -1101,6 +1101,13 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // Revive-only: on resume failure (missing/corrupt session), retry as
     // fresh. Boot leaves the agent in error state with an explanation log.
     fallbackToFreshOnResumeFailure?: boolean;
+    // Boot-only: restore the agent lazy (no subprocess) rather than eagerly
+    // spawning a session. The agent comes back on its desk, conversation intact,
+    // dormant; the first message wakes it via flushQueue's !session branch. This
+    // is what makes a restart free idle agents' RAM instead of re-spawning all
+    // of them at once (the OOM thundering-herd). Revive leaves this unset (eager,
+    // preserving its resume-failure fallback).
+    lazy?: boolean;
   }): { sessionOk: boolean; sessionError: string | null } {
     const p = opts.persisted;
     const agentType = p.agentType ?? "claude";
@@ -1171,7 +1178,13 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       permissionMode,
       modelFamily,
       effort,
-      state: resumeSessionId ? "waiting_for_response" : "idle",
+      // Lazy restore has no live turn, so it comes back "idle" (a perpetual
+      // "waiting_for_response" spinner on a dormant agent would be wrong).
+      state: opts.lazy
+        ? "idle"
+        : resumeSessionId
+          ? "waiting_for_response"
+          : "idle",
       topic: p.topic ?? null,
       // Determined by the textCount scan below after logs load.
       topicStale: false,
@@ -1185,6 +1198,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       queue: [],
       sessionSwapping: false,
       turnHadHumanInput: false,
+      // Dormant iff lazy-restored (no subprocess). Eager paths install a session
+      // below, which clears it (already false here, so installSession no-ops).
+      dormant: !!opts.lazy,
     };
     officeState.addExistingAgent(info);
     const managed: ManagedAgent = {
@@ -1221,6 +1237,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       messageQueue: [],
       flushInProgress: false,
       queueDedupe: new Map(),
+      lastActiveAt: Date.now(),
+      dormantReason: opts.lazy ? "boot" : null,
     };
     agents.set(p.id, managed);
     // Mint (or rotate, on revive) the agent's bearer token before any
@@ -1243,10 +1261,26 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         if (drift > 0) {
           info.topicStale = true;
         }
-        if (drift >= TOPIC_REGEN_THRESHOLD) {
+        // Lazy restore skips eager topic-gen: generateTopic spawns a transient
+        // one-shot subprocess, and firing a burst of them during boot is the
+        // exact thundering-herd lazy restore exists to avoid. The drift re-check
+        // on the agent's next real turn regenerates it.
+        if (!opts.lazy && drift >= TOPIC_REGEN_THRESHOLD) {
           void generateTopic(p.id);
         }
       }
+    }
+
+    // Lazy restore: stop here. The agent is on its desk (addExistingAgent above),
+    // state="idle", dormant=true, sessionId set, transcript loaded into logCache,
+    // and its token is minted — everything the wake path needs. The first message
+    // resumes it via flushQueue's !session branch, which writes its own
+    // interruption marker from the logCache tail. No createSession = no boot
+    // subprocess and zero idle RAM. (emitAgentAdded is false on boot; the snapshot
+    // returned by restoreAgents carries the agent.)
+    if (opts.lazy) {
+      if (opts.emitAgentAdded) emit({ type: "agent_added", agent: info });
+      return { sessionOk: true, sessionError: null };
     }
 
     // Decision now, write later: the marker only lands on disk after
@@ -1359,6 +1393,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           persisted: p,
           roomIdx,
           emitAgentAdded: false,
+          // Boot restores agents lazy: no subprocess until first message. Frees
+          // idle RAM and removes the all-at-once respawn spike on restart.
+          lazy: true,
         });
       }
     }
@@ -1612,6 +1649,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   function beginTurn(agentId: string, opts: { humanInput: boolean }) {
     const managed = agents.get(agentId);
     if (!managed) return;
+    managed.lastActiveAt = Date.now();
     if (managed.info.turnHadHumanInput !== opts.humanInput) {
       for (const event of officeState.updateAgent(agentId, {
         turnHadHumanInput: opts.humanInput,
@@ -1638,6 +1676,15 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     const prev = managed.info.state;
     for (const event of officeState.updateAgent(agentId, { state }))
       emit(event);
+
+    // Turn-end activity stamp: entering a queue-idle state means the turn just
+    // finished, so reset the idle clock here too (not only at turn start). "Idle
+    // N min" should mean "quiet for N min" — otherwise a long turn that ends
+    // would be demoted by the very next sweep and a boss follow-up moments later
+    // would eat a cold resume.
+    if (state !== prev && isQueueIdleState(state)) {
+      managed.lastActiveAt = Date.now();
+    }
 
     // Trigger queue flush on transition into an idle state (and only when the
     // queue actually has items waiting). Swapping into the same state is a
@@ -2431,6 +2478,16 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   ) {
     managed.session = session;
     managed.consumerPromise = runConsumer(agentId, managed, session);
+    // Stamp activity + clear dormant in lockstep with the session going live, so
+    // a just-woken agent isn't immediately re-demoted and `info.dormant` can
+    // never disagree with `session !== null`. Guarded so spawn / normal swaps
+    // (already non-dormant) don't emit a redundant agent_updated.
+    managed.lastActiveAt = Date.now();
+    managed.dormantReason = null;
+    if (managed.info.dormant) {
+      for (const event of officeState.updateAgent(agentId, { dormant: false }))
+        emit(event);
+    }
   }
 
   // Swap the agent's session: close the current one, await its consumer to
@@ -2481,39 +2538,56 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return managed.info;
   }
 
+  // Close the agent's live session and drain its consumer, leaving it dormant
+  // (session === null, no subprocess). Shared by replaceSession (installs a
+  // replacement right after) and demoteToLazy (doesn't). Bumps turnCancelToken
+  // so any concurrent pre-send turn bails, rejects the in-flight turn, sets
+  // info.dormant in lockstep with session, and awaits the old consumer so the
+  // dying subprocess never overlaps whatever installs next. CALLERS MUST NOT
+  // mutate session-related state after this resolves without re-checking — a
+  // message arriving during the drain await may already have woken a fresh
+  // session via flushQueue.
+  async function closeAndDrainSession(agentId: string, managed: ManagedAgent) {
+    managed.turnCancelToken++;
+    const oldConsumer = managed.consumerPromise;
+    const turn = managed.pendingTurn;
+    managed.pendingTurn = null;
+    if (turn) {
+      try {
+        turn.reject(new SessionSwappedError());
+      } catch {}
+    }
+    try {
+      managed.session?.close();
+    } catch {}
+    managed.session = null;
+    managed.consumerPromise = null;
+    for (const event of officeState.updateAgent(agentId, { dormant: true }))
+      emit(event);
+    if (oldConsumer) {
+      try {
+        await oldConsumer;
+      } catch {}
+    }
+  }
+
   async function replaceSession(
     agentId: string,
     managed: ManagedAgent,
     newSession: BackendSession,
   ) {
-    // Bump the cancel token first so any concurrent runAgentTurn in its
-    // pre-send plugin-retrieval window bails on the next await checkpoint —
-    // the in-flight `pendingTurn` rejection below only covers the post-send
-    // path. /clear, /resume, /model, /effort, edit-fork, and abort's slow
-    // path all funnel through here, so this single bump covers every swap.
-    managed.turnCancelToken++;
+    // /clear, /resume, /model, /effort, edit-fork, abort's slow path, and
+    // setPrivileged all funnel through here. closeAndDrainSession bumps the
+    // cancel token (covers concurrent pre-send turns, same as before) and flips
+    // dormant=true; installSession flips it back. The transient dormant blip is
+    // invisible (v1 renders no badge) and sessionSwapping already covers the UI
+    // for the ~3s drain window.
     for (const event of officeState.updateAgent(agentId, {
       sessionSwapping: true,
     }))
       emit(event);
     try {
-      const oldConsumer = managed.consumerPromise;
-      const turn = managed.pendingTurn;
-      managed.pendingTurn = null;
-      if (turn) {
-        try {
-          turn.reject(new SessionSwappedError());
-        } catch {}
-      }
-      try {
-        managed.session?.close();
-      } catch {}
-      managed.session = null;
-      if (oldConsumer) {
-        try {
-          await oldConsumer;
-        } catch {}
-      }
+      await closeAndDrainSession(agentId, managed);
       installSession(agentId, managed, newSession);
     } finally {
       for (const event of officeState.updateAgent(agentId, {
@@ -2521,6 +2595,81 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       }))
         emit(event);
     }
+  }
+
+  // --- Idle eviction: demote idle agents to lazy to reclaim subprocess RAM ----
+  // A live backend subprocess holds ~165MB resident even when idle. After
+  // IDLE_EVICT_MS of inactivity an agent is demoted to lazy (subprocess closed,
+  // session resumable on disk); the next message wakes it via flushQueue's
+  // !session branch. lazy-restore at boot starts everyone dormant; this sweep
+  // re-demotes agents that woke and then went quiet again.
+  const IDLE_EVICT_MS = 10 * 60_000;
+  let demoteCount = 0;
+
+  // Wake-message wording, accurate to WHY the agent was dormant: a sweep-demoted
+  // agent was released for idleness; a lazy-restored one was released by a
+  // server (re)start. A genuine crash uses each wake path's own wording.
+  function dormantWakeMessage(reason: ManagedAgent["dormantReason"]): string {
+    return reason === "boot"
+      ? "Resumed your session after the server restarted."
+      : "Resumed your session (it was released while idle to save memory).";
+  }
+
+  // Synchronous guard: only demote a fully-quiescent, resumable live agent.
+  // Re-checked immediately before the close in demoteToLazy with no await
+  // between, so a turn/message can't slip in. `pickAutoResumeSessionId !== null`
+  // covers both "has a sessionId to resume" and the Codex durable-rollout
+  // requirement (a non-durable Codex thread would wake into a fresh, context-
+  // less session).
+  function canDemote(managed: ManagedAgent): boolean {
+    return (
+      managed.session !== null &&
+      isQueueIdleState(managed.info.state) &&
+      !managed.pendingTurn &&
+      !inMultiStepFlow(managed) &&
+      !managed.abortPromise &&
+      !managed.info.sessionSwapping &&
+      !managed.flushInProgress &&
+      managed.messageQueue.length === 0 &&
+      pickAutoResumeSessionId(managed) !== null
+    );
+  }
+
+  // Demote one agent to lazy. Returns true if it demoted. Safe against a message
+  // arriving mid-drain: closeAndDrainSession nulls the session synchronously, a
+  // concurrent wake (flushQueue) installs a fresh session during the drain
+  // await, and this function touches nothing afterward so it can't clobber that
+  // wake. The on-disk resume race the replaceSession header warns about doesn't
+  // apply: canDemote requires a quiescent agent (idle, no in-flight turn), so
+  // the closing subprocess isn't mid-write to the shared session .jsonl.
+  async function demoteToLazy(agentId: string): Promise<boolean> {
+    const managed = agents.get(agentId);
+    if (!managed) return false;
+    if (!canDemote(managed)) return false;
+    managed.dormantReason = "idle";
+    await closeAndDrainSession(agentId, managed);
+    demoteCount++;
+    console.log(
+      `[idle-evict] demoted ${managed.info.name} (${agentId}) to lazy (total ${demoteCount})`,
+    );
+    return true;
+  }
+
+  // Periodic sweep: demote every live agent idle past `idleMs`. Snapshots the
+  // map first (demoteToLazy awaits and the map can change between iterations).
+  // Returns the count demoted.
+  async function sweepIdleAgents(
+    idleMs: number = IDLE_EVICT_MS,
+  ): Promise<number> {
+    const now = Date.now();
+    let demoted = 0;
+    for (const [agentId, managed] of [...agents.entries()]) {
+      if (managed.session === null) continue;
+      if (now - managed.lastActiveAt < idleMs) continue;
+      if (!canDemote(managed)) continue;
+      if (await demoteToLazy(agentId)) demoted++;
+    }
+    return demoted;
   }
 
   // Merge process.env with office and the agent owner's user env files.
@@ -2832,6 +2981,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       messageQueue: [],
       flushInProgress: false,
       queueDedupe: new Map(),
+      lastActiveAt: Date.now(),
+      dormantReason: null,
     };
     agents.set(id, managed);
     // Mint the agent's bearer token before the first createSession below reads
@@ -3007,6 +3158,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   ): EnqueueResult {
     const managed = agents.get(agentId);
     if (!managed) return { ok: false, error: "agent not found", status: 404 };
+    // Inbound traffic counts as activity so a dormant agent that just woke (or a
+    // busy one mid-conversation) isn't demoted out from under the next message.
+    managed.lastActiveAt = Date.now();
 
     const state = managed.info.state;
     if (state === "stopped" || state === "error") {
@@ -3103,6 +3257,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       }
       if (!managed.session) {
         try {
+          // Capture before installSession clears them: a clean wake (idle
+          // eviction or restart) gets an accurate calm message; only a genuine
+          // unexpected death gets the alarming one.
+          const wasDormant = managed.info.dormant ?? false;
+          const dormantReason = managed.dormantReason;
           const sessionId = pickAutoResumeSessionId(managed);
           if (managed.sessionId && !sessionId)
             clearStaleAutoResumeState(agentId, managed);
@@ -3127,7 +3286,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             agentId,
             "system",
             sessionId
-              ? "Resumed prior session before flushing queued messages."
+              ? wasDormant
+                ? dormantWakeMessage(dormantReason)
+                : "Resumed prior session before flushing queued messages."
               : "Started a fresh session before flushing queued messages.",
           );
         } catch (err) {
@@ -3451,6 +3612,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             attachments,
           );
         }
+        // Capture before installSession clears them: a clean wake (idle eviction
+        // or restart) gets an accurate calm message; only a genuine unexpected
+        // death gets the alarming one.
+        const wasDormant = managed.info.dormant ?? false;
+        const dormantReason = managed.dormantReason;
         installSession(
           agentId,
           managed,
@@ -3462,7 +3628,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           agentId,
           "system",
           sessionId
-            ? "Resumed prior session after the previous one ended unexpectedly."
+            ? wasDormant
+              ? dormantWakeMessage(dormantReason)
+              : "Resumed prior session after the previous one ended unexpectedly."
             : "Started a fresh session (previous one could not be restored).",
         );
         updateState(agentId, "waiting_for_response");
@@ -5149,6 +5317,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     getAllAgents,
     getKilledAgentSummaries,
     restoreAgents,
+    demoteToLazy,
+    sweepIdleAgents,
     getAgent,
     emitAgentEditRequest,
     emitAgentTerminalCommand,

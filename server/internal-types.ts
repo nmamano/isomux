@@ -107,6 +107,15 @@ export interface ManagedAgent {
   // clientMessageId → expiresAtMs. Per-receiver dedup window for HTTP retries.
   // 5 min TTL; entries are pruned lazily inside enqueueMessage.
   queueDedupe: Map<string, number>;
+  // Wall-clock ms of the agent's last activity (turn start, inbound message, or
+  // session install/wake). The idle-eviction sweep demotes a live agent to lazy
+  // once this is older than the idle threshold. In-memory only; not persisted
+  // (a restart lazy-restores everyone regardless).
+  lastActiveAt: number;
+  // Why the agent currently has no live subprocess, used only to word the wake
+  // message accurately: "idle" = demoted by the inactivity sweep; "boot" =
+  // lazy-restored on server (re)start. Null while live. In-memory only.
+  dormantReason: "idle" | "boot" | null;
 }
 
 export type AgentEvent =

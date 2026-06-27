@@ -288,6 +288,13 @@ export interface AgentInfo {
   // True while server is closing the old SDK session and installing a new one
   // (~3s drain). UI shows a "restarting session" hint while this is true.
   sessionSwapping: boolean;
+  // True when the agent has no live backend subprocess — it was idle-evicted
+  // (the inactivity sweep demoted it) or lazy-restored on boot. It keeps its
+  // session on disk and resumes transparently on the next message. Tracks
+  // `ManagedAgent.session === null` as the single source of truth (set in
+  // lockstep wherever the session is closed/installed). Carried on the wire for
+  // future presentation; v1 renders no badge. Absent/false on live agents.
+  dormant?: boolean;
   // True iff the current (or most-recent) turn started by processing a human
   // message. The UI gates the turn-end notification sound on this so an
   // agent-only turn (one agent messages another, the receiver answers and

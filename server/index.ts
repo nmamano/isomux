@@ -4280,5 +4280,17 @@ if (import.meta.main) {
     await runAdminCli(process.argv.slice(2));
     process.exit(0);
   }
-  await startServer();
+  const handle = await startServer();
+  // Idle-eviction sweep: every minute, demote agents idle past the threshold to
+  // lazy so they release their ~165MB subprocess. (Boot already lazy-restores
+  // everyone; this re-demotes agents that woke and then went quiet again.) Lives
+  // in the import.meta.main guard, NOT startServer — the in-process test harness
+  // calls startServer() directly and must not inherit a background timer. unref
+  // so it never keeps the process alive on its own.
+  const idleSweep = setInterval(() => {
+    void handle.agentManager
+      .sweepIdleAgents()
+      .catch((err) => console.error("[idle-evict] sweep failed:", err));
+  }, 60_000);
+  idleSweep.unref?.();
 }
