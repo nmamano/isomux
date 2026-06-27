@@ -1,10 +1,11 @@
-// isomux-memory on the unified REST surface — slice 3a (opIds memory.{list,create}).
+// isomux-memory on the unified REST surface (opIds memory.{list,create}).
 //
-// 3a is the agent-scope tracer: an agent reads/writes its OWN memory file.
-// Identity-required (401 wall), author/date/id server-stamped (never body),
-// scopeId is a target selector but an agent may only target itself, and every
-// not-yet-supported path returns a DELIBERATE error so the temporary posture is
-// pinned. Evidence = the persisted agents/<id>.md file + REST envelopes.
+// Scopes: agent (own file; 3a), room + office (3b). Identity-required (401 wall),
+// author/date/id server-stamped (never body). room/office are authenticated +
+// EXISTENCE-gated only (no room-access gate, permissive per Nil); office takes no
+// scopeId; boss + cross-agent agent writes return DELIBERATE errors so the
+// temporary posture can't be mistaken for the final permissive model. Evidence =
+// the persisted memory/*.md files + REST envelopes.
 //
 // Seam: startTestServer(). Zero LLM.
 
@@ -77,15 +78,15 @@ async function spawnAgent(srv: TestServer, name: string): Promise<AgentInfo> {
 function errCode(body: unknown): string | undefined {
   return (body as { error?: { code?: string } }).error?.code;
 }
-function memFile(srv: TestServer, agentId: string): string | null {
+function readMem(srv: TestServer, ...parts: string[]): string | null {
   try {
-    return readFileSync(
-      join(srv.stateRoot, "memory", "agents", `${agentId}.md`),
-      "utf8",
-    );
+    return readFileSync(join(srv.stateRoot, "memory", ...parts), "utf8");
   } catch {
     return null;
   }
+}
+function memFile(srv: TestServer, agentId: string): string | null {
+  return readMem(srv, "agents", `${agentId}.md`);
 }
 
 describe("routes/memory REST: identity required", () => {
@@ -200,7 +201,9 @@ describe("routes/memory REST: deliberate rejections (temporary 3a posture)", () 
     return { srv, bot, token: mintAgentToken(bot.id, ownerId), ownerId };
   }
 
-  it("explicit other-agent scopeId -> 403 forbidden", async () => {
+  it("explicit other-agent scopeId -> 403 forbidden (TEMPORARY, not final auth)", async () => {
+    // The final permissive model allows any caller to write any agent's file;
+    // cross-agent agent writes are not enabled yet. Pin the current 403.
     const { srv, token } = await botCtx();
     const other = await spawnAgent(srv, "OtherBot");
     const r = await api(srv, "/api/memory", {
@@ -233,17 +236,15 @@ describe("routes/memory REST: deliberate rejections (temporary 3a posture)", () 
     expect(errCode(r.body)).toBe("invalid_scope_id");
   });
 
-  it("non-agent scope (room/office/boss) -> 400 unsupported_scope", async () => {
+  it("boss scope -> 400 unsupported_scope (POST; not implemented until 3c)", async () => {
     const { srv, token } = await botCtx();
-    for (const scope of ["room", "office", "boss"]) {
-      const r = await api(srv, "/api/memory", {
-        method: "POST",
-        bearer: token,
-        body: { scope, scopeId: "room-1", factType: "rule", text: "x" },
-      });
-      expect(r.status).toBe(400);
-      expect(errCode(r.body)).toBe("unsupported_scope");
-    }
+    const r = await api(srv, "/api/memory", {
+      method: "POST",
+      bearer: token,
+      body: { scope: "boss", scopeId: "user-1", factType: "rule", text: "x" },
+    });
+    expect(r.status).toBe(400);
+    expect(errCode(r.body)).toBe("unsupported_scope");
   });
 
   it("invalid factType -> 400 invalid_fact_type", async () => {
@@ -304,12 +305,192 @@ describe("routes/memory REST: deliberate rejections (temporary 3a posture)", () 
     expect(errCode(get.body)).toBe("unsupported_caller");
   });
 
-  it("GET non-agent scope -> 400 unsupported_scope", async () => {
+  it("GET boss scope -> 400 unsupported_scope (not implemented until 3c)", async () => {
     const { srv, token } = await botCtx();
-    for (const scope of ["room", "office", "boss"]) {
-      const r = await api(srv, `/api/memory?scope=${scope}`, { bearer: token });
-      expect(r.status).toBe(400);
-      expect(errCode(r.body)).toBe("unsupported_scope");
+    const r = await api(srv, `/api/memory?scope=boss&scopeId=user-1`, {
+      bearer: token,
+    });
+    expect(r.status).toBe(400);
+    expect(errCode(r.body)).toBe("unsupported_scope");
+  });
+});
+
+describe("routes/memory REST: room + office scopes (permissive, existence-gated)", () => {
+  async function ctx() {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const ownerId = getUserByName("Boss")!.id;
+    const bot = await spawnAgent(srv, "MemBot");
+    const roomId = srv.agentManager.getRooms()[0].id;
+    return {
+      srv,
+      owner,
+      bot,
+      roomId,
+      token: mintAgentToken(bot.id, ownerId),
+    };
+  }
+
+  it("agent writes a room fact -> rooms/<roomId>.md, author = agent name", async () => {
+    const { srv, token, roomId } = await ctx();
+    const r = await api(srv, "/api/memory", {
+      method: "POST",
+      bearer: token,
+      body: {
+        scope: "room",
+        scopeId: roomId,
+        factType: "convention",
+        text: "this room uses Bun",
+      },
+    });
+    expect(r.status).toBe(201);
+    const item = r.body as MemoryItem;
+    expect(item.scope).toBe("room");
+    expect(item.scopeId).toBe(roomId);
+    expect(item.author).toBe("MemBot");
+    expect(readMem(srv, "rooms", `${roomId}.md`)).toContain(
+      "this room uses Bun",
+    );
+  });
+
+  it("USER cookie writes room/office -> author = user name, body author/date/id ignored", async () => {
+    const { srv, owner, roomId } = await ctx();
+    const room = await api(srv, "/api/memory", {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      body: {
+        scope: "room",
+        scopeId: roomId,
+        factType: "rule",
+        text: "no force pushes",
+        author: "EVIL",
+        date: "1999-12-31",
+        id: "ffffff",
+      },
+    });
+    expect(room.status).toBe(201);
+    expect((room.body as MemoryItem).author).toBe("Boss");
+    const onDiskRoom = readMem(srv, "rooms", `${roomId}.md`);
+    expect(onDiskRoom).toContain("[Boss, ");
+    expect(onDiskRoom).not.toContain("EVIL");
+    expect(onDiskRoom).not.toContain("1999-12-31");
+
+    const office = await api(srv, "/api/memory", {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      body: {
+        scope: "office",
+        factType: "environment",
+        text: "auntie is the box",
+      },
+    });
+    expect(office.status).toBe(201);
+    expect((office.body as MemoryItem).scopeId).toBeNull();
+    expect(readMem(srv, "office.md")).toContain("auntie is the box");
+  });
+
+  it("GET room/office works for agent token and user cookie", async () => {
+    const { srv, owner, token, roomId } = await ctx();
+    await api(srv, "/api/memory", {
+      method: "POST",
+      bearer: token,
+      body: {
+        scope: "room",
+        scopeId: roomId,
+        factType: "convention",
+        text: "rf",
+      },
+    });
+    await api(srv, "/api/memory", {
+      method: "POST",
+      bearer: token,
+      body: { scope: "office", factType: "environment", text: "of" },
+    });
+    for (const auth of [
+      { bearer: token },
+      { rawSessionId: owner.rawSessionId },
+    ]) {
+      const room = await api(
+        srv,
+        `/api/memory?scope=room&scopeId=${roomId}`,
+        auth,
+      );
+      expect(room.status).toBe(200);
+      expect((room.body as MemoryItem[])[0].text).toBe("rf");
+      const office = await api(srv, "/api/memory?scope=office", auth);
+      expect(office.status).toBe(200);
+      expect((office.body as MemoryItem[])[0].text).toBe("of");
     }
+  });
+
+  it("room scope: missing/malformed scopeId -> 400 invalid_scope_id; nonexistent -> 404 room_not_found", async () => {
+    const { srv, token } = await ctx();
+    const missing = await api(srv, "/api/memory", {
+      method: "POST",
+      bearer: token,
+      body: { scope: "room", factType: "rule", text: "x" },
+    });
+    expect(missing.status).toBe(400);
+    expect(errCode(missing.body)).toBe("invalid_scope_id");
+
+    const malformed = await api(srv, "/api/memory", {
+      method: "POST",
+      bearer: token,
+      body: { scope: "room", scopeId: "../x", factType: "rule", text: "x" },
+    });
+    expect(malformed.status).toBe(400);
+    expect(errCode(malformed.body)).toBe("invalid_scope_id");
+
+    const ghost = await api(srv, "/api/memory", {
+      method: "POST",
+      bearer: token,
+      body: {
+        scope: "room",
+        scopeId: "room-nope",
+        factType: "rule",
+        text: "x",
+      },
+    });
+    expect(ghost.status).toBe(404);
+    expect(errCode(ghost.body)).toBe("room_not_found");
+
+    // Same rules on GET.
+    const getMissing = await api(srv, "/api/memory?scope=room", {
+      bearer: token,
+    });
+    expect(getMissing.status).toBe(400);
+    expect(errCode(getMissing.body)).toBe("invalid_scope_id");
+    const getGhost = await api(
+      srv,
+      "/api/memory?scope=room&scopeId=room-nope",
+      {
+        bearer: token,
+      },
+    );
+    expect(getGhost.status).toBe(404);
+    expect(errCode(getGhost.body)).toBe("room_not_found");
+  });
+
+  it("office with a provided scopeId -> 400 invalid_scope_id (POST and GET)", async () => {
+    const { srv, token, roomId } = await ctx();
+    const post = await api(srv, "/api/memory", {
+      method: "POST",
+      bearer: token,
+      body: {
+        scope: "office",
+        scopeId: roomId,
+        factType: "environment",
+        text: "x",
+      },
+    });
+    expect(post.status).toBe(400);
+    expect(errCode(post.body)).toBe("invalid_scope_id");
+
+    const get = await api(srv, `/api/memory?scope=office&scopeId=${roomId}`, {
+      bearer: token,
+    });
+    expect(get.status).toBe(400);
+    expect(errCode(get.body)).toBe("invalid_scope_id");
   });
 });

@@ -279,3 +279,103 @@ describe("memory-store: append + read (injected id/date, temp dir)", () => {
     ).toContain("[A, 2026-06-27] b");
   });
 });
+
+describe("memory-store: renderForPromptMulti", () => {
+  it("returns null when every scope is empty", () => {
+    const store = createMemoryStore({ stateRoot: tempRoot() });
+    expect(
+      store.renderForPromptMulti([
+        { scope: "office", scopeId: null, label: "Office-wide" },
+        { scope: "room", scopeId: "room-1", label: 'Room "R"' },
+        { scope: "agent", scopeId: "agent-1", label: "Your agent" },
+      ]),
+    ).toBeNull();
+  });
+
+  it("labels only non-empty scopes, in order (office -> room -> agent)", () => {
+    const stateRoot = tempRoot();
+    let n = 0;
+    const ids = ["0a0a0a", "0b0b0b"];
+    const store = createMemoryStore({
+      stateRoot,
+      genId: () => ids[n++],
+      today: () => "2026-06-27",
+    });
+    store.append({
+      scope: "office",
+      scopeId: null,
+      author: "O",
+      text: "office fact",
+    });
+    store.append({
+      scope: "agent",
+      scopeId: "agent-1",
+      author: "A",
+      text: "agent fact",
+    });
+    // room is left empty on purpose -> its label must be omitted.
+    const out = store.renderForPromptMulti([
+      { scope: "office", scopeId: null, label: "Office-wide" },
+      { scope: "room", scopeId: "room-1", label: 'Room "R"' },
+      { scope: "agent", scopeId: "agent-1", label: "Your agent" },
+    ]);
+    expect(out).toBe(
+      "Office-wide:\n- <!-- mem:0a0a0a --> [O, 2026-06-27] office fact\n\n" +
+        "Your agent:\n- <!-- mem:0b0b0b --> [A, 2026-06-27] agent fact",
+    );
+    expect(out).not.toContain('Room "R"');
+  });
+
+  it("cross-agent room visibility: a room fact reaches any reader of that room, not other rooms", () => {
+    const stateRoot = tempRoot();
+    let n = 0;
+    const ids = ["111aaa", "222bbb"];
+    // Agent A's session writes a room fact.
+    const storeA = createMemoryStore({
+      stateRoot,
+      genId: () => ids[n++],
+      today: () => "2026-06-27",
+    });
+    storeA.append({
+      scope: "room",
+      scopeId: "room-1",
+      author: "AgentA",
+      text: "shared room fact",
+    });
+    // A separate store instance (Agent B's session) reading the SAME room sees it.
+    const storeB = createMemoryStore({ stateRoot });
+    expect(
+      storeB.renderForPromptMulti([
+        { scope: "room", scopeId: "room-1", label: 'Room "R"' },
+      ]),
+    ).toContain("shared room fact");
+    // Agent C in a different room does not.
+    expect(
+      storeB.renderForPromptMulti([
+        { scope: "room", scopeId: "room-2", label: 'Room "R2"' },
+      ]),
+    ).toBeNull();
+  });
+
+  it("an office fact is included for agents in two different rooms", () => {
+    const stateRoot = tempRoot();
+    const store = createMemoryStore({
+      stateRoot,
+      genId: () => "0ff1ce",
+      today: () => "2026-06-27",
+    });
+    store.append({
+      scope: "office",
+      scopeId: null,
+      author: "O",
+      text: "office-wide fact",
+    });
+    for (const roomId of ["room-1", "room-2"]) {
+      const out = store.renderForPromptMulti([
+        { scope: "office", scopeId: null, label: "Office-wide" },
+        { scope: "room", scopeId: roomId, label: `Room "${roomId}"` },
+      ]);
+      expect(out).toContain("office-wide fact");
+    }
+  });
+});

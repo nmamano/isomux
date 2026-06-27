@@ -580,7 +580,15 @@ export function createCommandHandling(deps: HandlerDeps) {
         managed.info.username,
         ownerRecord?.memberPrompt ?? null,
         managed.info.privileged ?? false,
-        memoryStore.renderForPrompt("agent", managed.info.id),
+        memoryStore.renderForPromptMulti([
+          { scope: "office", scopeId: null, label: "Office-wide" },
+          {
+            scope: "room",
+            scopeId: managed.info.roomId,
+            label: `Room "${room.name}"`,
+          },
+          { scope: "agent", scopeId: managed.info.id, label: "Your agent" },
+        ]),
       );
       // Pick a fence longer than any backtick run inside the prompt so the block
       // renders verbatim regardless of what office/room/agent prompts contain.

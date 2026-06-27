@@ -99,6 +99,14 @@ export function parseMemoryFile(
 
 // --- the injectable store ---------------------------------------------------
 
+// One scope to fold into the auto-load block, with the plain label shown above
+// its lines (e.g. "Office-wide", `Room "Isomux Dev"`, "Your agent").
+export interface MemoryScopeRef {
+  scope: MemoryScope;
+  scopeId: string | null;
+  label: string;
+}
+
 export interface MemoryStore {
   read(scope: MemoryScope, scopeId: string | null): MemoryItem[];
   append(input: {
@@ -109,6 +117,11 @@ export interface MemoryStore {
   }): MemoryItem;
   // Active raw lines joined for prompt injection, or null when empty/missing.
   renderForPrompt(scope: MemoryScope, scopeId: string | null): string | null;
+  // Several scopes combined into one body for the single auto-load layer: each
+  // NON-EMPTY scope contributes a "<label>:\n<lines>" block, in the given order;
+  // returns null when every scope is empty. Labels are plain text, NOT markdown
+  // headings, so the memory layer stays one visual section.
+  renderForPromptMulti(refs: readonly MemoryScopeRef[]): string | null;
 }
 
 export interface MemoryStoreDeps {
@@ -199,7 +212,18 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
     return items.map((m) => m.raw).join("\n");
   }
 
-  return { read, append, renderForPrompt };
+  function renderForPromptMulti(
+    refs: readonly MemoryScopeRef[],
+  ): string | null {
+    const blocks: string[] = [];
+    for (const ref of refs) {
+      const body = renderForPrompt(ref.scope, ref.scopeId);
+      if (body) blocks.push(`${ref.label}:\n${body}`);
+    }
+    return blocks.length ? blocks.join("\n\n") : null;
+  }
+
+  return { read, append, renderForPrompt, renderForPromptMulti };
 }
 
 // Default production store against the real STATE_ROOT. Used by the route

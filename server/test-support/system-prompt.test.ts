@@ -108,6 +108,12 @@ describe("buildSystemPrompt — memory affordance", () => {
     expect(p).toContain("How to use memory");
     expect(p).toContain("/api/memory");
     expect(p).toContain('"scope":"agent"');
+    // 3b: room + office scopes documented, with the office blast-radius framing.
+    expect(p).toContain('"scope":"room"');
+    expect(p).toContain('"scope":"office"');
+    expect(p).toContain("injected into every agent's future sessions");
+    // boss scope is NOT yet documented (lands in 3c).
+    expect(p).not.toContain('"scope":"boss"');
   });
 
   it("never leaks a boss-memory filesystem path", () => {

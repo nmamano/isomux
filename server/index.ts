@@ -1262,6 +1262,9 @@ function buildExecutorDeps(): ExecutorDeps {
         return null;
       },
       isSafeScopeId,
+      // EXISTENCE only — no room-access gate (permissive model, Nil's call).
+      roomExists: (roomId) =>
+        agentManager.getRooms().some((r) => r.id === roomId),
     }),
   );
 

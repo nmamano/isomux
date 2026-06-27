@@ -2683,7 +2683,15 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       managed.info.username,
       ownerRecord?.memberPrompt ?? null,
       managed.info.privileged ?? false,
-      memoryStore.renderForPrompt("agent", managed.info.id),
+      memoryStore.renderForPromptMulti([
+        { scope: "office", scopeId: null, label: "Office-wide" },
+        {
+          scope: "room",
+          scopeId: managed.info.roomId,
+          label: `Room "${room.name}"`,
+        },
+        { scope: "agent", scopeId: managed.info.id, label: "Your agent" },
+      ]),
     );
     if (resumeSessionId) {
       // The SDK reports cost cumulative-per-process, so a resumed session's

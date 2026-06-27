@@ -73,7 +73,7 @@ Supersede: `- <!-- mem:NEWID supersedes:OLDID --> [author, date] <fact>`. Retrac
 ## Slice plan (tick on commit)
 
 - [x] 3a TRACER — `server/memory-store.ts` (parse/serialize/append, id-gen) + `POST`/`GET /api/memory` AGENT scope + `memory:*` caps + routes registered + auto-load `agents/<id>.md` as attributed layer + minimal "How to use memory" affordance + negative prompt assertion (notes-not-policy present, no boss path).
-- [ ] 3b — room + office scopes (write/read/auto-load), blast-radius framing in affordance.
+- [x] 3b — room + office scopes (write/read/auto-load), blast-radius framing in affordance.
 - [ ] 3c — boss scope (server-stamped provenance, scopeId target rules incl. null-manager→400, auto-load = manager boss only, path redaction). Update design doc §2/§3.
 - [ ] 3d — `PATCH`/`DELETE` supersede/tombstone + loader resolution (suppress superseded/retracted).
 - [ ] 3e — write-time dedup guard (exact/fuzzy, reject/merge, return matched id).
@@ -134,4 +134,37 @@ Completion of all slices; OR 3 consecutive gate failures on the same slice with 
 
 **Resources:** as in the Resources section above; primary references `server/system-prompt.ts`, `server/test-support/routes-tasks-rest.test.ts`, `server/routes/handlers/tasks.ts`, `server/identity/index.ts`.
 
-## SLICE-3b…3i PICKUP — authored when the prior slice commits (fold in what it taught)
+## SLICE-3b PICKUP — authored after 3a (ec92ed1)
+
+**What 3a taught (fold in):**
+
+- `server/memory-store.ts` is ALREADY scope-agnostic: `filePath()` handles office/room/agent/boss; read/append/renderForPrompt take `(scope, scopeId)`. 3b is mostly handler authority + auto-load wiring, not new storage.
+- The "deliberate rejection of unsupported paths" pattern works and is tested; 3b drops `unsupported_scope` for room/office, KEEPS it for boss (until 3c).
+- `authorFor` already resolves agent OR user display name → USER callers are first-class for room/office in 3b.
+- `buildSystemPrompt` currently takes ONE `autoLoadedMemory` string (agent only). 3b must inject office + room + agent together → the signature/threading is the main design question.
+- Strict 6-hex id grammar + path-traversal scopeId guard are in place and reused.
+- Diff-gate caught a real bug (newline checked after trim). Validate raw input BEFORE normalizing.
+
+**Baseline:** ec92ed1.
+**Goal:** room + office scopes end to end. Any authenticated caller (agent OR user) may write/read room and office via REST; an agent's session prompt auto-loads office.md + its room's file + its own agent file (boss deferred to 3c). Demo: agent A writes a room fact → agent B in the same room sees it next prompt; an office fact appears for every agent.
+
+**Load-bearing mechanics (traps):**
+
+- Authority stays permissive (Nil): NO room-access gate on writes/reads. But VALIDATE the target exists (Reviewer3 pin): room requires an existing roomId; office has no id. Inject a `roomExists` check.
+- scopeId: room → required, strict-id + must exist (404 room_not_found; malformed → 400 invalid_scope_id). office → no scopeId. agent → unchanged. boss → still unsupported_scope until 3c.
+- USER callers now supported for room/office (drop unsupported_caller there).
+- Auto-load threading: combine office + room + agent into the memory layer; refactor buildSystemPrompt (likely take a prebuilt combined string assembled by agent-manager in order). Keep the no-boss-path invariant + baseline byte-identity when all empty.
+- Affordance: expand to room + office; add office blast-radius framing.
+
+**Acceptance (evidence-based):**
+
+- T1: agent-token AND user-cookie POST room fact → rooms/<roomId>.md; GET returns it; office → office.md. Nonexistent room → 404; malformed → 400. boss scope → still unsupported_scope.
+- T0: prompt auto-loads office+room+agent in the memory layer; no boss path; baseline byte-identical when all empty; deterministic order.
+- Store-level two-agent test: A writes room fact, B's renderForPrompt for that room includes it (no LLM).
+- All always-run gates green.
+
+**Decide-with-Reviewer3 at the 3b plan-gate:** (1) buildSystemPrompt memory signature — one combined string vs structured per-scope; scope sub-headers vs flat. (2) room/office writes validate existence only (no access gate)? confirm. (3) office scopeId provided → ignore or 400. (4) keep agent scope 3a-restricted (own file) or open cross-agent now? (5) office blast-radius wording.
+
+**Locked (don't relitigate):** permissive authority; memory:\* caps; line format; "boss-scoped" naming; boss deferred to 3c; caps deferred to 3f.
+
+## SLICE-3c…3i PICKUP — authored when the prior slice commits (fold in what it taught)

@@ -1,14 +1,15 @@
-// Memory resource handlers — slice 3a (the tracer). isomux-memory on the unified
-// REST surface (opIds memory.{list,create}). See
-// internal-docs/isomux-memory-design.md and plans/isomux-memory-loop.md.
+// Memory resource handlers — isomux-memory on the unified REST surface (opIds
+// memory.{list,create}). See internal-docs/isomux-memory-design.md and
+// plans/isomux-memory-loop.md.
 //
-// 3a is the THIN vertical: AGENT scope only — an agent reads/writes its OWN
-// memory file. Author + date are server-stamped from the token identity, NEVER
-// the body (mirrors tasks' attribution rule); scopeId is a TARGET selector, not
-// an authority claim. In 3a an agent may only target its own file; cross-agent
-// and room/office/boss land in later slices. Every non-agent / non-own / non-
-// agent-caller path returns a DELIBERATE error so the temporary 3a posture can't
-// be mistaken for the final permissive model.
+// Scopes supported so far: agent (own file), room, office. Author + date + id
+// are server-stamped from the token identity, NEVER the body (mirrors tasks'
+// attribution rule); scopeId is a TARGET selector, not an authority claim.
+// Authority is intentionally permissive (Nil): any authenticated caller may
+// read/write room and office — there is deliberately NO room-access gate, only
+// target-EXISTENCE validation. Every not-yet-supported path (boss scope,
+// cross-agent agent writes) returns a DELIBERATE error so the temporary posture
+// can't be mistaken for the final permissive model.
 //
 // LEAF over the executor + injected MemoryDeps. No manager/auth imports.
 
@@ -31,61 +32,103 @@ export interface MemoryDeps {
   authorFor(identity: Identity): string | null;
   // Strict identifier guard (rejects path traversal in a caller-supplied scopeId).
   isSafeScopeId(id: string): boolean;
+  // Target-existence check for room scope. EXISTENCE ONLY — there is deliberately
+  // NO room-access gate here (the model is permissive per Nil); do not reuse
+  // requiresRoomAccess, which would silently undo that.
+  roomExists(roomId: string): boolean;
 }
 
-type AgentTarget = { agentId: string } | { error: ReturnType<typeof fail> };
+type Target =
+  | { scope: MemoryScope; scopeId: string | null }
+  | { error: ReturnType<typeof fail> };
 
 export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
-  // Resolve the target agentId for an AGENT-scope caller in 3a, or an explicit
-  // error for any path 3a does not yet support.
-  function resolveAgentTarget(
+  // Resolve the (scope, target file) for this caller, or a deliberate error for
+  // any path not yet supported. Shared by GET (query) and POST (body).
+  //   agent  — own file only (cross-agent is the documented TEMPORARY deferral
+  //            until the final permissive target semantics land)
+  //   room   — any authenticated caller; scopeId required + must EXIST (no access gate)
+  //   office — any authenticated caller; never takes a scopeId (always office.md)
+  //   boss / other — unsupported until a later slice
+  function resolveTarget(
     identity: Identity,
     scope: unknown,
     rawScopeId: unknown,
-  ): AgentTarget {
-    if (scope !== "agent") {
-      return {
-        error: fail(
-          400,
-          "unsupported_scope",
-          'only scope:"agent" is supported in this version',
-        ),
-      };
+  ): Target {
+    if (scope === "agent") {
+      if (identity.scope !== "agent" || !identity.agentId) {
+        return {
+          error: fail(
+            400,
+            "unsupported_caller",
+            "agent-scope memory is only available to an agent token in this version",
+          ),
+        };
+      }
+      const own = identity.agentId;
+      if (rawScopeId === undefined || rawScopeId === null) {
+        return { scope: "agent", scopeId: own };
+      }
+      if (typeof rawScopeId !== "string" || !deps.isSafeScopeId(rawScopeId)) {
+        return { error: fail(400, "invalid_scope_id", "scopeId is malformed") };
+      }
+      if (rawScopeId !== own) {
+        // TEMPORARY: the final permissive model allows any caller to write any
+        // agent's file; cross-agent agent writes are not enabled yet (room/office
+        // deliver the cross-agent value). See the standing-orders deferral.
+        return {
+          error: fail(
+            403,
+            "forbidden",
+            "an agent may only access its own memory (cross-agent writes are not enabled yet)",
+          ),
+        };
+      }
+      return { scope: "agent", scopeId: own };
     }
-    if (identity.scope !== "agent" || !identity.agentId) {
-      return {
-        error: fail(
-          400,
-          "unsupported_caller",
-          "agent-scope memory is only available to an agent token in this version",
-        ),
-      };
+    if (scope === "room") {
+      if (typeof rawScopeId !== "string" || !deps.isSafeScopeId(rawScopeId)) {
+        return {
+          error: fail(
+            400,
+            "invalid_scope_id",
+            "room scope requires a valid scopeId",
+          ),
+        };
+      }
+      if (!deps.roomExists(rawScopeId)) {
+        return { error: fail(404, "room_not_found", "no such room") };
+      }
+      return { scope: "room", scopeId: rawScopeId };
     }
-    const own = identity.agentId;
-    if (rawScopeId === undefined || rawScopeId === null)
-      return { agentId: own };
-    if (typeof rawScopeId !== "string" || !deps.isSafeScopeId(rawScopeId)) {
-      return { error: fail(400, "invalid_scope_id", "scopeId is malformed") };
+    if (scope === "office") {
+      if (rawScopeId !== undefined && rawScopeId !== null) {
+        return {
+          error: fail(
+            400,
+            "invalid_scope_id",
+            "office memory takes no scopeId",
+          ),
+        };
+      }
+      return { scope: "office", scopeId: null };
     }
-    if (rawScopeId !== own) {
-      return {
-        error: fail(
-          403,
-          "forbidden",
-          "an agent may only access its own memory",
-        ),
-      };
-    }
-    return { agentId: own };
+    return {
+      error: fail(
+        400,
+        "unsupported_scope",
+        "scope must be agent, room, or office in this version",
+      ),
+    };
   }
 
   return {
     "memory.list": (ctx) => {
       const scope = ctx.query.get("scope") ?? "agent";
       const scopeId = ctx.query.get("scopeId") ?? undefined;
-      const target = resolveAgentTarget(ctx.identity, scope, scopeId);
+      const target = resolveTarget(ctx.identity, scope, scopeId);
       if ("error" in target) return target.error;
-      return ok(deps.read("agent", target.agentId));
+      return ok(deps.read(target.scope, target.scopeId));
     },
 
     "memory.create": (ctx) => {
@@ -110,7 +153,7 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
       if (text.length === 0) {
         return fail(400, "invalid_text", "text must not be blank");
       }
-      const target = resolveAgentTarget(ctx.identity, body.scope, body.scopeId);
+      const target = resolveTarget(ctx.identity, body.scope, body.scopeId);
       if ("error" in target) return target.error;
       const author = deps.authorFor(ctx.identity);
       if (!author) {
@@ -121,8 +164,8 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
         );
       }
       const item = deps.append({
-        scope: "agent",
-        scopeId: target.agentId,
+        scope: target.scope,
+        scopeId: target.scopeId,
         author,
         text,
       });
