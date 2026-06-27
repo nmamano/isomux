@@ -26,6 +26,7 @@ import {
   type CommandConfig,
 } from "./commands.ts";
 import { buildSystemPrompt } from "./system-prompt.ts";
+import { memoryStore } from "./memory-store.ts";
 import { getUserByName } from "./users.ts";
 import { listCronjobs, buildCronjobSystemPrompt } from "./cronjob-manager.ts";
 import { resolveSkillPrompt } from "./skills.ts";
@@ -579,6 +580,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         managed.info.username,
         ownerRecord?.memberPrompt ?? null,
         managed.info.privileged ?? false,
+        memoryStore.renderForPrompt("agent", managed.info.id),
       );
       // Pick a fence longer than any backtick run inside the prompt so the block
       // renders verbatim regardless of what office/room/agent prompts contain.

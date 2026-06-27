@@ -130,6 +130,8 @@ import {
   type HandlerErrorStatus,
 } from "./routes/executor.ts";
 import { tasksHandlers } from "./routes/handlers/tasks.ts";
+import { memoryHandlers } from "./routes/handlers/memory.ts";
+import { memoryStore, isSafeScopeId } from "./memory-store.ts";
 import { cronHandlers } from "./routes/handlers/cron.ts";
 import { agentAffordanceHandlers } from "./routes/handlers/agent-affordances.ts";
 import { uploadsHandlers } from "./routes/handlers/uploads.ts";
@@ -1237,6 +1239,29 @@ function buildExecutorDeps(): ExecutorDeps {
       updateTask: (id, changes) => agentManager.updateTask(id, changes),
       deleteTask: (id) => agentManager.deleteTask(id),
       attributionFor,
+    }),
+  );
+
+  // Memory (isomux-memory; slice 3a agent-scope tracer). Author + date are
+  // server-stamped from the token (authorFor); scopeId is a target selector, not
+  // authority. A write whose caller record can't be resolved fails 404 rather
+  // than being stamped "unknown".
+  register(
+    memoryHandlers({
+      read: (scope, scopeId) => memoryStore.read(scope, scopeId),
+      append: (input) => memoryStore.append(input),
+      authorFor: (identity) => {
+        if (identity.scope === "agent" && identity.agentId) {
+          const d = agentManager.getAgentDisplay(identity.agentId);
+          return d ? d.name : null;
+        }
+        if (identity.userId) {
+          const u = getUserById(identity.userId);
+          return u ? u.name : null;
+        }
+        return null;
+      },
+      isSafeScopeId,
     }),
   );
 

@@ -399,6 +399,43 @@ export interface TaskItem {
   createdAt: number;
 }
 
+// isomux-memory — one durable, attributed, id-tagged fact line. Persisted as a
+// single markdown line under STATE_ROOT/memory/. See
+// internal-docs/isomux-memory-design.md.
+export type MemoryScope = "office" | "room" | "agent" | "boss";
+
+// The small fixed taxonomy of durable-fact KINDS — a write-time gate, not a
+// typed schema. Used to validate the POST; not (yet) persisted in the line.
+export const MEMORY_FACT_TYPES = [
+  "preference",
+  "convention",
+  "rule",
+  "environment",
+  "role",
+  "contact",
+] as const;
+export type MemoryFactType = (typeof MEMORY_FACT_TYPES)[number];
+
+export function isValidFactType(x: unknown): x is MemoryFactType {
+  return (
+    typeof x === "string" &&
+    (MEMORY_FACT_TYPES as readonly string[]).includes(x)
+  );
+}
+
+export interface MemoryItem {
+  id: string; // stable 6-char hex tag (mem:ID)
+  scope: MemoryScope;
+  scopeId: string | null; // office has none
+  author: string; // who recorded it (agent or user display name)
+  date: string; // YYYY-MM-DD
+  text: string; // the self-contained fact
+  // factType is a write-time validation gate; NOT persisted in the line as of
+  // slice 3a, so it parses back as null.
+  factType: MemoryFactType | null;
+  raw: string; // the exact persisted markdown line
+}
+
 // Generate a unique 8-char hex ID, avoiding collisions with `existing`.
 function generateHexId(existing?: string[]): string {
   const ids = existing ? new Set(existing) : undefined;

@@ -76,6 +76,7 @@ import {
   diagnoseProcessExit,
 } from "./cwd-utils.ts";
 import { buildSystemPrompt } from "./system-prompt.ts";
+import { memoryStore } from "./memory-store.ts";
 import { generateOutfit } from "./outfit.ts";
 import { computeIsomuxDiff, resolveDiffCwd } from "./isomux-diff.ts";
 import {
@@ -2682,6 +2683,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       managed.info.username,
       ownerRecord?.memberPrompt ?? null,
       managed.info.privileged ?? false,
+      memoryStore.renderForPrompt("agent", managed.info.id),
     );
     if (resumeSessionId) {
       // The SDK reports cost cumulative-per-process, so a resumed session's

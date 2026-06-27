@@ -49,6 +49,9 @@ export type Capability =
   // Shared by USER and AGENT — the global task board.
   | "task:read"
   | "task:write"
+  // Shared by USER and AGENT — isomux-memory (durable shared facts).
+  | "memory:read"
+  | "memory:write"
   // AGENT-identity capabilities — deliberately absent from USER scope (a human
   // is not an agent and has no own-chat).
   | "agent:send-as-self"
@@ -98,16 +101,21 @@ export const USER_CAPABILITIES: readonly Capability[] = [
   "terminal:use",
   "task:read",
   "task:write",
+  "memory:read",
+  "memory:write",
 ];
 
-// AGENT set: exactly today's loopback surface and no more. An agent can message
-// as itself, use the global task board, and use the self-affordances on its own
-// chat. It cannot spawn/kill, touch settings, mint invites, mutate cronjobs, or
-// read cronjob transcripts — those capabilities are simply absent.
+// AGENT set: the loopback surface plus the global task board and isomux-memory.
+// An agent can message as itself, use the task board and shared memory, and use
+// the self-affordances on its own chat. It cannot spawn/kill, touch settings,
+// mint invites, mutate cronjobs, or read cronjob transcripts — those
+// capabilities are simply absent.
 export const AGENT_CAPABILITIES: readonly Capability[] = [
   "agent:send-as-self",
   "task:read",
   "task:write",
+  "memory:read",
+  "memory:write",
   "self:affordance",
 ];
 

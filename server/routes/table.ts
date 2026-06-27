@@ -52,6 +52,7 @@ import type {
   Attachment,
   BackendModelWire,
   LogEntry,
+  MemoryItem,
 } from "../../shared/types.ts";
 import type {
   SpawnReq,
@@ -87,6 +88,7 @@ import type {
   TaskCreateReq,
   TaskUpdateReq,
   TaskClaimReq,
+  MemoryCreateReq,
   CronCreateReq,
   CronUpdateReq,
   CronRunMessageReq,
@@ -698,6 +700,23 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/tasks/:id",
     auth: cap("task:write", authenticated),
     emits: ["tasks"],
+  }),
+
+  // --- Memory (isomux-memory; durable shared facts) -------------------------
+  // Slice 3a: agent scope only (own file). PATCH/DELETE land in slice 3d.
+  defineRoute<void, MemoryItem[]>({
+    opId: "memory.list",
+    method: "GET",
+    path: "/api/memory",
+    auth: cap("memory:read", authenticated),
+    emits: [],
+  }),
+  defineRoute<MemoryCreateReq, MemoryItem>({
+    opId: "memory.create",
+    method: "POST",
+    path: "/api/memory",
+    auth: cap("memory:write", authenticated),
+    emits: [],
   }),
 
   // --- Cronjobs -------------------------------------------------------------

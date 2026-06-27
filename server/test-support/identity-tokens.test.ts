@@ -43,7 +43,7 @@ function req(headers: Record<string, string>): Request {
 }
 
 describe("identity: capability sets (Phase 2.1)", () => {
-  it("AGENT scope holds exactly the four agent-identity capabilities", () => {
+  it("AGENT scope holds exactly the agent-identity + shared task/memory capabilities", () => {
     expect([...AGENT_CAPABILITIES].sort()).toEqual(
       (
         [
@@ -51,6 +51,8 @@ describe("identity: capability sets (Phase 2.1)", () => {
           "self:affordance",
           "task:read",
           "task:write",
+          "memory:read",
+          "memory:write",
         ] as Capability[]
       ).sort(),
     );

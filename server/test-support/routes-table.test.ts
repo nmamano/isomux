@@ -312,6 +312,9 @@ const SPEC_ROUTE_CONTRACT: Record<
   "cron.runDiff": { caps: ["self:affordance"], emits: ["cron_run_log_entry"] },
   // System
   "system.backupStatus": { caps: ["office:read"], emits: [] },
+  // Memory (isomux-memory)
+  "memory.list": { caps: ["memory:read"], emits: [] },
+  "memory.create": { caps: ["memory:write"], emits: [] },
 };
 
 describe("route table: per-route capability + emits match the spec exactly", () => {

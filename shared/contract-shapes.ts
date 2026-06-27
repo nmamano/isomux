@@ -16,6 +16,8 @@ import type {
   TaskItem,
   Cronjob,
   Attachment,
+  MemoryScope,
+  MemoryFactType,
 } from "./types.ts";
 
 // --- Wire projections (response / event shapes) -----------------------------
@@ -241,6 +243,15 @@ export type TaskUpdateReq = Partial<{
   status: TaskItem["status"];
   assignee: string;
 }>;
+
+// isomux-memory: append a durable fact. scope/scopeId select the TARGET file;
+// author + date + id are server-assigned (never from the body).
+export interface MemoryCreateReq {
+  scope: MemoryScope;
+  scopeId?: string | null;
+  factType: MemoryFactType;
+  text: string;
+}
 
 export interface TaskClaimReq {
   assignee?: string;
