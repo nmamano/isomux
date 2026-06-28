@@ -13,6 +13,10 @@ import {
   createMemoryStore,
   isSafeScopeId,
   genMemId,
+  normalizeForDedup,
+  jaccardSimilarity,
+  isDuplicateText,
+  DEDUP_THRESHOLD,
 } from "../memory-store.ts";
 
 const dirs: string[] = [];
@@ -605,5 +609,75 @@ describe("memory-store: supersede / tombstone (slice 3d)", () => {
     expect(store.read("agent", "a1").map((m) => m.text)).toEqual(["A updated"]);
     // File a2's identically-id'd line is untouched.
     expect(store.read("agent", "a2").map((m) => m.text)).toEqual(["in B"]);
+  });
+});
+
+describe("memory-store: dedup guard (slice 3e)", () => {
+  it("normalizeForDedup trims/lowercases/collapses + strips ONLY terminal punctuation", () => {
+    expect(normalizeForDedup("  No   em DASHES. ")).toBe("no em dashes");
+    expect(normalizeForDedup("Use Bun!")).toBe("use bun");
+    // internal hyphens/slashes/dots survive
+    expect(normalizeForDedup("repoint ~/isomux-active")).toBe(
+      "repoint ~/isomux-active",
+    );
+    expect(normalizeForDedup("edit server/index.ts")).toBe(
+      "edit server/index.ts",
+    );
+    expect(normalizeForDedup("DNS A 66.241.124.181")).toBe(
+      "dns a 66.241.124.181",
+    );
+  });
+
+  it("jaccardSimilarity: reordered token sets match; distinct short lines do not", () => {
+    expect(jaccardSimilarity("no em dashes", "dashes em no")).toBe(1);
+    expect(jaccardSimilarity("use bun", "use deno")).toBeLessThan(
+      DEDUP_THRESHOLD,
+    );
+  });
+
+  it("isDuplicateText catches exact/normalized/reorder; not short-distinct", () => {
+    expect(isDuplicateText("No em dashes.", "no em dashes")).toBe(true);
+    expect(isDuplicateText("dashes em no", "no em dashes")).toBe(true);
+    expect(isDuplicateText("use Deno", "use Bun")).toBe(false);
+  });
+
+  it("findDuplicate matches the first active line; ignores superseded; per-scope/file", () => {
+    const stateRoot = tempRoot();
+    let n = 0;
+    const ids = ["aaaaaa", "bbbbbb"];
+    const store = createMemoryStore({
+      stateRoot,
+      genId: () => ids[n++],
+      today: () => "2026-06-27",
+    });
+    store.append({
+      scope: "room",
+      scopeId: "r1",
+      author: "A",
+      text: "this room uses Bun",
+    });
+    expect(store.findDuplicate("room", "r1", "This room uses Bun!")?.id).toBe(
+      "aaaaaa",
+    );
+    expect(store.findDuplicate("room", "r1", "uses Bun this room")?.id).toBe(
+      "aaaaaa",
+    );
+    expect(store.findDuplicate("room", "r1", "this room uses Deno")).toBeNull();
+    // Other scope / other file: not a duplicate.
+    expect(store.findDuplicate("room", "r2", "this room uses Bun")).toBeNull();
+    expect(store.findDuplicate("agent", "a1", "this room uses Bun")).toBeNull();
+    // After supersede: the OLD (now suppressed) text can be re-added; the NEW
+    // active text is a duplicate.
+    store.supersede({
+      scope: "room",
+      scopeId: "r1",
+      targetId: "aaaaaa",
+      author: "A",
+      text: "this room uses Deno",
+    });
+    expect(store.findDuplicate("room", "r1", "this room uses Bun")).toBeNull();
+    expect(
+      store.findDuplicate("room", "r1", "this room uses Deno!"),
+    ).not.toBeNull();
   });
 });

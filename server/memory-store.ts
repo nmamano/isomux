@@ -124,6 +124,43 @@ export function resolveActiveMemory(raw: readonly MemoryItem[]): MemoryItem[] {
   return raw.filter((m) => !m.tombstones && !suppressed.has(m.id));
 }
 
+// --- write-time dedup guard (slice 3e) --------------------------------------
+
+// A single central threshold, identical across scopes (design Q3). 0.9 mostly
+// catches reordered or tiny-restated facts — the right blast radius for v1.
+export const DEDUP_THRESHOLD = 0.9;
+
+// trim -> lowercase -> collapse internal whitespace -> strip ONLY terminal
+// punctuation (so internal hyphens/slashes/dots in `isomux-active`, paths, IPs,
+// and IDs survive).
+export function normalizeForDedup(text: string): string {
+  return text
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/[.,;:!?]+$/u, "")
+    .trim();
+}
+
+// Token-set Jaccard over whitespace tokens. No stemming / synonyms / stop-words.
+export function jaccardSimilarity(a: string, b: string): number {
+  const ta = new Set(a.split(" ").filter(Boolean));
+  const tb = new Set(b.split(" ").filter(Boolean));
+  if (ta.size === 0 && tb.size === 0) return 1;
+  let inter = 0;
+  for (const t of ta) if (tb.has(t)) inter++;
+  const union = ta.size + tb.size - inter;
+  return union === 0 ? 0 : inter / union;
+}
+
+// True when `text` is a normalized-exact or fuzzy (Jaccard >= threshold) restatement
+// of `existing`.
+export function isDuplicateText(text: string, existing: string): boolean {
+  const a = normalizeForDedup(text);
+  const b = normalizeForDedup(existing);
+  return a === b || jaccardSimilarity(a, b) >= DEDUP_THRESHOLD;
+}
+
 // --- the injectable store ---------------------------------------------------
 
 // One scope to fold into the auto-load block, with the plain label shown above
@@ -167,6 +204,14 @@ export interface MemoryStore {
     targetId: string;
     author: string;
   }): MemoryItem | null;
+  // The first ACTIVE line in this scope that `text` restates (normalized-exact or
+  // fuzzy), or null. The write-time dedup guard (slice 3e); matches the active
+  // set only, so a duplicate of a superseded/retracted line is allowed.
+  findDuplicate(
+    scope: MemoryScope,
+    scopeId: string | null,
+    text: string,
+  ): MemoryItem | null;
   // Active raw lines joined for prompt injection, or null when empty/missing.
   renderForPrompt(scope: MemoryScope, scopeId: string | null): string | null;
   // Several scopes combined into one body for the single auto-load layer: each
@@ -316,6 +361,17 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
     });
   }
 
+  function findDuplicate(
+    scope: MemoryScope,
+    scopeId: string | null,
+    text: string,
+  ): MemoryItem | null {
+    for (const m of read(scope, scopeId)) {
+      if (isDuplicateText(text, m.text)) return m;
+    }
+    return null;
+  }
+
   function renderForPrompt(
     scope: MemoryScope,
     scopeId: string | null,
@@ -342,6 +398,7 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
     append,
     supersede,
     tombstone,
+    findDuplicate,
     renderForPrompt,
     renderForPromptMulti,
   };

@@ -929,3 +929,122 @@ describe("routes/memory REST: edit + retract (PATCH/DELETE, slice 3d)", () => {
     expect(raw).toContain(`supersedes:${id}`);
   });
 });
+
+describe("routes/memory REST: dedup guard (slice 3e)", () => {
+  async function ctx() {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const ownerId = getUserByName("Boss")!.id;
+    const bot = await spawnAgent(srv, "MemBot");
+    const token = mintAgentToken(bot.id, ownerId);
+    const roomId = srv.agentManager.getRooms()[0].id;
+    return { srv, token, roomId };
+  }
+  function post(srv: TestServer, token: string, body: unknown) {
+    return api(srv, "/api/memory", { method: "POST", bearer: token, body });
+  }
+  function matched(body: unknown): { id?: string; text?: string } | undefined {
+    return (body as { error?: { matched?: { id?: string; text?: string } } })
+      .error?.matched;
+  }
+
+  it("a restatement is rejected 409 with the matched id; first write is 201", async () => {
+    const { srv, token, roomId } = await ctx();
+    const first = await post(srv, token, {
+      scope: "room",
+      scopeId: roomId,
+      factType: "convention",
+      text: "this room uses Bun",
+    });
+    expect(first.status).toBe(201);
+    const firstId = (first.body as MemoryItem).id;
+
+    const dup = await post(srv, token, {
+      scope: "room",
+      scopeId: roomId,
+      factType: "convention",
+      text: "This room uses Bun!",
+    });
+    expect(dup.status).toBe(409);
+    expect(errCode(dup.body)).toBe("duplicate_memory");
+    expect(matched(dup.body)?.id).toBe(firstId);
+
+    const reorder = await post(srv, token, {
+      scope: "room",
+      scopeId: roomId,
+      factType: "convention",
+      text: "uses Bun this room",
+    });
+    expect(reorder.status).toBe(409);
+    expect(matched(reorder.body)?.id).toBe(firstId);
+  });
+
+  it("a distinct fact and the same text in another scope are not duplicates", async () => {
+    const { srv, token, roomId } = await ctx();
+    await post(srv, token, {
+      scope: "room",
+      scopeId: roomId,
+      factType: "convention",
+      text: "this room uses Bun",
+    });
+    const distinct = await post(srv, token, {
+      scope: "room",
+      scopeId: roomId,
+      factType: "convention",
+      text: "this room uses Deno",
+    });
+    expect(distinct.status).toBe(201);
+    const office = await post(srv, token, {
+      scope: "office",
+      factType: "environment",
+      text: "this room uses Bun",
+    });
+    expect(office.status).toBe(201); // different scope/file
+  });
+
+  it("PATCH supersede is exempt from the dedup guard", async () => {
+    const { srv, token, roomId } = await ctx();
+    await post(srv, token, {
+      scope: "room",
+      scopeId: roomId,
+      factType: "convention",
+      text: "fact A",
+    });
+    const b = await post(srv, token, {
+      scope: "room",
+      scopeId: roomId,
+      factType: "convention",
+      text: "fact B",
+    });
+    const bId = (b.body as MemoryItem).id;
+    // Supersede B with text identical to A's -> allowed (PATCH is exempt).
+    const patch = await api(srv, `/api/memory/${bId}`, {
+      method: "PATCH",
+      bearer: token,
+      body: { scope: "room", scopeId: roomId, text: "fact A" },
+    });
+    expect(patch.status).toBe(200);
+  });
+
+  it("the 409 detail names the match but leaks no filesystem path", async () => {
+    const { srv, token, roomId } = await ctx();
+    await post(srv, token, {
+      scope: "room",
+      scopeId: roomId,
+      factType: "convention",
+      text: "secret-ish fact",
+    });
+    const dup = await post(srv, token, {
+      scope: "room",
+      scopeId: roomId,
+      factType: "convention",
+      text: "secret-ish fact",
+    });
+    expect(dup.status).toBe(409);
+    expect(matched(dup.body)?.text).toBe("secret-ish fact");
+    const serialized = JSON.stringify(dup.body);
+    expect(serialized).not.toContain("memory/rooms");
+    expect(serialized).not.toContain(srv.stateRoot);
+  });
+});

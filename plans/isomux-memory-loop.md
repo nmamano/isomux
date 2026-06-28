@@ -76,7 +76,7 @@ Supersede: `- <!-- mem:NEWID supersedes:OLDID --> [author, date] <fact>`. Retrac
 - [x] 3b — room + office scopes (write/read/auto-load), blast-radius framing in affordance.
 - [x] 3c — boss scope (server-stamped provenance, scopeId target rules incl. null-manager→400, auto-load = manager boss only, path redaction). Update design doc §2/§3. Also folded in cross-agent agent-scope (full permissive) + design-doc §4/§9 sync.
 - [x] 3d — `PATCH`/`DELETE` supersede/tombstone + loader resolution (suppress superseded/retracted).
-- [ ] 3e — write-time dedup guard (exact/fuzzy, reject/merge, return matched id).
+- [x] 3e — write-time dedup guard (normalized-exact + Jaccard 0.9, 409 reject, return matched id).
 - [ ] 3f — size caps + over-cap trim notice (active-line order, newest-first).
 - [ ] 3g — human curation: id self-heal re-stamp on save (server) + office prompt modal surface.
 - [ ] 3h — human curation: room settings / edit-agent / user-management surfaces.
@@ -243,4 +243,34 @@ Additional test pins: null-manager+omitted boss → 400 and NO `bosses/null.md`,
 
 **Locked (don't relitigate):** permissive authority; memory:\* caps; "boss-scoped" naming; caps deferred to 3f; append-only provenance (supersede/tombstone, never in-place rewrite).
 
-## SLICE-3e…3i PICKUP — authored when the prior slice commits (fold in what it taught)
+## SLICE-3e PICKUP — authored after 3d (fff4ad8)
+
+**What 3d taught (fold in):**
+
+- Two read views exist now: `read()` = resolved ACTIVE set, `readRaw()` = all conforming entries. Dedup MUST match against the ACTIVE set (a superseded/tombstoned line should not block a re-add).
+- Store methods centralize logic well (supersede/tombstone); put the match logic in the store too (testable + reusable), let the handler decide reject vs merge.
+- The fail() envelope is `{error:{code,message}}` with an optional detail arg — that's where the matched id rides.
+- New behavior on memory.create only; PATCH supersede is a targeted edit (exempt).
+
+**Baseline:** fff4ad8.
+**Goal:** a write-time dedup guard — the design's one non-prompt guardrail (§4.3, §6). On `POST /api/memory`, a cheap match against the same scope's ACTIVE set rejects an obvious restatement and returns the matched id, so an over-eager agent can't slowly pollute a shared scope with near-duplicate lines. Demo: POST a fact, POST a trivially-reworded restatement → 409 naming the existing id.
+
+**Load-bearing mechanics (traps):**
+
+- Match against `read(scope, scopeId)` (ACTIVE), not raw. Normalize before compare: trim, lowercase, collapse internal whitespace, strip trailing punctuation.
+- Exact-after-normalize is the cheap deterministic core; add a simple fuzzy (token-set Jaccard ≥ a single central THRESHOLD constant, identical across scopes per Q3) so reworded restatements are caught. Keep it deterministic (no LLM).
+- Store: `findDuplicate(scope, scopeId, text): MemoryItem | null` (first active match). Handler `memory.create`: on a hit → 409 `duplicate_memory`, detail carries the matched id (+ text) so the agent understands why. No silent merge in v1 (merge deferred).
+- Dedup is POST-create only. PATCH/DELETE unaffected. Boss/agent/room/office all use the same threshold.
+- A bug the guard finds in tests gets a regression test (per loop rules).
+
+**Acceptance (evidence-based):**
+
+- T0 store: exact dup, normalized dup (case/whitespace/trailing-punct), fuzzy near-dup ≥ threshold matched, distinct fact below threshold NOT matched, a dup of a SUPERSEDED line is allowed (active-set only), match is per-scope/per-file.
+- T1 REST: POST dup → 409 duplicate_memory with the matched id in the response; first write still 201; PATCH is exempt (can supersede with text equal to another line); cross-scope same text is not a dup.
+- All always-run gates green.
+
+**Decide-with-Reviewer3 at the 3e plan-gate:** (1) reject (409 + matched id), no silent merge in v1 — confirm vs merge-return-existing. (2) matching = normalized-exact + token-Jaccard ≥ THRESHOLD (one constant, identical across scopes) — confirm the metric + starting threshold, or exact-only for v1. (3) dedup on POST create only; PATCH exempt — confirm. (4) error shape: 409 `duplicate_memory`, matched id in `detail` — confirm. (5) normalization rules — confirm (esp. strip-trailing-punct).
+
+**Locked (don't relitigate):** permissive authority; memory:\* caps; append-only; "boss-scoped" naming; caps deferred to 3f.
+
+## SLICE-3f…3i PICKUP — authored when the prior slice commits (fold in what it taught)

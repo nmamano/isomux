@@ -70,6 +70,12 @@ export interface MemoryDeps {
     targetId: string;
     author: string;
   }): MemoryItem | null;
+  // The write-time dedup guard: the first ACTIVE line `text` restates, or null.
+  findDuplicate(
+    scope: MemoryScope,
+    scopeId: string | null,
+    text: string,
+  ): MemoryItem | null;
 }
 
 type Target =
@@ -225,6 +231,17 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
       }
       const target = resolveTarget(ctx.identity, body.scope, body.scopeId);
       if ("error" in target) return target.error;
+      // Write-time dedup guard (the one non-prompt guardrail): reject an obvious
+      // restatement already ACTIVE in this scope, naming the existing line.
+      const dup = deps.findDuplicate(target.scope, target.scopeId, text);
+      if (dup) {
+        return fail(
+          409,
+          "duplicate_memory",
+          "a matching memory already exists in this scope",
+          { matched: { id: dup.id, text: dup.text } },
+        );
+      }
       const author = deps.authorFor(ctx.identity);
       if (!author) {
         return fail(

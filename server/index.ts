@@ -1252,6 +1252,8 @@ function buildExecutorDeps(): ExecutorDeps {
       append: (input) => memoryStore.append(input),
       supersede: (input) => memoryStore.supersede(input),
       tombstone: (input) => memoryStore.tombstone(input),
+      findDuplicate: (scope, scopeId, text) =>
+        memoryStore.findDuplicate(scope, scopeId, text),
       authorFor: (identity) => {
         if (identity.scope === "agent" && identity.agentId) {
           const d = agentManager.getAgentDisplay(identity.agentId);
