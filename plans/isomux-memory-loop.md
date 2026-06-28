@@ -81,7 +81,7 @@ Supersede: `- <!-- mem:NEWID supersedes:OLDID --> [author, date] <fact>`. Retrac
 - [x] 3g — human curation: id self-heal re-stamp on save (server) + office prompt modal surface.
 - [x] 3h — human curation: office-raw route migration + room settings surface. (split surface-by-surface)
 - [x] 3h2 — human curation: edit-agent surface.
-- [ ] 3h3 — human curation: user-management surface.
+- [x] 3h3 — human curation: user-management surface (boss scope).
 - [ ] 3i — affordance finalization + doc updates (documentation.md surfaces, AGENTS.md, docs/features.md, testing-guide traceability row, design doc marked implemented) + Playwright curation smoke once.
 
 ## Deferred / parked (do-not-pick-up)
@@ -387,6 +387,22 @@ Additional test pins: null-manager+omitted boss → 400 and NO `bosses/null.md`,
 
 **Decide-with-Reviewer3:** (1) memory in EDIT mode only (spawn excluded) — confirm. (2) memory-only edit handling (no-op edit vs skip-edit) — confirm after I verify deps.edit({}). (3) response-driven only when memory included, else keep fire-and-forget — confirm.
 
-## SLICE-3h3 PICKUP — user-management surface (boss scope, after 3h2)
+## SLICE-3h3 PICKUP — user-management surface (boss scope), after 3h2 (ac6f7c5)
+
+**What 3h2 taught:** the per-surface pattern is fully settled (pre-validate → apply settings/update → rewrite; raw path route reusing the surface guard; UI load-on-open + reset-on-id-change + disable-until-loaded + dirty-only-after-load + response-driven when memory included; verify the no-op update path for memory-only). Watch for duplicate deps in the interface AND the wiring.
+
+**Baseline:** ac6f7c5. **The wrinkle:** the user-management surface edits a user by USERNAME, but the memory scope is **boss**, keyed by stable **userId**. Resolve username→userId once and operate on `boss`/userId; never key memory by username.
+
+**Load-bearing mechanics (traps):**
+
+- `UserUpdateReq` += `memory?: string|null`.
+- `users.update` handler: extract memory; STRIP it from `changes` before `malformedUserUpdate(changes)` + `deps.update` (memory isn't a user-record field). Pre-validate memory → `deps.update({username, changes})` → on success rewrite by the UPDATED record's STABLE id: `deps.rewriteBossMemoryByUserId(r.user.id, memory, author)`. Malformed → 400 invalid_memory_line + lineNumber. Memory-only update works (verified `deps.update` no-ops empty changes and returns the user).
+- **IMPLEMENTED (Reviewer3 correction):** key the rewrite off `r.user.id`, NOT the request username — a rename+memory PATCH renames the record first, after which the old username no longer resolves. `rewriteBossMemoryByUserId(userId, text, author)` dep (index) = `memoryStore.rewriteFromText("boss", userId, text, author)`. The raw GET resolves username→userId only for READING (no mutation, so current username is fine).
+- Raw read: `GET /api/users/:username/memory/raw` (opId memory.rawUser), `cap(["user:self","user:admin"], selfOrOwner)`. memory.ts handler: `const userId = deps.userIdForUsername(username); if (!userId) return fail(404,"user_not_found"); return ok({text: readRawText("boss", userId)})`. Add `userIdForUsername` to MemoryDeps + wire it. (Never call readRawText("boss", null) — that would read bosses/null.md.)
+- UserManagementModal: add a memory textarea to the per-user edit (match the existing memberPrompt edit shape — it may edit one selected user at a time). Load raw for the edited user's username on selection/open, reset on username change, disable until loaded, include in dirty only after load, response-driven if memory included.
+
+**Acceptance:** T1 — user raw GET (self verbatim / owner verbatim / non-self-non-owner 403 via selfOrOwner / 401); user PATCH memory writes bosses/<userId>.md (NOT username); memory-only PATCH works; update validation fail (invalid envFile) + memory present → memory untouched; malformed → 400 + lineNumber, no user-field change. build:ui. UI manual.
+
+**Decided (all approved):** (1) boss scope, scopeId = stable userId. (2) save strips memory before malformedUserUpdate + deps.update; pre-validate → update → rewrite by `r.user.id`. (3) raw route selfOrOwner + 404 on unresolved. (4) memory-only update no-op confirmed. (5) memory textarea placed next to Profile Prompt.
 
 ## SLICE-3i PICKUP — authored when the prior slice commits (fold in what it taught)

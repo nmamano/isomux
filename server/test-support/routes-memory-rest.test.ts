@@ -1384,3 +1384,100 @@ describe("routes/memory REST: agent curation (slice 3h2)", () => {
     expect(memFile(srv, bot.id)).toBeNull();
   });
 });
+
+describe("routes/memory REST: user-management curation -> boss scope (slice 3h3)", () => {
+  async function ctx() {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const member = await srv.seedMember("Member");
+    const memberId = getUserByName("Member")!.id;
+    return { srv, owner, member, memberId };
+  }
+
+  it("GET /api/users/:username/memory/raw: self 200, owner 200, other-member 403, 401", async () => {
+    const { srv, owner, member, memberId } = await ctx();
+    const member2 = await srv.seedMember("Member2");
+    await api(srv, `/api/users/Member`, {
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: { memory: "boss note" },
+    });
+    expect((await api(srv, `/api/users/Member/memory/raw`)).status).toBe(401);
+    expect(
+      (
+        await api(srv, `/api/users/Member/memory/raw`, {
+          rawSessionId: member2.rawSessionId,
+        })
+      ).status,
+    ).toBe(403);
+    const self = await api(srv, `/api/users/Member/memory/raw`, {
+      rawSessionId: member.rawSessionId,
+    });
+    expect(self.status).toBe(200);
+    expect((self.body as { text: string }).text).toContain("boss note");
+    const byOwner = await api(srv, `/api/users/Member/memory/raw`, {
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(byOwner.status).toBe(200);
+    expect((byOwner.body as { text: string }).text).toContain("boss note");
+    expect(readMem(srv, "bosses", `${memberId}.md`)).toContain("boss note");
+  });
+
+  it("PATCH memory writes bosses/<userId>.md (memory-only works)", async () => {
+    const { srv, owner, memberId } = await ctx();
+    const r = await api(srv, `/api/users/Member`, {
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: { memory: "terse replies please" },
+    });
+    expect(r.status).toBe(200);
+    expect(readMem(srv, "bosses", `${memberId}.md`)).toMatch(
+      /^- <!-- mem:[0-9a-f]{6} --> \[Boss, \d{4}-\d{2}-\d{2}\] terse replies please\n$/,
+    );
+  });
+
+  it("rename + memory writes bosses/<stable userId>.md, never a username-keyed file", async () => {
+    const { srv, owner, memberId } = await ctx();
+    const r = await api(srv, `/api/users/Member`, {
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: { name: "Renamed", memory: "renamed note" },
+    });
+    expect(r.status).toBe(200);
+    expect(readMem(srv, "bosses", `${memberId}.md`)).toContain("renamed note");
+    expect(readMem(srv, "bosses", "Member.md")).toBeNull();
+    expect(readMem(srv, "bosses", "Renamed.md")).toBeNull();
+  });
+
+  it("invalid envFile + memory present -> 4xx; memory untouched", async () => {
+    const { srv, owner, memberId } = await ctx();
+    const bad = await api(srv, `/api/users/Member`, {
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: {
+        envFile: "/nonexistent/definitely-not-a-dir-xyz.env",
+        memory: "should not write",
+      },
+    });
+    expect(bad.status).toBeGreaterThanOrEqual(400);
+    expect(readMem(srv, "bosses", `${memberId}.md`)).toBeNull();
+  });
+
+  it("malformed memory -> 400 invalid_memory_line + lineNumber; user name unchanged", async () => {
+    const { srv, owner, memberId } = await ctx();
+    const bad = await api(srv, `/api/users/Member`, {
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: { name: "ShouldNotApply", memory: "ok\n- <!-- mem:ZZZ --> broken" },
+    });
+    expect(bad.status).toBe(400);
+    expect(errCode(bad.body)).toBe("invalid_memory_line");
+    expect(
+      (bad.body as { error?: { lineNumber?: number } }).error?.lineNumber,
+    ).toBe(2);
+    expect(getUserByName("Member")?.id).toBe(memberId);
+    expect(getUserByName("ShouldNotApply")).toBeFalsy();
+    expect(readMem(srv, "bosses", `${memberId}.md`)).toBeNull();
+  });
+});

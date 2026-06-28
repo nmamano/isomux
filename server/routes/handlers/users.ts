@@ -35,6 +35,7 @@ import type {
   UserSelfWire,
   UserUpdateReq,
 } from "../../../shared/contract-shapes.ts";
+import type { Identity } from "../../identity/index.ts";
 
 // Outcome the seam shapes for a record edit / access change: ok → the updated
 // record (UserSelfWire/UserAdminWire share the UserRecord shape; the audience
@@ -65,6 +66,15 @@ export interface UsersDeps {
   // the not-last-owner invariant atomically (TOCTOU), then deletes + evicts the
   // target's sessions + emits users_list. Missing target is an idempotent no-op.
   delete(input: { username: string }): Promise<DeleteOutcome>;
+  // Slice 3h3 boss-scoped memory curation. validateMemory checks WITHOUT writing
+  // (a typo blocks the whole save). rewriteBossMemoryByUserId rewrites
+  // bosses/<userId>.md — keyed by the STABLE userId (from the updated record), so
+  // a rename+memory PATCH still hits the right file. author is server-derived.
+  validateMemory(
+    text: string,
+  ): { ok: true } | { ok: false; lineNumber: number };
+  rewriteBossMemoryByUserId(userId: string, text: string, author: string): void;
+  attributionFor(identity: Identity): { createdBy: string };
 }
 
 // Reject a present-but-wrong-typed optional field with 422 BEFORE the core (the
@@ -108,13 +118,40 @@ export function usersHandlers(deps: UsersDeps): Record<string, RouteHandler> {
   return {
     "users.update": async (ctx) => {
       const body = (ctx.body ?? {}) as Partial<UserUpdateReq>;
-      const malformed = malformedUserUpdate(body);
+      // memory is NOT a user-record field: extract it (wrong-typed -> omitted,
+      // like the other surfaces) and strip before the record-shape check + update.
+      const memory = typeof body.memory === "string" ? body.memory : undefined;
+      const changes = { ...body };
+      delete changes.memory;
+      const malformed = malformedUserUpdate(changes);
       if (malformed) return fail(422, "invalid_request", malformed);
+      // Pre-validate memory so a typo blocks the WHOLE save — no record changes.
+      if (memory !== undefined) {
+        const v = deps.validateMemory(memory);
+        if (!v.ok) {
+          return fail(
+            400,
+            "invalid_memory_line",
+            `malformed memory control line at line ${v.lineNumber}`,
+            { lineNumber: v.lineNumber },
+          );
+        }
+      }
       const r = await deps.update({
         username: ctx.params.username,
-        changes: body,
+        changes,
       });
-      return r.ok ? ok({ user: r.user }) : fail(r.status, r.code, r.error);
+      if (!r.ok) return fail(r.status, r.code, r.error);
+      // Rewrite by the updated record's STABLE id (survives a rename in this same
+      // PATCH) — never re-resolve the (possibly renamed) username.
+      if (memory !== undefined) {
+        deps.rewriteBossMemoryByUserId(
+          r.user.id,
+          memory,
+          deps.attributionFor(ctx.identity).createdBy,
+        );
+      }
+      return ok({ user: r.user });
     },
 
     "users.setAccess": async (ctx) => {

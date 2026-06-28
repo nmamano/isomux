@@ -202,6 +202,10 @@ export type UserUpdateReq = Partial<{
   memberPrompt: string | null;
   avatarColor: string;
   avatarVariant: UserRecord["avatarVariant"];
+  // Raw boss-scoped memory for this user (slice 3h3); server re-stamps ids. NOT a
+  // user-record field — the handler strips it before the record update and writes
+  // bosses/<userId>.md by the user's STABLE id (survives a rename in the same PATCH).
+  memory: string | null;
 }>;
 
 export interface SetAccessReq {

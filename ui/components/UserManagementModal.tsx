@@ -452,6 +452,12 @@ function UserEditPanel({
   const [memberPrompt, setMemberPrompt] = useState<string>(
     user.memberPrompt ?? "",
   );
+  // Boss-scoped memory for this user, loaded lazily (raw, owner/self-gated). Sent
+  // back only once loaded and only when changed; keyed server-side by stable
+  // userId so it survives a rename in the same save.
+  const [memory, setMemory] = useState("");
+  const [memoryBaseline, setMemoryBaseline] = useState("");
+  const [memoryLoaded, setMemoryLoaded] = useState(false);
   // Live-avatars: visual identity for the user's ghost in the office
   // scene. Color is stored as #rrggbb (normalized at save time);
   // variant is one of GHOST_VARIANTS. Both default to the user record's
@@ -546,6 +552,34 @@ function UserEditPanel({
     };
   }, [user.envFile, user.name]);
 
+  // Load this user's raw boss memory. Reset on user identity change (stable id)
+  // before fetching; disabled + omitted from the save until loaded.
+  useEffect(() => {
+    let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMemoryLoaded(false);
+    setMemory("");
+    setMemoryBaseline("");
+    apiFetch<{ text: string }>(
+      "GET",
+      `/api/users/${encodeURIComponent(user.name)}/memory/raw`,
+    )
+      .then((r) => {
+        if (cancelled) return;
+        setMemory(r.text);
+        setMemoryBaseline(r.text);
+        setMemoryLoaded(true);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // Reset + reload only when the row switches to a different USER (stable id).
+    // The fetch reads user.name, but a rename closes the panel, so name needn't
+    // be a dep.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user.id]);
+
   // notifSetting and allowedSetting are both strict string[] (no "all"
   // sentinel). Toggling adds or removes a roomId.
   function toggleRoomNotif(roomId: string) {
@@ -580,6 +614,7 @@ function UserEditPanel({
     if ((envFile.trim() || null) !== (user.envFile ?? null)) return true;
     if ((memberPrompt.trim() || null) !== (user.memberPrompt ?? null))
       return true;
+    if (memoryLoaded && memory !== memoryBaseline) return true;
     if (avatarColor !== user.avatarColor) return true;
     if (avatarVariant !== user.avatarVariant) return true;
     if (!sameRoomSet(notifSetting, user.notifRooms)) return true;
@@ -639,6 +674,7 @@ function UserEditPanel({
     const normalizedColor = isHexColor(avatarColor)
       ? normalizeHexColor(avatarColor)
       : user.avatarColor;
+    const memoryChanged = memoryLoaded && memory !== memoryBaseline;
     const recordChanged =
       renamed ||
       (envFile.trim() || null) !== (user.envFile ?? null) ||
@@ -664,14 +700,18 @@ function UserEditPanel({
           { allowedRooms: allowedSetting },
         );
       }
-      // (2) Record fields (name/env/prompt/avatar), against the original name.
-      if (recordChanged) {
+      // (2) Record fields (name/env/prompt/avatar) + memory, against the original
+      // name. memory rides this same PATCH (handled atomically with a rename at
+      // the route level — the server keys it by stable userId); fires when memory
+      // changed even if no record field did.
+      if (recordChanged || memoryChanged) {
         await apiFetch("PATCH", `/api/users/${encodeURIComponent(origName)}`, {
           name: renamed ? trimmed : undefined,
           envFile: envFile.trim() || null,
           memberPrompt: memberPrompt.trim() || null,
           avatarColor: normalizedColor,
           avatarVariant,
+          memory: memoryChanged ? memory : undefined,
         });
       }
       // (3) View prefs are SELF-only (Option A: the fields render only for isMe).
@@ -967,6 +1007,32 @@ function UserEditPanel({
         style={{
           ...inputStyle,
           minHeight: 90,
+          resize: "vertical",
+          fontFamily: "inherit",
+          lineHeight: 1.45,
+        }}
+      />
+
+      <label style={subLabelStyle}>
+        Memory{" "}
+        <span style={hintStyle}>
+          (durable boss-scoped facts about you; raw lines — new lines get an id
+          + author on save, edited lines keep theirs, removed lines drop)
+        </span>
+      </label>
+      <textarea
+        value={memory}
+        onChange={(e) => setMemory(e.target.value)}
+        placeholder={
+          memoryLoaded
+            ? "Prefers terse replies; no em dashes"
+            : "Loading memory…"
+        }
+        rows={4}
+        readOnly={!memoryLoaded}
+        style={{
+          ...inputStyle,
+          minHeight: 72,
           resize: "vertical",
           fontFamily: "inherit",
           lineHeight: 1.45,

@@ -76,8 +76,11 @@ export interface MemoryDeps {
     scopeId: string | null,
     text: string,
   ): MemoryItem | null;
-  // Verbatim file text for the owner-only curation load (slice 3g).
+  // Verbatim file text for the curation load (slice 3g+).
   readRawText(scope: MemoryScope, scopeId: string | null): string;
+  // Resolve a username to its stable userId for boss-scope raw reads (slice 3h3),
+  // or null if it doesn't resolve.
+  userIdForUsername(username: string): string | null;
 }
 
 type Target =
@@ -216,6 +219,13 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
       ok({ text: deps.readRawText("room", ctx.params.roomId) }),
     "memory.rawAgent": (ctx) =>
       ok({ text: deps.readRawText("agent", ctx.params.id) }),
+    "memory.rawUser": (ctx) => {
+      // boss memory is keyed by stable userId, not username — resolve first so we
+      // never read bosses/null.md or a username-keyed file.
+      const userId = deps.userIdForUsername(ctx.params.username);
+      if (!userId) return fail(404, "user_not_found", "no such user");
+      return ok({ text: deps.readRawText("boss", userId) });
+    },
 
     "memory.create": (ctx) => {
       const body = (ctx.body ?? {}) as Partial<MemoryCreateReq>;

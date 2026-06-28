@@ -1259,6 +1259,7 @@ function buildExecutorDeps(): ExecutorDeps {
       findDuplicate: (scope, scopeId, text) =>
         memoryStore.findDuplicate(scope, scopeId, text),
       readRawText: (scope, scopeId) => memoryStore.readRawText(scope, scopeId),
+      userIdForUsername: (username) => getUser(username)?.id ?? null,
       authorFor: (identity) => {
         if (identity.scope === "agent" && identity.agentId) {
           const d = agentManager.getAgentDisplay(identity.agentId);
@@ -1753,6 +1754,11 @@ function buildExecutorDeps(): ExecutorDeps {
         if (target) await evictSessionsForUserId(target.id);
         return { ok: true };
       },
+      validateMemory: (text) => validateRewriteLines(text),
+      rewriteBossMemoryByUserId: (userId, text, author) => {
+        memoryStore.rewriteFromText("boss", userId, text, author);
+      },
+      attributionFor,
     }),
   );
 

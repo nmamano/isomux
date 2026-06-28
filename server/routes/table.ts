@@ -758,6 +758,13 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("agent:manage", agentParam("id")),
     emits: [],
   }),
+  defineRoute<void, { text: string }>({
+    opId: "memory.rawUser",
+    method: "GET",
+    path: "/api/users/:username/memory/raw",
+    auth: cap(["user:self", "user:admin"], selfOrOwner),
+    emits: [],
+  }),
 
   // --- Cronjobs -------------------------------------------------------------
   defineRoute<void, Cronjob[]>({
