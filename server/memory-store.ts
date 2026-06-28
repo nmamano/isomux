@@ -161,6 +161,42 @@ export function isDuplicateText(text: string, existing: string): boolean {
   return a === b || jaccardSimilarity(a, b) >= DEDUP_THRESHOLD;
 }
 
+// --- per-scope injected-size caps (slice 3f) --------------------------------
+
+// Max injected size per scope, in characters (Nil-set). Office/room are smaller
+// than boss/agent because they reach more people. Central + exported; injectable
+// via MemoryStoreDeps.caps so tests use tiny fixtures.
+export const MEMORY_CAPS: Record<MemoryScope, number> = {
+  office: 2500,
+  room: 3500,
+  agent: 5000,
+  boss: 5000,
+};
+
+// Appended when a scope is truncated. A fixed diagnostic OUTSIDE the cap budget
+// (the cap budgets memory lines; the notice is always added when over cap).
+export const OVER_CAP_NOTICE =
+  "Not all memories fit. Consider suggesting the boss to trim them.";
+
+// Join active raw lines under a char cap: keep the NEWEST (end of file) that fit,
+// present survivors in FILE ORDER, append the notice when anything was dropped.
+// A single line longer than the cap yields the notice alone.
+export function renderCapped(lines: readonly string[], cap: number): string {
+  const full = lines.join("\n");
+  if (full.length <= cap) return full;
+  const kept: string[] = [];
+  let size = 0;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const add = lines[i].length + (kept.length ? 1 : 0); // +1 for the newline join
+    if (size + add > cap) break;
+    kept.push(lines[i]);
+    size += add;
+  }
+  kept.reverse(); // back to file order
+  const body = kept.join("\n");
+  return body.length ? `${body}\n${OVER_CAP_NOTICE}` : OVER_CAP_NOTICE;
+}
+
 // --- the injectable store ---------------------------------------------------
 
 // One scope to fold into the auto-load block, with the plain label shown above
@@ -225,6 +261,8 @@ export interface MemoryStoreDeps {
   stateRoot?: string;
   genId?: () => string;
   today?: () => string;
+  // Per-scope injected-size caps; defaults to MEMORY_CAPS. Tests inject tiny caps.
+  caps?: Record<MemoryScope, number>;
 }
 
 // A bad injected generator (always-collide) must error, never spin forever.
@@ -234,6 +272,7 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
   const stateRoot = deps.stateRoot ?? STATE_ROOT;
   const genId = deps.genId ?? genMemId;
   const today = deps.today ?? todayUtc;
+  const caps = deps.caps ?? MEMORY_CAPS;
 
   function filePath(scope: MemoryScope, scopeId: string | null): string {
     const base = join(stateRoot, "memory");
@@ -378,7 +417,10 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
   ): string | null {
     const items = read(scope, scopeId);
     if (items.length === 0) return null;
-    return items.map((m) => m.raw).join("\n");
+    return renderCapped(
+      items.map((m) => m.raw),
+      caps[scope],
+    );
   }
 
   function renderForPromptMulti(

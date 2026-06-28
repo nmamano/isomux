@@ -17,6 +17,8 @@ import {
   jaccardSimilarity,
   isDuplicateText,
   DEDUP_THRESHOLD,
+  MEMORY_CAPS,
+  OVER_CAP_NOTICE,
 } from "../memory-store.ts";
 
 const dirs: string[] = [];
@@ -679,5 +681,157 @@ describe("memory-store: dedup guard (slice 3e)", () => {
     expect(
       store.findDuplicate("room", "r1", "this room uses Deno!"),
     ).not.toBeNull();
+  });
+});
+
+describe("memory-store: size caps + trim notice (slice 3f)", () => {
+  it("under cap returns all lines and no notice", () => {
+    const stateRoot = tempRoot();
+    let n = 0;
+    const ids = ["aaaaaa", "bbbbbb"];
+    const store = createMemoryStore({
+      stateRoot,
+      genId: () => ids[n++],
+      today: () => "2026-06-27",
+      caps: { ...MEMORY_CAPS, agent: 10_000 },
+    });
+    const a = store.append({
+      scope: "agent",
+      scopeId: "a1",
+      author: "A",
+      text: "first",
+    });
+    const b = store.append({
+      scope: "agent",
+      scopeId: "a1",
+      author: "A",
+      text: "second",
+    });
+    expect(store.renderForPrompt("agent", "a1")).toBe(`${a.raw}\n${b.raw}`);
+    expect(store.renderForPrompt("agent", "a1")).not.toContain(OVER_CAP_NOTICE);
+  });
+
+  it("off-by-one: exact cap keeps both; one char smaller drops the oldest + adds the notice", () => {
+    const stateRoot = tempRoot();
+    let n = 0;
+    const ids = ["aaaaaa", "bbbbbb"];
+    const writer = createMemoryStore({
+      stateRoot,
+      genId: () => ids[n++],
+      today: () => "2026-06-27",
+    });
+    const a = writer.append({
+      scope: "agent",
+      scopeId: "a1",
+      author: "A",
+      text: "first",
+    });
+    const b = writer.append({
+      scope: "agent",
+      scopeId: "a1",
+      author: "A",
+      text: "second",
+    });
+    const joined = `${a.raw}\n${b.raw}`;
+    const exact = createMemoryStore({
+      stateRoot,
+      caps: { ...MEMORY_CAPS, agent: joined.length },
+    });
+    expect(exact.renderForPrompt("agent", "a1")).toBe(joined);
+    const tight = createMemoryStore({
+      stateRoot,
+      caps: { ...MEMORY_CAPS, agent: joined.length - 1 },
+    });
+    // Newest (b) survives, oldest (a) dropped, notice appended.
+    expect(tight.renderForPrompt("agent", "a1")).toBe(
+      `${b.raw}\n${OVER_CAP_NOTICE}`,
+    );
+  });
+
+  it("a single line longer than the cap yields the notice alone", () => {
+    const stateRoot = tempRoot();
+    const store = createMemoryStore({
+      stateRoot,
+      genId: () => "aaaaaa",
+      today: () => "2026-06-27",
+      caps: { ...MEMORY_CAPS, agent: 5 },
+    });
+    store.append({
+      scope: "agent",
+      scopeId: "a1",
+      author: "A",
+      text: "a fairly long single fact",
+    });
+    expect(store.renderForPrompt("agent", "a1")).toBe(OVER_CAP_NOTICE);
+  });
+
+  it("renderForPromptMulti includes a zero-survivor scope's label + notice, capping per scope", () => {
+    const stateRoot = tempRoot();
+    let n = 0;
+    const ids = ["aaaaaa", "bbbbbb"];
+    const store = createMemoryStore({
+      stateRoot,
+      genId: () => ids[n++],
+      today: () => "2026-06-27",
+      caps: { ...MEMORY_CAPS, agent: 5, office: 10_000 },
+    });
+    store.append({
+      scope: "office",
+      scopeId: null,
+      author: "A",
+      text: "office fact",
+    });
+    store.append({
+      scope: "agent",
+      scopeId: "a1",
+      author: "A",
+      text: "an over-cap agent fact",
+    });
+    const out = store.renderForPromptMulti([
+      { scope: "office", scopeId: null, label: "Office-wide" },
+      { scope: "agent", scopeId: "a1", label: "Your agent" },
+    ]);
+    // Office (huge cap) renders normally; agent (cap 5) collapses to the notice.
+    expect(out).toContain("Office-wide:");
+    expect(out).toContain("office fact");
+    expect(out).toContain(`Your agent:\n${OVER_CAP_NOTICE}`);
+  });
+
+  it("superseded lines do not count toward the cap; read() stays UNCAPPED", () => {
+    const stateRoot = tempRoot();
+    let n = 0;
+    const ids = ["aaaaaa", "bbbbbb", "cccccc"];
+    const writer = createMemoryStore({
+      stateRoot,
+      genId: () => ids[n++],
+      today: () => "2026-06-27",
+    });
+    const o = writer.append({
+      scope: "agent",
+      scopeId: "a1",
+      author: "A",
+      text: "v1",
+    });
+    const s = writer.supersede({
+      scope: "agent",
+      scopeId: "a1",
+      targetId: o.id,
+      author: "A",
+      text: "v2",
+    })!;
+    // Cap fits exactly ONE active line. The superseded v1 must not count.
+    const capped = createMemoryStore({
+      stateRoot,
+      caps: { ...MEMORY_CAPS, agent: s.raw.length },
+    });
+    expect(capped.renderForPrompt("agent", "a1")).toBe(s.raw);
+    // read() is never capped — it returns the full active set regardless.
+    const tiny = createMemoryStore({
+      stateRoot,
+      caps: { ...MEMORY_CAPS, agent: 1 },
+    });
+    const active = tiny.read("agent", "a1");
+    expect(active).toHaveLength(1);
+    expect(active[0].text).toBe("v2");
   });
 });

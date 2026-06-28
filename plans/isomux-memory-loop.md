@@ -77,7 +77,7 @@ Supersede: `- <!-- mem:NEWID supersedes:OLDID --> [author, date] <fact>`. Retrac
 - [x] 3c — boss scope (server-stamped provenance, scopeId target rules incl. null-manager→400, auto-load = manager boss only, path redaction). Update design doc §2/§3. Also folded in cross-agent agent-scope (full permissive) + design-doc §4/§9 sync.
 - [x] 3d — `PATCH`/`DELETE` supersede/tombstone + loader resolution (suppress superseded/retracted).
 - [x] 3e — write-time dedup guard (normalized-exact + Jaccard 0.9, 409 reject, return matched id).
-- [ ] 3f — size caps + over-cap trim notice (active-line order, newest-first).
+- [x] 3f — size caps + over-cap trim notice (active-line order, newest-first).
 - [ ] 3g — human curation: id self-heal re-stamp on save (server) + office prompt modal surface.
 - [ ] 3h — human curation: room settings / edit-agent / user-management surfaces.
 - [ ] 3i — affordance finalization + doc updates (documentation.md surfaces, AGENTS.md, docs/features.md, testing-guide traceability row, design doc marked implemented) + Playwright curation smoke once.
@@ -273,4 +273,34 @@ Additional test pins: null-manager+omitted boss → 400 and NO `bosses/null.md`,
 
 **Locked (don't relitigate):** permissive authority; memory:\* caps; append-only; "boss-scoped" naming; caps deferred to 3f.
 
-## SLICE-3f…3i PICKUP — authored when the prior slice commits (fold in what it taught)
+## SLICE-3f PICKUP — authored after 3e (80c10b1)
+
+**What 3e taught (fold in):**
+
+- Central tested constants work well (DEDUP_THRESHOLD). Add `MEMORY_CAPS` the same way, and make caps INJECTABLE into the store (like genId/today) so tests use tiny fixtures instead of baking 2500 etc (Reviewer3 pin).
+- `read()` returns the ACTIVE set in file order; "newest" = end of file (append order). Caps operate on the active set only.
+- Caps belong in `renderForPrompt`/`renderForPromptMulti` (the auto-load path). GET /api/memory uses `read()` and stays UNCAPPED.
+
+**Baseline:** 80c10b1.
+**Goal:** per-scope injected-size caps with deterministic, visible degradation (design §3). When a scope's active memory fits, the whole file loads; when it exceeds the cap, auto-load keeps the NEWEST lines that fit and appends a trim notice — so growth degrades predictably and nudges curation. Demo: overfill a scope past its cap → prompt shows the newest lines + the notice, oldest dropped.
+
+**Load-bearing mechanics (traps):**
+
+- `MEMORY_CAPS: Record<MemoryScope, number>` = office 2500 / room 3500 / agent 5000 / boss 5000 (chars). Central exported constant; injectable via MemoryStoreDeps.caps (default MEMORY_CAPS).
+- Cap measured against the joined RAW active lines (each `m.raw`, newline-joined) — the actual injected bytes.
+- Over cap: select newest-first (walk from file end), accumulate until the next line would exceed the cap, then restore FILE ORDER for presentation and append the notice. Notice text (exact, design §3): "Not all memories fit. Consider suggesting the boss to trim them."
+- Caps in renderForPrompt (per-scope lookup) → renderForPromptMulti gets per-scope caps for free. GET stays uncapped.
+- Dates are provenance, never an ordering key — order is file/append order.
+
+**Acceptance (evidence-based):**
+
+- T0 store (tiny injected caps): under-cap → all lines, no notice; over-cap → newest kept + notice, oldest dropped, survivors in file order; per-scope caps differ (office stricter than agent); exact notice text; renderForPromptMulti applies caps per scope.
+- Edge: a single line longer than the cap → notice alone (decide at gate).
+- GET /api/memory remains uncapped (returns all active even past cap).
+- All always-run gates green.
+
+**Decide-with-Reviewer3 at the 3f plan-gate:** (1) measure cap against raw line bytes incl. the mem:ID comment — confirm. (2) selection newest-first, presentation restored to file order, notice appended — confirm presentation order. (3) single-line-over-cap → notice alone — confirm edge. (4) caps injectable (tiny fixtures) + central MEMORY_CAPS — confirm. (5) caps auto-load only, GET uncapped — confirm. (6) exact notice text — confirm.
+
+**Locked (don't relitigate):** permissive authority; append-only; "boss-scoped" naming; cap numbers (Nil-set: 2500/3500/5000/5000).
+
+## SLICE-3g…3i PICKUP — authored when the prior slice commits (fold in what it taught)
