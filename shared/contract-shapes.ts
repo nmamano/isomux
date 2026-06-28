@@ -218,6 +218,12 @@ export interface OfficeSettingsReq {
   // explicit null/empty clears it, a string sets it. The handler keys on the
   // undefined-vs-null distinction, so null must be representable in the contract.
   name?: string | null;
+  // Raw office memory markdown (slice 3g). OMITTED = leave office.md untouched
+  // (the client only sends it once the raw load has succeeded, so an unrelated
+  // prompt/env save can't wipe memory). A string (incl "") rewrites office.md:
+  // existing mem:ID lines keep id+provenance, id-less lines are stamped, removed
+  // lines drop. Only applied after the prompt/env/name validation passes.
+  memory?: string | null;
 }
 
 export interface ValidateCwdReq {

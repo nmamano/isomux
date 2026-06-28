@@ -18,7 +18,13 @@
 // the default singleton against the real STATE_ROOT. Server-only; never reached
 // by the browser bundle.
 
-import { appendFileSync, mkdirSync, readFileSync } from "fs";
+import {
+  appendFileSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+  renameSync,
+} from "fs";
 import { dirname, join } from "path";
 import { STATE_ROOT } from "./config.ts";
 import type { MemoryItem, MemoryScope } from "../shared/types.ts";
@@ -197,6 +203,23 @@ export function renderCapped(lines: readonly string[], cap: number): string {
   return body.length ? `${body}\n${OVER_CAP_NOTICE}` : OVER_CAP_NOTICE;
 }
 
+// Validate a curation textarea WITHOUT writing: a non-empty line that looks like
+// a memory control tag (`<!-- mem:`) but doesn't parse is a typo -> {ok:false}
+// with its 1-based line number. Plain id-less lines are fine (they'd be stamped).
+// Scope-independent (parse validity doesn't depend on scope).
+export function validateRewriteLines(
+  text: string,
+): { ok: true } | { ok: false; lineNumber: number } {
+  const lines = text.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (trimmed === "") continue;
+    if (parseMemoryLine(trimmed, "office", null)) continue;
+    if (trimmed.includes("<!-- mem:")) return { ok: false, lineNumber: i + 1 };
+  }
+  return { ok: true };
+}
+
 // --- the injectable store ---------------------------------------------------
 
 // One scope to fold into the auto-load block, with the plain label shown above
@@ -206,6 +229,12 @@ export interface MemoryScopeRef {
   scopeId: string | null;
   label: string;
 }
+
+// Result of a human textarea rewrite (slice 3g). ok:false carries the 1-based
+// line number of a malformed memory control line so the UI can point at the typo.
+export type MemoryRewriteResult =
+  | { ok: true; items: MemoryItem[] }
+  | { ok: false; lineNumber: number };
 
 export interface MemoryStore {
   // The RESOLVED ACTIVE set (superseded/retracted lines removed, tombstone
@@ -248,6 +277,19 @@ export interface MemoryStore {
     scopeId: string | null,
     text: string,
   ): MemoryItem | null;
+  // The verbatim file bytes (incl trailing newline), or "" if missing. The
+  // human-curation LOAD path (slice 3g) — shows superseded/tombstone lines too.
+  readRawText(scope: MemoryScope, scopeId: string | null): string;
+  // Human textarea rewrite (slice 3g) — the explicit APPEND-ONLY EXCEPTION. Keeps
+  // valid existing lines verbatim (id/provenance/relations), stamps id-less lines
+  // with `author` + today, drops removed lines; whole-file atomic overwrite. A
+  // line that looks like a memory control tag but doesn't parse -> {ok:false}.
+  rewriteFromText(
+    scope: MemoryScope,
+    scopeId: string | null,
+    text: string,
+    author: string,
+  ): MemoryRewriteResult;
   // Active raw lines joined for prompt injection, or null when empty/missing.
   renderForPrompt(scope: MemoryScope, scopeId: string | null): string | null;
   // Several scopes combined into one body for the single auto-load layer: each
@@ -302,6 +344,22 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
     return resolveActiveMemory(readRaw(scope, scopeId));
   }
 
+  // Mint a 6-hex id absent from `used`, retrying on collision or a malformed
+  // injected id; throws after the cap so a bad generator can't spin forever.
+  function mintFreshId(used: Set<string>): string {
+    let id = genId();
+    let tries = 0;
+    while (used.has(id) || !MEM_ID_RE.test(id)) {
+      if (++tries > MAX_ID_RETRIES) {
+        throw new Error(
+          `memory-store: could not mint a unique valid id after ${MAX_ID_RETRIES} tries`,
+        );
+      }
+      id = genId();
+    }
+    return id;
+  }
+
   // The shared writer for all line kinds (plain fact, supersede, tombstone). The
   // collision set is built from the RAW ids so a fresh id never reuses a
   // superseded/tombstoned id still present on disk.
@@ -313,21 +371,9 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
     supersedes?: string | null;
     tombstones?: string | null;
   }): MemoryItem {
-    const existing = new Set(
-      readRaw(input.scope, input.scopeId).map((m) => m.id),
+    const id = mintFreshId(
+      new Set(readRaw(input.scope, input.scopeId).map((m) => m.id)),
     );
-    // Retry on a collision OR a malformed id, so the store NEVER persists a line
-    // parseMemoryLine can't read back (the invariant: no malformed ids on disk).
-    let id = genId();
-    let tries = 0;
-    while (existing.has(id) || !MEM_ID_RE.test(id)) {
-      if (++tries > MAX_ID_RETRIES) {
-        throw new Error(
-          `memory-store: could not mint a unique valid id after ${MAX_ID_RETRIES} tries`,
-        );
-      }
-      id = genId();
-    }
     const date = today();
     const supersedes = input.supersedes ?? null;
     const tombstones = input.tombstones ?? null;
@@ -411,6 +457,58 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
     return null;
   }
 
+  function readRawText(scope: MemoryScope, scopeId: string | null): string {
+    try {
+      return readFileSync(filePath(scope, scopeId), "utf8");
+    } catch {
+      return "";
+    }
+  }
+
+  function rewriteFromText(
+    scope: MemoryScope,
+    scopeId: string | null,
+    text: string,
+    author: string,
+  ): MemoryRewriteResult {
+    const malformed = validateRewriteLines(text);
+    if (!malformed.ok) return malformed;
+    const used = new Set<string>();
+    const planned: ({ keep: string } | { stamp: string })[] = [];
+    for (const line of text.split("\n")) {
+      const trimmed = line.trim();
+      if (trimmed === "") continue;
+      const parsed = parseMemoryLine(trimmed, scope, scopeId);
+      if (parsed) {
+        planned.push({ keep: parsed.raw });
+        used.add(parsed.id); // seed collisions with ALL kept ids first
+      } else {
+        planned.push({ stamp: trimmed }); // plain id-less line -> stamp
+      }
+    }
+    const date = today();
+    const out: string[] = [];
+    for (const p of planned) {
+      if ("keep" in p) {
+        out.push(p.keep);
+      } else {
+        const id = mintFreshId(used);
+        used.add(id);
+        out.push(formatMemoryLine({ id, author, date, text: p.stamp }));
+      }
+    }
+    const content = out.length ? out.join("\n") + "\n" : "";
+    const path = filePath(scope, scopeId);
+    mkdirSync(dirname(path), { recursive: true });
+    const tmp = `${path}.tmp`;
+    writeFileSync(tmp, content);
+    renameSync(tmp, path);
+    return {
+      ok: true,
+      items: resolveActiveMemory(parseMemoryFile(content, scope, scopeId)),
+    };
+  }
+
   function renderForPrompt(
     scope: MemoryScope,
     scopeId: string | null,
@@ -441,6 +539,8 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
     supersede,
     tombstone,
     findDuplicate,
+    readRawText,
+    rewriteFromText,
     renderForPrompt,
     renderForPromptMulti,
   };

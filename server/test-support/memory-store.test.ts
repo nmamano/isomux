@@ -19,6 +19,7 @@ import {
   DEDUP_THRESHOLD,
   MEMORY_CAPS,
   OVER_CAP_NOTICE,
+  validateRewriteLines,
 } from "../memory-store.ts";
 
 const dirs: string[] = [];
@@ -833,5 +834,99 @@ describe("memory-store: size caps + trim notice (slice 3f)", () => {
     const active = tiny.read("agent", "a1");
     expect(active).toHaveLength(1);
     expect(active[0].text).toBe("v2");
+  });
+});
+
+describe("memory-store: readRawText + rewriteFromText (slice 3g)", () => {
+  it("readRawText returns verbatim bytes incl trailing newline; '' when missing", () => {
+    const stateRoot = tempRoot();
+    const store = createMemoryStore({
+      stateRoot,
+      genId: () => "aaaaaa",
+      today: () => "2026-06-27",
+    });
+    expect(store.readRawText("office", null)).toBe("");
+    store.append({ scope: "office", scopeId: null, author: "A", text: "fact" });
+    expect(store.readRawText("office", null)).toBe(
+      "- <!-- mem:aaaaaa --> [A, 2026-06-27] fact\n",
+    );
+  });
+
+  it("rewriteFromText keeps valid existing lines verbatim, stamps id-less, drops removed", () => {
+    const stateRoot = tempRoot();
+    let n = 0;
+    const ids = ["aaaaaa", "bbbbbb", "cccccc"];
+    const store = createMemoryStore({
+      stateRoot,
+      genId: () => ids[n++],
+      today: () => "2026-06-27",
+    });
+    const a = store.append({
+      scope: "office",
+      scopeId: null,
+      author: "A",
+      text: "keep me",
+    });
+    store.append({
+      scope: "office",
+      scopeId: null,
+      author: "A",
+      text: "drop me",
+    });
+    // Human edits the text of `a` (comment intact -> keeps id aaaaaa), drops the
+    // second line, adds a new id-less line.
+    const edited = a.raw.replace("keep me", "keep me (edited)");
+    const res = store.rewriteFromText(
+      "office",
+      null,
+      `${edited}\na brand new fact`,
+      "Owner",
+    );
+    expect(res.ok).toBe(true);
+    const onDisk = store.readRawText("office", null);
+    expect(onDisk).toContain("mem:aaaaaa");
+    expect(onDisk).toContain("keep me (edited)");
+    expect(onDisk).not.toContain("drop me");
+    expect(onDisk).toContain(
+      "- <!-- mem:cccccc --> [Owner, 2026-06-27] a brand new fact",
+    );
+    expect(onDisk.endsWith("\n")).toBe(true);
+  });
+
+  it("empty text rewrites to an empty file", () => {
+    const stateRoot = tempRoot();
+    const store = createMemoryStore({
+      stateRoot,
+      genId: () => "aaaaaa",
+      today: () => "2026-06-27",
+    });
+    store.append({ scope: "office", scopeId: null, author: "A", text: "x" });
+    expect(store.rewriteFromText("office", null, "", "Owner").ok).toBe(true);
+    expect(store.readRawText("office", null)).toBe("");
+    expect(store.read("office", null)).toEqual([]);
+  });
+
+  it("rewriteFromText rejects a malformed mem-tag line with its line number; writes nothing", () => {
+    const stateRoot = tempRoot();
+    const store = createMemoryStore({ stateRoot, today: () => "2026-06-27" });
+    const res = store.rewriteFromText(
+      "office",
+      null,
+      "good plain line\n- <!-- mem:ZZZ --> broken\nanother",
+      "Owner",
+    );
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.lineNumber).toBe(2);
+    expect(store.readRawText("office", null)).toBe("");
+  });
+
+  it("validateRewriteLines flags malformed mem tags, accepts plain + valid lines", () => {
+    expect(validateRewriteLines("plain new fact").ok).toBe(true);
+    expect(
+      validateRewriteLines("- <!-- mem:aaaaaa --> [A, 2026-06-27] ok").ok,
+    ).toBe(true);
+    const bad = validateRewriteLines("ok\n<!-- mem:nothex --> x");
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) expect(bad.lineNumber).toBe(2);
   });
 });

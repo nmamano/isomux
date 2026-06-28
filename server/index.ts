@@ -131,7 +131,11 @@ import {
 } from "./routes/executor.ts";
 import { tasksHandlers } from "./routes/handlers/tasks.ts";
 import { memoryHandlers } from "./routes/handlers/memory.ts";
-import { memoryStore, isSafeScopeId } from "./memory-store.ts";
+import {
+  memoryStore,
+  isSafeScopeId,
+  validateRewriteLines,
+} from "./memory-store.ts";
 import { cronHandlers } from "./routes/handlers/cron.ts";
 import { agentAffordanceHandlers } from "./routes/handlers/agent-affordances.ts";
 import { uploadsHandlers } from "./routes/handlers/uploads.ts";
@@ -1254,6 +1258,7 @@ function buildExecutorDeps(): ExecutorDeps {
       tombstone: (input) => memoryStore.tombstone(input),
       findDuplicate: (scope, scopeId, text) =>
         memoryStore.findDuplicate(scope, scopeId, text),
+      readRawText: (scope, scopeId) => memoryStore.readRawText(scope, scopeId),
       authorFor: (identity) => {
         if (identity.scope === "agent" && identity.agentId) {
           const d = agentManager.getAgentDisplay(identity.agentId);
@@ -1795,6 +1800,11 @@ function buildExecutorDeps(): ExecutorDeps {
     officeSettingsHandlers({
       getSettings: () => agentManager.getOfficeSettings(),
       applySettings: (input) => applyOfficeSettings(input),
+      validateMemory: (text) => validateRewriteLines(text),
+      rewriteOfficeMemory: (text, author) => {
+        memoryStore.rewriteFromText("office", null, text, author);
+      },
+      attributionFor,
     }),
   );
   // 3d.6 — room-structure mutations (rooms CRUD). The handlers stay thin; the

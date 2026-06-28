@@ -734,6 +734,16 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("memory:write", authenticated),
     emits: [],
   }),
+  // Verbatim file text for human curation (incl superseded/tombstone lines), so
+  // OWNER-only (office:admin) — NOT the general memory:read agents hold. Slice 3g
+  // supports scope=office only.
+  defineRoute<void, { text: string }>({
+    opId: "memory.raw",
+    method: "GET",
+    path: "/api/memory/raw",
+    auth: cap("office:admin", officeOwner),
+    emits: [],
+  }),
 
   // --- Cronjobs -------------------------------------------------------------
   defineRoute<void, Cronjob[]>({

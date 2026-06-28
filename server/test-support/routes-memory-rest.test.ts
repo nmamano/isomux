@@ -1,11 +1,13 @@
-// isomux-memory on the unified REST surface (opIds memory.{list,create}).
+// isomux-memory on the unified REST surface
+// (opIds memory.{list,create,update,delete,raw}).
 //
-// Scopes: agent (own file; 3a), room + office (3b). Identity-required (401 wall),
-// author/date/id server-stamped (never body). room/office are authenticated +
-// EXISTENCE-gated only (no room-access gate, permissive per Nil); office takes no
-// scopeId; boss + cross-agent agent writes return DELIBERATE errors so the
-// temporary posture can't be mistaken for the final permissive model. Evidence =
-// the persisted memory/*.md files + REST envelopes.
+// All scopes (agent/room/office/boss) are permissive: any authenticated caller
+// may read/write any EXISTING target — no access gate, author/date/id always
+// server-stamped (never body). PATCH/DELETE supersede/tombstone by id (explicit
+// target). POST has a write-time dedup guard. GET /api/memory/raw is the
+// OWNER-ONLY curation read (verbatim, incl superseded/tombstone lines); human
+// curation saves rewrite the whole file via each scope's settings endpoint.
+// Evidence = the persisted memory/*.md files + REST envelopes.
 //
 // Seam: startTestServer(). Zero LLM.
 
@@ -1046,5 +1048,145 @@ describe("routes/memory REST: dedup guard (slice 3e)", () => {
     const serialized = JSON.stringify(dup.body);
     expect(serialized).not.toContain("memory/rooms");
     expect(serialized).not.toContain(srv.stateRoot);
+  });
+});
+
+describe("routes/memory REST: raw read + office curation save (slice 3g)", () => {
+  it("GET /api/memory/raw?scope=office returns verbatim text incl superseded; owner-only; 401 unauth", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const ownerId = getUserByName("Boss")!.id;
+    const bot = await spawnAgent(srv, "MemBot");
+    const token = mintAgentToken(bot.id, ownerId);
+    const created = await api(srv, "/api/memory", {
+      method: "POST",
+      bearer: token,
+      body: { scope: "office", factType: "environment", text: "v1" },
+    });
+    const id = (created.body as MemoryItem).id;
+    await api(srv, `/api/memory/${id}`, {
+      method: "PATCH",
+      bearer: token,
+      body: { scope: "office", text: "v2" },
+    });
+
+    const unauth = await api(srv, "/api/memory/raw?scope=office");
+    expect(unauth.status).toBe(401);
+
+    // Agent token (memory:read but not office:admin) -> 403.
+    const byAgent = await api(srv, "/api/memory/raw?scope=office", {
+      bearer: token,
+    });
+    expect(byAgent.status).toBe(403);
+
+    // Owner cookie -> verbatim, including the superseded v1 line + supersede.
+    const raw = await api(srv, "/api/memory/raw?scope=office", {
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(raw.status).toBe(200);
+    const txt = (raw.body as { text: string }).text;
+    expect(txt).toContain("v1");
+    expect(txt).toContain("v2");
+    expect(txt).toContain(`supersedes:${id}`);
+  });
+
+  it("office settings PUT with memory re-stamps office.md (new line gets id + owner/date)", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r = await api(srv, "/api/office/settings", {
+      method: "PUT",
+      rawSessionId: owner.rawSessionId,
+      body: {
+        prompt: null,
+        envFile: null,
+        name: null,
+        memory: "office uses Bun",
+      },
+    });
+    expect(r.status).toBe(204);
+    const onDisk = readMem(srv, "office.md")!;
+    expect(onDisk).toMatch(
+      /^- <!-- mem:[0-9a-f]{6} --> \[Boss, \d{4}-\d{2}-\d{2}\] office uses Bun\n$/,
+    );
+  });
+
+  it("if office-settings validation fails (over-long name), memory is NOT rewritten", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    await api(srv, "/api/office/settings", {
+      method: "PUT",
+      rawSessionId: owner.rawSessionId,
+      body: {
+        prompt: null,
+        envFile: null,
+        name: null,
+        memory: "original fact",
+      },
+    });
+    const before = readMem(srv, "office.md");
+    const bad = await api(srv, "/api/office/settings", {
+      method: "PUT",
+      rawSessionId: owner.rawSessionId,
+      body: {
+        prompt: null,
+        envFile: null,
+        name: "x".repeat(61),
+        memory: "should not be written",
+      },
+    });
+    expect(bad.status).toBeGreaterThanOrEqual(400);
+    expect(readMem(srv, "office.md")).toBe(before);
+    expect(readMem(srv, "office.md")).not.toContain("should not be written");
+  });
+
+  it("malformed memory line -> 400 invalid_memory_line; office.md unchanged", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    await api(srv, "/api/office/settings", {
+      method: "PUT",
+      rawSessionId: owner.rawSessionId,
+      body: { prompt: null, envFile: null, name: null, memory: "good fact" },
+    });
+    const before = readMem(srv, "office.md");
+    const bad = await api(srv, "/api/office/settings", {
+      method: "PUT",
+      rawSessionId: owner.rawSessionId,
+      body: {
+        prompt: null,
+        envFile: null,
+        name: null,
+        memory: "good fact\n- <!-- mem:ZZZ --> broken",
+      },
+    });
+    expect(bad.status).toBe(400);
+    expect(errCode(bad.body)).toBe("invalid_memory_line");
+    // The 1-based line number rides the wire so the UI can point at the typo.
+    expect(
+      (bad.body as { error?: { lineNumber?: number } }).error?.lineNumber,
+    ).toBe(2);
+    expect(readMem(srv, "office.md")).toBe(before);
+  });
+
+  it("non-owner office settings PUT is rejected (memory inherits owner-only)", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const member = await srv.seedMember("Member");
+    const r = await api(srv, "/api/office/settings", {
+      method: "PUT",
+      rawSessionId: member.rawSessionId,
+      body: {
+        prompt: null,
+        envFile: null,
+        name: null,
+        memory: "member should not write",
+      },
+    });
+    expect(r.status).toBeGreaterThanOrEqual(400);
+    expect(readMem(srv, "office.md")).toBeNull();
   });
 });

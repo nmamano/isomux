@@ -78,7 +78,7 @@ Supersede: `- <!-- mem:NEWID supersedes:OLDID --> [author, date] <fact>`. Retrac
 - [x] 3d — `PATCH`/`DELETE` supersede/tombstone + loader resolution (suppress superseded/retracted).
 - [x] 3e — write-time dedup guard (normalized-exact + Jaccard 0.9, 409 reject, return matched id).
 - [x] 3f — size caps + over-cap trim notice (active-line order, newest-first).
-- [ ] 3g — human curation: id self-heal re-stamp on save (server) + office prompt modal surface.
+- [x] 3g — human curation: id self-heal re-stamp on save (server) + office prompt modal surface.
 - [ ] 3h — human curation: room settings / edit-agent / user-management surfaces.
 - [ ] 3i — affordance finalization + doc updates (documentation.md surfaces, AGENTS.md, docs/features.md, testing-guide traceability row, design doc marked implemented) + Playwright curation smoke once.
 
@@ -303,4 +303,34 @@ Additional test pins: null-manager+omitted boss → 400 and NO `bosses/null.md`,
 
 **Locked (don't relitigate):** permissive authority; append-only; "boss-scoped" naming; cap numbers (Nil-set: 2500/3500/5000/5000).
 
-## SLICE-3g…3i PICKUP — authored when the prior slice commits (fold in what it taught)
+## SLICE-3g PICKUP — authored after 3f (4516dc5)
+
+**What earlier slices taught (fold in):**
+
+- Memory lives in `~/.isomux/memory/*.md` (the store), NOT in office-config.json. The settings `memory` field is RAW TEXT handed to the store; do not persist memory in office-config.
+- `atomicWriteFileSync` (temp+rename) exists in server/persistence.ts; the store appends today — add an atomic whole-file overwrite for the rewrite path.
+- Office settings PUT (`/api/office/settings`, opId office.setSettings) is OWNER-ONLY (`cap("office:admin", officeOwner)`). Riding it for SAVE makes office memory curation inherit the prompt field's exact permissions (Nil's rule), and keeps the destructive rewrite (the append-only EXCEPTION) human/owner-gated — agents never reach it.
+- Office prompt reaches the client via the all-audience `office_settings_updated` event + initial office state; memory is a separate store, so don't thread it through that event.
+
+**Baseline:** 4516dc5. **This is the first UI slice.** Playwright smoke is deferred to 3i; 3g's evidence is the store + REST/handler tests (UI verified by build + manual).
+
+**Goal:** a human edits office memory as raw markdown in the office settings modal, next to the prompt; on save the server re-stamps ids and overwrites office.md. Demo: open office settings → see raw office.md lines → add a line without an id, edit/remove others → save → office.md has the kept lines verbatim, the new line stamped with a fresh id + [savingUser, today], removed lines gone.
+
+**Load-bearing mechanics (traps):**
+
+- Store: `readRawText(scope, scopeId): string` (verbatim file, "" if missing). `rewriteFromText(scope, scopeId, text, author, today?): MemoryItem[]` — per non-empty trimmed line: if `parseMemoryLine` succeeds (valid existing mem line incl supersede/tombstone) KEEP VERBATIM (preserves id+provenance+relations, even if the human edited the text — design's accepted tradeoff); else stamp a fresh collision-checked id + `[author, today]`. Whole-file ATOMIC overwrite (temp+rename). Empty text → empty file. This is the explicit APPEND-ONLY EXCEPTION (human curation only).
+- LOAD: new `GET /api/memory/raw?scope=&scopeId=` (opId memory.raw, cap memory:read) → `{ text }`. Modal fetches on open. (Raw, not the active GET, so superseded/tombstone lines show for full transparency.)
+- SAVE: `OfficeSettingsReq` gains `memory?: string | null`. office.setSettings handler: when memory !== undefined, call a `rewriteOfficeMemory(text, authorName)` dep (author = attributionFor(identity).createdBy, the owner's name). Memory is NOT added to office-config persistence or the broadcast event.
+- UI: OfficePromptModal gets a memory textarea (same owner-only readOnly gate as the prompt). On open, GET raw → setMemory; handleSave includes `memory` in the PUT.
+
+**Acceptance (evidence-based):**
+
+- T0 store: rewriteFromText keeps valid existing lines verbatim (id/provenance/relations preserved incl an edited-text line keeping its old id), stamps id-less lines with author+today, drops removed lines, atomic overwrite, empty→empty, id collisions across kept+new avoided. readRawText returns verbatim / "" for missing.
+- T1 REST: GET /api/memory/raw returns the verbatim file text (incl superseded lines); office settings PUT with `memory` re-stamps office.md (assert file contents + that a new line got a 6-hex id + [Owner, date]); office settings PUT still works without `memory` (unchanged); auth — non-owner PUT still blocked (inherits office:admin); raw GET requires identity (401 wall).
+- All always-run gates green. (UI textarea: manual + build; no deep UI unit test unless cheap via the apiFetch/store harness.)
+
+**Decide-with-Reviewer3 at the 3g plan-gate:** (1) SAVE rides the office settings PUT (memory field → rewriteFromText), auth inherits owner-only — confirm vs a dedicated rewrite endpoint. (2) LOAD via new `GET /api/memory/raw` {text} vs threading through the office projection — confirm. (3) rewriteFromText keep-verbatim-if-valid (edited text keeps old id+provenance per design) — confirm. (4) malformed mem-tag line → treat as new text (stamped) vs reject — decide. (5) new-line author = saving user's display name, date = today — confirm. (6) test depth for the UI textarea (store+REST only vs add a store/apiFetch UI test) — confirm.
+
+**Locked (don't relitigate):** memory in memory/\*.md (not office-config); rewrite is the human-only append-only exception; "boss-scoped" naming; Playwright deferred to 3i.
+
+## SLICE-3h…3i PICKUP — authored when the prior slice commits (fold in what it taught)

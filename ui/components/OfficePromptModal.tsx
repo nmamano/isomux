@@ -24,6 +24,11 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
   const [text, setText] = useState(office.prompt ?? "");
   const [envFile, setEnvFile] = useState(office.envFile ?? "");
   const [name, setName] = useState(office.name ?? "");
+  // Office memory is raw markdown loaded lazily (owner-only endpoint). It is sent
+  // back ONLY once the load has succeeded, so saving an unrelated prompt/env
+  // change before the load resolves can never rewrite office.md to empty.
+  const [memory, setMemory] = useState("");
+  const [memoryLoaded, setMemoryLoaded] = useState(false);
   const [status, setStatus] = useState<ValidationStatus>({ kind: "idle" });
   const [saving, setSaving] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -64,6 +69,26 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
     };
   }, [office.envFile, readOnly]);
 
+  // Load raw office memory (owner-only endpoint). Members skip it; the field is
+  // hidden for them. Until this resolves the textarea stays disabled and `memory`
+  // is omitted from the save.
+  useEffect(() => {
+    if (readOnly) return;
+    let cancelled = false;
+    apiFetch<{ text: string }>("GET", "/api/memory/raw?scope=office")
+      .then((r) => {
+        if (cancelled) return;
+        setMemory(r.text);
+        setMemoryLoaded(true);
+      })
+      .catch(() => {
+        // Leave memoryLoaded false -> memory omitted from the save.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [readOnly]);
+
   function handleSave() {
     // Response-driven: HTTP correlates the outcome natively (no requestId / raw
     // WS listener). Success closes; an ApiError surfaces server.message in the
@@ -76,6 +101,8 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
       prompt: text.trim() ? text : null,
       envFile: envFile.trim() || null,
       name: name.trim() || null,
+      // Only send memory once the raw load succeeded (else leave office.md alone).
+      ...(memoryLoaded ? { memory } : {}),
     };
     apiFetch<void>("PUT", "/api/office/settings", body)
       .then(() => onClose())
@@ -257,6 +284,51 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
         >
           Changes take effect on next conversation.
         </p>
+
+        {!readOnly && (
+          <>
+            <label
+              style={{
+                display: "block",
+                fontSize: 11,
+                fontWeight: 600,
+                color: "var(--text-muted)",
+                marginTop: 14,
+                marginBottom: 5,
+              }}
+            >
+              Memory{" "}
+              <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
+                (durable office-wide facts; raw lines)
+              </span>
+            </label>
+            <textarea
+              value={memory}
+              onChange={(e) => setMemory(e.target.value)}
+              placeholder={
+                memoryLoaded
+                  ? "Office agents should use Bun for local scripts"
+                  : "Loading memory…"
+              }
+              rows={6}
+              readOnly={!memoryLoaded}
+              style={{
+                ...(memoryLoaded ? inputStyle : readOnlyInputStyle),
+                resize: "vertical",
+              }}
+            />
+            <p
+              style={{
+                fontSize: 10,
+                color: "var(--text-ghost)",
+                margin: "3px 0 0",
+              }}
+            >
+              New lines get an id + your name on save; edited lines keep theirs;
+              removed lines are dropped.
+            </p>
+          </>
+        )}
 
         <div
           style={{

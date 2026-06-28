@@ -76,6 +76,8 @@ export interface MemoryDeps {
     scopeId: string | null,
     text: string,
   ): MemoryItem | null;
+  // Verbatim file text for the owner-only curation load (slice 3g).
+  readRawText(scope: MemoryScope, scopeId: string | null): string;
 }
 
 type Target =
@@ -205,6 +207,19 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
       const target = resolveTarget(ctx.identity, scope, scopeId);
       if ("error" in target) return target.error;
       return ok(deps.read(target.scope, target.scopeId));
+    },
+
+    // Owner-only verbatim read for the curation textarea. 3g: office only (the
+    // route is office:admin-gated; other scopes land with their surfaces in 3h).
+    "memory.raw": (ctx) => {
+      if (ctx.query.get("scope") !== "office") {
+        return fail(
+          400,
+          "unsupported_scope",
+          "only scope=office raw read is supported in this version",
+        );
+      }
+      return ok({ text: deps.readRawText("office", null) });
     },
 
     "memory.create": (ctx) => {

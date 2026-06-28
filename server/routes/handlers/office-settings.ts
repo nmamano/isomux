@@ -32,6 +32,7 @@ import {
   type HandlerErrorStatus,
 } from "../executor.ts";
 import type { OfficeSettings } from "../../../shared/types.ts";
+import type { Identity } from "../../identity/index.ts";
 
 // setSettings outcome the seam shapes: ok, or a status-mapped validation failure
 // (400 invalid env path / over-long name). The handler maps it 1:1.
@@ -48,6 +49,17 @@ export interface OfficeSettingsDeps {
     envFile: string | null;
     name?: string | null;
   }): ApplyOfficeSettingsResult;
+  // Slice 3g: office memory curation. Validate WITHOUT writing (so a typo can
+  // block the whole save before settings apply), then rewrite office.md. author
+  // is server-derived from the owner's identity.
+  validateMemory(
+    text: string,
+  ): { ok: true } | { ok: false; lineNumber: number };
+  rewriteOfficeMemory(text: string, author: string): void;
+  attributionFor(identity: Identity): {
+    createdBy: string;
+    username: string | undefined;
+  };
 }
 
 export function officeSettingsHandlers(
@@ -61,6 +73,7 @@ export function officeSettingsHandlers(
         prompt?: unknown;
         envFile?: unknown;
         name?: unknown;
+        memory?: unknown;
       };
       const prompt = typeof b.prompt === "string" ? b.prompt : null;
       const envFile = typeof b.envFile === "string" ? b.envFile : null;
@@ -73,10 +86,30 @@ export function officeSettingsHandlers(
           : typeof b.name === "string"
             ? b.name
             : null;
+      // memory omitted/null -> leave office.md untouched; a string (incl "")
+      // rewrites it. Pre-validate so a typo blocks the WHOLE save (atomic — no
+      // partial where the prompt saves but memory is rejected).
+      const memory = typeof b.memory === "string" ? b.memory : undefined;
+      if (memory !== undefined) {
+        const v = deps.validateMemory(memory);
+        if (!v.ok) {
+          return fail(
+            400,
+            "invalid_memory_line",
+            `malformed memory control line at line ${v.lineNumber}`,
+            { lineNumber: v.lineNumber },
+          );
+        }
+      }
       const r = deps.applySettings({ prompt, envFile, name });
-      return r.ok
-        ? noContent()
-        : fail(r.status, "set_settings_failed", r.error);
+      if (!r.ok) return fail(r.status, "set_settings_failed", r.error);
+      if (memory !== undefined) {
+        deps.rewriteOfficeMemory(
+          memory,
+          deps.attributionFor(ctx.identity).createdBy,
+        );
+      }
+      return noContent();
     },
   };
 }
