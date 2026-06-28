@@ -74,7 +74,7 @@ Supersede: `- <!-- mem:NEWID supersedes:OLDID --> [author, date] <fact>`. Retrac
 
 - [x] 3a TRACER — `server/memory-store.ts` (parse/serialize/append, id-gen) + `POST`/`GET /api/memory` AGENT scope + `memory:*` caps + routes registered + auto-load `agents/<id>.md` as attributed layer + minimal "How to use memory" affordance + negative prompt assertion (notes-not-policy present, no boss path).
 - [x] 3b — room + office scopes (write/read/auto-load), blast-radius framing in affordance.
-- [ ] 3c — boss scope (server-stamped provenance, scopeId target rules incl. null-manager→400, auto-load = manager boss only, path redaction). Update design doc §2/§3.
+- [x] 3c — boss scope (server-stamped provenance, scopeId target rules incl. null-manager→400, auto-load = manager boss only, path redaction). Update design doc §2/§3. Also folded in cross-agent agent-scope (full permissive) + design-doc §4/§9 sync.
 - [ ] 3d — `PATCH`/`DELETE` supersede/tombstone + loader resolution (suppress superseded/retracted).
 - [ ] 3e — write-time dedup guard (exact/fuzzy, reject/merge, return matched id).
 - [ ] 3f — size caps + over-cap trim notice (active-line order, newest-first).
@@ -167,4 +167,48 @@ Completion of all slices; OR 3 consecutive gate failures on the same slice with 
 
 **Locked (don't relitigate):** permissive authority; memory:\* caps; line format; "boss-scoped" naming; boss deferred to 3c; caps deferred to 3f.
 
-## SLICE-3c…3i PICKUP — authored when the prior slice commits (fold in what it taught)
+## SLICE-3c PICKUP — authored after 3b (57703d1)
+
+**What 3b taught (fold in):**
+
+- `resolveTarget` extends cleanly per scope: a boss branch mirrors the room branch (safe scopeId + existence) plus the omitted-scopeId-defaults logic. Reuse the `roomExists`-style injected existence check (`userExists`).
+- `renderForPromptMulti` already takes an arbitrary ref list — just add a boss ref in agent-manager/command-handlers; no signature change.
+- The existence-check + "deliberate error for unsupported" patterns are settled; 3c FLIPS boss from `unsupported_scope` to supported (update those two tests).
+- Prettier reformats on save; format only changed files AFTER sign-off.
+
+**Baseline:** 57703d1.
+**Goal:** boss-scoped memory end to end. Any authenticated caller may write/read any boss's file via REST (permissive); an agent auto-loads ONLY its manager boss's notes (so one boss's notes never bleed into another's prompt); the prompt never exposes a boss filesystem path. Demo: a boss preference recorded to the current boss's file; a second boss's file untouched; the agent's prompt shows its manager boss's lines only.
+
+**Load-bearing mechanics (traps):**
+
+- boss branch in resolveTarget: explicit scopeId → safe + must EXIST (`userExists`) else 400 invalid_scope_id / 404 user_not_found; omitted scopeId → default to `identity.userId` (caller's own/manager user); **agent with null manager userId + omitted boss scopeId → 400** (never `bosses/null.md`, Reviewer3 pin). No access gate — any authenticated caller (incl. cross-boss writes).
+- Auto-load: agent-manager adds a boss ref ONLY for the agent's manager (`managed.info.username` → userId); no manager → omit. Other bosses' notes never auto-load. Boss notes from one boss must not appear in another boss's agents' prompts.
+- Affordance: add a boss curl example + the caveat "boss memory is auto-loaded only for that boss's agents; it is not a confidentiality boundary in this office." NEVER print the boss filesystem path.
+- Naming: "boss-scoped memory" / "boss context memory", never "private".
+- DESIGN-DOC SYNC: update internal-docs/isomux-memory-design.md §2/§3 — boss reads are context-scoped for auto-load, NOT read-private over REST (any authenticated caller can GET any boss). Pin the intentional exposure with a test.
+
+**Acceptance (evidence-based):**
+
+- T1: agent POST boss (omitted scopeId) → manager boss file; user POST boss (omitted) → own file; explicit other-boss scopeId → that file (permissive, pinned). Nonexistent boss → 404; malformed → 400. Agent with null manager + omitted → 400. GET ?scope=boss&scopeId=<otherBoss> succeeds for any authenticated caller (pin intentional exposure). body author/date/id ignored.
+- T0/store: an agent owned by BossA auto-loads BossA boss lines, NOT BossB. Prompt still emits no boss PATH.
+- All always-run gates green.
+
+**Decide-with-Reviewer3 at the 3c plan-gate:** (1) boss default scopeId = identity.userId, null → 400 — confirm. (2) auto-load = manager boss only; no manager → omit — confirm. (3) boss GET open to any authenticated caller, pinned — confirm. (4) nonexistent boss error code (`user_not_found` vs `boss_not_found`). (5) affordance boss wording + non-confidentiality caveat. (6) the cross-agent agent-scope deferral — fold the agent-scope full-permissive target (drop 403, add `agentExists`, omitted→own) into 3c to complete the permissive model, or schedule for 3i? (7) design-doc §2/§3 edit in 3c (lean) vs 3i.
+
+**Locked (don't relitigate):** permissive authority; memory:\* caps; line format; "boss-scoped" naming; caps deferred to 3f; PATCH/DELETE deferred to 3d.
+
+### SLICE-3c PLAN-GATE: APPROVED by Reviewer3 — implement on resume (dev paused by Nil)
+
+Resolved decisions + pins to implement exactly:
+
+1. **boss default:** omitted scopeId → `identity.userId`; if that is null → 400 `invalid_scope_id`. If `identity.userId` is non-null but no longer resolves to a user → 404 `user_not_found` before read/write. Explicit scopeId bypasses default, targets that boss if it exists.
+2. **auto-load:** manager boss only. Use the STABLE manager `userId` (`managed.info.userId`) if that field exists; only fall back to `getUserByName(managed.info.username)` if not, and document the fallback. No manager userId → omit the boss ref entirely. Label `Boss "<display name>"`; never a path. [impl check on resume: confirm whether AgentInfo carries `userId` or only `username`.]
+3. **boss GET open to any authenticated caller** — pin with tests for BOTH an agent token and a user cookie reading ANOTHER boss's file (intentional exposure).
+4. **nonexistent boss → 404 `user_not_found`** (selector is a userId; validation is `userExists`).
+5. **affordance wording (avoid "current boss"):** `Boss-scoped memory: omit scopeId to write your manager/own boss context, or pass scopeId to target another boss. Boss memory is auto-loaded only for that boss's agents; it is not a confidentiality boundary in this office.` Then a curl with omitted scopeId. No filesystem path; keep the no-boss-path prompt test.
+6. **FOLD cross-agent agent-scope into 3c** (remove the temporary exception): agent token omitted scopeId → own agent id; USER cookie omitted scopeId → 400 `invalid_scope_id` (no own agent); explicit scopeId → any authenticated caller may read/write if the agent exists; malformed → 400 `invalid_scope_id`; safe-but-nonexistent → 404 `agent_not_found`. Flip the old other-agent 403 test to SUCCESS (asserts it writes `agents/<other>.md`). Inject an `agentExists` dep. Do NOT leave `unsupported_caller` for user-cookie explicit agent reads/writes — users may target an explicit agent id.
+7. **design-doc sync (same commit):** update internal-docs/isomux-memory-design.md §2/§3 AND §4 (drop the old restrictive authority table + "current boss only" text) AND skim §9 for stale wording. Doc must say: REST read/write is authenticated + target-existence gated; boss scope is context-scoped for auto-load, NOT REST-private; provenance is server-stamped; auto-load is manager-boss only.
+
+Additional test pins: null-manager+omitted boss → 400 and NO `bosses/null.md`, same agent with explicit valid boss scopeId succeeds; body author/date/id ignored for boss writes; BossA-owned agent auto-loads BossA not BossB and vice-versa (store/render test, production ref order); affordance has boss REST guidance + caveat but no `memory/bosses`/`bosses/` path; `GET ?scope=boss` omitted-default works for user + manager-agent, explicit other-boss GET works for any authenticated caller.
+
+## SLICE-3d…3i PICKUP — authored when the prior slice commits (fold in what it taught)

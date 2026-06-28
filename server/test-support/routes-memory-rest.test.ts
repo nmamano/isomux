@@ -191,7 +191,7 @@ describe("routes/memory REST: agent writes its own scope", () => {
   });
 });
 
-describe("routes/memory REST: deliberate rejections (temporary 3a posture)", () => {
+describe("routes/memory REST: cross-agent + rejections (permissive model)", () => {
   async function botCtx() {
     const srv = await startTestServer();
     server = srv;
@@ -201,9 +201,7 @@ describe("routes/memory REST: deliberate rejections (temporary 3a posture)", () 
     return { srv, bot, token: mintAgentToken(bot.id, ownerId), ownerId };
   }
 
-  it("explicit other-agent scopeId -> 403 forbidden (TEMPORARY, not final auth)", async () => {
-    // The final permissive model allows any caller to write any agent's file;
-    // cross-agent agent writes are not enabled yet. Pin the current 403.
+  it("explicit other-agent scopeId -> 201, writes that agent's file (permissive)", async () => {
     const { srv, token } = await botCtx();
     const other = await spawnAgent(srv, "OtherBot");
     const r = await api(srv, "/api/memory", {
@@ -213,11 +211,30 @@ describe("routes/memory REST: deliberate rejections (temporary 3a posture)", () 
         scope: "agent",
         scopeId: other.id,
         factType: "preference",
+        text: "note about OtherBot",
+      },
+    });
+    expect(r.status).toBe(201);
+    const item = r.body as MemoryItem;
+    expect(item.scopeId).toBe(other.id);
+    expect(item.author).toBe("MemBot"); // author is the WRITER, not the target
+    expect(memFile(srv, other.id)).toContain("note about OtherBot");
+  });
+
+  it("explicit nonexistent agent scopeId -> 404 agent_not_found", async () => {
+    const { srv, token } = await botCtx();
+    const r = await api(srv, "/api/memory", {
+      method: "POST",
+      bearer: token,
+      body: {
+        scope: "agent",
+        scopeId: "agent-nope",
+        factType: "preference",
         text: "x",
       },
     });
-    expect(r.status).toBe(403);
-    expect(errCode(r.body)).toBe("forbidden");
+    expect(r.status).toBe(404);
+    expect(errCode(r.body)).toBe("agent_not_found");
   });
 
   it("malformed scopeId (path traversal) -> 400 invalid_scope_id", async () => {
@@ -236,12 +253,12 @@ describe("routes/memory REST: deliberate rejections (temporary 3a posture)", () 
     expect(errCode(r.body)).toBe("invalid_scope_id");
   });
 
-  it("boss scope -> 400 unsupported_scope (POST; not implemented until 3c)", async () => {
+  it("unknown scope -> 400 unsupported_scope", async () => {
     const { srv, token } = await botCtx();
     const r = await api(srv, "/api/memory", {
       method: "POST",
       bearer: token,
-      body: { scope: "boss", scopeId: "user-1", factType: "rule", text: "x" },
+      body: { scope: "galaxy", factType: "rule", text: "x" },
     });
     expect(r.status).toBe(400);
     expect(errCode(r.body)).toBe("unsupported_scope");
@@ -286,32 +303,35 @@ describe("routes/memory REST: deliberate rejections (temporary 3a posture)", () 
     expect(memFile(srv, bot.id)).toBeNull();
   });
 
-  it("USER cookie on scope:agent (POST and GET) -> 400 unsupported_caller", async () => {
+  it("USER cookie on scope:agent: omitted -> 400 invalid_scope_id; explicit existing agent -> 201", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
-    const post = await api(srv, "/api/memory", {
+    const bot = await spawnAgent(srv, "MemBot");
+
+    // A user has no "own" agent, so an omitted scopeId is a 400 (not a 403/500).
+    const omitted = await api(srv, "/api/memory", {
       method: "POST",
       rawSessionId: owner.rawSessionId,
       body: { scope: "agent", factType: "preference", text: "x" },
     });
-    expect(post.status).toBe(400);
-    expect(errCode(post.body)).toBe("unsupported_caller");
+    expect(omitted.status).toBe(400);
+    expect(errCode(omitted.body)).toBe("invalid_scope_id");
 
-    const get = await api(srv, "/api/memory?scope=agent", {
+    // But a user MAY target an explicit existing agent (permissive model).
+    const explicit = await api(srv, "/api/memory", {
+      method: "POST",
       rawSessionId: owner.rawSessionId,
+      body: {
+        scope: "agent",
+        scopeId: bot.id,
+        factType: "role",
+        text: "from the boss",
+      },
     });
-    expect(get.status).toBe(400);
-    expect(errCode(get.body)).toBe("unsupported_caller");
-  });
-
-  it("GET boss scope -> 400 unsupported_scope (not implemented until 3c)", async () => {
-    const { srv, token } = await botCtx();
-    const r = await api(srv, `/api/memory?scope=boss&scopeId=user-1`, {
-      bearer: token,
-    });
-    expect(r.status).toBe(400);
-    expect(errCode(r.body)).toBe("unsupported_scope");
+    expect(explicit.status).toBe(201);
+    expect((explicit.body as MemoryItem).author).toBe("Boss");
+    expect(memFile(srv, bot.id)).toContain("from the boss");
   });
 });
 
@@ -492,5 +512,175 @@ describe("routes/memory REST: room + office scopes (permissive, existence-gated)
     });
     expect(get.status).toBe(400);
     expect(errCode(get.body)).toBe("invalid_scope_id");
+  });
+});
+
+describe("routes/memory REST: boss scope (permissive; auto-load is the only boss boundary)", () => {
+  async function ctx() {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    await srv.seedMember("Member");
+    const ownerId = getUserByName("Boss")!.id;
+    const memberId = getUserByName("Member")!.id;
+    const bot = await spawnAgent(srv, "MemBot");
+    const token = mintAgentToken(bot.id, ownerId); // manager boss = Boss
+    return { srv, owner, ownerId, memberId, bot, token };
+  }
+
+  it("agent omitted scopeId -> manager boss file; author = agent name", async () => {
+    const { srv, token, ownerId } = await ctx();
+    const r = await api(srv, "/api/memory", {
+      method: "POST",
+      bearer: token,
+      body: {
+        scope: "boss",
+        factType: "preference",
+        text: "boss likes terse replies",
+      },
+    });
+    expect(r.status).toBe(201);
+    const item = r.body as MemoryItem;
+    expect(item.scope).toBe("boss");
+    expect(item.scopeId).toBe(ownerId);
+    expect(item.author).toBe("MemBot");
+    expect(readMem(srv, "bosses", `${ownerId}.md`)).toContain(
+      "boss likes terse replies",
+    );
+  });
+
+  it("user omitted scopeId -> own boss file; body author/date/id ignored", async () => {
+    const { srv, owner, ownerId } = await ctx();
+    const r = await api(srv, "/api/memory", {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      body: {
+        scope: "boss",
+        factType: "preference",
+        text: "no em dashes",
+        author: "EVIL",
+        date: "1999-12-31",
+        id: "ffffff",
+      },
+    });
+    expect(r.status).toBe(201);
+    expect((r.body as MemoryItem).scopeId).toBe(ownerId);
+    const onDisk = readMem(srv, "bosses", `${ownerId}.md`);
+    expect(onDisk).toContain("[Boss, ");
+    expect(onDisk).not.toContain("EVIL");
+    expect(onDisk).not.toContain("1999-12-31");
+  });
+
+  it("explicit other-boss scopeId -> writes that boss's file (any caller, permissive)", async () => {
+    const { srv, token, memberId } = await ctx();
+    const r = await api(srv, "/api/memory", {
+      method: "POST",
+      bearer: token,
+      body: {
+        scope: "boss",
+        scopeId: memberId,
+        factType: "contact",
+        text: "about the other boss",
+      },
+    });
+    expect(r.status).toBe(201);
+    expect((r.body as MemoryItem).scopeId).toBe(memberId);
+    expect(readMem(srv, "bosses", `${memberId}.md`)).toContain(
+      "about the other boss",
+    );
+  });
+
+  it("agent w/ null manager userId: omitted boss -> 400 and NO bosses/null.md; explicit valid boss -> 201", async () => {
+    const { srv, bot, ownerId } = await ctx();
+    const orphanToken = mintAgentToken(bot.id, null); // no manager userId
+    const omitted = await api(srv, "/api/memory", {
+      method: "POST",
+      bearer: orphanToken,
+      body: { scope: "boss", factType: "rule", text: "x" },
+    });
+    expect(omitted.status).toBe(400);
+    expect(errCode(omitted.body)).toBe("invalid_scope_id");
+    expect(readMem(srv, "bosses", "null.md")).toBeNull();
+
+    const explicit = await api(srv, "/api/memory", {
+      method: "POST",
+      bearer: orphanToken,
+      body: { scope: "boss", scopeId: ownerId, factType: "rule", text: "ok" },
+    });
+    expect(explicit.status).toBe(201);
+  });
+
+  it("nonexistent boss -> 404 user_not_found; malformed -> 400 invalid_scope_id", async () => {
+    const { srv, token } = await ctx();
+    const ghost = await api(srv, "/api/memory", {
+      method: "POST",
+      bearer: token,
+      body: {
+        scope: "boss",
+        scopeId: "user-nope",
+        factType: "rule",
+        text: "x",
+      },
+    });
+    expect(ghost.status).toBe(404);
+    expect(errCode(ghost.body)).toBe("user_not_found");
+
+    const malformed = await api(srv, "/api/memory", {
+      method: "POST",
+      bearer: token,
+      body: { scope: "boss", scopeId: "../x", factType: "rule", text: "x" },
+    });
+    expect(malformed.status).toBe(400);
+    expect(errCode(malformed.body)).toBe("invalid_scope_id");
+  });
+
+  it("GET another boss's file works for any authenticated caller (intentional exposure)", async () => {
+    const { srv, owner, token, memberId } = await ctx();
+    await api(srv, "/api/memory", {
+      method: "POST",
+      bearer: token,
+      body: {
+        scope: "boss",
+        scopeId: memberId,
+        factType: "contact",
+        text: "member fact",
+      },
+    });
+    const byAgent = await api(
+      srv,
+      `/api/memory?scope=boss&scopeId=${memberId}`,
+      { bearer: token },
+    );
+    expect(byAgent.status).toBe(200);
+    expect((byAgent.body as MemoryItem[])[0].text).toBe("member fact");
+
+    const byUser = await api(
+      srv,
+      `/api/memory?scope=boss&scopeId=${memberId}`,
+      { rawSessionId: owner.rawSessionId },
+    );
+    expect(byUser.status).toBe(200);
+    expect((byUser.body as MemoryItem[])[0].text).toBe("member fact");
+  });
+
+  it("GET ?scope=boss omitted scopeId resolves the caller's own/manager boss", async () => {
+    const { srv, owner, token } = await ctx();
+    await api(srv, "/api/memory", {
+      method: "POST",
+      bearer: token,
+      body: { scope: "boss", factType: "preference", text: "manager default" },
+    });
+    // Agent (manager = Boss) GET omitted -> Boss's file.
+    const byAgent = await api(srv, "/api/memory?scope=boss", { bearer: token });
+    expect(byAgent.status).toBe(200);
+    expect((byAgent.body as MemoryItem[])[0].text).toBe("manager default");
+    // User (Boss) GET omitted -> own file (same target).
+    const byUser = await api(srv, "/api/memory?scope=boss", {
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(byUser.status).toBe(200);
+    expect(
+      (byUser.body as MemoryItem[]).some((m) => m.text === "manager default"),
+    ).toBe(true);
   });
 });

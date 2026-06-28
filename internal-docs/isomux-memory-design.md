@@ -79,24 +79,32 @@ that). Working-state fits no type, so it never enters memory.
 
 ## 2. Scope model and trust boundary (same-user reality)
 
-Four scopes, but **"private" is an application-level scope, not a confidentiality
-guarantee**:
+Four scopes, but **boss scope is "context-scoped for auto-load," NOT a
+confidentiality guarantee or a REST-private read**:
 
 - `office`, `room`, `agent` are cross-boss visible by scope.
-- `bosses/<userId>.md` is _scoped_ to one boss.
+- `bosses/<userId>.md` is structurally scoped only at **auto-load** time (below),
+  not over REST.
 
-**What "private" does and does not mean:** all office agents currently run as the
-**same OS user**, and agent reads under `~/.isomux` are explicitly allowed by
-`safety-hooks.ts`. So a capable or misbehaving agent can `grep
-~/.isomux/memory/bosses/` and read boss memory directly. Therefore:
+**Implemented authority model (permissive — the simplification of the original
+restrictive table).** All office agents currently run as the **same OS user**, and
+agent reads under `~/.isomux` are explicitly allowed by `safety-hooks.ts`, so a
+capable agent can `grep` the memory files directly regardless. Rather than pretend
+otherwise, the REST surface is openly permissive and restraint lives in the
+system-prompt affordance:
 
-- **"Private" means: not auto-injected into other contexts, and never returned by
-  the REST read path to the wrong caller.** It is NOT confidential from
-  same-OS-user code until per-user / bwrap isolation exists. That OS-level
-  boundary is separate, future work.
-- **Do not teach agents the boss-memory filesystem path in the system prompt.** The
-  affordance exposes boss-private reads only through the scoped REST endpoint,
-  never as a path. Reduces casual leakage; does not make it confidential.
+- **REST reads and writes are authenticated + target-EXISTENCE gated, open to any
+  authenticated caller** (agent token or user cookie) for any existing
+  scope/target, including any boss. There is no per-scope / per-room / per-boss
+  access gate. `author`, `date`, and `id` are always server-stamped from the
+  caller's identity; the body's values are ignored.
+- **The one structural boss property is in AUTO-LOAD, not REST:** a boss's notes
+  are auto-injected only into that boss's own agents' prompts (keyed on the
+  agent's stable manager `userId`), so one boss's notes never bleed into another
+  boss's context. This is context-scoping, not a read boundary — any authenticated
+  caller can still `GET` any boss file.
+- **Do not teach agents the boss-memory filesystem path in the system prompt.**
+  Reduces casual leakage; does not make it confidential.
 
 Net: the scope model is an **honest-path / API + auto-injection boundary**, not a
 security boundary. Real confidentiality waits on the per-user isolation work.
@@ -126,10 +134,10 @@ visible, and it nudges curation. Office/room caps should be smaller than boss/ag
 (they affect more people); exact numbers are a residual choice (section 9).
 
 **2. On-demand (the long tail).** For deeper or cross-scope facts: at small scale
-"read the whole scoped file" suffices; `grep` is the scaling step. **Boss-scope
-reads go through the scoped REST endpoint** (not raw grep, see section 2). For
-office/room/agent, raw grep is allowed as a documented _convenience, not a policy
-boundary_.
+"read the whole file" suffices; `grep` is the scaling step. The REST `GET` reads
+**any** scope (including boss) for any authenticated caller — boss reads are NOT
+caller-scoped over REST (see section 2); the only boss boundary is auto-load. Raw
+`grep` over the files is a documented _convenience, not a policy boundary_.
 
 ## 4. Writes
 
@@ -158,33 +166,36 @@ measures:
    re-stating slight variants of the same fact and slowly polluting a shared
    scope), which is noise, not malice.
 
-An agent writes the **boss** scope only for the boss currently in context: the
-server derives the target from the turn's attributed `userId`, so an agent can
-record a fact the current boss told it into that boss's file, and can never write
-another boss's file. Boss facts are private and sensitive, so when in doubt the
-agent should ask before writing (section 6).
+Writes are **permissive**: any authenticated caller (agent token or user cookie)
+may write any scope and any existing target — there is no per-scope / per-room /
+per-boss access gate (the original restrictive table was simplified away). The
+only checks are target-EXISTENCE and a strict-identifier guard on `scopeId`.
+Restraint is the system-prompt affordance, not a gate; boss facts are sensitive,
+so the affordance tells agents to use discretion (section 6).
 
 **Authority is derived from the authenticated caller**, never from request-body
 fields. `authenticate()` already yields an `Identity` (agent token →
 `scope:"agent"` + `agentId`/`userId`; cookie → `scope:"user"` + `userId`/`role`).
-`author`, `scopeId`, `userId` are server-assigned or rejected, not trusted from
-the body.
+`author`, `date`, and `id` are always server-assigned from that identity, never
+trusted from the body. `scopeId` is a caller-supplied **target selector**
+(validated for shape + existence), not an authority claim.
 
-| Write target     | Accepted from                                                                                                                   |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `agents/<id>.md` | `scope:"agent"` whose token `agentId` === `<id>` (own file only)                                                                |
-| `rooms/<id>.md`  | `scope:"agent"` (any agent in that room) **or** a user with room access                                                         |
-| `office.md`      | `scope:"agent"` (any office agent) **or** a user (owner for heavy curation)                                                     |
-| `bosses/<id>.md` | `scope:"user"` whose `userId` === `<id>`, or `scope:"agent"` when `<id>` === the turn's attributed `userId` (current boss only) |
+| Write/read target | Accepted from            | Target resolution                                                                                                  |
+| ----------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------- |
+| `agents/<id>.md`  | any authenticated caller | omitted `scopeId` defaults to the caller's own agent (agent token); a user must pass an explicit, existing agent id |
+| `rooms/<id>.md`   | any authenticated caller | `scopeId` required; must be an existing room                                                                       |
+| `office.md`       | any authenticated caller | no `scopeId`                                                                                                       |
+| `bosses/<id>.md`  | any authenticated caller | omitted `scopeId` defaults to the caller's own/manager `userId`; or an explicit, existing user id (any boss)        |
 
 Endpoint sketch (final path style settled at implementation, aligned with the
 route table):
 
 - `POST /api/memory` `{ scope, scopeId?, factType, text }` → appends an id-tagged,
   provenance-stamped line to the correct file. Server assigns id + author + date,
-  enforces the authority table, runs the dedup guard.
-- `GET /api/memory?scope=...&scopeId=...&q=...` → scoped read/search (the
-  privacy-safe read path for `boss`).
+  validates target existence + scopeId shape, runs the dedup guard.
+- `GET /api/memory?scope=...&scopeId=...&q=...` → read/search, authenticated +
+  target-existence gated for EVERY scope including `boss`; it is not
+  caller-private (boss scope is context-scoped at auto-load only, not over REST).
 - `PATCH /api/memory/<id>` / `DELETE /api/memory/<id>` → update / retract via
   supersede or tombstone, targeting the stable id.
 
@@ -252,8 +263,9 @@ the restraint guardrail. It tells agents:
   writing (office facts almost always warrant a check first).
 - **When to write:** the moment you learn a durable fact, not at session end
   (there is no extractor sweeping the transcript).
-- **When to read:** auto-loaded at start; grep/read non-private scopes for the long
-  tail; boss scope via the REST endpoint.
+- **When to read:** relevant memory is auto-loaded at start; use `GET /api/memory`
+  or `grep` for longer-tail facts. Boss scope is not REST-private; use discretion
+  and do not rely on it as a confidentiality boundary.
 - **The exact REST calls.**
 
 It does **not** expose the boss-memory filesystem path (section 2).
@@ -298,10 +310,14 @@ Deferred. Add only if real scale demands:
 ## 9. Decisions and residual choices
 
 - **Flat list, no in-file sections.** (Pinning/queues → section 8.)
-- **Agents write all four scopes directly via REST**, no proposal queue; restraint
+- **Any authenticated caller may read/write all four scopes directly via REST**
+  (permissive — the original restrictive per-scope table was simplified away), no
+  proposal queue; the only checks are target-existence + scopeId shape; restraint
   via the system prompt + dedup guard; memory injected as notes, not policy.
-- **Agents write the boss scope only for the boss currently in context**
-  (server-derived `userId`); never another boss's file.
+- **Boss writes target any existing boss** (omitted `scopeId` defaults to the
+  caller's own/manager `userId`); `author`/`date`/`id` are server-stamped. The
+  boss boundary is **auto-load only** (a boss's notes auto-inject solely into that
+  boss's own agents' prompts), not a REST-read restriction.
 - **Two write paths for agents:** write directly, or ask the boss to save it;
   discretion scales with scope width (section 6).
 - **Humans curate via a memory field in each scope's settings menu** (raw textarea,
@@ -312,10 +328,11 @@ Deferred. Add only if real scale demands:
 
 Residual implementation choices (small, not blocking):
 
-1. **Read path (Q1):** keep raw `grep` for non-private scopes as a documented
-   convenience, or route _all_ reads through REST for one enforcement surface?
-   Boss-scope reads go through REST either way. (Leaning: keep grep for
-   non-private — greppability is a stated goal.)
+1. **Read path (Q1):** keep raw `grep` over the files as a documented convenience
+   alongside the REST `GET` (which serves every scope, including boss, to any
+   authenticated caller), or route all reads through REST for one enforcement
+   surface? (Decided: keep both — greppability is a stated goal, and there is no
+   REST-private scope to protect.)
 2. **Office curation authority (Q2):** any office agent may append office facts;
    should _heavy_ curation (bulk edit/retract via the settings field) be
    owner-only, or any room-having user? (Leaning: owner-only for the field;

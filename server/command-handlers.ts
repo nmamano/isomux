@@ -599,6 +599,17 @@ export function createCommandHandling(deps: HandlerDeps) {
             scopeId: managed.info.roomId,
             label: `Room "${room.name}"`,
           },
+          // Boss notes auto-load ONLY for this agent's manager boss (stable
+          // userId), so one boss's notes never bleed into another's context.
+          ...(managed.info.userId
+            ? [
+                {
+                  scope: "boss" as const,
+                  scopeId: managed.info.userId,
+                  label: `Boss "${managed.info.username ?? "boss"}"`,
+                },
+              ]
+            : []),
           { scope: "agent", scopeId: managed.info.id, label: "Your agent" },
         ]),
       );

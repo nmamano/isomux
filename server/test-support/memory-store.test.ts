@@ -378,4 +378,38 @@ describe("memory-store: renderForPromptMulti", () => {
       expect(out).toContain("office-wide fact");
     }
   });
+
+  it("boss notes render only under the matching boss ref (manager-boss scoping)", () => {
+    const stateRoot = tempRoot();
+    let n = 0;
+    const ids = ["b0b0b0", "c0c0c0"];
+    const store = createMemoryStore({
+      stateRoot,
+      genId: () => ids[n++],
+      today: () => "2026-06-27",
+    });
+    store.append({
+      scope: "boss",
+      scopeId: "userA",
+      author: "X",
+      text: "A boss fact",
+    });
+    store.append({
+      scope: "boss",
+      scopeId: "userB",
+      author: "Y",
+      text: "B boss fact",
+    });
+    // An agent managed by userA loads only userA's boss lines (and vice-versa).
+    const aOut = store.renderForPromptMulti([
+      { scope: "boss", scopeId: "userA", label: 'Boss "A"' },
+    ]);
+    expect(aOut).toContain("A boss fact");
+    expect(aOut).not.toContain("B boss fact");
+    const bOut = store.renderForPromptMulti([
+      { scope: "boss", scopeId: "userB", label: 'Boss "B"' },
+    ]);
+    expect(bOut).toContain("B boss fact");
+    expect(bOut).not.toContain("A boss fact");
+  });
 });

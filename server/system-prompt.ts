@@ -77,12 +77,14 @@ To create, edit, delete, or trigger a cronjob, direct the boss to the Cronjobs t
 
 How to answer questions about Isomux itself: the source lives at https://github.com/nmamano/isomux. Read the README and the relevant code under server/, ui/, shared/, internal-docs/ before answering.
 
-How to use memory: record durable facts about people, projects, environment, and rules; do NOT record work-in-progress (the session transcript already holds that). Types: preference, convention, rule, environment, role, contact. Write the moment you learn a durable fact. Scopes: "agent" (your own standing facts), "room" (facts useful to anyone working in this room/project), "office" (genuinely office-wide facts). Write office memory only for genuinely office-wide facts, and rarely: an office line is injected into every agent's future sessions. When in doubt, ask a boss first. (Look up room ids in ~/.isomux/agents-summary.json.)
+How to use memory: record durable facts about people, projects, environment, and rules; do NOT record work-in-progress (the session transcript already holds that). Types: preference, convention, rule, environment, role, contact. Write the moment you learn a durable fact. Scopes: "agent" (your own standing facts), "room" (facts useful to anyone working in this room/project), "office" (genuinely office-wide facts), "boss" (a specific boss's context). Write office memory only for genuinely office-wide facts, and rarely: an office line is injected into every agent's future sessions. When in doubt, ask a boss first. (Look up room ids in ~/.isomux/agents-summary.json.)
   curl -s -X POST localhost:${PORT}/api/memory -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"scope":"agent","factType":"preference","text":"..."}'
   curl -s -X POST localhost:${PORT}/api/memory -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"scope":"room","scopeId":"<roomId>","factType":"convention","text":"..."}'
   curl -s -X POST localhost:${PORT}/api/memory -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"scope":"office","factType":"environment","text":"..."}'
-  curl -s localhost:${PORT}/api/memory?scope=agent -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"   # also scope=room&scopeId=<roomId> or scope=office
-Relevant office, room, and agent memory is auto-loaded at the start of each session.
+  curl -s -X POST localhost:${PORT}/api/memory -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"scope":"boss","factType":"preference","text":"..."}'   # omit scopeId to write your manager/own boss context, or pass scopeId to target another boss
+  curl -s localhost:${PORT}/api/memory?scope=agent -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"   # also scope=room&scopeId=<roomId>, scope=office, or scope=boss
+Boss memory is auto-loaded only for that boss's agents; it is not a confidentiality boundary in this office.
+Relevant office, room, boss, and agent memory is auto-loaded at the start of each session.
 
 Pipe every command that touches secret-bearing surfaces through a sed redaction.`;
   if (privileged) {

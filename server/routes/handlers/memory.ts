@@ -2,14 +2,18 @@
 // memory.{list,create}). See internal-docs/isomux-memory-design.md and
 // plans/isomux-memory-loop.md.
 //
-// Scopes supported so far: agent (own file), room, office. Author + date + id
-// are server-stamped from the token identity, NEVER the body (mirrors tasks'
-// attribution rule); scopeId is a TARGET selector, not an authority claim.
-// Authority is intentionally permissive (Nil): any authenticated caller may
-// read/write room and office — there is deliberately NO room-access gate, only
-// target-EXISTENCE validation. Every not-yet-supported path (boss scope,
-// cross-agent agent writes) returns a DELIBERATE error so the temporary posture
-// can't be mistaken for the final permissive model.
+// Scopes: agent, room, office, boss. Author + date + id are server-stamped from
+// the token identity, NEVER the body (mirrors tasks' attribution rule); scopeId
+// is a TARGET selector, not an authority claim. Authority is intentionally
+// permissive (Nil): any authenticated caller (agent token OR user cookie) may
+// read/write ANY scope and ANY existing target — there is deliberately NO
+// room/agent/boss access gate, only target-EXISTENCE validation. Restraint lives
+// in the system-prompt affordance, not in code.
+//
+// The one structural privacy property is in AUTO-LOAD (agent-manager), not here:
+// a boss's notes auto-load only into that boss's own agents' prompts. REST reads
+// of any scope are open to any authenticated caller (design §2/§3) — boss memory
+// is context-scoped for auto-load, not REST-private.
 //
 // LEAF over the executor + injected MemoryDeps. No manager/auth imports.
 
@@ -32,10 +36,12 @@ export interface MemoryDeps {
   authorFor(identity: Identity): string | null;
   // Strict identifier guard (rejects path traversal in a caller-supplied scopeId).
   isSafeScopeId(id: string): boolean;
-  // Target-existence check for room scope. EXISTENCE ONLY — there is deliberately
-  // NO room-access gate here (the model is permissive per Nil); do not reuse
-  // requiresRoomAccess, which would silently undo that.
+  // Target-EXISTENCE checks. Existence only — there is deliberately NO access
+  // gate (the model is permissive per Nil); never reuse requiresRoomAccess, which
+  // would silently undo that.
   roomExists(roomId: string): boolean;
+  agentExists(agentId: string): boolean;
+  userExists(userId: string): boolean;
 }
 
 type Target =
@@ -43,48 +49,41 @@ type Target =
   | { error: ReturnType<typeof fail> };
 
 export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
-  // Resolve the (scope, target file) for this caller, or a deliberate error for
-  // any path not yet supported. Shared by GET (query) and POST (body).
-  //   agent  — own file only (cross-agent is the documented TEMPORARY deferral
-  //            until the final permissive target semantics land)
-  //   room   — any authenticated caller; scopeId required + must EXIST (no access gate)
-  //   office — any authenticated caller; never takes a scopeId (always office.md)
-  //   boss / other — unsupported until a later slice
+  // Resolve the (scope, target file) for this caller, or a deliberate error.
+  // Shared by GET (query) and POST (body).
+  //   agent  — omitted scopeId defaults to the caller's own agent (agent token);
+  //            a user cookie must pass an explicit agent id. Any existing agent
+  //            may be targeted by any authenticated caller.
+  //   room   — scopeId required + must EXIST.
+  //   office — never takes a scopeId (always office.md).
+  //   boss   — omitted scopeId defaults to the caller's own/manager userId; any
+  //            existing boss may be targeted by any authenticated caller.
+  //   other  — unsupported.
   function resolveTarget(
     identity: Identity,
     scope: unknown,
     rawScopeId: unknown,
   ): Target {
     if (scope === "agent") {
-      if (identity.scope !== "agent" || !identity.agentId) {
+      if (rawScopeId === undefined || rawScopeId === null) {
+        if (identity.scope === "agent" && identity.agentId) {
+          return { scope: "agent", scopeId: identity.agentId };
+        }
         return {
           error: fail(
             400,
-            "unsupported_caller",
-            "agent-scope memory is only available to an agent token in this version",
+            "invalid_scope_id",
+            "agent scope requires a scopeId (caller has no own agent)",
           ),
         };
-      }
-      const own = identity.agentId;
-      if (rawScopeId === undefined || rawScopeId === null) {
-        return { scope: "agent", scopeId: own };
       }
       if (typeof rawScopeId !== "string" || !deps.isSafeScopeId(rawScopeId)) {
         return { error: fail(400, "invalid_scope_id", "scopeId is malformed") };
       }
-      if (rawScopeId !== own) {
-        // TEMPORARY: the final permissive model allows any caller to write any
-        // agent's file; cross-agent agent writes are not enabled yet (room/office
-        // deliver the cross-agent value). See the standing-orders deferral.
-        return {
-          error: fail(
-            403,
-            "forbidden",
-            "an agent may only access its own memory (cross-agent writes are not enabled yet)",
-          ),
-        };
+      if (!deps.agentExists(rawScopeId)) {
+        return { error: fail(404, "agent_not_found", "no such agent") };
       }
-      return { scope: "agent", scopeId: own };
+      return { scope: "agent", scopeId: rawScopeId };
     }
     if (scope === "room") {
       if (typeof rawScopeId !== "string" || !deps.isSafeScopeId(rawScopeId)) {
@@ -113,11 +112,38 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
       }
       return { scope: "office", scopeId: null };
     }
+    if (scope === "boss") {
+      if (rawScopeId === undefined || rawScopeId === null) {
+        // Default to the caller's own/manager user. An agent token with no
+        // manager userId has no default target -> 400 (never bosses/null.md).
+        const own = identity.userId;
+        if (!own) {
+          return {
+            error: fail(
+              400,
+              "invalid_scope_id",
+              "boss scope requires a scopeId (caller has no associated user)",
+            ),
+          };
+        }
+        if (!deps.userExists(own)) {
+          return { error: fail(404, "user_not_found", "no such user") };
+        }
+        return { scope: "boss", scopeId: own };
+      }
+      if (typeof rawScopeId !== "string" || !deps.isSafeScopeId(rawScopeId)) {
+        return { error: fail(400, "invalid_scope_id", "scopeId is malformed") };
+      }
+      if (!deps.userExists(rawScopeId)) {
+        return { error: fail(404, "user_not_found", "no such user") };
+      }
+      return { scope: "boss", scopeId: rawScopeId };
+    }
     return {
       error: fail(
         400,
         "unsupported_scope",
-        "scope must be agent, room, or office in this version",
+        "scope must be agent, room, office, or boss",
       ),
     };
   }
