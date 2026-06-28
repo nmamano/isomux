@@ -282,6 +282,25 @@ describe("wrapV1Query", () => {
     expect(q.interruptCount).toBe(1);
   });
 
+  it("close() aborts the AbortController so the SDK subprocess is torn down", () => {
+    // input.end() + interrupt() unwind a healthy turn, but a mid-turn child can
+    // hang in its read loop and leak ~165MB. abortController is the SDK's
+    // documented cancel lever; close() must fire it.
+    const q = new FakeQuery();
+    const ac = new AbortController();
+    const conv = wrapV1Query(q, makePushableInput<SDKUserMessage>(), ac);
+    expect(ac.signal.aborted).toBe(false);
+    conv.close();
+    expect(ac.signal.aborted).toBe(true);
+  });
+
+  it("close() without an AbortController still works (optional arg)", () => {
+    const q = new FakeQuery();
+    const conv = wrapV1Query(q, makePushableInput<SDKUserMessage>());
+    expect(() => conv.close()).not.toThrow();
+    expect(q.interruptCount).toBe(1);
+  });
+
   it("send after close is a no-op (does not push)", async () => {
     const q = new FakeQuery();
     const input = makePushableInput<SDKUserMessage>();

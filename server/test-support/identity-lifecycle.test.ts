@@ -35,6 +35,23 @@ async function spawnAgent(srv: TestServer, name: string) {
   return { info, roomId };
 }
 
+// Lazy spawn holds no backend session until the first message. Wake the agent
+// and wait until its session exists. Uses enqueueMessage (not awaited
+// sendMessage): the default fake never completes the turn, so awaiting the send
+// would hang on the parked turn.
+async function wake(srv: TestServer, agentId: string): Promise<void> {
+  srv.agentManager.enqueueMessage(agentId, {
+    sender: { kind: "user", username: "tester" },
+    text: "wake",
+  });
+  const deadline = Date.now() + 2000;
+  while (!srv.fakeBackend.sessionForAgent(agentId) && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  if (!srv.fakeBackend.sessionForAgent(agentId))
+    throw new Error("agent did not wake (no session created)");
+}
+
 describe("identity: agent token lifecycle via the manager (Phase 2.1)", () => {
   it("spawn mints a token, resolves to an AGENT identity, and injects ISOMUX_AGENT_TOKEN into the session env", async () => {
     const srv = await startTestServer();
@@ -49,6 +66,8 @@ describe("identity: agent token lifecycle via the manager (Phase 2.1)", () => {
     expect(id.agentId).toBe(info.id);
     expect(id.userId).toBe(info.userId ?? null);
 
+    // Lazy spawn: the session (and its env) only exist once the agent is woken.
+    await wake(srv, info.id);
     // The agent's session subprocess env carries the same raw token.
     const sess = srv.fakeBackend.sessionForAgent(info.id);
     expect(sess?.opts.env?.ISOMUX_AGENT_TOKEN).toBe(raw);
@@ -134,6 +153,10 @@ describe("identity: privileged toggle via the manager (task 98d63ef7)", () => {
     });
     server = srv;
     const { info } = await spawnAgent(srv, "PrivAgent");
+    // Lazy spawn: wake the agent so it has a LIVE session for setPrivileged to
+    // swap (a dormant agent re-mints the token but defers the env injection to
+    // its next wake — the swap path under test only runs on a live session).
+    await wake(srv, info.id);
 
     const raw1 = getAgentTokenRaw(info.id) as string;
     expect(identityHasCapability(resolveToken(raw1)!, "agent:manage")).toBe(

@@ -164,6 +164,18 @@ interface HandlerDeps {
   ) => Promise<void>;
   persistAll: () => void;
   persistCurrentSessionTopic: (agentId: string, managed: ManagedAgent) => void;
+  // Wake a DORMANT agent so a skill's turn has a live session to send on (lazy
+  // restore). Returns true if a session is ready; false if starting one failed
+  // (an error was already logged and the agent moved to "error"), in which case
+  // the caller must stop. Caller must gate on `managed.info.dormant` — a
+  // genuinely-broken (non-dormant) session is left to surface its own error.
+  wakeDormantSession: (
+    agentId: string,
+    managed: ManagedAgent,
+    rawText: string,
+    username?: string,
+    device?: string,
+  ) => boolean;
   createTurnDeferred: (managed: ManagedAgent) => Promise<void>;
   // Defer-to-queue path for slash commands that arrive while the agent is busy.
   enqueueMessage: (
@@ -924,6 +936,20 @@ export function createCommandHandling(deps: HandlerDeps) {
         );
       }
       return true;
+    }
+
+    // A dormant agent (lazy-spawned, idle-evicted, or released by /clear) holds
+    // no live session, so the runAgentTurn below would throw "agent has no
+    // session". Wake it first — this is the skill-dispatch site, reached only
+    // for an actual skill (control commands like /clear never get here), so the
+    // no-auto-wake escape hatch on broken sessions stays intact. A genuinely-
+    // broken (non-dormant) session is left to surface its own error.
+    if (!managed.session && managed.info.dormant) {
+      if (
+        !deps.wakeDormantSession(agentId, managed, rawText, username, device)
+      ) {
+        return true; // wake failed; error already logged + state set to "error"
+      }
     }
 
     // sdkText captures the expanded prompt the SDK actually receives so editMessage

@@ -362,6 +362,7 @@ export interface V1QueryLike extends AsyncIterable<SDKMessage> {
 export function wrapV1Query(
   q: V1QueryLike,
   input: PushableInput<SDKUserMessage>,
+  abortController?: AbortController,
 ): SdkConversation {
   let closed = false;
   return {
@@ -396,6 +397,16 @@ export function wrapV1Query(
       try {
         q.interrupt().catch(() => {});
       } catch {}
+      // Force the SDK subprocess to actually terminate. input.end() + interrupt()
+      // unwind a healthy or idle turn cleanly, but a session closed mid-turn
+      // (e.g. /clear during an active turn) can leave the `claude` child hung in
+      // its read loop, never exiting — leaking ~165MB per agent. abortController
+      // is the SDK's documented cancel lever ("when aborted, the query will stop
+      // and clean up resources"), which tears the subprocess down. Best-effort
+      // and swallowed: close() is documented "never throws".
+      try {
+        abortController?.abort();
+      } catch {}
     },
     async getContextUsage(): Promise<ContextUsage | null> {
       try {
@@ -411,19 +422,24 @@ export function wrapV1Query(
 export const realV1SdkClient: SdkClient = {
   createSession(opts) {
     const input = makePushableInput<SDKUserMessage>();
+    // Threaded into close() so it can force the SDK subprocess to terminate
+    // (see wrapV1Query.close); the SDK otherwise owns the child and exposes no
+    // pid to kill.
+    const abortController = new AbortController();
     const q = query({
       prompt: input.iterable,
-      options: sessionOptsToV1(opts),
+      options: { ...sessionOptsToV1(opts), abortController },
     });
-    return wrapV1Query(q, input);
+    return wrapV1Query(q, input, abortController);
   },
   resumeSession(sessionId, opts) {
     const input = makePushableInput<SDKUserMessage>();
+    const abortController = new AbortController();
     const q = query({
       prompt: input.iterable,
-      options: sessionOptsToV1(opts, sessionId),
+      options: { ...sessionOptsToV1(opts, sessionId), abortController },
     });
-    return wrapV1Query(q, input);
+    return wrapV1Query(q, input, abortController);
   },
   async oneShotPrompt({
     prompt,

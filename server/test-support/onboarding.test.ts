@@ -198,12 +198,14 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
     expect(codex!.modelFamily).toBe("gpt-5.5");
     expect(codex!.permissionMode).toBe("on-request");
 
-    // Spawn was ATTEMPTED for both: exactly one createSession per spawn, exactly
-    // two welcome agents. `toBe(2)` (not `>=`) also catches an accidental
-    // double-seed regression — the onOwnerCreated guard exists to prevent that.
-    expect(server.fakeBackend.createSessionCount).toBe(2);
-    expect(server.fakeBackend.sessionForAgent(claude!.id)).toBeDefined();
-    expect(server.fakeBackend.sessionForAgent(codex!.id)).toBeDefined();
+    // Lazy spawn: the welcome agents are seeded DORMANT — zero subprocesses
+    // until someone messages them (a fresh-install office shouldn't burn ~330MB
+    // on two agents nobody has talked to yet). The `agents.length === 2` check
+    // above already guards the accidental double-seed regression the
+    // onOwnerCreated guard prevents.
+    expect(server.fakeBackend.createSessionCount).toBe(0);
+    expect(claude!.dormant).toBe(true);
+    expect(codex!.dormant).toBe(true);
 
     // Persisted to disk under the temp STATE_ROOT (parse records, not substring).
     const names = persistedAgentRecords().map((a) => a.name);

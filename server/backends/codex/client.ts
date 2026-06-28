@@ -39,6 +39,11 @@ import { resolveCodexLauncherPath, withIsomuxCodexHome } from "./native-bin.ts";
 // that the user forgot to install something.
 const CODEX_LAUNCH_FAILED_MESSAGE = `Isomux's bundled Codex CLI failed to launch. Run \`bun install\` in the isomux checkout, then \`/clear\` this conversation to retry.`;
 
+// Grace period between SIGTERM and the SIGKILL escalation when closing a codex
+// subprocess group. Long enough for a healthy process to flush and exit, short
+// enough that a hung (mid-turn) process is reclaimed promptly.
+const CODEX_KILL_GRACE_MS = 2000;
+
 import type { InitializeParams } from "./_generated/InitializeParams.ts";
 import type { InitializeResponse } from "./_generated/InitializeResponse.ts";
 
@@ -120,6 +125,11 @@ export class JsonRpcLiteClient {
   private pending = new Map<JsonRpcId, Pending>();
   private stdoutBuffer = "";
   private closed = false;
+  // Guards the OS-process kill in close(), tracked separately from `closed`
+  // (which the error/exit handlers set while the process may still be alive).
+  private killed = false;
+  // Pending SIGTERM->SIGKILL escalation timer; cleared when the child exits.
+  private killTimer: ReturnType<typeof setTimeout> | null = null;
   private exitInfo: {
     code: number | null;
     signal: NodeJS.Signals | null;
@@ -172,6 +182,15 @@ export class JsonRpcLiteClient {
       cwd: this.opts.cwd,
       env: withIsomuxCodexHome(this.opts.env),
       stdio: ["pipe", "pipe", "pipe"],
+      // Make the launcher its own process-group leader so close() can signal
+      // the whole group (`process.kill(-pid)`) and reap the native codex
+      // grandchild too — the launcher does not forward signals, so without this
+      // a SIGTERM/SIGKILL to the launcher alone leaks the native child. The
+      // native does not setsid away, so it stays in this group. Safe because
+      // the group is the launcher's own, never isomux's. Note: detached only
+      // changes the POSIX process group, not cgroup membership, so a systemd
+      // service restart still reaps the subtree via the cgroup.
+      detached: true,
     });
 
     this.child.stdout.setEncoding("utf8");
@@ -201,6 +220,12 @@ export class JsonRpcLiteClient {
     this.child.on("exit", (code, signal) => {
       this.exitInfo = { code, signal };
       this.closed = true;
+      // The process is gone; cancel any pending SIGKILL escalation so a dangling
+      // timer can't fire against a recycled pid.
+      if (this.killTimer) {
+        clearTimeout(this.killTimer);
+        this.killTimer = null;
+      }
       this.failAllPending(
         `codex subprocess exited${code != null ? ` with code ${code}` : ""}${signal ? ` (signal ${signal})` : ""}`,
       );
@@ -238,19 +263,49 @@ export class JsonRpcLiteClient {
 
   // Close the subprocess and resolve cleanup. Idempotent.
   async close(): Promise<void> {
-    if (this.closed) return;
-    this.closed = true;
-    if (this.child && !this.child.killed) {
-      try {
-        this.child.stdin.end();
-      } catch {}
-      // Give the subprocess a moment to exit cleanly; SIGKILL if it doesn't.
-      // We don't actually wait long here — callers depending on the exit
-      // handler get notified independently.
-      try {
-        this.child.kill("SIGTERM");
-      } catch {}
+    // Guard the kill on `killed`, NOT `closed`: the error/exit handlers set
+    // `closed = true` while the OS process may still be alive (e.g. a spawn
+    // `error` event on a process that then hangs), and an early
+    // `if (this.closed) return` here would skip the kill and leak the launcher
+    // plus its native codex grandchild. Track the kill separately so it runs
+    // exactly once regardless of teardown races.
+    if (!this.killed) {
+      this.killed = true;
+      const child = this.child;
+      if (child && child.pid !== undefined && !child.killed) {
+        try {
+          child.stdin.end();
+        } catch {}
+        // The launcher is its own group leader (spawned detached), so its pid
+        // is also its process-group id. Signal the negative pid to hit the
+        // whole group — launcher AND the native codex grandchild — without
+        // depending on the launcher forwarding signals. SIGTERM first, then
+        // escalate to SIGKILL if the group hasn't exited within the grace
+        // window (the fallback the old comment promised but never implemented).
+        const pgid = child.pid;
+        try {
+          process.kill(-pgid, "SIGTERM");
+        } catch {}
+        const timer = setTimeout(() => {
+          try {
+            process.kill(-pgid, "SIGKILL");
+          } catch {}
+        }, CODEX_KILL_GRACE_MS);
+        // Don't let the escalation timer keep the event loop alive on its own;
+        // the exit handler clears it once the process is reaped.
+        //
+        // Edge: because it's unref'd, a graceful IN-PROCESS server shutdown that
+        // exits within the grace window would skip the SIGKILL for a child that
+        // also ignores SIGTERM. That's covered in production by systemd's
+        // KillMode=control-group, which cgroup-kills the whole subtree on
+        // service stop/restart regardless of POSIX process group. The unref is
+        // the right tradeoff (don't pin the loop for 2s on every close); the
+        // cgroup is the backstop for the in-process-exit corner.
+        timer.unref?.();
+        this.killTimer = timer;
+      }
     }
+    this.closed = true;
     this.failAllPending("client closed");
   }
 

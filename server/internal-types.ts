@@ -114,8 +114,11 @@ export interface ManagedAgent {
   lastActiveAt: number;
   // Why the agent currently has no live subprocess, used only to word the wake
   // message accurately: "idle" = demoted by the inactivity sweep; "boot" =
-  // lazy-restored on server (re)start. Null while live. In-memory only.
-  dormantReason: "idle" | "boot" | null;
+  // lazy-restored on server (re)start; "fresh" = a blank conversation never
+  // backed by a subprocess (lazy spawn, or released by /clear) — its wake is
+  // silent because there is nothing to announce resuming. Null while live.
+  // In-memory only.
+  dormantReason: "idle" | "boot" | "fresh" | null;
 }
 
 export type AgentEvent =

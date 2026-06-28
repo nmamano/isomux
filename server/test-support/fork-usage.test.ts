@@ -543,9 +543,10 @@ describe("B2 turn_completed -> accumulate + snapshot (Phase 1.4a)", () => {
       undefined,
       "room-a",
     ))!;
-    const sid = fake.sessionForAgent(info.id)!.sessionId;
-
+    // Lazy spawn: the session is created by the first message, not at spawn, so
+    // capture its id AFTER waking the agent.
     await mgr.sendMessage(info.id, "hi");
+    const sid = fake.sessionForAgent(info.id)!.sessionId;
     await waitUntil(
       () => !!loadSessionsMap(info.id)[sid]?.usage,
       2000,
@@ -584,9 +585,9 @@ describe("B2 resume -> roll usage + replay ancestors (Phase 1.4a)", () => {
       undefined,
       "room-a",
     ))!;
-    const sid = fake.sessionForAgent(info.id)!.sessionId;
-
+    // Lazy spawn: first message creates the session — capture its id after.
     await mgr.sendMessage(info.id, "hi");
+    const sid = fake.sessionForAgent(info.id)!.sessionId;
     await waitUntil(
       () => !!loadSessionsMap(info.id)[sid]?.usage,
       2000,
@@ -622,8 +623,9 @@ describe("B2 resume -> roll usage + replay ancestors (Phase 1.4a)", () => {
 });
 
 describe("B2 editMessage -> persistSessionFork base accounting (Phase 1.4a)", () => {
-  // The fake's session counter is deterministic: spawn's createSession is the
-  // first, so the parent session id is always "fake-session-1". We wire the fork
+  // The fake's session counter is deterministic: the first message's
+  // createSession (lazy spawn defers it from spawn time) is the first overall,
+  // so the parent session id is always "fake-session-1". We wire the fork
   // result's forkedFromSessionId to it and seed the fork session's provider file
   // so editMessage's createSession(fork) preflight passes.
   const PARENT_SID = "fake-session-1";
@@ -661,8 +663,10 @@ describe("B2 editMessage -> persistSessionFork base accounting (Phase 1.4a)", ()
       undefined,
       "room-a",
     ))!;
-    expect(fake.sessionForAgent(info.id)!.sessionId).toBe(PARENT_SID); // determinism sanity
+    // Lazy spawn: first message creates the session (still the FIRST overall, so
+    // the deterministic counter yields PARENT_SID).
     await mgr.sendMessage(info.id, "first");
+    expect(fake.sessionForAgent(info.id)!.sessionId).toBe(PARENT_SID); // determinism sanity
     await mgr.sendMessage(info.id, "second");
     await waitUntil(
       () =>

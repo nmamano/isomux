@@ -95,7 +95,7 @@ describe("in-process harness (Phase 0.3 exit criterion)", () => {
     );
   });
 
-  it("drives a FakeBackend on spawn and persists agents.json (zero LLM)", async () => {
+  it("persists agents.json on spawn and drives a FakeBackend on first message (zero LLM)", async () => {
     server = await startTestServer();
     await server.seedOwner("Boss");
 
@@ -110,8 +110,23 @@ describe("in-process harness (Phase 0.3 exit criterion)", () => {
     );
     expect(agent).not.toBeNull();
 
-    // The injected FakeBackend was driven (a session was created), proving no
-    // real provider/LLM call happened.
+    // Lazy spawn: no subprocess until the first message.
+    expect(server.fakeBackend.createSessionCount).toBe(0);
+    expect(server.agentManager.getAgent(agent!.id)?.dormant).toBe(true);
+
+    // First message wakes it: the injected FakeBackend is driven (a session is
+    // created), proving no real provider/LLM call happened.
+    server.agentManager.enqueueMessage(agent!.id, {
+      sender: { kind: "user", username: "Boss" },
+      text: "hi",
+    });
+    const deadline = Date.now() + 2000;
+    while (
+      server.fakeBackend.createSessionCount === 0 &&
+      Date.now() < deadline
+    ) {
+      await new Promise((r) => setTimeout(r, 5));
+    }
     expect(server.fakeBackend.createSessionCount).toBeGreaterThan(0);
     expect(server.fakeBackend.sessionForAgent(agent!.id)).toBeDefined();
 

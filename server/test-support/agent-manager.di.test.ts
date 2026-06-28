@@ -107,14 +107,20 @@ describe("AgentManager DI (disk-free seam)", () => {
 });
 
 describe("AgentManager DI (temp-state isolated)", () => {
-  it("consults the injected resolver and drives the FakeBackend on spawn (no real backend)", async () => {
-    const fake = new FakeBackend();
+  it("consults the injected resolver and drives the FakeBackend on first message (lazy spawn: no session at spawn)", async () => {
+    // onSend completes the wake turn so it doesn't park; configurePluginHooksDeps
+    // lets runAgentTurn run at all (it throws unconfigured) — together they make
+    // the first-message wake clean instead of logging a turn error.
+    const fake = new FakeBackend({
+      session: { onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }) },
+    });
     const { calls, resolveBackend } = spyResolver(fake);
     const mgr = createAgentManager({
       resolveBackend,
       officeState: new OfficeState({ rooms: rooms("room-a") }),
       initialRooms: [],
     });
+    mgr.configurePluginHooksDeps();
     const info = await mgr.spawn(
       "TestAgent",
       STATE_ROOT,
@@ -124,10 +130,25 @@ describe("AgentManager DI (temp-state isolated)", () => {
       "room-a",
     );
     expect(info).not.toBeNull();
-    // Resolver consulted (production getBackend bypassed) and a FakeSession
-    // created — proving no real LLM/provider call.
+    // Lazy spawn: the resolver is still consulted at spawn (for the backend's
+    // capabilities), but NO session is created — the agent costs zero subprocess
+    // until its first message.
     expect(calls).toContain("claude");
-    expect(fake.createSessionCount).toBeGreaterThan(0);
+    expect(fake.createSessionCount).toBe(0);
+    expect(mgr.getAgent(info!.id)?.dormant).toBe(true);
+
+    // First message wakes it: NOW a FakeSession is created (proving no real
+    // LLM/provider call) and bound to this agent.
+    const r = mgr.enqueueMessage(info!.id, {
+      sender: { kind: "user", username: "tester" },
+      text: "hi",
+    });
+    expect(r.ok).toBe(true);
+    const deadline = Date.now() + 2000;
+    while (fake.createSessionCount === 0 && Date.now() < deadline) {
+      await new Promise((res) => setTimeout(res, 5));
+    }
+    expect(fake.createSessionCount).toBe(1);
     expect(fake.lastSession?.opts.agentId).toBe(info!.id);
     // Close the fake session so the manager's background stream consumer
     // doesn't stay parked after the test.

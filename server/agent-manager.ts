@@ -361,6 +361,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     "sessionSwapping",
     "topicStale",
     "turnHadHumanInput",
+    // Pure runtime field: not in the persisted shape, and restore overrides it
+    // (everyone lazy-restores dormant regardless). Without this, every dormant
+    // toggle — demote, wake, swap, and now every lazy spawn + /clear release —
+    // fires a full persistAll for nothing.
+    "dormant",
   ]);
   officeState.onChange((event) => {
     if (event.type === "office_settings_updated") {
@@ -2985,9 +2990,35 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       dormantReason: null,
     };
     agents.set(id, managed);
-    // Mint the agent's bearer token before the first createSession below reads
-    // it via buildSessionEnv. Revoked in kill() when the agent leaves the map.
+    // Mint the agent's bearer token before the first createSession (deferred to
+    // the first message now) reads it via buildSessionEnv. Revoked in kill()
+    // when the agent leaves the map.
     mintAgentToken(id, info.userId, info.privileged ?? false);
+
+    // Lazy spawn: a brand-new agent holds NO subprocess until it's actually used.
+    // Instead of eagerly installing a session (~165MB resident for a blank
+    // conversation that may never be messaged), set the agent up dormant exactly
+    // like boot lazy-restore: on its desk, idle, token minted, slash/skill
+    // defaults seeded. The first message wakes it via flushQueue's !session
+    // branch (createSession fresh — a new agent has no sessionId to resume),
+    // worded silently because there's nothing to announce resuming.
+    //
+    // createSession's own cwd preflight is deferred to that first wake, so do a
+    // cheap validateCwd here to still surface an obviously-bad cwd at spawn time.
+    // On failure the agent lands in error state (not dormant — an errored agent
+    // isn't a releasable blank), matching today's bad-cwd-at-spawn UX. The
+    // dormant flag is set BEFORE the events emit below so the agent_added
+    // broadcast already carries it (no transient not-dormant flicker); the same
+    // `info` ref backs officeState's copy and the event, so they stay in sync.
+    let cwdError: string | null = null;
+    try {
+      validateCwd(resolvedCwd);
+      info.dormant = true;
+      managed.dormantReason = "fresh";
+    } catch (err) {
+      cwdError = errMessage(err);
+    }
+
     for (const event of events) emit(event);
     // Send commands immediately so autocomplete works before SDK init
     emit({
@@ -2998,19 +3029,16 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     });
     persistAll();
 
-    // Create session
-    try {
-      installSession(id, managed, createSession(managed));
+    if (cwdError) {
+      console.error(`Failed to validate cwd for ${name}:`, cwdError);
+      addLogEntry(id, "error", `Failed to start: ${cwdError}`);
+      updateState(id, "error");
+    } else {
       addLogEntry(
         id,
         "system",
         `Agent "${name}" ready. Working in ${resolvedCwd}. Permission mode: ${info.permissionMode}.`,
       );
-      // First stream() will deliver system/init + response to the first send().
-    } catch (err) {
-      console.error(`Failed to create session for ${name}:`, errMessage(err));
-      addLogEntry(id, "error", `Failed to start: ${errMessage(err)}`);
-      updateState(id, "error");
     }
 
     return info;
@@ -3040,6 +3068,17 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     replaceSession,
     persistAll,
     persistCurrentSessionTopic,
+    wakeDormantSession: (agentId, managed, rawText, username, device) =>
+      wakeSessionForSend(agentId, managed, {
+        // echoEarly:false — executeSkill echoes the user's command AFTER the
+        // wake, so the helper must not echo on success (it only re-adds in the
+        // rare clearedStale path, and echoes once on the error path before
+        // executeSkill bails).
+        echoEarly: false,
+        text: rawText,
+        username,
+        device,
+      }),
     createTurnDeferred,
     enqueueMessage,
   });
@@ -3282,15 +3321,26 @@ Once complete, it takes effect immediately for all Isomux agents.`;
               "Previous response was interrupted.",
             );
           }
-          addLogEntry(
-            agentId,
-            "system",
-            sessionId
-              ? wasDormant
+          // A blank-conversation wake (lazy spawn / released by /clear) is
+          // SILENT: there's no prior thread to announce resuming, and under the
+          // old eager paths the first message hit an already-live session and
+          // logged nothing — so a "Started a fresh session…" note here would be
+          // a NEW regression. Every other wake keeps its existing wording.
+          if (sessionId) {
+            addLogEntry(
+              agentId,
+              "system",
+              wasDormant
                 ? dormantWakeMessage(dormantReason)
-                : "Resumed prior session before flushing queued messages."
-              : "Started a fresh session before flushing queued messages.",
-          );
+                : "Resumed prior session before flushing queued messages.",
+            );
+          } else if (!(wasDormant && dormantReason === "fresh")) {
+            addLogEntry(
+              agentId,
+              "system",
+              "Started a fresh session before flushing queued messages.",
+            );
+          }
         } catch (err) {
           addLogEntry(
             agentId,
@@ -3485,6 +3535,107 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     }
   }
 
+  // Wake a session-less agent so a pending send has somewhere to go. Shared by
+  // two call sites in sendMessage: the normal-message path (any session-less
+  // agent) and the skill path (dormant agents only — see the call sites for why
+  // the gating differs). Returns true if a session is ready to send on; false
+  // if starting one failed (an error was already logged and state set to
+  // "error"), in which case the caller must return.
+  function wakeSessionForSend(
+    agentId: string,
+    managed: ManagedAgent,
+    opts: {
+      echoEarly: boolean;
+      text: string;
+      username?: string;
+      device?: string;
+      attachments?: Attachment[];
+    },
+  ): boolean {
+    const { echoEarly, text, username, device, attachments } = opts;
+    // Try to create a fresh session so the user's next message doesn't silently
+    // vanish. pickAutoResumeSessionId returns managed.sessionId when it's safely
+    // resumable — the previous session is genuinely dead, but the on-disk
+    // transcript is intact and worth restoring. For non-durable Codex threads,
+    // it returns null so we fresh-start cleanly instead of crashing on
+    // thread/resume.
+    try {
+      const sessionId = pickAutoResumeSessionId(managed);
+      const clearedStale =
+        managed.sessionId && !sessionId
+          ? clearStaleAutoResumeState(agentId, managed)
+          : false;
+      // If we wiped logCache while echoEarly already added the user's
+      // message to it, the message is now gone from UI/cache. Re-add it
+      // here — the bottom of sendMessage won't re-add (echoEarly is still
+      // true) and the send below would otherwise vanish from the log.
+      if (clearedStale && echoEarly) {
+        addLogEntry(
+          agentId,
+          "user_message",
+          text,
+          buildUserMeta(username, device),
+          attachments,
+        );
+      }
+      // Capture before installSession clears them: a clean wake (idle eviction
+      // or restart) gets an accurate calm message; only a genuine unexpected
+      // death gets the alarming one.
+      const wasDormant = managed.info.dormant ?? false;
+      const dormantReason = managed.dormantReason;
+      installSession(
+        agentId,
+        managed,
+        sessionId ? createSession(managed, sessionId) : createSession(managed),
+      );
+      // A blank-conversation wake (lazy spawn / released by /clear) is SILENT
+      // — nothing to announce, and the old eager paths logged nothing on the
+      // first message to a fresh agent. Every other recovery keeps its
+      // existing wording (the "ended unexpectedly" alarm only for a genuine
+      // unexpected death of a non-dormant session).
+      //
+      // Cosmetic edge: pickAutoResumeSessionId gates on durability, but a Codex
+      // rollout lost in the TOCTOU window between that check and createSession
+      // here would fresh-start while we still logged the calm "resumed" wording
+      // — wrong message, right outcome. The canDemote durability gate makes this
+      // window vanishingly rare, so we accept the cosmetic mismatch rather than
+      // re-probe durability under the wake.
+      if (sessionId) {
+        addLogEntry(
+          agentId,
+          "system",
+          wasDormant
+            ? dormantWakeMessage(dormantReason)
+            : "Resumed prior session after the previous one ended unexpectedly.",
+        );
+      } else if (!(wasDormant && dormantReason === "fresh")) {
+        addLogEntry(
+          agentId,
+          "system",
+          "Started a fresh session (previous one could not be restored).",
+        );
+      }
+      updateState(agentId, "waiting_for_response");
+      return true;
+    } catch (err) {
+      if (!echoEarly)
+        addLogEntry(
+          agentId,
+          "user_message",
+          text,
+          buildUserMeta(username, device),
+          attachments,
+        );
+      addLogEntry(
+        agentId,
+        "error",
+        `Cannot start session: ${errMessage(err)}\nType /clear to start fresh, or /resume to pick another session.`,
+      );
+      updateState(agentId, "error");
+      return false;
+    }
+  }
+
   async function sendMessage(
     agentId: string,
     text: string,
@@ -3588,70 +3739,18 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // block the user's escape hatch. Normal messages still hit the recovery path
     // below and surface the descriptive error.
     if (!managed.session && !isSlash) {
-      // Try to create a fresh session so the user's next message doesn't silently vanish.
-      // pickAutoResumeSessionId returns managed.sessionId when it's safely resumable —
-      // the previous session is genuinely dead, but the on-disk transcript is intact and
-      // worth restoring. For non-durable Codex threads, it returns null so we fresh-start
-      // cleanly instead of crashing on thread/resume.
-      try {
-        const sessionId = pickAutoResumeSessionId(managed);
-        const clearedStale =
-          managed.sessionId && !sessionId
-            ? clearStaleAutoResumeState(agentId, managed)
-            : false;
-        // If we wiped logCache while echoEarly already added the user's
-        // message to it, the message is now gone from UI/cache. Re-add it
-        // here — the bottom of sendMessage won't re-add (echoEarly is still
-        // true) and the send below would otherwise vanish from the log.
-        if (clearedStale && echoEarly) {
-          addLogEntry(
-            agentId,
-            "user_message",
-            text,
-            buildUserMeta(username, device),
-            attachments,
-          );
-        }
-        // Capture before installSession clears them: a clean wake (idle eviction
-        // or restart) gets an accurate calm message; only a genuine unexpected
-        // death gets the alarming one.
-        const wasDormant = managed.info.dormant ?? false;
-        const dormantReason = managed.dormantReason;
-        installSession(
-          agentId,
-          managed,
-          sessionId
-            ? createSession(managed, sessionId)
-            : createSession(managed),
-        );
-        addLogEntry(
-          agentId,
-          "system",
-          sessionId
-            ? wasDormant
-              ? dormantWakeMessage(dormantReason)
-              : "Resumed prior session after the previous one ended unexpectedly."
-            : "Started a fresh session (previous one could not be restored).",
-        );
-        updateState(agentId, "waiting_for_response");
-        // Fall through so the message is actually sent on the new session.
-      } catch (err) {
-        if (!echoEarly)
-          addLogEntry(
-            agentId,
-            "user_message",
-            text,
-            buildUserMeta(username, device),
-            attachments,
-          );
-        addLogEntry(
-          agentId,
-          "error",
-          `Cannot start session: ${errMessage(err)}\nType /clear to start fresh, or /resume to pick another session.`,
-        );
-        updateState(agentId, "error");
+      // Fall through on success so the message is actually sent on the new
+      // session; bail on failure (an error was logged inside the helper).
+      if (
+        !wakeSessionForSend(agentId, managed, {
+          echoEarly,
+          text,
+          username,
+          device,
+          attachments,
+        })
+      )
         return;
-      }
     }
 
     // Handle pending permission prompt: interpret reply as allow/deny.
@@ -3951,6 +4050,27 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         device,
       );
       if (handled) return;
+    }
+
+    // A slash command that wasn't intercepted above is a skill — it expands to
+    // a prompt and runs the model (runAgentTurn -> session.send), so it needs a
+    // live session. Control commands (/clear, /resume, ...) were handled and
+    // returned above, so they never reach here; that's what preserves their
+    // no-auto-wake escape hatch on a broken session. Wake a DORMANT agent here
+    // (the normal lazy-restore path — skipped at the top because isSlash). A
+    // genuinely-broken (non-dormant) session is left alone so runAgentTurn
+    // surfaces the descriptive "no session, type /clear" error.
+    if (!managed.session && managed.info.dormant) {
+      if (
+        !wakeSessionForSend(agentId, managed, {
+          echoEarly,
+          text,
+          username,
+          device,
+          attachments,
+        })
+      )
+        return;
     }
 
     // Skip if the early echo at the top already covered this. We use the
@@ -4512,31 +4632,41 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         emit(event);
     }
 
-    try {
-      const newSession = createSession(managed);
-      await replaceSession(agentId, managed, newSession);
-      managed.sessionId = null;
-      managed.topicGenerating = false;
-      managed.topicMessageCount = 0;
-      managed.topicGenToken++;
-      // Match /clear's behavior: wipe the chat. Without this, the timeline
-      // continues across session boundaries and editing an old entry hits the
-      // cross-session dead-end.
-      logCache.set(agentId, []);
-      emit({ type: "clear_logs", agentId });
-      // officeState.resetTopic mutates topic + topicStale, fires persistAll via
-      // onChange (capturing the null sessionId set above).
-      for (const event of officeState.resetTopic(agentId)) emit(event);
-      updateState(agentId, "idle");
-      addLogEntry(agentId, "system", "New conversation started.");
-    } catch (err) {
-      addLogEntry(
-        agentId,
-        "error",
-        `Failed to start new conversation: ${errMessage(err)}`,
-      );
-      updateState(agentId, "error");
-    }
+    // Release-on-clear: a blank conversation holds NO subprocess. Instead of
+    // creating a fresh LIVE session here (the old replaceSession path, ~165MB
+    // for a conversation that may sit untouched), close the current session and
+    // leave the agent dormant; the next message wakes a fresh blank one via
+    // flushQueue's !session branch.
+    //
+    // ORDER IS LOAD-BEARING. Everything user-visible and every state reset
+    // happens BEFORE the drain await, and NOTHING runs after it. A message that
+    // arrives during closeAndDrainSession's drain wakes a fresh session
+    // (flushQueue sees session===null) — so (1) sessionId must already be null
+    // and the topic/log state already blanked, or that wake would resume the
+    // just-cleared thread; and (2) no post-drain write may run, or it would
+    // clobber the concurrent wake (e.g. stomp its waiting_for_response back to
+    // idle). This inverts the old structure, which did updateState/addLogEntry
+    // AFTER the session swap.
+    managed.sessionId = null;
+    managed.dormantReason = "fresh";
+    managed.topicGenerating = false;
+    managed.topicMessageCount = 0;
+    managed.topicGenToken++;
+    // Match /clear's behavior: wipe the chat. Without this, the timeline
+    // continues across session boundaries and editing an old entry hits the
+    // cross-session dead-end.
+    logCache.set(agentId, []);
+    emit({ type: "clear_logs", agentId });
+    // officeState.resetTopic mutates topic + topicStale, fires persistAll via
+    // onChange (capturing the null sessionId set above).
+    for (const event of officeState.resetTopic(agentId)) emit(event);
+    updateState(agentId, "idle");
+    addLogEntry(agentId, "system", "New conversation started.");
+    // Last statement: close the live session and drain its consumer, leaving the
+    // agent dormant (info.dormant=true). Rejects any in-flight turn with
+    // SessionSwappedError; runConsumer's catch returns early on the stale
+    // session so the rejected turn can't touch state after this resolves.
+    await closeAndDrainSession(agentId, managed);
   }
 
   // Switch the agent's mirror cwd to a session's stored cwd ahead of a resume, so
