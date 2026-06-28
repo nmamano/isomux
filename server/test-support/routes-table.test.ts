@@ -315,6 +315,8 @@ const SPEC_ROUTE_CONTRACT: Record<
   // Memory (isomux-memory)
   "memory.list": { caps: ["memory:read"], emits: [] },
   "memory.create": { caps: ["memory:write"], emits: [] },
+  "memory.update": { caps: ["memory:write"], emits: [] },
+  "memory.delete": { caps: ["memory:write"], emits: [] },
 };
 
 describe("route table: per-route capability + emits match the spec exactly", () => {

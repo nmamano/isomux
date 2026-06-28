@@ -684,3 +684,248 @@ describe("routes/memory REST: boss scope (permissive; auto-load is the only boss
     ).toBe(true);
   });
 });
+
+describe("routes/memory REST: edit + retract (PATCH/DELETE, slice 3d)", () => {
+  async function ctx() {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const ownerId = getUserByName("Boss")!.id;
+    const bot = await spawnAgent(srv, "MemBot");
+    const token = mintAgentToken(bot.id, ownerId);
+    const roomId = srv.agentManager.getRooms()[0].id;
+    return { srv, token, roomId };
+  }
+  async function createRoomFact(
+    srv: TestServer,
+    token: string,
+    roomId: string,
+    text: string,
+  ): Promise<string> {
+    const r = await api(srv, "/api/memory", {
+      method: "POST",
+      bearer: token,
+      body: { scope: "room", scopeId: roomId, factType: "convention", text },
+    });
+    return (r.body as MemoryItem).id;
+  }
+
+  it("PATCH supersedes: GET shows new text not old; raw retains both", async () => {
+    const { srv, token, roomId } = await ctx();
+    const id = await createRoomFact(srv, token, roomId, "old text");
+    const r = await api(srv, `/api/memory/${id}`, {
+      method: "PATCH",
+      bearer: token,
+      body: { scope: "room", scopeId: roomId, text: "new text" },
+    });
+    expect(r.status).toBe(200);
+    const item = r.body as MemoryItem;
+    expect(item.text).toBe("new text");
+    expect(item.supersedes).toBe(id);
+    expect(item.author).toBe("MemBot");
+
+    const list = await api(srv, `/api/memory?scope=room&scopeId=${roomId}`, {
+      bearer: token,
+    });
+    const texts = (list.body as MemoryItem[]).map((m) => m.text);
+    expect(texts).toContain("new text");
+    expect(texts).not.toContain("old text");
+
+    const raw = readMem(srv, "rooms", `${roomId}.md`)!;
+    expect(raw).toContain("old text");
+    expect(raw).toContain("new text");
+  });
+
+  it("DELETE tombstones: GET shows neither; raw retains the tombstone", async () => {
+    const { srv, token, roomId } = await ctx();
+    const id = await createRoomFact(srv, token, roomId, "to be retracted");
+    const del = await api(
+      srv,
+      `/api/memory/${id}?scope=room&scopeId=${roomId}`,
+      { method: "DELETE", bearer: token },
+    );
+    expect(del.status).toBe(204);
+
+    const list = await api(srv, `/api/memory?scope=room&scopeId=${roomId}`, {
+      bearer: token,
+    });
+    expect(list.body).toEqual([]);
+
+    const raw = readMem(srv, "rooms", `${roomId}.md`)!;
+    expect(raw).toContain(`tombstones:${id}`);
+    expect(raw).toContain("(retracted)");
+  });
+
+  it("PATCH/DELETE require an explicit target (no own/manager default)", async () => {
+    const { srv, token, roomId } = await ctx();
+    const id = await createRoomFact(srv, token, roomId, "x");
+    const noScopeId = await api(srv, `/api/memory/${id}`, {
+      method: "PATCH",
+      bearer: token,
+      body: { scope: "agent", text: "y" },
+    });
+    expect(noScopeId.status).toBe(400);
+    expect(errCode(noScopeId.body)).toBe("invalid_scope_id");
+
+    const officeWithId = await api(srv, `/api/memory/${id}`, {
+      method: "PATCH",
+      bearer: token,
+      body: { scope: "office", scopeId: roomId, text: "y" },
+    });
+    expect(officeWithId.status).toBe(400);
+    expect(errCode(officeWithId.body)).toBe("invalid_scope_id");
+
+    const delNoScope = await api(srv, `/api/memory/${id}?scope=agent`, {
+      method: "DELETE",
+      bearer: token,
+    });
+    expect(delNoScope.status).toBe(400);
+    expect(errCode(delNoScope.body)).toBe("invalid_scope_id");
+  });
+
+  it("malformed :id -> 400 invalid_id; unknown/already-superseded -> 404 memory_not_found", async () => {
+    const { srv, token, roomId } = await ctx();
+    const malformed = await api(srv, `/api/memory/ZZZ`, {
+      method: "PATCH",
+      bearer: token,
+      body: { scope: "room", scopeId: roomId, text: "y" },
+    });
+    expect(malformed.status).toBe(400);
+    expect(errCode(malformed.body)).toBe("invalid_id");
+
+    const unknown = await api(srv, `/api/memory/ffffff`, {
+      method: "PATCH",
+      bearer: token,
+      body: { scope: "room", scopeId: roomId, text: "y" },
+    });
+    expect(unknown.status).toBe(404);
+    expect(errCode(unknown.body)).toBe("memory_not_found");
+
+    const id = await createRoomFact(srv, token, roomId, "v1");
+    await api(srv, `/api/memory/${id}`, {
+      method: "PATCH",
+      bearer: token,
+      body: { scope: "room", scopeId: roomId, text: "v2" },
+    });
+    const again = await api(srv, `/api/memory/${id}`, {
+      method: "PATCH",
+      bearer: token,
+      body: { scope: "room", scopeId: roomId, text: "v3" },
+    });
+    expect(again.status).toBe(404);
+    expect(errCode(again.body)).toBe("memory_not_found");
+  });
+
+  it("PATCH/DELETE require identity (401 wall)", async () => {
+    const { srv, token, roomId } = await ctx();
+    const id = await createRoomFact(srv, token, roomId, "x");
+    const patch = await api(srv, `/api/memory/${id}`, {
+      method: "PATCH",
+      body: { scope: "room", scopeId: roomId, text: "y" },
+    });
+    expect(patch.status).toBe(401);
+    const del = await api(
+      srv,
+      `/api/memory/${id}?scope=room&scopeId=${roomId}`,
+      { method: "DELETE" },
+    );
+    expect(del.status).toBe(401);
+  });
+
+  it("Idempotency-Key: a retried PATCH appends only one supersede line", async () => {
+    const { srv, token, roomId } = await ctx();
+    const id = await createRoomFact(srv, token, roomId, "v1");
+    const headers = { "Idempotency-Key": "patch-1" };
+    const a = await api(srv, `/api/memory/${id}`, {
+      method: "PATCH",
+      bearer: token,
+      headers,
+      body: { scope: "room", scopeId: roomId, text: "v2" },
+    });
+    const b = await api(srv, `/api/memory/${id}`, {
+      method: "PATCH",
+      bearer: token,
+      headers,
+      body: { scope: "room", scopeId: roomId, text: "v2" },
+    });
+    expect(a.status).toBe(200);
+    expect(b.status).toBe(200);
+    expect((a.body as MemoryItem).id).toBe((b.body as MemoryItem).id);
+    const raw = readMem(srv, "rooms", `${roomId}.md`)!;
+    const supLines = raw.split("\n").filter((l) => l.includes("supersedes:"));
+    expect(supLines).toHaveLength(1);
+  });
+
+  it("office PATCH/DELETE work with scope=office and no scopeId", async () => {
+    const { srv, token } = await ctx();
+    const post = await api(srv, "/api/memory", {
+      method: "POST",
+      bearer: token,
+      body: { scope: "office", factType: "environment", text: "office v1" },
+    });
+    const id = (post.body as MemoryItem).id;
+    const patch = await api(srv, `/api/memory/${id}`, {
+      method: "PATCH",
+      bearer: token,
+      body: { scope: "office", text: "office v2" },
+    });
+    expect(patch.status).toBe(200);
+    expect((patch.body as MemoryItem).text).toBe("office v2");
+    const newId = (patch.body as MemoryItem).id;
+    const del = await api(srv, `/api/memory/${newId}?scope=office`, {
+      method: "DELETE",
+      bearer: token,
+    });
+    expect(del.status).toBe(204);
+    const list = await api(srv, "/api/memory?scope=office", { bearer: token });
+    expect(list.body).toEqual([]);
+  });
+
+  it("DELETE an already-tombstoned id -> 404 memory_not_found", async () => {
+    const { srv, token, roomId } = await ctx();
+    const id = await createRoomFact(srv, token, roomId, "x");
+    const first = await api(
+      srv,
+      `/api/memory/${id}?scope=room&scopeId=${roomId}`,
+      { method: "DELETE", bearer: token },
+    );
+    expect(first.status).toBe(204);
+    const second = await api(
+      srv,
+      `/api/memory/${id}?scope=room&scopeId=${roomId}`,
+      { method: "DELETE", bearer: token },
+    );
+    expect(second.status).toBe(404);
+    expect(errCode(second.body)).toBe("memory_not_found");
+  });
+
+  it("PATCH ignores body author/date/id/supersedes; server-stamps the supersede line", async () => {
+    const { srv, token, roomId } = await ctx();
+    const id = await createRoomFact(srv, token, roomId, "orig");
+    const r = await api(srv, `/api/memory/${id}`, {
+      method: "PATCH",
+      bearer: token,
+      body: {
+        scope: "room",
+        scopeId: roomId,
+        text: "updated",
+        author: "EVIL",
+        date: "1999-12-31",
+        id: "ffffff",
+        supersedes: "aaaaaa",
+      },
+    });
+    expect(r.status).toBe(200);
+    const item = r.body as MemoryItem;
+    expect(item.author).toBe("MemBot");
+    expect(item.id).not.toBe("ffffff");
+    expect(item.id).toMatch(/^[0-9a-f]{6}$/);
+    expect(item.date).not.toBe("1999-12-31");
+    // The relation comes from the path :id, never the body's supersedes.
+    expect(item.supersedes).toBe(id);
+    const raw = readMem(srv, "rooms", `${roomId}.md`)!;
+    expect(raw).not.toContain("EVIL");
+    expect(raw).not.toContain("1999-12-31");
+    expect(raw).toContain(`supersedes:${id}`);
+  });
+});

@@ -1,6 +1,6 @@
 // Memory resource handlers — isomux-memory on the unified REST surface (opIds
-// memory.{list,create}). See internal-docs/isomux-memory-design.md and
-// plans/isomux-memory-loop.md.
+// memory.{list,create,update,delete}). See internal-docs/isomux-memory-design.md
+// and plans/isomux-memory-loop.md.
 //
 // Scopes: agent, room, office, boss. Author + date + id are server-stamped from
 // the token identity, NEVER the body (mirrors tasks' attribution rule); scopeId
@@ -17,11 +17,24 @@
 //
 // LEAF over the executor + injected MemoryDeps. No manager/auth imports.
 
-import { ok, created, fail, type RouteHandler } from "../executor.ts";
+import {
+  ok,
+  created,
+  noContent,
+  fail,
+  type RouteHandler,
+} from "../executor.ts";
 import type { Identity } from "../../identity/index.ts";
 import type { MemoryItem, MemoryScope } from "../../../shared/types.ts";
 import { isValidFactType } from "../../../shared/types.ts";
-import type { MemoryCreateReq } from "../../../shared/contract-shapes.ts";
+import type {
+  MemoryCreateReq,
+  MemoryUpdateReq,
+} from "../../../shared/contract-shapes.ts";
+
+// The stable line id (mem:ab12cd). A :id path param must match before we hunt for
+// it; a malformed id is a 400, not a 404.
+const MEM_ID = /^[0-9a-f]{6}$/;
 
 export interface MemoryDeps {
   read(scope: MemoryScope, scopeId: string | null): MemoryItem[];
@@ -42,6 +55,21 @@ export interface MemoryDeps {
   roomExists(roomId: string): boolean;
   agentExists(agentId: string): boolean;
   userExists(userId: string): boolean;
+  // Append-only edit/retract. Return null if targetId is not an ACTIVE id in the
+  // target file (absent / already superseded / already tombstoned).
+  supersede(input: {
+    scope: MemoryScope;
+    scopeId: string | null;
+    targetId: string;
+    author: string;
+    text: string;
+  }): MemoryItem | null;
+  tombstone(input: {
+    scope: MemoryScope;
+    scopeId: string | null;
+    targetId: string;
+    author: string;
+  }): MemoryItem | null;
 }
 
 type Target =
@@ -59,21 +87,28 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
   //   boss   — omitted scopeId defaults to the caller's own/manager userId; any
   //            existing boss may be targeted by any authenticated caller.
   //   other  — unsupported.
+  // opts.allowDefaults=false (PATCH/DELETE) requires an EXPLICIT target — no
+  // own/manager default — so an edit/retract can never hit the wrong file.
   function resolveTarget(
     identity: Identity,
     scope: unknown,
     rawScopeId: unknown,
+    opts: { allowDefaults: boolean } = { allowDefaults: true },
   ): Target {
     if (scope === "agent") {
       if (rawScopeId === undefined || rawScopeId === null) {
-        if (identity.scope === "agent" && identity.agentId) {
+        if (
+          opts.allowDefaults &&
+          identity.scope === "agent" &&
+          identity.agentId
+        ) {
           return { scope: "agent", scopeId: identity.agentId };
         }
         return {
           error: fail(
             400,
             "invalid_scope_id",
-            "agent scope requires a scopeId (caller has no own agent)",
+            "agent scope requires a scopeId",
           ),
         };
       }
@@ -114,8 +149,17 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
     }
     if (scope === "boss") {
       if (rawScopeId === undefined || rawScopeId === null) {
-        // Default to the caller's own/manager user. An agent token with no
-        // manager userId has no default target -> 400 (never bosses/null.md).
+        // Default to the caller's own/manager user (create/read only). An agent
+        // token with no manager userId has no default -> 400 (never bosses/null.md).
+        if (!opts.allowDefaults) {
+          return {
+            error: fail(
+              400,
+              "invalid_scope_id",
+              "boss scope requires a scopeId",
+            ),
+          };
+        }
         const own = identity.userId;
         if (!own) {
           return {
@@ -196,6 +240,90 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
         text,
       });
       return created(item);
+    },
+
+    // Edit by id: append a supersede line (never an in-place rewrite). The target
+    // file is EXPLICIT (scope + scopeId, no defaults) since :id is unique only
+    // within a file. Reuses the create text validation.
+    "memory.update": (ctx) => {
+      const id = ctx.params.id;
+      if (!MEM_ID.test(id)) {
+        return fail(400, "invalid_id", "malformed memory id");
+      }
+      const body = (ctx.body ?? {}) as Partial<MemoryUpdateReq>;
+      if (typeof body.text !== "string") {
+        return fail(400, "invalid_text", "text is required");
+      }
+      if (/[\r\n]/.test(body.text)) {
+        return fail(400, "invalid_text", "text must be a single line");
+      }
+      const text = body.text.trim();
+      if (text.length === 0) {
+        return fail(400, "invalid_text", "text must not be blank");
+      }
+      const target = resolveTarget(ctx.identity, body.scope, body.scopeId, {
+        allowDefaults: false,
+      });
+      if ("error" in target) return target.error;
+      const author = deps.authorFor(ctx.identity);
+      if (!author) {
+        return fail(
+          404,
+          "agent_not_found",
+          "caller identity could not be resolved",
+        );
+      }
+      const item = deps.supersede({
+        scope: target.scope,
+        scopeId: target.scopeId,
+        targetId: id,
+        author,
+        text,
+      });
+      if (!item) {
+        return fail(
+          404,
+          "memory_not_found",
+          "no active memory with that id in the target",
+        );
+      }
+      return ok(item);
+    },
+
+    // Retract by id: append a tombstone line. Explicit target via query params.
+    "memory.delete": (ctx) => {
+      const id = ctx.params.id;
+      if (!MEM_ID.test(id)) {
+        return fail(400, "invalid_id", "malformed memory id");
+      }
+      const scope = ctx.query.get("scope") ?? undefined;
+      const scopeId = ctx.query.get("scopeId") ?? undefined;
+      const target = resolveTarget(ctx.identity, scope, scopeId, {
+        allowDefaults: false,
+      });
+      if ("error" in target) return target.error;
+      const author = deps.authorFor(ctx.identity);
+      if (!author) {
+        return fail(
+          404,
+          "agent_not_found",
+          "caller identity could not be resolved",
+        );
+      }
+      const item = deps.tombstone({
+        scope: target.scope,
+        scopeId: target.scopeId,
+        targetId: id,
+        author,
+      });
+      if (!item) {
+        return fail(
+          404,
+          "memory_not_found",
+          "no active memory with that id in the target",
+        );
+      }
+      return noContent();
     },
   };
 }

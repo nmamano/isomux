@@ -89,6 +89,7 @@ import type {
   TaskUpdateReq,
   TaskClaimReq,
   MemoryCreateReq,
+  MemoryUpdateReq,
   CronCreateReq,
   CronUpdateReq,
   CronRunMessageReq,
@@ -703,7 +704,8 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
 
   // --- Memory (isomux-memory; durable shared facts) -------------------------
-  // Slice 3a: agent scope only (own file). PATCH/DELETE land in slice 3d.
+  // GET/POST + PATCH/DELETE (supersede/tombstone); all scopes; authenticated +
+  // target-existence gated (permissive, no per-scope access gate).
   defineRoute<void, MemoryItem[]>({
     opId: "memory.list",
     method: "GET",
@@ -715,6 +717,20 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "memory.create",
     method: "POST",
     path: "/api/memory",
+    auth: cap("memory:write", authenticated),
+    emits: [],
+  }),
+  defineRoute<MemoryUpdateReq, MemoryItem>({
+    opId: "memory.update",
+    method: "PATCH",
+    path: "/api/memory/:id",
+    auth: cap("memory:write", authenticated),
+    emits: [],
+  }),
+  defineRoute<void, NoContent>({
+    opId: "memory.delete",
+    method: "DELETE",
+    path: "/api/memory/:id",
     auth: cap("memory:write", authenticated),
     emits: [],
   }),

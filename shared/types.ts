@@ -440,6 +440,10 @@ export interface MemoryItem {
   // factType is a write-time validation gate; NOT persisted in the line as of
   // slice 3a, so it parses back as null.
   factType: MemoryFactType | null;
+  // Append-only edit/retract relations (slice 3d). A supersede line replaces an
+  // earlier id; a tombstone line retracts one. null on a plain fact line.
+  supersedes: string | null;
+  tombstones: string | null;
   raw: string; // the exact persisted markdown line
 }
 

@@ -53,8 +53,13 @@ export function formatMemoryLine(input: {
   author: string;
   date: string;
   text: string;
+  supersedes?: string | null;
+  tombstones?: string | null;
 }): string {
-  return `- <!-- mem:${input.id} --> [${input.author}, ${input.date}] ${input.text}`;
+  let tag = `mem:${input.id}`;
+  if (input.supersedes) tag += ` supersedes:${input.supersedes}`;
+  else if (input.tombstones) tag += ` tombstones:${input.tombstones}`;
+  return `- <!-- ${tag} --> [${input.author}, ${input.date}] ${input.text}`;
 }
 
 // Strictly the formatMemoryLine shape (tolerant of trailing whitespace). Returns
@@ -62,8 +67,11 @@ export function formatMemoryLine(input: {
 // silently skips junk rather than corrupting the list. The id is anchored to 6
 // hex; the author capture is lazy so a comma in a name still parses (the date
 // pattern is the real delimiter).
+// The optional ` supersedes:OLD` / ` tombstones:OLD` token (slice 3d) is anchored
+// to a 6-hex target — a malformed relation id makes the WHOLE line fail to match
+// (skipped as junk), so the resolver never sees a bad relation id.
 const LINE_RE =
-  /^- <!-- mem:([0-9a-f]{6}) --> \[(.+?), (\d{4}-\d{2}-\d{2})\] (.*\S)\s*$/;
+  /^- <!-- mem:([0-9a-f]{6})(?: (supersedes|tombstones):([0-9a-f]{6}))? --> \[(.+?), (\d{4}-\d{2}-\d{2})\] (.*\S)\s*$/;
 
 export function parseMemoryLine(
   raw: string,
@@ -72,18 +80,24 @@ export function parseMemoryLine(
 ): MemoryItem | null {
   const m = LINE_RE.exec(raw);
   if (!m) return null;
+  const relType = m[2]; // "supersedes" | "tombstones" | undefined
+  const relTarget = m[3] ?? null;
   return {
     id: m[1],
     scope,
     scopeId,
-    author: m[2],
-    date: m[3],
-    text: m[4],
+    author: m[4],
+    date: m[5],
+    text: m[6],
     factType: null, // not persisted in the line as of slice 3a
+    supersedes: relType === "supersedes" ? relTarget : null,
+    tombstones: relType === "tombstones" ? relTarget : null,
     raw: raw.replace(/\s+$/, ""),
   };
 }
 
+// Every conforming line (plain fact + supersede/tombstone control lines), in
+// file order. This is the RAW view; resolveActiveMemory derives the active set.
 export function parseMemoryFile(
   content: string,
   scope: MemoryScope,
@@ -97,6 +111,19 @@ export function parseMemoryFile(
   return out;
 }
 
+// Resolve the ACTIVE set from raw parsed lines: drop tombstone control lines and
+// any id referenced by a supersedes:/tombstones: relation. Chains resolve
+// naturally (old suppressed by new, new suppressed by newer -> only newest
+// active). A relation pointing at an id not present in the file is ignored.
+export function resolveActiveMemory(raw: readonly MemoryItem[]): MemoryItem[] {
+  const suppressed = new Set<string>();
+  for (const m of raw) {
+    if (m.supersedes) suppressed.add(m.supersedes);
+    if (m.tombstones) suppressed.add(m.tombstones);
+  }
+  return raw.filter((m) => !m.tombstones && !suppressed.has(m.id));
+}
+
 // --- the injectable store ---------------------------------------------------
 
 // One scope to fold into the auto-load block, with the plain label shown above
@@ -108,13 +135,38 @@ export interface MemoryScopeRef {
 }
 
 export interface MemoryStore {
+  // The RESOLVED ACTIVE set (superseded/retracted lines removed, tombstone
+  // control lines dropped). For GET, prompt injection, and the active-id checks.
   read(scope: MemoryScope, scopeId: string | null): MemoryItem[];
+  // Every CONFORMING memory entry in file order (active + superseded + tombstone
+  // control); non-memory junk lines are skipped. For provenance/audit and the
+  // active-id checks. (Slice 3g's textarea, which needs the verbatim file text
+  // including junk, will read the raw bytes separately.)
+  readRaw(scope: MemoryScope, scopeId: string | null): MemoryItem[];
   append(input: {
     scope: MemoryScope;
     scopeId: string | null;
     author: string;
     text: string;
   }): MemoryItem;
+  // Edit: append a supersede line replacing targetId with new text. Returns null
+  // if targetId is not an ACTIVE id in the target file (absent / already
+  // superseded / already tombstoned). Append-only — never rewrites.
+  supersede(input: {
+    scope: MemoryScope;
+    scopeId: string | null;
+    targetId: string;
+    author: string;
+    text: string;
+  }): MemoryItem | null;
+  // Retract: append a tombstone control line for targetId. Returns null if
+  // targetId is not an ACTIVE id in the target file. Append-only.
+  tombstone(input: {
+    scope: MemoryScope;
+    scopeId: string | null;
+    targetId: string;
+    author: string;
+  }): MemoryItem | null;
   // Active raw lines joined for prompt injection, or null when empty/missing.
   renderForPrompt(scope: MemoryScope, scopeId: string | null): string | null;
   // Several scopes combined into one body for the single auto-load layer: each
@@ -152,7 +204,7 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
     }
   }
 
-  function read(scope: MemoryScope, scopeId: string | null): MemoryItem[] {
+  function readRaw(scope: MemoryScope, scopeId: string | null): MemoryItem[] {
     let content: string;
     try {
       content = readFileSync(filePath(scope, scopeId), "utf8");
@@ -162,13 +214,24 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
     return parseMemoryFile(content, scope, scopeId);
   }
 
-  function append(input: {
+  function read(scope: MemoryScope, scopeId: string | null): MemoryItem[] {
+    return resolveActiveMemory(readRaw(scope, scopeId));
+  }
+
+  // The shared writer for all line kinds (plain fact, supersede, tombstone). The
+  // collision set is built from the RAW ids so a fresh id never reuses a
+  // superseded/tombstoned id still present on disk.
+  function appendLine(input: {
     scope: MemoryScope;
     scopeId: string | null;
     author: string;
     text: string;
+    supersedes?: string | null;
+    tombstones?: string | null;
   }): MemoryItem {
-    const existing = new Set(read(input.scope, input.scopeId).map((m) => m.id));
+    const existing = new Set(
+      readRaw(input.scope, input.scopeId).map((m) => m.id),
+    );
     // Retry on a collision OR a malformed id, so the store NEVER persists a line
     // parseMemoryLine can't read back (the invariant: no malformed ids on disk).
     let id = genId();
@@ -182,11 +245,15 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
       id = genId();
     }
     const date = today();
+    const supersedes = input.supersedes ?? null;
+    const tombstones = input.tombstones ?? null;
     const line = formatMemoryLine({
       id,
       author: input.author,
       date,
       text: input.text,
+      supersedes,
+      tombstones,
     });
     const path = filePath(input.scope, input.scopeId);
     mkdirSync(dirname(path), { recursive: true });
@@ -199,8 +266,54 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
       date,
       text: input.text,
       factType: null,
+      supersedes,
+      tombstones,
       raw: line,
     };
+  }
+
+  function append(input: {
+    scope: MemoryScope;
+    scopeId: string | null;
+    author: string;
+    text: string;
+  }): MemoryItem {
+    return appendLine(input);
+  }
+
+  function supersede(input: {
+    scope: MemoryScope;
+    scopeId: string | null;
+    targetId: string;
+    author: string;
+    text: string;
+  }): MemoryItem | null {
+    const active = read(input.scope, input.scopeId);
+    if (!active.some((m) => m.id === input.targetId)) return null;
+    return appendLine({
+      scope: input.scope,
+      scopeId: input.scopeId,
+      author: input.author,
+      text: input.text,
+      supersedes: input.targetId,
+    });
+  }
+
+  function tombstone(input: {
+    scope: MemoryScope;
+    scopeId: string | null;
+    targetId: string;
+    author: string;
+  }): MemoryItem | null {
+    const active = read(input.scope, input.scopeId);
+    if (!active.some((m) => m.id === input.targetId)) return null;
+    return appendLine({
+      scope: input.scope,
+      scopeId: input.scopeId,
+      author: input.author,
+      text: "(retracted)",
+      tombstones: input.targetId,
+    });
   }
 
   function renderForPrompt(
@@ -223,7 +336,15 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
     return blocks.length ? blocks.join("\n\n") : null;
   }
 
-  return { read, append, renderForPrompt, renderForPromptMulti };
+  return {
+    read,
+    readRaw,
+    append,
+    supersede,
+    tombstone,
+    renderForPrompt,
+    renderForPromptMulti,
+  };
 }
 
 // Default production store against the real STATE_ROOT. Used by the route

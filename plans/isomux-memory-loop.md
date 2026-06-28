@@ -75,7 +75,7 @@ Supersede: `- <!-- mem:NEWID supersedes:OLDID --> [author, date] <fact>`. Retrac
 - [x] 3a TRACER — `server/memory-store.ts` (parse/serialize/append, id-gen) + `POST`/`GET /api/memory` AGENT scope + `memory:*` caps + routes registered + auto-load `agents/<id>.md` as attributed layer + minimal "How to use memory" affordance + negative prompt assertion (notes-not-policy present, no boss path).
 - [x] 3b — room + office scopes (write/read/auto-load), blast-radius framing in affordance.
 - [x] 3c — boss scope (server-stamped provenance, scopeId target rules incl. null-manager→400, auto-load = manager boss only, path redaction). Update design doc §2/§3. Also folded in cross-agent agent-scope (full permissive) + design-doc §4/§9 sync.
-- [ ] 3d — `PATCH`/`DELETE` supersede/tombstone + loader resolution (suppress superseded/retracted).
+- [x] 3d — `PATCH`/`DELETE` supersede/tombstone + loader resolution (suppress superseded/retracted).
 - [ ] 3e — write-time dedup guard (exact/fuzzy, reject/merge, return matched id).
 - [ ] 3f — size caps + over-cap trim notice (active-line order, newest-first).
 - [ ] 3g — human curation: id self-heal re-stamp on save (server) + office prompt modal surface.
@@ -211,4 +211,36 @@ Resolved decisions + pins to implement exactly:
 
 Additional test pins: null-manager+omitted boss → 400 and NO `bosses/null.md`, same agent with explicit valid boss scopeId succeeds; body author/date/id ignored for boss writes; BossA-owned agent auto-loads BossA not BossB and vice-versa (store/render test, production ref order); affordance has boss REST guidance + caveat but no `memory/bosses`/`bosses/` path; `GET ?scope=boss` omitted-default works for user + manager-agent, explicit other-boss GET works for any authenticated caller.
 
-## SLICE-3d…3i PICKUP — authored when the prior slice commits (fold in what it taught)
+## SLICE-3d PICKUP — authored after 3c (91aa26d)
+
+**What 3c taught (fold in):**
+
+- `resolveTarget` now serves all four scopes and is the shared GET/POST entry; 3d's PATCH/DELETE should reuse the same scope/scopeId target resolution to locate the FILE.
+- **Ids are unique only WITHIN a file** (append collision-checks per file), so `:id` alone cannot locate a line — PATCH/DELETE must also carry scope + scopeId to pick the file.
+- The parser/grammar is strict (`LINE_RE` = `mem:[0-9a-f]{6}`); 3d is the deferred GRAMMAR gate for supersede/tombstone tokens. Extend the grammar + add a resolver; keep round-trip + "never write malformed id" invariants.
+- Existence-gated permissive model + server-stamped provenance are settled; PATCH/DELETE follow the same posture (any authenticated caller; author/date/id server-stamped on the new supersede/tombstone line).
+- New routes need route-table entries + `SPEC_ROUTE_CONTRACT` rows + handler registration (the contract test pins the exact opId set).
+
+**Baseline:** 91aa26d.
+**Goal:** edit + retract a fact by its stable id, append-only (never in-place rewrite), and have the loader STOP surfacing superseded/retracted lines. Demo: PATCH a fact → old line suppressed, new text auto-loads; DELETE a fact → it stops auto-loading; the raw file retains full provenance.
+
+**Load-bearing mechanics (traps):**
+
+- Grammar extension (append-only): supersede = a normal fact line carrying an extra token, `- <!-- mem:NEW supersedes:OLD --> [author, date] <new text>`; tombstone = a control line, `- <!-- mem:NEW tombstones:OLD --> [author, date] (retracted)`. Both get their own fresh id (provenance/audit). Extend `LINE_RE`/parse to capture the optional `supersedes:`/`tombstones:` target.
+- Resolver in read/parse: collect the set of suppressed ids (every OLD referenced by supersedes/tombstones); the RESOLVED ACTIVE set = lines whose id is not suppressed AND that are not tombstone control lines. Handles chains (NEW2 supersedes NEW1 supersedes OLD → only NEW2). `read()`/GET return the resolved active set; the raw file keeps everything; `renderForPrompt*` use the resolved set.
+- PATCH/DELETE locate the file via required scope + scopeId (reuse resolveTarget), then require OLD id to be present+active in that file (else 404). `:id` malformed → 400.
+- Append the new supersede/tombstone line via the store (id-gen + collision guard reused). Never rewrite in place.
+- New routes: `PATCH /api/memory/:id` (memory.update), `DELETE /api/memory/:id` (memory.delete), cap `memory:write`, emits []. Add SPEC rows + register handlers.
+
+**Acceptance (evidence-based):**
+
+- T0 store: supersede-after-fact (old suppressed, new active), tombstone-after-fact (target gone, control line not rendered), supersede chain, resolver leaves unrelated lines intact; raw file still contains all lines.
+- T1 REST: PATCH/DELETE require scope+scopeId (missing/malformed → 400), unknown id in target file → 404, auth wall (401), cross-file id isolation (same id in another file untouched), permissive (any authenticated caller), author/date server-stamped on the new line.
+- T0 prompt/render: a superseded/retracted line no longer appears in renderForPrompt(Multi).
+- All always-run gates green.
+
+**Decide-with-Reviewer3 at the 3d plan-gate:** (1) require scope+scopeId on PATCH/DELETE to locate the file (id not globally unique) — confirm. (2) grammar token names (`supersedes:`/`tombstones:`) + tombstone body `(retracted)` + each gets a fresh id — confirm. (3) read()/GET return the RESOLVED active set (raw retained on disk); settings textarea (3g) reads raw separately — confirm. (4) PATCH = append supersede w/ new text; DELETE = append tombstone — confirm. (5) require OLD id present+active else 404 — confirm. (6) emits [] (UI reads on open; no event yet) — confirm.
+
+**Locked (don't relitigate):** permissive authority; memory:\* caps; "boss-scoped" naming; caps deferred to 3f; append-only provenance (supersede/tombstone, never in-place rewrite).
+
+## SLICE-3e…3i PICKUP — authored when the prior slice commits (fold in what it taught)

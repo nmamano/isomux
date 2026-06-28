@@ -253,6 +253,15 @@ export interface MemoryCreateReq {
   text: string;
 }
 
+// isomux-memory: edit a fact by id (append-only supersede). The target file is
+// EXPLICIT — scope + scopeId (no omitted defaults, unlike create). DELETE takes
+// the same target via query params and no body.
+export interface MemoryUpdateReq {
+  scope: MemoryScope;
+  scopeId?: string | null;
+  text: string;
+}
+
 export interface TaskClaimReq {
   assignee?: string;
 }

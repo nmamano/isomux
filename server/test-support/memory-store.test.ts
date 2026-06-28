@@ -55,6 +55,8 @@ describe("memory-store: format/parse", () => {
       date: "2026-01-02",
       text: "this room uses Bun",
       factType: null,
+      supersedes: null,
+      tombstones: null,
       raw,
     });
   });
@@ -411,5 +413,197 @@ describe("memory-store: renderForPromptMulti", () => {
     ]);
     expect(bOut).toContain("B boss fact");
     expect(bOut).not.toContain("A boss fact");
+  });
+});
+
+describe("memory-store: supersede / tombstone (slice 3d)", () => {
+  it("parses supersede and tombstone lines; rejects malformed relation ids", () => {
+    const sup = parseMemoryLine(
+      "- <!-- mem:bbbbbb supersedes:aaaaaa --> [A, 2026-06-27] new text",
+      "agent",
+      "a1",
+    );
+    expect(sup?.supersedes).toBe("aaaaaa");
+    expect(sup?.tombstones).toBeNull();
+    expect(sup?.text).toBe("new text");
+    const tomb = parseMemoryLine(
+      "- <!-- mem:cccccc tombstones:aaaaaa --> [A, 2026-06-27] (retracted)",
+      "agent",
+      "a1",
+    );
+    expect(tomb?.tombstones).toBe("aaaaaa");
+    expect(tomb?.supersedes).toBeNull();
+    // A non-hex relation target makes the whole line junk (skipped).
+    expect(
+      parseMemoryLine(
+        "- <!-- mem:bbbbbb supersedes:XYZ --> [A, 2026-06-27] t",
+        "agent",
+        "a1",
+      ),
+    ).toBeNull();
+  });
+
+  it("supersede suppresses the old line and activates the new; raw retains both", () => {
+    const stateRoot = tempRoot();
+    let n = 0;
+    const ids = ["aaaaaa", "bbbbbb"];
+    const store = createMemoryStore({
+      stateRoot,
+      genId: () => ids[n++],
+      today: () => "2026-06-27",
+    });
+    const orig = store.append({
+      scope: "agent",
+      scopeId: "a1",
+      author: "A",
+      text: "old",
+    });
+    const sup = store.supersede({
+      scope: "agent",
+      scopeId: "a1",
+      targetId: orig.id,
+      author: "A",
+      text: "new",
+    });
+    expect(sup?.id).toBe("bbbbbb");
+    expect(sup?.supersedes).toBe("aaaaaa");
+    expect(store.read("agent", "a1").map((m) => m.id)).toEqual(["bbbbbb"]);
+    expect(store.read("agent", "a1")[0].text).toBe("new");
+    // Raw retains both lines.
+    expect(store.readRaw("agent", "a1").map((m) => m.id)).toEqual([
+      "aaaaaa",
+      "bbbbbb",
+    ]);
+    expect(store.renderForPrompt("agent", "a1")).toContain("new");
+    expect(store.renderForPrompt("agent", "a1")).not.toContain("] old");
+  });
+
+  it("tombstone removes the target from active; control line never active; raw retains", () => {
+    const stateRoot = tempRoot();
+    let n = 0;
+    const ids = ["aaaaaa", "dddddd"];
+    const store = createMemoryStore({
+      stateRoot,
+      genId: () => ids[n++],
+      today: () => "2026-06-27",
+    });
+    const orig = store.append({
+      scope: "office",
+      scopeId: null,
+      author: "A",
+      text: "fact",
+    });
+    const tomb = store.tombstone({
+      scope: "office",
+      scopeId: null,
+      targetId: orig.id,
+      author: "A",
+    });
+    expect(tomb?.tombstones).toBe("aaaaaa");
+    expect(store.read("office", null)).toEqual([]);
+    expect(store.readRaw("office", null).map((m) => m.id)).toEqual([
+      "aaaaaa",
+      "dddddd",
+    ]);
+    expect(store.renderForPrompt("office", null)).toBeNull();
+  });
+
+  it("supersede chain leaves only the newest active", () => {
+    const stateRoot = tempRoot();
+    let n = 0;
+    const ids = ["aaaaaa", "bbbbbb", "cccccc"];
+    const store = createMemoryStore({
+      stateRoot,
+      genId: () => ids[n++],
+      today: () => "2026-06-27",
+    });
+    const o = store.append({
+      scope: "agent",
+      scopeId: "a1",
+      author: "A",
+      text: "v1",
+    });
+    const s1 = store.supersede({
+      scope: "agent",
+      scopeId: "a1",
+      targetId: o.id,
+      author: "A",
+      text: "v2",
+    })!;
+    store.supersede({
+      scope: "agent",
+      scopeId: "a1",
+      targetId: s1.id,
+      author: "A",
+      text: "v3",
+    });
+    expect(store.read("agent", "a1").map((m) => m.text)).toEqual(["v3"]);
+  });
+
+  it("supersede/tombstone return null when target is not active", () => {
+    const stateRoot = tempRoot();
+    let n = 0;
+    const ids = ["aaaaaa", "bbbbbb"];
+    const store = createMemoryStore({
+      stateRoot,
+      genId: () => ids[n++],
+      today: () => "2026-06-27",
+    });
+    // Absent target.
+    expect(
+      store.supersede({
+        scope: "agent",
+        scopeId: "a1",
+        targetId: "ffffff",
+        author: "A",
+        text: "x",
+      }),
+    ).toBeNull();
+    // Already-superseded target cannot be tombstoned.
+    const o = store.append({
+      scope: "agent",
+      scopeId: "a1",
+      author: "A",
+      text: "old",
+    });
+    store.supersede({
+      scope: "agent",
+      scopeId: "a1",
+      targetId: o.id,
+      author: "A",
+      text: "new",
+    });
+    expect(
+      store.tombstone({
+        scope: "agent",
+        scopeId: "a1",
+        targetId: o.id,
+        author: "A",
+      }),
+    ).toBeNull();
+  });
+
+  it("cross-file id isolation: supersede in one file does not touch another", () => {
+    const stateRoot = tempRoot();
+    // Force the SAME id in two files, then a fresh id for the supersede.
+    const seq = ["aaaaaa", "aaaaaa", "bbbbbb"];
+    let i = 0;
+    const store = createMemoryStore({
+      stateRoot,
+      genId: () => seq[i++],
+      today: () => "2026-06-27",
+    });
+    store.append({ scope: "agent", scopeId: "a1", author: "A", text: "in A" });
+    store.append({ scope: "agent", scopeId: "a2", author: "A", text: "in B" });
+    store.supersede({
+      scope: "agent",
+      scopeId: "a1",
+      targetId: "aaaaaa",
+      author: "A",
+      text: "A updated",
+    });
+    expect(store.read("agent", "a1").map((m) => m.text)).toEqual(["A updated"]);
+    // File a2's identically-id'd line is untouched.
+    expect(store.read("agent", "a2").map((m) => m.text)).toEqual(["in B"]);
   });
 });
