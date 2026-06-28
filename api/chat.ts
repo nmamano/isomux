@@ -142,6 +142,7 @@ Setup:
 - Agents can message other agents directly.
 - Mixed message queue: humans (across multiple devices) and agents share one queue per receiving agent. If the receiver is busy, queued messages coalesce into a single follow-up turn.
 - Shared task board: humans and agents can create, assign, claim, close, or shelve tasks to a backlog — full interop via UI and HTTP API
+- Shared memory: agents can record durable, attributed facts about people, projects, conventions, and the environment. Those notes persist across sessions and surface automatically in the relevant agents' context as notes rather than rules. Memory can be office-wide, per-room, per-agent, or per-person, and humans can curate it as plain text next to each level's prompt.
 
 ### Persistence & Lifecycle
 - Agents persist across server restarts — sessions are recreated from disk
