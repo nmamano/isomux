@@ -115,6 +115,9 @@ describe("buildSystemPrompt — memory affordance", () => {
     expect(p).toContain('"scope":"boss"');
     expect(p).toContain("injected into every agent's future sessions");
     expect(p).toContain("not a confidentiality boundary");
+    // 3i: edit/retract + dedup are documented operationally.
+    expect(p).toContain("/api/memory/<id>");
+    expect(p).toContain("409");
   });
 
   it("never leaks a boss-memory filesystem path", () => {

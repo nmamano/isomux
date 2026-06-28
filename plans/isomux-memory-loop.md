@@ -82,7 +82,9 @@ Supersede: `- <!-- mem:NEWID supersedes:OLDID --> [author, date] <fact>`. Retrac
 - [x] 3h — human curation: office-raw route migration + room settings surface. (split surface-by-surface)
 - [x] 3h2 — human curation: edit-agent surface.
 - [x] 3h3 — human curation: user-management surface (boss scope).
-- [ ] 3i — affordance finalization + doc updates (documentation.md surfaces, AGENTS.md, docs/features.md, testing-guide traceability row, design doc marked implemented) + Playwright curation smoke once.
+- [x] 3i — wrap-up: affordance finalization (edit/retract + dedup note) + internal docs (design-doc IMPLEMENTED banner, testing-guide traceability row). PARKED FOR NIL: user-facing copy (docs/features.md + chatbot, his voice/approval), Playwright smoke (no e2e infra — build-or-waive), live build:ui+restart verification.
+
+> **LOOP COMPLETE (deterministic scope).** All slices 3a–3i committed; suite green (973 tests, 0 fail; tsc + lint clean). The loop's autonomous work is done. PARKED-FOR-NIL queue (human-only, never decided in the loop): (1) user-facing feature copy — docs/features.md + api/chat.ts chatbot, Nil's voice, needs his approval; (2) Playwright curation smoke — no e2e infra in repo, build-as-own-slice vs waive (Reviewer3 leans waive given T0/T1); (3) live manual verification — needs `bun run build:ui` + `systemctl --user restart isomux` (Nil-gated).
 
 ## Deferred / parked (do-not-pick-up)
 
@@ -405,4 +407,22 @@ Additional test pins: null-manager+omitted boss → 400 and NO `bosses/null.md`,
 
 **Decided (all approved):** (1) boss scope, scopeId = stable userId. (2) save strips memory before malformedUserUpdate + deps.update; pre-validate → update → rewrite by `r.user.id`. (3) raw route selfOrOwner + 404 on unresolved. (4) memory-only update no-op confirmed. (5) memory textarea placed next to Profile Prompt.
 
-## SLICE-3i PICKUP — authored when the prior slice commits (fold in what it taught)
+## SLICE-3i PICKUP — wrap-up (after 3h3, 8ac01a8)
+
+**State:** all behavior + all 4 curation surfaces committed and green (973 tests). 3i is the wrap-up. SPLIT into a DETERMINISTIC subset (done this slice) and a PARKED-FOR-NIL queue (his voice / his cost decisions — never decided in the loop).
+
+**Baseline:** 8ac01a8.
+
+**DETERMINISTIC subset (this slice — affordance + internal/engineering docs only):**
+
+- **Affordance finalized** (server/system-prompt.ts "How to use memory"): added the operational one-liner for edit/retract (PATCH/DELETE by mem:id; scopeId required for room/agent/boss, omitted for office) + the dedup 409 behavior. no-boss-path invariant + T0 assertions stay green.
+- **internal-docs/isomux-memory-design.md**: STATUS: IMPLEMENTED banner (slices 3a–3i).
+- **internal-docs/testing-guide.md**: traceability-matrix row; caps are noted as a STORE/RENDER concern (read()/GET uncapped); the verbatim raw curation routes are PER-SURFACE + permission-inheriting, NOT the general permissive /api/memory.
+
+**PARKED FOR NIL (do NOT do in the loop — these need Nil):**
+
+- **User-facing feature copy** — `docs/features.md` (canonical inventory) and `api/chat.ts` chatbot `Full Feature List` are written in Nil's voice; `internal-docs/documentation.md` requires Nil's approval before any copy change. Draft a capability-focused memory entry (no impl mechanism) and get his sign-off before applying. README/landing: NOT headline-level for this wrap-up (Reviewer3). `AGENTS.md`: not needed (the system-prompt affordance is the agent-facing surface). Never touch `CLAUDE.md`.
+- **Playwright curation smoke** — repo has NO e2e infra; building it adds a browser-test dependency. Reviewer3's call: WAIVE (rely on the strong T0/T1 coverage + manual UI verification) unless Nil explicitly approves building it as its own slice. Recorded as deferred in the testing-guide. If Nil approves: isolated temp ISOMUX_HOME (NEVER live ~/.isomux), built UI, chrome headless, assert via fresh API/file read.
+- **Live manual verification** — the memory fields are committed but only render after `bun run build:ui` + `systemctl --user restart isomux` (restart interrupts every agent; Nil-gated). Offer it.
+
+**Rails reminder:** doc-only changes still go through Reviewer3 diff-gate + one focused commit. Nil-voice copy needs Nil's approval first.

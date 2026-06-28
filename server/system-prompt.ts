@@ -85,6 +85,7 @@ How to use memory: record durable facts about people, projects, environment, and
   curl -s localhost:${PORT}/api/memory?scope=agent -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"   # also scope=room&scopeId=<roomId>, scope=office, or scope=boss
 Boss memory is auto-loaded only for that boss's agents; it is not a confidentiality boundary in this office.
 Relevant office, room, boss, and agent memory is auto-loaded at the start of each session.
+To edit or retract a fact, target its mem:id (scope+scopeId pick the file: scopeId required for room/agent/boss, omitted for office): PATCH localhost:${PORT}/api/memory/<id> with {"scope":"...","scopeId":"...","text":"..."} (replace) or DELETE localhost:${PORT}/api/memory/<id>?scope=...&scopeId=... (retract). A near-duplicate POST is rejected (409) naming the existing line's id, so check before re-stating; humans curate in bulk via the settings UI.
 
 Pipe every command that touches secret-bearing surfaces through a sed redaction.`;
   if (privileged) {

@@ -1,5 +1,19 @@
 # isomux-memory: design
 
+> **STATUS: IMPLEMENTED** (slices 3a–3i, plan `plans/isomux-memory-loop.md`).
+> Shipped with Nil's simplified permissive authority model (§2/§4): any
+> authenticated caller may read/write any scope and any existing target; the
+> structural boundaries that remain are (1) server-stamped provenance and
+> (2) boss memory auto-loading only into that boss's own agents' prompts (it is
+> NOT REST-read-private). Edit/retract is append-only (supersede/tombstone);
+> there is a write-time dedup guard; per-scope size caps degrade newest-first with
+> a trim notice. Humans curate raw markdown in each scope's settings field
+> (office/room/agent/user) via owner/surface-gated raw routes; the verbatim raw
+> read is per-surface permission-inheriting, NOT the general permissive
+> `/api/memory` surface. Deferred (§8) and the Playwright UI smoke remain future
+> work. Sections below are the original design; where they predate the permissive
+> simplification, §2/§3/§4/§9 were updated to match the shipped behavior.
+
 Memory is filesystem-based, not a vector store. The obvious alternative is to wrap
 a vector memory engine (e.g. mem0 in OSS mode) that runs a per-turn LLM
 extract-and-reconcile pass (ADD / UPDATE / DELETE / NONE) into Qdrant and retrieves
