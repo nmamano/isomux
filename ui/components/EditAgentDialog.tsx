@@ -153,6 +153,12 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   const [customInstructions, setCustomInstructions] = useState(
     agent?.customInstructions ?? "",
   );
+  // Agent memory (edit mode only) — raw markdown loaded lazily. Sent back only
+  // once the load succeeds and only when changed; a memory rewrite is destructive
+  // so its save is response-driven (below).
+  const [memory, setMemory] = useState("");
+  const [memoryBaseline, setMemoryBaseline] = useState("");
+  const [memoryLoaded, setMemoryLoaded] = useState(false);
   const defaultModel = isCodex
     ? CODEX_MODELS[0].value
     : MODEL_FAMILIES[0].family;
@@ -345,6 +351,30 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [targetEngine]);
 
+  // Load raw agent memory in EDIT mode. Reset before fetching on an agent change
+  // so stale memory can't be saved; disabled + omitted from the save until loaded.
+  const editAgentId = agent?.id;
+  useEffect(() => {
+    if (!editAgentId) return;
+    let cancelled = false;
+    /* eslint-disable react-hooks/set-state-in-effect */
+    setMemoryLoaded(false);
+    setMemory("");
+    setMemoryBaseline("");
+    /* eslint-enable react-hooks/set-state-in-effect */
+    apiFetch<{ text: string }>("GET", `/api/agents/${editAgentId}/memory/raw`)
+      .then((r) => {
+        if (cancelled) return;
+        setMemory(r.text);
+        setMemoryBaseline(r.text);
+        setMemoryLoaded(true);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [editAgentId]);
+
   function handleSave() {
     // name_taken routes under the Name input; everything else under cwd (the
     // prior agent_save_response.field === "name" routing, now keyed on the REST
@@ -406,6 +436,8 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       const trimmedInstructions = customInstructions.trim();
       if (trimmedInstructions !== (agent!.customInstructions ?? ""))
         changes.customInstructions = trimmedInstructions;
+      // Memory: only once the raw load succeeded, and only when changed.
+      if (memoryLoaded && memory !== memoryBaseline) changes.memory = memory;
       if (engineChanged) {
         // The menus now show the new engine's options, so send the chosen
         // values along with the switch; the server validates each against the
@@ -432,6 +464,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         changes.cwd ||
         changes.outfit ||
         changes.customInstructions !== undefined ||
+        changes.memory !== undefined ||
         changes.modelFamily ||
         changes.effort ||
         changes.permissionMode ||
@@ -468,7 +501,14 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       // conversation), or a privilege toggle (token re-mint + session-swap) —
       // so the user sees it took before closing. Other edits stay
       // fire-and-forget with an optimistic close (prior behavior).
-      if (changes.cwd || changes.agentType || privilegedChanged) {
+      if (
+        changes.cwd ||
+        changes.agentType ||
+        privilegedChanged ||
+        changes.memory !== undefined
+      ) {
+        // A memory rewrite is destructive and can 400 (invalid_memory_line), so
+        // await + surface the error before closing — never fire-and-forget.
         setSaving(true);
         runSeq()
           .then(() => onClose())
@@ -1259,6 +1299,39 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
             full system prompt.
             {!isSpawn && " Changes take effect on next conversation."}
           </p>
+
+          {!isSpawn && (
+            <>
+              <label style={{ ...labelStyle, marginTop: 14 }}>
+                Memory{" "}
+                <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
+                  (durable facts for this agent; raw lines)
+                </span>
+              </label>
+              <textarea
+                value={memory}
+                onChange={(e) => setMemory(e.target.value)}
+                placeholder={
+                  memoryLoaded
+                    ? "Pairs with Reviewer3 on memory work"
+                    : "Loading memory…"
+                }
+                rows={4}
+                readOnly={!memoryLoaded}
+                style={{ ...inputStyle, resize: "vertical" }}
+              />
+              <p
+                style={{
+                  fontSize: 10,
+                  color: "var(--text-ghost)",
+                  margin: "3px 0 0",
+                }}
+              >
+                New lines get an id + your name on save; edited lines keep
+                theirs; removed lines are dropped.
+              </p>
+            </>
+          )}
 
           {/* Move to Room — only show when multiple rooms exist and editing */}
           {!isSpawn && roomCount > 1 && (

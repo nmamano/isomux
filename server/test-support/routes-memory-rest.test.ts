@@ -1292,3 +1292,95 @@ describe("routes/memory REST: room curation (slice 3h)", () => {
     expect(readMem(srv, "rooms", `${roomId}.md`)).toBeNull();
   });
 });
+
+describe("routes/memory REST: agent curation (slice 3h2)", () => {
+  async function ctx() {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const bot = await spawnAgent(srv, "MemBot");
+    return { srv, owner, bot };
+  }
+
+  it("GET /api/agents/:id/memory/raw: manager verbatim incl superseded; non-access 403; 401", async () => {
+    const { srv, owner, bot } = await ctx();
+    const member = await srv.seedMember("Member");
+    const ownerId = getUserByName("Boss")!.id;
+    const token = mintAgentToken(bot.id, ownerId);
+    const created = await api(srv, "/api/memory", {
+      method: "POST",
+      bearer: token,
+      body: { scope: "agent", factType: "role", text: "av1" },
+    });
+    const id = (created.body as MemoryItem).id;
+    await api(srv, `/api/memory/${id}`, {
+      method: "PATCH",
+      bearer: token,
+      body: { scope: "agent", scopeId: bot.id, text: "av2" },
+    });
+
+    expect((await api(srv, `/api/agents/${bot.id}/memory/raw`)).status).toBe(
+      401,
+    );
+    // A member without access to the agent's room -> 403 at the agentParam guard.
+    expect(
+      (
+        await api(srv, `/api/agents/${bot.id}/memory/raw`, {
+          rawSessionId: member.rawSessionId,
+        })
+      ).status,
+    ).toBe(403);
+    const raw = await api(srv, `/api/agents/${bot.id}/memory/raw`, {
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(raw.status).toBe(200);
+    const txt = (raw.body as { text: string }).text;
+    expect(txt).toContain("av1");
+    expect(txt).toContain("av2");
+    expect(txt).toContain(`supersedes:${id}`);
+  });
+
+  it("PATCH /api/agents/:id with memory re-stamps agents/<id>.md (memory-only works)", async () => {
+    const { srv, owner, bot } = await ctx();
+    const r = await api(srv, `/api/agents/${bot.id}`, {
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: { memory: "pairs with Reviewer3" },
+    });
+    expect(r.status).toBe(200);
+    expect(memFile(srv, bot.id)).toMatch(
+      /^- <!-- mem:[0-9a-f]{6} --> \[Boss, \d{4}-\d{2}-\d{2}\] pairs with Reviewer3\n$/,
+    );
+  });
+
+  it("invalid cwd + memory present -> 400 invalid_cwd; memory untouched", async () => {
+    const { srv, owner, bot } = await ctx();
+    const r = await api(srv, `/api/agents/${bot.id}`, {
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: {
+        cwd: "/nonexistent/definitely-not-a-dir-xyz",
+        memory: "should not write",
+      },
+    });
+    expect(r.status).toBe(400);
+    expect(errCode(r.body)).toBe("invalid_cwd");
+    expect(memFile(srv, bot.id)).toBeNull();
+  });
+
+  it("malformed memory -> 400 invalid_memory_line + lineNumber; agent name unchanged (no partial)", async () => {
+    const { srv, owner, bot } = await ctx();
+    const bad = await api(srv, `/api/agents/${bot.id}`, {
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: { name: "ShouldNotApply", memory: "ok\n- <!-- mem:ZZZ --> broken" },
+    });
+    expect(bad.status).toBe(400);
+    expect(errCode(bad.body)).toBe("invalid_memory_line");
+    expect(
+      (bad.body as { error?: { lineNumber?: number } }).error?.lineNumber,
+    ).toBe(2);
+    expect(srv.agentManager.getAgent(bot.id)?.name).toBe("MemBot");
+    expect(memFile(srv, bot.id)).toBeNull();
+  });
+});

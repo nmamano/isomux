@@ -214,6 +214,8 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
     "memory.raw": () => ok({ text: deps.readRawText("office", null) }),
     "memory.rawRoom": (ctx) =>
       ok({ text: deps.readRawText("room", ctx.params.roomId) }),
+    "memory.rawAgent": (ctx) =>
+      ok({ text: deps.readRawText("agent", ctx.params.id) }),
 
     "memory.create": (ctx) => {
       const body = (ctx.body ?? {}) as Partial<MemoryCreateReq>;

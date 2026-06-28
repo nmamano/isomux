@@ -2026,6 +2026,10 @@ function buildExecutorDeps(): ExecutorDeps {
       },
       setPrivileged: (agentId, privileged) =>
         agentManager.setPrivileged(agentId, privileged),
+      validateMemory: (text) => validateRewriteLines(text),
+      rewriteAgentMemory: (agentId, text, author) => {
+        memoryStore.rewriteFromText("agent", agentId, text, author);
+      },
     }),
   );
   // 3d.7b — reviveLastRoomAccess: revive needs access to BOTH the target room

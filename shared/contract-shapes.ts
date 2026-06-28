@@ -79,7 +79,12 @@ export type EditAgentReq = Partial<
     // defaults and ignores any model/effort/permission sent in the same edit.
     | "agentType"
   >
->;
+> & {
+  // Raw agent memory (slice 3h2); server re-stamps ids. NOT an AgentInfo field —
+  // the handler strips it before the agent-field shape check + edit. Omitted (or
+  // wrong-typed) leaves agents/<id>.md untouched; a string (incl "") rewrites it.
+  memory?: string | null;
+};
 
 export interface ReviveReq {
   roomId: string;

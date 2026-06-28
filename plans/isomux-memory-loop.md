@@ -80,7 +80,7 @@ Supersede: `- <!-- mem:NEWID supersedes:OLDID --> [author, date] <fact>`. Retrac
 - [x] 3f — size caps + over-cap trim notice (active-line order, newest-first).
 - [x] 3g — human curation: id self-heal re-stamp on save (server) + office prompt modal surface.
 - [x] 3h — human curation: office-raw route migration + room settings surface. (split surface-by-surface)
-- [ ] 3h2 — human curation: edit-agent surface.
+- [x] 3h2 — human curation: edit-agent surface.
 - [ ] 3h3 — human curation: user-management surface.
 - [ ] 3i — affordance finalization + doc updates (documentation.md surfaces, AGENTS.md, docs/features.md, testing-guide traceability row, design doc marked implemented) + Playwright curation smoke once.
 
@@ -367,5 +367,26 @@ Additional test pins: null-manager+omitted boss → 400 and NO `bosses/null.md`,
 **Decide-with-Reviewer3 at the 3h plan-gate:** (1) SAVE rides each settings endpoint (memory field per req) — confirm. (2) raw LOAD = path-based per-surface routes reusing roomParam/agentParam/selfOrOwner — confirm; AND keep office query-route vs migrate to /api/office/memory/raw for consistency. (3) user surface ↔ boss scope, scopeId=userId (username→userId in handler + route) — confirm. (4) one slice for all three surfaces (symmetric) vs split (e.g. room+agent, then user) — your call on size.
 
 **Locked (don't relitigate):** memory in memory/\*.md; rewrite = human-only append-only exception; "boss-scoped" naming; Playwright deferred to 3i.
+
+## SLICE-3h2 PICKUP — agent surface (after 3h room cut, 22f3986)
+
+**What the room cut taught:** the per-surface pattern is settled — settings handler pre-validates memory → applies its op → rewriteFromText(scope, scopeId, ...); raw read = path route reusing the surface's guard; UI loads raw on open, resets on id change, disables until loaded, omits until loaded. Agent reuses all of it; the only new wrinkles are in EditAgentDialog (a large component) and the memory-only edit path.
+
+**Baseline:** 22f3986.
+**Goal:** the memory textarea on the edit-agent dialog (EDIT mode only — a not-yet-spawned agent has no id/file), inheriting agent:manage.
+
+**Load-bearing mechanics (traps):**
+
+- `EditAgentReq` += `memory?: string|null` (it's `Partial<Pick<AgentInfo,...>>`; memory is NOT an AgentInfo field, so add via `& { memory?: string|null }`).
+- `agents.update` handler: EXTRACT memory from the body and delete it BEFORE `malformedAgentFields(b)` and `deps.edit(id, b)` (memory isn't an agent field). Pre-validate memory → `deps.edit` → on edit success, `rewriteFromText("agent", id, memory, author)`. Malformed → 400 invalid_memory_line + lineNumber.
+- MEMORY-ONLY edit: after stripping memory, `b` may be empty. Confirm `deps.edit(id, {})` is a no-op success returning the agent; if the core rejects an empty edit, skip `deps.edit` when no agent fields remain and return the current agent. (Verify at implementation; the memory-only test pins it.)
+- Raw read: `GET /api/agents/:id/memory/raw`, `cap("agent:manage", agentParam("id"))` → `{ text: readRawText("agent", id) }`.
+- EditAgentDialog (EDIT mode): load raw on open + reset on agent-id change + disable until loaded + omit until loaded (room-cut pattern). Two agent-specific pins: (1) INCLUDE memory in the dirty/hasChanges check so a memory-only save actually PATCHes; (2) when memory is included, make the save RESPONSE-DRIVEN — await the PATCH and surface invalid_memory_line BEFORE closing (today non-restarting edits are fire-and-forget/optimistic-close; a destructive rewrite must not be).
+
+**Acceptance:** T1 — agent raw GET (manager verbatim / no-access 403 if cheap / 401); agent settings PATCH with memory re-stamps agents/<id>.md; memory-only PATCH succeeds + writes; edit validation failure (invalid cwd) with memory present leaves memory untouched; malformed → 400 + lineNumber. build:ui. UI manual.
+
+**Decide-with-Reviewer3:** (1) memory in EDIT mode only (spawn excluded) — confirm. (2) memory-only edit handling (no-op edit vs skip-edit) — confirm after I verify deps.edit({}). (3) response-driven only when memory included, else keep fire-and-forget — confirm.
+
+## SLICE-3h3 PICKUP — user-management surface (boss scope, after 3h2)
 
 ## SLICE-3i PICKUP — authored when the prior slice commits (fold in what it taught)
