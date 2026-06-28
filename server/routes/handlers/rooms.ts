@@ -26,6 +26,7 @@
 
 import { created, noContent, fail, type RouteHandler } from "../executor.ts";
 import type { RoomWire } from "../../../shared/types.ts";
+import type { Identity } from "../../identity/index.ts";
 
 export interface RoomsDeps {
   // Creates a room, applies the rule-based creator grant (a member creator
@@ -44,6 +45,14 @@ export interface RoomsDeps {
   // Sets a room's prompt (null clears). Returns false if the room does not exist
   // (→ 404).
   setSettings(roomId: string, prompt: string | null): boolean;
+  // Slice 3h memory curation (mirrors office). validateMemory checks WITHOUT
+  // writing (a typo blocks the whole save); rewriteRoomMemory rewrites
+  // rooms/<roomId>.md; author is server-derived from the caller.
+  validateMemory(
+    text: string,
+  ): { ok: true } | { ok: false; lineNumber: number };
+  rewriteRoomMemory(roomId: string, text: string, author: string): void;
+  attributionFor(identity: Identity): { createdBy: string };
 }
 
 export function roomsHandlers(deps: RoomsDeps): Record<string, RouteHandler> {
@@ -75,11 +84,33 @@ export function roomsHandlers(deps: RoomsDeps): Record<string, RouteHandler> {
     },
 
     "rooms.setSettings": (ctx) => {
-      const b = (ctx.body ?? {}) as { prompt?: unknown };
+      const b = (ctx.body ?? {}) as { prompt?: unknown; memory?: unknown };
       const prompt = typeof b.prompt === "string" ? b.prompt : null;
-      return deps.setSettings(ctx.params.roomId, prompt)
-        ? noContent()
-        : fail(404, "room_not_found", "Room not found");
+      // memory omitted/null -> leave rooms/<id>.md untouched; a string rewrites
+      // it. Pre-validate so a typo blocks the WHOLE save (no partial write).
+      const memory = typeof b.memory === "string" ? b.memory : undefined;
+      if (memory !== undefined) {
+        const v = deps.validateMemory(memory);
+        if (!v.ok) {
+          return fail(
+            400,
+            "invalid_memory_line",
+            `malformed memory control line at line ${v.lineNumber}`,
+            { lineNumber: v.lineNumber },
+          );
+        }
+      }
+      if (!deps.setSettings(ctx.params.roomId, prompt)) {
+        return fail(404, "room_not_found", "Room not found");
+      }
+      if (memory !== undefined) {
+        deps.rewriteRoomMemory(
+          ctx.params.roomId,
+          memory,
+          deps.attributionFor(ctx.identity).createdBy,
+        );
+      }
+      return noContent();
     },
   };
 }

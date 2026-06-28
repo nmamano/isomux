@@ -171,6 +171,9 @@ export interface RoomRenameReq {
 
 export interface RoomSettingsReq {
   prompt: string | null;
+  // Raw room memory markdown (slice 3h). Same semantics as office memory: omitted
+  // leaves rooms/<roomId>.md untouched; a string rewrites it (id self-heal).
+  memory?: string | null;
 }
 
 export interface ViewOrderReq {

@@ -734,14 +734,21 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("memory:write", authenticated),
     emits: [],
   }),
-  // Verbatim file text for human curation (incl superseded/tombstone lines), so
-  // OWNER-only (office:admin) — NOT the general memory:read agents hold. Slice 3g
-  // supports scope=office only.
+  // Verbatim file text for human curation (incl superseded/tombstone lines). Each
+  // raw-read route MIRRORS its scope's settings path so it reuses that surface's
+  // exact authority (NOT the general memory:read agents hold). { text } only.
   defineRoute<void, { text: string }>({
     opId: "memory.raw",
     method: "GET",
-    path: "/api/memory/raw",
+    path: "/api/office/memory/raw",
     auth: cap("office:admin", officeOwner),
+    emits: [],
+  }),
+  defineRoute<void, { text: string }>({
+    opId: "memory.rawRoom",
+    method: "GET",
+    path: "/api/rooms/:roomId/memory/raw",
+    auth: cap("room:manage", roomParam("roomId")),
     emits: [],
   }),
 

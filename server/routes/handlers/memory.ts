@@ -209,18 +209,11 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
       return ok(deps.read(target.scope, target.scopeId));
     },
 
-    // Owner-only verbatim read for the curation textarea. 3g: office only (the
-    // route is office:admin-gated; other scopes land with their surfaces in 3h).
-    "memory.raw": (ctx) => {
-      if (ctx.query.get("scope") !== "office") {
-        return fail(
-          400,
-          "unsupported_scope",
-          "only scope=office raw read is supported in this version",
-        );
-      }
-      return ok({ text: deps.readRawText("office", null) });
-    },
+    // Verbatim reads for the curation textareas. Each route is gated to its
+    // scope's settings authority by the route table, so the handler just reads.
+    "memory.raw": () => ok({ text: deps.readRawText("office", null) }),
+    "memory.rawRoom": (ctx) =>
+      ok({ text: deps.readRawText("room", ctx.params.roomId) }),
 
     "memory.create": (ctx) => {
       const body = (ctx.body ?? {}) as Partial<MemoryCreateReq>;

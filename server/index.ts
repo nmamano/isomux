@@ -1881,6 +1881,11 @@ function buildExecutorDeps(): ExecutorDeps {
       rename: (roomId, name) => agentManager.renameRoom(roomId, name),
       setSettings: (roomId, prompt) =>
         agentManager.setRoomSettings(roomId, prompt),
+      validateMemory: (text) => validateRewriteLines(text),
+      rewriteRoomMemory: (roomId, text, author) => {
+        memoryStore.rewriteFromText("room", roomId, text, author);
+      },
+      attributionFor,
     }),
   );
   // 3d.7 — agent lifecycle. The cores own the token lifecycle (spawn/revive mint,

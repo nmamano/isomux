@@ -1,13 +1,15 @@
 // isomux-memory on the unified REST surface
-// (opIds memory.{list,create,update,delete,raw}).
+// (opIds memory.{list,create,update,delete,raw,rawRoom}).
 //
 // All scopes (agent/room/office/boss) are permissive: any authenticated caller
 // may read/write any EXISTING target — no access gate, author/date/id always
 // server-stamped (never body). PATCH/DELETE supersede/tombstone by id (explicit
-// target). POST has a write-time dedup guard. GET /api/memory/raw is the
-// OWNER-ONLY curation read (verbatim, incl superseded/tombstone lines); human
-// curation saves rewrite the whole file via each scope's settings endpoint.
-// Evidence = the persisted memory/*.md files + REST envelopes.
+// target). POST has a write-time dedup guard. Verbatim curation reads are
+// per-surface PATH-based routes that inherit each scope's settings authority
+// (GET /api/office/memory/raw owner-only; GET /api/rooms/:roomId/memory/raw
+// room-gated; agent/user land with their surfaces). Human curation saves rewrite
+// the whole file via each scope's settings endpoint. Evidence = the persisted
+// memory/*.md files + REST envelopes.
 //
 // Seam: startTestServer(). Zero LLM.
 
@@ -1052,7 +1054,7 @@ describe("routes/memory REST: dedup guard (slice 3e)", () => {
 });
 
 describe("routes/memory REST: raw read + office curation save (slice 3g)", () => {
-  it("GET /api/memory/raw?scope=office returns verbatim text incl superseded; owner-only; 401 unauth", async () => {
+  it("GET /api/office/memory/raw returns verbatim text incl superseded; owner-only; 401 unauth", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
@@ -1071,17 +1073,17 @@ describe("routes/memory REST: raw read + office curation save (slice 3g)", () =>
       body: { scope: "office", text: "v2" },
     });
 
-    const unauth = await api(srv, "/api/memory/raw?scope=office");
+    const unauth = await api(srv, "/api/office/memory/raw");
     expect(unauth.status).toBe(401);
 
     // Agent token (memory:read but not office:admin) -> 403.
-    const byAgent = await api(srv, "/api/memory/raw?scope=office", {
+    const byAgent = await api(srv, "/api/office/memory/raw", {
       bearer: token,
     });
     expect(byAgent.status).toBe(403);
 
     // Owner cookie -> verbatim, including the superseded v1 line + supersede.
-    const raw = await api(srv, "/api/memory/raw?scope=office", {
+    const raw = await api(srv, "/api/office/memory/raw", {
       rawSessionId: owner.rawSessionId,
     });
     expect(raw.status).toBe(200);
@@ -1188,5 +1190,105 @@ describe("routes/memory REST: raw read + office curation save (slice 3g)", () =>
     });
     expect(r.status).toBeGreaterThanOrEqual(400);
     expect(readMem(srv, "office.md")).toBeNull();
+  });
+});
+
+describe("routes/memory REST: room curation (slice 3h)", () => {
+  async function ctx() {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const roomId = srv.agentManager.getRooms()[0].id;
+    return { srv, owner, roomId };
+  }
+
+  it("GET /api/rooms/:roomId/memory/raw: owner verbatim incl superseded; non-member 403; 401 unauth", async () => {
+    const { srv, owner, roomId } = await ctx();
+    const member = await srv.seedMember("Member");
+    const ownerId = getUserByName("Boss")!.id;
+    const bot = await spawnAgent(srv, "MemBot");
+    const token = mintAgentToken(bot.id, ownerId);
+    const created = await api(srv, "/api/memory", {
+      method: "POST",
+      bearer: token,
+      body: {
+        scope: "room",
+        scopeId: roomId,
+        factType: "convention",
+        text: "rv1",
+      },
+    });
+    const id = (created.body as MemoryItem).id;
+    await api(srv, `/api/memory/${id}`, {
+      method: "PATCH",
+      bearer: token,
+      body: { scope: "room", scopeId: roomId, text: "rv2" },
+    });
+
+    expect((await api(srv, `/api/rooms/${roomId}/memory/raw`)).status).toBe(
+      401,
+    );
+    // Member without access to the room -> 403 at the roomParam guard.
+    const mem = await api(srv, `/api/rooms/${roomId}/memory/raw`, {
+      rawSessionId: member.rawSessionId,
+    });
+    expect(mem.status).toBe(403);
+    // Owner has access by rule -> verbatim incl the superseded line.
+    const raw = await api(srv, `/api/rooms/${roomId}/memory/raw`, {
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(raw.status).toBe(200);
+    const txt = (raw.body as { text: string }).text;
+    expect(txt).toContain("rv1");
+    expect(txt).toContain("rv2");
+    expect(txt).toContain(`supersedes:${id}`);
+  });
+
+  it("room settings PUT with memory re-stamps rooms/<id>.md", async () => {
+    const { srv, owner, roomId } = await ctx();
+    const r = await api(srv, `/api/rooms/${roomId}/settings`, {
+      method: "PUT",
+      rawSessionId: owner.rawSessionId,
+      body: { prompt: null, memory: "this room uses Bun" },
+    });
+    expect(r.status).toBe(204);
+    const onDisk = readMem(srv, "rooms", `${roomId}.md`)!;
+    expect(onDisk).toMatch(
+      /^- <!-- mem:[0-9a-f]{6} --> \[Boss, \d{4}-\d{2}-\d{2}\] this room uses Bun\n$/,
+    );
+  });
+
+  it("malformed room memory -> 400; NEITHER prompt NOR memory is written (no partial)", async () => {
+    const { srv, owner, roomId } = await ctx();
+    const bad = await api(srv, `/api/rooms/${roomId}/settings`, {
+      method: "PUT",
+      rawSessionId: owner.rawSessionId,
+      body: {
+        prompt: "should not save",
+        memory: "ok\n- <!-- mem:ZZZ --> broken",
+      },
+    });
+    expect(bad.status).toBe(400);
+    expect(errCode(bad.body)).toBe("invalid_memory_line");
+    expect(
+      (bad.body as { error?: { lineNumber?: number } }).error?.lineNumber,
+    ).toBe(2);
+    // Pre-validation rejected the save before settings applied: prompt untouched.
+    expect(
+      srv.agentManager.getRooms().find((r) => r.id === roomId)?.prompt,
+    ).toBeNull();
+    expect(readMem(srv, "rooms", `${roomId}.md`)).toBeNull();
+  });
+
+  it("non-member room settings PUT is rejected (memory inherits room:manage)", async () => {
+    const { srv, roomId } = await ctx();
+    const member = await srv.seedMember("Member");
+    const r = await api(srv, `/api/rooms/${roomId}/settings`, {
+      method: "PUT",
+      rawSessionId: member.rawSessionId,
+      body: { prompt: null, memory: "member should not write" },
+    });
+    expect(r.status).toBeGreaterThanOrEqual(400);
+    expect(readMem(srv, "rooms", `${roomId}.md`)).toBeNull();
   });
 });

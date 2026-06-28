@@ -30,6 +30,10 @@ export function RoomSettingsModal({
     agents.every((agent) => agent.roomId !== roomId);
   const [name, setName] = useState(room?.name ?? "");
   const [prompt, setPrompt] = useState(room?.prompt ?? "");
+  // Raw room memory, loaded lazily; sent back only once the load succeeds so an
+  // unrelated name/prompt save can't wipe rooms/<id>.md.
+  const [memory, setMemory] = useState("");
+  const [memoryLoaded, setMemoryLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -53,6 +57,8 @@ export function RoomSettingsModal({
     // inline (the HTTP response replaces the old settings_save_response correlation).
     const settingsBody: RoomSettingsReq = {
       prompt: prompt.trim() ? prompt : null,
+      // Only send memory once the raw load succeeded (else leave the file alone).
+      ...(memoryLoaded ? { memory } : {}),
     };
     apiFetch<void>("PUT", `/api/rooms/${roomId}/settings`, settingsBody)
       .then(() => onClose())
@@ -78,6 +84,27 @@ export function RoomSettingsModal({
     window.addEventListener("keydown", handleKey, true);
     return () => window.removeEventListener("keydown", handleKey, true);
   }, [onClose]);
+
+  // Load raw room memory on open. Until it resolves the textarea stays disabled
+  // and memory is omitted from the save. Reset first so a roomId change can't
+  // leave the previous room's text marked loaded (a fast Save would rewrite the
+  // new room with stale memory).
+  useEffect(() => {
+    let cancelled = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMemoryLoaded(false);
+    setMemory("");
+    apiFetch<{ text: string }>("GET", `/api/rooms/${roomId}/memory/raw`)
+      .then((r) => {
+        if (cancelled) return;
+        setMemory(r.text);
+        setMemoryLoaded(true);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [roomId]);
 
   if (!room) return null;
 
@@ -175,6 +202,44 @@ export function RoomSettingsModal({
         >
           Changes take effect on next conversation. Env files are now per-user —
           set them in User Settings.
+        </p>
+
+        <label
+          style={{
+            display: "block",
+            fontSize: 11,
+            fontWeight: 600,
+            color: "var(--text-muted)",
+            marginTop: 14,
+            marginBottom: 5,
+          }}
+        >
+          Memory{" "}
+          <span style={{ fontWeight: 400, color: "var(--text-ghost)" }}>
+            (durable facts for this room; raw lines)
+          </span>
+        </label>
+        <textarea
+          value={memory}
+          onChange={(e) => setMemory(e.target.value)}
+          placeholder={
+            memoryLoaded
+              ? "This room uses Bun for local scripts"
+              : "Loading memory…"
+          }
+          rows={6}
+          readOnly={!memoryLoaded}
+          style={{ ...inputStyle, resize: "vertical" }}
+        />
+        <p
+          style={{
+            fontSize: 10,
+            color: "var(--text-ghost)",
+            margin: "3px 0 0",
+          }}
+        >
+          New lines get an id + your name on save; edited lines keep theirs;
+          removed lines are dropped.
         </p>
 
         {error && (

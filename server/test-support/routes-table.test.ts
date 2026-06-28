@@ -318,6 +318,7 @@ const SPEC_ROUTE_CONTRACT: Record<
   "memory.update": { caps: ["memory:write"], emits: [] },
   "memory.delete": { caps: ["memory:write"], emits: [] },
   "memory.raw": { caps: ["office:admin"], emits: [] },
+  "memory.rawRoom": { caps: ["room:manage"], emits: [] },
 };
 
 describe("route table: per-route capability + emits match the spec exactly", () => {

@@ -75,7 +75,7 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     if (readOnly) return;
     let cancelled = false;
-    apiFetch<{ text: string }>("GET", "/api/memory/raw?scope=office")
+    apiFetch<{ text: string }>("GET", "/api/office/memory/raw")
       .then((r) => {
         if (cancelled) return;
         setMemory(r.text);

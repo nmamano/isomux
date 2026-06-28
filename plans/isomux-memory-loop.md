@@ -79,7 +79,9 @@ Supersede: `- <!-- mem:NEWID supersedes:OLDID --> [author, date] <fact>`. Retrac
 - [x] 3e — write-time dedup guard (normalized-exact + Jaccard 0.9, 409 reject, return matched id).
 - [x] 3f — size caps + over-cap trim notice (active-line order, newest-first).
 - [x] 3g — human curation: id self-heal re-stamp on save (server) + office prompt modal surface.
-- [ ] 3h — human curation: room settings / edit-agent / user-management surfaces.
+- [x] 3h — human curation: office-raw route migration + room settings surface. (split surface-by-surface)
+- [ ] 3h2 — human curation: edit-agent surface.
+- [ ] 3h3 — human curation: user-management surface.
 - [ ] 3i — affordance finalization + doc updates (documentation.md surfaces, AGENTS.md, docs/features.md, testing-guide traceability row, design doc marked implemented) + Playwright curation smoke once.
 
 ## Deferred / parked (do-not-pick-up)
@@ -333,4 +335,37 @@ Additional test pins: null-manager+omitted boss → 400 and NO `bosses/null.md`,
 
 **Locked (don't relitigate):** memory in memory/\*.md (not office-config); rewrite is the human-only append-only exception; "boss-scoped" naming; Playwright deferred to 3i.
 
-## SLICE-3h…3i PICKUP — authored when the prior slice commits (fold in what it taught)
+## SLICE-3h PICKUP — authored after 3g (0e97eb2)
+
+**What 3g taught (fold in):**
+
+- The store is surface-agnostic: `readRawText` + `rewriteFromText` + `validateRewriteLines` already work for any scope. 3h is wiring three more surfaces, no new store logic.
+- 3g's office pattern is the template: pre-validate memory → apply settings → rewrite; UI loads raw on open, disables the field until loaded, omits memory from the PUT until load succeeds.
+- The existing per-surface guards (`roomParam`, `agentParam`, `selfOrOwner`) read PATH params, so a single `/api/memory/raw?scope=&scopeId=` can't reuse them. Path-based raw routes that mirror each settings path reuse the guards exactly.
+
+**Baseline:** 0e97eb2.
+**Goal:** the same memory textarea on the room settings, edit-agent, and user-management surfaces, each inheriting that surface's existing permissions.
+
+**Surface map (save endpoint / auth / memory scope):**
+
+- Room → `PUT /api/rooms/:roomId/settings`, `cap("room:manage", roomParam)`, RoomSettingsReq. Scope `room`, scopeId = roomId.
+- Agent → `PATCH /api/agents/:id`, `cap("agent:manage", agentParam)`, EditAgentReq. Scope `agent`, scopeId = agentId.
+- User → `PATCH /api/users/:username`, `cap(["user:self","user:admin"], selfOrOwner)`, UserUpdateReq. **Scope `boss`, scopeId = the user's userId** (handler resolves username→userId; the memory scope is "boss", not "user").
+
+**Load-bearing mechanics (traps):**
+
+- SAVE rides each settings endpoint: add `memory?: string|null` to RoomSettingsReq / EditAgentReq / UserUpdateReq; each handler pre-validates (validateMemory) → applies its existing settings → rewriteFromText(scope, scopeId, memory, authorName). Auth inherits per-surface automatically. The user handler maps username→userId and writes the `boss` scope.
+- Raw LOAD: path-based raw routes mirroring each settings path so the existing guards apply: `GET /api/rooms/:roomId/memory/raw` (roomParam), `GET /api/agents/:id/memory/raw` (agentParam), `GET /api/users/:username/memory/raw` (selfOrOwner; resolves to boss/userId). Each returns `{ text }` via readRawText.
+- 3g's office raw is `GET /api/memory/raw?scope=office` (query-based). DECIDE: keep it (minor inconsistency) vs migrate to `GET /api/office/memory/raw` for a uniform path-based scheme (tiny migration: one route + the OfficePromptModal fetch URL).
+- UI: replicate 3g's textarea + load-on-open + disabled-until-loaded + omit-until-loaded in RoomSettingsModal, EditAgentDialog, UserManagementModal.
+
+**Acceptance (evidence-based):**
+
+- T1 per surface: raw GET returns verbatim text under the right guard (and is REJECTED for a caller lacking that surface's access — e.g. a non-member room raw read, a non-self/non-owner user raw read); settings save with `memory` re-stamps the right file (rooms/<id>.md, agents/<id>.md, bosses/<userId>.md); settings-validation-fail → memory untouched; malformed → 400 invalid_memory_line + lineNumber.
+- build:ui bundles; all always-run gates green.
+
+**Decide-with-Reviewer3 at the 3h plan-gate:** (1) SAVE rides each settings endpoint (memory field per req) — confirm. (2) raw LOAD = path-based per-surface routes reusing roomParam/agentParam/selfOrOwner — confirm; AND keep office query-route vs migrate to /api/office/memory/raw for consistency. (3) user surface ↔ boss scope, scopeId=userId (username→userId in handler + route) — confirm. (4) one slice for all three surfaces (symmetric) vs split (e.g. room+agent, then user) — your call on size.
+
+**Locked (don't relitigate):** memory in memory/\*.md; rewrite = human-only append-only exception; "boss-scoped" naming; Playwright deferred to 3i.
+
+## SLICE-3i PICKUP — authored when the prior slice commits (fold in what it taught)
