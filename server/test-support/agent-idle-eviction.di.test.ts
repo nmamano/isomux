@@ -314,7 +314,12 @@ describe("idle eviction — demote / dormant / wake", () => {
     const info = mgr.getAgent("agent-test-lazy");
     expect(info).toBeDefined();
     expect(info?.dormant).toBe(true);
-    expect(info?.state).toBe("idle");
+    // Restored WITH a resumable session: comes back "waiting_for_response"
+    // (finished its last turn, waiting on the human), NOT the sleeping "idle"
+    // pose. The pose tracks whether there's a conversation, not whether the
+    // subprocess is loaded — dormant=true above still reflects the no-subprocess
+    // reality, independently of the pose.
+    expect(info?.state).toBe("waiting_for_response");
     expect(mgr.getCurrentSessionId("agent-test-lazy")).toBe(sid);
 
     // First message wakes it by resuming the persisted session (not a fresh one).

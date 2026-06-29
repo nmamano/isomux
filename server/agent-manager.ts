@@ -1183,13 +1183,16 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       permissionMode,
       modelFamily,
       effort,
-      // Lazy restore has no live turn, so it comes back "idle" (a perpetual
-      // "waiting_for_response" spinner on a dormant agent would be wrong).
-      state: opts.lazy
-        ? "idle"
-        : resumeSessionId
-          ? "waiting_for_response"
-          : "idle",
+      // Pose tracks whether there's a conversation, not whether the subprocess
+      // is loaded. A resumable session (resumeSessionId set) comes back
+      // "waiting_for_response" — it finished its last turn and is waiting on the
+      // human — whether restored eagerly or lazily; only a genuinely blank agent
+      // (no resumable session) is "idle". Keying this off opts.lazy used to leak
+      // the RAM detail into the UI: every conversation agent slept (idle pose)
+      // after a restart until messaged, and lost Tab priority to blank desks.
+      // editMessage forks from the on-disk session, so a dormant
+      // "waiting_for_response" agent edits fine (the fork wakes it).
+      state: resumeSessionId ? "waiting_for_response" : "idle",
       topic: p.topic ?? null,
       // Determined by the textCount scan below after logs load.
       topicStale: false,
