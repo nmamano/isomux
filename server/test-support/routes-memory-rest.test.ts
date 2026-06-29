@@ -549,28 +549,3 @@ describe("routes/memory REST: op-log", () => {
     expect(log[1].previousVersion).toBeDefined();
   });
 });
-
-describe("routes/memory REST: transitional curation reads", () => {
-  it("GET /api/office/memory/raw is owner-gated; a plain agent token is denied", async () => {
-    const srv = await startTestServer();
-    server = srv;
-    const owner = await srv.seedOwner("Boss");
-    const ownerId = getUserByName("Boss")!.id;
-    const bot = await spawnAgent(srv, "MemBot");
-    const token = mintAgentToken(bot.id, ownerId);
-    await api(srv, "/api/memory", {
-      method: "POST",
-      bearer: token,
-      body: { scope: "office", text: "office fact" },
-    });
-
-    const asOwner = await api(srv, "/api/office/memory/raw", {
-      rawSessionId: owner.rawSessionId,
-    });
-    expect(asOwner.status).toBe(200);
-    expect((asOwner.body as { text: string }).text).toContain("office fact");
-
-    const asAgent = await api(srv, "/api/office/memory/raw", { bearer: token });
-    expect(asAgent.status).toBe(403);
-  });
-});

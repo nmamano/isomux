@@ -79,13 +79,7 @@ export type EditAgentReq = Partial<
     // defaults and ignores any model/effort/permission sent in the same edit.
     | "agentType"
   >
-> & {
-  // Raw agent memory (transitional settings-save path; the UI moves to the unified
-  // /api/memory verbs in a follow-up). NOT an AgentInfo field — the handler strips
-  // it before the agent-field shape check + edit. Omitted (or wrong-typed) leaves
-  // agents/<id>.md untouched; a string (incl "") force-replaces it verbatim.
-  memory?: string | null;
-};
+>;
 
 export interface ReviveReq {
   roomId: string;
@@ -177,9 +171,6 @@ export interface RoomRenameReq {
 
 export interface RoomSettingsReq {
   prompt: string | null;
-  // Raw room memory (transitional settings-save path). Omitted leaves
-  // rooms/<roomId>.md untouched; a string force-replaces it verbatim.
-  memory?: string | null;
 }
 
 export interface ViewOrderReq {
@@ -203,11 +194,6 @@ export type UserUpdateReq = Partial<{
   memberPrompt: string | null;
   avatarColor: string;
   avatarVariant: UserRecord["avatarVariant"];
-  // Raw boss-scoped memory for this user (transitional settings-save path). NOT a
-  // user-record field — the handler strips it before the record update and
-  // force-replaces bosses/<userId>.md verbatim, keyed by the user's STABLE id
-  // (survives a rename in the same PATCH).
-  memory: string | null;
 }>;
 
 export interface SetAccessReq {
@@ -232,11 +218,6 @@ export interface OfficeSettingsReq {
   // explicit null/empty clears it, a string sets it. The handler keys on the
   // undefined-vs-null distinction, so null must be representable in the contract.
   name?: string | null;
-  // Raw office memory (transitional settings-save path). OMITTED = leave office.md
-  // untouched (the client only sends it once the raw load has succeeded, so an
-  // unrelated prompt/env save can't wipe memory). A string (incl "") force-replaces
-  // office.md verbatim. Only applied after the prompt/env/name validation passes.
-  memory?: string | null;
 }
 
 export interface ValidateCwdReq {

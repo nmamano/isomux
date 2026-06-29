@@ -316,10 +316,6 @@ const SPEC_ROUTE_CONTRACT: Record<
   "memory.read": { caps: ["memory:read"], emits: [] },
   "memory.append": { caps: ["memory:write"], emits: [] },
   "memory.replace": { caps: ["memory:write"], emits: [] },
-  "memory.raw": { caps: ["office:admin"], emits: [] },
-  "memory.rawRoom": { caps: ["room:manage"], emits: [] },
-  "memory.rawAgent": { caps: ["agent:manage"], emits: [] },
-  "memory.rawUser": { caps: ["user:self", "user:admin"], emits: [] },
 };
 
 describe("route table: per-route capability + emits match the spec exactly", () => {

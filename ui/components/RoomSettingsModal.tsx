@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useAppState } from "../store.tsx";
 import { apiFetch, ApiError } from "../api.ts";
+import { useMemoryEditor } from "../hooks/useMemoryEditor.ts";
 import type {
   RoomRenameReq,
   RoomSettingsReq,
@@ -30,10 +31,9 @@ export function RoomSettingsModal({
     agents.every((agent) => agent.roomId !== roomId);
   const [name, setName] = useState(room?.name ?? "");
   const [prompt, setPrompt] = useState(room?.prompt ?? "");
-  // Raw room memory, loaded lazily; sent back only once the load succeeds so an
-  // unrelated name/prompt save can't wipe rooms/<id>.md.
-  const [memory, setMemory] = useState("");
-  const [memoryLoaded, setMemoryLoaded] = useState(false);
+  // Room memory is edited via the unified /api/memory verbs (load + version-
+  // guarded save). Saved separately from the room settings PUT.
+  const mem = useMemoryEditor("room", roomId, true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -54,16 +54,29 @@ export function RoomSettingsModal({
       );
     }
     // The settings save drives the dialog: success closes it, an ApiError shows
-    // inline (the HTTP response replaces the old settings_save_response correlation).
+    // inline. Memory is a separate version-guarded REPLACE on /api/memory.
     const settingsBody: RoomSettingsReq = {
       prompt: prompt.trim() ? prompt : null,
-      // Only send memory once the raw load succeeded (else leave the file alone).
-      ...(memoryLoaded ? { memory } : {}),
     };
-    apiFetch<void>("PUT", `/api/rooms/${roomId}/settings`, settingsBody)
-      .then(() => onClose())
-      .catch((e) => setError(e instanceof ApiError ? e.message : "Save failed"))
-      .finally(() => setSaving(false));
+    void (async () => {
+      try {
+        await apiFetch<void>(
+          "PUT",
+          `/api/rooms/${roomId}/settings`,
+          settingsBody,
+        );
+        const m = await mem.save();
+        if (!m.ok) {
+          setError(m.message);
+          return;
+        }
+        onClose();
+      } catch (e) {
+        setError(e instanceof ApiError ? e.message : "Save failed");
+      } finally {
+        setSaving(false);
+      }
+    })();
   }
 
   useEffect(() => {
@@ -84,27 +97,6 @@ export function RoomSettingsModal({
     window.addEventListener("keydown", handleKey, true);
     return () => window.removeEventListener("keydown", handleKey, true);
   }, [onClose]);
-
-  // Load raw room memory on open. Until it resolves the textarea stays disabled
-  // and memory is omitted from the save. Reset first so a roomId change can't
-  // leave the previous room's text marked loaded (a fast Save would rewrite the
-  // new room with stale memory).
-  useEffect(() => {
-    let cancelled = false;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setMemoryLoaded(false);
-    setMemory("");
-    apiFetch<{ text: string }>("GET", `/api/rooms/${roomId}/memory/raw`)
-      .then((r) => {
-        if (cancelled) return;
-        setMemory(r.text);
-        setMemoryLoaded(true);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [roomId]);
 
   if (!room) return null;
 
@@ -220,15 +212,15 @@ export function RoomSettingsModal({
           </span>
         </label>
         <textarea
-          value={memory}
-          onChange={(e) => setMemory(e.target.value)}
+          value={mem.memory}
+          onChange={(e) => mem.setMemory(e.target.value)}
           placeholder={
-            memoryLoaded
+            mem.loaded
               ? "This room uses Bun for local scripts"
               : "Loading memory…"
           }
           rows={6}
-          readOnly={!memoryLoaded}
+          readOnly={!mem.loaded}
           style={{ ...inputStyle, resize: "vertical" }}
         />
         <p
@@ -238,8 +230,8 @@ export function RoomSettingsModal({
             margin: "3px 0 0",
           }}
         >
-          New lines get an id + your name on save; edited lines keep theirs;
-          removed lines are dropped.
+          This editor rewrites the file exactly as shown. Use one memory per
+          line; keep existing author/date text unless you mean to change it.
         </p>
 
         {error && (

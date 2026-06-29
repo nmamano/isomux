@@ -731,38 +731,6 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("memory:write", authenticated),
     emits: [],
   }),
-  // Verbatim file text for human curation (transitional; the UI moves to the
-  // unified READ in a follow-up). Each raw-read route MIRRORS its scope's settings
-  // path so it reuses that surface's exact authority (NOT the general memory:read
-  // agents hold). { text } only.
-  defineRoute<void, { text: string }>({
-    opId: "memory.raw",
-    method: "GET",
-    path: "/api/office/memory/raw",
-    auth: cap("office:admin", officeOwner),
-    emits: [],
-  }),
-  defineRoute<void, { text: string }>({
-    opId: "memory.rawRoom",
-    method: "GET",
-    path: "/api/rooms/:roomId/memory/raw",
-    auth: cap("room:manage", roomParam("roomId")),
-    emits: [],
-  }),
-  defineRoute<void, { text: string }>({
-    opId: "memory.rawAgent",
-    method: "GET",
-    path: "/api/agents/:id/memory/raw",
-    auth: cap("agent:manage", agentParam("id")),
-    emits: [],
-  }),
-  defineRoute<void, { text: string }>({
-    opId: "memory.rawUser",
-    method: "GET",
-    path: "/api/users/:username/memory/raw",
-    auth: cap(["user:self", "user:admin"], selfOrOwner),
-    emits: [],
-  }),
 
   // --- Cronjobs -------------------------------------------------------------
   defineRoute<void, Cronjob[]>({

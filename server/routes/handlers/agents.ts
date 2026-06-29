@@ -129,13 +129,6 @@ export interface AgentsDeps {
   // updated agent. A no-op edit (no effective change) still returns the current
   // agent (200), never a failure.
   edit(agentId: string, changes: EditAgentReq): Promise<EditResult>;
-  // Slice 3h2 memory curation (mirrors office/room). validateMemory checks
-  // WITHOUT writing (a typo blocks the whole update); rewriteAgentMemory rewrites
-  // agents/<id>.md; author is server-derived from the caller.
-  validateMemory(
-    text: string,
-  ): { ok: true } | { ok: false; lineNumber: number };
-  rewriteAgentMemory(agentId: string, text: string, author: string): void;
   // Toggles the agent's privileged flag: persists it, re-mints the bearer token
   // with the new capability set, and session-swaps a LIVE agent onto it (see
   // agent-manager.setPrivileged). Authorization (a USER with room access, never
@@ -304,26 +297,8 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
 
     "agents.update": async (ctx) => {
       const b = (ctx.body ?? {}) as Record<string, unknown>;
-      // memory is NOT an agent field: extract it (wrong-typed -> omitted, like
-      // office/room — never invalid_request) and strip before the field-shape
-      // check + edit.
-      const memory = typeof b.memory === "string" ? b.memory : undefined;
-      delete b.memory;
       if (malformedAgentFields(b)) {
         return fail(422, "invalid_request", "malformed agent field");
-      }
-      // Pre-validate memory so a typo blocks the WHOLE update — no agent-field
-      // changes apply (no partial save).
-      if (memory !== undefined) {
-        const v = deps.validateMemory(memory);
-        if (!v.ok) {
-          return fail(
-            400,
-            "invalid_memory_line",
-            `malformed memory control line at line ${v.lineNumber}`,
-            { lineNumber: v.lineNumber },
-          );
-        }
       }
       const r = await deps.edit(ctx.params.id, b);
       if (!r.ok) {
@@ -334,13 +309,6 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
               ? 404
               : 400;
         return fail(status, r.reason, r.message);
-      }
-      if (memory !== undefined) {
-        deps.rewriteAgentMemory(
-          ctx.params.id,
-          memory,
-          deps.attributionFor(ctx.identity).createdBy,
-        );
       }
       return ok({ agent: r.agent });
     },

@@ -1253,8 +1253,6 @@ function buildExecutorDeps(): ExecutorDeps {
       replace: (input) => memoryStore.replace(input),
       findDuplicate: (scope, scopeId, text) =>
         memoryStore.findDuplicate(scope, scopeId, text),
-      readRawText: (scope, scopeId) => memoryStore.readText(scope, scopeId),
-      userIdForUsername: (username) => getUser(username)?.id ?? null,
       authorFor: (identity) => {
         if (identity.scope === "agent" && identity.agentId) {
           const d = agentManager.getAgentDisplay(identity.agentId);
@@ -1749,10 +1747,6 @@ function buildExecutorDeps(): ExecutorDeps {
         if (target) await evictSessionsForUserId(target.id);
         return { ok: true };
       },
-      validateMemory: () => ({ ok: true as const }),
-      rewriteBossMemoryByUserId: (userId, text, author) => {
-        memoryStore.replace({ scope: "boss", scopeId: userId, text, author });
-      },
       attributionFor,
     }),
   );
@@ -1801,11 +1795,6 @@ function buildExecutorDeps(): ExecutorDeps {
     officeSettingsHandlers({
       getSettings: () => agentManager.getOfficeSettings(),
       applySettings: (input) => applyOfficeSettings(input),
-      validateMemory: () => ({ ok: true as const }),
-      rewriteOfficeMemory: (text, author) => {
-        memoryStore.replace({ scope: "office", scopeId: null, text, author });
-      },
-      attributionFor,
     }),
   );
   // 3d.6 — room-structure mutations (rooms CRUD). The handlers stay thin; the
@@ -1882,11 +1871,6 @@ function buildExecutorDeps(): ExecutorDeps {
       rename: (roomId, name) => agentManager.renameRoom(roomId, name),
       setSettings: (roomId, prompt) =>
         agentManager.setRoomSettings(roomId, prompt),
-      validateMemory: () => ({ ok: true as const }),
-      rewriteRoomMemory: (roomId, text, author) => {
-        memoryStore.replace({ scope: "room", scopeId: roomId, text, author });
-      },
-      attributionFor,
     }),
   );
   // 3d.7 — agent lifecycle. The cores own the token lifecycle (spawn/revive mint,
@@ -2027,10 +2011,6 @@ function buildExecutorDeps(): ExecutorDeps {
       },
       setPrivileged: (agentId, privileged) =>
         agentManager.setPrivileged(agentId, privileged),
-      validateMemory: () => ({ ok: true as const }),
-      rewriteAgentMemory: (agentId, text, author) => {
-        memoryStore.replace({ scope: "agent", scopeId: agentId, text, author });
-      },
     }),
   );
   // 3d.7b — reviveLastRoomAccess: revive needs access to BOTH the target room

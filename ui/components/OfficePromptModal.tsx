@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useAppState } from "../store.tsx";
 import { apiFetch, ApiError } from "../api.ts";
+import { useMemoryEditor } from "../hooks/useMemoryEditor.ts";
 import type { OfficeSettingsReq } from "../../shared/contract-shapes.ts";
 import {
   dialogInput,
@@ -24,11 +25,10 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
   const [text, setText] = useState(office.prompt ?? "");
   const [envFile, setEnvFile] = useState(office.envFile ?? "");
   const [name, setName] = useState(office.name ?? "");
-  // Office memory is raw markdown loaded lazily (owner-only endpoint). It is sent
-  // back ONLY once the load has succeeded, so saving an unrelated prompt/env
-  // change before the load resolves can never rewrite office.md to empty.
-  const [memory, setMemory] = useState("");
-  const [memoryLoaded, setMemoryLoaded] = useState(false);
+  // Office memory is edited via the unified /api/memory verbs (load + version-
+  // guarded save). Disabled until the load resolves; saved separately from the
+  // office settings PUT.
+  const mem = useMemoryEditor("office", null, !readOnly);
   const [status, setStatus] = useState<ValidationStatus>({ kind: "idle" });
   const [saving, setSaving] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -69,50 +69,33 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
     };
   }, [office.envFile, readOnly]);
 
-  // Load raw office memory (owner-only endpoint). Members skip it; the field is
-  // hidden for them. Until this resolves the textarea stays disabled and `memory`
-  // is omitted from the save.
-  useEffect(() => {
-    if (readOnly) return;
-    let cancelled = false;
-    apiFetch<{ text: string }>("GET", "/api/office/memory/raw")
-      .then((r) => {
-        if (cancelled) return;
-        setMemory(r.text);
-        setMemoryLoaded(true);
-      })
-      .catch(() => {
-        // Leave memoryLoaded false -> memory omitted from the save.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [readOnly]);
-
-  function handleSave() {
-    // Response-driven: HTTP correlates the outcome natively (no requestId / raw
-    // WS listener). Success closes; an ApiError surfaces server.message in the
-    // shared status slot; finally clears the saving latch. The shared-state
-    // office_settings_updated broadcast still applies the change echo-first.
+  async function handleSave() {
+    // The office settings PUT and the memory REPLACE are separate calls: memory
+    // rides the permissive /api/memory surface, not the owner-only settings
+    // endpoint. Either failing surfaces server.message in the shared status slot
+    // and keeps the dialog open; a memory conflict (409) asks the user to reopen.
     setSaving(true);
-    // Typed body: `name: null` clears the office name, omitted would preserve it
-    // — the contract distinction is compile-checked here, not only in the handler.
     const body: OfficeSettingsReq = {
       prompt: text.trim() ? text : null,
       envFile: envFile.trim() || null,
       name: name.trim() || null,
-      // Only send memory once the raw load succeeded (else leave office.md alone).
-      ...(memoryLoaded ? { memory } : {}),
     };
-    apiFetch<void>("PUT", "/api/office/settings", body)
-      .then(() => onClose())
-      .catch((e) => {
-        setStatus({
-          kind: "error",
-          message: e instanceof ApiError ? e.message : "Save failed",
-        });
-      })
-      .finally(() => setSaving(false));
+    try {
+      await apiFetch<void>("PUT", "/api/office/settings", body);
+      const m = await mem.save();
+      if (!m.ok) {
+        setStatus({ kind: "error", message: m.message });
+        return;
+      }
+      onClose();
+    } catch (e) {
+      setStatus({
+        kind: "error",
+        message: e instanceof ApiError ? e.message : "Save failed",
+      });
+    } finally {
+      setSaving(false);
+    }
   }
 
   // Place cursor at end of text on mount. Skip for read-only mode so we
@@ -303,17 +286,17 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
               </span>
             </label>
             <textarea
-              value={memory}
-              onChange={(e) => setMemory(e.target.value)}
+              value={mem.memory}
+              onChange={(e) => mem.setMemory(e.target.value)}
               placeholder={
-                memoryLoaded
+                mem.loaded
                   ? "Office agents should use Bun for local scripts"
                   : "Loading memory…"
               }
               rows={6}
-              readOnly={!memoryLoaded}
+              readOnly={!mem.loaded}
               style={{
-                ...(memoryLoaded ? inputStyle : readOnlyInputStyle),
+                ...(mem.loaded ? inputStyle : readOnlyInputStyle),
                 resize: "vertical",
               }}
             />
@@ -324,8 +307,8 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
                 margin: "3px 0 0",
               }}
             >
-              New lines get an id + your name on save; edited lines keep theirs;
-              removed lines are dropped.
+              This editor rewrites the file exactly as shown. Use one memory per
+              line; keep existing author/date text unless you mean to change it.
             </p>
           </>
         )}
@@ -342,7 +325,11 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
             {readOnly ? "Close" : "Cancel"}
           </button>
           {!readOnly && (
-            <button onClick={handleSave} style={saveBtnStyle} disabled={saving}>
+            <button
+              onClick={() => void handleSave()}
+              style={saveBtnStyle}
+              disabled={saving}
+            >
               {saving ? "Saving…" : "Save"}
             </button>
           )}

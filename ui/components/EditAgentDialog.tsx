@@ -27,6 +27,7 @@ import {
 } from "../../shared/outfit-options.ts";
 import { Character } from "../office/Character.tsx";
 import { apiFetch, ApiError } from "../api.ts";
+import { useMemoryEditor } from "../hooks/useMemoryEditor.ts";
 import type {
   MoveAgentReq,
   SpawnReq,
@@ -153,12 +154,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   const [customInstructions, setCustomInstructions] = useState(
     agent?.customInstructions ?? "",
   );
-  // Agent memory (edit mode only) — raw markdown loaded lazily. Sent back only
-  // once the load succeeds and only when changed; a memory rewrite is destructive
-  // so its save is response-driven (below).
-  const [memory, setMemory] = useState("");
-  const [memoryBaseline, setMemoryBaseline] = useState("");
-  const [memoryLoaded, setMemoryLoaded] = useState(false);
+  // Agent memory (edit mode only) — edited via the unified /api/memory verbs
+  // (load + version-guarded save), saved separately from the agent PATCH.
+  const mem = useMemoryEditor("agent", agent?.id ?? null, !!agent?.id);
   const defaultModel = isCodex
     ? CODEX_MODELS[0].value
     : MODEL_FAMILIES[0].family;
@@ -351,30 +349,6 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [targetEngine]);
 
-  // Load raw agent memory in EDIT mode. Reset before fetching on an agent change
-  // so stale memory can't be saved; disabled + omitted from the save until loaded.
-  const editAgentId = agent?.id;
-  useEffect(() => {
-    if (!editAgentId) return;
-    let cancelled = false;
-    /* eslint-disable react-hooks/set-state-in-effect */
-    setMemoryLoaded(false);
-    setMemory("");
-    setMemoryBaseline("");
-    /* eslint-enable react-hooks/set-state-in-effect */
-    apiFetch<{ text: string }>("GET", `/api/agents/${editAgentId}/memory/raw`)
-      .then((r) => {
-        if (cancelled) return;
-        setMemory(r.text);
-        setMemoryBaseline(r.text);
-        setMemoryLoaded(true);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [editAgentId]);
-
   function handleSave() {
     // name_taken routes under the Name input; everything else under cwd (the
     // prior agent_save_response.field === "name" routing, now keyed on the REST
@@ -436,8 +410,6 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       const trimmedInstructions = customInstructions.trim();
       if (trimmedInstructions !== (agent!.customInstructions ?? ""))
         changes.customInstructions = trimmedInstructions;
-      // Memory: only once the raw load succeeded, and only when changed.
-      if (memoryLoaded && memory !== memoryBaseline) changes.memory = memory;
       if (engineChanged) {
         // The menus now show the new engine's options, so send the chosen
         // values along with the switch; the server validates each against the
@@ -464,7 +436,6 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
         changes.cwd ||
         changes.outfit ||
         changes.customInstructions !== undefined ||
-        changes.memory !== undefined ||
         changes.modelFamily ||
         changes.effort ||
         changes.permissionMode ||
@@ -475,7 +446,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       // the PATCH — it re-mints the token and restarts the session like a model
       // change. Toggled independently of the other field edits.
       const privilegedChanged = privileged !== (agent!.privileged ?? false);
-      if (!hasChanges && !privilegedChanged) {
+      if (!hasChanges && !privilegedChanged && !mem.dirty) {
         onClose();
         return;
       }
@@ -501,17 +472,20 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       // conversation), or a privilege toggle (token re-mint + session-swap) —
       // so the user sees it took before closing. Other edits stay
       // fire-and-forget with an optimistic close (prior behavior).
-      if (
-        changes.cwd ||
-        changes.agentType ||
-        privilegedChanged ||
-        changes.memory !== undefined
-      ) {
-        // A memory rewrite is destructive and can 400 (invalid_memory_line), so
-        // await + surface the error before closing — never fire-and-forget.
+      if (changes.cwd || changes.agentType || privilegedChanged || mem.dirty) {
+        // A session-swap (cwd/engine/privilege) or a destructive memory REPLACE
+        // must await + surface its error before closing — never fire-and-forget.
         setSaving(true);
         runSeq()
-          .then(() => onClose())
+          .then(async () => {
+            const m = await mem.save();
+            if (!m.ok) {
+              setCwdError(m.message);
+              setNameError(null);
+              return;
+            }
+            onClose();
+          })
           .catch(showError)
           .finally(() => setSaving(false));
       } else {
@@ -1309,15 +1283,15 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 </span>
               </label>
               <textarea
-                value={memory}
-                onChange={(e) => setMemory(e.target.value)}
+                value={mem.memory}
+                onChange={(e) => mem.setMemory(e.target.value)}
                 placeholder={
-                  memoryLoaded
+                  mem.loaded
                     ? "Pairs with Reviewer3 on memory work"
                     : "Loading memory…"
                 }
                 rows={4}
-                readOnly={!memoryLoaded}
+                readOnly={!mem.loaded}
                 style={{ ...inputStyle, resize: "vertical" }}
               />
               <p
@@ -1327,8 +1301,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   margin: "3px 0 0",
                 }}
               >
-                New lines get an id + your name on save; edited lines keep
-                theirs; removed lines are dropped.
+                This editor rewrites the file exactly as shown. Use one memory
+                per line; keep existing author/date text unless you mean to
+                change it.
               </p>
             </>
           )}
