@@ -1,3 +1,11 @@
+> **OBSOLETE (2026-06-29).** This plan describes the original id-based memory
+> design (slices 3a–3i: `<!-- mem:ID -->` lines, supersede/tombstone, fuzzy dedup,
+> per-surface curation routes). That model was replaced **before shipping** by the
+> raw three-verb model (READ / APPEND / REPLACE on `/api/memory` + an op-log); the
+> authoritative reference is now `internal-docs/isomux-memory-design.md`. This file
+> is kept only for git-history context and is slated for deletion in a follow-up
+> commit.
+
 # Isomux Memory loop — standing orders + slice handoffs
 
 Re-read this file at the start of every iteration. [why: conversations compact, files don't]
