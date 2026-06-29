@@ -1,85 +1,75 @@
-// Memory resource handlers — isomux-memory on the unified REST surface (opIds
-// memory.{list,create,update,delete}). See internal-docs/isomux-memory-design.md
-// and plans/isomux-memory-loop.md.
+// Memory resource handlers — isomux-memory on the unified REST surface. Three
+// verbs: READ (memory.read), APPEND (memory.append), REPLACE (memory.replace).
+// See internal-docs/isomux-memory-design.md and plans/isomux-memory-loop.md.
 //
-// Scopes: agent, room, office, boss. Author + date + id are server-stamped from
-// the token identity, NEVER the body (mirrors tasks' attribution rule); scopeId
-// is a TARGET selector, not an authority claim. Authority is intentionally
-// permissive (Nil): any authenticated caller (agent token OR user cookie) may
-// read/write ANY scope and ANY existing target — there is deliberately NO
-// room/agent/boss access gate, only target-EXISTENCE validation. Restraint lives
-// in the system-prompt affordance, not in code.
+// Scopes: agent, room, office, boss. On APPEND the author + date are server-
+// stamped from the token identity, NEVER the body; scopeId is a TARGET selector,
+// not an authority claim. Authority is intentionally permissive (Nil's product
+// decision): any authenticated caller (agent token OR user cookie) may read,
+// append, or REPLACE ANY scope and ANY existing target — there is deliberately NO
+// per-scope access gate on any verb, only target-EXISTENCE validation. Restraint
+// (especially "don't make big changes to office-wide memory") lives in the
+// system-prompt affordance, and the op-log is the recovery net — not an
+// authorization boundary.
 //
 // The one structural privacy property is in AUTO-LOAD (agent-manager), not here:
 // a boss's notes auto-load only into that boss's own agents' prompts. REST reads
-// of any scope are open to any authenticated caller (design §2/§3) — boss memory
-// is context-scoped for auto-load, not REST-private.
+// of any scope are open to any authenticated caller — boss memory is
+// context-scoped for auto-load, not REST-private.
 //
-// LEAF over the executor + injected MemoryDeps. No manager/auth imports.
+// LEAF over the executor + injected MemoryDeps. No manager/auth/store imports.
 
-import {
-  ok,
-  created,
-  noContent,
-  fail,
-  type RouteHandler,
-} from "../executor.ts";
+import { ok, created, fail, type RouteHandler } from "../executor.ts";
 import type { Identity } from "../../identity/index.ts";
 import type { MemoryItem, MemoryScope } from "../../../shared/types.ts";
-import { isValidFactType } from "../../../shared/types.ts";
 import type {
   MemoryCreateReq,
-  MemoryUpdateReq,
+  MemoryReplaceReq,
 } from "../../../shared/contract-shapes.ts";
 
-// The stable line id (mem:ab12cd). A :id path param must match before we hunt for
-// it; a malformed id is a 400, not a 404.
-const MEM_ID = /^[0-9a-f]{6}$/;
-
 export interface MemoryDeps {
-  read(scope: MemoryScope, scopeId: string | null): MemoryItem[];
+  // Whole raw file + optimistic-concurrency version.
+  read(
+    scope: MemoryScope,
+    scopeId: string | null,
+  ): { text: string; version: string };
+  // Append one server-stamped line; returns the new item + post-write version.
   append(input: {
     scope: MemoryScope;
     scopeId: string | null;
     author: string;
     text: string;
-  }): MemoryItem;
+  }): { item: MemoryItem; version: string };
+  // Overwrite the whole file guarded by expectedVersion; conflict writes nothing.
+  replace(input: {
+    scope: MemoryScope;
+    scopeId: string | null;
+    text: string;
+    author: string;
+    expectedVersion?: string | null;
+  }):
+    | { ok: true; version: string }
+    | { ok: false; conflict: true; version: string };
+  // The first line `text` exactly restates (append-time dedup guard), or null.
+  findDuplicate(
+    scope: MemoryScope,
+    scopeId: string | null,
+    text: string,
+  ): MemoryItem | null;
   // The caller's display author (agent name / user name), or null if the caller's
   // record can't be resolved — so a write is never stamped "unknown".
   authorFor(identity: Identity): string | null;
   // Strict identifier guard (rejects path traversal in a caller-supplied scopeId).
   isSafeScopeId(id: string): boolean;
   // Target-EXISTENCE checks. Existence only — there is deliberately NO access
-  // gate (the model is permissive per Nil); never reuse requiresRoomAccess, which
-  // would silently undo that.
+  // gate (the model is permissive per Nil); never reuse requiresRoomAccess.
   roomExists(roomId: string): boolean;
   agentExists(agentId: string): boolean;
   userExists(userId: string): boolean;
-  // Append-only edit/retract. Return null if targetId is not an ACTIVE id in the
-  // target file (absent / already superseded / already tombstoned).
-  supersede(input: {
-    scope: MemoryScope;
-    scopeId: string | null;
-    targetId: string;
-    author: string;
-    text: string;
-  }): MemoryItem | null;
-  tombstone(input: {
-    scope: MemoryScope;
-    scopeId: string | null;
-    targetId: string;
-    author: string;
-  }): MemoryItem | null;
-  // The write-time dedup guard: the first ACTIVE line `text` restates, or null.
-  findDuplicate(
-    scope: MemoryScope,
-    scopeId: string | null,
-    text: string,
-  ): MemoryItem | null;
-  // Verbatim file text for the curation load (slice 3g+).
+  // Verbatim file text for the per-surface curation raw-reads (transitional; the
+  // settings UI loads via these until it moves to the unified READ).
   readRawText(scope: MemoryScope, scopeId: string | null): string;
-  // Resolve a username to its stable userId for boss-scope raw reads (slice 3h3),
-  // or null if it doesn't resolve.
+  // Resolve a username to its stable userId for boss-scope raw reads, or null.
   userIdForUsername(username: string): string | null;
 }
 
@@ -89,7 +79,7 @@ type Target =
 
 export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
   // Resolve the (scope, target file) for this caller, or a deliberate error.
-  // Shared by GET (query) and POST (body).
+  // Shared by READ (query) and APPEND/REPLACE (body).
   //   agent  — omitted scopeId defaults to the caller's own agent (agent token);
   //            a user cookie must pass an explicit agent id. Any existing agent
   //            may be targeted by any authenticated caller.
@@ -98,21 +88,14 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
   //   boss   — omitted scopeId defaults to the caller's own/manager userId; any
   //            existing boss may be targeted by any authenticated caller.
   //   other  — unsupported.
-  // opts.allowDefaults=false (PATCH/DELETE) requires an EXPLICIT target — no
-  // own/manager default — so an edit/retract can never hit the wrong file.
   function resolveTarget(
     identity: Identity,
     scope: unknown,
     rawScopeId: unknown,
-    opts: { allowDefaults: boolean } = { allowDefaults: true },
   ): Target {
     if (scope === "agent") {
       if (rawScopeId === undefined || rawScopeId === null) {
-        if (
-          opts.allowDefaults &&
-          identity.scope === "agent" &&
-          identity.agentId
-        ) {
+        if (identity.scope === "agent" && identity.agentId) {
           return { scope: "agent", scopeId: identity.agentId };
         }
         return {
@@ -160,17 +143,8 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
     }
     if (scope === "boss") {
       if (rawScopeId === undefined || rawScopeId === null) {
-        // Default to the caller's own/manager user (create/read only). An agent
-        // token with no manager userId has no default -> 400 (never bosses/null.md).
-        if (!opts.allowDefaults) {
-          return {
-            error: fail(
-              400,
-              "invalid_scope_id",
-              "boss scope requires a scopeId",
-            ),
-          };
-        }
+        // Default to the caller's own/manager user. An agent token with no
+        // manager userId has no default -> 400 (never bosses/null.md).
         const own = identity.userId;
         if (!own) {
           return {
@@ -204,7 +178,9 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
   }
 
   return {
-    "memory.list": (ctx) => {
+    // READ — the whole raw file text + version (uncapped). For the read-modify-
+    // replace edit flow and for human curation.
+    "memory.read": (ctx) => {
       const scope = ctx.query.get("scope") ?? "agent";
       const scopeId = ctx.query.get("scopeId") ?? undefined;
       const target = resolveTarget(ctx.identity, scope, scopeId);
@@ -212,36 +188,15 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
       return ok(deps.read(target.scope, target.scopeId));
     },
 
-    // Verbatim reads for the curation textareas. Each route is gated to its
-    // scope's settings authority by the route table, so the handler just reads.
-    "memory.raw": () => ok({ text: deps.readRawText("office", null) }),
-    "memory.rawRoom": (ctx) =>
-      ok({ text: deps.readRawText("room", ctx.params.roomId) }),
-    "memory.rawAgent": (ctx) =>
-      ok({ text: deps.readRawText("agent", ctx.params.id) }),
-    "memory.rawUser": (ctx) => {
-      // boss memory is keyed by stable userId, not username — resolve first so we
-      // never read bosses/null.md or a username-keyed file.
-      const userId = deps.userIdForUsername(ctx.params.username);
-      if (!userId) return fail(404, "user_not_found", "no such user");
-      return ok({ text: deps.readRawText("boss", userId) });
-    },
-
-    "memory.create": (ctx) => {
+    // APPEND — one server-stamped line (the safe default). One fact per line.
+    "memory.append": (ctx) => {
       const body = (ctx.body ?? {}) as Partial<MemoryCreateReq>;
-      if (!isValidFactType(body.factType)) {
-        return fail(
-          400,
-          "invalid_fact_type",
-          "factType must be one of preference|convention|rule|environment|role|contact",
-        );
-      }
       if (typeof body.text !== "string") {
         return fail(400, "invalid_text", "text is required");
       }
       // Reject newlines on the RAW body BEFORE trimming — otherwise a trailing
-      // "\n"/"\r" would be silently normalized into a valid single line, letting
-      // a client smuggle a multi-line payload past the one-fact-per-line rail.
+      // "\n"/"\r" would normalize into a valid single line, smuggling a multi-line
+      // payload past the one-fact-per-line rail.
       if (/[\r\n]/.test(body.text)) {
         return fail(400, "invalid_text", "text must be a single line");
       }
@@ -251,15 +206,15 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
       }
       const target = resolveTarget(ctx.identity, body.scope, body.scopeId);
       if ("error" in target) return target.error;
-      // Write-time dedup guard (the one non-prompt guardrail): reject an obvious
-      // restatement already ACTIVE in this scope, naming the existing line.
+      // Write-time dedup guard: reject an exact restatement already in this scope,
+      // naming the existing line's text.
       const dup = deps.findDuplicate(target.scope, target.scopeId, text);
       if (dup) {
         return fail(
           409,
           "duplicate_memory",
           "a matching memory already exists in this scope",
-          { matched: { id: dup.id, text: dup.text } },
+          { matched: { text: dup.text } },
         );
       }
       const author = deps.authorFor(ctx.identity);
@@ -270,37 +225,31 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
           "caller identity could not be resolved",
         );
       }
-      const item = deps.append({
+      const res = deps.append({
         scope: target.scope,
         scopeId: target.scopeId,
         author,
         text,
       });
-      return created(item);
+      return created(res);
     },
 
-    // Edit by id: append a supersede line (never an in-place rewrite). The target
-    // file is EXPLICIT (scope + scopeId, no defaults) since :id is unique only
-    // within a file. Reuses the create text validation.
-    "memory.update": (ctx) => {
-      const id = ctx.params.id;
-      if (!MEM_ID.test(id)) {
-        return fail(400, "invalid_id", "malformed memory id");
-      }
-      const body = (ctx.body ?? {}) as Partial<MemoryUpdateReq>;
+    // REPLACE — overwrite the whole file, guarded by the version from READ. This
+    // is how edits and retractions happen; raw text is written verbatim (no
+    // grammar). A version mismatch is a 409 with the current version.
+    "memory.replace": (ctx) => {
+      const body = (ctx.body ?? {}) as Partial<MemoryReplaceReq>;
       if (typeof body.text !== "string") {
         return fail(400, "invalid_text", "text is required");
       }
-      if (/[\r\n]/.test(body.text)) {
-        return fail(400, "invalid_text", "text must be a single line");
+      if (typeof body.version !== "string" || body.version.length === 0) {
+        return fail(
+          400,
+          "invalid_version",
+          "version is required (from a preceding READ)",
+        );
       }
-      const text = body.text.trim();
-      if (text.length === 0) {
-        return fail(400, "invalid_text", "text must not be blank");
-      }
-      const target = resolveTarget(ctx.identity, body.scope, body.scopeId, {
-        allowDefaults: false,
-      });
+      const target = resolveTarget(ctx.identity, body.scope, body.scopeId);
       if ("error" in target) return target.error;
       const author = deps.authorFor(ctx.identity);
       if (!author) {
@@ -310,57 +259,35 @@ export function memoryHandlers(deps: MemoryDeps): Record<string, RouteHandler> {
           "caller identity could not be resolved",
         );
       }
-      const item = deps.supersede({
+      const res = deps.replace({
         scope: target.scope,
         scopeId: target.scopeId,
-        targetId: id,
+        text: body.text,
         author,
-        text,
+        expectedVersion: body.version,
       });
-      if (!item) {
+      if (!res.ok) {
         return fail(
-          404,
-          "memory_not_found",
-          "no active memory with that id in the target",
+          409,
+          "memory_conflict",
+          "the memory file changed since your READ; re-read and retry",
+          { version: res.version },
         );
       }
-      return ok(item);
+      return ok({ version: res.version });
     },
 
-    // Retract by id: append a tombstone line. Explicit target via query params.
-    "memory.delete": (ctx) => {
-      const id = ctx.params.id;
-      if (!MEM_ID.test(id)) {
-        return fail(400, "invalid_id", "malformed memory id");
-      }
-      const scope = ctx.query.get("scope") ?? undefined;
-      const scopeId = ctx.query.get("scopeId") ?? undefined;
-      const target = resolveTarget(ctx.identity, scope, scopeId, {
-        allowDefaults: false,
-      });
-      if ("error" in target) return target.error;
-      const author = deps.authorFor(ctx.identity);
-      if (!author) {
-        return fail(
-          404,
-          "agent_not_found",
-          "caller identity could not be resolved",
-        );
-      }
-      const item = deps.tombstone({
-        scope: target.scope,
-        scopeId: target.scopeId,
-        targetId: id,
-        author,
-      });
-      if (!item) {
-        return fail(
-          404,
-          "memory_not_found",
-          "no active memory with that id in the target",
-        );
-      }
-      return noContent();
+    // Verbatim per-surface reads for the curation textareas (transitional). Each
+    // route is gated to its scope's settings authority by the route table.
+    "memory.raw": () => ok({ text: deps.readRawText("office", null) }),
+    "memory.rawRoom": (ctx) =>
+      ok({ text: deps.readRawText("room", ctx.params.roomId) }),
+    "memory.rawAgent": (ctx) =>
+      ok({ text: deps.readRawText("agent", ctx.params.id) }),
+    "memory.rawUser": (ctx) => {
+      const userId = deps.userIdForUsername(ctx.params.username);
+      if (!userId) return fail(404, "user_not_found", "no such user");
+      return ok({ text: deps.readRawText("boss", userId) });
     },
   };
 }

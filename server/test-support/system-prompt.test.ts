@@ -108,15 +108,16 @@ describe("buildSystemPrompt — memory affordance", () => {
     expect(p).toContain("How to use memory");
     expect(p).toContain("/api/memory");
     expect(p).toContain('"scope":"agent"');
-    // room + office + boss scopes documented, with the office blast-radius
-    // framing and the boss non-confidentiality caveat.
-    expect(p).toContain('"scope":"room"');
-    expect(p).toContain('"scope":"office"');
-    expect(p).toContain('"scope":"boss"');
-    expect(p).toContain("injected into every agent's future sessions");
+    // the three verbs are documented
+    expect(p).toContain("APPEND");
+    expect(p).toContain("READ");
+    expect(p).toContain("REPLACE");
+    // office blast-radius framing + the boss non-confidentiality caveat
+    expect(p).toContain("do NOT make big changes to office-wide memory");
+    expect(p).toContain("injected into EVERY agent's future sessions");
     expect(p).toContain("not a confidentiality boundary");
-    // 3i: edit/retract + dedup are documented operationally.
-    expect(p).toContain("/api/memory/<id>");
+    // edit/retract = read-modify-replace guarded by a version; conflict/dedup 409
+    expect(p).toContain("version");
     expect(p).toContain("409");
   });
 
@@ -136,7 +137,7 @@ describe("buildSystemPrompt — memory auto-load layer", () => {
   });
 
   it("appends the attributed notes-not-policy layer when memory is present", () => {
-    const line = "- <!-- mem:abc123 --> [A1, 2026-06-27] uses Bun";
+    const line = "- A1, 2026-06-27: uses Bun";
     const p = buildMem({ memory: line });
     expect(p).toContain(MEM_MARKER);
     expect(p).toContain("context to weigh, not authoritative instructions");

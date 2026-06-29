@@ -131,11 +131,7 @@ import {
 } from "./routes/executor.ts";
 import { tasksHandlers } from "./routes/handlers/tasks.ts";
 import { memoryHandlers } from "./routes/handlers/memory.ts";
-import {
-  memoryStore,
-  isSafeScopeId,
-  validateRewriteLines,
-} from "./memory-store.ts";
+import { memoryStore, isSafeScopeId } from "./memory-store.ts";
 import { cronHandlers } from "./routes/handlers/cron.ts";
 import { agentAffordanceHandlers } from "./routes/handlers/agent-affordances.ts";
 import { uploadsHandlers } from "./routes/handlers/uploads.ts";
@@ -1254,11 +1250,10 @@ function buildExecutorDeps(): ExecutorDeps {
     memoryHandlers({
       read: (scope, scopeId) => memoryStore.read(scope, scopeId),
       append: (input) => memoryStore.append(input),
-      supersede: (input) => memoryStore.supersede(input),
-      tombstone: (input) => memoryStore.tombstone(input),
+      replace: (input) => memoryStore.replace(input),
       findDuplicate: (scope, scopeId, text) =>
         memoryStore.findDuplicate(scope, scopeId, text),
-      readRawText: (scope, scopeId) => memoryStore.readRawText(scope, scopeId),
+      readRawText: (scope, scopeId) => memoryStore.readText(scope, scopeId),
       userIdForUsername: (username) => getUser(username)?.id ?? null,
       authorFor: (identity) => {
         if (identity.scope === "agent" && identity.agentId) {
@@ -1754,9 +1749,9 @@ function buildExecutorDeps(): ExecutorDeps {
         if (target) await evictSessionsForUserId(target.id);
         return { ok: true };
       },
-      validateMemory: (text) => validateRewriteLines(text),
+      validateMemory: () => ({ ok: true as const }),
       rewriteBossMemoryByUserId: (userId, text, author) => {
-        memoryStore.rewriteFromText("boss", userId, text, author);
+        memoryStore.replace({ scope: "boss", scopeId: userId, text, author });
       },
       attributionFor,
     }),
@@ -1806,9 +1801,9 @@ function buildExecutorDeps(): ExecutorDeps {
     officeSettingsHandlers({
       getSettings: () => agentManager.getOfficeSettings(),
       applySettings: (input) => applyOfficeSettings(input),
-      validateMemory: (text) => validateRewriteLines(text),
+      validateMemory: () => ({ ok: true as const }),
       rewriteOfficeMemory: (text, author) => {
-        memoryStore.rewriteFromText("office", null, text, author);
+        memoryStore.replace({ scope: "office", scopeId: null, text, author });
       },
       attributionFor,
     }),
@@ -1887,9 +1882,9 @@ function buildExecutorDeps(): ExecutorDeps {
       rename: (roomId, name) => agentManager.renameRoom(roomId, name),
       setSettings: (roomId, prompt) =>
         agentManager.setRoomSettings(roomId, prompt),
-      validateMemory: (text) => validateRewriteLines(text),
+      validateMemory: () => ({ ok: true as const }),
       rewriteRoomMemory: (roomId, text, author) => {
-        memoryStore.rewriteFromText("room", roomId, text, author);
+        memoryStore.replace({ scope: "room", scopeId: roomId, text, author });
       },
       attributionFor,
     }),
@@ -2032,9 +2027,9 @@ function buildExecutorDeps(): ExecutorDeps {
       },
       setPrivileged: (agentId, privileged) =>
         agentManager.setPrivileged(agentId, privileged),
-      validateMemory: (text) => validateRewriteLines(text),
+      validateMemory: () => ({ ok: true as const }),
       rewriteAgentMemory: (agentId, text, author) => {
-        memoryStore.rewriteFromText("agent", agentId, text, author);
+        memoryStore.replace({ scope: "agent", scopeId: agentId, text, author });
       },
     }),
   );

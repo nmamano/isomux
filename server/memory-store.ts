@@ -1,22 +1,32 @@
-// isomux-memory storage — the leaf module (slice 3a). Plain-markdown,
-// one-fact-per-line memory under STATE_ROOT/memory/. See
-// internal-docs/isomux-memory-design.md and plans/isomux-memory-loop.md.
+// isomux-memory storage — the leaf module. Raw, unstructured, one-fact-per-line
+// markdown under STATE_ROOT/memory/. See internal-docs/isomux-memory-design.md
+// and plans/isomux-memory-loop.md.
 //
 // The directory tree IS the schema:
 //   <STATE_ROOT>/memory/office.md
 //   <STATE_ROOT>/memory/rooms/<roomId>.md
 //   <STATE_ROOT>/memory/agents/<agentId>.md
 //   <STATE_ROOT>/memory/bosses/<userId>.md
+//   <STATE_ROOT>/memory/.oplog.jsonl   (append-only audit/recovery log)
 //
-// Each fact is one provenance-stamped, id-tagged markdown line:
-//   - <!-- mem:ab12cd --> [Author, 2026-06-27] the self-contained fact
-// The leading mem:ID renders invisibly in markdown and is the stable handle
-// update/retract target (slice 3d).
+// Each fact is one bullet line:
+//   - {Creator}, {YYYY-MM-DD}: {the self-contained fact}
+// There are NO ids and NO supersede/tombstone grammar. There are three verbs:
+//   APPEND  — add one server-stamped line (the safe default).
+//   READ    — return the whole raw file plus an optimistic-concurrency version.
+//   REPLACE — overwrite the whole file, guarded by the version you READ (409 on
+//             mismatch). This is how edits and retractions happen.
+// Every mutating op is recorded to the op-log so a bad write can be restored by
+// re-REPLACEing an earlier `content` snapshot.
 //
-// Pure helpers (format/parse) + an INJECTABLE store (read/append) so unit tests
-// can pin deterministic ids/dates and target a temp dir, while production uses
-// the default singleton against the real STATE_ROOT. Server-only; never reached
-// by the browser bundle.
+// Provenance: APPEND stamps the Creator + date from the authenticated caller. A
+// REPLACE writes the file bytes verbatim (free-form), so in-file creators are
+// DISPLAY ONLY after a rewrite — the op-log `actor` is the authoritative record
+// of who changed what.
+//
+// Pure helpers (format/parse/version) + an INJECTABLE store so unit tests can pin
+// deterministic dates/timestamps and a temp dir, while production uses the default
+// singleton against the real STATE_ROOT. Server-only; never reached by the bundle.
 
 import {
   appendFileSync,
@@ -25,59 +35,45 @@ import {
   writeFileSync,
   renameSync,
 } from "fs";
+import { createHash } from "crypto";
 import { dirname, join } from "path";
 import { STATE_ROOT } from "./config.ts";
 import type { MemoryItem, MemoryScope } from "../shared/types.ts";
 
 // A scopeId (roomId / agentId / userId) is interpolated into a filesystem path,
-// so it MUST be a strict identifier — this is the only thing between a
-// caller-supplied scopeId and path traversal. Reject slashes, dots, anything else.
+// so it MUST be a strict identifier — the only thing between a caller-supplied
+// scopeId and path traversal. Reject slashes, dots, anything else.
 const SAFE_ID = /^[A-Za-z0-9_-]+$/;
 export function isSafeScopeId(id: string): boolean {
   return SAFE_ID.test(id);
-}
-
-// The persisted grammar for an id (mem:ab12cd). append() guards against an
-// injected/buggy generator ever writing an id parseMemoryLine can't read back.
-const MEM_ID_RE = /^[0-9a-f]{6}$/;
-
-// 6 lowercase-hex chars, matching the design example (mem:ab12cd).
-export function genMemId(): string {
-  const bytes = new Uint8Array(3);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 function todayUtc(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+function nowIsoUtc(): string {
+  return new Date().toISOString();
+}
+
 // --- pure format / parse ----------------------------------------------------
 
+// The APPEND line shape: "- {author}, {date}: {text}". REPLACE writes raw bytes
+// and does NOT go through here.
 export function formatMemoryLine(input: {
-  id: string;
   author: string;
   date: string;
   text: string;
-  supersedes?: string | null;
-  tombstones?: string | null;
 }): string {
-  let tag = `mem:${input.id}`;
-  if (input.supersedes) tag += ` supersedes:${input.supersedes}`;
-  else if (input.tombstones) tag += ` tombstones:${input.tombstones}`;
-  return `- <!-- ${tag} --> [${input.author}, ${input.date}] ${input.text}`;
+  return `- ${input.author}, ${input.date}: ${input.text}`;
 }
 
-// Strictly the formatMemoryLine shape (tolerant of trailing whitespace). Returns
-// null for any non-conforming line (blanks, prose, future grammar) so the loader
-// silently skips junk rather than corrupting the list. The id is anchored to 6
-// hex; the author capture is lazy so a comma in a name still parses (the date
-// pattern is the real delimiter).
-// The optional ` supersedes:OLD` / ` tombstones:OLD` token (slice 3d) is anchored
-// to a 6-hex target — a malformed relation id makes the WHOLE line fail to match
-// (skipped as junk), so the resolver never sees a bad relation id.
-const LINE_RE =
-  /^- <!-- mem:([0-9a-f]{6})(?: (supersedes|tombstones):([0-9a-f]{6}))? --> \[(.+?), (\d{4}-\d{2}-\d{2})\] (.*\S)\s*$/;
+// Best-effort parse of an APPEND-shaped line, used only for the exact-duplicate
+// guard and provenance display. The date (YYYY-MM-DD) is the anchor, so an author
+// containing a comma still parses (the author capture is lazy). A free-form line
+// written by a human REPLACE that doesn't match simply yields null and doesn't
+// participate in dedup — raw memory is allowed to be unstructured.
+const LINE_RE = /^- (.+?), (\d{4}-\d{2}-\d{2}): (.*\S)\s*$/;
 
 export function parseMemoryLine(
   raw: string,
@@ -86,59 +82,22 @@ export function parseMemoryLine(
 ): MemoryItem | null {
   const m = LINE_RE.exec(raw);
   if (!m) return null;
-  const relType = m[2]; // "supersedes" | "tombstones" | undefined
-  const relTarget = m[3] ?? null;
   return {
-    id: m[1],
     scope,
     scopeId,
-    author: m[4],
-    date: m[5],
-    text: m[6],
-    factType: null, // not persisted in the line as of slice 3a
-    supersedes: relType === "supersedes" ? relTarget : null,
-    tombstones: relType === "tombstones" ? relTarget : null,
+    author: m[1],
+    date: m[2],
+    text: m[3],
     raw: raw.replace(/\s+$/, ""),
   };
 }
 
-// Every conforming line (plain fact + supersede/tombstone control lines), in
-// file order. This is the RAW view; resolveActiveMemory derives the active set.
-export function parseMemoryFile(
-  content: string,
-  scope: MemoryScope,
-  scopeId: string | null,
-): MemoryItem[] {
-  const out: MemoryItem[] = [];
-  for (const line of content.split("\n")) {
-    const item = parseMemoryLine(line, scope, scopeId);
-    if (item) out.push(item);
-  }
-  return out;
-}
-
-// Resolve the ACTIVE set from raw parsed lines: drop tombstone control lines and
-// any id referenced by a supersedes:/tombstones: relation. Chains resolve
-// naturally (old suppressed by new, new suppressed by newer -> only newest
-// active). A relation pointing at an id not present in the file is ignored.
-export function resolveActiveMemory(raw: readonly MemoryItem[]): MemoryItem[] {
-  const suppressed = new Set<string>();
-  for (const m of raw) {
-    if (m.supersedes) suppressed.add(m.supersedes);
-    if (m.tombstones) suppressed.add(m.tombstones);
-  }
-  return raw.filter((m) => !m.tombstones && !suppressed.has(m.id));
-}
-
-// --- write-time dedup guard (slice 3e) --------------------------------------
-
-// A single central threshold, identical across scopes (design Q3). 0.9 mostly
-// catches reordered or tiny-restated facts — the right blast radius for v1.
-export const DEDUP_THRESHOLD = 0.9;
+// --- exact-duplicate guard (append-time) ------------------------------------
 
 // trim -> lowercase -> collapse internal whitespace -> strip ONLY terminal
-// punctuation (so internal hyphens/slashes/dots in `isomux-active`, paths, IPs,
-// and IDs survive).
+// punctuation (so internal hyphens/slashes/dots in `isomux-active`, paths, IPs
+// survive). Normalization is for COMPARISON only; the stored line keeps the
+// original text verbatim.
 export function normalizeForDedup(text: string): string {
   return text
     .trim()
@@ -148,26 +107,14 @@ export function normalizeForDedup(text: string): string {
     .trim();
 }
 
-// Token-set Jaccard over whitespace tokens. No stemming / synonyms / stop-words.
-export function jaccardSimilarity(a: string, b: string): number {
-  const ta = new Set(a.split(" ").filter(Boolean));
-  const tb = new Set(b.split(" ").filter(Boolean));
-  if (ta.size === 0 && tb.size === 0) return 1;
-  let inter = 0;
-  for (const t of ta) if (tb.has(t)) inter++;
-  const union = ta.size + tb.size - inter;
-  return union === 0 ? 0 : inter / union;
+// True when `text` is a normalized-exact restatement of `existing`. The single
+// non-prompt guardrail: cheap, deterministic, catches an agent re-adding a fact
+// it doesn't remember writing. No fuzzy matching (a reword is allowed through).
+export function isExactDuplicateText(text: string, existing: string): boolean {
+  return normalizeForDedup(text) === normalizeForDedup(existing);
 }
 
-// True when `text` is a normalized-exact or fuzzy (Jaccard >= threshold) restatement
-// of `existing`.
-export function isDuplicateText(text: string, existing: string): boolean {
-  const a = normalizeForDedup(text);
-  const b = normalizeForDedup(existing);
-  return a === b || jaccardSimilarity(a, b) >= DEDUP_THRESHOLD;
-}
-
-// --- per-scope injected-size caps (slice 3f) --------------------------------
+// --- per-scope injected-size caps -------------------------------------------
 
 // Max injected size per scope, in characters (Nil-set). Office/room are smaller
 // than boss/agent because they reach more people. Central + exported; injectable
@@ -179,12 +126,11 @@ export const MEMORY_CAPS: Record<MemoryScope, number> = {
   boss: 5000,
 };
 
-// Appended when a scope is truncated. A fixed diagnostic OUTSIDE the cap budget
-// (the cap budgets memory lines; the notice is always added when over cap).
+// Appended when a scope is truncated. A fixed diagnostic OUTSIDE the cap budget.
 export const OVER_CAP_NOTICE =
   "Not all memories fit. Consider suggesting the boss to trim them.";
 
-// Join active raw lines under a char cap: keep the NEWEST (end of file) that fit,
+// Join non-empty lines under a char cap: keep the NEWEST (end of file) that fit,
 // present survivors in FILE ORDER, append the notice when anything was dropped.
 // A single line longer than the cap yields the notice alone.
 export function renderCapped(lines: readonly string[], cap: number): string {
@@ -203,21 +149,35 @@ export function renderCapped(lines: readonly string[], cap: number): string {
   return body.length ? `${body}\n${OVER_CAP_NOTICE}` : OVER_CAP_NOTICE;
 }
 
-// Validate a curation textarea WITHOUT writing: a non-empty line that looks like
-// a memory control tag (`<!-- mem:`) but doesn't parse is a typo -> {ok:false}
-// with its 1-based line number. Plain id-less lines are fine (they'd be stamped).
-// Scope-independent (parse validity doesn't depend on scope).
-export function validateRewriteLines(
-  text: string,
-): { ok: true } | { ok: false; lineNumber: number } {
-  const lines = text.split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    const trimmed = lines[i].trim();
-    if (trimmed === "") continue;
-    if (parseMemoryLine(trimmed, "office", null)) continue;
-    if (trimmed.includes("<!-- mem:")) return { ok: false, lineNumber: i + 1 };
-  }
-  return { ok: true };
+// --- optimistic-concurrency version -----------------------------------------
+
+// Short sha256 of the exact file bytes. A missing/empty file hashes "" to a fixed
+// value (sha256("")[:12]), which serves as the missing-file sentinel — so a
+// READ -> REPLACE round-trip works on a never-written scope. 12 hex chars keeps
+// collision anxiety out of reviews while staying compact.
+export function versionOf(content: string): string {
+  return createHash("sha256")
+    .update(content, "utf8")
+    .digest("hex")
+    .slice(0, 12);
+}
+
+// --- op-log -----------------------------------------------------------------
+
+// One append-only audit/recovery record per successful mutating op. `content` is
+// the EXACT full file bytes after the op, so manual recovery is just re-REPLACEing
+// an earlier snapshot. `actor` is server-stamped (the authenticated caller) and is
+// the authoritative who-did-what, independent of in-file creators after a rewrite.
+export interface OpLogEntry {
+  ts: string; // ISO-8601
+  actor: string;
+  scope: MemoryScope;
+  scopeId: string | null;
+  op: "append" | "replace";
+  text: string; // the appended fact, or "(full rewrite)" for replace
+  content: string; // full file bytes after the op
+  version: string; // post-op version
+  previousVersion?: string; // pre-op version (replace only)
 }
 
 // --- the injectable store ---------------------------------------------------
@@ -230,90 +190,71 @@ export interface MemoryScopeRef {
   label: string;
 }
 
-// Result of a human textarea rewrite (slice 3g). ok:false carries the 1-based
-// line number of a malformed memory control line so the UI can point at the typo.
-export type MemoryRewriteResult =
-  | { ok: true; items: MemoryItem[] }
-  | { ok: false; lineNumber: number };
+export interface MemoryReadResult {
+  text: string;
+  version: string;
+}
+
+export interface MemoryAppendResult {
+  item: MemoryItem;
+  version: string;
+}
+
+export type MemoryReplaceResult =
+  | { ok: true; version: string }
+  | { ok: false; conflict: true; version: string };
 
 export interface MemoryStore {
-  // The RESOLVED ACTIVE set (superseded/retracted lines removed, tombstone
-  // control lines dropped). For GET, prompt injection, and the active-id checks.
-  read(scope: MemoryScope, scopeId: string | null): MemoryItem[];
-  // Every CONFORMING memory entry in file order (active + superseded + tombstone
-  // control); non-memory junk lines are skipped. For provenance/audit and the
-  // active-id checks. (Slice 3g's textarea, which needs the verbatim file text
-  // including junk, will read the raw bytes separately.)
-  readRaw(scope: MemoryScope, scopeId: string | null): MemoryItem[];
+  // The whole raw file (verbatim bytes, "" if missing) plus its version. Uncapped.
+  read(scope: MemoryScope, scopeId: string | null): MemoryReadResult;
+  // Raw file bytes only (verbatim, "" if missing). For callers that don't need a
+  // version (auto-load render, dedup, the transitional curation reads).
+  readText(scope: MemoryScope, scopeId: string | null): string;
+  // Append one server-stamped line. Returns the new item + post-write version.
   append(input: {
     scope: MemoryScope;
     scopeId: string | null;
     author: string;
     text: string;
-  }): MemoryItem;
-  // Edit: append a supersede line replacing targetId with new text. Returns null
-  // if targetId is not an ACTIVE id in the target file (absent / already
-  // superseded / already tombstoned). Append-only — never rewrites.
-  supersede(input: {
+  }): MemoryAppendResult;
+  // Overwrite the whole file. If expectedVersion is given and no longer matches
+  // the current file, returns a conflict (with the current version) and writes
+  // nothing. Omit expectedVersion to force (human/owner curation save). `author`
+  // is the op-log actor only — the file bytes are written verbatim.
+  replace(input: {
     scope: MemoryScope;
     scopeId: string | null;
-    targetId: string;
-    author: string;
     text: string;
-  }): MemoryItem | null;
-  // Retract: append a tombstone control line for targetId. Returns null if
-  // targetId is not an ACTIVE id in the target file. Append-only.
-  tombstone(input: {
-    scope: MemoryScope;
-    scopeId: string | null;
-    targetId: string;
     author: string;
-  }): MemoryItem | null;
-  // The first ACTIVE line in this scope that `text` restates (normalized-exact or
-  // fuzzy), or null. The write-time dedup guard (slice 3e); matches the active
-  // set only, so a duplicate of a superseded/retracted line is allowed.
+    expectedVersion?: string | null;
+  }): MemoryReplaceResult;
+  // The first line in this scope that `text` exactly restates (normalized), or
+  // null. The write-time dedup guard (APPEND only).
   findDuplicate(
     scope: MemoryScope,
     scopeId: string | null,
     text: string,
   ): MemoryItem | null;
-  // The verbatim file bytes (incl trailing newline), or "" if missing. The
-  // human-curation LOAD path (slice 3g) — shows superseded/tombstone lines too.
-  readRawText(scope: MemoryScope, scopeId: string | null): string;
-  // Human textarea rewrite (slice 3g) — the explicit APPEND-ONLY EXCEPTION. Keeps
-  // valid existing lines verbatim (id/provenance/relations), stamps id-less lines
-  // with `author` + today, drops removed lines; whole-file atomic overwrite. A
-  // line that looks like a memory control tag but doesn't parse -> {ok:false}.
-  rewriteFromText(
-    scope: MemoryScope,
-    scopeId: string | null,
-    text: string,
-    author: string,
-  ): MemoryRewriteResult;
-  // Active raw lines joined for prompt injection, or null when empty/missing.
+  // Non-empty file lines joined under the per-scope cap, or null when empty.
   renderForPrompt(scope: MemoryScope, scopeId: string | null): string | null;
   // Several scopes combined into one body for the single auto-load layer: each
   // NON-EMPTY scope contributes a "<label>:\n<lines>" block, in the given order;
-  // returns null when every scope is empty. Labels are plain text, NOT markdown
-  // headings, so the memory layer stays one visual section.
+  // null when every scope is empty. Labels are plain text, NOT markdown headings.
   renderForPromptMulti(refs: readonly MemoryScopeRef[]): string | null;
 }
 
 export interface MemoryStoreDeps {
   stateRoot?: string;
-  genId?: () => string;
-  today?: () => string;
+  today?: () => string; // YYYY-MM-DD, for the in-file date
+  now?: () => string; // ISO timestamp, for the op-log ts
   // Per-scope injected-size caps; defaults to MEMORY_CAPS. Tests inject tiny caps.
   caps?: Record<MemoryScope, number>;
 }
 
-// A bad injected generator (always-collide) must error, never spin forever.
-const MAX_ID_RETRIES = 50;
-
 export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
   const stateRoot = deps.stateRoot ?? STATE_ROOT;
-  const genId = deps.genId ?? genMemId;
   const today = deps.today ?? todayUtc;
+  const now = deps.now ?? nowIsoUtc;
   const caps = deps.caps ?? MEMORY_CAPS;
 
   function filePath(scope: MemoryScope, scopeId: string | null): string {
@@ -330,76 +271,23 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
     }
   }
 
-  function readRaw(scope: MemoryScope, scopeId: string | null): MemoryItem[] {
-    let content: string;
+  function readText(scope: MemoryScope, scopeId: string | null): string {
     try {
-      content = readFileSync(filePath(scope, scopeId), "utf8");
+      return readFileSync(filePath(scope, scopeId), "utf8");
     } catch {
-      return []; // missing file => no memory
+      return ""; // missing file => no memory
     }
-    return parseMemoryFile(content, scope, scopeId);
   }
 
-  function read(scope: MemoryScope, scopeId: string | null): MemoryItem[] {
-    return resolveActiveMemory(readRaw(scope, scopeId));
+  function read(scope: MemoryScope, scopeId: string | null): MemoryReadResult {
+    const text = readText(scope, scopeId);
+    return { text, version: versionOf(text) };
   }
 
-  // Mint a 6-hex id absent from `used`, retrying on collision or a malformed
-  // injected id; throws after the cap so a bad generator can't spin forever.
-  function mintFreshId(used: Set<string>): string {
-    let id = genId();
-    let tries = 0;
-    while (used.has(id) || !MEM_ID_RE.test(id)) {
-      if (++tries > MAX_ID_RETRIES) {
-        throw new Error(
-          `memory-store: could not mint a unique valid id after ${MAX_ID_RETRIES} tries`,
-        );
-      }
-      id = genId();
-    }
-    return id;
-  }
-
-  // The shared writer for all line kinds (plain fact, supersede, tombstone). The
-  // collision set is built from the RAW ids so a fresh id never reuses a
-  // superseded/tombstoned id still present on disk.
-  function appendLine(input: {
-    scope: MemoryScope;
-    scopeId: string | null;
-    author: string;
-    text: string;
-    supersedes?: string | null;
-    tombstones?: string | null;
-  }): MemoryItem {
-    const id = mintFreshId(
-      new Set(readRaw(input.scope, input.scopeId).map((m) => m.id)),
-    );
-    const date = today();
-    const supersedes = input.supersedes ?? null;
-    const tombstones = input.tombstones ?? null;
-    const line = formatMemoryLine({
-      id,
-      author: input.author,
-      date,
-      text: input.text,
-      supersedes,
-      tombstones,
-    });
-    const path = filePath(input.scope, input.scopeId);
+  function logOp(entry: OpLogEntry): void {
+    const path = join(stateRoot, "memory", ".oplog.jsonl");
     mkdirSync(dirname(path), { recursive: true });
-    appendFileSync(path, line + "\n");
-    return {
-      id,
-      scope: input.scope,
-      scopeId: input.scopeId,
-      author: input.author,
-      date,
-      text: input.text,
-      factType: null,
-      supersedes,
-      tombstones,
-      raw: line,
-    };
+    appendFileSync(path, JSON.stringify(entry) + "\n");
   }
 
   function append(input: {
@@ -407,43 +295,77 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
     scopeId: string | null;
     author: string;
     text: string;
-  }): MemoryItem {
-    return appendLine(input);
-  }
-
-  function supersede(input: {
-    scope: MemoryScope;
-    scopeId: string | null;
-    targetId: string;
-    author: string;
-    text: string;
-  }): MemoryItem | null {
-    const active = read(input.scope, input.scopeId);
-    if (!active.some((m) => m.id === input.targetId)) return null;
-    return appendLine({
-      scope: input.scope,
-      scopeId: input.scopeId,
+  }): MemoryAppendResult {
+    const date = today();
+    const line = formatMemoryLine({
       author: input.author,
+      date,
       text: input.text,
-      supersedes: input.targetId,
     });
-  }
-
-  function tombstone(input: {
-    scope: MemoryScope;
-    scopeId: string | null;
-    targetId: string;
-    author: string;
-  }): MemoryItem | null {
-    const active = read(input.scope, input.scopeId);
-    if (!active.some((m) => m.id === input.targetId)) return null;
-    return appendLine({
+    const path = filePath(input.scope, input.scopeId);
+    mkdirSync(dirname(path), { recursive: true });
+    appendFileSync(path, line + "\n");
+    const content = readText(input.scope, input.scopeId);
+    const version = versionOf(content);
+    logOp({
+      ts: now(),
+      actor: input.author,
       scope: input.scope,
       scopeId: input.scopeId,
-      author: input.author,
-      text: "(retracted)",
-      tombstones: input.targetId,
+      op: "append",
+      text: input.text,
+      content,
+      version,
     });
+    return {
+      item: {
+        scope: input.scope,
+        scopeId: input.scopeId,
+        author: input.author,
+        date,
+        text: input.text,
+        raw: line,
+      },
+      version,
+    };
+  }
+
+  function replace(input: {
+    scope: MemoryScope;
+    scopeId: string | null;
+    text: string;
+    author: string;
+    expectedVersion?: string | null;
+  }): MemoryReplaceResult {
+    // Read current state + version check + write are ONE synchronous task, so the
+    // single-threaded event loop serializes concurrent replaces (no lost update).
+    const current = readText(input.scope, input.scopeId);
+    const currentVersion = versionOf(current);
+    if (
+      input.expectedVersion != null &&
+      input.expectedVersion !== currentVersion
+    ) {
+      return { ok: false, conflict: true, version: currentVersion };
+    }
+    const content = input.text;
+    const path = filePath(input.scope, input.scopeId);
+    mkdirSync(dirname(path), { recursive: true });
+    const tmp = `${path}.tmp`;
+    writeFileSync(tmp, content);
+    renameSync(tmp, path);
+    const version = versionOf(content);
+    logOp({
+      ts: now(),
+      actor: input.author,
+      scope: input.scope,
+      scopeId: input.scopeId,
+      op: "replace",
+      text: "(full rewrite)",
+      content,
+      version,
+      previousVersion: currentVersion,
+    });
+    return { ok: true, version };
   }
 
   function findDuplicate(
@@ -451,74 +373,22 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
     scopeId: string | null,
     text: string,
   ): MemoryItem | null {
-    for (const m of read(scope, scopeId)) {
-      if (isDuplicateText(text, m.text)) return m;
+    for (const line of readText(scope, scopeId).split("\n")) {
+      const item = parseMemoryLine(line, scope, scopeId);
+      if (item && isExactDuplicateText(text, item.text)) return item;
     }
     return null;
-  }
-
-  function readRawText(scope: MemoryScope, scopeId: string | null): string {
-    try {
-      return readFileSync(filePath(scope, scopeId), "utf8");
-    } catch {
-      return "";
-    }
-  }
-
-  function rewriteFromText(
-    scope: MemoryScope,
-    scopeId: string | null,
-    text: string,
-    author: string,
-  ): MemoryRewriteResult {
-    const malformed = validateRewriteLines(text);
-    if (!malformed.ok) return malformed;
-    const used = new Set<string>();
-    const planned: ({ keep: string } | { stamp: string })[] = [];
-    for (const line of text.split("\n")) {
-      const trimmed = line.trim();
-      if (trimmed === "") continue;
-      const parsed = parseMemoryLine(trimmed, scope, scopeId);
-      if (parsed) {
-        planned.push({ keep: parsed.raw });
-        used.add(parsed.id); // seed collisions with ALL kept ids first
-      } else {
-        planned.push({ stamp: trimmed }); // plain id-less line -> stamp
-      }
-    }
-    const date = today();
-    const out: string[] = [];
-    for (const p of planned) {
-      if ("keep" in p) {
-        out.push(p.keep);
-      } else {
-        const id = mintFreshId(used);
-        used.add(id);
-        out.push(formatMemoryLine({ id, author, date, text: p.stamp }));
-      }
-    }
-    const content = out.length ? out.join("\n") + "\n" : "";
-    const path = filePath(scope, scopeId);
-    mkdirSync(dirname(path), { recursive: true });
-    const tmp = `${path}.tmp`;
-    writeFileSync(tmp, content);
-    renameSync(tmp, path);
-    return {
-      ok: true,
-      items: resolveActiveMemory(parseMemoryFile(content, scope, scopeId)),
-    };
   }
 
   function renderForPrompt(
     scope: MemoryScope,
     scopeId: string | null,
   ): string | null {
-    const items = read(scope, scopeId);
-    if (items.length === 0) return null;
-    return renderCapped(
-      items.map((m) => m.raw),
-      caps[scope],
-    );
+    const lines = readText(scope, scopeId)
+      .split("\n")
+      .filter((l) => l.trim() !== "");
+    if (lines.length === 0) return null;
+    return renderCapped(lines, caps[scope]);
   }
 
   function renderForPromptMulti(
@@ -534,18 +404,15 @@ export function createMemoryStore(deps: MemoryStoreDeps = {}): MemoryStore {
 
   return {
     read,
-    readRaw,
+    readText,
     append,
-    supersede,
-    tombstone,
+    replace,
     findDuplicate,
-    readRawText,
-    rewriteFromText,
     renderForPrompt,
     renderForPromptMulti,
   };
 }
 
-// Default production store against the real STATE_ROOT. Used by the route
-// handler, agent-manager auto-load, and the /isomux-system-prompt inspector.
+// Default production store against the real STATE_ROOT. Used by the route handler,
+// agent-manager auto-load, and the /isomux-system-prompt inspector.
 export const memoryStore = createMemoryStore();

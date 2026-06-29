@@ -313,10 +313,9 @@ const SPEC_ROUTE_CONTRACT: Record<
   // System
   "system.backupStatus": { caps: ["office:read"], emits: [] },
   // Memory (isomux-memory)
-  "memory.list": { caps: ["memory:read"], emits: [] },
-  "memory.create": { caps: ["memory:write"], emits: [] },
-  "memory.update": { caps: ["memory:write"], emits: [] },
-  "memory.delete": { caps: ["memory:write"], emits: [] },
+  "memory.read": { caps: ["memory:read"], emits: [] },
+  "memory.append": { caps: ["memory:write"], emits: [] },
+  "memory.replace": { caps: ["memory:write"], emits: [] },
   "memory.raw": { caps: ["office:admin"], emits: [] },
   "memory.rawRoom": { caps: ["room:manage"], emits: [] },
   "memory.rawAgent": { caps: ["agent:manage"], emits: [] },

@@ -52,7 +52,6 @@ import type {
   Attachment,
   BackendModelWire,
   LogEntry,
-  MemoryItem,
 } from "../../shared/types.ts";
 import type {
   SpawnReq,
@@ -89,7 +88,10 @@ import type {
   TaskUpdateReq,
   TaskClaimReq,
   MemoryCreateReq,
-  MemoryUpdateReq,
+  MemoryReplaceReq,
+  MemoryReadRes,
+  MemoryAppendRes,
+  MemoryWriteRes,
   CronCreateReq,
   CronUpdateReq,
   CronRunMessageReq,
@@ -704,39 +706,35 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
 
   // --- Memory (isomux-memory; durable shared facts) -------------------------
-  // GET/POST + PATCH/DELETE (supersede/tombstone); all scopes; authenticated +
-  // target-existence gated (permissive, no per-scope access gate).
-  defineRoute<void, MemoryItem[]>({
-    opId: "memory.list",
+  // Three verbs: READ (whole file + version), APPEND (one server-stamped line),
+  // REPLACE (whole-file overwrite, version-guarded). All scopes; authenticated +
+  // target-existence gated (permissive on every verb, no per-scope access gate —
+  // Nil's product decision; restraint lives in the system-prompt affordance).
+  defineRoute<void, MemoryReadRes>({
+    opId: "memory.read",
     method: "GET",
     path: "/api/memory",
     auth: cap("memory:read", authenticated),
     emits: [],
   }),
-  defineRoute<MemoryCreateReq, MemoryItem>({
-    opId: "memory.create",
+  defineRoute<MemoryCreateReq, MemoryAppendRes>({
+    opId: "memory.append",
     method: "POST",
     path: "/api/memory",
     auth: cap("memory:write", authenticated),
     emits: [],
   }),
-  defineRoute<MemoryUpdateReq, MemoryItem>({
-    opId: "memory.update",
-    method: "PATCH",
-    path: "/api/memory/:id",
+  defineRoute<MemoryReplaceReq, MemoryWriteRes>({
+    opId: "memory.replace",
+    method: "PUT",
+    path: "/api/memory",
     auth: cap("memory:write", authenticated),
     emits: [],
   }),
-  defineRoute<void, NoContent>({
-    opId: "memory.delete",
-    method: "DELETE",
-    path: "/api/memory/:id",
-    auth: cap("memory:write", authenticated),
-    emits: [],
-  }),
-  // Verbatim file text for human curation (incl superseded/tombstone lines). Each
-  // raw-read route MIRRORS its scope's settings path so it reuses that surface's
-  // exact authority (NOT the general memory:read agents hold). { text } only.
+  // Verbatim file text for human curation (transitional; the UI moves to the
+  // unified READ in a follow-up). Each raw-read route MIRRORS its scope's settings
+  // path so it reuses that surface's exact authority (NOT the general memory:read
+  // agents hold). { text } only.
   defineRoute<void, { text: string }>({
     opId: "memory.raw",
     method: "GET",

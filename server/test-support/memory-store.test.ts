@@ -1,25 +1,23 @@
-// isomux-memory storage — T0 unit tests (slice 3a). Pure format/parse + the
-// injectable store against a temp dir with deterministic id/date. No server, no
-// LLM, no network. See server/memory-store.ts.
+// isomux-memory storage — T0 unit tests. Raw one-fact-per-line markdown + the
+// injectable store against a temp dir with deterministic date/timestamp. No
+// server, no LLM, no network. See server/memory-store.ts.
 
 import { describe, it, expect, afterEach } from "bun:test";
-import { mkdtempSync, rmSync, readFileSync, mkdirSync } from "fs";
+import { mkdtempSync, rmSync, readFileSync, existsSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import {
   formatMemoryLine,
   parseMemoryLine,
-  parseMemoryFile,
   createMemoryStore,
   isSafeScopeId,
-  genMemId,
   normalizeForDedup,
-  jaccardSimilarity,
-  isDuplicateText,
-  DEDUP_THRESHOLD,
+  isExactDuplicateText,
+  versionOf,
   MEMORY_CAPS,
   OVER_CAP_NOTICE,
-  validateRewriteLines,
+  renderCapped,
+  type OpLogEntry,
 } from "../memory-store.ts";
 
 const dirs: string[] = [];
@@ -32,901 +30,324 @@ afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
 
+const DATE = "2026-06-28";
+const TS = "2026-06-28T12:00:00.000Z";
+function freshStore(opts?: { caps?: Record<string, number> }) {
+  const root = tempRoot();
+  const store = createMemoryStore({
+    stateRoot: root,
+    today: () => DATE,
+    now: () => TS,
+    caps: opts?.caps as
+      | Record<"office" | "room" | "agent" | "boss", number>
+      | undefined,
+  });
+  return { root, store };
+}
+function opLog(root: string): OpLogEntry[] {
+  const path = join(root, "memory", ".oplog.jsonl");
+  if (!existsSync(path)) return [];
+  return readFileSync(path, "utf8")
+    .split("\n")
+    .filter(Boolean)
+    .map((l) => JSON.parse(l) as OpLogEntry);
+}
+
 describe("memory-store: format/parse", () => {
-  it("formatMemoryLine renders the exact design line shape", () => {
+  it("formatMemoryLine renders the raw bullet shape", () => {
     expect(
       formatMemoryLine({
-        id: "ab12cd",
         author: "Isomuxer3",
-        date: "2026-06-27",
+        date: "2026-06-28",
         text: "no em dashes in prose",
       }),
-    ).toBe(
-      "- <!-- mem:ab12cd --> [Isomuxer3, 2026-06-27] no em dashes in prose",
-    );
+    ).toBe("- Isomuxer3, 2026-06-28: no em dashes in prose");
   });
 
   it("parseMemoryLine round-trips a formatted line", () => {
     const raw = formatMemoryLine({
-      id: "00ffaa",
       author: "Bot",
-      date: "2026-01-02",
-      text: "this room uses Bun",
+      date: "2026-06-28",
+      text: "a fact",
     });
-    const item = parseMemoryLine(raw, "agent", "agent-1");
+    const item = parseMemoryLine(raw, "office", null);
     expect(item).toEqual({
-      id: "00ffaa",
-      scope: "agent",
-      scopeId: "agent-1",
+      scope: "office",
+      scopeId: null,
       author: "Bot",
-      date: "2026-01-02",
-      text: "this room uses Bun",
-      factType: null,
-      supersedes: null,
-      tombstones: null,
+      date: "2026-06-28",
+      text: "a fact",
       raw,
     });
   });
 
-  it("parseMemoryLine rejects junk (blank lines, prose, bad id)", () => {
-    expect(parseMemoryLine("", "office", null)).toBeNull();
+  it("parseMemoryLine tolerates a comma in the author (date is the anchor)", () => {
+    const item = parseMemoryLine(
+      "- Dr. No, Esq., 2026-06-28: spies are durable",
+      "agent",
+      "a1",
+    );
+    expect(item?.author).toBe("Dr. No, Esq.");
+    expect(item?.text).toBe("spies are durable");
+  });
+
+  it("parseMemoryLine returns null for free-form / non-matching lines", () => {
     expect(parseMemoryLine("just some prose", "office", null)).toBeNull();
-    // 8-hex id (wrong width) does not parse — the grammar is strict.
+    expect(parseMemoryLine("", "office", null)).toBeNull();
+    // old id-tagged format no longer parses (treated as raw text)
     expect(
       parseMemoryLine(
-        "- <!-- mem:deadbeef --> [X, 2026-01-01] hi",
+        "- <!-- mem:ab12cd --> [X, 2026-06-28] y",
         "office",
         null,
       ),
     ).toBeNull();
   });
+});
 
-  it("parseMemoryFile keeps only conforming lines, in file order", () => {
-    const content = [
-      "- <!-- mem:aaaaaa --> [A, 2026-01-01] first",
-      "garbage",
-      "",
-      "- <!-- mem:bbbbbb --> [B, 2026-01-02] second",
-    ].join("\n");
-    const items = parseMemoryFile(content, "room", "room-1");
-    expect(items.map((m) => m.id)).toEqual(["aaaaaa", "bbbbbb"]);
-    expect(items.map((m) => m.text)).toEqual(["first", "second"]);
+describe("memory-store: version", () => {
+  it("is deterministic and 12 hex chars", () => {
+    const v = versionOf("hello\n");
+    expect(v).toMatch(/^[0-9a-f]{12}$/);
+    expect(versionOf("hello\n")).toBe(v);
+  });
+  it("empty content hashes to a fixed sentinel; different content differs", () => {
+    expect(versionOf("")).toBe(versionOf(""));
+    expect(versionOf("a")).not.toBe(versionOf("b"));
+    // same length, different bytes still differ (sha, not size)
+    expect(versionOf("ab")).not.toBe(versionOf("ba"));
   });
 });
 
-describe("memory-store: isSafeScopeId / genMemId", () => {
-  it("accepts plain identifiers, rejects path traversal", () => {
-    expect(isSafeScopeId("agent-1779193515618-0wxo")).toBe(true);
-    expect(isSafeScopeId("../etc/passwd")).toBe(false);
+describe("memory-store: dedup helpers", () => {
+  it("normalizeForDedup trims, lowercases, collapses ws, strips terminal punct", () => {
+    expect(normalizeForDedup("  Hello   World!! ")).toBe("hello world");
+    // internal punctuation survives
+    expect(normalizeForDedup("use ~/isomux-active.")).toBe(
+      "use ~/isomux-active",
+    );
+  });
+  it("isExactDuplicateText matches normalized restatements, not rewords", () => {
+    expect(isExactDuplicateText("Foo bar.", "foo  bar")).toBe(true);
+    expect(isExactDuplicateText("foo bar baz", "foo bar")).toBe(false);
+  });
+});
+
+describe("memory-store: caps", () => {
+  it("MEMORY_CAPS are the Nil-set values", () => {
+    expect(MEMORY_CAPS).toEqual({
+      office: 2500,
+      room: 3500,
+      agent: 5000,
+      boss: 5000,
+    });
+  });
+  it("renderCapped: under cap returns all; over cap keeps newest + notice", () => {
+    const lines = ["- a", "- b", "- c"];
+    expect(renderCapped(lines, 100)).toBe("- a\n- b\n- c");
+    // tiny cap: only the newest line(s) that fit survive, in file order
+    const capped = renderCapped(lines, 4);
+    expect(capped).toBe(`- c\n${OVER_CAP_NOTICE}`);
+  });
+  it("renderCapped: a single line longer than the cap yields the notice alone", () => {
+    expect(renderCapped(["- way too long for the cap"], 5)).toBe(
+      OVER_CAP_NOTICE,
+    );
+  });
+});
+
+describe("memory-store: isSafeScopeId", () => {
+  it("accepts identifiers, rejects traversal/slashes", () => {
+    expect(isSafeScopeId("room-1_A")).toBe(true);
+    expect(isSafeScopeId("../etc")).toBe(false);
     expect(isSafeScopeId("a/b")).toBe(false);
-    expect(isSafeScopeId("a.b")).toBe(false);
-    expect(isSafeScopeId("a%2fb")).toBe(false);
     expect(isSafeScopeId("")).toBe(false);
   });
+});
 
-  it("genMemId is 6 lowercase hex chars", () => {
-    for (let i = 0; i < 50; i++) {
-      expect(genMemId()).toMatch(/^[0-9a-f]{6}$/);
-    }
+describe("memory-store: append", () => {
+  it("writes a server-stamped raw line and bumps the version", () => {
+    const { root, store } = freshStore();
+    const before = store.read("agent", "a1");
+    expect(before).toEqual({ text: "", version: versionOf("") });
+
+    const res = store.append({
+      scope: "agent",
+      scopeId: "a1",
+      author: "Bot",
+      text: "a durable fact",
+    });
+    expect(res.item.raw).toBe("- Bot, 2026-06-28: a durable fact");
+    const after = store.read("agent", "a1");
+    expect(after.text).toBe("- Bot, 2026-06-28: a durable fact\n");
+    expect(after.version).toBe(res.version);
+    expect(after.version).not.toBe(before.version);
+    void root;
+  });
+
+  it("logs an append op with server-stamped actor + post-op content", () => {
+    const { root, store } = freshStore();
+    store.append({ scope: "office", scopeId: null, author: "Nil", text: "x" });
+    const log = opLog(root);
+    expect(log).toHaveLength(1);
+    expect(log[0]).toMatchObject({
+      ts: TS,
+      actor: "Nil",
+      scope: "office",
+      scopeId: null,
+      op: "append",
+      text: "x",
+      content: "- Nil, 2026-06-28: x\n",
+    });
+    expect(log[0].version).toBe(store.read("office", null).version);
+  });
+
+  it("findDuplicate matches an exact active restatement, not a reword", () => {
+    const { store } = freshStore();
+    store.append({
+      scope: "room",
+      scopeId: "r1",
+      author: "A",
+      text: "Deploys at 9.",
+    });
+    expect(store.findDuplicate("room", "r1", "deploys at 9")).not.toBeNull();
+    expect(store.findDuplicate("room", "r1", "deploys at 09:00")).toBeNull();
+    // per-scope: same text in another scope is not a dup
+    expect(store.findDuplicate("office", null, "deploys at 9")).toBeNull();
   });
 });
 
-describe("memory-store: append + read (injected id/date, temp dir)", () => {
-  it("append writes a deterministic line and read parses it back", () => {
-    const stateRoot = tempRoot();
-    const store = createMemoryStore({
-      stateRoot,
-      genId: () => "abc123",
-      today: () => "2026-06-27",
-    });
-    const item = store.append({
+describe("memory-store: replace", () => {
+  it("overwrites with the correct version and returns the new version", () => {
+    const { root, store } = freshStore();
+    store.append({ scope: "agent", scopeId: "a1", author: "Bot", text: "one" });
+    const { version } = store.read("agent", "a1");
+    const res = store.replace({
       scope: "agent",
-      scopeId: "agent-1",
-      author: "Isomuxer3",
-      text: "pairs with Reviewer3",
+      scopeId: "a1",
+      text: "- hand-edited line\n- another\n",
+      author: "Nil",
+      expectedVersion: version,
     });
-    expect(item.id).toBe("abc123");
-    expect(item.date).toBe("2026-06-27");
-    expect(item.author).toBe("Isomuxer3");
-    expect(item.factType).toBeNull();
-
-    // Evidence surface: the actual file on disk.
-    const onDisk = readFileSync(
-      join(stateRoot, "memory", "agents", "agent-1.md"),
-      "utf8",
+    expect(res.ok).toBe(true);
+    if (res.ok)
+      expect(res.version).toBe(versionOf("- hand-edited line\n- another\n"));
+    expect(store.read("agent", "a1").text).toBe(
+      "- hand-edited line\n- another\n",
     );
-    expect(onDisk).toBe(
-      "- <!-- mem:abc123 --> [Isomuxer3, 2026-06-27] pairs with Reviewer3\n",
-    );
-
-    const back = store.read("agent", "agent-1");
-    expect(back).toHaveLength(1);
-    expect(back[0]).toEqual(item);
+    const log = opLog(root);
+    expect(log[log.length - 1]).toMatchObject({
+      op: "replace",
+      actor: "Nil",
+      text: "(full rewrite)",
+      previousVersion: version,
+    });
   });
 
-  it("read returns [] for a missing file", () => {
-    const store = createMemoryStore({ stateRoot: tempRoot() });
-    expect(store.read("agent", "nope")).toEqual([]);
+  it("rejects a stale version (409-equivalent) and writes nothing", () => {
+    const { store } = freshStore();
+    store.append({ scope: "agent", scopeId: "a1", author: "Bot", text: "one" });
+    const original = store.read("agent", "a1");
+    const res = store.replace({
+      scope: "agent",
+      scopeId: "a1",
+      text: "clobber",
+      author: "Bot",
+      expectedVersion: "deadbeef0000",
+    });
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.version).toBe(original.version);
+    // file unchanged
+    expect(store.read("agent", "a1").text).toBe(original.text);
   });
 
-  it("renderForPrompt joins raw active lines, or null when empty", () => {
-    const stateRoot = tempRoot();
-    let n = 0;
-    const store = createMemoryStore({
-      stateRoot,
-      genId: () => ["111111", "222222"][n++],
-      today: () => "2026-06-27",
-    });
-    expect(store.renderForPrompt("agent", "agent-1")).toBeNull();
+  it("force-overwrites when expectedVersion is omitted (curation save)", () => {
+    const { store } = freshStore();
     store.append({
-      scope: "agent",
-      scopeId: "agent-1",
-      author: "A",
-      text: "x",
-    });
-    store.append({
-      scope: "agent",
-      scopeId: "agent-1",
-      author: "A",
-      text: "y",
-    });
-    expect(store.renderForPrompt("agent", "agent-1")).toBe(
-      "- <!-- mem:111111 --> [A, 2026-06-27] x\n" +
-        "- <!-- mem:222222 --> [A, 2026-06-27] y",
-    );
-  });
-
-  it("regenerates the id on an in-file collision", () => {
-    const stateRoot = tempRoot();
-    // First append mints "aaaaaa". Second generator yields "aaaaaa" once (a
-    // collision with the persisted line) then a fresh id; append must use fresh.
-    // (Ids must be valid 6-hex or the persisted line won't parse back.)
-    const seq = ["aaaaaa", "aaaaaa", "bbbbbb"];
-    let i = 0;
-    const store = createMemoryStore({
-      stateRoot,
-      genId: () => seq[i++],
-      today: () => "2026-06-27",
-    });
-    const a = store.append({
-      scope: "agent",
-      scopeId: "agent-1",
-      author: "A",
+      scope: "office",
+      scopeId: null,
+      author: "Bot",
       text: "one",
     });
-    const b = store.append({
-      scope: "agent",
-      scopeId: "agent-1",
-      author: "A",
-      text: "two",
+    const res = store.replace({
+      scope: "office",
+      scopeId: null,
+      text: "- curated\n",
+      author: "Nil",
     });
-    expect(a.id).toBe("aaaaaa");
-    expect(b.id).toBe("bbbbbb");
-    expect(store.read("agent", "agent-1").map((m) => m.id)).toEqual([
-      "aaaaaa",
-      "bbbbbb",
-    ]);
+    expect(res.ok).toBe(true);
+    expect(store.read("office", null).text).toBe("- curated\n");
   });
 
-  it("throws (does not spin) when the generator can never produce a fresh id", () => {
-    const stateRoot = tempRoot();
-    const store = createMemoryStore({
-      stateRoot,
-      genId: () => "cccccc",
-      today: () => "2026-06-27",
+  it("writes raw text verbatim; empty text clears the file", () => {
+    const { store } = freshStore();
+    store.replace({
+      scope: "room",
+      scopeId: "r1",
+      text: "anything\ngoes here",
+      author: "Nil",
+    });
+    expect(store.read("room", "r1").text).toBe("anything\ngoes here");
+    const v = store.read("room", "r1").version;
+    store.replace({
+      scope: "room",
+      scopeId: "r1",
+      text: "",
+      author: "Nil",
+      expectedVersion: v,
+    });
+    expect(store.read("room", "r1").text).toBe("");
+  });
+});
+
+describe("memory-store: render for prompt", () => {
+  it("joins non-empty lines, null when empty", () => {
+    const { store } = freshStore();
+    expect(store.renderForPrompt("agent", "a1")).toBeNull();
+    store.append({ scope: "agent", scopeId: "a1", author: "Bot", text: "one" });
+    store.append({ scope: "agent", scopeId: "a1", author: "Bot", text: "two" });
+    expect(store.renderForPrompt("agent", "a1")).toBe(
+      "- Bot, 2026-06-28: one\n- Bot, 2026-06-28: two",
+    );
+  });
+
+  it("applies the per-scope cap (newest-first) with the notice", () => {
+    const { store } = freshStore({
+      caps: { office: 30, room: 30, agent: 30, boss: 30 },
     });
     store.append({
-      scope: "agent",
-      scopeId: "agent-1",
+      scope: "office",
+      scopeId: null,
       author: "A",
-      text: "x",
+      text: "oldest",
     });
-    expect(() =>
-      store.append({
-        scope: "agent",
-        scopeId: "agent-1",
-        author: "A",
-        text: "y",
-      }),
-    ).toThrow(/unique valid id/);
-  });
-
-  it("retries a malformed generated id, never persisting an unparseable line", () => {
-    const stateRoot = tempRoot();
-    // A buggy generator yields a non-hex id first, then a valid one. append()
-    // must skip the malformed one and persist only the valid id.
-    const seq = ["NOThex", "abcdef"];
-    let i = 0;
-    const store = createMemoryStore({
-      stateRoot,
-      genId: () => seq[i++],
-      today: () => "2026-06-27",
-    });
-    const item = store.append({
-      scope: "agent",
-      scopeId: "agent-1",
+    store.append({
+      scope: "office",
+      scopeId: null,
       author: "A",
-      text: "x",
+      text: "newest",
     });
-    expect(item.id).toBe("abcdef");
-    // Round-trips: the persisted line parses back to exactly one item.
-    expect(store.read("agent", "agent-1").map((m) => m.id)).toEqual(["abcdef"]);
+    const out = store.renderForPrompt("office", null)!;
+    expect(out).toContain("newest");
+    expect(out).toContain(OVER_CAP_NOTICE);
   });
 
-  it("throws when the generator only ever yields malformed ids", () => {
-    const store = createMemoryStore({
-      stateRoot: tempRoot(),
-      genId: () => "ZZZZZZ",
-      today: () => "2026-06-27",
-    });
-    expect(() =>
-      store.append({
-        scope: "agent",
-        scopeId: "agent-1",
-        author: "A",
-        text: "x",
-      }),
-    ).toThrow(/unique valid id/);
-  });
-
-  it("office scope writes to office.md (no scopeId), boss to bosses/<id>.md", () => {
-    const stateRoot = tempRoot();
-    let n = 0;
-    const store = createMemoryStore({
-      stateRoot,
-      genId: () => ["0f0f0f", "a1a1a1"][n++],
-      today: () => "2026-06-27",
-    });
+  it("renderForPromptMulti labels each non-empty scope and skips empties", () => {
+    const { store } = freshStore();
     store.append({ scope: "office", scopeId: null, author: "A", text: "o" });
-    store.append({ scope: "boss", scopeId: "user-1", author: "A", text: "b" });
-    mkdirSync(join(stateRoot, "memory"), { recursive: true });
-    expect(
-      readFileSync(join(stateRoot, "memory", "office.md"), "utf8"),
-    ).toContain("[A, 2026-06-27] o");
-    expect(
-      readFileSync(join(stateRoot, "memory", "bosses", "user-1.md"), "utf8"),
-    ).toContain("[A, 2026-06-27] b");
-  });
-});
-
-describe("memory-store: renderForPromptMulti", () => {
-  it("returns null when every scope is empty", () => {
-    const store = createMemoryStore({ stateRoot: tempRoot() });
-    expect(
-      store.renderForPromptMulti([
-        { scope: "office", scopeId: null, label: "Office-wide" },
-        { scope: "room", scopeId: "room-1", label: 'Room "R"' },
-        { scope: "agent", scopeId: "agent-1", label: "Your agent" },
-      ]),
-    ).toBeNull();
-  });
-
-  it("labels only non-empty scopes, in order (office -> room -> agent)", () => {
-    const stateRoot = tempRoot();
-    let n = 0;
-    const ids = ["0a0a0a", "0b0b0b"];
-    const store = createMemoryStore({
-      stateRoot,
-      genId: () => ids[n++],
-      today: () => "2026-06-27",
-    });
-    store.append({
-      scope: "office",
-      scopeId: null,
-      author: "O",
-      text: "office fact",
-    });
-    store.append({
-      scope: "agent",
-      scopeId: "agent-1",
-      author: "A",
-      text: "agent fact",
-    });
-    // room is left empty on purpose -> its label must be omitted.
+    store.append({ scope: "agent", scopeId: "a1", author: "B", text: "g" });
     const out = store.renderForPromptMulti([
       { scope: "office", scopeId: null, label: "Office-wide" },
-      { scope: "room", scopeId: "room-1", label: 'Room "R"' },
-      { scope: "agent", scopeId: "agent-1", label: "Your agent" },
-    ]);
-    expect(out).toBe(
-      "Office-wide:\n- <!-- mem:0a0a0a --> [O, 2026-06-27] office fact\n\n" +
-        "Your agent:\n- <!-- mem:0b0b0b --> [A, 2026-06-27] agent fact",
-    );
-    expect(out).not.toContain('Room "R"');
-  });
-
-  it("cross-agent room visibility: a room fact reaches any reader of that room, not other rooms", () => {
-    const stateRoot = tempRoot();
-    let n = 0;
-    const ids = ["111aaa", "222bbb"];
-    // Agent A's session writes a room fact.
-    const storeA = createMemoryStore({
-      stateRoot,
-      genId: () => ids[n++],
-      today: () => "2026-06-27",
-    });
-    storeA.append({
-      scope: "room",
-      scopeId: "room-1",
-      author: "AgentA",
-      text: "shared room fact",
-    });
-    // A separate store instance (Agent B's session) reading the SAME room sees it.
-    const storeB = createMemoryStore({ stateRoot });
-    expect(
-      storeB.renderForPromptMulti([
-        { scope: "room", scopeId: "room-1", label: 'Room "R"' },
-      ]),
-    ).toContain("shared room fact");
-    // Agent C in a different room does not.
-    expect(
-      storeB.renderForPromptMulti([
-        { scope: "room", scopeId: "room-2", label: 'Room "R2"' },
-      ]),
-    ).toBeNull();
-  });
-
-  it("an office fact is included for agents in two different rooms", () => {
-    const stateRoot = tempRoot();
-    const store = createMemoryStore({
-      stateRoot,
-      genId: () => "0ff1ce",
-      today: () => "2026-06-27",
-    });
-    store.append({
-      scope: "office",
-      scopeId: null,
-      author: "O",
-      text: "office-wide fact",
-    });
-    for (const roomId of ["room-1", "room-2"]) {
-      const out = store.renderForPromptMulti([
-        { scope: "office", scopeId: null, label: "Office-wide" },
-        { scope: "room", scopeId: roomId, label: `Room "${roomId}"` },
-      ]);
-      expect(out).toContain("office-wide fact");
-    }
-  });
-
-  it("boss notes render only under the matching boss ref (manager-boss scoping)", () => {
-    const stateRoot = tempRoot();
-    let n = 0;
-    const ids = ["b0b0b0", "c0c0c0"];
-    const store = createMemoryStore({
-      stateRoot,
-      genId: () => ids[n++],
-      today: () => "2026-06-27",
-    });
-    store.append({
-      scope: "boss",
-      scopeId: "userA",
-      author: "X",
-      text: "A boss fact",
-    });
-    store.append({
-      scope: "boss",
-      scopeId: "userB",
-      author: "Y",
-      text: "B boss fact",
-    });
-    // An agent managed by userA loads only userA's boss lines (and vice-versa).
-    const aOut = store.renderForPromptMulti([
-      { scope: "boss", scopeId: "userA", label: 'Boss "A"' },
-    ]);
-    expect(aOut).toContain("A boss fact");
-    expect(aOut).not.toContain("B boss fact");
-    const bOut = store.renderForPromptMulti([
-      { scope: "boss", scopeId: "userB", label: 'Boss "B"' },
-    ]);
-    expect(bOut).toContain("B boss fact");
-    expect(bOut).not.toContain("A boss fact");
-  });
-});
-
-describe("memory-store: supersede / tombstone (slice 3d)", () => {
-  it("parses supersede and tombstone lines; rejects malformed relation ids", () => {
-    const sup = parseMemoryLine(
-      "- <!-- mem:bbbbbb supersedes:aaaaaa --> [A, 2026-06-27] new text",
-      "agent",
-      "a1",
-    );
-    expect(sup?.supersedes).toBe("aaaaaa");
-    expect(sup?.tombstones).toBeNull();
-    expect(sup?.text).toBe("new text");
-    const tomb = parseMemoryLine(
-      "- <!-- mem:cccccc tombstones:aaaaaa --> [A, 2026-06-27] (retracted)",
-      "agent",
-      "a1",
-    );
-    expect(tomb?.tombstones).toBe("aaaaaa");
-    expect(tomb?.supersedes).toBeNull();
-    // A non-hex relation target makes the whole line junk (skipped).
-    expect(
-      parseMemoryLine(
-        "- <!-- mem:bbbbbb supersedes:XYZ --> [A, 2026-06-27] t",
-        "agent",
-        "a1",
-      ),
-    ).toBeNull();
-  });
-
-  it("supersede suppresses the old line and activates the new; raw retains both", () => {
-    const stateRoot = tempRoot();
-    let n = 0;
-    const ids = ["aaaaaa", "bbbbbb"];
-    const store = createMemoryStore({
-      stateRoot,
-      genId: () => ids[n++],
-      today: () => "2026-06-27",
-    });
-    const orig = store.append({
-      scope: "agent",
-      scopeId: "a1",
-      author: "A",
-      text: "old",
-    });
-    const sup = store.supersede({
-      scope: "agent",
-      scopeId: "a1",
-      targetId: orig.id,
-      author: "A",
-      text: "new",
-    });
-    expect(sup?.id).toBe("bbbbbb");
-    expect(sup?.supersedes).toBe("aaaaaa");
-    expect(store.read("agent", "a1").map((m) => m.id)).toEqual(["bbbbbb"]);
-    expect(store.read("agent", "a1")[0].text).toBe("new");
-    // Raw retains both lines.
-    expect(store.readRaw("agent", "a1").map((m) => m.id)).toEqual([
-      "aaaaaa",
-      "bbbbbb",
-    ]);
-    expect(store.renderForPrompt("agent", "a1")).toContain("new");
-    expect(store.renderForPrompt("agent", "a1")).not.toContain("] old");
-  });
-
-  it("tombstone removes the target from active; control line never active; raw retains", () => {
-    const stateRoot = tempRoot();
-    let n = 0;
-    const ids = ["aaaaaa", "dddddd"];
-    const store = createMemoryStore({
-      stateRoot,
-      genId: () => ids[n++],
-      today: () => "2026-06-27",
-    });
-    const orig = store.append({
-      scope: "office",
-      scopeId: null,
-      author: "A",
-      text: "fact",
-    });
-    const tomb = store.tombstone({
-      scope: "office",
-      scopeId: null,
-      targetId: orig.id,
-      author: "A",
-    });
-    expect(tomb?.tombstones).toBe("aaaaaa");
-    expect(store.read("office", null)).toEqual([]);
-    expect(store.readRaw("office", null).map((m) => m.id)).toEqual([
-      "aaaaaa",
-      "dddddd",
-    ]);
-    expect(store.renderForPrompt("office", null)).toBeNull();
-  });
-
-  it("supersede chain leaves only the newest active", () => {
-    const stateRoot = tempRoot();
-    let n = 0;
-    const ids = ["aaaaaa", "bbbbbb", "cccccc"];
-    const store = createMemoryStore({
-      stateRoot,
-      genId: () => ids[n++],
-      today: () => "2026-06-27",
-    });
-    const o = store.append({
-      scope: "agent",
-      scopeId: "a1",
-      author: "A",
-      text: "v1",
-    });
-    const s1 = store.supersede({
-      scope: "agent",
-      scopeId: "a1",
-      targetId: o.id,
-      author: "A",
-      text: "v2",
-    })!;
-    store.supersede({
-      scope: "agent",
-      scopeId: "a1",
-      targetId: s1.id,
-      author: "A",
-      text: "v3",
-    });
-    expect(store.read("agent", "a1").map((m) => m.text)).toEqual(["v3"]);
-  });
-
-  it("supersede/tombstone return null when target is not active", () => {
-    const stateRoot = tempRoot();
-    let n = 0;
-    const ids = ["aaaaaa", "bbbbbb"];
-    const store = createMemoryStore({
-      stateRoot,
-      genId: () => ids[n++],
-      today: () => "2026-06-27",
-    });
-    // Absent target.
-    expect(
-      store.supersede({
-        scope: "agent",
-        scopeId: "a1",
-        targetId: "ffffff",
-        author: "A",
-        text: "x",
-      }),
-    ).toBeNull();
-    // Already-superseded target cannot be tombstoned.
-    const o = store.append({
-      scope: "agent",
-      scopeId: "a1",
-      author: "A",
-      text: "old",
-    });
-    store.supersede({
-      scope: "agent",
-      scopeId: "a1",
-      targetId: o.id,
-      author: "A",
-      text: "new",
-    });
-    expect(
-      store.tombstone({
-        scope: "agent",
-        scopeId: "a1",
-        targetId: o.id,
-        author: "A",
-      }),
-    ).toBeNull();
-  });
-
-  it("cross-file id isolation: supersede in one file does not touch another", () => {
-    const stateRoot = tempRoot();
-    // Force the SAME id in two files, then a fresh id for the supersede.
-    const seq = ["aaaaaa", "aaaaaa", "bbbbbb"];
-    let i = 0;
-    const store = createMemoryStore({
-      stateRoot,
-      genId: () => seq[i++],
-      today: () => "2026-06-27",
-    });
-    store.append({ scope: "agent", scopeId: "a1", author: "A", text: "in A" });
-    store.append({ scope: "agent", scopeId: "a2", author: "A", text: "in B" });
-    store.supersede({
-      scope: "agent",
-      scopeId: "a1",
-      targetId: "aaaaaa",
-      author: "A",
-      text: "A updated",
-    });
-    expect(store.read("agent", "a1").map((m) => m.text)).toEqual(["A updated"]);
-    // File a2's identically-id'd line is untouched.
-    expect(store.read("agent", "a2").map((m) => m.text)).toEqual(["in B"]);
-  });
-});
-
-describe("memory-store: dedup guard (slice 3e)", () => {
-  it("normalizeForDedup trims/lowercases/collapses + strips ONLY terminal punctuation", () => {
-    expect(normalizeForDedup("  No   em DASHES. ")).toBe("no em dashes");
-    expect(normalizeForDedup("Use Bun!")).toBe("use bun");
-    // internal hyphens/slashes/dots survive
-    expect(normalizeForDedup("repoint ~/isomux-active")).toBe(
-      "repoint ~/isomux-active",
-    );
-    expect(normalizeForDedup("edit server/index.ts")).toBe(
-      "edit server/index.ts",
-    );
-    expect(normalizeForDedup("DNS A 66.241.124.181")).toBe(
-      "dns a 66.241.124.181",
-    );
-  });
-
-  it("jaccardSimilarity: reordered token sets match; distinct short lines do not", () => {
-    expect(jaccardSimilarity("no em dashes", "dashes em no")).toBe(1);
-    expect(jaccardSimilarity("use bun", "use deno")).toBeLessThan(
-      DEDUP_THRESHOLD,
-    );
-  });
-
-  it("isDuplicateText catches exact/normalized/reorder; not short-distinct", () => {
-    expect(isDuplicateText("No em dashes.", "no em dashes")).toBe(true);
-    expect(isDuplicateText("dashes em no", "no em dashes")).toBe(true);
-    expect(isDuplicateText("use Deno", "use Bun")).toBe(false);
-  });
-
-  it("findDuplicate matches the first active line; ignores superseded; per-scope/file", () => {
-    const stateRoot = tempRoot();
-    let n = 0;
-    const ids = ["aaaaaa", "bbbbbb"];
-    const store = createMemoryStore({
-      stateRoot,
-      genId: () => ids[n++],
-      today: () => "2026-06-27",
-    });
-    store.append({
-      scope: "room",
-      scopeId: "r1",
-      author: "A",
-      text: "this room uses Bun",
-    });
-    expect(store.findDuplicate("room", "r1", "This room uses Bun!")?.id).toBe(
-      "aaaaaa",
-    );
-    expect(store.findDuplicate("room", "r1", "uses Bun this room")?.id).toBe(
-      "aaaaaa",
-    );
-    expect(store.findDuplicate("room", "r1", "this room uses Deno")).toBeNull();
-    // Other scope / other file: not a duplicate.
-    expect(store.findDuplicate("room", "r2", "this room uses Bun")).toBeNull();
-    expect(store.findDuplicate("agent", "a1", "this room uses Bun")).toBeNull();
-    // After supersede: the OLD (now suppressed) text can be re-added; the NEW
-    // active text is a duplicate.
-    store.supersede({
-      scope: "room",
-      scopeId: "r1",
-      targetId: "aaaaaa",
-      author: "A",
-      text: "this room uses Deno",
-    });
-    expect(store.findDuplicate("room", "r1", "this room uses Bun")).toBeNull();
-    expect(
-      store.findDuplicate("room", "r1", "this room uses Deno!"),
-    ).not.toBeNull();
-  });
-});
-
-describe("memory-store: size caps + trim notice (slice 3f)", () => {
-  it("under cap returns all lines and no notice", () => {
-    const stateRoot = tempRoot();
-    let n = 0;
-    const ids = ["aaaaaa", "bbbbbb"];
-    const store = createMemoryStore({
-      stateRoot,
-      genId: () => ids[n++],
-      today: () => "2026-06-27",
-      caps: { ...MEMORY_CAPS, agent: 10_000 },
-    });
-    const a = store.append({
-      scope: "agent",
-      scopeId: "a1",
-      author: "A",
-      text: "first",
-    });
-    const b = store.append({
-      scope: "agent",
-      scopeId: "a1",
-      author: "A",
-      text: "second",
-    });
-    expect(store.renderForPrompt("agent", "a1")).toBe(`${a.raw}\n${b.raw}`);
-    expect(store.renderForPrompt("agent", "a1")).not.toContain(OVER_CAP_NOTICE);
-  });
-
-  it("off-by-one: exact cap keeps both; one char smaller drops the oldest + adds the notice", () => {
-    const stateRoot = tempRoot();
-    let n = 0;
-    const ids = ["aaaaaa", "bbbbbb"];
-    const writer = createMemoryStore({
-      stateRoot,
-      genId: () => ids[n++],
-      today: () => "2026-06-27",
-    });
-    const a = writer.append({
-      scope: "agent",
-      scopeId: "a1",
-      author: "A",
-      text: "first",
-    });
-    const b = writer.append({
-      scope: "agent",
-      scopeId: "a1",
-      author: "A",
-      text: "second",
-    });
-    const joined = `${a.raw}\n${b.raw}`;
-    const exact = createMemoryStore({
-      stateRoot,
-      caps: { ...MEMORY_CAPS, agent: joined.length },
-    });
-    expect(exact.renderForPrompt("agent", "a1")).toBe(joined);
-    const tight = createMemoryStore({
-      stateRoot,
-      caps: { ...MEMORY_CAPS, agent: joined.length - 1 },
-    });
-    // Newest (b) survives, oldest (a) dropped, notice appended.
-    expect(tight.renderForPrompt("agent", "a1")).toBe(
-      `${b.raw}\n${OVER_CAP_NOTICE}`,
-    );
-  });
-
-  it("a single line longer than the cap yields the notice alone", () => {
-    const stateRoot = tempRoot();
-    const store = createMemoryStore({
-      stateRoot,
-      genId: () => "aaaaaa",
-      today: () => "2026-06-27",
-      caps: { ...MEMORY_CAPS, agent: 5 },
-    });
-    store.append({
-      scope: "agent",
-      scopeId: "a1",
-      author: "A",
-      text: "a fairly long single fact",
-    });
-    expect(store.renderForPrompt("agent", "a1")).toBe(OVER_CAP_NOTICE);
-  });
-
-  it("renderForPromptMulti includes a zero-survivor scope's label + notice, capping per scope", () => {
-    const stateRoot = tempRoot();
-    let n = 0;
-    const ids = ["aaaaaa", "bbbbbb"];
-    const store = createMemoryStore({
-      stateRoot,
-      genId: () => ids[n++],
-      today: () => "2026-06-27",
-      caps: { ...MEMORY_CAPS, agent: 5, office: 10_000 },
-    });
-    store.append({
-      scope: "office",
-      scopeId: null,
-      author: "A",
-      text: "office fact",
-    });
-    store.append({
-      scope: "agent",
-      scopeId: "a1",
-      author: "A",
-      text: "an over-cap agent fact",
-    });
-    const out = store.renderForPromptMulti([
-      { scope: "office", scopeId: null, label: "Office-wide" },
+      { scope: "room", scopeId: "r1", label: 'Room "X"' }, // empty -> skipped
       { scope: "agent", scopeId: "a1", label: "Your agent" },
     ]);
-    // Office (huge cap) renders normally; agent (cap 5) collapses to the notice.
-    expect(out).toContain("Office-wide:");
-    expect(out).toContain("office fact");
-    expect(out).toContain(`Your agent:\n${OVER_CAP_NOTICE}`);
-  });
-
-  it("superseded lines do not count toward the cap; read() stays UNCAPPED", () => {
-    const stateRoot = tempRoot();
-    let n = 0;
-    const ids = ["aaaaaa", "bbbbbb", "cccccc"];
-    const writer = createMemoryStore({
-      stateRoot,
-      genId: () => ids[n++],
-      today: () => "2026-06-27",
-    });
-    const o = writer.append({
-      scope: "agent",
-      scopeId: "a1",
-      author: "A",
-      text: "v1",
-    });
-    const s = writer.supersede({
-      scope: "agent",
-      scopeId: "a1",
-      targetId: o.id,
-      author: "A",
-      text: "v2",
-    })!;
-    // Cap fits exactly ONE active line. The superseded v1 must not count.
-    const capped = createMemoryStore({
-      stateRoot,
-      caps: { ...MEMORY_CAPS, agent: s.raw.length },
-    });
-    expect(capped.renderForPrompt("agent", "a1")).toBe(s.raw);
-    // read() is never capped — it returns the full active set regardless.
-    const tiny = createMemoryStore({
-      stateRoot,
-      caps: { ...MEMORY_CAPS, agent: 1 },
-    });
-    const active = tiny.read("agent", "a1");
-    expect(active).toHaveLength(1);
-    expect(active[0].text).toBe("v2");
-  });
-});
-
-describe("memory-store: readRawText + rewriteFromText (slice 3g)", () => {
-  it("readRawText returns verbatim bytes incl trailing newline; '' when missing", () => {
-    const stateRoot = tempRoot();
-    const store = createMemoryStore({
-      stateRoot,
-      genId: () => "aaaaaa",
-      today: () => "2026-06-27",
-    });
-    expect(store.readRawText("office", null)).toBe("");
-    store.append({ scope: "office", scopeId: null, author: "A", text: "fact" });
-    expect(store.readRawText("office", null)).toBe(
-      "- <!-- mem:aaaaaa --> [A, 2026-06-27] fact\n",
+    expect(out).toBe(
+      "Office-wide:\n- A, 2026-06-28: o\n\nYour agent:\n- B, 2026-06-28: g",
     );
-  });
-
-  it("rewriteFromText keeps valid existing lines verbatim, stamps id-less, drops removed", () => {
-    const stateRoot = tempRoot();
-    let n = 0;
-    const ids = ["aaaaaa", "bbbbbb", "cccccc"];
-    const store = createMemoryStore({
-      stateRoot,
-      genId: () => ids[n++],
-      today: () => "2026-06-27",
-    });
-    const a = store.append({
-      scope: "office",
-      scopeId: null,
-      author: "A",
-      text: "keep me",
-    });
-    store.append({
-      scope: "office",
-      scopeId: null,
-      author: "A",
-      text: "drop me",
-    });
-    // Human edits the text of `a` (comment intact -> keeps id aaaaaa), drops the
-    // second line, adds a new id-less line.
-    const edited = a.raw.replace("keep me", "keep me (edited)");
-    const res = store.rewriteFromText(
-      "office",
-      null,
-      `${edited}\na brand new fact`,
-      "Owner",
-    );
-    expect(res.ok).toBe(true);
-    const onDisk = store.readRawText("office", null);
-    expect(onDisk).toContain("mem:aaaaaa");
-    expect(onDisk).toContain("keep me (edited)");
-    expect(onDisk).not.toContain("drop me");
-    expect(onDisk).toContain(
-      "- <!-- mem:cccccc --> [Owner, 2026-06-27] a brand new fact",
-    );
-    expect(onDisk.endsWith("\n")).toBe(true);
-  });
-
-  it("empty text rewrites to an empty file", () => {
-    const stateRoot = tempRoot();
-    const store = createMemoryStore({
-      stateRoot,
-      genId: () => "aaaaaa",
-      today: () => "2026-06-27",
-    });
-    store.append({ scope: "office", scopeId: null, author: "A", text: "x" });
-    expect(store.rewriteFromText("office", null, "", "Owner").ok).toBe(true);
-    expect(store.readRawText("office", null)).toBe("");
-    expect(store.read("office", null)).toEqual([]);
-  });
-
-  it("rewriteFromText rejects a malformed mem-tag line with its line number; writes nothing", () => {
-    const stateRoot = tempRoot();
-    const store = createMemoryStore({ stateRoot, today: () => "2026-06-27" });
-    const res = store.rewriteFromText(
-      "office",
-      null,
-      "good plain line\n- <!-- mem:ZZZ --> broken\nanother",
-      "Owner",
-    );
-    expect(res.ok).toBe(false);
-    if (!res.ok) expect(res.lineNumber).toBe(2);
-    expect(store.readRawText("office", null)).toBe("");
-  });
-
-  it("validateRewriteLines flags malformed mem tags, accepts plain + valid lines", () => {
-    expect(validateRewriteLines("plain new fact").ok).toBe(true);
     expect(
-      validateRewriteLines("- <!-- mem:aaaaaa --> [A, 2026-06-27] ok").ok,
-    ).toBe(true);
-    const bad = validateRewriteLines("ok\n<!-- mem:nothex --> x");
-    expect(bad.ok).toBe(false);
-    if (!bad.ok) expect(bad.lineNumber).toBe(2);
+      store.renderForPromptMulti([
+        { scope: "room", scopeId: "r9", label: "X" },
+      ]),
+    ).toBeNull();
   });
 });

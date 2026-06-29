@@ -77,15 +77,17 @@ To create, edit, delete, or trigger a cronjob, direct the boss to the Cronjobs t
 
 How to answer questions about Isomux itself: the source lives at https://github.com/nmamano/isomux. Read the README and the relevant code under server/, ui/, shared/, internal-docs/ before answering.
 
-How to use memory: record durable facts about people, projects, environment, and rules; do NOT record work-in-progress (the session transcript already holds that). Types: preference, convention, rule, environment, role, contact. Write the moment you learn a durable fact. Scopes: "agent" (your own standing facts), "room" (facts useful to anyone working in this room/project), "office" (genuinely office-wide facts), "boss" (a specific boss's context). Write office memory only for genuinely office-wide facts, and rarely: an office line is injected into every agent's future sessions. When in doubt, ask a boss first. (Look up room ids in ~/.isomux/agents-summary.json.)
-  curl -s -X POST localhost:${PORT}/api/memory -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"scope":"agent","factType":"preference","text":"..."}'
-  curl -s -X POST localhost:${PORT}/api/memory -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"scope":"room","scopeId":"<roomId>","factType":"convention","text":"..."}'
-  curl -s -X POST localhost:${PORT}/api/memory -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"scope":"office","factType":"environment","text":"..."}'
-  curl -s -X POST localhost:${PORT}/api/memory -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"scope":"boss","factType":"preference","text":"..."}'   # omit scopeId to write your manager/own boss context, or pass scopeId to target another boss
-  curl -s localhost:${PORT}/api/memory?scope=agent -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"   # also scope=room&scopeId=<roomId>, scope=office, or scope=boss
+How to use memory: record durable facts about people, projects, environment, and rules; do NOT record work-in-progress (the session transcript already holds that). Write the moment you learn a durable fact. Scopes: "agent" (your own standing facts), "room" (facts useful to anyone working in this room/project), "office" (genuinely office-wide facts), "boss" (a specific boss's context). Office memory is injected into EVERY agent's future sessions, so add to it sparingly and do NOT make big changes to office-wide memory. When in doubt, ask a boss first. (Look up room ids in ~/.isomux/agents-summary.json.) Memory has three operations:
+APPEND a fact (the safe default — the server stamps the author and date; a near-exact duplicate is rejected with 409):
+  curl -s -X POST localhost:${PORT}/api/memory -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"scope":"agent","text":"..."}'
+  (room: add "scopeId":"<roomId>"; office: no scopeId; boss: omit scopeId for your manager/own boss context, or pass scopeId to target another boss.)
+READ a scope's full raw memory plus its version:
+  curl -s 'localhost:${PORT}/api/memory?scope=agent' -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"   # also scope=room&scopeId=<roomId>, scope=office, or scope=boss[&scopeId=<userId>]
+EDIT or REMOVE a fact by rewriting the whole file: READ it, change the text, then REPLACE (PUT) it back with the version you READ — but do so CAREFULLY so you don't disturb other lines:
+  curl -s -X PUT localhost:${PORT}/api/memory -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"scope":"agent","text":"<full new file contents>","version":"<version from READ>"}'
+  If the file changed since your READ, REPLACE returns 409 — re-READ and retry.
 Boss memory is auto-loaded only for that boss's agents; it is not a confidentiality boundary in this office.
-Relevant office, room, boss, and agent memory is auto-loaded at the start of each session.
-To edit or retract a fact, target its mem:id (scope+scopeId pick the file: scopeId required for room/agent/boss, omitted for office): PATCH localhost:${PORT}/api/memory/<id> with {"scope":"...","scopeId":"...","text":"..."} (replace) or DELETE localhost:${PORT}/api/memory/<id>?scope=...&scopeId=... (retract). A near-duplicate POST is rejected (409) naming the existing line's id, so check before re-stating; humans curate in bulk via the settings UI.
+Relevant office, room, boss, and agent memory is auto-loaded at the start of each session. Humans also curate these files directly in the settings UI.
 
 Pipe every command that touches secret-bearing surfaces through a sed redaction.`;
   if (privileged) {
