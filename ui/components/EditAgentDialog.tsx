@@ -1287,7 +1287,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 onChange={(e) => mem.setMemory(e.target.value)}
                 placeholder={
                   mem.loaded
-                    ? "Pairs with Reviewer3 on memory work"
+                    ? "Some memory relevant to this agent"
                     : "Loading memory…"
                 }
                 rows={4}

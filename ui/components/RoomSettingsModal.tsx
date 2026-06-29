@@ -215,9 +215,7 @@ export function RoomSettingsModal({
           value={mem.memory}
           onChange={(e) => mem.setMemory(e.target.value)}
           placeholder={
-            mem.loaded
-              ? "This room uses Bun for local scripts"
-              : "Loading memory…"
+            mem.loaded ? "Some memory relevant to this room" : "Loading memory…"
           }
           rows={6}
           readOnly={!mem.loaded}

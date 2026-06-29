@@ -149,7 +149,9 @@ Two paths, by design.
 **1. Auto-load at session start (guaranteed recall).** The always-relevant scopes
 (`office.md` + this room's file + this boss's file + this agent's file) are
 injected at session start, so the agent always sees its memory without a per-turn
-extractor.
+extractor. Cron jobs (which have no room/agent/boss identity of their own)
+auto-load **office memory only**; the boss-memory boundary stays "that boss's own
+agents," not their cron jobs.
 
 Injected as a **distinct, provenance-labeled layer, separate from the
 authoritative prompts** (after the office/room/agent _prompts_). Human-authored

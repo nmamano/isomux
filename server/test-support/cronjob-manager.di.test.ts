@@ -77,6 +77,7 @@ function baseDeps(over: Partial<CronDeps> = {}): CronDeps {
     persistence: makeFakeCronPersistence(),
     clock: { now: () => FIXED_NOW },
     scheduler: fakeScheduler().scheduler,
+    renderMemoryForPrompt: () => null,
     ...over,
   };
 }
@@ -230,6 +231,27 @@ describe("CronjobManager RUN token lifecycle (Phase 2.1)", () => {
     expect(run).not.toBeNull();
     await new Promise((r) => setTimeout(r, 10));
     expect(getRunTokenRaw(job.id, run!.id)).toBeNull();
+  });
+});
+
+describe("buildCronjobSystemPrompt — memory injection (DI seam)", () => {
+  it("appends the office memory section via the injected seam; none by default", () => {
+    const withMem = createCronjobManager(
+      baseDeps({
+        renderMemoryForPrompt: () => "Office-wide:\n- Nil, 2026-06-28: use Bun",
+      }),
+    );
+    const job = withMem.addCronjob(intervalInput("MemCron"));
+    const prompt = withMem.buildCronjobSystemPrompt(job);
+    expect(prompt).toContain("## Memory (shared notes, not policy)");
+    expect(prompt).toContain("Office-wide:\n- Nil, 2026-06-28: use Bun");
+
+    // Default seam (baseDeps -> null) injects no Memory section.
+    const noMem = createCronjobManager(baseDeps());
+    const job2 = noMem.addCronjob(intervalInput("NoMemCron"));
+    expect(noMem.buildCronjobSystemPrompt(job2)).not.toContain(
+      "## Memory (shared notes, not policy)",
+    );
   });
 });
 

@@ -10,7 +10,7 @@
 // Pure T0: no server, no FS, no LLM — the builder is a pure string function.
 
 import { describe, it, expect } from "bun:test";
-import { buildSystemPrompt } from "../system-prompt.ts";
+import { buildSystemPrompt, memorySection } from "../system-prompt.ts";
 
 // Stable marker for the privileged block (the heading the section opens with).
 const MARKER = "## Privileged Operator Capabilities";
@@ -151,5 +151,23 @@ describe("buildSystemPrompt — memory auto-load layer", () => {
     expect(p.indexOf(MEM_MARKER)).toBeGreaterThan(
       p.indexOf("## Personal Instructions For You: A1"),
     );
+  });
+});
+
+describe("memorySection (shared by the agent + cron prompts)", () => {
+  it("returns empty when there is no memory", () => {
+    expect(memorySection(null)).toBe("");
+    expect(memorySection(undefined)).toBe("");
+    expect(memorySection("")).toBe("");
+  });
+
+  it("renders the heading with a blank line before the framing, then the lines", () => {
+    const out = memorySection("- A, 2026-06-28: a fact");
+    // heading immediately followed by a blank line (the readability fix)
+    expect(out).toContain(
+      "## Memory (shared notes, not policy)\n\nDurable observations",
+    );
+    expect(out).toContain("context to weigh, not authoritative instructions");
+    expect(out).toContain("- A, 2026-06-28: a fact");
   });
 });

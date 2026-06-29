@@ -290,7 +290,7 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
               onChange={(e) => mem.setMemory(e.target.value)}
               placeholder={
                 mem.loaded
-                  ? "Office agents should use Bun for local scripts"
+                  ? "Some memory relevant to the entire office"
                   : "Loading memory…"
               }
               rows={6}

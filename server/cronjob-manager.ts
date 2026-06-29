@@ -53,6 +53,8 @@ import { existsSync, statSync, readFileSync } from "fs";
 import { basename } from "path";
 import { getBackend as defaultResolveBackend } from "./backends/index.ts";
 import { stripPluginPrefix } from "./plugin-hooks.ts";
+import { memorySection } from "./system-prompt.ts";
+import { memoryStore, type MemoryScopeRef } from "./memory-store.ts";
 import type {
   Backend,
   BackendSession,
@@ -170,6 +172,10 @@ export interface CronjobManagerDeps {
   // Event sink. Optional at construction (default noop); index.ts registers the
   // real WS-broadcast sink via onCronjobEvent() after construction.
   eventSink?: (e: CronjobEvent) => void;
+  // Memory render seam for the cron system prompt (production:
+  // memoryStore.renderForPromptMulti). Injected so buildCronjobSystemPrompt stays
+  // off real state in tests; default (omitted) renders no memory.
+  renderMemoryForPrompt?: (refs: readonly MemoryScopeRef[]) => string | null;
 }
 
 // Public surface of a CronjobManager instance, derived from the explicitly
@@ -554,6 +560,15 @@ How to answer questions about Isomux itself: the source lives at https://github.
         prompt += `\n\n## Special instructions for "${cronjob.username}"\n\n${ownerRecord.memberPrompt}`;
       }
     }
+    // Auto-loaded OFFICE memory (a cron job has no room or agent identity of its
+    // own; boss memory is intentionally NOT injected — see the boss-memory
+    // auto-load boundary in the design doc). Rendered via the injected seam + the
+    // shared memorySection helper so tests stay off real state.
+    prompt += memorySection(
+      deps.renderMemoryForPrompt?.([
+        { scope: "office", scopeId: null, label: "Office-wide" },
+      ]) ?? null,
+    );
     return prompt;
   }
 
@@ -2099,6 +2114,7 @@ export function createProductionCronjobManager(overrides?: {
       setInterval,
       clearInterval,
     },
+    renderMemoryForPrompt: (refs) => memoryStore.renderForPromptMulti(refs),
   });
 }
 

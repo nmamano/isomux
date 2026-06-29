@@ -1001,7 +1001,7 @@ function UserEditPanel({
         value={mem.memory}
         onChange={(e) => mem.setMemory(e.target.value)}
         placeholder={
-          mem.loaded ? "Prefers terse replies; no em dashes" : "Loading memory…"
+          mem.loaded ? "Some memory relevant to this user" : "Loading memory…"
         }
         rows={4}
         readOnly={!mem.loaded}
