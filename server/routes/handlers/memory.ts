@@ -1,6 +1,6 @@
 // Memory resource handlers — isomux-memory on the unified REST surface. Three
 // verbs: READ (memory.read), APPEND (memory.append), REPLACE (memory.replace).
-// See internal-docs/isomux-memory-design.md and plans/isomux-memory-loop.md.
+// See internal-docs/isomux-memory-design.md.
 //
 // Scopes: agent, room, office, boss. On APPEND the author + date are server-
 // stamped from the token identity, NEVER the body; scopeId is a TARGET selector,

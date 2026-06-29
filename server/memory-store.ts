@@ -1,6 +1,5 @@
 // isomux-memory storage — the leaf module. Raw, unstructured, one-fact-per-line
-// markdown under STATE_ROOT/memory/. See internal-docs/isomux-memory-design.md
-// and plans/isomux-memory-loop.md.
+// markdown under STATE_ROOT/memory/. See internal-docs/isomux-memory-design.md.
 //
 // The directory tree IS the schema:
 //   <STATE_ROOT>/memory/office.md
