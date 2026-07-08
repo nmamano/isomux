@@ -12,4 +12,4 @@ A **WebSocket layer** keeps every connected device — and every connected user 
 
 For a deeper dive, see the [Design and Architecture blog post](https://nilmamano.com/blog/isomux).
 
-![Isomux system design: browser clients connect over WebSocket to the Bun service, which runs persistent agents backed by Claude Agent SDK sessions and Codex app-server processes, and persists state to the local file system](/architecture.png)
+![Isomux system design: two users' devices talk to the bun service over WebSocket and a REST API; inside the service, an agent lifecycle + event loop runs the agents, connected through a shared backend abstraction to Claude Agent SDK and Codex App Server sessions, which reach Anthropic's and OpenAI's servers; state persists to the local file system (~/.isomux)](/architecture.png)
