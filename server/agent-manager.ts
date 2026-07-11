@@ -16,7 +16,7 @@ import type {
 import {
   MODEL_FAMILIES,
   FAMILY_TO_MODEL,
-  EFFORT_LEVELS,
+  effortLevelsFor,
   familyDisplayLabel,
   effortDisplayLabel,
   generateRoomId,
@@ -4009,10 +4009,23 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       managed.pendingEffortPick = false;
       const trimmed = text.trim();
       const num = parseInt(trimmed, 10);
-      if (!isNaN(num) && num >= 1 && num <= EFFORT_LEVELS.length) {
+      // Same backend/model-filtered list the /effort handler rendered
+      // (command-handlers.ts) — indices must line up. validateEffort below is
+      // belt-and-braces against future drift between the two lists.
+      const effortLevels = effortLevelsFor(
+        managed.info.agentType,
+        managed.info.modelFamily,
+      );
+      if (!isNaN(num) && num >= 1 && num <= effortLevels.length) {
         const userMeta = buildUserMeta(username, device);
         emitEphemeralLog(agentId, "user_message", text, userMeta);
-        const picked = EFFORT_LEVELS[num - 1];
+        const picked = {
+          level: validateEffort(
+            managed.info.agentType,
+            managed.info.modelFamily,
+            effortLevels[num - 1].level,
+          ),
+        };
         const label = effortDisplayLabel(picked.level);
         if (picked.level === managed.info.effort) {
           emitEphemeralLog(agentId, "system", `Already using ${label}.`);

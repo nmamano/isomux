@@ -65,7 +65,7 @@ import {
   FAMILY_TO_MODEL,
   MODEL_FAMILIES,
   EFFORT_LEVELS,
-  claudeFamilySupportsMaxEffort,
+  effortLevelsFor,
 } from "../../shared/types.ts";
 import type { ModelFamily, EffortLevel } from "../../shared/types.ts";
 import { getFilePath, saveFile } from "../persistence.ts";
@@ -1047,12 +1047,9 @@ export function createClaudeBackend(
         label: m.label,
         isDefault: i === 0,
         hidden: false,
-        supportedEfforts: EFFORT_LEVELS.filter((e) => {
-          if (e.level === "max") return claudeFamilySupportsMaxEffort(m.family);
-          if (e.level === "minimal") return false; // Codex-only
-          if (e.level === "ultra") return false; // Codex-only
-          return true;
-        }).map((e) => ({ level: e.level })),
+        supportedEfforts: effortLevelsFor("claude", m.family).map((e) => ({
+          level: e.level,
+        })),
       }));
     },
 

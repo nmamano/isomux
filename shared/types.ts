@@ -202,6 +202,25 @@ export function claudeFamilySupportsMaxEffort(family: string): boolean {
   return family === "opus" || family === "fable";
 }
 
+// Static effort options for an agent, filtered by backend + model family.
+// Claude: family-level rules ("minimal"/"ultra" are Codex-only; "max" is
+// top-tier families only) — single source for claude.ts listModels and the
+// /effort slash-command picker. Codex: the full static list; the real
+// allow-list is the dynamic per-model supportedReasoningEfforts from
+// model/list, and codex rejects unsupported values at thread/start,
+// mirroring validateEffort's pass-through philosophy.
+export function effortLevelsFor(
+  agentType: AgentBackendType,
+  modelFamily: string,
+): { level: EffortLevel; label: string }[] {
+  if (agentType === "codex") return EFFORT_LEVELS;
+  return EFFORT_LEVELS.filter((e) => {
+    if (e.level === "minimal" || e.level === "ultra") return false;
+    if (e.level === "max") return claudeFamilySupportsMaxEffort(modelFamily);
+    return true;
+  });
+}
+
 // Claude families allowed to use Isomux's "auto" permission mode (the /resolve
 // auto-classifier). Gated to top-tier models for classifier reliability:
 // opus historically, now opus + fable.

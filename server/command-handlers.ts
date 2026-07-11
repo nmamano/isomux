@@ -12,7 +12,7 @@ import type {
 import type { OfficeEvent } from "../shared/office-state.ts";
 import {
   MODEL_FAMILIES,
-  EFFORT_LEVELS,
+  effortLevelsFor,
   familyDisplayLabel,
   effortDisplayLabel,
 } from "../shared/types.ts";
@@ -501,8 +501,15 @@ export function createCommandHandling(deps: HandlerDeps) {
       const lines: string[] = [
         `Switch thinking effort (current: **${currentLabel}**):\n`,
       ];
-      for (let i = 0; i < EFFORT_LEVELS.length; i++) {
-        const e = EFFORT_LEVELS[i];
+      // Backend/model-filtered list. Must stay in lockstep with the numeric
+      // pick handler in agent-manager.ts (pendingEffortPick), which indexes
+      // into the same effortLevelsFor() result.
+      const levels = effortLevelsFor(
+        managed.info.agentType,
+        managed.info.modelFamily,
+      );
+      for (let i = 0; i < levels.length; i++) {
+        const e = levels[i];
         const marker = e.level === managed.info.effort ? " (current)" : "";
         lines.push(`  ${i + 1}. ${effortDisplayLabel(e.level)}${marker}`);
       }
