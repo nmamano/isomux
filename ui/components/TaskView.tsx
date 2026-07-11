@@ -25,6 +25,19 @@ const STATUS_ORDER: Record<TaskStatus, number> = {
 };
 const PRIORITY_ORDER: Record<string, number> = { P0: 0, P1: 1, P2: 2, P3: 3 };
 
+// Cap the assignee suggestion chips. The office can hold many agents, and the
+// `agents` array arrives in Map insertion order (oldest-first, and unreliable
+// across server restarts), so we sort by spawn time before trimming.
+const MAX_ASSIGNEE_SUGGESTIONS = 10;
+
+// Spawn time, parsed from the agent id (`agent-<ms>-<rand>`, minted in
+// office-state.ts). Used only to rank assignee chips by recency; falls back to 0
+// (sorts last) if the id ever stops carrying a millisecond segment.
+function agentSpawnMs(id: string): number {
+  const ms = Number(id.split("-")[1]);
+  return Number.isFinite(ms) ? ms : 0;
+}
+
 const STATUS_COLORS: Record<TaskStatus, string> = {
   open: "var(--blue, #58a6ff)",
   in_progress: "var(--green)",
@@ -68,10 +81,19 @@ function TaskDetailPanel({
   task?: TaskItem;
   onClose: () => void;
   mode?: "edit" | "create";
-  agents?: { name: string }[];
+  agents?: { name: string; id: string }[];
   closeRef?: React.MutableRefObject<(() => void) | null>;
   fullScreen?: boolean;
 }) {
+  // Most-recent agents first, capped — the raw list is oldest-first and can be
+  // long. Memoized so the chips don't re-sort on every keystroke in the form.
+  const recentAgents = useMemo(
+    () =>
+      [...agents]
+        .sort((a, b) => agentSpawnMs(b.id) - agentSpawnMs(a.id))
+        .slice(0, MAX_ASSIGNEE_SUGGESTIONS),
+    [agents],
+  );
   const [title, setTitle] = useState(task?.title || "");
   const [description, setDescription] = useState(task?.description || "");
   const [priority, setPriority] = useState<TaskPriority | "">(
@@ -331,7 +353,7 @@ function TaskDetailPanel({
             placeholder="Unassigned"
             onKeyDown={(e) => e.stopPropagation()}
           />
-          {agents.length > 0 && (
+          {recentAgents.length > 0 && (
             <div
               style={{
                 display: "flex",
@@ -340,9 +362,9 @@ function TaskDetailPanel({
                 marginTop: 6,
               }}
             >
-              {agents.map((a) => (
+              {recentAgents.map((a) => (
                 <button
-                  key={a.name}
+                  key={a.id}
                   onClick={() => setAssignee(a.name)}
                   style={{
                     padding: "3px 8px",

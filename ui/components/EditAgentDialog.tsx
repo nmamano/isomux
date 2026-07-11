@@ -44,6 +44,10 @@ import {
   dialogChip,
 } from "./dialog-styles.ts";
 
+// Cap the recent-cwd suggestion chips so the row stays scannable even when the
+// server is tracking its full history of working directories.
+const MAX_CWD_SUGGESTIONS = 10;
+
 const HAIR_STYLE_LABELS: Record<AgentOutfit["hairStyle"], string> = {
   short: "Short",
   long: "Long",
@@ -195,7 +199,12 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
   // inline render lives.
   const [nameError, setNameError] = useState<string | null>(null);
   const [cwdError, setCwdError] = useState<string | null>(null);
-  const recentCwds = allRecentCwds.filter((c) => c !== cwd);
+  // Suggestion chips: allRecentCwds is server-maintained newest-first (capped at
+  // 20). Drop the current cwd, then show only the most recent few so the chip
+  // row stays a glanceable shortcut instead of a wall of paths.
+  const recentCwds = allRecentCwds
+    .filter((c) => c !== cwd)
+    .slice(0, MAX_CWD_SUGGESTIONS);
 
   // Fetched model list. null = not yet attempted; [] with error set = fetch
   // failed (UI falls back to the hardcoded CODEX_MODELS list). For Codex we
