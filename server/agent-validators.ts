@@ -89,8 +89,9 @@ export function validateEffort(
   }
   if (!raw || !EFFORT_LEVELS.some((e) => e.level === raw))
     return DEFAULT_EFFORT;
-  // Claude family-level rules: "minimal" is Codex-only; "max" is top-tier only.
-  if (raw === "minimal") return DEFAULT_EFFORT;
+  // Claude family-level rules: "minimal" and "ultra" are Codex-only; "max"
+  // is top-tier only.
+  if (raw === "minimal" || raw === "ultra") return DEFAULT_EFFORT;
   if (raw === "max" && !claudeFamilySupportsMaxEffort(modelFamily))
     return DEFAULT_EFFORT;
   return raw;

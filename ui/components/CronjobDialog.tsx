@@ -688,9 +688,11 @@ export function CronjobDialog({
                 });
               } else {
                 // No supportedEfforts reported (or list not yet loaded): fall
-                // back to the static list minus "max" (Claude-opus-only).
+                // back to the static list minus "max"/"ultra" (not universal
+                // across Codex models — e.g. luna lacks ultra; the dynamic
+                // per-model list is the real source when available).
                 effortOptions = EFFORT_LEVELS.filter(
-                  (opt) => opt.level !== "max",
+                  (opt) => opt.level !== "max" && opt.level !== "ultra",
                 ).map((o) => ({ level: o.level, label: o.label }));
               }
             } else {
@@ -698,6 +700,7 @@ export function CronjobDialog({
                 if (opt.level === "max")
                   return claudeFamilySupportsMaxEffort(modelFamily);
                 if (opt.level === "minimal") return false; // Codex-only
+                if (opt.level === "ultra") return false; // Codex-only
                 return true;
               }).map((o) => ({ level: o.level, label: o.label }));
             }

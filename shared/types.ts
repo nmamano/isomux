@@ -112,15 +112,17 @@ export const MODEL_FAMILIES: { family: ModelFamily; label: string }[] = [
 ];
 
 // Reasoning effort levels. Most are shared across Claude (--effort flag) and
-// Codex (ReasoningEffort enum); `minimal` is Codex-only and `max` is
-// Claude-only. UI filters per-backend.
+// Codex (ReasoningEffort enum); `minimal` and `ultra` are Codex-only, and
+// `max` is Claude top-tier families plus the Codex gpt-5.6 models. UI
+// filters per-backend.
 export type EffortLevel =
   | "minimal"
   | "low"
   | "medium"
   | "high"
   | "xhigh"
-  | "max";
+  | "max"
+  | "ultra";
 
 export const EFFORT_LEVELS: { level: EffortLevel; label: string }[] = [
   { level: "minimal", label: "Minimal (Codex only)" },
@@ -129,6 +131,7 @@ export const EFFORT_LEVELS: { level: EffortLevel; label: string }[] = [
   { level: "high", label: "High" },
   { level: "xhigh", label: "Extra high" },
   { level: "max", label: "Max" },
+  { level: "ultra", label: "Ultra (Codex only)" },
 ];
 
 export const DEFAULT_EFFORT: EffortLevel = "xhigh";
@@ -139,15 +142,16 @@ export function effortDisplayLabel(level: EffortLevel): string {
 
 // Codex model identifiers and their UI labels. Lives here (shared) so both
 // the UI's display helpers and the server can reference the canonical set.
-// Verified against `codex debug models` on codex-cli 0.130.0 (2026-05-11).
-// Default first: gpt-5.5 is what the standalone codex CLI uses for
-// ChatGPT-login users.
+// Verified against `codex debug models` on codex-cli 0.144.1 (2026-07-11).
+// Default first (CODEX_MODELS[0]): gpt-5.5 for now; flipping the default to
+// gpt-5.6-sol later is a one-line reorder here.
 export const CODEX_MODELS: { value: string; label: string }[] = [
   { value: "gpt-5.5", label: "GPT-5.5" },
+  { value: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
+  { value: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
+  { value: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
   { value: "gpt-5.4", label: "GPT-5.4" },
   { value: "gpt-5.4-mini", label: "GPT-5.4 mini" },
-  { value: "gpt-5.3-codex", label: "GPT-5.3 Codex" },
-  { value: "gpt-5.2", label: "GPT-5.2" },
 ];
 
 // Extract a display version from the exact model id: "claude-opus-4-8" -> "4.8",
@@ -244,7 +248,7 @@ export interface AgentInfo {
   permissionMode: AgentPermissionMode;
   // Backend-specific model identifier. For Claude this is a ModelFamily
   // ("opus"/"sonnet"/"haiku"); for Codex this is the GPT-5 family value
-  // ("gpt-5.5"/"gpt-5.4"/"gpt-5.4-mini"/"gpt-5.3-codex"/"gpt-5.2"). Display
+  // ("gpt-5.5"/"gpt-5.6-sol"/"gpt-5.6-terra"/"gpt-5.6-luna"/...). Display
   // logic narrows on agentType before rendering.
   modelFamily: string;
   effort: EffortLevel;

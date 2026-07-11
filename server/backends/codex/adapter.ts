@@ -131,19 +131,20 @@ const CAPABILITIES: BackendCapabilities = {
   mcp: true,
 };
 
-// Model options. Hardcoded at v1 — known limitation: model/list (Codex RPC)
-// would return the auth-appropriate subset (ChatGPT-login vs API-key users
-// see different sets, and each model declares its own
-// supportedReasoningEfforts). Wiring model/list at session bootstrap +
-// per-model effort picker is task 3929f8ec. Slugs verified against `codex
-// debug models` on codex-cli 0.130.0 (2026-05-11); mirror of CODEX_MODELS
-// in shared/types.ts.
+// Static model options — FALLBACK only. The live set comes from
+// codexBackend.listModels() (model/list RPC), which returns the
+// auth-appropriate subset (ChatGPT-login vs API-key users see different
+// sets) with per-model supportedReasoningEfforts. This list backs
+// getModelOptions() and modelDisplayLabel() when the RPC isn't available.
+// Slugs verified against `codex debug models` on codex-cli 0.144.1
+// (2026-07-11); mirror of CODEX_MODELS in shared/types.ts.
 const MODEL_OPTIONS: ModelOption[] = [
   { value: "gpt-5.5", label: "GPT-5.5" },
+  { value: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
+  { value: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
+  { value: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
   { value: "gpt-5.4", label: "GPT-5.4" },
   { value: "gpt-5.4-mini", label: "GPT-5.4 mini" },
-  { value: "gpt-5.3-codex", label: "GPT-5.3 Codex" },
-  { value: "gpt-5.2", label: "GPT-5.2" },
 ];
 
 function modelDisplayLabel(slug: string): string {

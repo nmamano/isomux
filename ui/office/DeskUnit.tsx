@@ -16,11 +16,18 @@ const MODEL_TINT: Record<string, { border: string; bg: string }> = {
     border: "rgba(120,220,160,0.62)",
     bg: "rgba(120,220,160,0.20)",
   },
-  "gpt-5.3-codex": {
-    border: "rgba(80,200,140,0.90)",
-    bg: "rgba(80,200,140,0.36)",
+  "gpt-5.6-sol": {
+    border: "rgba(80,220,150,0.95)",
+    bg: "rgba(80,220,150,0.40)",
   },
-  "gpt-5.2": { border: "rgba(120,220,160,0.50)", bg: "rgba(120,220,160,0.16)" },
+  "gpt-5.6-terra": {
+    border: "rgba(80,200,140,0.80)",
+    bg: "rgba(80,200,140,0.30)",
+  },
+  "gpt-5.6-luna": {
+    border: "rgba(80,200,140,0.60)",
+    bg: "rgba(80,200,140,0.20)",
+  },
 };
 
 export function DeskUnit({

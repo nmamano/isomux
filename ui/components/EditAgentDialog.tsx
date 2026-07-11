@@ -972,9 +972,11 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 });
               } else {
                 // Codex model with no supportedEfforts reported: fall back to
-                // the EFFORT_LEVELS list minus "max" (Claude-Opus-only).
+                // the EFFORT_LEVELS list minus "max"/"ultra" (not universal
+                // across Codex models — e.g. luna lacks ultra; the dynamic
+                // per-model list is the real source when available).
                 effortLevels = EFFORT_LEVELS.filter(
-                  (opt) => opt.level !== "max",
+                  (opt) => opt.level !== "max" && opt.level !== "ultra",
                 ).map((o) => ({ level: o.level, label: o.label }));
               }
             } else {
@@ -982,6 +984,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                 if (opt.level === "max")
                   return !isCodex && claudeFamilySupportsMaxEffort(modelFamily);
                 if (opt.level === "minimal") return isCodex;
+                if (opt.level === "ultra") return false; // per-model Codex list only
                 return true;
               }).map((o) => ({ level: o.level, label: o.label }));
             }

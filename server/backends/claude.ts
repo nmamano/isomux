@@ -1049,7 +1049,8 @@ export function createClaudeBackend(
         hidden: false,
         supportedEfforts: EFFORT_LEVELS.filter((e) => {
           if (e.level === "max") return claudeFamilySupportsMaxEffort(m.family);
-          if (e.level === "minimal") return false;
+          if (e.level === "minimal") return false; // Codex-only
+          if (e.level === "ultra") return false; // Codex-only
           return true;
         }).map((e) => ({ level: e.level })),
       }));
