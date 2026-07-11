@@ -277,12 +277,18 @@ function resolveBearerIdentity(req: Request): Identity | null {
 // against link previewers / chat unfurlers / scanners burning the one-time
 // invite before the human opens it.
 export function handleInvitePeek(
-  _req: Request,
+  req: Request,
   token: string,
   officeName: string | null,
 ): Response {
   const peek = peekInvite(token);
-  if ("error" in peek) return renderInviteError(peek.error, officeName);
+  if ("error" in peek) {
+    if (peek.error === "consumed") {
+      const signedIn = redirectConsumedVisitorIfSignedIn(req);
+      if (signedIn) return signedIn;
+    }
+    return renderInviteError(peek.error, officeName);
+  }
   return new Response(
     renderAcceptPage(token, peek.needsName, null, officeName),
     {
@@ -330,6 +336,10 @@ export async function handleAccept(
           },
         },
       );
+    }
+    if (result.error === "consumed") {
+      const signedIn = redirectConsumedVisitorIfSignedIn(req);
+      if (signedIn) return signedIn;
     }
     return renderInviteError(result.error, officeName);
   }
@@ -802,6 +812,28 @@ function renderAcceptPage(
     og,
     PREAUTH_EXTRA_CSS,
   );
+}
+
+// A consumed-invite visitor who already holds a valid session is almost
+// always the invitee who just accepted and then re-opened the one-time
+// link (second click from chat, browser history, another tab's stale
+// accept form re-POSTing). Dead-ending them on the 410 reads as "signup
+// failed" even though they're signed in — send them into the office
+// instead. Only the `consumed` error takes this path: an expired or
+// unknown invite says nothing about the visitor's own session, and an
+// unauthenticated visitor on a consumed link still gets the honest 410.
+function redirectConsumedVisitorIfSignedIn(req: Request): Response | null {
+  const lookup = validateSession(readSessionCookie(req));
+  if (!lookup) return null;
+  return new Response(null, {
+    status: 302,
+    headers: {
+      Location: "/",
+      // The /i/<token> URL carries the bearer token, so keep the
+      // no-referrer policy on the redirect just like the peek page.
+      ...securityHeaders(),
+    },
+  });
 }
 
 function renderInviteError(kind: string, officeName: string | null): Response {

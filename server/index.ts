@@ -293,9 +293,18 @@ function registerBootHooks(): void {
   // real time. Without this hook, a browser that minted an invite while a
   // *separate* browser opened the /i/ URL would have to reconnect to see
   // the consumed invite drop off the Outstanding list.
+  //
+  // users list too: acceptance is the ONE path that can create a user
+  // record outside the users.* handlers (acceptInvite's claimUser upsert),
+  // so without this an already-open owner tab shows the new session in the
+  // sessions table while the user roster stays stale until reload — the
+  // "session exists but user doesn't" ghost. emitUsersList() is the same
+  // sanctioned fanout every other user mutation uses (public roster to
+  // all, admin roster to owners).
   setOnInviteConsumed(() => {
     emitInvitesList();
     emitSessionsList();
+    emitUsersList();
   });
 
   // Owner AccessPane sessions table stays fresh on any server-initiated
