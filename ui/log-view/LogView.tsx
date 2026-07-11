@@ -1196,6 +1196,15 @@ export function LogView({
     el.style.height = Math.min(el.scrollHeight, 200) + "px";
   }
 
+  // Join newly transcribed speech onto existing composer text, inserting a
+  // single separating space when neither side already provides whitespace so
+  // dictated words don't run into the prior text.
+  function joinSpoken(base: string, addition: string): string {
+    if (!base || !addition) return base + addition;
+    if (/\s$/.test(base) || /^\s/.test(addition)) return base + addition;
+    return base + " " + addition;
+  }
+
   const SpeechRecognition =
     window.SpeechRecognition ?? window.webkitSpeechRecognition;
 
@@ -1212,26 +1221,29 @@ export function LogView({
     recognition.interimResults = true;
     recognition.lang = "en-US";
     recognition.onresult = (event: SpeechRecognitionEvent) => {
-      let finalText = "";
       let interimText = "";
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const t = event.results[i][0].transcript;
         if (event.results[i].isFinal) {
-          finalText += t;
+          // Join each finalized segment individually so that multiple finals
+          // arriving in one event can't concatenate into a run-together blob.
+          committedTextRef.current = joinSpoken(committedTextRef.current, t);
         } else {
           interimText += t;
         }
       }
-      if (finalText) {
-        committedTextRef.current += finalText;
-      }
       dispatch({
         type: "set_draft",
         agentId: agent.id,
-        text: committedTextRef.current + interimText,
+        text: joinSpoken(committedTextRef.current, interimText),
       });
       requestAnimationFrame(() => {
-        if (textareaRef.current) autoResize(textareaRef.current);
+        const el = textareaRef.current;
+        if (el) {
+          autoResize(el);
+          // Keep the latest dictated text in view as the composer fills.
+          el.scrollTop = el.scrollHeight;
+        }
       });
     };
     recognition.onend = () => {
