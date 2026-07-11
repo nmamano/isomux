@@ -50,6 +50,7 @@ import { resolveCwd } from "./cwd-utils.ts";
 import type { TaskItem } from "../shared/types.ts";
 import {
   CODEX_MODELS,
+  MODEL_FAMILIES,
   isValidStatus,
   isValidPriority,
   type AgentOutfit,
@@ -403,7 +404,7 @@ function registerBootHooks(): void {
     await spawnWelcomeAgent(
       "Claude Welcome Agent",
       "claude",
-      "opus",
+      MODEL_FAMILIES[0].family,
       "auto",
       CLAUDE_WELCOME_OUTFIT,
       username,

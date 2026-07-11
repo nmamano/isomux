@@ -104,9 +104,12 @@ export const FAMILY_TO_MODEL: Record<ModelFamily, ClaudeModel> = {
   haiku: "claude-haiku-4-5-20251001",
 };
 
+// Default first (MODEL_FAMILIES[0]): fable. New-agent defaults, the welcome
+// agent, and the validator fallback all key off MODEL_FAMILIES[0], mirroring
+// CODEX_MODELS below.
 export const MODEL_FAMILIES: { family: ModelFamily; label: string }[] = [
-  { family: "opus", label: "Opus" },
   { family: "fable", label: "Fable" },
+  { family: "opus", label: "Opus" },
   { family: "sonnet", label: "Sonnet" },
   { family: "haiku", label: "Haiku" },
 ];
@@ -134,7 +137,9 @@ export const EFFORT_LEVELS: { level: EffortLevel; label: string }[] = [
   { level: "ultra", label: "Ultra (Codex only)" },
 ];
 
-export const DEFAULT_EFFORT: EffortLevel = "xhigh";
+// Shared across backends: the spawn default for new agents/cronjobs and the
+// coercion target when validateEffort rejects a value.
+export const DEFAULT_EFFORT: EffortLevel = "high";
 
 export function effortDisplayLabel(level: EffortLevel): string {
   return EFFORT_LEVELS.find((e) => e.level === level)?.label ?? level;

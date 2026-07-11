@@ -92,7 +92,7 @@ export function CronjobDialog({
   const isCodex = agentType === "codex";
 
   const [modelFamily, setModelFamily] = useState<string>(
-    cronjob?.modelFamily ?? "opus",
+    cronjob?.modelFamily ?? MODEL_FAMILIES[0].family,
   );
   const [effort, setEffort] = useState<EffortLevel>(
     cronjob?.effort ?? DEFAULT_EFFORT,
@@ -136,10 +136,10 @@ export function CronjobDialog({
     setAgentType(next);
     if (next === "codex") {
       setModelFamily(CODEX_MODELS[0].value);
-      setEffort("medium");
+      setEffort(DEFAULT_EFFORT);
       setPermissionMode("never");
     } else {
-      setModelFamily("opus");
+      setModelFamily(MODEL_FAMILIES[0].family);
       setEffort(DEFAULT_EFFORT);
       setPermissionMode("bypassPermissions");
     }
@@ -190,7 +190,13 @@ export function CronjobDialog({
             visibleModels[0];
           if (def) {
             setModelFamily(def.id);
-            if (def.defaultEffort) setEffort(def.defaultEffort as EffortLevel);
+            // Keep Isomux's DEFAULT_EFFORT when the model supports it; only
+            // adopt the model's own reported default when it doesn't.
+            const supportsDefault = def.supportedEfforts.some(
+              (o) => o.level === DEFAULT_EFFORT,
+            );
+            if (!supportsDefault && def.defaultEffort)
+              setEffort(def.defaultEffort as EffortLevel);
           }
         }
       })

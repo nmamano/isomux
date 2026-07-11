@@ -192,7 +192,7 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
 
     // Backend + model + permission identity each welcome agent ships with.
     expect(claude!.agentType).toBe("claude");
-    expect(claude!.modelFamily).toBe("opus");
+    expect(claude!.modelFamily).toBe("fable");
     expect(claude!.permissionMode).toBe("auto");
     expect(codex!.agentType).toBe("codex");
     expect(codex!.modelFamily).toBe("gpt-5.6-sol");

@@ -13,6 +13,7 @@ import {
   CODEX_MODELS,
   DEFAULT_EFFORT,
   EFFORT_LEVELS,
+  MODEL_FAMILIES,
   claudeFamilySupportsMaxEffort,
   isClaudeFamily,
   type AgentBackendType,
@@ -59,7 +60,7 @@ export function validateModelFamily(
     return CODEX_MODELS[0].value;
   }
   if (raw && isClaudeFamily(raw)) return raw;
-  return "opus";
+  return MODEL_FAMILIES[0].family;
 }
 
 export function validateCodexSandbox(

@@ -168,7 +168,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
     agent?.modelFamily ?? defaultModel,
   );
   const [effort, setEffort] = useState<EffortLevel>(
-    agent?.effort ?? (isCodex ? "medium" : DEFAULT_EFFORT),
+    agent?.effort ?? DEFAULT_EFFORT,
   );
   const [codexSandbox, setCodexSandbox] = useState<CodexSandboxMode>(
     agent?.codexSandbox ?? "workspace-write",
@@ -292,7 +292,13 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
             visibleModels[0];
           if (def) {
             setModelFamily(def.id);
-            if (def.defaultEffort) setEffort(def.defaultEffort as EffortLevel);
+            // Keep Isomux's DEFAULT_EFFORT when the model supports it; only
+            // adopt the model's own reported default when it doesn't.
+            const supportsDefault = def.supportedEfforts.some(
+              (o) => o.level === DEFAULT_EFFORT,
+            );
+            if (!supportsDefault && def.defaultEffort)
+              setEffort(def.defaultEffort as EffortLevel);
           }
         }
       })
@@ -336,14 +342,12 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
             ? CODEX_MODELS[0].value
             : MODEL_FAMILIES[0].family),
       );
-      setEffort(
-        agent?.effort ?? (agentType === "codex" ? "medium" : DEFAULT_EFFORT),
-      );
+      setEffort(agent?.effort ?? DEFAULT_EFFORT);
       setPermissionMode(initialPermissionMode);
       setCodexSandbox(agent?.codexSandbox ?? "workspace-write");
     } else if (targetEngine === "codex") {
       setModelFamily(CODEX_MODELS[0].value);
-      setEffort("medium");
+      setEffort(DEFAULT_EFFORT);
       setPermissionMode("on-request");
       setCodexSandbox("workspace-write");
     } else {
