@@ -28,3 +28,16 @@ export function mimeTypeForFilename(filename: string): string {
   const ext = filename.slice(dot + 1).toLowerCase();
   return EXT_TO_MIME[ext] ?? DEFAULT_MIME;
 }
+
+// Content-Type for an HTTP *response* serving a file. Same lookup as
+// mimeTypeForFilename, but appends charset=utf-8 for text-based types so
+// browsers (notably on Windows) don't fall back to a legacy codepage and
+// render mojibake. Kept separate from mimeTypeForFilename because that value
+// is also stored as attachment mediaType, which should stay charset-free.
+export function httpContentTypeForFilename(filename: string): string {
+  const mime = mimeTypeForFilename(filename);
+  if (mime.startsWith("text/") || mime === "application/json") {
+    return `${mime}; charset=utf-8`;
+  }
+  return mime;
+}

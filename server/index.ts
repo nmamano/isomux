@@ -72,7 +72,10 @@ import {
 } from "./users.ts";
 import { hostname as osHostname, userInfo } from "os";
 import { watchFile, stopWatch, type FileWatcher } from "./file-editor.ts";
-import { mimeTypeForFilename } from "./mime-types.ts";
+import {
+  mimeTypeForFilename,
+  httpContentTypeForFilename,
+} from "./mime-types.ts";
 import { join } from "path";
 import {
   authenticate,
@@ -1373,7 +1376,7 @@ function buildExecutorDeps(): ExecutorDeps {
       saveFile: (agentId, data, mediaType, originalName) =>
         saveFile(agentId, data, mediaType, originalName),
       getFilePath: (agentId, filename) => getFilePath(agentId, filename),
-      contentTypeFor: (filename) => mimeTypeForFilename(filename),
+      contentTypeFor: (filename) => httpContentTypeForFilename(filename),
     }),
   );
 
@@ -3768,7 +3771,17 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
       ) {
         const parts = url.pathname.split("/").filter(Boolean); // ["api", "files"|"images", agentId, filename]
         const agentId = parts[2];
-        const filename = parts[3];
+        // Decode the filename: the browser percent-encodes spaces and other
+        // characters, but getFilePath needs the real on-disk name. A malformed
+        // %xx must not throw the dispatch, so fall back to the raw segment.
+        let filename = parts[3];
+        if (filename) {
+          try {
+            filename = decodeURIComponent(filename);
+          } catch {
+            // keep the raw segment
+          }
+        }
         if (!agentId || !filename) {
           return new Response("Not found", { status: 404 });
         }
@@ -3778,7 +3791,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         }
         return new Response(Bun.file(filePath), {
           headers: {
-            "Content-Type": mimeTypeForFilename(filename),
+            "Content-Type": httpContentTypeForFilename(filename),
             "Cache-Control": "public, max-age=31536000, immutable",
           },
         });
