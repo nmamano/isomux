@@ -175,7 +175,7 @@ export function CronjobDialog({
         }
         setBackendModels(r.models);
         // On create, pick the default. Invariant: prefer Isomux's canonical
-        // default (CODEX_MODELS[0], currently gpt-5.5) when this auth tier
+        // default (CODEX_MODELS[0], currently gpt-5.6-sol) when this auth tier
         // offers it; otherwise fall back to Codex's per-auth isDefault, then
         // the first listed model. We choose from the visible (non-hidden)
         // models so the value always matches a rendered <option>. The model

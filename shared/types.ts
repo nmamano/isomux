@@ -143,13 +143,14 @@ export function effortDisplayLabel(level: EffortLevel): string {
 // Codex model identifiers and their UI labels. Lives here (shared) so both
 // the UI's display helpers and the server can reference the canonical set.
 // Verified against `codex debug models` on codex-cli 0.144.1 (2026-07-11).
-// Default first (CODEX_MODELS[0]): gpt-5.5 for now; flipping the default to
-// gpt-5.6-sol later is a one-line reorder here.
+// Default first (CODEX_MODELS[0]): gpt-5.6-sol, the frontier agentic coding
+// model. New-agent defaults, the welcome agent, and the dialogs'
+// auth-error preferred-default branch all key off CODEX_MODELS[0].
 export const CODEX_MODELS: { value: string; label: string }[] = [
-  { value: "gpt-5.5", label: "GPT-5.5" },
   { value: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
   { value: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
   { value: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
+  { value: "gpt-5.5", label: "GPT-5.5" },
   { value: "gpt-5.4", label: "GPT-5.4" },
   { value: "gpt-5.4-mini", label: "GPT-5.4 mini" },
 ];
