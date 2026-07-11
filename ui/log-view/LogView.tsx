@@ -538,6 +538,19 @@ export function LogView({
   const [topicDraft, setTopicDraft] = useState("");
   const topicInputRef = useRef<HTMLInputElement>(null);
   const topicSavedRef = useRef(false);
+  // Whether the ↻ button can regenerate the topic. `topicStale` is a server
+  // runtime flag that only flips true once a *new* message arrives during the
+  // live session, so on a fresh page load (or after a restart) it stays false
+  // even when there's a full conversation to re-summarize. Fall back to the
+  // logs the UI already holds: gate on at least one *user* message, matching
+  // what generateTopic() actually summarizes — it returns null (clearing the
+  // topic) when no user message exists, so enabling on model text alone could
+  // wipe an existing topic.
+  const hasTopicableHistory = useMemo(
+    () => logs.some((e) => e.kind === "user_message"),
+    [logs],
+  );
+  const canRegenerateTopic = agent.topicStale || hasTopicableHistory;
   // Side panel state (terminal vs editor vs none) lives in the store keyed
   // by agent id so it survives LogView remount on agent switch. Toggling a
   // panel dispatches set_side_panel; opening one closes the other.
@@ -1741,20 +1754,20 @@ export function LogView({
                         () => {},
                       );
                     }}
-                    disabled={!agent.topicStale}
+                    disabled={!canRegenerateTopic}
                     title={
-                      agent.topicStale
+                      canRegenerateTopic
                         ? "Regenerate topic from conversation"
-                        : "No new messages since last generation"
+                        : "No conversation history to summarize"
                     }
                     style={{
                       background: "none",
                       border: "none",
-                      cursor: agent.topicStale ? "pointer" : "default",
+                      cursor: canRegenerateTopic ? "pointer" : "default",
                       color: "var(--text-secondary)",
                       fontSize: 15,
                       padding: "0 4px",
-                      opacity: agent.topicStale ? 0.8 : 0.3,
+                      opacity: canRegenerateTopic ? 0.8 : 0.3,
                       transition: "opacity 0.2s",
                       lineHeight: 1,
                     }}
