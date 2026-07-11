@@ -177,7 +177,7 @@ function requireAgentByName(srv: TestServer, name: string): AgentInfo {
 }
 
 describe("onboarding / fresh install (Phase 1.1)", () => {
-  it("seeds one Claude (Opus) + one Codex welcome agent on the first-owner claim", async () => {
+  it("seeds one Claude (Fable) + one Codex welcome agent on the first-owner claim", async () => {
     // Default harness backend; the seed never sends, so its onSend is irrelevant.
     server = await startTestServer();
     await claimOwner(server, "Boss");

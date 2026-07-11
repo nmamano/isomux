@@ -2909,7 +2909,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // child.on('error') translates ENOENT to an install hint; Claude SDK errors
     // surface analogously). Keeping the policies symmetric across backends means
     // a user can put an agent at a desk before configuring its backend, and the
-    // welcome-agent seed gets one Opus and one Codex desk on every fresh install.
+    // welcome-agent seed gets one Claude and one Codex desk on every fresh install.
     const resolvedCwd = resolveCwd(cwd);
 
     // Server-side validation. Anything outside the backend's allowlist falls

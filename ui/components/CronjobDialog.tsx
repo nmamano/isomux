@@ -600,7 +600,9 @@ export function CronjobDialog({
                     !claudeFamilySupportsMaxEffort(next) &&
                     effort === "max"
                   )
-                    setEffort("xhigh");
+                    // Same coercion target the server's validateEffort uses
+                    // for an invalid Claude "max".
+                    setEffort(DEFAULT_EFFORT);
                   // Codex: snap effort to the new model's default if the
                   // current effort isn't in its supportedEfforts list.
                   if (isCodex && codexVisible) {

@@ -879,7 +879,9 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                     !claudeFamilySupportsMaxEffort(next) &&
                     effort === "max"
                   )
-                    setEffort("xhigh");
+                    // Same coercion target the server's validateEffort uses
+                    // for an invalid Claude "max".
+                    setEffort(DEFAULT_EFFORT);
                   // Codex: when the model changes, snap effort to the new
                   // model's default if the current effort isn't supported.
                   if (isCodex && codexVisible) {
