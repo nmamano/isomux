@@ -473,6 +473,10 @@ export class CodexSession implements BackendSession {
         },
         capabilities: {
           experimentalApi: true,
+          // Decline attestation/generate: the adapter doesn't handle that
+          // server request yet (task cdbc2f3e), so opting in would surface
+          // unhandled requests. 0.144 made this capability required.
+          requestAttestation: false,
           optOutNotificationMethods: null,
         },
       };
@@ -1720,6 +1724,10 @@ export const codexBackend: Backend = {
         },
         capabilities: {
           experimentalApi: true,
+          // Decline attestation/generate: the adapter doesn't handle that
+          // server request yet (task cdbc2f3e), so opting in would surface
+          // unhandled requests. 0.144 made this capability required.
+          requestAttestation: false,
           optOutNotificationMethods: null,
         },
       });
@@ -1804,6 +1812,10 @@ export const codexBackend: Backend = {
         },
         capabilities: {
           experimentalApi: true,
+          // Decline attestation/generate: the adapter doesn't handle that
+          // server request yet (task cdbc2f3e), so opting in would surface
+          // unhandled requests. 0.144 made this capability required.
+          requestAttestation: false,
           optOutNotificationMethods: null,
         },
       });
@@ -1873,6 +1885,10 @@ export const codexBackend: Backend = {
         },
         capabilities: {
           experimentalApi: true,
+          // Decline attestation/generate: the adapter doesn't handle that
+          // server request yet (task cdbc2f3e), so opting in would surface
+          // unhandled requests. 0.144 made this capability required.
+          requestAttestation: false,
           optOutNotificationMethods: null,
         },
       });
@@ -1931,6 +1947,10 @@ export const codexBackend: Backend = {
         },
         capabilities: {
           experimentalApi: true,
+          // Decline attestation/generate: the adapter doesn't handle that
+          // server request yet (task cdbc2f3e), so opting in would surface
+          // unhandled requests. 0.144 made this capability required.
+          requestAttestation: false,
           optOutNotificationMethods: null,
         },
       });
