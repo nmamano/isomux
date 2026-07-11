@@ -226,13 +226,16 @@ ${emitThemesCss()}
   .d2h-isomux-host .d2h-diff-table {
     font-family: 'JetBrains Mono', monospace; font-size: 12px;
   }
-  .d2h-isomux-host .d2h-code-line, .d2h-isomux-host .d2h-code-side-line {
-    padding: 0 4em; width: calc(100% - 8em);
-  }
+  /* Side-by-side shows a single line number per pane, so its gutter can be
+     tightened. Line-by-line is intentionally left at diff2html's defaults: its
+     gutter holds BOTH the old and new line numbers (two floated columns), so
+     narrowing it collapses the two numbers on top of each other on every line
+     where they diverge (i.e. below any hunk) - which is what broke the gutter
+     for large diffs in the modal view. */
   .d2h-isomux-host .d2h-code-side-line {
     padding: 0 3em; width: calc(100% - 6em);
   }
-  .d2h-isomux-host .d2h-code-linenumber, .d2h-isomux-host .d2h-code-side-linenumber {
+  .d2h-isomux-host .d2h-code-side-linenumber {
     width: 3.5em;
   }
 
