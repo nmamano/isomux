@@ -946,8 +946,8 @@ export function EditorPanel({
               border: "none",
               color: "var(--text-muted)",
               cursor: "pointer",
-              fontSize: 16,
-              padding: "0 12px",
+              fontSize: 20,
+              padding: "4px 12px",
               lineHeight: 1,
               flexShrink: 0,
             }}

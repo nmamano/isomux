@@ -660,8 +660,8 @@ export function TerminalPanel({
             border: "none",
             color: "var(--text-muted)",
             cursor: "pointer",
-            fontSize: mobile ? 24 : 16,
-            padding: mobile ? "4px 10px" : "0 4px",
+            fontSize: mobile ? 24 : 20,
+            padding: mobile ? "4px 10px" : "4px 12px",
             lineHeight: 1,
           }}
           title="Close terminal"
