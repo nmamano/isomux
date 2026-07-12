@@ -250,8 +250,39 @@ export interface QueuedMessage {
   // tool_executing). Used at flush time to warn the agent that the sender
   // hadn't yet seen its most recent reply when sending this.
   queuedDuringBusyTurn?: boolean;
+  // Set when this message was created by the scheduled-message scheduler (a
+  // sender agent's earlier POST with deliverAt): the epoch-ms time it was
+  // scheduled to fire. Used at flush time to mark the message as scheduled —
+  // and, for a self-addressed one, as coming from the agent's own past self —
+  // so the receiver doesn't read it as a live conversational turn.
+  scheduledFor?: number;
+  // Set alongside scheduledFor when the sender agent no longer existed at fire
+  // time (scheduled messages always deliver — Nil's decision, task 8ff369b5).
+  // Surfaced in the flush prefix so the receiver knows a reply cannot land.
+  scheduledSenderGone?: boolean;
   attachments?: Attachment[];
   queuedAt: number;
+}
+
+// A message scheduled for future delivery (POST /api/agents/:id/messages with
+// deliverAt). Durable: persisted to ~/.isomux/scheduled-messages.json and
+// reloaded on boot, unlike the in-memory QueuedMessage queue it feeds into at
+// fire time. Sender name/room are SNAPSHOTS taken at schedule time: delivery
+// re-resolves the live display when the sender still exists (fresher name) and
+// falls back to the snapshot when it doesn't (scheduled messages always
+// deliver; the receiver is told when the sender is gone).
+export interface ScheduledMessageEntry {
+  id: string; // "sm_" + 8-char hex; the list/cancel handle
+  senderAgentId: string;
+  senderName: string;
+  senderRoomName: string;
+  receiverAgentId: string;
+  text: string;
+  // Optional retry-dedup key, scoped per sender. Persisted so idempotency
+  // survives restarts: a duplicate schedule POST returns the ORIGINAL id.
+  clientMessageId?: string;
+  deliverAt: number; // epoch ms (parsed from the RFC3339 request field)
+  createdAt: number;
 }
 
 // What the browser knows about an agent

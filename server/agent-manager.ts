@@ -538,6 +538,16 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return { name: managed.info.name, roomName: room.name };
   }
 
+  // Best-effort system note into an agent's chat (a plain log entry: boss-
+  // visible in the UI, burns no turn, never enters the SDK conversation).
+  // Used by the scheduled-message scheduler for delivery-failure notices.
+  // Returns false when the agent doesn't exist.
+  function addSystemNote(agentId: string, text: string): boolean {
+    if (!agents.has(agentId)) return false;
+    addLogEntry(agentId, "system", text);
+    return true;
+  }
+
   // validateCwd is re-exposed via the returned AgentManager (imported from
   // cwd-utils.ts); the bare module re-export is gone with the singleton.
 
@@ -3150,6 +3160,27 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     }
   }
 
+  // Per-item flush prefix. Plain messages get the bare sender prefix; a
+  // SCHEDULED message (scheduledFor set by scheduled-messages.ts at fire time)
+  // is explicitly marked so the receiver doesn't read it as a live
+  // conversational turn: a self-addressed one reads as coming from the agent's
+  // own past self (no reply expected), and a gone sender is called out because
+  // scheduled messages always deliver (Nil's decision, task 8ff369b5) — the
+  // receiver decides what the sender's absence means.
+  function queuedItemPrefix(m: QueuedMessage, receiverAgentId: string): string {
+    if (m.scheduledFor === undefined || m.sender.kind !== "agent") {
+      return senderPrefixText(m.sender);
+    }
+    const when = new Date(m.scheduledFor).toISOString();
+    if (m.sender.agentId === receiverAgentId) {
+      return `[Scheduled message from your own past self, scheduled for delivery at ${when}] `;
+    }
+    const gone = m.scheduledSenderGone
+      ? " The sender agent no longer exists, so it will not see a reply."
+      : "";
+    return `${senderPrefixText(m.sender)}[This message was scheduled by the sender for delivery at ${when}.${gone}] `;
+  }
+
   function emitQueueUpdate(agentId: string, managed: ManagedAgent) {
     emit({
       type: "agent_updated",
@@ -3207,6 +3238,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       sdkText?: string;
       attachments?: Attachment[];
       clientMessageId?: string;
+      // Set by the scheduled-message scheduler at fire time (see
+      // scheduled-messages.ts). Copied onto the queued item below — dropping
+      // the copy would silently lose the scheduled marker in the flush prefix.
+      scheduledFor?: number;
+      scheduledSenderGone?: boolean;
     },
   ): EnqueueResult {
     const managed = agents.get(agentId);
@@ -3238,6 +3274,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       text: msg.text,
       ...(msg.sdkText ? { sdkText: msg.sdkText } : {}),
       ...(queuedDuringBusyTurn ? { queuedDuringBusyTurn: true } : {}),
+      ...(msg.scheduledFor !== undefined
+        ? { scheduledFor: msg.scheduledFor }
+        : {}),
+      ...(msg.scheduledSenderGone ? { scheduledSenderGone: true } : {}),
       attachments: msg.attachments,
       queuedAt: Date.now(),
     });
@@ -3401,7 +3441,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         // queued while the agent was mid-turn): chat shows m.text "/subagent-review",
         // but the SDK needs the full skill prompt.
         const body = m.sdkText ?? m.text;
-        promptParts.push(`${senderPrefixText(m.sender)}${body}`);
+        promptParts.push(`${queuedItemPrefix(m, agentId)}${body}`);
         unprefixedParts.push(body);
         if (m.attachments) allAttachments.push(...m.attachments);
       }
@@ -3434,10 +3474,19 @@ Once complete, it takes effect immediately for all Isomux agents.`;
               // this entry against the SDK session (the SDK saw the expanded
               // prompt, not m.text). Same shape executeSkill uses on the
               // immediate path.
-              const base = senderMeta(m.sender);
-              const meta = m.sdkText
-                ? { ...(base ?? {}), sdkText: m.sdkText }
-                : base;
+              let meta = senderMeta(m.sender);
+              if (m.sdkText) meta = { ...(meta ?? {}), sdkText: m.sdkText };
+              // Scheduled-delivery provenance (see scheduled-messages.ts):
+              // mirrors the flush-prefix marker into the persisted log entry.
+              if (m.scheduledFor !== undefined) {
+                meta = {
+                  ...(meta ?? {}),
+                  scheduled_for: m.scheduledFor,
+                  ...(m.scheduledSenderGone
+                    ? { scheduled_sender_gone: true }
+                    : {}),
+                };
+              }
               addLogEntry(agentId, "user_message", m.text, meta, m.attachments);
             }
             // Trigger topic generation only after the user_message log entries
@@ -5483,6 +5532,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     emitAgentDiff,
     spawn,
     enqueueMessage,
+    addSystemNote,
     cancelQueued,
     sendNow,
     sendMessage,

@@ -113,8 +113,15 @@ export interface SendMessageReq {
   senderAgentId?: string;
   // Optional retry-dedup key for the AGENT (inter-agent) branch — folds into the
   // manager's queue dedupe, the same field the retired POST /agents/:id/message
-  // accepted. The UI (USER branch) omits it.
+  // accepted. The UI (USER branch) omits it. When deliverAt is present it doubles
+  // as the scheduled-message idempotency key (persisted, so it survives restarts).
   clientMessageId?: string;
+  // AGENT branch only: schedule the message for future delivery instead of
+  // sending now. Strict RFC3339 with a REQUIRED Z or numeric offset (offset-less
+  // local timestamps are rejected as ambiguous); must be in the future, at most
+  // 30 days ahead. Present on a USER-scope call → 400 (never silently sent now).
+  // The ack becomes { scheduledId, deliverAt } instead of { messageId }.
+  deliverAt?: string;
 }
 
 export interface EditMessageReq {

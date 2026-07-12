@@ -16,6 +16,7 @@ import type {
   EffortLevel,
   LogEntry,
   OfficeSettings,
+  ScheduledMessageEntry,
   TaskItem,
 } from "../shared/types.ts";
 import { familyFromLegacyModel, generateRoomId } from "../shared/types.ts";
@@ -1243,6 +1244,59 @@ export function saveTasks(tasks: TaskItem[]) {
   } catch (err) {
     console.error("Failed to save tasks:", err);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Scheduled messages (task 8ff369b5)
+// ---------------------------------------------------------------------------
+
+const SCHEDULED_MESSAGES_FILE = join(ISOMUX_DIR, "scheduled-messages.json");
+
+// Load the raw scheduled-messages array. Returns unknown[] — per-entry shape
+// validation belongs to the scheduled-message manager (so it also applies to
+// injected test persistence), not here. A corrupt file is QUARANTINED (renamed
+// aside with a timestamp suffix) rather than left in place, so a later save
+// can never clobber data a human might still want to inspect; the load then
+// starts empty. Never throws.
+export function loadScheduledMessagesRaw(): unknown[] {
+  try {
+    if (!existsSync(SCHEDULED_MESSAGES_FILE)) return [];
+    const parsed: unknown = JSON.parse(
+      readFileSync(SCHEDULED_MESSAGES_FILE, "utf-8"),
+    );
+    if (!Array.isArray(parsed)) throw new Error("not an array");
+    return parsed;
+  } catch (err) {
+    console.error(
+      "Corrupt scheduled-messages.json; quarantining:",
+      errMessage(err),
+    );
+    try {
+      renameSync(
+        SCHEDULED_MESSAGES_FILE,
+        `${SCHEDULED_MESSAGES_FILE}.corrupt-${Date.now()}`,
+      );
+    } catch (renameErr) {
+      // Rename failed (e.g. permissions): leave the file alone. Saves may
+      // still overwrite it in this degraded state, but we never write [] here
+      // at load time.
+      console.error(
+        "Failed to quarantine scheduled-messages.json:",
+        errMessage(renameErr),
+      );
+    }
+    return [];
+  }
+}
+
+// Unlike the other save* helpers, this THROWS on failure: a schedule/cancel
+// request whose durable write failed must fail the HTTP request (a memory-only
+// scheduled message would silently die on restart — review-pinned behavior).
+export function saveScheduledMessages(entries: ScheduledMessageEntry[]) {
+  atomicWriteFileSync(
+    SCHEDULED_MESSAGES_FILE,
+    JSON.stringify(entries, null, 2),
+  );
 }
 
 // ---------------------------------------------------------------------------

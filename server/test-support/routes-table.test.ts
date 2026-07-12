@@ -203,6 +203,19 @@ const SPEC_ROUTE_CONTRACT: Record<
   },
   "agents.editMessage": { caps: ["agent:converse"], emits: ["log_entry"] },
   "agents.cancelQueued": { caps: ["agent:converse"], emits: [] },
+  // Agents — scheduled messages (task 8ff369b5). Same any-of pair as
+  // sendMessage: a USER manages via converse rights, an AGENT via
+  // send-as-self; the scheduledMessagesOwner guard then scopes the AGENT
+  // branch to its OWN outbox. No emits: pending entries have no UI surface
+  // yet (post-fire they ride the normal queue events).
+  "agents.listScheduledMessages": {
+    caps: ["agent:converse", "agent:send-as-self"],
+    emits: [],
+  },
+  "agents.cancelScheduledMessage": {
+    caps: ["agent:converse", "agent:send-as-self"],
+    emits: [],
+  },
   "agents.sendNow": { caps: ["agent:converse"], emits: ["log_entry"] },
   "agents.newConversation": { caps: ["agent:converse"], emits: ["clear_logs"] },
   "agents.resume": { caps: ["agent:converse"], emits: ["log_entry"] },

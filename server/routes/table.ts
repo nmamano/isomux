@@ -32,6 +32,7 @@ import {
   agentParamMustEqualTokenAgent,
   agentManagerMatch,
   messageSend,
+  scheduledMessagesOwner,
   cronjobOwnerOrOfficeOwner,
   runParamMustEqualTokenRun,
   and,
@@ -45,6 +46,7 @@ import type {
   TaskItem,
   Cronjob,
   CronjobRun,
+  ScheduledMessageEntry,
   SessionInfo,
   SessionWire,
   InviteWire,
@@ -198,6 +200,11 @@ const bodyRoom = (name: string): Guard =>
 // Common no-content / small response shapes.
 type NoContent = void;
 type MessageAck = { messageId: string };
+// Schedule-branch ack (agents.sendMessage with deliverAt): the scheduled-entry
+// handle plus the normalized (UTC RFC3339) delivery time — never a fake empty
+// messageId.
+type ScheduledAck = { scheduledId: string; deliverAt: string };
+type ScheduledMessagesListRes = { scheduled: ScheduledMessageEntry[] };
 type AgentEnvelope = { agent: AgentInfo };
 type OkTrue = { ok: true };
 
@@ -297,18 +304,40 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
 
   // --- Agents — conversation ------------------------------------------------
-  defineRoute<SendMessageReq, MessageAck>({
+  defineRoute<SendMessageReq, MessageAck | ScheduledAck>({
     opId: "agents.sendMessage",
     method: "POST",
     path: "/api/agents/:id/messages",
     // any-of so a USER (converse) and an AGENT (send-as-self) both clear stage 1
     // and reach messageSend's scope-specific stage-2 branch.
+    // With body.deliverAt (AGENT branch only) the send becomes a SCHEDULED
+    // message: stored durably, fired later by scheduled-messages.ts; the ack is
+    // ScheduledAck instead of MessageAck. Same route on purpose — one send
+    // surface, one new field (design-pinned, task 8ff369b5).
     auth: cap(["agent:converse", "agent:send-as-self"], messageSend),
     emits: ["log_entry"],
     preconditions: [
       "messageRecipientExists",
       "messagePendingPermissionBindsParam",
     ],
+  }),
+  // --- Agents — scheduled messages (task 8ff369b5) ---------------------------
+  // `:id` is the SENDER here (the outbox being managed) — the deliberate
+  // asymmetry with the send route above, where `:id` is the recipient. See
+  // scheduledMessagesOwner for the scope-switched authority rules.
+  defineRoute<void, ScheduledMessagesListRes>({
+    opId: "agents.listScheduledMessages",
+    method: "GET",
+    path: "/api/agents/:id/scheduled-messages",
+    auth: cap(["agent:converse", "agent:send-as-self"], scheduledMessagesOwner),
+    emits: [],
+  }),
+  defineRoute<void, NoContent>({
+    opId: "agents.cancelScheduledMessage",
+    method: "DELETE",
+    path: "/api/agents/:id/scheduled-messages/:scheduledId",
+    auth: cap(["agent:converse", "agent:send-as-self"], scheduledMessagesOwner),
+    emits: [],
   }),
   defineRoute<EditMessageReq, MessageAck>({
     opId: "agents.editMessage",

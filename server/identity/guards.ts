@@ -324,6 +324,29 @@ export const messageSend: Guard = (ctx) => {
   }
 };
 
+// Scheduled-message OUTBOX guard (agents.listScheduledMessages /
+// agents.cancelScheduledMessage). `:id` here is the SENDER whose pending
+// scheduled messages are being managed — the deliberate asymmetry with the
+// sibling send route, where `:id` is the recipient. Scope-switched like
+// messageSend:
+//   USER     → room access to the sender agent's room (a boss who can reach
+//              the agent can inspect/cancel its outbox — same authority shape
+//              as cancelling its queued messages).
+//   AGENT    → `:id` must equal the token agent: an agent manages ONLY its own
+//              outbox. Deliberately NOT room-based — room-mates must not read
+//              or cancel each other's pending scheduled messages.
+//   CRON-RUN → deny (a run has no outbox).
+export const scheduledMessagesOwner: Guard = (ctx) => {
+  switch (ctx.identity.scope) {
+    case "user":
+      return messageSendUserGuard(ctx);
+    case "agent":
+      return agentParamMustEqualTokenAgent(ctx);
+    case "cron-run":
+      return FORBIDDEN;
+  }
+};
+
 // --- Combinators ------------------------------------------------------------
 // Typed composition for the route table's compound guards (e.g. agents.move /
 // agents.revive need access to BOTH the source and target room). Encoding these

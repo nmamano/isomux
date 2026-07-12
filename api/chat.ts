@@ -140,6 +140,7 @@ Setup:
 - Each agent can read every other agent's current conversation logs
 - Ask one agent "What do you think of Agent X's approach?" and it just works — it reads the other agent's conversation and gives feedback
 - Agents can message other agents directly.
+- Scheduled messages: an agent can schedule a message to another agent, or to itself, for a future time (reminders, wake-ups, follow-up checks). Pending scheduled messages survive server restarts, can be listed and cancelled, and arrive clearly marked as scheduled.
 - Mixed message queue: humans (across multiple devices) and agents share one queue per receiving agent. If the receiver is busy, queued messages coalesce into a single follow-up turn.
 - Shared task board: humans and agents can create, assign, claim, close, or shelve tasks to a backlog — full interop via UI and HTTP API
 - Shared memory: agents can record durable, attributed facts about people, projects, conventions, and the environment. Those notes persist across sessions and surface automatically in the relevant agents' context as notes rather than rules. Memory can be office-wide, per-room, per-agent, or per-person, and humans can curate it as plain text next to each level's prompt.

@@ -27,11 +27,15 @@ import {
   registerProductionCronjobManagerForModuleReads,
 } from "./cronjob-manager.ts";
 import type { CronjobManager } from "./cronjob-manager.ts";
+import { createScheduledMessageManager } from "./scheduled-messages.ts";
+import type { ScheduledMessageManager } from "./scheduled-messages.ts";
 import {
   loadRecentCwds,
   saveRecentCwd,
   getFilePath,
   saveFile,
+  loadScheduledMessagesRaw,
+  saveScheduledMessages,
   loadServerConfig,
   saveServerConfig,
   loadEnabledPlugins,
@@ -256,6 +260,7 @@ function bootPrelude(): void {
 // below read these after startServer() has assigned them (never before).
 let agentManager: AgentManager;
 let cronjobManager: CronjobManager;
+let scheduledMessageManager: ScheduledMessageManager;
 
 function createManagers(startOpts: StartServerOpts): void {
   // createProductionAgentManager() loads the persisted office/agents snapshot
@@ -274,6 +279,28 @@ function createManagers(startOpts: StartServerOpts): void {
   // Register the production instance for the module-read bridge that
   // command-handlers/usage-report use (they don't hold the instance).
   registerProductionCronjobManagerForModuleReads(cronjobManager);
+  // Scheduled messages (task 8ff369b5): durable deliver-later entries feeding
+  // enqueueMessage at fire time. Constructed AFTER agentManager so its dep
+  // closures capture the live instance; the tick loop starts later, gated on
+  // skipSchedulers next to the cron scheduler. Firing/validation edge cases
+  // are unit-tested against createScheduledMessageManager with fakes.
+  scheduledMessageManager = createScheduledMessageManager({
+    enqueue: (receiverId, msg) => agentManager.enqueueMessage(receiverId, msg),
+    getAgentDisplay: (agentId) => agentManager.getAgentDisplay(agentId),
+    notifySender: (senderAgentId, text) => {
+      if (!agentManager.addSystemNote(senderAgentId, text)) {
+        console.error(
+          `Scheduled-message notice undeliverable (sender ${senderAgentId} gone): ${text}`,
+        );
+      }
+    },
+    persistence: {
+      load: loadScheduledMessagesRaw,
+      save: saveScheduledMessages,
+    },
+    clock: { now: () => Date.now() },
+    scheduler: { setTimeout, clearTimeout, setInterval, clearInterval },
+  });
 }
 
 // registerBootHooks: install the auth.ts callbacks (room-snapshot provider,
@@ -2118,6 +2145,27 @@ function buildExecutorDeps(): ExecutorDeps {
           message: result.error,
         };
       },
+      // Scheduled messages (task 8ff369b5). Thin pass-throughs: the manager
+      // owns validation (future/horizon/quota/idempotency) and returns the
+      // status+code discriminated results the handler maps verbatim.
+      scheduleMessage: (
+        receiverId,
+        senderAgentId,
+        text,
+        deliverAt,
+        clientMessageId,
+      ) =>
+        scheduledMessageManager.schedule({
+          senderAgentId,
+          receiverAgentId: receiverId,
+          text,
+          deliverAt,
+          clientMessageId,
+        }),
+      listScheduledMessages: (senderAgentId) =>
+        scheduledMessageManager.listBySender(senderAgentId),
+      cancelScheduledMessage: (senderAgentId, scheduledId) =>
+        scheduledMessageManager.cancel(senderAgentId, scheduledId),
       editMessage: (agentId, logEntryId, newText, username, device) => {
         void agentManager.editMessage(
           agentId,
@@ -4151,6 +4199,11 @@ function runBackgroundBoot(
   // Boot cronjob scheduler (loads configs, reconciles stale "running" rows, starts tick).
   if (!startOpts.skipSchedulers) cronjobManager.startCronjobScheduler();
 
+  // Boot the scheduled-message tick loop (catch-up of past-due entries happens
+  // on its first, slightly-delayed tick). Same skipSchedulers gate as cron so
+  // `bun test` runs no timers; stopServer() clears the timers defensively.
+  if (!startOpts.skipSchedulers) scheduledMessageManager.start();
+
   // Daily ~/.isomux/ backup tarball with N=7 retention. See server/backup.ts.
   if (!startOpts.skipBackups) startBackupScheduler();
 
@@ -4254,6 +4307,10 @@ async function stopServer(server: Server<WsData>): Promise<void> {
   // Clear the cron module-read bridge so command-handlers/usage-report don't
   // read a dead manager between boots, and the loopback origin port.
   registerProductionCronjobManagerForModuleReads(null);
+  // Stop the scheduled-message tick timers so a stale closure can't fire into
+  // the next boot's agentManager (idempotent; a no-op when skipSchedulers kept
+  // them from starting).
+  scheduledMessageManager?.stop();
   setLoopbackOriginPort(null);
 }
 

@@ -29,6 +29,7 @@ import { ok, noContent, fail, type RouteHandler } from "../executor.ts";
 import type { Identity } from "../../identity/index.ts";
 import type {
   Attachment,
+  ScheduledMessageEntry,
   SessionInfo,
   AgentBackendType,
 } from "../../../shared/types.ts";
@@ -38,6 +39,9 @@ import type {
   ResumeReq,
   NewConversationReq,
 } from "../../../shared/contract-shapes.ts";
+// Pure format parser (no state) — safe for a leaf handler module to import.
+import { parseDeliverAt } from "../../scheduled-messages.ts";
+import type { ScheduleResult, CancelResult } from "../../scheduled-messages.ts";
 
 // The AGENT (inter-agent) send outcome. The failure carries the status + stable
 // code directly (self-send/unknown-sender from the dep's checks; otherwise
@@ -75,6 +79,23 @@ export interface ConversationDeps {
     text: string,
     clientMessageId: string | undefined,
   ): SendAsAgentResult;
+  // AGENT send with deliverAt: store a durable scheduled entry instead of
+  // enqueueing now (fired later by scheduled-messages.ts). Self-send IS
+  // allowed here — a future self-message is the reminder/wake-up use case the
+  // immediate path's self_send rejection exists to prevent looping on.
+  scheduleMessage(
+    receiverId: string,
+    senderAgentId: string,
+    text: string,
+    deliverAt: number,
+    clientMessageId: string | undefined,
+  ): ScheduleResult;
+  // The sender's pending scheduled-message outbox (soonest first).
+  listScheduledMessages(senderAgentId: string): ScheduledMessageEntry[];
+  cancelScheduledMessage(
+    senderAgentId: string,
+    scheduledId: string,
+  ): CancelResult;
   // Edit a prior message. Void / streaming, same shape as sendAsUser.
   editMessage(
     agentId: string,
@@ -105,6 +126,10 @@ function malformedSendFields(b: Record<string, unknown>): boolean {
   if (b.clientMessageId !== undefined && typeof b.clientMessageId !== "string")
     return true;
   if (b.attachments !== undefined && !Array.isArray(b.attachments)) return true;
+  // deliverAt must be a STRING (RFC3339): a bare epoch number is rejected here
+  // rather than parsed, so a seconds-vs-ms confusion can never silently
+  // schedule for 1970 (which would fire immediately and mask the bug).
+  if (b.deliverAt !== undefined && typeof b.deliverAt !== "string") return true;
   return false;
 }
 
@@ -125,7 +150,17 @@ export function conversationHandlers(
         return fail(
           422,
           "invalid_request",
-          "device and clientMessageId must be strings; attachments must be an array",
+          "device, clientMessageId, and deliverAt must be strings; attachments must be an array",
+        );
+      }
+      // Scheduling is AGENT-branch only. A USER-scope deliverAt is REJECTED,
+      // never silently sent immediately (review-pinned): a boss who typed a
+      // future time must not have the message land now without noticing.
+      if (b.deliverAt !== undefined && ctx.identity.scope !== "agent") {
+        return fail(
+          400,
+          "deliver_at_not_supported",
+          "deliverAt is only supported for agent (bearer-token) senders.",
         );
       }
       if (ctx.identity.scope === "agent") {
@@ -134,6 +169,31 @@ export function conversationHandlers(
         const senderAgentId = ctx.identity.agentId ?? "";
         if (b.text.length === 0) {
           return fail(400, "invalid_text", "text is required");
+        }
+        if (b.deliverAt !== undefined) {
+          const deliverAtMs = parseDeliverAt(b.deliverAt);
+          if (deliverAtMs === null) {
+            return fail(
+              400,
+              "invalid_deliver_at",
+              "deliverAt must be RFC3339 with an explicit 'Z' or numeric UTC offset (e.g. 2026-07-12T09:30:00Z).",
+            );
+          }
+          const r = deps.scheduleMessage(
+            ctx.params.id,
+            senderAgentId,
+            b.text,
+            deliverAtMs,
+            b.clientMessageId,
+          );
+          if (!r.ok) return fail(r.status, r.code, r.message);
+          // Normalized UTC echo (not the caller's original string) so the ack
+          // is unambiguous regardless of the offset the caller used. A deduped
+          // retry returns the ORIGINAL entry's id and time.
+          return ok({
+            scheduledId: r.entry.id,
+            deliverAt: new Date(r.entry.deliverAt).toISOString(),
+          });
         }
         const r = deps.sendAsAgent(
           ctx.params.id,
@@ -180,6 +240,21 @@ export function conversationHandlers(
 
     "agents.cancelQueued": (ctx) => {
       deps.cancelQueued(ctx.params.id, ctx.params.messageId);
+      return noContent();
+    },
+
+    // Scheduled-message outbox (task 8ff369b5). `:id` is the SENDER here; the
+    // scheduledMessagesOwner guard already proved the caller may manage that
+    // sender's outbox (the agent itself, or a user with room access to it).
+    "agents.listScheduledMessages": (ctx) =>
+      ok({ scheduled: deps.listScheduledMessages(ctx.params.id) }),
+
+    "agents.cancelScheduledMessage": (ctx) => {
+      const r = deps.cancelScheduledMessage(
+        ctx.params.id,
+        ctx.params.scheduledId,
+      );
+      if (!r.ok) return fail(r.status, r.code, r.message);
       return noContent();
     },
 
