@@ -80,7 +80,7 @@ afterAll(() => {
 });
 
 const okFetch: typeof fetch = (() =>
-  Promise.resolve(new Response("ok"))) as typeof fetch;
+  Promise.resolve(new Response("ok"))) as unknown as typeof fetch;
 
 function deps(overrides: Partial<PreviewCaptureDeps> = {}): PreviewCaptureDeps {
   return {
@@ -251,7 +251,9 @@ describe("preview-capture: engine, pre-flight, and capture failures", () => {
       { url: "http://127.0.0.1:3000/" },
       deps({
         fetchFn: (() =>
-          Promise.reject(new Error("connect ECONNREFUSED"))) as typeof fetch,
+          Promise.reject(
+            new Error("connect ECONNREFUSED"),
+          )) as unknown as typeof fetch,
       }),
     );
     expectFail(r, 500, "unreachable");
