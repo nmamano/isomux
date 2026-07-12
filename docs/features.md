@@ -86,7 +86,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 
 ### Developer tools
 
-- **Embedded terminal** for direct shell access per agent.
+- **Embedded terminal** for direct shell access per agent. Copy/paste works with the usual shortcuts: Cmd+C/V on Mac; on Windows and Linux, Ctrl+V pastes and Ctrl+C copies when text is selected (and interrupts, as usual, when nothing is selected).
 - **Built-in file editor**: syntax highlighting, file tabs, resizable alongside the chat. Open files via `/isomux-edit` (agents can offer this too via "[Open in editor]" cards).
 - `/isomux-diff` — rich-rendered uncommitted changes. Agents can also choose to emit a diff card on their own.
 - `/isomux-usage` — per-agent / per-room / per-cron-job token spend.

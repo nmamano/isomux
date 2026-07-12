@@ -337,6 +337,33 @@ export function TerminalPanel({
 
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
+
+    // Ctrl+C / Ctrl+V copy-paste on non-Mac (Windows/Linux) keyboards.
+    // Stock xterm maps Ctrl+letter to a control byte and cancels the
+    // keydown, so the browser's native copy/paste never fires (Mac is
+    // fine: Cmd combos aren't mapped and already fall through). Returning
+    // false makes xterm skip the key WITHOUT cancelling it, so the native
+    // copy/paste runs on xterm's focused textarea and xterm's own
+    // `copy`/`paste` DOM listeners bridge it to the terminal selection /
+    // the PTY (with bracketed paste). This native-event path works over
+    // plain HTTP (no navigator.clipboard, no permission prompt), which
+    // matters for tailnet access. Exact-modifier matches are deliberate:
+    // Ctrl+Shift+V keeps the browser's paste-as-plain-text, Alt/Meta
+    // combos stay untouched, and Ctrl+C without a selection still sends
+    // ^C (interrupt). Do NOT clearSelection() inside the handler — xterm's
+    // copyHandler reads the selection when the native copy event fires
+    // after this keydown, so clearing synchronously would copy "".
+    if (!(navigator.platform || "").includes("Mac")) {
+      term.attachCustomKeyEventHandler((ev) => {
+        if (ev.type !== "keydown") return true;
+        if (!ev.ctrlKey || ev.shiftKey || ev.altKey || ev.metaKey) return true;
+        const key = ev.key.toLowerCase();
+        if (key === "c" && term.hasSelection()) return false;
+        if (key === "v") return false;
+        return true;
+      });
+    }
+
     term.open(containerRef.current);
 
     // Fit and (optionally) focus after open. requestAnimationFrame so the
