@@ -55,6 +55,18 @@ export function getEnabledPlugins(): LoadedPlugin[] {
   return loadedPlugins;
 }
 
+/** TEST-ONLY (mirrors _testResetState / _testResetUsers): inject in-memory
+ *  plugins directly, bypassing the disk loader. Lets a harness test drive
+ *  runAgentTurn's plugin hooks (e.g. park a turn in the pre-send window via
+ *  a gated beforeTurn) with deterministic closures instead of a temp plugin
+ *  dir + dynamic import. Call with [] in the test's cleanup — loadPlugins at
+ *  the next boot also resets the list, but only if another harness boots. */
+export function _testSetPlugins(plugins: IsomuxPlugin[]): void {
+  loadedPlugins = plugins
+    .map((plugin) => ({ plugin, realpath: `<test:${plugin.id}>` }))
+    .sort((a, b) => a.plugin.id.localeCompare(b.plugin.id));
+}
+
 /** Resolve, validate, and load every entry in `enabledPlugins`. Call once
  *  at boot, after persistence init and before agent spawn. */
 export async function loadPlugins(opts: {

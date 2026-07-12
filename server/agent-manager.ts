@@ -1232,6 +1232,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       pendingTurn: null,
       afterTurnPromise: null,
       turnCancelToken: 0,
+      abortCancelToken: -1,
       aborting: false,
       abortPromise: null,
       slashCommands: autocompleteCommands(),
@@ -2990,6 +2991,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       pendingTurn: null,
       afterTurnPromise: null,
       turnCancelToken: 0,
+      abortCancelToken: -1,
       aborting: false,
       abortPromise: null,
       slashCommands: autocompleteCommands(),
@@ -3525,11 +3527,29 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         if (!agents.has(agentId)) return;
         if (err instanceof SessionSwappedError) {
           // Items still in queue (we didn't drain on the failed attempt). The
-          // post-swap state transition will re-trigger flushQueue. Surface a
-          // system message only if the queue still has items — when the swap
-          // path explicitly cleared the queue (newConversation/resume/editMessage)
-          // there's nothing to retry and the message would be misleading noise.
-          if (managed.messageQueue.length > 0) {
+          // post-swap state transition (or this function's own finally block)
+          // will re-trigger flushQueue. Surface a system message only if the
+          // queue still has items — when the swap path explicitly cleared the
+          // queue (newConversation/resume/editMessage) there's nothing to
+          // retry and the message would be misleading noise.
+          //
+          // Also stay quiet when the cancellation was user-initiated (Stop /
+          // Send-now): abort() already logged "Agent interrupted." and the
+          // retry is automatic, so "will retry" is redundant noise there.
+          // Two signals, covering the two windows a flush turn can be
+          // cancelled in:
+          //   - pre-send (parked in plugin retrieval, pendingTurn not yet
+          //     installed): abort() early-returns without setting `aborting`,
+          //     but its token stamp makes abortCancelToken === turnCancelToken.
+          //   - post-send (abort's slow path replaces the session):
+          //     closeAndDrainSession bumps the token PAST the stamp, but the
+          //     rejection lands while `aborting` is still true.
+          // Unexpected swaps (idle demotion, out-of-band replaceSession)
+          // match neither and still surface the message.
+          const userInitiated =
+            managed.aborting ||
+            managed.turnCancelToken === managed.abortCancelToken;
+          if (managed.messageQueue.length > 0 && !userInitiated) {
             addLogEntry(
               agentId,
               "system",
@@ -4249,6 +4269,12 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // For the post-send path the existing pendingTurn rejection (below) is
     // still the cancellation mechanism; the token bump is harmless there.
     managed.turnCancelToken++;
+    // Stamp this bump as user-initiated so a flush turn it cancels stays
+    // quiet (see the SessionSwappedError handler in flushQueue). Must be
+    // stamped HERE, not with `aborting = true` below: in the pre-send
+    // window pendingTurn is null and abort() returns early, so `aborting`
+    // never covers exactly the case where the stamp matters most.
+    managed.abortCancelToken = managed.turnCancelToken;
     // If no turn is in flight, the SDK stream may have died (e.g. subprocess
     // exited) OR runAgentTurn may be mid-plugin-retrieval. Either way reset
     // state so Stop is never a no-op.

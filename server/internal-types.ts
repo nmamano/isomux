@@ -44,6 +44,18 @@ export interface ManagedAgent {
   // rejection can't cover, because pendingTurn isn't installed yet — this
   // counter fills that gap.
   turnCancelToken: number;
+  // The turnCancelToken value stamped by abort()'s bump — i.e.
+  // `abortCancelToken === turnCancelToken` holds exactly when the LATEST
+  // cancellation was user-initiated (Stop / Send-now). flushQueue's
+  // SessionSwappedError handler uses this to keep quiet on an intentional
+  // interrupt (a retry always follows) while still surfacing the
+  // "will retry" system message for unexpected swaps (idle demotion,
+  // out-of-band replaceSession), whose bumps advance turnCancelToken past
+  // this stamp. Needed because `aborting` doesn't cover the pre-send
+  // window: with no pendingTurn installed yet, abort() early-returns
+  // before ever setting aborting=true. Init -1 so a never-aborted agent
+  // can't accidentally equal token 0.
+  abortCancelToken: number;
   aborting: boolean;
   // Set while abort() is mid-flight (between session.close() and installSession of the
   // replacement). sendMessage awaits this so a follow-up message arriving in the gap

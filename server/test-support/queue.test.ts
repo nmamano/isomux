@@ -33,6 +33,8 @@ import {
   type TestSocket,
 } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
+import { _testSetPlugins } from "../plugins.ts";
+import type { IsomuxPlugin } from "../../shared/plugin-types.ts";
 import { getAgentTokenRaw, mintRunToken } from "../identity/tokens.ts";
 import {
   formatPrefix,
@@ -777,6 +779,180 @@ describe("queue: cancel / send-now / new-conversation (Phase 1.4a)", () => {
       .filter((s) => s.opts.agentId === recv.id)
       .reduce((n, s) => n + s.sent.length, 0);
     expect(afterSends).toBe(beforeSends);
+  });
+});
+
+// Regression for task d7c879da: "Queue flush interrupted by session change;
+// will retry." leaking on an intentional Send-now.
+//
+// The window: a queued flush's runAgentTurn parks PRE-SEND (awaiting a slow
+// beforeTurn plugin, pendingTurn not yet installed, queue undrained). Send-now
+// calls abort(), which bumps turnCancelToken and — with no pendingTurn — early-
+// returns without ever setting `aborting`. When the plugin finishes,
+// checkCancelled throws SessionSwappedError into flushQueue's catch with the
+// queue still non-empty, which used to log the "will retry" system message
+// even though the interrupt was deliberate and the retry automatic. The fix
+// stamps abort()'s bump (managed.abortCancelToken) so the catch can tell a
+// user-initiated cancel (stay quiet) from an unexpected swap (still surface).
+//
+// Determinism: a test-injected gated beforeTurn plugin (via _testSetPlugins)
+// holds the flush in the pre-send window until the test has fired Send-now —
+// the exact widening that made the bug intermittent in production (mem0).
+describe("queue: flush cancelled pre-send (task d7c879da)", () => {
+  // One-shot gate: the FIRST beforeTurn call parks on `gate` (and signals
+  // `entered`); every later call returns immediately so the retry flush
+  // proceeds unimpeded.
+  function gatedBeforeTurnPlugin(): {
+    plugin: IsomuxPlugin;
+    entered: Promise<void>;
+    openGate: () => void;
+  } {
+    let signalEntered!: () => void;
+    let openGate!: () => void;
+    const entered = new Promise<void>((r) => (signalEntered = r));
+    const gate = new Promise<void>((r) => (openGate = r));
+    let armed = true;
+    const plugin: IsomuxPlugin = {
+      id: "test-slow-gate",
+      beforeTurn: async () => {
+        if (!armed) return {};
+        armed = false;
+        signalEntered();
+        await gate;
+        return {};
+      },
+    };
+    return { plugin, entered, openGate };
+  }
+
+  const NOISE = "Queue flush interrupted by session change";
+
+  // Shared setup: park the receiver busy on a kickoff turn, queue one message,
+  // inject the gated plugin, release the kickoff so the queued flush parks in
+  // the pre-send window. Returns once the flush is provably parked (queue
+  // undrained, state "thinking").
+  async function parkFlushPreSend(srv: TestServer, ownerSession: string) {
+    const room = srv.agentManager.getRooms()[0];
+    // Codex receiver for the same reason as the send_now test above: any
+    // session replace on the way (abort slow path / out-of-band swap) starts
+    // a FRESH session instead of tripping Claude's resume preflight on the
+    // fake session id's missing .jsonl.
+    const recv = await spawnAgent(srv, "Receiver", room.id, "codex");
+    const sender = await spawnAgent(srv, "Sender", room.id);
+    const sock = await srv.connectWs(ownerSession);
+    await sock.waitFor("full_state");
+
+    await postAgentMessage(srv, recv.id, sender.id, "kickoff");
+    await waitUntil(() => stateOf(srv, recv.id) === "thinking", 2000, "busy");
+    const session = srv.fakeBackend.sessionForAgent(recv.id)!;
+    await waitUntil(() => session.sent.length === 1, 2000, "kickoff sent");
+
+    await postAgentMessage(srv, recv.id, sender.id, "queued-1");
+    await waitUntil(() => queueOf(srv, recv.id).length === 1, 2000, "q=1");
+
+    // Install the gate BEFORE releasing the kickoff turn, so the queued
+    // flush's runAgentTurn (triggered by the idle transition) parks in its
+    // beforeTurn loop. The kickoff turn itself ran plugin-less.
+    const { plugin, entered, openGate } = gatedBeforeTurnPlugin();
+    _testSetPlugins([plugin]);
+    session.completeTurn();
+    await entered;
+
+    // Parked pre-send: the flush turn claimed the state (thinking) but has
+    // NOT drained the queue (drain happens in onSendAccepted, post-send).
+    expect(queueOf(srv, recv.id).length).toBe(1);
+    expect(stateOf(srv, recv.id)).toBe("thinking");
+
+    return { recv, sock, openGate };
+  }
+
+  afterEach(() => {
+    _testSetPlugins([]);
+  });
+
+  it("send-now during the pre-send window drains silently — no 'will retry' system message", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const owner = await server.seedOwner("Boss");
+    const { recv, sock, openGate } = await parkFlushPreSend(
+      server,
+      owner.rawSessionId,
+    );
+
+    // Send-now while the flush is parked pre-send: sendNow sees a busy state
+    // and calls abort(), whose token bump cancels the parked flush turn.
+    await userMut(
+      server,
+      owner.rawSessionId,
+      "POST",
+      `/api/agents/${recv.id}/send-now`,
+    );
+    openGate();
+
+    // The retry flush drains the queue into a backend session.
+    await waitUntil(
+      () => queueOf(server!, recv.id).length === 0,
+      3000,
+      "drained",
+    );
+    const reached = server.fakeBackend.sessions
+      .filter((s) => s.opts.agentId === recv.id)
+      .some((s) => s.sent.some((m) => m.text.includes("queued-1")));
+    expect(reached).toBe(true);
+
+    // Wait for the retry's user_message provenance — it lands strictly AFTER
+    // the SessionSwappedError catch ran, so absence of the noise message at
+    // this point is conclusive, not a did-not-arrive-yet race.
+    await waitUntil(
+      () =>
+        logEntriesFor(sock, recv.id).some(
+          (e) => e.kind === "user_message" && e.content === "queued-1",
+        ),
+      2000,
+      "retry provenance on wire",
+    );
+    const entries = logEntriesFor(sock, recv.id);
+    // Sanity: the interrupt really took the abort path...
+    expect(
+      entries.some(
+        (e) => e.kind === "system" && e.content === "Agent interrupted.",
+      ),
+    ).toBe(true);
+    // ...and the deliberate cancel stayed quiet.
+    expect(entries.some((e) => e.content.includes(NOISE))).toBe(false);
+  });
+
+  it("an unexpected session swap in the same window still surfaces the 'will retry' message", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const owner = await server.seedOwner("Boss");
+    const { recv, sock, openGate } = await parkFlushPreSend(
+      server,
+      owner.rawSessionId,
+    );
+
+    // Out-of-band swap NOT routed through abort(): setPrivileged re-mints the
+    // token and replaces the live session without touching the queue. Its
+    // closeAndDrainSession bumps turnCancelToken past abort's stamp, so the
+    // cancelled flush must still tell the user it was interrupted + retried.
+    // (The call parks awaiting the consumer drain until the gate opens the
+    // cancelled turn's path, so start it, THEN open the gate, then await.)
+    const swapDone = server.agentManager.setPrivileged(recv.id, true);
+    openGate();
+
+    await waitUntil(
+      () =>
+        logEntriesFor(sock, recv.id).some(
+          (e) => e.kind === "system" && e.content.includes(NOISE),
+        ),
+      2000,
+      "'will retry' surfaced for unexpected swap",
+    );
+    await swapDone;
+
+    // The undelivered item stays queued for a later flush (today's contract:
+    // setPrivileged doesn't produce a post-swap idle transition, so no retry
+    // fires until the next one — the message is what tells the user their
+    // queued item didn't go out with this swap).
+    expect(queueOf(server, recv.id).length).toBe(1);
   });
 });
 
