@@ -333,7 +333,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         "  • Agents can check on each other and message each other. Just ask naturally or use skills like `/second-opinion`, `/pair-programming`, etc.",
       );
       lines.push(
-        '  • Type ahead while an agent is busy: messages queue and flush when it\'s idle. Hit "Send now" to interrupt and flush immediately.',
+        '  • Type ahead while an agent is busy: messages queue and flush when it\'s idle. Hit "Send now" or send with Ctrl/Cmd+Enter to interrupt and flush immediately.',
       );
       lines.push(
         "  • Use voice-to-text for faster prompting. The shortcut is ctrl+space.",

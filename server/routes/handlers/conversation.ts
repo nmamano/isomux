@@ -69,6 +69,7 @@ export interface ConversationDeps {
     username: string | undefined,
     device: string | undefined,
     attachments: Attachment[] | undefined,
+    sendNow: boolean,
   ): void;
   // AGENT inter-agent send. Builds the structured sender server-side (blocks
   // prefix-injection / identity spoof) and enqueues; returns the discriminated
@@ -130,6 +131,7 @@ function malformedSendFields(b: Record<string, unknown>): boolean {
   // rather than parsed, so a seconds-vs-ms confusion can never silently
   // schedule for 1970 (which would fire immediately and mask the bug).
   if (b.deliverAt !== undefined && typeof b.deliverAt !== "string") return true;
+  if (b.sendNow !== undefined && typeof b.sendNow !== "boolean") return true;
   return false;
 }
 
@@ -150,7 +152,18 @@ export function conversationHandlers(
         return fail(
           422,
           "invalid_request",
-          "device, clientMessageId, and deliverAt must be strings; attachments must be an array",
+          "device, clientMessageId, and deliverAt must be strings; attachments must be an array; sendNow must be a boolean",
+        );
+      }
+      // sendNow is USER-branch only (the composer's Ctrl/Cmd+Enter). Rejected
+      // loudly for agent senders — mirrors the deliverAt style below (never
+      // silently ignore a delivery-affecting flag); agents already have the
+      // explicit POST /api/agents/:id/send-now endpoint.
+      if (b.sendNow !== undefined && ctx.identity.scope === "agent") {
+        return fail(
+          400,
+          "send_now_not_supported",
+          "sendNow is only supported for user senders; agents can POST /api/agents/:id/send-now instead.",
         );
       }
       // Scheduling is AGENT-branch only. A USER-scope deliverAt is REJECTED,
@@ -214,6 +227,7 @@ export function conversationHandlers(
         deps.attributionFor(ctx.identity).username,
         b.device,
         b.attachments,
+        b.sendNow === true,
       );
       return ok({ messageId: "" });
     },

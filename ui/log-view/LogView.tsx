@@ -1458,7 +1458,7 @@ export function LogView({
     });
   }
 
-  function handleSend() {
+  function handleSend(opts?: { sendNow?: boolean }) {
     const text = input.trim();
     if (!text && validAttachments.length === 0) return;
     if (hasUploading || editingLogEntryId) return;
@@ -1479,11 +1479,16 @@ export function LogView({
     }
     // Fire-and-forget: the user_message echo + reply stream back over WS; the
     // ack ({ messageId: "" } for a USER send) is ignored. username is
-    // server-derived (attributionFor), not body-sent.
+    // server-derived (attributionFor), not body-sent. sendNow (Ctrl/Cmd+Enter)
+    // asks the server to interrupt the current turn and flush the queue right
+    // after this message lands in it — the flag is inert when the agent is
+    // idle (plain send) or the message takes a non-queue path (slash command,
+    // permission/multi-step reply), so it's always safe to set.
     apiFetch("POST", `/api/agents/${agent.id}/messages`, {
       text,
       device: device || undefined,
       attachments,
+      ...(opts?.sendNow ? { sendNow: true } : {}),
     }).catch(() => {});
     setSendError(false);
     setInput("");
@@ -2375,7 +2380,28 @@ export function LogView({
                       return;
                     }
                   }
-                  if (e.key === "Enter" && !e.shiftKey && !isTouchPrimary) {
+                  if (
+                    e.key === "Enter" &&
+                    (e.ctrlKey || e.metaKey) &&
+                    !isTouchPrimary
+                  ) {
+                    // Ctrl/Cmd+Enter: "deliver now". Identical to plain Enter
+                    // when the agent is idle; when it's busy, the server
+                    // interrupts the current turn and flushes the queue (same
+                    // machinery as the Send-now button). Must be checked
+                    // BEFORE the plain-Enter branch below, whose condition
+                    // also matches modifier+Enter.
+                    e.preventDefault();
+                    handleSend({ sendNow: true });
+                    return;
+                  }
+                  if (
+                    e.key === "Enter" &&
+                    !e.shiftKey &&
+                    !e.ctrlKey &&
+                    !e.metaKey &&
+                    !isTouchPrimary
+                  ) {
                     e.preventDefault();
                     handleSend();
                   }
@@ -2397,7 +2423,7 @@ export function LogView({
                     : isBusy
                       ? isMobile
                         ? "Type to queue..."
-                        : "Type to queue — sends when current turn ends"
+                        : `Type to queue — sends when current turn ends · ${(navigator.platform || "").includes("Mac") ? "⌘" : "Ctrl+"}Enter to send now`
                       : isMobile
                         ? "Type a message..."
                         : "Type a message or / for commands..."
@@ -2658,7 +2684,9 @@ export function LogView({
                 </button>
               ) : (
                 <button
-                  onClick={handleSend}
+                  // Wrapped so the click's MouseEvent doesn't leak into
+                  // handleSend's opts parameter.
+                  onClick={() => handleSend()}
                   disabled={
                     (!input.trim() && validAttachments.length === 0) ||
                     hasUploading ||

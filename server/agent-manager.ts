@@ -3731,6 +3731,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     username?: string,
     device?: string,
     attachments?: Attachment[],
+    opts?: { sendNow?: boolean },
   ) {
     const managed = agents.get(agentId);
     if (!managed) return;
@@ -3754,6 +3755,14 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           "system",
           `Could not queue message: ${result.error}`,
         );
+      } else if (opts?.sendNow) {
+        // Ctrl/Cmd+Enter "deliver now": the message just landed in the queue,
+        // so trigger the same abort+flush the /send-now endpoint runs. The
+        // flag is read ONLY inside this branch, so its guards (busy, no
+        // multi-step flow, not a slash command) apply for free — everywhere
+        // else a sendNow message takes the plain path. Fire-and-forget like
+        // the endpoint's own wiring (sendNow handles its own state).
+        void sendNow(agentId);
       }
       return;
     }

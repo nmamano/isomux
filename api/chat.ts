@@ -115,7 +115,7 @@ Setup:
 - Collapsible thinking and tool-call cards with timing for each step
 - Structured cards for agent curl calls to the isomux API, showing the method, route, and key payload fields
 - Copy buttons on code blocks, user messages, full agent turns, and entire conversations
-- Message queueing: messages sent while the agent is busy are queued. The "Send now" button flushes the queue immediately.
+- Message queueing: messages sent while the agent is busy are queued. The "Send now" button flushes the queue immediately, and Ctrl/Cmd+Enter sends a message with the same interrupt-and-flush behavior.
 - File attachments: agents understand images and PDFs. Upload via button, drag-and-drop, or paste
 - Image display: agents can show images inline in the conversation (e.g., matplotlib plots)
 - Embedded terminal for direct shell access per agent
@@ -128,6 +128,7 @@ Setup:
 - Tab / Shift+Tab cycle between agents in chat view (within current room, skipping cleared agents)
 - Escape returns to office
 - Ctrl+C to interrupt — cleanly aborts and lets you resume
+- Ctrl/Cmd+Enter to send a message and deliver it immediately: if the agent is busy, it interrupts the current turn and flushes the queue (same as "Send now"); if idle, it's a normal send
 
 ### Slash Commands & Autocomplete
 - Built-in commands: /clear, /help, /context, /resume, /model, /effort (per-agent thinking effort), /usage (points to where subscription plan limits and office token spend are shown)

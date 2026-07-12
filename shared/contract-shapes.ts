@@ -124,6 +124,13 @@ export interface SendMessageReq {
   // 30 days ahead. Present on a USER-scope call → 400 (never silently sent now).
   // The ack becomes { scheduledId, deliverAt } instead of { messageId }.
   deliverAt?: string;
+  // USER branch only (Ctrl/Cmd+Enter in the composer): if the message lands in
+  // a busy agent's queue, immediately trigger the same abort+flush that POST
+  // /api/agents/:id/send-now performs. Everywhere else the flag is inert — an
+  // idle agent gets a plain send, and slash commands / multi-step flows take
+  // their existing paths. Present on an AGENT-scope call → 400 (agents call
+  // the explicit /send-now endpoint instead).
+  sendNow?: boolean;
 }
 
 export interface EditMessageReq {

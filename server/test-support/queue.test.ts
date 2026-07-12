@@ -165,11 +165,12 @@ async function sendHuman(
   rawSessionId: string,
   agentId: string,
   text: string,
+  extra?: Record<string, unknown>,
 ): Promise<void> {
   const res = await srv.http(`/api/agents/${agentId}/messages`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, ...extra }),
     rawSessionId,
   });
   if (res.status >= 400) throw new Error(`sendHuman -> ${res.status}`);
@@ -953,6 +954,128 @@ describe("queue: flush cancelled pre-send (task d7c879da)", () => {
     // fires until the next one — the message is what tells the user their
     // queued item didn't go out with this swap).
     expect(queueOf(server, recv.id).length).toBe(1);
+  });
+});
+
+// sendNow flag on the USER send (Ctrl/Cmd+Enter "deliver now", task 2226d4ce).
+// A thin composition over existing machinery: when the message lands in a busy
+// agent's queue, sendMessage triggers the same abort+flush as POST /send-now.
+// The flag is read ONLY inside the busy-queue branch — idle sends, slash
+// commands, and multi-step flows take their normal paths untouched.
+describe("queue: sendNow flag on user send (Ctrl/Cmd+Enter)", () => {
+  it("busy agent: a sendNow send lands in the queue and immediately drains to the backend", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const owner = await server.seedOwner("Boss");
+    const room = server.agentManager.getRooms()[0];
+    // Codex receiver for the same reason as the send_now (REST) test above:
+    // the slow-path abort reinstalls a session, and Codex fresh-starts instead
+    // of tripping Claude's resume preflight on the fake session id. The
+    // contract pinned is backend-agnostic: the message leaves the queue and
+    // reaches a backend session without waiting for the parked turn to end.
+    const recv = await spawnAgent(server, "Receiver", room.id, "codex");
+    const sock = await server.connectWs(owner.rawSessionId);
+    await sock.waitFor("full_state");
+
+    await sendHuman(server, owner.rawSessionId, recv.id, "kickoff");
+    await waitUntil(
+      () => stateOf(server!, recv.id) === "thinking",
+      2000,
+      "busy",
+    );
+
+    await sendHuman(server, owner.rawSessionId, recv.id, "urgent", {
+      sendNow: true,
+    });
+
+    // No explicit /send-now call: the flag alone aborts the parked turn and
+    // flushes. The parked FakeSession never completes its turn, so a drained
+    // queue + backend delivery can only come from the sendNow path.
+    await waitUntil(
+      () => queueOf(server!, recv.id).length === 0,
+      3000,
+      "drained",
+    );
+    await waitUntil(
+      () =>
+        server!.fakeBackend.sessions
+          .filter((s) => s.opts.agentId === recv.id)
+          .some((s) => s.sent.some((m) => m.text.includes("urgent"))),
+      3000,
+      "reached backend",
+    );
+  });
+
+  it("idle agent: a sendNow send is a plain send (starts a turn, nothing aborted)", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const owner = await server.seedOwner("Boss");
+    const room = server.agentManager.getRooms()[0];
+    const a = await spawnAgent(server, "Idle", room.id);
+    const sock = await server.connectWs(owner.rawSessionId);
+    await sock.waitFor("full_state");
+
+    await sendHuman(server, owner.rawSessionId, a.id, "hello", {
+      sendNow: true,
+    });
+
+    // Normal-send path: the message goes straight to the backend (never
+    // queued) and the turn it starts stays alive (parkingBackend holds it in
+    // "thinking" — an erroneous abort would knock it back to idle).
+    await waitUntil(
+      () =>
+        (server!.fakeBackend.sessionForAgent(a.id)?.sent ?? []).some((m) =>
+          m.text.includes("hello"),
+        ),
+      2000,
+      "sent",
+    );
+    await waitUntil(() => stateOf(server!, a.id) === "thinking", 2000, "busy");
+    await sleep(100);
+    expect(stateOf(server, a.id)).toBe("thinking");
+    expect(queueOf(server, a.id).length).toBe(0);
+  });
+
+  it("non-boolean sendNow -> 422 invalid_request", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const owner = await server.seedOwner("Boss");
+    const room = server.agentManager.getRooms()[0];
+    const a = await spawnAgent(server, "Receiver", room.id);
+
+    const res = await server.http(`/api/agents/${a.id}/messages`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "x", sendNow: "yes" }),
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as {
+      error?: { code: string };
+    };
+    expect(body.error?.code).toBe("invalid_request");
+    expect(server.fakeBackend.sessionForAgent(a.id)?.sent.length ?? 0).toBe(0);
+  });
+
+  it("AGENT-scope sendNow -> 400 send_now_not_supported (agents use POST /send-now)", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const room = server.agentManager.getRooms()[0];
+    const recv = await spawnAgent(server, "Receiver", room.id);
+    const sender = await spawnAgent(server, "Sender", room.id);
+
+    const res = await server.http(`/api/agents/${recv.id}/messages`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${getAgentTokenRaw(sender.id)}`,
+      },
+      body: JSON.stringify({ text: "x", sendNow: true }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error?: { code: string };
+    };
+    expect(body.error?.code).toBe("send_now_not_supported");
+    expect(server.fakeBackend.sessionForAgent(recv.id)?.sent.length ?? 0).toBe(
+      0,
+    );
   });
 });
 

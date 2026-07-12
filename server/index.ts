@@ -2153,7 +2153,7 @@ function buildExecutorDeps(): ExecutorDeps {
   register(
     conversationHandlers({
       attributionFor,
-      sendAsUser: (agentId, text, username, device, attachments) => {
+      sendAsUser: (agentId, text, username, device, attachments, sendNow) => {
         // Bare void mirrors the deleted WS send_message case: sendMessage owns the
         // echo / queue / recovery / slash / approval-reply overload and streams
         // the turn over WS; it handles its own errors as log entries (no reject).
@@ -2163,6 +2163,7 @@ function buildExecutorDeps(): ExecutorDeps {
           username,
           device,
           attachments,
+          { sendNow },
         );
       },
       sendAsAgent: (receiverId, senderAgentId, text, clientMessageId) => {
