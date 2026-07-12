@@ -1388,11 +1388,11 @@ function buildExecutorDeps(): ExecutorDeps {
   );
 
   // 3a.3a — Agent self-affordances (AGENT bearer; read-file / diff / edit-file /
-  // terminal-command on the agent's OWN chat). Slim deps: just the four manager
-  // emit ops. The manager emits room-ACL-projected log_entry via the event sink;
-  // handlers never emit. These /api routes are the SOLE affordance surface now —
-  // the legacy loopback /agents/:id/* affordance handlers were deleted in the
-  // loopback-bypass removal milestone.
+  // terminal-command / preview-url on the agent's OWN chat). Slim deps: just the
+  // manager emit ops. The manager emits room-ACL-projected log_entry via the
+  // event sink; handlers never emit. These /api routes are the SOLE affordance
+  // surface now — the legacy loopback /agents/:id/* affordance handlers were
+  // deleted in the loopback-bypass removal milestone.
   register(
     agentAffordanceHandlers({
       emitAgentReadFile: (agentId, path) =>
@@ -1403,6 +1403,8 @@ function buildExecutorDeps(): ExecutorDeps {
         agentManager.emitAgentEditRequest(agentId, path),
       emitAgentTerminalCommand: (agentId, command) =>
         agentManager.emitAgentTerminalCommand(agentId, command),
+      emitAgentPreviewUrl: (agentId, body) =>
+        agentManager.emitAgentPreviewUrl(agentId, body),
     }),
   );
 

@@ -80,6 +80,7 @@ import { buildSystemPrompt } from "./system-prompt.ts";
 import { memoryStore } from "./memory-store.ts";
 import { generateOutfit } from "./outfit.ts";
 import { computeIsomuxDiff, resolveDiffCwd } from "./isomux-diff.ts";
+import { capturePreview } from "./preview-capture.ts";
 import {
   resolveEditorPath,
   openFile as openEditorFileImpl,
@@ -1608,6 +1609,53 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       return { ok: true };
     }
     addLogEntry(agentId, "file-view", originalName, undefined, [att]);
+    return { ok: true };
+  }
+
+  // Screenshot a local/private URL (headless Chrome CLI via preview-capture.ts)
+  // and emit a `file-view` card, reusing read-file's attachment path. Used by
+  // POST /api/agents/:id/preview-url (task dcfd5a97). Unlike the sync
+  // affordances this is async, and failures return structured HTTP errors
+  // (status + code) instead of system chat messages: a failed screenshot has
+  // no boss-facing value, and the calling agent is the one who must react
+  // (start the dev server, fix the URL, retry). The entry's `content` is the
+  // sanitized origin+pathname; the UI renders it as a visible caption.
+  async function emitAgentPreviewUrl(
+    agentId: string,
+    body: unknown,
+  ): Promise<
+    { ok: true } | { ok: false; status: number; code: string; error: string }
+  > {
+    const managed = agents.get(agentId);
+    if (!managed)
+      return {
+        ok: false,
+        status: 404,
+        code: "not_found",
+        error: "agent not found",
+      };
+    const result = await capturePreview(body);
+    if (!result.ok) return result;
+    const att = savePersistedFile(
+      agentId,
+      result.png,
+      "image/png",
+      result.filename,
+    );
+    if (!att) {
+      return {
+        ok: false,
+        status: 500,
+        code: "save_failed",
+        error: "failed to persist the screenshot",
+      };
+    }
+    // metadata.preview marks the caption as renderable: the UI shows
+    // `content` under the image ONLY for entries carrying this marker, so
+    // read-file cards (content = the attachment's own filename) and any other
+    // file-view producer stay caption-free by explicit contract, not
+    // inference.
+    addLogEntry(agentId, "file-view", result.caption, { preview: true }, [att]);
     return { ok: true };
   }
 
@@ -5584,6 +5632,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     emitAgentTerminalCommand,
     emitAgentReadFile,
     emitAgentDiff,
+    emitAgentPreviewUrl,
     spawn,
     enqueueMessage,
     addSystemNote,

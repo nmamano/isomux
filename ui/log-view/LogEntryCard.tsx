@@ -439,11 +439,20 @@ export const LogEntryCard = memo(function LogEntryCard({
     case "file-view": {
       if (!entry.attachments || entry.attachments.length === 0)
         return <SystemMessage content={entry.content} isMobile={isMobile} />;
+      // preview-url marks its entries with metadata.preview and sets content
+      // to the captured page's sanitized URL — show it as a caption. Other
+      // file-view producers (read-file) carry no marker and stay caption-free;
+      // explicit contract rather than inferring from content/filename drift.
+      const caption =
+        entry.metadata?.preview === true && entry.content
+          ? entry.content
+          : undefined;
       return (
         <FileViewCard
           attachments={entry.attachments}
           agentId={entry.agentId}
           isMobile={isMobile}
+          caption={caption}
         />
       );
     }

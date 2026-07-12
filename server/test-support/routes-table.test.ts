@@ -225,6 +225,7 @@ const SPEC_ROUTE_CONTRACT: Record<
   "agents.diff": { caps: ["self:affordance"], emits: ["log_entry"] },
   "agents.editFile": { caps: ["self:affordance"], emits: ["log_entry"] },
   "agents.terminalCommand": { caps: ["self:affordance"], emits: ["log_entry"] },
+  "agents.previewUrl": { caps: ["self:affordance"], emits: ["log_entry"] },
   // Agents — editor
   "agents.openFile": {
     caps: ["editor:use"],

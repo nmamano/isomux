@@ -19,7 +19,9 @@
 // manager owns affordance semantics (terminal single-line, bad-path-as-system-log).
 //
 // LEAF over the executor + shared types. AgentAffordanceDeps is deliberately slim:
-// JUST the four affordance methods — no agent maps, rooms, or emit helpers.
+// JUST the affordance emit methods — no agent maps, rooms, or emit helpers.
+// preview-url (task dcfd5a97) is the one async member: it runs a headless-
+// browser capture (see preview-capture.ts) before emitting its file-view card.
 
 import {
   ok,
@@ -32,6 +34,7 @@ import type {
   AffordanceEditFileReq,
   AffordanceDiffReq,
   AffordanceTerminalCmdReq,
+  AffordancePreviewUrlReq,
 } from "../../../shared/contract-shapes.ts";
 
 // The manager's affordance result: ok, or a failure carrying an HTTP-mappable
@@ -40,6 +43,14 @@ import type {
 type AffordanceResult =
   | { ok: true }
   | { ok: false; status: number; error: string };
+
+// preview-url's richer result: async (headless-browser capture), and the
+// manager owns the per-failure `code` (invalid_request / capture_busy /
+// no_browser / unreachable / capture_failed / save_failed / capture_timeout)
+// instead of the handler passing a fixed one.
+type PreviewAffordanceResult =
+  | { ok: true }
+  | { ok: false; status: number; code: string; error: string };
 
 export interface AgentAffordanceDeps {
   emitAgentReadFile(agentId: string, path: string): AffordanceResult;
@@ -50,6 +61,10 @@ export interface AgentAffordanceDeps {
   ): AffordanceResult;
   emitAgentEditRequest(agentId: string, path: string): AffordanceResult;
   emitAgentTerminalCommand(agentId: string, command: string): AffordanceResult;
+  emitAgentPreviewUrl(
+    agentId: string,
+    body: unknown,
+  ): Promise<PreviewAffordanceResult>;
 }
 
 // Map a manager AffordanceResult to a HandlerResult. Status is narrowed at the
@@ -110,6 +125,26 @@ export function agentAffordanceHandlers(
         deps.emitAgentTerminalCommand(ctx.params.id, body.command),
         "terminal_command_failed",
       );
+    },
+
+    "agents.previewUrl": async (ctx) => {
+      const body = (ctx.body ?? {}) as Partial<AffordancePreviewUrlReq>;
+      if (typeof body.url !== "string" || body.url.length === 0) {
+        return fail(400, "invalid_request", "url is required");
+      }
+      // Full validation (URL shape, host policy, viewport/wait ranges) lives in
+      // the manager op / preview-capture; the handler stays shallow. Unexpected
+      // rejections are pinned to a structured 500 here rather than falling
+      // through to the executor's generic internal-error path.
+      try {
+        const r = await deps.emitAgentPreviewUrl(ctx.params.id, ctx.body);
+        return r.ok
+          ? ok({ ok: true })
+          : fail(r.status as HandlerErrorStatus, r.code, r.error);
+      } catch (err) {
+        console.error("[agents.previewUrl] unexpected rejection:", err);
+        return fail(500, "capture_failed", "unexpected error during capture");
+      }
     },
   };
 }

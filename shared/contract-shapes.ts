@@ -170,6 +170,18 @@ export interface AffordanceTerminalCmdReq {
   command: string;
 }
 
+export interface AffordancePreviewUrlReq {
+  /** http(s) URL of a local/private dev server to screenshot. */
+  url: string;
+  /** Integers, 320..2560 each. Default 1280x800. */
+  viewport?: { width: number; height: number };
+  /**
+   * Best-effort render budget in ms (0..10000), mapped to Chrome's
+   * --virtual-time-budget (fast-forwards page timers, not a wall-clock sleep).
+   */
+  wait?: number;
+}
+
 export interface EditorSaveReq {
   path: string;
   content: string;

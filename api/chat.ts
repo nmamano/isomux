@@ -118,6 +118,7 @@ Setup:
 - Message queueing: messages sent while the agent is busy are queued. The "Send now" button flushes the queue immediately, and Ctrl/Cmd+Enter sends a message with the same interrupt-and-flush behavior.
 - File attachments: agents understand images and PDFs. Upload via button, drag-and-drop, or paste
 - Image display: agents can show images inline in the conversation (e.g., matplotlib plots)
+- Browser preview cards: agents can screenshot a local web page (like the dev server they're working on) straight into the chat. Needs a Chrome-family browser installed on the server (runs headless, no display needed); everything else works without one.
 - Embedded terminal for direct shell access per agent
 - Built-in file editor: syntax highlighting, file tabs. Resizable alongside the chat. Open files via /isomux-edit <path> or by clicking "[Open in editor]" cards that agents emit.
 - Conversation branching — edit a past message to fork the conversation from that point, preserving the original

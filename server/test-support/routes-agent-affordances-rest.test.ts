@@ -18,7 +18,7 @@
 // Seam: startTestServer(). Zero LLM.
 
 import { describe, it, expect, afterEach } from "bun:test";
-import { writeFileSync } from "fs";
+import { writeFileSync, chmodSync } from "fs";
 import { join } from "path";
 import {
   startTestServer,
@@ -316,6 +316,118 @@ describe("routes/agent-affordances REST: idempotency", () => {
     sock.send({ type: "ping" });
     await sock.waitFor("pong");
     expect(countLog(sock, agent.id, "file-view")).toBe(1);
+  });
+});
+
+describe("routes/agent-affordances REST: preview-url (task dcfd5a97)", () => {
+  // A fake shell-script "browser" (via ISOMUX_PREVIEW_BROWSER) writes a valid
+  // PNG to the --screenshot path, so the FULL production path — handler →
+  // manager → preview-capture spawn → savePersistedFile → file-view log_entry —
+  // runs without Chrome. Deeper engine coverage (timeouts, kills, policy
+  // matrix) lives in preview-capture.test.ts.
+  function fakeBrowserScript(srv: TestServer): string {
+    const p = join(srv.stateRoot, "fake-browser.sh");
+    writeFileSync(
+      p,
+      `#!/bin/sh
+out=""
+for a in "$@"; do case "$a" in --screenshot=*) out="\${a#--screenshot=}";; esac; done
+printf '\\211PNG\\r\\n\\032\\n' > "$out"
+printf 'IHDRfakepixels' >> "$out"
+printf '\\0\\0\\0\\0IEND\\256B\\140\\202' >> "$out"
+`,
+    );
+    chmodSync(p, 0o755);
+    return p;
+  }
+
+  it("happy path: 200 + file-view log_entry whose content is the sanitized URL caption", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const room = srv.agentManager.getRooms()[0];
+    const agent = await spawnAgent(srv, "Worker", room.id);
+    const token = getAgentTokenRaw(agent.id)!;
+    const sock = await srv.connectWs(owner.rawSessionId);
+
+    // Local target for the pre-flight reachability fetch.
+    const target = Bun.serve({
+      port: 0,
+      fetch: () => new Response("<h1>hi</h1>"),
+    });
+    const prevEnv = process.env.ISOMUX_PREVIEW_BROWSER;
+    process.env.ISOMUX_PREVIEW_BROWSER = fakeBrowserScript(srv);
+    try {
+      const url = `http://127.0.0.1:${target.port}/dash?secret=X`;
+      const r = await affordance(
+        srv,
+        agent.id,
+        "preview-url",
+        { url, viewport: { width: 800, height: 600 }, wait: 250 },
+        { bearer: token },
+      );
+      expect(r.status).toBe(200);
+      expect(r.body.ok).toBe(true);
+      // Caption = origin + pathname, query stripped.
+      const caption = `http://127.0.0.1:${target.port}/dash`;
+      await waitUntil(
+        () => countLog(sock, agent.id, "file-view", caption) >= 1,
+        2000,
+        "preview file-view with caption",
+      );
+    } finally {
+      if (prevEnv === undefined) delete process.env.ISOMUX_PREVIEW_BROWSER;
+      else process.env.ISOMUX_PREVIEW_BROWSER = prevEnv;
+      await target.stop(true);
+    }
+  });
+
+  it("missing url -> 400; public URL -> 400 invalid_request (policy)", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const room = srv.agentManager.getRooms()[0];
+    const agent = await spawnAgent(srv, "Worker", room.id);
+    const token = getAgentTokenRaw(agent.id)!;
+
+    const missing = await affordance(
+      srv,
+      agent.id,
+      "preview-url",
+      {},
+      { bearer: token },
+    );
+    expect(missing.status).toBe(400);
+
+    // Public IP literal: rejected by the input policy BEFORE any network work,
+    // so this stays hermetic.
+    const publicUrl = await affordance(
+      srv,
+      agent.id,
+      "preview-url",
+      { url: "http://8.8.8.8/" },
+      { bearer: token },
+    );
+    expect(publicUrl.status).toBe(400);
+    expect(publicUrl.body.error?.code).toBe("invalid_request");
+  });
+
+  it("an agent token cannot preview into a DIFFERENT agent's chat -> 403", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const room = srv.agentManager.getRooms()[0];
+    const a = await spawnAgent(srv, "Alice", room.id);
+    const b = await spawnAgent(srv, "Bob", room.id);
+    const aToken = getAgentTokenRaw(a.id)!;
+    const r = await affordance(
+      srv,
+      b.id,
+      "preview-url",
+      { url: "http://127.0.0.1:3000/" },
+      { bearer: aToken },
+    );
+    expect(r.status).toBe(403);
   });
 });
 

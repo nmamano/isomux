@@ -1,17 +1,21 @@
 import { useEffect, useState } from "react";
 import type { Attachment } from "../../shared/types.ts";
 
-// Card emitted by POST /api/agents/:id/read-file. Images render inline (clickable
-// for lightbox); other media types render as a clickable file chip via the
-// same /api/files/<agentId>/<filename> route used by uploaded attachments.
+// Card emitted by POST /api/agents/:id/read-file and /preview-url. Images render
+// inline (clickable for lightbox); other media types render as a clickable file
+// chip via the same /api/files/<agentId>/<filename> route used by uploaded
+// attachments. `caption` (preview-url provenance: sanitized origin + pathname)
+// renders as a dim line under the attachments when provided.
 export function FileViewCard({
   attachments,
   agentId,
   isMobile,
+  caption,
 }: {
   attachments: Attachment[];
   agentId: string;
   isMobile?: boolean;
+  caption?: string;
 }) {
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const images = attachments.filter((a) => a.mediaType.startsWith("image/"));
@@ -109,6 +113,21 @@ export function FileViewCard({
               </a>
             );
           })}
+        </div>
+      )}
+      {caption && (
+        <div
+          style={{
+            marginTop: 4,
+            fontFamily: "'JetBrains Mono',monospace",
+            fontSize: isMobile ? 12 : 11,
+            color: "var(--text-ghost)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {caption}
         </div>
       )}
       {lightboxSrc && (
