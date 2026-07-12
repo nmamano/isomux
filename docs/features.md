@@ -72,6 +72,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Input drafts preserved** when switching between agents.
 - **Markdown rendering** for agent output.
 - **Collapsible thinking and tool-call cards** with timing for each step (errors are expanded automatically).
+- **Structured API-call cards**: when an agent curls the isomux API, the tool-call row shows the method, route, and key payload fields instead of raw shell text.
 - **Last user message pinned** at the top of the viewport, so you always see what you asked while the agent is working.
 - **Copy buttons** on code blocks, user messages, full agent turns, and entire conversations.
 - **Send now** to flush the message queue immediately while the agent is busy.

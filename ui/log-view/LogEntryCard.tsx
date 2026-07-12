@@ -8,6 +8,12 @@ import { DiffCard } from "./DiffCard.tsx";
 import { EditRequestCard } from "./EditRequestCard.tsx";
 import { FileViewCard } from "./FileViewCard.tsx";
 import { TerminalCommandCard } from "./TerminalCommandCard.tsx";
+import { parseIsomuxCurl } from "./isomux-curl.ts";
+import {
+  IsomuxCurlHeader,
+  IsomuxCurlFields,
+  isomuxUiPorts,
+} from "./IsomuxCurlSummary.tsx";
 
 function EditIcon() {
   return (
@@ -865,6 +871,16 @@ function ToolCall({
   const inputStr =
     typeof input === "string" ? input : JSON.stringify(input, null, 2);
   const summary = extractToolSummary(name, input);
+  // Bash commands that curl the isomux API render as a structured summary
+  // (method badge, route, payload fields) instead of raw shell text. The
+  // expanded view still shows the raw command and output unchanged.
+  const curlReq = useMemo(() => {
+    if (name !== "Bash" || !input || typeof input !== "object") return null;
+    const command = (input as { command?: unknown }).command;
+    return typeof command === "string"
+      ? parseIsomuxCurl(command, isomuxUiPorts)
+      : null;
+  }, [name, input]);
   const borderColor = resultIsError ? "var(--red)" : "var(--green-border)";
   const bgColor = resultIsError ? "var(--red-bg)" : "var(--tool-call-bg)";
   const textColor = resultIsError ? "var(--red)" : "var(--green)";
@@ -888,6 +904,7 @@ function ToolCall({
           fontFamily: "'JetBrains Mono',monospace",
           width: "100%",
           textAlign: "left",
+          ...(curlReq && { flexWrap: "wrap" as const }),
         }}
       >
         <span
@@ -900,25 +917,32 @@ function ToolCall({
         >
           &#9654;
         </span>
-        <span style={{ fontWeight: 600 }}>{name}</span>
-        {summary && (
-          <span
-            style={{
-              color: "var(--text-faint)",
-              marginLeft: 4,
-              fontSize: isMobile ? 13 : 11,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-              flex: 1,
-            }}
-          >
-            {summary}
-          </span>
+        {curlReq ? (
+          <IsomuxCurlHeader req={curlReq} isMobile={isMobile} />
+        ) : (
+          <>
+            <span style={{ fontWeight: 600 }}>{name}</span>
+            {summary && (
+              <span
+                style={{
+                  color: "var(--text-faint)",
+                  marginLeft: 4,
+                  fontSize: isMobile ? 13 : 11,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  flex: 1,
+                }}
+              >
+                {summary}
+              </span>
+            )}
+          </>
         )}
         {durationMs != null && (
           <DurationLabel ms={durationMs} isMobile={isMobile} />
         )}
+        {curlReq && <IsomuxCurlFields req={curlReq} isMobile={isMobile} />}
       </button>
       {open && (
         <div

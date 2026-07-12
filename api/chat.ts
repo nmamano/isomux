@@ -113,6 +113,7 @@ Setup:
 - Input drafts preserved when switching between agents
 - Markdown rendering for agent output
 - Collapsible thinking and tool-call cards with timing for each step
+- Structured cards for agent curl calls to the isomux API, showing the method, route, and key payload fields
 - Copy buttons on code blocks, user messages, full agent turns, and entire conversations
 - Message queueing: messages sent while the agent is busy are queued. The "Send now" button flushes the queue immediately.
 - File attachments: agents understand images and PDFs. Upload via button, drag-and-drop, or paste
