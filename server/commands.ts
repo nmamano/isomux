@@ -414,6 +414,10 @@ export const commands: Record<string, CommandConfig> = {
   loop: {
     ...UNSUPPORTED_BUNDLED_SKILL,
     description: "Run a prompt on a recurring schedule",
+    // Exact copy dictated by Nil (task c4717359): /loop stays unsupported
+    // natively; point users at isomux's own recurring-work primitives.
+    message:
+      "not supported natively; see if the Cronjobs tab or scheduled messages satisfy your use case",
   },
   "lorem-ipsum": {
     ...UNSUPPORTED_BUNDLED_SKILL,
