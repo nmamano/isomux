@@ -86,8 +86,9 @@ export function Walls({
   leftDoor?: DoorProps | null;
   rightDoor?: DoorProps | null;
 }) {
-  const { currentRoomId } = useAppState();
-  const neon = NEON_COLORS[roomPaletteIndex(currentRoomId, NEON_COLORS.length)];
+  const { currentRoomId, rooms } = useAppState();
+  const roomIndex = rooms.findIndex((r) => r.id === currentRoomId);
+  const neon = NEON_COLORS[roomPaletteIndex(roomIndex, NEON_COLORS.length)];
   const [now, setNow] = useState(new Date());
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 30_000);

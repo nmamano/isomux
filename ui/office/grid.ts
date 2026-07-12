@@ -40,16 +40,15 @@ export function deskPixelPos(row: number, col: number) {
   };
 }
 
-// Pick a palette slot for a room from its STABLE id rather than its dense
-// position. Keyed by identity, a room keeps its decoration colour across
-// reorders and neighbour closes (the old `index % len` recoloured every room
-// when the list shifted). Deterministic char-code rolling hash; null/empty id
-// falls back to slot 0.
-export function roomPaletteIndex(roomId: string | null, len: number): number {
-  if (!roomId || len <= 0) return 0;
-  let h = 0;
-  for (let i = 0; i < roomId.length; i++) {
-    h = (h * 31 + roomId.charCodeAt(i)) >>> 0;
-  }
-  return h % len;
+// Pick a palette slot for a room from its POSITION in the room list. Cycling
+// by index guarantees adjacent rooms always differ and every palette appears
+// before any repeats — an explicit product decision (task 5c10494a): the
+// id-hash keying tried in 3c.3 collapsed onto few palettes on real offices
+// (5 of 12 rooms identical, 4 adjacent), and Nil prefers variety/adjacency
+// over colour stability. Accepted tradeoff: rooms recolour when the list
+// order changes (reorder/close). Callers pass `rooms.findIndex(...)`, so a
+// not-found -1 (and any other out-of-domain input) falls back to slot 0.
+export function roomPaletteIndex(roomIndex: number, len: number): number {
+  if (len <= 0 || !Number.isInteger(roomIndex) || roomIndex < 0) return 0;
+  return roomIndex % len;
 }

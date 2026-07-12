@@ -1,19 +1,63 @@
 import { SCENE_W, SCENE_H, VB_X, VB_Y, roomPaletteIndex } from "./grid.ts";
 import { useAppState } from "../store.tsx";
 
+// `face` colours the eyes and whiskers; dark coats need a light stroke or the
+// face disappears into the body (the black cat used to render as a blob).
 const CAT_PALETTES = [
-  { body: "#E8A050", stripe: "#C08030", ear: "#D08040", nose: "#D08080" }, // orange tabby
-  { body: "#A0A0A8", stripe: "#707078", ear: "#909098", nose: "#C09090" }, // silver
-  { body: "#3A3A3A", stripe: "#222222", ear: "#4A4A4A", nose: "#705050" }, // black
-  { body: "#E8E0D8", stripe: "#C0B8B0", ear: "#DCC8C0", nose: "#D0A0A0" }, // white
-  { body: "#D07030", stripe: "#A05020", ear: "#C06030", nose: "#C07060" }, // ginger
-  { body: "#E0D8C8", stripe: "#8B7060", ear: "#C0A890", nose: "#C08888" }, // siamese
+  // orange tabby
+  {
+    body: "#E8A050",
+    stripe: "#C08030",
+    ear: "#D08040",
+    nose: "#D08080",
+    face: "#333333",
+  },
+  // silver
+  {
+    body: "#A0A0A8",
+    stripe: "#707078",
+    ear: "#909098",
+    nose: "#C09090",
+    face: "#333333",
+  },
+  // black
+  {
+    body: "#3A3A3A",
+    stripe: "#222222",
+    ear: "#4A4A4A",
+    nose: "#A07070",
+    face: "#C8C8C8",
+  },
+  // white
+  {
+    body: "#E8E0D8",
+    stripe: "#C0B8B0",
+    ear: "#DCC8C0",
+    nose: "#D0A0A0",
+    face: "#333333",
+  },
+  // ginger
+  {
+    body: "#D07030",
+    stripe: "#A05020",
+    ear: "#C06030",
+    nose: "#C07060",
+    face: "#333333",
+  },
+  // siamese
+  {
+    body: "#E0D8C8",
+    stripe: "#8B7060",
+    ear: "#C0A890",
+    nose: "#C08888",
+    face: "#333333",
+  },
 ];
 
 export function RoomProps() {
   const { currentRoomId, rooms } = useAppState();
-  const cat =
-    CAT_PALETTES[roomPaletteIndex(currentRoomId, CAT_PALETTES.length)];
+  const roomIndex = rooms.findIndex((r) => r.id === currentRoomId);
+  const cat = CAT_PALETTES[roomPaletteIndex(roomIndex, CAT_PALETTES.length)];
   const isLastRoom = rooms[rooms.length - 1]?.id === currentRoomId;
   return (
     <svg
@@ -176,13 +220,13 @@ export function RoomProps() {
         {/* Closed eyes — happy sleeping curves */}
         <path
           d="M-16 -2 Q-14.5 -4 -13 -2"
-          stroke="#333"
+          stroke={cat.face}
           strokeWidth="0.8"
           fill="none"
         />
         <path
           d="M-11 -3 Q-9.5 -5 -8 -3"
-          stroke="#333"
+          stroke={cat.face}
           strokeWidth="0.8"
           fill="none"
         />
@@ -194,12 +238,33 @@ export function RoomProps() {
           y1="-1"
           x2="-23"
           y2="-3"
-          stroke="#333"
+          stroke={cat.face}
           strokeWidth="0.3"
         />
-        <line x1="-18" y1="1" x2="-23" y2="1" stroke="#333" strokeWidth="0.3" />
-        <line x1="-6" y1="-1" x2="-1" y2="-3" stroke="#333" strokeWidth="0.3" />
-        <line x1="-6" y1="1" x2="-1" y2="1" stroke="#333" strokeWidth="0.3" />
+        <line
+          x1="-18"
+          y1="1"
+          x2="-23"
+          y2="1"
+          stroke={cat.face}
+          strokeWidth="0.3"
+        />
+        <line
+          x1="-6"
+          y1="-1"
+          x2="-1"
+          y2="-3"
+          stroke={cat.face}
+          strokeWidth="0.3"
+        />
+        <line
+          x1="-6"
+          y1="1"
+          x2="-1"
+          y2="1"
+          stroke={cat.face}
+          strokeWidth="0.3"
+        />
         {/* Zzz */}
         <text
           x="-4"
