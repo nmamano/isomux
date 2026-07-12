@@ -41,7 +41,7 @@ If you don't get to it on the first boot, the same form is served on every subse
 
 Once you're the owner, open `User Settings` → `Access` pane:
 
-- **Issue invite**: enter a display name, pick a role. Click `Issue invite`. The URL appears once — copy it. The URL is one-time per device and expires 24 hours after issuing if unused.
+- **Issue invite**: enter a display name, pick a role. For a new member, you can also check the rooms they should have access to, so they land in those rooms the moment they accept instead of an empty office (leave all unchecked to grant rooms later from their user settings). Click `Issue invite`. The URL appears once — copy it. The URL is one-time per device and expires 24 hours after issuing if unused.
 - **Outstanding invites**: every unclaimed invite is listed with its token prefix; revoke any from this table.
 - **Active sessions**: every currently-signed-in device; revoke any to immediately disconnect them.
 

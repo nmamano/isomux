@@ -363,13 +363,20 @@ const codeBlockStyle: React.CSSProperties = {
 };
 
 function IssueInviteForm() {
-  const { users } = useAppState();
+  const { users, rooms, allRooms } = useAppState();
   const [name, setName] = useState("");
   const [role, setRole] = useState<UserRole>("member");
   const [allowExisting, setAllowExisting] = useState(false);
+  // Rooms pre-assigned to the invite: the invitee lands with access to these
+  // instead of an empty office. Member invites for NEW users only (mirrors
+  // the server-side rule).
+  const [grantRooms, setGrantRooms] = useState<string[]>([]);
   const [mintedUrl, setMintedUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  // Same source the user-edit panel uses: the unfiltered global list when
+  // available so the owner can grant rooms they've hidden from their own view.
+  const editorRooms = allRooms.length > 0 ? allRooms : rooms;
 
   // Existing-user detection uses the same lowercase key the server uses
   // (lowercaseKey, not raw toLowerCase) so unicode/whitespace handling
@@ -388,6 +395,20 @@ function IssueInviteForm() {
   // avoids the confusion the boss flagged.
   const effectiveRole: UserRole = existingUser ? existingUser.role : role;
 
+  // Room grants apply only when the invite will CREATE a member record:
+  // owners reach every room by rule, and an existing user's access is
+  // managed in their user settings. The picker hides in the other cases and
+  // the request omits the field so the server never sees a stale selection.
+  const showRoomPicker = !existing && effectiveRole === "member";
+
+  function toggleGrantRoom(roomId: string) {
+    setGrantRooms((prev) =>
+      prev.includes(roomId)
+        ? prev.filter((id) => id !== roomId)
+        : [...prev, roomId],
+    );
+  }
+
   function submit() {
     const trimmed = name.trim();
     if (!trimmed) return;
@@ -398,11 +419,15 @@ function IssueInviteForm() {
       username: trimmed,
       role: effectiveRole,
       allowExisting: existing ? allowExisting : false,
+      ...(showRoomPicker && grantRooms.length > 0
+        ? { allowedRooms: grantRooms }
+        : {}),
     })
       .then((r) => {
         setMintedUrl(r.url);
         setName("");
         setAllowExisting(false);
+        setGrantRooms([]);
       })
       .catch((err) => {
         setError(
@@ -457,6 +482,68 @@ function IssueInviteForm() {
           )}
         </label>
       </div>
+      {showRoomPicker && (
+        <div style={{ marginTop: 8 }}>
+          <div style={subLabel}>Rooms</div>
+          <div
+            style={{
+              border: "1px solid var(--border)",
+              borderRadius: 8,
+              background: "var(--bg-base)",
+              padding: "4px 0",
+              maxHeight: 160,
+              overflowY: "auto",
+            }}
+          >
+            {editorRooms.length === 0 ? (
+              <div
+                style={{
+                  padding: "6px 12px",
+                  fontSize: 12,
+                  color: "var(--text-ghost)",
+                }}
+              >
+                No rooms yet.
+              </div>
+            ) : (
+              editorRooms.map((r) => (
+                <label
+                  key={r.id}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    padding: "5px 12px",
+                    fontSize: 12,
+                    cursor: "pointer",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={grantRooms.includes(r.id)}
+                    onChange={() => toggleGrantRoom(r.id)}
+                    aria-label={`Grant access to ${r.name}`}
+                    style={{ accentColor: "var(--accent)", cursor: "pointer" }}
+                  />
+                  <span
+                    style={{
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {r.name}
+                  </span>
+                </label>
+              ))
+            )}
+          </div>
+          <p style={{ ...hint, marginTop: 4 }}>
+            The invitee lands with access to the checked rooms. Leave all
+            unchecked to grant access later from their user settings.
+          </p>
+        </div>
+      )}
       <p style={{ ...hint, marginTop: 6 }}>
         Invite link expires 24h after issuing if unused. Accepted sessions last
         up to 1 year (revocable from the Access pane any time).
@@ -601,12 +688,21 @@ export function MintedUrlBox({ url }: { url: string }) {
 }
 
 export function InvitesTable({ invites }: { invites: InviteWire[] }) {
+  const { rooms, allRooms } = useAppState();
+  // Resolve granted room ids to names for display. Owners have allRooms;
+  // members (My devices pane) fall back to their projected rooms — their
+  // self-invites never carry grants, so the fallback rarely matters. A
+  // deleted room's id shows as-is rather than vanishing.
+  const roomList = allRooms.length > 0 ? allRooms : rooms;
+  const roomName = (id: string) =>
+    roomList.find((r) => r.id === id)?.name ?? id;
   return (
     <table style={tableStyle}>
       <thead>
         <tr>
           <th style={th}>For</th>
           <th style={th}>Role</th>
+          <th style={th}>Rooms</th>
           <th style={th}>Expires</th>
           <th style={th}>Prefix</th>
           <th style={th}></th>
@@ -619,6 +715,13 @@ export function InvitesTable({ invites }: { invites: InviteWire[] }) {
               {i.username ?? <i>{i.bootstrap ? "(bootstrap)" : "—"}</i>}
             </td>
             <td style={td}>{i.role}</td>
+            <td style={td}>
+              {i.allowedRooms?.length ? (
+                i.allowedRooms.map(roomName).join(", ")
+              ) : (
+                <i>—</i>
+              )}
+            </td>
             <td style={td}>{formatExpiry(i.expiresAt)}</td>
             <td style={mono}>{i.tokenPrefix}…</td>
             <td style={td}>

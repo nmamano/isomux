@@ -27,7 +27,8 @@ import {
   type TestSocket,
 } from "./harness.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
-import { setUserRole } from "../users.ts";
+import { setUserRole, getUserByName } from "../users.ts";
+import { acceptInvite } from "../auth.ts";
 import type { AgentInfo, InviteWire } from "../../shared/types.ts";
 
 let server: TestServer | null = null;
@@ -485,5 +486,140 @@ describe("routes/invites REST: record-role projection (Option A) + scope/auth", 
     expect(
       (await api(srv, "/api/invites/x", { method: "DELETE" })).status,
     ).toBe(401);
+  });
+});
+
+describe("routes/invites REST: room grants (pre-assigned rooms on member invites)", () => {
+  it("mint with allowedRooms -> 200 + wire carries them; accept seeds the NEW member's allowedRooms + notifRooms", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const roomA = srv.agentManager.getRooms()[0].id; // default "Room 1"
+    const roomB = srv.agentManager.createRoom("Grants B");
+
+    const r = await api(srv, "/api/invites", {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      body: { username: "Yu", role: "member", allowedRooms: [roomA, roomB] },
+    });
+    expect(r.status).toBe(200);
+    const body = r.body as { url: string; invite: InviteWire };
+    expect(body.invite.allowedRooms).toEqual([roomA, roomB]);
+
+    // The owner's list projection carries the grants too.
+    const list = await api(srv, "/api/invites", {
+      rawSessionId: owner.rawSessionId,
+    });
+    const row = invitesOf(list).find(
+      (i) => i.tokenPrefix === body.invite.tokenPrefix,
+    );
+    expect(row?.allowedRooms).toEqual([roomA, roomB]);
+
+    // Accept creates the member record seeded with the grants; claimUser
+    // seeds notifRooms from allowedRooms, so the invitee lands in the
+    // intended rooms with notifications on — not an empty office.
+    const rawToken = body.url.split("/i/")[1];
+    const acc = await acceptInvite(rawToken, { userAgent: null });
+    if (!acc.ok) throw new Error(`accept failed: ${acc.error}`);
+    const u = getUserByName("Yu");
+    expect(u?.role).toBe("member");
+    expect(u?.allowedRooms).toEqual([roomA, roomB]);
+    expect(u?.notifRooms).toEqual([roomA, roomB]);
+  });
+
+  it("mint refuses grants for: unknown room id / owner role / existing user (all 400); grant-less mint carries no field", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    await srv.seedMember("Alice");
+    const roomA = srv.agentManager.getRooms()[0].id;
+
+    const unknown = await api(srv, "/api/invites", {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      body: { username: "Yu", role: "member", allowedRooms: ["nope"] },
+    });
+    expect(unknown.status).toBe(400);
+
+    const ownerRole = await api(srv, "/api/invites", {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      body: { username: "Yu", role: "owner", allowedRooms: [roomA] },
+    });
+    expect(ownerRole.status).toBe(400);
+
+    const existing = await api(srv, "/api/invites", {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      body: {
+        username: "Alice",
+        role: "member",
+        allowExisting: true,
+        allowedRooms: [roomA],
+      },
+    });
+    expect(existing.status).toBe(400);
+
+    // PRECEDENCE (locked with Reviewer2): a request broken both ways —
+    // existing user with a MISMATCHED role AND grants — reports the more
+    // fundamental invite conflict (ROLE_MISMATCH -> 409), not INVALID_ROOMS.
+    // The grants check only sees existing users with a matching role.
+    const mismatchWithGrants = await api(srv, "/api/invites", {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      body: {
+        username: "Alice",
+        role: "owner",
+        allowExisting: true,
+        allowedRooms: [roomA],
+      },
+    });
+    expect(mismatchWithGrants.status).toBe(409);
+
+    // Bad shape (non-string entries) is rejected at the handler.
+    const badShape = await api(srv, "/api/invites", {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      body: { username: "Yu", role: "member", allowedRooms: [42] },
+    });
+    expect(badShape.status).toBe(400);
+
+    // A grant-less mint never grows the field (legacy wire shape preserved).
+    const plain = await api(srv, "/api/invites", {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      body: { username: "Yu", role: "member" },
+    });
+    expect(plain.status).toBe(200);
+    expect(
+      (plain.body as { invite: InviteWire }).invite.allowedRooms,
+    ).toBeUndefined();
+  });
+
+  it("a room deleted between mint and accept is pruned from the seeded grants", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const roomA = srv.agentManager.getRooms()[0].id;
+    const roomB = srv.agentManager.createRoom("Doomed");
+
+    const r = await api(srv, "/api/invites", {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      body: { username: "Yu", role: "member", allowedRooms: [roomA, roomB] },
+    });
+    expect(r.status).toBe(200);
+    const body = r.body as { url: string; invite: InviteWire };
+
+    // Close the granted room before the invitee clicks (closeRoom is
+    // empty-only; the fresh room has no agents).
+    expect(srv.agentManager.closeRoom(roomB)).toBe(true);
+
+    const rawToken = body.url.split("/i/")[1];
+    const acc = await acceptInvite(rawToken, { userAgent: null });
+    if (!acc.ok) throw new Error(`accept failed: ${acc.error}`);
+    const u = getUserByName("Yu");
+    expect(u?.allowedRooms).toEqual([roomA]);
+    expect(u?.notifRooms).toEqual([roomA]);
   });
 });

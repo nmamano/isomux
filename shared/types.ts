@@ -817,6 +817,11 @@ export interface InviteWire {
   createdAt: number;
   expiresAt: number;
   bootstrap?: true; // present on bootstrap invites so the UI can label them
+  // Room grants attached at mint time (member invites for NEW users only).
+  // On accept these seed the created record's allowedRooms so the invitee
+  // lands in the intended rooms instead of an empty office. Present only
+  // when non-empty.
+  allowedRooms?: string[];
 }
 
 // Wire shape for a single live-presence entry (live-avatars feature).

@@ -65,6 +65,10 @@ interface StoredInvite {
   consumed: boolean;
   consumedAt: number | null;
   bootstrap: boolean;
+  // Room grants attached at mint time (member invites for NEW users only).
+  // Seeds the created record's allowedRooms on accept. Absent on legacy
+  // rows and on invites minted without grants.
+  allowedRooms?: string[];
 }
 
 interface StoredSession {
@@ -381,6 +385,11 @@ export interface MintOptions {
   // SELF_INVITE_TTL_MS so a misbehaving client can't shorten or lengthen
   // tokens it issues to third parties.
   ttlMsOverride?: number;
+  // Room grants to attach to the invite. Only valid for member invites that
+  // will CREATE the user (owners reach every room by rule; an existing
+  // user's access lives on their record — see the INVALID_ROOMS checks).
+  // Applied at accept time as the new record's initial allowedRooms.
+  allowedRooms?: string[];
 }
 
 export interface MintResult {
@@ -391,7 +400,12 @@ export interface MintResult {
 export interface MintErr {
   ok: false;
   error: string;
-  code: "INVALID_USERNAME" | "USER_EXISTS" | "INVALID_ROLE" | "ROLE_MISMATCH";
+  code:
+    | "INVALID_USERNAME"
+    | "USER_EXISTS"
+    | "INVALID_ROLE"
+    | "ROLE_MISMATCH"
+    | "INVALID_ROOMS";
 }
 
 // Invite TTL is the acceptance window: the URL stops being redeemable
@@ -408,6 +422,11 @@ export async function mintInvite(
   return mutate(() => {
     ensureLoaded();
     const trimmedName = opts.username?.trim() ?? null;
+    // Room grants: dedupe up-front; validated below (non-bootstrap only —
+    // the bootstrap path never passes grants).
+    const grantRooms = opts.allowedRooms?.length
+      ? [...new Set(opts.allowedRooms)]
+      : [];
     if (!opts.bootstrap) {
       if (!trimmedName)
         return {
@@ -430,6 +449,43 @@ export async function mintInvite(
           error: `Invite role (${opts.role}) does not match existing user role (${existing.role}). Change the user's role first.`,
           code: "ROLE_MISMATCH",
         };
+      // Room grants only make sense on a member invite that will CREATE the
+      // user record: owners reach every room by rule (materialized owner
+      // grants are the demotion bomb — see commitBootstrapOwnerUser), and an
+      // existing user's access is managed on their record, not re-seeded by
+      // a later invite. Unknown room ids are refused rather than silently
+      // pruned so a stale owner UI can't mint an invite that quietly grants
+      // less than the owner picked.
+      //
+      // PRECEDENCE (locked with Reviewer2): identity/role conflicts
+      // (USER_EXISTS / ROLE_MISMATCH, both 409) are checked ABOVE and win
+      // over grant-applicability errors. A request that is broken both ways
+      // (e.g. existing user + mismatched role + grants) reports the more
+      // fundamental invite conflict, not INVALID_ROOMS. So the "existing"
+      // branch below is only reachable with allowExisting + a MATCHING role.
+      if (grantRooms.length > 0) {
+        if (opts.role !== "member")
+          return {
+            ok: false,
+            error:
+              "Room grants only apply to member invites (owners can reach every room).",
+            code: "INVALID_ROOMS",
+          };
+        if (existing)
+          return {
+            ok: false,
+            error: `User "${existing.name}" already exists. Manage their room access in their user settings instead of on the invite.`,
+            code: "INVALID_ROOMS",
+          };
+        const liveRooms = new Set(snapshotRoomIds());
+        const unknown = grantRooms.find((id) => !liveRooms.has(id));
+        if (unknown !== undefined)
+          return {
+            ok: false,
+            error: `Unknown room id: ${unknown}`,
+            code: "INVALID_ROOMS",
+          };
+      }
     }
 
     // Member self-invite path: remove any outstanding (unconsumed,
@@ -475,6 +531,9 @@ export async function mintInvite(
       consumed: false,
       consumedAt: null,
       bootstrap: !!opts.bootstrap,
+      // Stored only when non-empty (mirrors the wire shape; legacy rows and
+      // grant-less invites simply lack the field).
+      ...(grantRooms.length > 0 ? { allowedRooms: grantRooms } : {}),
     };
     invites!.set(hash, invite);
     try {
@@ -771,12 +830,31 @@ export async function acceptInvite(
     } else if (!userRecord) {
       // Phase 3b: an owner invite seeds EMPTY grants (rule covers owner access)
       // but notifRooms from current rooms (so the new owner is notified for
-      // their office by default). A member invite lands on the [] defaults — no
-      // grants, no notifs — until an owner grants access or they create a room.
+      // their office by default). A member invite seeds allowedRooms from the
+      // grants the owner attached at mint time (pruned to rooms that still
+      // exist — a room can be deleted between mint and accept); claimUser then
+      // seeds notifRooms from those grants. A grant-less member invite lands on
+      // the [] defaults — no grants, no notifs — until an owner grants access
+      // or they create a room.
+      const liveRooms = new Set(snapshotRoomIds());
+      const grantRooms = (invite.allowedRooms ?? []).filter((id) =>
+        liveRooms.has(id),
+      );
       userRecord = claimUser(chosenName, {
         role: invite.role,
         ...(invite.role === "owner" ? { notifRooms: snapshotRoomIds() } : {}),
+        ...(invite.role === "member" && grantRooms.length > 0
+          ? { allowedRooms: grantRooms }
+          : {}),
       });
+    } else if (invite.allowedRooms?.length) {
+      // Mint refuses grants for existing users, so reaching here means the
+      // record appeared between mint and accept. Grants only seed a NEW
+      // record — the existing record's access wins. Log so an owner who
+      // attached rooms can tell why they didn't land.
+      console.warn(
+        `[auth] acceptInvite: user "${userRecord.name}" already exists; ignoring the invite's room grants (manage their access in user settings)`,
+      );
     }
 
     // Create the session. Identity is the stable user.id; the username
@@ -1206,6 +1284,7 @@ export function toInviteWire(v: StoredInvite): InviteWire {
     createdAt: v.createdAt,
     expiresAt: v.expiresAt,
     ...(v.bootstrap ? { bootstrap: true as const } : {}),
+    ...(v.allowedRooms?.length ? { allowedRooms: [...v.allowedRooms] } : {}),
   };
 }
 

@@ -480,6 +480,7 @@ function mintErrStatus(code: MintErr["code"]): HandlerErrorStatus {
       return 409;
     case "INVALID_USERNAME":
     case "INVALID_ROLE":
+    case "INVALID_ROOMS":
       return 400;
   }
 }
@@ -1401,13 +1402,20 @@ function buildExecutorDeps(): ExecutorDeps {
   // pre-existing shared ownerSessions in liveEmitDeps.)
   register(
     invitesHandlers({
-      mint: async ({ username, role, allowExisting, identity }) => {
+      mint: async ({
+        username,
+        role,
+        allowExisting,
+        allowedRooms,
+        identity,
+      }) => {
         const { createdBy } = attributionFor(identity);
         const r = await mintInvite({
           username,
           role,
           createdBy,
           allowExisting,
+          allowedRooms,
         });
         if (!r.ok) {
           return { ok: false, status: mintErrStatus(r.code), error: r.error };

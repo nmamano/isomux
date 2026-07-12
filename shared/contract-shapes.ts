@@ -204,6 +204,12 @@ export interface InviteMintReq {
   username: string;
   role: UserRecord["role"];
   allowExisting?: boolean;
+  // Optional room grants to attach to the invite (member invites for NEW
+  // users only — owners reach every room by rule, and an existing user's
+  // access is managed on their record). On accept, the created member
+  // record's allowedRooms seeds from this list so the invitee doesn't land
+  // in an empty office.
+  allowedRooms?: string[];
 }
 
 export interface AccessSettingsReq {

@@ -49,11 +49,14 @@ type RevokeOutcome =
 
 export interface InvitesDeps {
   // Owner mint (officeOwner guard already enforced). createdBy is token-derived
-  // in the seam; on ok the seam fans out emitInvitesList().
+  // in the seam; on ok the seam fans out emitInvitesList(). allowedRooms are
+  // optional room grants for member invites (validated in the auth core:
+  // member-role + new-user only, ids must be live rooms).
   mint(input: {
     username: string;
     role: UserRole;
     allowExisting: boolean;
+    allowedRooms?: string[];
     identity: Identity;
   }): Promise<MintOutcome>;
   // Self mint — binds to the caller's OWN record (userId/role) with
@@ -83,10 +86,24 @@ export function invitesHandlers(
       if (body.role !== "owner" && body.role !== "member") {
         return fail(400, "invalid_request", "role must be 'owner' or 'member'");
       }
+      // Shape check only — the auth core owns the semantic validation
+      // (member-role + new-user only, room ids must exist).
+      if (
+        body.allowedRooms !== undefined &&
+        (!Array.isArray(body.allowedRooms) ||
+          !body.allowedRooms.every((x) => typeof x === "string"))
+      ) {
+        return fail(
+          400,
+          "invalid_request",
+          "allowedRooms must be an array of room ids",
+        );
+      }
       const r = await deps.mint({
         username: body.username,
         role: body.role,
         allowExisting: !!body.allowExisting,
+        allowedRooms: body.allowedRooms,
         identity: ctx.identity,
       });
       // Spec: 200 {url, invite} (not 201) — matches the explicit slice contract.
