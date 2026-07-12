@@ -22,6 +22,7 @@ import diff from "highlight.js/lib/languages/diff";
 import yaml from "highlight.js/lib/languages/yaml";
 import markdown from "highlight.js/lib/languages/markdown";
 import plaintext from "highlight.js/lib/languages/plaintext";
+import { sanitizeSvg } from "./svg-sanitize.ts";
 
 hljs.registerLanguage("javascript", javascript);
 hljs.registerLanguage("js", javascript);
@@ -118,6 +119,48 @@ marked.use({
   ],
 });
 
+// Capture whole <svg>…</svg> spans before marked's paragraph handling
+// can mangle them: `breaks: true` would insert <br> between the lines of
+// any SVG that isn't a clean HTML block, and a <br> inside an <svg>
+// makes the browser force-close it, dropping every shape after it (see
+// svg-sanitize.ts for the full story). Captured spans are emitted
+// through sanitizeSvg. The block-level extension handles SVGs that start
+// on their own line (including ones with blank lines inside, which
+// inline tokenization can't cross); the inline one handles SVGs embedded
+// mid-text. The `start` hooks are deliberately narrower than
+// indexOf("<svg") — line-start only for block, not-backtick-preceded for
+// inline — so prose that mentions `<svg>` in inline code keeps being
+// handled by the built-in codespan tokenizer.
+const SVG_SPAN_RE = /^<svg\b[\s\S]*?<\/svg\s*>/i;
+const svgExtension = (
+  name: string,
+  level: "block" | "inline",
+  startRe: RegExp,
+) => ({
+  name,
+  level,
+  start(src: string) {
+    const match = startRe.exec(src);
+    // Point at the "<" itself, not the line break / preceding char the
+    // guard consumed.
+    return match ? match.index + match[0].indexOf("<") : undefined;
+  },
+  tokenizer(src: string) {
+    const match = SVG_SPAN_RE.exec(src);
+    if (!match) return undefined;
+    return { type: name, raw: match[0] };
+  },
+  renderer(token: { raw: string }) {
+    return sanitizeSvg(token.raw);
+  },
+});
+marked.use({
+  extensions: [
+    svgExtension("svgBlock", "block", /(?:^|\n)[ \t]*<svg\b/i),
+    svgExtension("svgInline", "inline", /(?:^|[^`])<svg\b/i),
+  ],
+});
+
 // Lazy singleton: mermaid is ~1MB minified, so we only fetch it the first
 // time a message containing a mermaid block reaches the renderer.
 let mermaidPromise: Promise<typeof import("mermaid").default> | null = null;
@@ -151,25 +194,29 @@ const COPY_SVG = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" st
 const CHECK_SVG = `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3.5 8.5 6.5 11.5 12.5 4.5"/></svg>`;
 const COPY_BTN_HTML = `<button class="copy-btn code-copy-btn" title="Copy">${COPY_SVG}</button>`;
 
+// Exported for tests. Full markdown-to-html pipeline as used by the
+// component: marked parse plus the copy-button and table wrappers.
+export function renderMarkdown(content: string): string {
+  try {
+    const raw = marked.parse(content) as string;
+    // Wrap <pre> blocks in a container so the copy button stays fixed outside the scroll area
+    const withCode = raw
+      .replace(
+        /<pre>/g,
+        `<div class="code-block-wrapper">${COPY_BTN_HTML}<pre>`,
+      )
+      .replace(/<\/pre>/g, `</pre></div>`);
+    // Wrap <table> blocks so they scroll horizontally on narrow viewports instead of overflowing
+    return withCode
+      .replace(/<table>/g, `<div class="table-wrapper"><table>`)
+      .replace(/<\/table>/g, `</table></div>`);
+  } catch {
+    return content;
+  }
+}
+
 export function Markdown({ content }: { content: string }) {
-  const html = useMemo(() => {
-    try {
-      const raw = marked.parse(content) as string;
-      // Wrap <pre> blocks in a container so the copy button stays fixed outside the scroll area
-      const withCode = raw
-        .replace(
-          /<pre>/g,
-          `<div class="code-block-wrapper">${COPY_BTN_HTML}<pre>`,
-        )
-        .replace(/<\/pre>/g, `</pre></div>`);
-      // Wrap <table> blocks so they scroll horizontally on narrow viewports instead of overflowing
-      return withCode
-        .replace(/<table>/g, `<div class="table-wrapper"><table>`)
-        .replace(/<\/table>/g, `</table></div>`);
-    } catch {
-      return content;
-    }
-  }, [content]);
+  const html = useMemo(() => renderMarkdown(content), [content]);
 
   // Handle copy button clicks via event delegation
   const onClick = useCallback(async (e: React.MouseEvent) => {
