@@ -1003,7 +1003,8 @@ export function createCommandHandling(deps: HandlerDeps) {
     return true;
   }
 
-  // Slash command resolution — 5-step priority order (see internal-docs/slash-command-design.md)
+  // Slash command resolution — 5-step priority order (each step commented below;
+  // the command/skill registry itself is server/commands.ts)
   async function handleSlashCommand(
     agentId: string,
     managed: ManagedAgent,

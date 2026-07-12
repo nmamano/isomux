@@ -1,7 +1,8 @@
 // Declarative registry of every known Claude Code command and bundled skill.
 // Pure data — no handler logic lives here.
 //
-// See internal-docs/slash-command-design.md for the full design.
+// Resolution logic (5-step priority order) lives in
+// server/command-handlers.ts (handleSlashCommand).
 // Last updated: 2026-03-31 (Claude Code ~1.0.x)
 
 export type CommandType = "hardcoded" | "bundled-skill";
