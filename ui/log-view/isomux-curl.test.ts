@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { parseIsomuxCurl, describeIsomuxRoute } from "./isomux-curl.ts";
+import {
+  parseIsomuxCurl,
+  describeIsomuxRoute,
+  humanizeIsomuxRequest,
+} from "./isomux-curl.ts";
 
 describe("parseIsomuxCurl", () => {
   test("simple GET task list", () => {
@@ -414,5 +418,83 @@ describe("describeIsomuxRoute", () => {
 
   test("method must match", () => {
     expect(describeIsomuxRoute("DELETE", "/api/memory")).toBeNull();
+  });
+});
+
+describe("humanizeIsomuxRequest", () => {
+  function parse(cmd: string) {
+    const req = parseIsomuxCurl(cmd);
+    expect(req).not.toBeNull();
+    return req!;
+  }
+
+  test("memory reads phrase the scope", () => {
+    expect(
+      humanizeIsomuxRequest(
+        parse("curl -s 'localhost:4000/api/memory?scope=agent'"),
+      ),
+    ).toBe("Read memories for this agent");
+    expect(
+      humanizeIsomuxRequest(
+        parse("curl -s 'localhost:4000/api/memory?scope=office'"),
+      ),
+    ).toBe("Read office memories");
+  });
+
+  test("memory append uses the body scope", () => {
+    const req = parse(
+      `curl -s -X POST localhost:4000/api/memory -H 'Content-Type: application/json' -d '{"scope":"room","text":"x"}'`,
+    );
+    expect(humanizeIsomuxRequest(req)).toBe("Save a room memory");
+  });
+
+  test("agent message resolves the receiver name", () => {
+    const req = parse(
+      `curl -s -X POST localhost:4000/api/agents/agent-123-abc/messages -H 'Content-Type: application/json' -d '{"text":"hi"}'`,
+    );
+    expect(
+      humanizeIsomuxRequest(req, (id) =>
+        id === "agent-123-abc" ? "Isomuxer4" : null,
+      ),
+    ).toBe("Send a message to Isomuxer4");
+  });
+
+  test("deliverAt turns send into schedule", () => {
+    const req = parse(
+      `curl -s -X POST localhost:4000/api/agents/agent-123-abc/messages -d '{"text":"hi","deliverAt":"2026-01-01T00:00:00Z"}'`,
+    );
+    expect(humanizeIsomuxRequest(req, () => "Todoer")).toBe(
+      "Schedule a message to Todoer",
+    );
+  });
+
+  test("unresolved agent ids fall back to the raw id", () => {
+    const req = parse(
+      `curl -s -X POST localhost:4000/api/agents/agent-9/abort -d '{}'`,
+    );
+    expect(humanizeIsomuxRequest(req)).toBe("Interrupt agent-9");
+  });
+
+  test("task claim includes id and assignee", () => {
+    const req = parse(
+      `curl -s -X POST localhost:4000/tasks/28ab9400/claim -H 'Content-Type: application/json' -d '{"assignee":"Isomuxer1"}'`,
+    );
+    expect(humanizeIsomuxRequest(req)).toBe(
+      "Claim task 28ab9400 for Isomuxer1",
+    );
+  });
+
+  test("task list variants by status param", () => {
+    expect(humanizeIsomuxRequest(parse("curl -s localhost:4000/tasks"))).toBe(
+      "List open tasks",
+    );
+    expect(
+      humanizeIsomuxRequest(parse("curl -s 'localhost:4000/tasks?status=all'")),
+    ).toBe("List all tasks");
+  });
+
+  test("unknown route returns null", () => {
+    const req = parse("curl -s localhost:4000/api/does-not-exist");
+    expect(humanizeIsomuxRequest(req)).toBeNull();
   });
 });

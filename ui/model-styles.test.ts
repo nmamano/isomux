@@ -14,12 +14,16 @@ describe("styleForModel", () => {
     expect(styleForModel("gpt-5.6-sol").border).toBe("rgba(80,220,150,0.95)");
   });
 
-  test("desk props: crayons on haiku, book on opus, none elsewhere", () => {
-    expect(styleForModel("haiku").deskProp).toBe("crayons");
+  test("desk props encode tier: books for frontier, crayons for small, bare mid", () => {
     expect(styleForModel("opus").deskProp).toBe("book");
+    expect(styleForModel("fable").deskProp).toBe("book");
+    expect(styleForModel("gpt-5.6-sol").deskProp).toBe("book");
+    expect(styleForModel("haiku").deskProp).toBe("crayons");
+    expect(styleForModel("gpt-5.4-mini").deskProp).toBe("crayons");
+    expect(styleForModel("gpt-5.6-luna").deskProp).toBe("crayons");
     expect(styleForModel("sonnet").deskProp).toBeUndefined();
-    expect(styleForModel("fable").deskProp).toBeUndefined();
-    expect(styleForModel("gpt-5.6-sol").deskProp).toBeUndefined();
+    expect(styleForModel("gpt-5.5").deskProp).toBeUndefined();
+    expect(styleForModel("gpt-5.6-terra").deskProp).toBeUndefined();
   });
 
   test("missing/empty input returns the neutral style, never a hash", () => {

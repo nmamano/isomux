@@ -43,8 +43,12 @@ function EditIcon() {
 
 /**
  * True when this tool_result is paired with a tool_call in the same turn and
- * has nothing the user needs to see in its own row (no attachments, no error).
- * Folded results are hidden — the tool_call's expand panel renders their text.
+ * has nothing the user needs to see in its own row (no attachments). Folded
+ * results are hidden — the tool_call's expand panel renders their text, and
+ * errored results additionally show a compact preview inside their (red)
+ * tool_call card. Errors fold too: with parallel tool calls the results
+ * arrive after ALL the calls, so a standalone error row would sit under an
+ * unrelated call's card instead of the one that failed.
  * Shared between LogEntryCard (skips rendering folded rows) and LogView
  * (recomputes isLastInTurn against visible entries).
  */
@@ -54,7 +58,6 @@ export function isFoldedToolResult(
 ): boolean {
   if (entry.kind !== "tool_result") return false;
   if ((entry.attachments?.length ?? 0) > 0) return false;
-  if (entry.metadata?.isError === true) return false;
   const toolUseId = entry.metadata?.toolUseId;
   if (!toolUseId || !turnEntries) return false;
   return turnEntries.some(
@@ -881,9 +884,30 @@ function ToolCall({
       ? parseIsomuxCurl(command, isomuxUiPorts)
       : null;
   }, [name, input]);
-  const borderColor = resultIsError ? "var(--red)" : "var(--green-border)";
-  const bgColor = resultIsError ? "var(--red-bg)" : "var(--tool-call-bg)";
-  const textColor = resultIsError ? "var(--red)" : "var(--green)";
+  // Isomux API cards get an accent tint so they read differently from
+  // ordinary (green) tool calls; errors stay red either way.
+  const borderColor = resultIsError
+    ? "var(--red)"
+    : curlReq
+      ? "var(--border)"
+      : "var(--green-border)";
+  const bgColor = resultIsError
+    ? "var(--red-bg)"
+    : curlReq
+      ? "var(--accent-bg)"
+      : "var(--tool-call-bg)";
+  const textColor = resultIsError
+    ? "var(--red)"
+    : curlReq
+      ? "var(--text-secondary)"
+      : "var(--green)";
+  // Errored results are folded (see isFoldedToolResult), so surface the
+  // failure inline: first line of the result, attached to the card it
+  // belongs to rather than floating at its stream position.
+  const errorPreview =
+    resultIsError && resultContent
+      ? resultContent.trim().split("\n").slice(0, 2).join(" · ")
+      : null;
 
   return (
     <div style={{ margin: "2px 0", position: "relative" }}>
@@ -904,7 +928,7 @@ function ToolCall({
           fontFamily: "'JetBrains Mono',monospace",
           width: "100%",
           textAlign: "left",
-          ...(curlReq && { flexWrap: "wrap" as const }),
+          ...((curlReq || errorPreview) && { flexWrap: "wrap" as const }),
         }}
       >
         <span
@@ -943,6 +967,22 @@ function ToolCall({
           <DurationLabel ms={durationMs} isMobile={isMobile} />
         )}
         {curlReq && <IsomuxCurlFields req={curlReq} isMobile={isMobile} />}
+        {errorPreview && (
+          <span
+            style={{
+              flexBasis: "100%",
+              paddingLeft: 20,
+              marginTop: 2,
+              color: "var(--red)",
+              fontSize: isMobile ? 12 : 10,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {errorPreview}
+          </span>
+        )}
       </button>
       {open && (
         <div

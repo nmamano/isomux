@@ -92,7 +92,7 @@ Setup:
 - Click the **moon** through the window to toggle dark mode
 - Click the **neon sign** to visit isomux.com
 - Click **doors** to switch between rooms
-- **Opus** agents have a book on their desk; **Haiku** agents have crayons
+- Frontier-tier agents (Opus, Fable, GPT-5.6 Sol) have a book on their desk; small fast models (Haiku, GPT minis) have crayons
 - The entire SVG scene (~1,600 lines of raw coordinates and bezier curves) was drawn by Claude Opus — no libraries, assets, or tools
 
 ### Agent Backends
@@ -113,7 +113,7 @@ Setup:
 - Input drafts preserved when switching between agents
 - Markdown rendering for agent output
 - Collapsible thinking and tool-call cards with timing for each step
-- Structured cards for agent curl calls to the isomux API, showing the method, route, and key payload fields
+- Structured cards for agent curl calls to the isomux API, describing each call in plain language with its key payload fields
 - Copy buttons on code blocks, user messages, full agent turns, and entire conversations
 - Message queueing: messages sent while the agent is busy are queued. The "Send now" button flushes the queue immediately, and Ctrl/Cmd+Enter sends a message with the same interrupt-and-flush behavior.
 - File attachments: agents understand images and PDFs. Upload via button, drag-and-drop, or paste

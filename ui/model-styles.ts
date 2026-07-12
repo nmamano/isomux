@@ -22,16 +22,25 @@ export interface ModelStyle {
   deskProp?: DeskProp;
 }
 
-// Explicit entries for every known model, seeded verbatim from the former
-// MODEL_TINT tables (previously duplicated in DeskUnit.tsx and LogView.tsx)
-// so known models render byte-identically to before.
+// Explicit entries for every known model. Colors are seeded verbatim from the
+// former MODEL_TINT tables (previously duplicated in DeskUnit.tsx and
+// LogView.tsx) so known models keep their exact tints.
+//
+// Desk props encode capability TIER, not identity (Nil, 2026-07-12): frontier
+// models get the book (opus, fable, gpt-5.6-sol), small/fast models get the
+// crayons (haiku, gpt-5.4-mini, gpt-5.6-luna), mid models get a bare desk.
+// At-a-glance encoding: color hue ~ provider/family, desk prop ~ tier.
 export const MODEL_STYLES: Record<string, ModelStyle> = {
   opus: {
     border: "rgba(100,160,255,0.85)",
     bg: "rgba(100,160,255,0.35)",
     deskProp: "book",
   },
-  fable: { border: "rgba(170,130,255,0.85)", bg: "rgba(170,130,255,0.35)" },
+  fable: {
+    border: "rgba(170,130,255,0.85)",
+    bg: "rgba(170,130,255,0.35)",
+    deskProp: "book",
+  },
   sonnet: { border: "rgba(218,165,32,0.80)", bg: "rgba(218,165,32,0.32)" },
   haiku: {
     border: "rgba(230,130,180,0.80)",
@@ -43,10 +52,12 @@ export const MODEL_STYLES: Record<string, ModelStyle> = {
   "gpt-5.4-mini": {
     border: "rgba(120,220,160,0.62)",
     bg: "rgba(120,220,160,0.20)",
+    deskProp: "crayons",
   },
   "gpt-5.6-sol": {
     border: "rgba(80,220,150,0.95)",
     bg: "rgba(80,220,150,0.40)",
+    deskProp: "book",
   },
   "gpt-5.6-terra": {
     border: "rgba(80,200,140,0.80)",
@@ -55,6 +66,7 @@ export const MODEL_STYLES: Record<string, ModelStyle> = {
   "gpt-5.6-luna": {
     border: "rgba(80,200,140,0.60)",
     bg: "rgba(80,200,140,0.20)",
+    deskProp: "crayons",
   },
 };
 

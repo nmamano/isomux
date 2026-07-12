@@ -520,13 +520,13 @@ export function RoomTabBar() {
                     );
                   }}
                   style={{
-                    width: 16,
-                    height: 16,
+                    width: 20,
+                    height: 20,
                     borderRadius: 4,
-                    border: "none",
-                    background: "transparent",
-                    color: "var(--text-hint)",
-                    fontSize: 10,
+                    border: "1px solid var(--border)",
+                    background: "var(--bg-code)",
+                    color: "var(--text-secondary)",
+                    fontSize: 14,
                     cursor: "pointer",
                     display: "flex",
                     alignItems: "center",

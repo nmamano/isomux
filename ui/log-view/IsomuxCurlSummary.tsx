@@ -1,4 +1,6 @@
 import type { IsomuxCurlRequest } from "./isomux-curl.ts";
+import { humanizeIsomuxRequest } from "./isomux-curl.ts";
+import { useAppState } from "../store.tsx";
 
 // Ports the isomux server may be reachable on from the agent's shell. 4000 is
 // the documented default; window.location.port covers offices that serve the
@@ -11,23 +13,18 @@ export const isomuxUiPorts: readonly string[] = Array.from(
   ),
 );
 
-const METHOD_COLORS: Record<string, { color: string; bg: string }> = {
-  GET: { color: "var(--green)", bg: "var(--green-bg)" },
-  POST: { color: "var(--accent)", bg: "var(--accent-bg)" },
-  PUT: { color: "var(--orange)", bg: "var(--orange-bg)" },
-  PATCH: { color: "var(--orange)", bg: "var(--orange-bg)" },
-  DELETE: { color: "var(--red)", bg: "var(--red-bg)" },
-};
-
 function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max - 1) + "…" : s;
 }
 
 /**
  * Inline header parts for a Bash tool-call row whose command is a curl against
- * the isomux API: method badge, human action label (when the route is known),
- * and the path. Rendered inside the existing collapsible tool-call button, in
- * place of the "Bash <raw command>" summary.
+ * the isomux API: an "isomux" tag (distinguishing these cards from ordinary
+ * tool calls) followed by a plain-language description of what the call does
+ * ("Send a message to Isomuxer4", "Read memories for this agent"). The raw
+ * path is only shown when no description exists; it is always available in
+ * the hover tooltip and the expanded raw view. Rendered inside the existing
+ * collapsible tool-call button, in place of the "Bash <raw command>" summary.
  */
 export function IsomuxCurlHeader({
   req,
@@ -36,43 +33,58 @@ export function IsomuxCurlHeader({
   req: IsomuxCurlRequest;
   isMobile?: boolean;
 }) {
-  const methodStyle = METHOD_COLORS[req.method] ?? {
-    color: "var(--text-dim)",
-    bg: "var(--bg-code)",
-  };
+  const { agents } = useAppState();
+  const label =
+    humanizeIsomuxRequest(
+      req,
+      (id) => agents.find((a) => a.id === id)?.name ?? null,
+    ) ?? req.action;
   return (
     <>
+      {/* Rendered exactly like the plain "Bash" tool name (same inherited
+          font size and weight, no chip box) so the text aligns with other
+          tool rows; the accent color + tinted card background are what set
+          isomux cards apart. */}
       <span
         style={{
-          padding: "0 6px",
-          borderRadius: 4,
-          background: methodStyle.bg,
-          color: methodStyle.color,
-          fontSize: isMobile ? 11 : 10,
-          fontWeight: 700,
-          letterSpacing: "0.04em",
+          color: "var(--accent)",
+          fontWeight: 600,
           flexShrink: 0,
         }}
       >
-        {req.method}
+        Isomux
       </span>
-      {req.action && (
-        <span style={{ fontWeight: 600, flexShrink: 0 }}>{req.action}</span>
+      {label ? (
+        <span
+          style={{
+            fontWeight: 600,
+            color: "var(--text-primary)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            flex: 1,
+            minWidth: 40,
+          }}
+          title={`${req.method} ${req.path}`}
+        >
+          {label}
+        </span>
+      ) : (
+        <span
+          style={{
+            color: "var(--text-faint)",
+            fontSize: isMobile ? 13 : 11,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            flex: 1,
+            minWidth: 40,
+          }}
+          title={`${req.method} ${req.path}`}
+        >
+          {req.method} {req.path}
+        </span>
       )}
-      <span
-        style={{
-          color: "var(--text-faint)",
-          fontSize: isMobile ? 13 : 11,
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-          flex: 1,
-          minWidth: 40,
-        }}
-        title={req.path}
-      >
-        {req.path}
-      </span>
       {req.pipeTail && (
         // Always verbatim and untruncated: the parser does not semantically
         // validate the tail, so concealing any of it here would let the card

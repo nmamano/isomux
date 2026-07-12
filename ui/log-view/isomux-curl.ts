@@ -355,6 +355,183 @@ export function describeIsomuxRoute(
   return null;
 }
 
+// --- humanized labels ----------------------------------------------------------
+
+function truncateLabel(s: string, max: number): string {
+  return s.length > max ? s.slice(0, max - 1) + "…" : s;
+}
+
+const MEMORY_SCOPE_PHRASES: Record<string, string> = {
+  agent: "memories for this agent",
+  room: "room memories",
+  office: "office memories",
+  boss: "boss memories",
+};
+
+/**
+ * Plain-language, parameter-aware description of a parsed request, e.g.
+ * "Read memories for this agent" or "Send a message to Isomuxer4". Uses query
+ * params, body fields, and (when available) an agent-id -> display-name
+ * resolver. Returns null when the route has no specific phrasing; callers
+ * fall back to `action` (the static route label) or method + path.
+ */
+export function humanizeIsomuxRequest(
+  req: IsomuxCurlRequest,
+  resolveAgentName?: (id: string) => string | null,
+): string | null {
+  const [pathOnly, queryStr] = req.path.split(/[?#]/);
+  const segs = (pathOnly ?? "/").split("/").filter(Boolean);
+  if (segs[0] === "api") segs.shift();
+  let query: URLSearchParams;
+  try {
+    query = new URLSearchParams(queryStr ?? "");
+  } catch {
+    query = new URLSearchParams();
+  }
+  const field = (key: string): string | null =>
+    req.bodyFields?.find((f) => f.key === key)?.value ?? null;
+  const agentName = (id: string): string =>
+    resolveAgentName?.(id) ?? truncateLabel(id, 18);
+  const m = req.method;
+
+  // Memory
+  if (segs.length === 1 && segs[0] === "memory") {
+    const scope = query.get("scope") ?? field("scope");
+    const phrase = (scope && MEMORY_SCOPE_PHRASES[scope]) || "memories";
+    if (m === "GET") return `Read ${phrase}`;
+    if (m === "POST")
+      return scope === "agent"
+        ? "Save a memory for this agent"
+        : scope && MEMORY_SCOPE_PHRASES[scope]
+          ? `Save a ${scope} memory`
+          : "Save a memory";
+    if (m === "PUT") return `Rewrite ${phrase}`;
+  }
+
+  // Task board (/tasks and /api/tasks)
+  if (segs[0] === "tasks") {
+    if (segs.length === 1) {
+      if (m === "GET") {
+        const status = query.get("status");
+        if (status === "all") return "List all tasks";
+        if (status) return `List ${status} tasks`;
+        return "List open tasks";
+      }
+      if (m === "POST") {
+        const title = field("title");
+        return title
+          ? `Create task: ${truncateLabel(title, 40)}`
+          : "Create a task";
+      }
+    }
+    if (segs.length === 2) {
+      if (m === "PATCH") return `Update task ${segs[1]}`;
+      if (m === "DELETE") return `Delete task ${segs[1]}`;
+      if (m === "GET") return `Read task ${segs[1]}`;
+    }
+    if (segs.length === 3 && m === "POST") {
+      if (segs[2] === "claim") {
+        const assignee = field("assignee");
+        return assignee
+          ? `Claim task ${segs[1]} for ${assignee}`
+          : `Claim task ${segs[1]}`;
+      }
+      if (segs[2] === "done") return `Mark task ${segs[1]} done`;
+    }
+  }
+
+  // Agents
+  if (segs[0] === "agents") {
+    if (segs.length === 1 && m === "POST") {
+      const name = field("name");
+      return name
+        ? `Spawn agent ${truncateLabel(name, 24)}`
+        : "Spawn a new agent";
+    }
+    if (segs.length === 2) {
+      const who = agentName(segs[1]);
+      if (m === "PATCH") return `Edit ${who}'s settings`;
+      if (m === "DELETE") return `Remove agent ${who}`;
+    }
+    if (segs.length >= 3) {
+      const who = agentName(segs[1]);
+      const sub = segs[2];
+      if (segs.length === 3) {
+        if (sub === "messages" && m === "POST")
+          return field("deliverAt")
+            ? `Schedule a message to ${who}`
+            : `Send a message to ${who}`;
+        if (sub === "scheduled-messages" && m === "GET")
+          return `List ${who}'s scheduled messages`;
+        if (sub === "read-file" && m === "POST") return "Share a file to chat";
+        if (sub === "diff" && m === "POST") return "Show a diff in chat";
+        if (sub === "edit-file" && m === "POST")
+          return "Offer a file in the editor";
+        if (sub === "terminal-command" && m === "POST")
+          return "Suggest a terminal command";
+        if (sub === "new-conversation" && m === "POST")
+          return `Clear ${who}'s conversation`;
+        if (sub === "send-now" && m === "POST")
+          return `Flush ${who}'s queue now`;
+        if (sub === "abort" && m === "POST") return `Interrupt ${who}`;
+        if (sub === "resume" && m === "POST")
+          return `Resume a session for ${who}`;
+        if (sub === "sessions" && m === "GET") return `List ${who}'s sessions`;
+        if (sub === "move" && m === "POST") return `Move ${who}`;
+        if (sub === "revive" && m === "POST") return `Revive ${who}`;
+      }
+      if (segs.length === 4) {
+        if (sub === "scheduled-messages" && m === "DELETE")
+          return `Cancel a scheduled message to ${who}`;
+        if (sub === "queue" && m === "DELETE")
+          return `Cancel a queued message to ${who}`;
+        if (sub === "messages" && m === "PATCH")
+          return `Edit a message in ${who}'s chat`;
+      }
+    }
+  }
+
+  // Rooms
+  if (segs[0] === "rooms") {
+    if (segs.length === 1 && m === "POST") {
+      const name = field("name");
+      return name ? `Create room ${truncateLabel(name, 24)}` : "Create a room";
+    }
+    if (segs.length === 2) {
+      if (m === "PATCH") return "Update a room";
+      if (m === "DELETE") return "Close a room";
+    }
+    if (segs.length === 3) {
+      if (segs[2] === "settings" && m === "PUT") return "Update room settings";
+      if (segs[2] === "swap-desks" && m === "POST")
+        return "Swap desks in a room";
+    }
+  }
+
+  // Cronjobs
+  if (segs[0] === "cronjobs") {
+    if (segs.length === 1) {
+      if (m === "GET") return "List cronjobs";
+      if (m === "POST") return "Create a cronjob";
+    }
+    if (segs.length === 2) {
+      if (m === "GET") return "Read a cronjob";
+      if (m === "PATCH") return "Update a cronjob";
+      if (m === "DELETE") return "Delete a cronjob";
+    }
+    if (segs.length === 3 && segs[2] === "runs") {
+      if (m === "GET") return "List cronjob runs";
+      if (m === "POST") return "Trigger a cronjob run";
+    }
+    if (segs.length === 4 && segs[2] === "runs" && m === "GET")
+      return "Read a cronjob run";
+  }
+  if (segs.length === 1 && segs[0] === "cron-runs" && m === "GET")
+    return "List recent cron runs";
+
+  return null;
+}
+
 // --- body formatting ---------------------------------------------------------
 
 function displayValue(v: unknown): string {
