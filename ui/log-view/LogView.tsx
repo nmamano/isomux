@@ -2059,43 +2059,10 @@ export function LogView({
           />
         </div>
 
-        {/* Scroll to bottom */}
-        {!autoScroll && (
-          <button
-            onClick={() => {
-              if (scrollRef.current) {
-                scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-              }
-              setAutoScroll(true);
-            }}
-            style={{
-              position: "absolute",
-              bottom: 80,
-              right: 32,
-              width: 36,
-              height: 36,
-              borderRadius: "50%",
-              border: "1px solid var(--border-medium)",
-              background: "var(--bg-surface)",
-              color: "var(--text-muted)",
-              fontSize: 16,
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
-              zIndex: 5,
-              transition: "opacity 0.15s",
-            }}
-            title="Scroll to bottom"
-          >
-            ↓
-          </button>
-        )}
-
         {/* Input */}
         <div
           style={{
+            position: "relative",
             flexShrink: 0,
             padding: isMobile ? "10px 12px 10px 11px" : "10px 24px 10px 11px",
             paddingBottom: isMobile
@@ -2108,6 +2075,41 @@ export function LogView({
             transition: "background 0.15s, border-color 0.15s",
           }}
         >
+          {/* Scroll to bottom — anchored above the composer's top edge so it
+            can never overlap the input controls, no matter how tall the
+            composer grows (multiline draft, queue chips, attachments). */}
+          {!autoScroll && (
+            <button
+              onClick={() => {
+                if (scrollRef.current) {
+                  scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+                }
+                setAutoScroll(true);
+              }}
+              style={{
+                position: "absolute",
+                bottom: "calc(100% + 12px)",
+                right: 32,
+                width: 36,
+                height: 36,
+                borderRadius: "50%",
+                border: "1px solid var(--border-medium)",
+                background: "var(--bg-surface)",
+                color: "var(--text-muted)",
+                fontSize: 16,
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+                zIndex: 5,
+                transition: "opacity 0.15s",
+              }}
+              title="Scroll to bottom"
+            >
+              ↓
+            </button>
+          )}
           <input
             ref={fileInputRef}
             type="file"
@@ -2450,16 +2452,35 @@ export function LogView({
             </div>
             {SpeechRecognition && window.isSecureContext ? (
               <button
-                onMouseDown={startListening}
-                onMouseUp={stopListening}
-                onMouseLeave={stopListening}
-                onTouchStart={startListening}
-                onTouchEnd={stopListening}
+                // Pointer capture keeps the hold gesture alive even if the
+                // button shifts under the pointer (composer resizing) or the
+                // pointer drifts off it — pointerup/pointercancel still fire
+                // on the capturing element, so recording reliably stops on
+                // release instead of the old mouseleave-stops-recording trap.
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  try {
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                  } catch {
+                    // Capture is best-effort: without it we fall back to
+                    // release-over-button behavior (releasing elsewhere
+                    // won't stop recording until the next press).
+                  }
+                  startListening();
+                }}
+                onPointerUp={stopListening}
+                onPointerCancel={stopListening}
+                onContextMenu={(e) => e.preventDefault()}
                 style={{
                   flexShrink: 0,
+                  // Pin to the row's bottom edge (viewport-stable) so the
+                  // button doesn't ride up as dictation fills the textarea.
+                  // marginTop -9 keeps the single-line position unchanged.
+                  alignSelf: "flex-end",
                   width: 36,
                   height: 36,
                   marginTop: -9,
+                  touchAction: "none",
                   borderRadius: 6,
                   border: isListening
                     ? "1px solid var(--red)"
@@ -2499,7 +2520,13 @@ export function LogView({
                 </svg>
               </button>
             ) : SpeechRecognition && !window.isSecureContext ? (
-              <div style={{ position: "relative", flexShrink: 0 }}>
+              <div
+                style={{
+                  position: "relative",
+                  flexShrink: 0,
+                  alignSelf: "flex-end",
+                }}
+              >
                 <button
                   onClick={() => setShowMicHint((v) => !v)}
                   style={{
