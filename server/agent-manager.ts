@@ -33,6 +33,7 @@ import {
   saveAgents,
   listAgentSessions,
   writeManifest,
+  buildManifest,
   persistSessionTopic,
   persistSessionFork,
   persistSessionCwd,
@@ -938,31 +939,42 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     }));
   }
 
-  function updateManifest() {
+  // Shared entry builder for the on-disk manifest (agents-summary.json) and
+  // the GET /agents discovery endpoint — one source so they can't drift.
+  function manifestEntries() {
     const rooms = officeState.rooms;
-    writeManifest(
-      [...agents.values()].map((a) => {
-        // Phase 3c: the manifest's `room` number (and its room name) is a
-        // derived display field, recomputed from the authoritative roomId.
-        const roomIdx = globalRoomIndexOf(a.info.roomId);
-        return {
-          id: a.info.id,
-          name: a.info.name,
-          desk: a.info.desk,
-          room: roomIdx,
-          roomName: rooms[roomIdx]?.name ?? `Room ${roomIdx + 1}`,
-          topic: a.info.topic,
-          cwd: a.info.cwd,
-          modelFamily: a.info.modelFamily,
-          // Concrete model id: for Claude families resolve via FAMILY_TO_MODEL,
-          // for Codex agents the value itself IS the codex model id (e.g. "gpt-5.5").
-          model: isClaudeFamily(a.info.modelFamily)
-            ? FAMILY_TO_MODEL[a.info.modelFamily]
-            : a.info.modelFamily,
-          username: a.info.username,
-        };
-      }),
-    );
+    return [...agents.values()].map((a) => {
+      // Phase 3c: the manifest's `room` number (and its room name) is a
+      // derived display field, recomputed from the authoritative roomId.
+      const roomIdx = globalRoomIndexOf(a.info.roomId);
+      return {
+        id: a.info.id,
+        name: a.info.name,
+        desk: a.info.desk,
+        room: roomIdx,
+        roomName: rooms[roomIdx]?.name ?? `Room ${roomIdx + 1}`,
+        roomId: a.info.roomId,
+        topic: a.info.topic,
+        cwd: a.info.cwd,
+        modelFamily: a.info.modelFamily,
+        // Concrete model id: for Claude families resolve via FAMILY_TO_MODEL,
+        // for Codex agents the value itself IS the codex model id (e.g. "gpt-5.5").
+        model: isClaudeFamily(a.info.modelFamily)
+          ? FAMILY_TO_MODEL[a.info.modelFamily]
+          : a.info.modelFamily,
+        username: a.info.username,
+      };
+    });
+  }
+
+  function updateManifest() {
+    writeManifest(manifestEntries());
+  }
+
+  // Live manifest for GET /agents — same JSON shape as the file writeManifest
+  // persists to ~/.isomux/agents-summary.json.
+  function getManifest() {
+    return buildManifest(manifestEntries());
   }
 
   function persistAll() {
@@ -5562,6 +5574,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     renameRoom,
     moveAgent,
     getAllAgents,
+    getManifest,
     getKilledAgentSummaries,
     restoreAgents,
     demoteToLazy,

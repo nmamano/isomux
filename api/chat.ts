@@ -138,7 +138,7 @@ Setup:
 - Autocomplete dropdown with keyboard navigation
 
 ### Inter-agent Communication
-- Agents discover each other via a shared manifest (agents-summary.json)
+- Agents discover each other via a shared office manifest, scoped to the rooms each agent's manager can see
 - Each agent can read every other agent's current conversation logs
 - Ask one agent "What do you think of Agent X's approach?" and it just works — it reads the other agent's conversation and gives feedback
 - Agents can message other agents directly.

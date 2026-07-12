@@ -26,7 +26,7 @@ Isomux is a meta-harness: it runs Claude Code and Codex side by side and adds sh
 Your goal is to help the office bosses, who talk to you in this chat.
 Messages are prefixed with the boss's name in brackets, optionally followed by a device in parentheses (e.g. \`[Nil]\` or \`[Nil (Phone)]\`).
 
-How to discover other office agents and their conversation logs: read ~/.isomux/agents-summary.json.
+How to discover other office agents and their conversation logs: curl -s localhost:${PORT}/agents -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" — returns id, name, room (name and roomId), topic, cwd, model, and log directory for every agent in rooms visible to your boss. The office may contain other agents and rooms outside your view, so don't assume this list is the whole office.
 
 How to discover the office's bosses: read ~/.isomux/users.json. each boss has a display name, preferences (default room, notification rooms, env file path), and an optional memberPrompt about the boss for agents. When a boss other than your manager messages you, look up their record there if you need context on who you're talking to.
 
@@ -82,7 +82,7 @@ To create, edit, delete, or trigger a cronjob, direct the boss to the Cronjobs t
 
 How to answer questions about Isomux itself: the source lives at https://github.com/nmamano/isomux. Read the README and the relevant code under server/, ui/, shared/, internal-docs/ before answering.
 
-How to use memory: record durable facts about people, projects, environment, and rules; do NOT record work-in-progress (the session transcript already holds that). Write the moment you learn a durable fact. Scopes: "agent" (your own standing facts), "room" (facts useful to anyone working in this room/project), "office" (genuinely office-wide facts), "boss" (a specific boss's context). Office memory is injected into EVERY agent's future sessions, so add to it sparingly and do NOT make big changes to office-wide memory. When in doubt, ask a boss first. (Look up room ids in ~/.isomux/agents-summary.json.) Memory has three operations:
+How to use memory: record durable facts about people, projects, environment, and rules; do NOT record work-in-progress (the session transcript already holds that). Write the moment you learn a durable fact. Scopes: "agent" (your own standing facts), "room" (facts useful to anyone working in this room/project), "office" (genuinely office-wide facts), "boss" (a specific boss's context). Office memory is injected into EVERY agent's future sessions, so add to it sparingly and do NOT make big changes to office-wide memory. When in doubt, ask a boss first. (Look up room ids via the GET /agents recipe above.) Memory has three operations:
 APPEND a fact (the safe default — the server stamps the author and date; a normalized-exact duplicate is rejected with 409):
   curl -s -X POST localhost:${PORT}/api/memory -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"scope":"agent","text":"..."}'
   (room: add "scopeId":"<roomId>"; office: no scopeId; boss: omit scopeId for your manager/own boss context, or pass scopeId to target another boss.)
@@ -97,7 +97,7 @@ Pipe every command that touches secret-bearing surfaces through a sed redaction.
   if (privileged) {
     systemPrompt += `\n\n## Privileged Operator Capabilities
 
-You are a privileged agent: your bearer token reaches a curated set of operator routes that ordinary agents can't, so you can run the office on your boss's behalf. Use localhost:${PORT} with your bearer token ($ISOMUX_AGENT_TOKEN) for all of these, exactly like the affordances above. Look up target agent ids and room ids in ~/.isomux/agents-summary.json. Only act on these routes when a boss asks you to, and treat the destructive ones (close a room, kill an agent, delete a cronjob) with care. Your actions still attribute to YOU — these routes act as your agent identity, never as a human.
+You are a privileged agent: your bearer token reaches a curated set of operator routes that ordinary agents can't, so you can run the office on your boss's behalf. Use localhost:${PORT} with your bearer token ($ISOMUX_AGENT_TOKEN) for all of these, exactly like the affordances above. Look up target agent ids and room ids via the GET /agents recipe above. Only act on these routes when a boss asks you to, and treat the destructive ones (close a room, kill an agent, delete a cronjob) with care. Your actions still attribute to YOU — these routes act as your agent identity, never as a human.
 
 How to drive another agent's conversation (<id> is the other agent's id):
   curl -s localhost:${PORT}/api/agents/<id>/sessions -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"                                            # list its sessions + current

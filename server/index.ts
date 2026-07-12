@@ -361,7 +361,7 @@ function registerBootHooks(): void {
     const otherName =
       agentType === "claude" ? "Codex Welcome Agent" : "Claude Welcome Agent";
     const otherFamily = agentType === "claude" ? "Codex" : "Claude";
-    return `You are the ${selfName} in this user's new Isomux office. Isomux is a persistent office of AI agents reachable from any device; each agent lives at a desk in a room with its own chat. New offices come preset with two welcome agents — you (a ${selfFamily} agent) and "${otherName}" (a ${otherFamily} agent). If the user messages you without a specific request, welcome them to the office and suggest \`/help\` to see your available commands, skills, and tips. You can also offer to walk them through spawning their first agent or to showcase agent-to-agent communication. If they ask for the showcase, check ~/.isomux/agents-summary.json to confirm the other welcome agent is present and then send them a message asking for a message back. Be brief, friendly, and focus on what the user asks. For deeper Isomux questions, use https://github.com/nmamano/isomux/blob/main/README.md or https://isomux.com as references.`;
+    return `You are the ${selfName} in this user's new Isomux office. Isomux is a persistent office of AI agents reachable from any device; each agent lives at a desk in a room with its own chat. New offices come preset with two welcome agents — you (a ${selfFamily} agent) and "${otherName}" (a ${otherFamily} agent). If the user messages you without a specific request, welcome them to the office and suggest \`/help\` to see your available commands, skills, and tips. You can also offer to walk them through spawning their first agent or to showcase agent-to-agent communication. If they ask for the showcase, check the office agent manifest (curl -s localhost:${PORT}/agents -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN") to confirm the other welcome agent is present and then send them a message asking for a message back. Be brief, friendly, and focus on what the user asks. For deeper Isomux questions, use https://github.com/nmamano/isomux/blob/main/README.md or https://isomux.com as references.`;
   }
 
   // Fixed outfits so both welcome agents have a recognizable, friendly look on
@@ -3484,12 +3484,18 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
       // bootstrap-invite flow instead of getting a half-functional page where
       // HTTP works but WS rejects.
       //
-      // /agents/ is deliberately NOT in this list: the loopback-bypass removal
-      // milestone made the agent surface bearer-required. The self-affordance
-      // routes moved to /api (token-required), and POST /agents/:id/message now
-      // derives the sender from the AGENT bearer — a no/invalid-bearer request
-      // is no longer loopback-trusted, so it falls through to the cookie wall
-      // below and 401s. (/tasks, /cronjobs, /backup/status loopback removal is a
+      // /agents (both the exact-match discovery manifest and the /agents/
+      // per-agent action surface) is deliberately NOT in this list: the
+      // loopback-bypass removal milestone made the agent surface
+      // bearer-required, and GET /agents requires an identity by design (it
+      // answers with a room-ACL-projected view, so "who is asking" is part of
+      // the contract — an anonymous loopback curl 401s; the world-readable
+      // agents-summary.json file remains the full-manifest source for
+      // same-box readers). The self-affordance routes moved to /api
+      // (token-required), and POST /agents/:id/message now derives the sender
+      // from the AGENT bearer — a no/invalid-bearer request is no longer
+      // loopback-trusted, so it falls through to the cookie wall below and
+      // 401s. (/tasks, /cronjobs, /backup/status loopback removal is a
       // separate later milestone.)
       const isAgentApiPath =
         url.pathname.startsWith("/tasks") ||
@@ -3522,6 +3528,58 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
             "Access-Control-Allow-Methods": "GET, OPTIONS",
             "Access-Control-Allow-Headers": "Content-Type",
           },
+        });
+      }
+
+      // Agent discovery manifest — GET /agents. Serves the live manifest with
+      // the same entry shape as ~/.isomux/agents-summary.json (still written
+      // alongside for existing file-based readers). Identity REQUIRED (bearer
+      // or cookie): /agents is off the loopback-trust list above, so an
+      // anonymous request — loopback included — already 401'd at the wall
+      // (Nil's call: the endpoint always answers with a projected view, never
+      // an unauthenticated full dump; agents send $ISOMUX_AGENT_TOKEN).
+      //
+      // Browser-read hardening: GETs skip the CSRF origin check in
+      // authenticate(), so a hostile web page whose request somehow carries a
+      // valid cookie would otherwise be served. Two walls close that: (1) a
+      // request carrying a cross-origin Origin header is rejected — agent
+      // curl sends no Origin, and browsers always attach one to cross-origin
+      // fetches; (2) no Access-Control-Allow-Origin is ever sent, so even
+      // without wall 1 a cross-origin response body would stay unreadable.
+      //
+      // Visibility (Nil-specced): the manifest is PROJECTED to the rooms the
+      // identity's user can access — owners every room by rule, members their
+      // allowedRooms grants, agents/cron-runs their manager's/creator's
+      // access. An identity with no resolvable user (an unowned cron job, a
+      // deleted user) has access to no rooms and receives [] — mirrors
+      // guard-deps hasRoomAccess.
+      if (url.pathname === "/agents" && req.method === "GET") {
+        if (req.headers.get("origin") !== null && !checkOrigin(req)) {
+          return new Response(JSON.stringify({ error: "bad origin" }), {
+            status: 403,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        if (auth.kind !== "ok") {
+          // Defensive only: with /agents off the loopback list, auth is
+          // always "ok" here. Keep the wall explicit so a future edit to the
+          // bypass list cannot silently reopen an anonymous full read.
+          return new Response(JSON.stringify({ error: "unauthenticated" }), {
+            status: 401,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        const user = auth.identity.userId
+          ? getUserById(auth.identity.userId)
+          : null;
+        const accessible = user
+          ? accessibleRoomIdsFor(user)
+          : new Set<string>();
+        const manifest = agentManager
+          .getManifest()
+          .filter((e) => accessible.has(e.roomId));
+        return new Response(JSON.stringify(manifest, null, 2), {
+          headers: { "Content-Type": "application/json" },
         });
       }
 

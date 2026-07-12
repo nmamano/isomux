@@ -15,7 +15,7 @@ Isomux is a meta-harness: it sits one level above Claude Code and Codex and mana
 
 ### Agent coordination
 
-- **Discovery** via the shared `agents-summary.json` manifest — every agent reads who else is in the office (name, room, desk, cwd, model, topic).
+- **Discovery** via a shared office manifest — every agent can look up who else is in the office (name, room, desk, cwd, model, topic), scoped to the rooms its manager can see.
 - **Cross-conversation reads** — each agent has access to the live conversation logs of every other agent. Ask "what does Isomuxer3 think of this?" and it just works.
 - **Shared memory** — agents can record durable, attributed facts about people, projects, conventions, and the environment. Those notes outlive any one session and surface automatically in the relevant agents' context as notes, not rules. Memory can be office-wide, per-room, per-agent, or per-person, so something one agent learns can inform the others; humans can curate it by hand as plain text next to each level's prompt.
 - **Agent-to-agent messages** — one agent can drop a message into another agent's chat.

@@ -751,38 +751,50 @@ export function saveAgents(rooms: Room[]) {
   }
 }
 
-// Agent manifest for discovery by other agents
+// Agent manifest for discovery by other agents. The same manifest is served
+// over HTTP as GET /agents (see server/index.ts); buildManifest is the single
+// source of the entry shape so the file and the endpoint can't drift.
 const MANIFEST_FILE = join(ISOMUX_DIR, "agents-summary.json");
 
-export function writeManifest(
-  agents: {
-    id: string;
-    name: string;
-    desk: number;
-    room: number;
-    roomName: string;
-    topic: string | null;
-    cwd: string;
-    modelFamily: string;
-    model: string;
-    username: string | null;
-  }[],
-) {
+export interface ManifestAgentInput {
+  id: string;
+  name: string;
+  desk: number;
+  room: number;
+  roomName: string;
+  // Stable room id — the value memory scopeIds and room-targeting routes
+  // expect (the 1-based `room` number is display-only).
+  roomId: string;
+  topic: string | null;
+  cwd: string;
+  modelFamily: string;
+  model: string;
+  username: string | null;
+}
+
+export function buildManifest(agents: ManifestAgentInput[]) {
+  return agents.map((a) => ({
+    id: a.id,
+    name: a.name,
+    desk: a.desk,
+    room: a.room + 1, // 1-based for human readability
+    roomName: a.roomName,
+    roomId: a.roomId,
+    topic: a.topic,
+    cwd: a.cwd,
+    modelFamily: a.modelFamily,
+    model: a.model,
+    username: a.username,
+    logDir: join(LOGS_DIR, a.id),
+  }));
+}
+
+export function writeManifest(agents: ManifestAgentInput[]) {
   try {
-    const manifest = agents.map((a) => ({
-      id: a.id,
-      name: a.name,
-      desk: a.desk,
-      room: a.room + 1, // 1-based for human readability
-      roomName: a.roomName,
-      topic: a.topic,
-      cwd: a.cwd,
-      modelFamily: a.modelFamily,
-      model: a.model,
-      username: a.username,
-      logDir: join(LOGS_DIR, a.id),
-    }));
-    atomicWriteFileSync(MANIFEST_FILE, JSON.stringify(manifest, null, 2));
+    atomicWriteFileSync(
+      MANIFEST_FILE,
+      JSON.stringify(buildManifest(agents), null, 2),
+    );
   } catch (err) {
     console.error("Failed to write manifest:", err);
   }
