@@ -205,8 +205,11 @@ export function EditorPanel({
   // path, and merge it into the tab list — keyed by the RESOLVED path the server
   // returns (so it matches editor_external_change). Replaces the editor_open WS
   // command + the editor_content / editor_open_error events (now .then / .catch).
+  // By default a dirty buffer is preserved (agent-switch remounts re-fetch just
+  // to re-arm the watch); pass discardDirty for the banner Reload buttons, which
+  // exist precisely to throw the dirty buffer away in favor of disk.
   const openPath = useCallback(
-    (path: string) => {
+    (path: string, opts?: { discardDirty?: boolean }) => {
       setPendingError(null);
       apiFetch<{
         path: string;
@@ -226,13 +229,13 @@ export function EditorPanel({
             if (idx >= 0) {
               const existing = prev[idx];
               const next = prev.slice();
-              if (existing.dirty) {
+              if (existing.dirty && !opts?.discardDirty) {
                 // Preserve the dirty buffer — this happens after agent-switch
-                // re-mounts when we re-fetch to reinstall the watch. Refresh only
-                // the metadata fields the server is authoritative for.
+                // re-mounts when we re-fetch to reinstall the watch. Refresh
+                // only language/size; NOT mtime, or a later save would pass the
+                // staleness check and silently clobber the disk changes.
                 next[idx] = {
                   ...existing,
-                  mtime: m.mtime,
                   language: m.language,
                   size: m.size,
                 };
@@ -620,7 +623,9 @@ export function EditorPanel({
 
   const reloadFromDisk = useCallback(() => {
     if (!activeTab) return;
-    openPath(activeTab.path);
+    // The banners this button lives in only show on dirty buffers, and the
+    // user explicitly chose disk over their edits — discard the dirty buffer.
+    openPath(activeTab.path, { discardDirty: true });
   }, [activeTab, openPath]);
 
   const dismissBanner = useCallback(() => {
@@ -982,7 +987,8 @@ export function EditorPanel({
           {activeTab.banner.kind === "stale" && (
             <>
               <span style={{ flex: 1 }}>
-                File changed on disk since you opened it.
+                File changed on disk since you opened it. Reloading will discard
+                your edits.
               </span>
               <button onClick={overwrite} style={bannerBtn("var(--orange)")}>
                 Overwrite
