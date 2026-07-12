@@ -195,10 +195,18 @@ export class OfficeState {
       if (a.name.toLowerCase() === nameLower) return null;
     }
 
-    const targetRoomId =
-      opts.roomId && this._rooms.some((r) => r.id === opts.roomId)
-        ? opts.roomId
-        : this._rooms[0].id;
+    // An OMITTED (undefined) roomId defaults to the canonical first room
+    // (legacy callers, welcome-agent seed). A PROVIDED-but-unknown roomId —
+    // including "" — is rejected: never silently coerced to rooms[0], which
+    // would hide caller mistakes (e.g. passing a display index instead of the
+    // real room id), and never stored verbatim, which would dangle. Callers
+    // disambiguate the null via a room-existence check, like moveAgent's.
+    if (
+      opts.roomId !== undefined &&
+      !this._rooms.some((r) => r.id === opts.roomId)
+    )
+      return null;
+    const targetRoomId = opts.roomId ?? this._rooms[0].id;
     const roomAgents = [...this.agents.values()].filter(
       (a) => a.roomId === targetRoomId,
     );

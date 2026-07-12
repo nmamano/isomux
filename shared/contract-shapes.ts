@@ -74,9 +74,11 @@ export type EditAgentReq = Partial<
     | "permissionMode"
     | "codexSandbox"
     // Changing the engine starts a fresh conversation on the new engine (the old
-    // one is preserved in the resume history). Cross-engine model/effort/
-    // permission don't carry, so the server resets them to the new engine's
-    // defaults and ignores any model/effort/permission sent in the same edit.
+    // one is preserved in the resume history). Model/effort/permission sent in
+    // the same edit are validated against the NEW engine and applied; omitted
+    // ones reset to the new engine's defaults (cross-engine values don't
+    // carry). A modelFamily that cannot belong to the target engine is
+    // rejected with 422 invalid_model_family rather than silently coerced.
     | "agentType"
   >
 >;

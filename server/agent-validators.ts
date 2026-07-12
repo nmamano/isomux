@@ -63,6 +63,41 @@ export function validateModelFamily(
   return MODEL_FAMILIES[0].family;
 }
 
+// Strict counterpart to validateModelFamily for INTERACTIVE spawn/edit input
+// (the REST dep closures in index.ts). Where validateModelFamily silently
+// coerces a mismatched value to the backend default — right for persisted-state
+// canonicalization at boot/revive, wrong for a live caller whose typo would
+// vanish — this returns a human-readable error string for a modelFamily that
+// cannot belong to the agentType, or null when the value is acceptable.
+//
+// Rules:
+// - absent/empty raw -> null (the caller gets the backend default; not an error)
+// - claude: anything outside the static Claude family set is an error (e.g. a
+//   Codex slug sent without agentType:"codex")
+// - codex: a Claude family name is an error (statically known to not be a Codex
+//   slug — catches agentType:"codex" paired with modelFamily:"opus"); anything
+//   else passes through, because the valid Codex set is dynamic (model/list
+//   RPC) and codex itself rejects unknown slugs at thread/start.
+export function modelFamilyMismatchError(
+  agentType: AgentBackendType,
+  raw: string | undefined,
+): string | null {
+  // Absent means EXACTLY undefined or "" — no trimming, matching
+  // validateModelFamily's codex canonicalizer (any length>0 string is a
+  // provided value). A whitespace-only string is therefore a PROVIDED value
+  // and fails the family checks below rather than sliding to the default.
+  if (raw === undefined || raw === "") return null;
+  if (agentType === "codex") {
+    if (isClaudeFamily(raw)) {
+      return `"${raw}" is a Claude model family, not a Codex model. Pass a Codex model slug (e.g. "${CODEX_MODELS[0].value}"), or set agentType to "claude".`;
+    }
+    return null;
+  }
+  if (isClaudeFamily(raw)) return null;
+  const families = MODEL_FAMILIES.map((m) => m.family).join(", ");
+  return `"${raw}" is not a Claude model family (valid: ${families}). For a Codex model, set agentType to "codex".`;
+}
+
 export function validateCodexSandbox(
   raw: CodexSandboxMode | undefined,
 ): CodexSandboxMode | undefined {

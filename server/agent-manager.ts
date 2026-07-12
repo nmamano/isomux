@@ -626,7 +626,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     }
 
     // Backend-specific validation. OfficeState can't reach the backend layer,
-    // so we validate here and pass already-canonicalized values to it.
+    // so we validate here and pass already-canonicalized values to it. NOTE:
+    // the REST edit dep (index.ts) already rejected a mismatched modelFamily
+    // with 422 invalid_model_family — the coercion below is canonicalization
+    // for internal callers, not input laundering for the API surface.
     const validated: Parameters<typeof officeState.editAgent>[1] = {};
 
     if (changes.name) validated.name = changes.name;
@@ -2925,7 +2928,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // Server-side validation. Anything outside the backend's allowlist falls
     // back to a safe default; the wire shapes are permissive (union types over
     // both backends), so a stale UI or hand-crafted client can't pin us to an
-    // invalid mode/model/effort.
+    // invalid mode/model/effort. NOTE: the REST spawn dep (index.ts) rejects a
+    // mismatched modelFamily with 422 invalid_model_family BEFORE this runs —
+    // the coercion here is a last-resort default for internal callers (welcome
+    // seed, tests), not input laundering for the API surface.
     const validatedPermissionMode = validatePermissionMode(
       agentType,
       permissionMode,

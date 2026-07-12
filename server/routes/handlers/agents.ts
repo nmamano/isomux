@@ -51,14 +51,24 @@ export type SpawnResult =
   | { ok: true; agent: AgentInfo }
   | {
       ok: false;
-      reason: "invalid_cwd" | "name_taken" | "no_free_desk" | "spawn_failed";
+      reason:
+        | "invalid_cwd"
+        | "name_taken"
+        | "no_free_desk"
+        | "room_not_found"
+        | "invalid_model_family"
+        | "spawn_failed";
       message: string;
     };
 export type EditResult =
   | { ok: true; agent: AgentInfo }
   | {
       ok: false;
-      reason: "invalid_cwd" | "agent_not_found" | "edit_failed";
+      reason:
+        | "invalid_cwd"
+        | "agent_not_found"
+        | "invalid_model_family"
+        | "edit_failed";
       message: string;
     };
 // revive delegates to the core, which already returns this discriminated shape.
@@ -103,9 +113,12 @@ export interface AgentsDeps {
     createdBy: string;
     username: string | undefined;
   };
-  // Validates cwd (-> invalid_cwd), saves the recent-cwd list, spawns (the core
+  // Validates cwd (-> invalid_cwd) and modelFamily-vs-agentType fit
+  // (-> invalid_model_family), saves the recent-cwd list, spawns (the core
   // MINTS the agent token), and disambiguates a null return (duplicate name ->
-  // name_taken, else the target room is full -> no_free_desk).
+  // name_taken; unknown target room, reachable only by an owner whose
+  // rule-based bodyRoom access passes any id -> room_not_found; else the
+  // target room is full -> no_free_desk).
   spawn(input: {
     name: string;
     cwd: string;
@@ -125,9 +138,10 @@ export interface AgentsDeps {
   // The target-room + lastRoomId ACL is enforced upstream (bodyRoom guard +
   // reviveLastRoomAccess precondition), so this just delegates to the core.
   revive(agentId: string, roomId: string, desk: number): Promise<ReviveResult>;
-  // Validates cwd when present (-> invalid_cwd), applies the edit, returns the
-  // updated agent. A no-op edit (no effective change) still returns the current
-  // agent (200), never a failure.
+  // Validates cwd when present (-> invalid_cwd) and a present modelFamily
+  // against the agentType the edit lands on (-> invalid_model_family), applies
+  // the edit, returns the updated agent. A no-op edit (no effective change)
+  // still returns the current agent (200), never a failure.
   edit(agentId: string, changes: EditAgentReq): Promise<EditResult>;
   // Toggles the agent's privileged flag: persists it, re-mints the bearer token
   // with the new capability set, and session-swaps a LIVE agent onto it (see
@@ -270,7 +284,11 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
           ? 400
           : r.reason === "spawn_failed"
             ? 500
-            : 409;
+            : r.reason === "room_not_found"
+              ? 404
+              : r.reason === "invalid_model_family"
+                ? 422
+                : 409;
       return fail(status, r.reason, r.message);
     },
 
@@ -307,7 +325,9 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
             ? 400
             : r.reason === "agent_not_found"
               ? 404
-              : 400;
+              : r.reason === "invalid_model_family"
+                ? 422
+                : 400;
         return fail(status, r.reason, r.message);
       }
       return ok({ agent: r.agent });

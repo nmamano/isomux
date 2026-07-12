@@ -51,6 +51,7 @@ import {
 } from "./update-checker.ts";
 import { startBackupScheduler, getBackupStatus } from "./backup.ts";
 import { resolveCwd } from "./cwd-utils.ts";
+import { modelFamilyMismatchError } from "./agent-validators.ts";
 import type { TaskItem } from "../shared/types.ts";
 import {
   CODEX_MODELS,
@@ -1973,6 +1974,21 @@ function buildExecutorDeps(): ExecutorDeps {
             message: errMessage(err, "Invalid directory"),
           };
         }
+        // Strict front-door check: a modelFamily that cannot belong to the
+        // agentType is an explicit 422, never silently coerced to the backend
+        // default (agentManager.spawn's validateModelFamily coercion stays as
+        // canonicalization for boot/restore, not as input laundering here).
+        const familyErr = modelFamilyMismatchError(
+          input.agentType ?? "claude",
+          input.modelFamily,
+        );
+        if (familyErr) {
+          return {
+            ok: false,
+            reason: "invalid_model_family",
+            message: familyErr,
+          };
+        }
         saveRecentCwd(input.cwd);
         try {
           const spawned = await agentManager.spawn(
@@ -1991,24 +2007,35 @@ function buildExecutorDeps(): ExecutorDeps {
             input.userId,
           );
           if (spawned) return { ok: true, agent: spawned };
-          // null = duplicate name OR full room (neither throws). Disambiguate
-          // AFTER the null, exactly as the WS arm did, so the dialog routes the
-          // error to the right field.
+          // null = duplicate name, unknown target room, or full room (none
+          // throw). Disambiguate AFTER the null, in OfficeState.spawn's check
+          // order (dup name -> room existence -> desk scan), so the dialog
+          // routes the error to the right field. The unknown-room case is
+          // reachable only by an owner (rule-based bodyRoom access passes any
+          // id) — same post-hoc getRooms() pattern as the move dep above.
           const trimmed = input.name.trim();
           const dup = agentManager
             .getAllAgents()
             .some((a) => a.name.toLowerCase() === trimmed.toLowerCase());
-          return dup
-            ? {
-                ok: false,
-                reason: "name_taken",
-                message: `Name "${trimmed}" is already taken.`,
-              }
-            : {
-                ok: false,
-                reason: "no_free_desk",
-                message: "The target room has no free desks.",
-              };
+          if (dup) {
+            return {
+              ok: false,
+              reason: "name_taken",
+              message: `Name "${trimmed}" is already taken.`,
+            };
+          }
+          if (!agentManager.getRooms().some((r) => r.id === input.roomId)) {
+            return {
+              ok: false,
+              reason: "room_not_found",
+              message: "Room not found",
+            };
+          }
+          return {
+            ok: false,
+            reason: "no_free_desk",
+            message: "The target room has no free desks.",
+          };
         } catch (err) {
           return {
             ok: false,
@@ -2020,6 +2047,9 @@ function buildExecutorDeps(): ExecutorDeps {
       revive: (agentId, roomId, desk) =>
         agentManager.revive(agentId, roomId, desk),
       edit: async (agentId, changes) => {
+        // Validation first, side effects (saveRecentCwd) only after ALL checks
+        // pass — a rejected edit must not mutate the recent-cwd list. Check
+        // order matches the spawn dep: cwd, then modelFamily.
         if (changes.cwd) {
           try {
             agentManager.validateCwd(changes.cwd);
@@ -2030,8 +2060,38 @@ function buildExecutorDeps(): ExecutorDeps {
               message: errMessage(err, "Invalid directory"),
             };
           }
-          saveRecentCwd(changes.cwd);
         }
+        // Strict front-door check (mirrors the spawn dep): validate a provided
+        // modelFamily against the agentType the edit will LAND on — the new
+        // engine when this edit switches it, else the agent's current one — so
+        // a mismatch is an explicit 422 instead of editAgent's silent
+        // coerce-to-default (kept there as boot/restore canonicalization).
+        if (changes.modelFamily) {
+          const current = agentManager.getAgent(agentId);
+          if (!current) {
+            return {
+              ok: false,
+              reason: "agent_not_found",
+              message: "Agent not found.",
+            };
+          }
+          const targetType =
+            changes.agentType === "claude" || changes.agentType === "codex"
+              ? changes.agentType
+              : current.agentType;
+          const familyErr = modelFamilyMismatchError(
+            targetType,
+            changes.modelFamily,
+          );
+          if (familyErr) {
+            return {
+              ok: false,
+              reason: "invalid_model_family",
+              message: familyErr,
+            };
+          }
+        }
+        if (changes.cwd) saveRecentCwd(changes.cwd);
         try {
           // EditAgentReq.customInstructions is string|null|undefined (the
           // AgentInfo Pick widens it); editAgent wants string|undefined. The WS

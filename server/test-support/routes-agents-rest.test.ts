@@ -19,6 +19,7 @@
 import { describe, it, expect, afterEach } from "bun:test";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
+import { loadRecentCwds } from "../persistence.ts";
 
 let server: TestServer | null = null;
 
@@ -192,6 +193,21 @@ describe("agents.move REST (Phase 3d slice 7a)", () => {
     expect((res.body as { agent?: { roomId?: string } }).agent?.roomId).toBe(
       r1,
     );
+  });
+
+  it("owner + nonexistent target room -> 404 room_not_found (rule-based access passes the guard; the dep disambiguates)", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const x = await spawnAt(srv, "X", r1, 0);
+    const res = await req(srv, "POST", `/api/agents/${x.id}/move`, {
+      body: { targetRoomId: "no-such-room" },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(404);
+    expect(errCode(res.body)).toBe("room_not_found");
+    expect(srv.agentManager.getAgent(x.id)?.roomId).toBe(r1); // untouched
   });
 
   it("full target room -> 409 no_free_desk (not a false agent_not_found)", async () => {
@@ -419,6 +435,73 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
     expect(res.status).toBe(422);
     expect(errCode(res.body)).toBe("invalid_request");
   });
+
+  it("owner + nonexistent roomId -> 404 room_not_found, NOT a silent spawn into rooms[0]", async () => {
+    // An owner's rule-based bodyRoom access passes ANY room id, so the bogus id
+    // reaches the core. Before the fix, OfficeState.spawn coerced it to
+    // rooms[0]; now it is rejected and the dep disambiguates to room_not_found.
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const res = await req(srv, "POST", "/api/agents", {
+      body: spawnBody(srv, "Ghost", "no-such-room", 0),
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(404);
+    expect(errCode(res.body)).toBe("room_not_found");
+    // Nothing landed anywhere — especially not in rooms[0].
+    expect(srv.agentManager.getAllAgents().length).toBe(0);
+  });
+
+  it("claude agentType (default) + Codex modelFamily -> 422 invalid_model_family, NOT a silent default-model spawn", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const res = await req(srv, "POST", "/api/agents", {
+      body: { ...spawnBody(srv, "Mismatch", r1, 0), modelFamily: "gpt-5.5" },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(422);
+    expect(errCode(res.body)).toBe("invalid_model_family");
+    expect(srv.agentManager.getAllAgents().length).toBe(0);
+  });
+
+  it("codex agentType + Claude family -> 422 invalid_model_family (statically impossible pairing)", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const res = await req(srv, "POST", "/api/agents", {
+      body: {
+        ...spawnBody(srv, "Mismatch", r1, 0),
+        agentType: "codex",
+        modelFamily: "opus",
+      },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(422);
+    expect(errCode(res.body)).toBe("invalid_model_family");
+  });
+
+  it("matched agentType + modelFamily still spawns (codex + codex slug -> 201)", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const res = await req(srv, "POST", "/api/agents", {
+      body: {
+        ...spawnBody(srv, "Codexy", r1, 0),
+        agentType: "codex",
+        permissionMode: "on-request",
+        modelFamily: "gpt-5.5",
+      },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(201);
+    const agent = (res.body as { agent?: { modelFamily?: string } }).agent;
+    expect(agent?.modelFamily).toBe("gpt-5.5");
+  });
 });
 
 describe("agents.update REST (Phase 3d slice 7b)", () => {
@@ -480,6 +563,119 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
     expect(res.status).toBe(422);
     expect(errCode(res.body)).toBe("invalid_request");
     expect(srv.agentManager.getAgent(x.id)?.name).toBe("X");
+  });
+
+  it("PATCH modelFamily alone with a wrong-engine value -> 422 invalid_model_family; agent untouched", async () => {
+    // Before the fix this was silently coerced to the Claude default (i.e. the
+    // PATCH was ignored or, worse, changed the model to the default).
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const x = await spawnAt(srv, "X", r1, 0); // claude agent
+    const before = srv.agentManager.getAgent(x.id)?.modelFamily;
+    const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
+      body: { modelFamily: "gpt-5.5" },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(422);
+    expect(errCode(res.body)).toBe("invalid_model_family");
+    expect(srv.agentManager.getAgent(x.id)?.modelFamily).toBe(before);
+  });
+
+  it("PATCH valid cwd + mismatched modelFamily -> 422; NO side effect lands (agent and recent-cwd list untouched)", async () => {
+    // Validation-before-side-effects: the cwd in a rejected edit must not be
+    // recorded in the persisted recent-cwd list, and no field may change.
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const x = await spawnAt(srv, "X", r1, 0);
+    const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
+      body: { cwd: "/tmp", modelFamily: "gpt-5.5" }, // cwd valid, family not
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(422);
+    expect(errCode(res.body)).toBe("invalid_model_family");
+    expect(srv.agentManager.getAgent(x.id)?.cwd).toBe(x.cwd); // untouched
+    expect(loadRecentCwds()).not.toContain("/tmp");
+  });
+
+  it("PATCH a valid same-engine modelFamily -> 200 with the change applied (strict check doesn't over-reject)", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const x = await spawnAt(srv, "X", r1, 0);
+    const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
+      body: { modelFamily: "sonnet" },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(200);
+    expect(srv.agentManager.getAgent(x.id)?.modelFamily).toBe("sonnet");
+  });
+
+  it("PATCH agentType switch validates modelFamily against the NEW engine", async () => {
+    // claude -> codex with a Claude family: rejected against the TARGET engine
+    // (the caller almost certainly meant a Codex slug), agent untouched.
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const x = await spawnAt(srv, "X", r1, 0); // claude agent
+    const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
+      body: { agentType: "codex", modelFamily: "opus" },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(422);
+    expect(errCode(res.body)).toBe("invalid_model_family");
+    expect(srv.agentManager.getAgent(x.id)?.agentType).toBe("claude");
+  });
+
+  it("PATCH claude->codex WITH a Codex slug -> 200; the switch lands with that model", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const x = await spawnAt(srv, "X", r1, 0); // claude agent
+    const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
+      body: { agentType: "codex", modelFamily: "gpt-5.5" },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(200);
+    const after = srv.agentManager.getAgent(x.id);
+    expect(after?.agentType).toBe("codex");
+    expect(after?.modelFamily).toBe("gpt-5.5");
+  });
+
+  it("PATCH codex->claude with a Codex slug -> 422 (validated against the NEW engine, both directions)", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const x = await srv.agentManager.spawn(
+      "Codexy",
+      srv.stateRoot,
+      "on-request",
+      0,
+      undefined,
+      r1,
+      undefined,
+      "gpt-5.5",
+      undefined,
+      undefined,
+      "codex",
+    );
+    if (!x) throw new Error("codex spawn failed");
+    const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
+      body: { agentType: "claude", modelFamily: "gpt-5.5" },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(422);
+    expect(errCode(res.body)).toBe("invalid_model_family");
+    const after = srv.agentManager.getAgent(x.id);
+    expect(after?.agentType).toBe("codex");
+    expect(after?.modelFamily).toBe("gpt-5.5");
   });
 });
 

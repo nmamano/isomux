@@ -66,6 +66,47 @@ describe("3c.4 roomId is the room reference — OfficeState tracks rooms by id",
     ofs.moveAgent(a.id, "r3");
     expect(find(ofs, a.id).roomId).toBe("r3");
   });
+
+  it("spawn with an UNKNOWN roomId is rejected (null), never coerced to rooms[0]", () => {
+    const ofs = new OfficeState({ rooms: rooms("r1", "r2") });
+    const res = ofs.spawn({
+      name: "A",
+      cwd: "/tmp",
+      permissionMode: "default",
+      roomId: "does-not-exist",
+    });
+    expect(res).toBeNull();
+    expect(ofs.getAllAgents().length).toBe(0); // nothing landed in r1
+  });
+
+  it('spawn with roomId "" is rejected (provided-but-unknown), not coerced and not stored dangling', () => {
+    const ofs = new OfficeState({ rooms: rooms("r1", "r2") });
+    const res = ofs.spawn({
+      name: "A",
+      cwd: "/tmp",
+      permissionMode: "default",
+      roomId: "",
+    });
+    expect(res).toBeNull();
+    expect(ofs.getAllAgents().length).toBe(0);
+  });
+
+  it("spawn with an OMITTED roomId still defaults to the canonical first room", () => {
+    const ofs = new OfficeState({ rooms: rooms("r1", "r2") });
+    const res = ofs.spawn({
+      name: "A",
+      cwd: "/tmp",
+      permissionMode: "default",
+    });
+    expect(res?.agent.roomId).toBe("r1");
+  });
+
+  it("move to an UNKNOWN roomId is a no-op (agent stays put)", () => {
+    const ofs = new OfficeState({ rooms: rooms("r1", "r2") });
+    const a = spawnInto(ofs, "r1", "A");
+    expect(ofs.moveAgent(a.id, "does-not-exist")).toEqual([]);
+    expect(find(ofs, a.id).roomId).toBe("r1");
+  });
 });
 
 describe("3c.2 roomId authority — AgentManager room helpers never silently -> 0", () => {
