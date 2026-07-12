@@ -331,6 +331,7 @@ const ROUTE_LABELS: Array<[string, string, string]> = [
   ["GET", "/api/agents/*/scheduled-messages", "List scheduled messages"],
   ["DELETE", "/api/agents/*/scheduled-messages/*", "Cancel scheduled message"],
   ["POST", "/api/agents/*/read-file", "Share file to chat"],
+  ["POST", "/api/agents/*/preview-url", "Screenshot page to chat"],
   ["POST", "/api/agents/*/diff", "Show diff in chat"],
   ["POST", "/api/agents/*/edit-file", "Offer file in editor"],
   ["POST", "/api/agents/*/terminal-command", "Suggest terminal command"],
@@ -464,6 +465,8 @@ export function humanizeIsomuxRequest(
         if (sub === "scheduled-messages" && m === "GET")
           return `List ${who}'s scheduled messages`;
         if (sub === "read-file" && m === "POST") return "Share a file to chat";
+        if (sub === "preview-url" && m === "POST")
+          return "Screenshot a page to chat";
         if (sub === "diff" && m === "POST") return "Show a diff in chat";
         if (sub === "edit-file" && m === "POST")
           return "Offer a file in the editor";

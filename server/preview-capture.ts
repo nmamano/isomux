@@ -616,6 +616,17 @@ export async function capturePreview(
       "--headless=new",
       `--screenshot=${outPath}`,
       `--window-size=${width},${height}`,
+      // In --headless=new the page viewport is the window size MINUS an ~87px
+      // virtual browser-UI strip, while --screenshot captures the full
+      // window-sized canvas — pages that paint their background via
+      // viewport-sized elements (100vh containers) get an unpainted white
+      // band at the bottom. Fullscreen removes the virtual UI, but sizes the
+      // window to the virtual SCREEN (default 800x600), not --window-size —
+      // so pin the screen to the requested size too. Result: viewport ==
+      // window == screen == canvas (verified empirically on Chrome 145,
+      // 2026-07-12; see task dcfd5a97 follow-up).
+      `--screen-info={0,0 ${width}x${height}}`,
+      "--start-fullscreen",
       "--hide-scrollbars",
       "--no-first-run",
       "--no-default-browser-check",
