@@ -1,4 +1,5 @@
 import type { AgentState } from "../../shared/types.ts";
+import type { DeskProp } from "../model-styles.ts";
 
 // Map our states to visual categories
 function visualState(
@@ -103,12 +104,12 @@ export function DeskSprite({
   state,
   deskIndex = 0,
   cwd,
-  modelFamily,
+  deskProp,
 }: {
   state: AgentState;
   deskIndex?: number;
   cwd?: string;
-  modelFamily?: string;
+  deskProp?: DeskProp;
 }) {
   const vs = visualState(state);
   const glow = {
@@ -370,8 +371,8 @@ export function DeskSprite({
         </g>
       )}
 
-      {/* Model-specific desk item — SE area */}
-      {modelFamily === "haiku" && (
+      {/* Model-specific desk item — SE area (see ui/model-styles.ts) */}
+      {deskProp === "crayons" && (
         <g transform="translate(100, 68)">
           {/* Scattered crayons */}
           <rect
@@ -419,7 +420,7 @@ export function DeskSprite({
           />
         </g>
       )}
-      {modelFamily === "opus" &&
+      {deskProp === "book" &&
         (() => {
           const [bookFront, bookBack, bookSpine] =
             BOOK_VARIANTS[deskIndex % BOOK_VARIANTS.length];

@@ -4,31 +4,7 @@ import { DeskSprite } from "./DeskSprite.tsx";
 import { Character } from "./Character.tsx";
 import { StatusLight } from "./StatusLight.tsx";
 import { deskPixelPos, DESK_SLOTS } from "./grid.ts";
-
-const MODEL_TINT: Record<string, { border: string; bg: string }> = {
-  opus: { border: "rgba(100,160,255,0.85)", bg: "rgba(100,160,255,0.35)" },
-  fable: { border: "rgba(170,130,255,0.85)", bg: "rgba(170,130,255,0.35)" },
-  sonnet: { border: "rgba(218,165,32,0.80)", bg: "rgba(218,165,32,0.32)" },
-  haiku: { border: "rgba(230,130,180,0.80)", bg: "rgba(230,130,180,0.32)" },
-  "gpt-5.5": { border: "rgba(120,220,160,0.90)", bg: "rgba(120,220,160,0.36)" },
-  "gpt-5.4": { border: "rgba(120,220,160,0.78)", bg: "rgba(120,220,160,0.28)" },
-  "gpt-5.4-mini": {
-    border: "rgba(120,220,160,0.62)",
-    bg: "rgba(120,220,160,0.20)",
-  },
-  "gpt-5.6-sol": {
-    border: "rgba(80,220,150,0.95)",
-    bg: "rgba(80,220,150,0.40)",
-  },
-  "gpt-5.6-terra": {
-    border: "rgba(80,200,140,0.80)",
-    bg: "rgba(80,200,140,0.30)",
-  },
-  "gpt-5.6-luna": {
-    border: "rgba(80,200,140,0.60)",
-    bg: "rgba(80,200,140,0.20)",
-  },
-};
+import { styleForModel } from "../model-styles.ts";
 
 export function DeskUnit({
   agent,
@@ -52,6 +28,7 @@ export function DeskUnit({
   const longPressTriggered = useRef(false);
   const isWorking =
     agent.state === "thinking" || agent.state === "tool_executing";
+  const modelStyle = styleForModel(agent.modelFamily);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!isWorking) return;
@@ -193,7 +170,7 @@ export function DeskUnit({
             state={agent.state}
             deskIndex={agent.desk}
             cwd={agent.cwd}
-            modelFamily={agent.modelFamily}
+            deskProp={modelStyle.deskProp}
           />
         </div>
       </div>
@@ -223,10 +200,10 @@ export function DeskUnit({
             alignItems: "center",
             gap: 6,
             padding: "3px 10px 3px 7px",
-            background: MODEL_TINT[agent.modelFamily]?.bg ?? "var(--bg-tag)",
+            background: modelStyle.bg,
             backdropFilter: "blur(10px)",
             borderRadius: 20,
-            border: `1px solid ${MODEL_TINT[agent.modelFamily]?.border ?? "var(--border-medium)"}`,
+            border: `1px solid ${modelStyle.border}`,
             opacity: hov ? 1 : 0.8,
             transition: "opacity 0.2s, background 0.3s, border 0.3s",
             animation: needsAttention

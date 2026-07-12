@@ -15,6 +15,7 @@ import type {
 } from "../../shared/types.ts";
 import { formatIdentity } from "../../shared/identity.ts";
 import { familyDisplayLabel } from "../../shared/types.ts";
+import { styleForModel } from "../model-styles.ts";
 import { StatusLight } from "../office/StatusLight.tsx";
 import { Character } from "../office/Character.tsx";
 import { send } from "../ws.ts";
@@ -86,33 +87,6 @@ function writePanelWidth(kind: "terminal" | "editor", width: number): void {
 
 const ESCALATION_AMBER_MS = 2 * 60 * 1000; // 2 minutes
 const ESCALATION_RED_MS = 5 * 60 * 1000; // 5 minutes
-
-// Tints for Claude families + GPT-5 family. Lookup falls back gracefully for
-// unknown model strings (the callsites already use ?? defaults).
-const MODEL_TINT: Record<string, { border: string; bg: string }> = {
-  opus: { border: "rgba(100,160,255,0.85)", bg: "rgba(100,160,255,0.35)" },
-  fable: { border: "rgba(170,130,255,0.85)", bg: "rgba(170,130,255,0.35)" },
-  sonnet: { border: "rgba(218,165,32,0.80)", bg: "rgba(218,165,32,0.32)" },
-  haiku: { border: "rgba(230,130,180,0.80)", bg: "rgba(230,130,180,0.32)" },
-  "gpt-5.5": { border: "rgba(120,220,160,0.90)", bg: "rgba(120,220,160,0.36)" },
-  "gpt-5.4": { border: "rgba(120,220,160,0.78)", bg: "rgba(120,220,160,0.28)" },
-  "gpt-5.4-mini": {
-    border: "rgba(120,220,160,0.62)",
-    bg: "rgba(120,220,160,0.20)",
-  },
-  "gpt-5.6-sol": {
-    border: "rgba(80,220,150,0.95)",
-    bg: "rgba(80,220,150,0.40)",
-  },
-  "gpt-5.6-terra": {
-    border: "rgba(80,200,140,0.80)",
-    bg: "rgba(80,200,140,0.30)",
-  },
-  "gpt-5.6-luna": {
-    border: "rgba(80,200,140,0.60)",
-    bg: "rgba(80,200,140,0.20)",
-  },
-};
 
 function formatElapsed(ms: number): string {
   const totalSec = Math.floor(ms / 1000);
@@ -689,6 +663,7 @@ export function LogView({
   const [showAvatar, setShowAvatar] = useState(
     () => localStorage.getItem("isomux-show-avatar") !== "false",
   );
+  const modelStyle = styleForModel(agent.modelFamily);
   const toggleAvatar = () =>
     setShowAvatar((prev) => {
       const next = !prev;
@@ -1991,9 +1966,8 @@ export function LogView({
                 alignItems: "center",
                 justifyContent: "center",
                 borderRadius: 8,
-                border: `2px solid ${MODEL_TINT[agent.modelFamily]?.border ?? "var(--border-medium)"}`,
-                background:
-                  MODEL_TINT[agent.modelFamily]?.bg ?? "rgba(128,128,128,0.2)",
+                border: `2px solid ${modelStyle.border}`,
+                background: modelStyle.bg,
                 backdropFilter: "blur(8px)",
                 WebkitBackdropFilter: "blur(8px)",
                 cursor: "pointer",
