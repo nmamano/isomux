@@ -21,6 +21,8 @@ The agent will install the unit, enable lingering, and verify the service is up.
 
 The prompt is Linux/systemd-centric. The macOS equivalent is launchd, the Windows equivalent is Task Scheduler — adjust accordingly or ask in [Discord](https://discord.gg/FrjEYyNvYs).
 
+Optional: install a Chrome-family browser on the host to enable browser preview cards (agents screenshot local web pages straight into the chat).
+
 ## 2. Make it reachable
 
 The server runs on `localhost:4000`. To use it from another device or share it with another user, you need to expose it. Two paths, depending on who needs access.

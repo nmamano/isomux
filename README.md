@@ -47,7 +47,7 @@ free · open source · no account needed
 
 ### QoL
 
-- Built-in [**terminal**](https://x.com/Nil053/status/2039504957184090281), [**editor**](site/built-in-editor.jpeg), and [**diff tool**](https://x.com/Nil053/status/2047917731874557983)
+- Built-in [**terminal**](https://x.com/Nil053/status/2039504957184090281), [**editor**](site/built-in-editor.jpeg), [**diff tool**](https://x.com/Nil053/status/2047917731874557983), and **URL screenshotter**
 - **Voice-to-text** prompting and **text-to-speech** responses
 - [**Cron jobs**](https://x.com/Nil053/status/2048308972072079753): schedule recurring agent runs; each run is a fresh chat (that can be resumed)
 - **Image/PDF attachments**: agents understand images and PDFs and can show images inline
