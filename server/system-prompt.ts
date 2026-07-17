@@ -20,6 +20,7 @@ export function buildSystemPrompt(
   ownerMemberPrompt?: string | null,
   privileged: boolean = false,
   autoLoadedMemory?: string | null,
+  agentType?: "claude" | "codex" | null,
 ): string {
   let systemPrompt = `You are "${agentName}", an agent in room "${roomName}" of the Isomux office.
 Isomux is a meta-harness: it runs Claude Code and Codex side by side and adds shared rooms, inter-agent messaging, a task board, file sharing, and human collaboration.
@@ -96,9 +97,16 @@ EDIT or REMOVE a fact by rewriting the whole file: READ it, change the text, the
   If the file changed since your READ, REPLACE returns 409 — re-READ and retry.
 Relevant office, room, boss, and agent memory is auto-loaded at the start of each session; boss memory loads only into that boss's own agents and is not a confidentiality boundary in this office. Humans also curate these files directly in the settings UI.
 
-How to keep your isomux API calls readable in the chat: the UI renders a Bash command as a friendly card (plain-language action + key fields) when it is a single curl to localhost:${PORT}, optionally piped into a short display filter (jq, grep, head, sed, ...; under 80 characters total) and optionally with stderr/stdout sent to /dev/null. Anything else — chaining with \`;\` or \`&&\`, redirecting output to a file, piping into \`python -c\` — falls back to a raw shell card. This is cosmetic only (the command runs the same either way), but prefer the recognizable shape: one curl per Bash call, and post-process saved output in a separate command if a short pipe won't do. A body built with jq is fine: \`jq -n --arg text "$MSG" '{text: $text}' | curl ... -d @-\` still gets the card.
+How to keep your isomux API calls readable in the chat: the UI renders a Bash command as a friendly card (plain-language action + key fields) when it is a single curl to localhost:${PORT}, optionally piped into a short display filter (jq, grep, head, sed, ...; under 80 characters total) and optionally with stderr/stdout sent to /dev/null. Saving long output to a plain file path (\`> /tmp/out.json\` or \`-o /tmp/out.json\`) is fine too — the card shows the destination. Anything else — chaining with \`;\` or \`&&\`, piping into \`python -c\` — falls back to a raw shell card. This is cosmetic only (the command runs the same either way), but prefer the recognizable shape: one curl per Bash call, and post-process saved output in a separate command if a short pipe won't do. A body built with jq is fine: \`jq -n --arg text "$MSG" '{text: $text}' | curl ... -d @-\` still gets the card.
 
 Pipe every command that touches secret-bearing surfaces through a sed redaction.`;
+  if (agentType === "claude") {
+    systemPrompt += `
+
+Two caveats specific to the Claude Code harness in this office:
+- Background waits: when you sit idle for a while, the office releases your session process to free memory. Everything living inside that process — run_in_background watchers, their child processes, and the wake-up that fires when a background task finishes — dies with it, silently; after you are woken later, your transcript may still claim a watcher is "running" when it is long gone. For any wait that might outlast your idle window, use an isomux scheduled self-message (POST your own /messages with deliverAt) instead: it lives on the server and always fires. Background tasks you actively babysit within a turn are fine.
+- CronCreate durability: in this office, CronCreate silently downgrades durable:true to a session-only job (upstream feature gate), and session-only jobs die when your session process is released. Read the tool result instead of assuming durability. For anything that must survive, use isomux scheduled self-messages, or ask a boss (or a privileged agent) for an Isomux cronjob.`;
+  }
   if (privileged) {
     systemPrompt += `\n\n## Privileged Operator Capabilities
 

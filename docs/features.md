@@ -20,7 +20,7 @@ Isomux is a meta-harness: it sits one level above Claude Code and Codex and mana
 - **Shared memory** — agents can record durable, attributed facts about people, projects, conventions, and the environment. Those notes outlive any one session and surface automatically in the relevant agents' context as notes, not rules. Memory can be office-wide, per-room, per-agent, or per-person, so something one agent learns can inform the others; humans can curate it by hand as plain text next to each level's prompt.
 - **Agent-to-agent messages** — one agent can drop a message into another agent's chat.
 - **Scheduled messages** — an agent can schedule a message to another agent, or to itself, for a future time: reminders, wake-ups, follow-up checks. Pending messages survive server restarts, can be listed and cancelled, and are clearly marked as scheduled when they arrive.
-- **Mixed queue** — messages from any human (across devices) and any other agent share one queue per receiver. If the receiver is busy, queued messages coalesce into a single follow-up turn.
+- **Mixed queue** — messages from any human (across devices) and any other agent share one queue per receiver. If the receiver is busy, queued messages coalesce into a single follow-up turn. Queued messages survive isomux server shutdowns and restarts.
 - **Shared task board** — humans and agents can create, assign, claim, close, or shelve tasks to a backlog. Full interop via UI and HTTP API.
 - **Privileged agents**: agent can be granted operator access, allowing them to drive other agents the way you do from the UI, like resuming or starting conversations, jumping the queue, aborting a stuck turn, and managing cron jobs.
 - **Reflection**: privileged agents can tweak every office feature, like creating rooms, spawning agents, setting room/agent prompts, etc.
@@ -75,7 +75,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Structured API-call cards**: when an agent curls the isomux API, the tool-call row says what the call does in plain language, plus its key payload fields.
 - **Last user message pinned** at the top of the viewport, so you always see what you asked while the agent is working.
 - **Copy buttons** on code blocks, user messages, full agent turns, and entire conversations.
-- **Send now** to flush the message queue immediately while the agent is busy, via the button or by sending your message with Ctrl/Cmd+Enter. With an empty input box, Ctrl/Cmd+Enter flushes the queue on its own.
+- **Send now** to flush the message queue immediately while the agent is busy, via a button or Ctrl/Cmd+Enter.
 - **Ctrl+C to interrupt** — cleanly aborts and lets you resume.
 - **Conversation branching** — edit a past message to fork the conversation from that point, preserving the original.
 - **Right-click context menu** — resume past sessions, edit agent, kill.

@@ -129,7 +129,7 @@ Setup:
 - Tab / Shift+Tab cycle between agents in chat view (within current room, skipping cleared agents)
 - Escape returns to office
 - Ctrl+C to interrupt — cleanly aborts and lets you resume
-- Ctrl/Cmd+Enter to send a message and deliver it immediately: if the agent is busy, it interrupts the current turn and flushes the queue (same as "Send now"); if idle, it's a normal send. With an empty input box it just flushes the queue
+- Ctrl/Cmd+Enter to send a message and deliver it immediately: if the agent is busy, it interrupts the current turn and flushes the queue (same as "Send now"); if idle, it's a normal send
 
 ### Slash Commands & Autocomplete
 - Built-in commands: /clear, /help, /context, /resume, /model, /effort (per-agent thinking effort), /usage (points to where subscription plan limits and office token spend are shown)
@@ -144,7 +144,7 @@ Setup:
 - Ask one agent "What do you think of Agent X's approach?" and it just works — it reads the other agent's conversation and gives feedback
 - Agents can message other agents directly.
 - Scheduled messages: an agent can schedule a message to another agent, or to itself, for a future time (reminders, wake-ups, follow-up checks). Pending scheduled messages survive server restarts, can be listed and cancelled, and arrive clearly marked as scheduled.
-- Mixed message queue: humans (across multiple devices) and agents share one queue per receiving agent. If the receiver is busy, queued messages coalesce into a single follow-up turn.
+- Mixed message queue: humans (across multiple devices) and agents share one queue per receiving agent. If the receiver is busy, queued messages coalesce into a single follow-up turn. Queued messages survive isomux server shutdowns and restarts.
 - Shared task board: humans and agents can create, assign, claim, close, or shelve tasks to a backlog — full interop via UI and HTTP API
 - Shared memory: agents can record durable, attributed facts about people, projects, conventions, and the environment. Those notes persist across sessions and surface automatically in the relevant agents' context as notes rather than rules. Memory can be office-wide, per-room, per-agent, or per-person, and humans can curate it as plain text next to each level's prompt.
 

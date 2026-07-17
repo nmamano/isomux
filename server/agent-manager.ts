@@ -2917,7 +2917,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // session resumable on disk); the next message wakes it via flushQueue's
   // !session branch. lazy-restore at boot starts everyone dormant; this sweep
   // re-demotes agents that woke and then went quiet again.
-  const IDLE_EVICT_MS = 10 * 60_000;
+  const IDLE_EVICT_MS = 2 * 60 * 60_000;
   let demoteCount = 0;
 
   // Wake-message wording, accurate to WHY the agent was dormant: a sweep-demoted
@@ -3258,6 +3258,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           : []),
         { scope: "agent", scopeId: managed.info.id, label: "Your agent" },
       ]),
+      managed.info.agentType,
     );
     if (resumeSessionId) {
       // The SDK reports cost cumulative-per-process, so a resumed session's

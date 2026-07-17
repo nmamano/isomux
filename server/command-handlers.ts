@@ -333,7 +333,7 @@ export function createCommandHandling(deps: HandlerDeps) {
         "  • Agents can check on each other and message each other. Just ask naturally or use skills like `/second-opinion`, `/pair-programming`, etc.",
       );
       lines.push(
-        '  • Type ahead while an agent is busy: messages queue and flush when it\'s idle. Hit "Send now" or send with Ctrl/Cmd+Enter (works with an empty input box too) to interrupt and flush immediately.',
+        '  • Type ahead while an agent is busy: messages queue and flush when it\'s idle. Hit "Send now" or send with Ctrl/Cmd+Enter to interrupt and flush immediately.',
       );
       lines.push(
         "  • Use voice-to-text for faster prompting. The shortcut is ctrl+space.",
@@ -619,6 +619,7 @@ export function createCommandHandling(deps: HandlerDeps) {
             : []),
           { scope: "agent", scopeId: managed.info.id, label: "Your agent" },
         ]),
+        managed.info.agentType,
       );
       // Pick a fence longer than any backtick run inside the prompt so the block
       // renders verbatim regardless of what office/room/agent prompts contain.
