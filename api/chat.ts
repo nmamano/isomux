@@ -129,7 +129,7 @@ Setup:
 - Tab / Shift+Tab cycle between agents in chat view (within current room, skipping cleared agents)
 - Escape returns to office
 - Ctrl+C to interrupt — cleanly aborts and lets you resume
-- Ctrl/Cmd+Enter to send a message and deliver it immediately: if the agent is busy, it interrupts the current turn and flushes the queue (same as "Send now"); if idle, it's a normal send
+- Ctrl/Cmd+Enter to send a message and deliver it immediately: if the agent is busy, it interrupts the current turn and flushes the queue (same as "Send now"); if idle, it's a normal send. With an empty input box it just flushes the queue
 
 ### Slash Commands & Autocomplete
 - Built-in commands: /clear, /help, /context, /resume, /model, /effort (per-agent thinking effort), /usage (points to where subscription plan limits and office token spend are shown)

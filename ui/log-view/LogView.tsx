@@ -1460,8 +1460,16 @@ export function LogView({
 
   function handleSend(opts?: { sendNow?: boolean }) {
     const text = input.trim();
-    if (!text && validAttachments.length === 0) return;
     if (hasUploading || editingLogEntryId) return;
+    if (!text && validAttachments.length === 0) {
+      // Ctrl/Cmd+Enter with an empty composer still means "deliver the queue
+      // now" — hit the same endpoint as the Send-now button instead of
+      // silently doing nothing. No-op when nothing is queued.
+      if (opts?.sendNow && (agent.queue ?? []).length > 0) {
+        apiFetch("POST", `/api/agents/${agent.id}/send-now`).catch(() => {});
+      }
+      return;
+    }
     const attachments =
       validAttachments.length > 0
         ? validAttachments.map(

@@ -85,15 +85,22 @@ function TaskDetailPanel({
   closeRef?: React.MutableRefObject<(() => void) | null>;
   fullScreen?: boolean;
 }) {
-  // Most-recent agents first, capped — the raw list is oldest-first and can be
-  // long. Memoized so the chips don't re-sort on every keystroke in the form.
-  const recentAgents = useMemo(
-    () =>
-      [...agents]
-        .sort((a, b) => agentSpawnMs(b.id) - agentSpawnMs(a.id))
-        .slice(0, MAX_ASSIGNEE_SUGGESTIONS),
+  // Most-recent agents first — the raw list is oldest-first and can be long.
+  // Capped to MAX_ASSIGNEE_SUGGESTIONS by default; a "+N more" chip expands to
+  // the full list (same recency order, so the visible chips don't reshuffle).
+  // Memoized so the chips don't re-sort on every keystroke in the form.
+  const [showAllAgents, setShowAllAgents] = useState(false);
+  const sortedAgents = useMemo(
+    () => [...agents].sort((a, b) => agentSpawnMs(b.id) - agentSpawnMs(a.id)),
     [agents],
   );
+  const hiddenAgentCount = Math.max(
+    0,
+    sortedAgents.length - MAX_ASSIGNEE_SUGGESTIONS,
+  );
+  const visibleAgents = showAllAgents
+    ? sortedAgents
+    : sortedAgents.slice(0, MAX_ASSIGNEE_SUGGESTIONS);
   const [title, setTitle] = useState(task?.title || "");
   const [description, setDescription] = useState(task?.description || "");
   const [priority, setPriority] = useState<TaskPriority | "">(
@@ -124,6 +131,7 @@ function TaskDetailPanel({
     }
     setConfirmDelete(false);
     setConfirmDiscard(false);
+    setShowAllAgents(false);
   }, [task]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
@@ -353,7 +361,7 @@ function TaskDetailPanel({
             placeholder="Unassigned"
             onKeyDown={(e) => e.stopPropagation()}
           />
-          {recentAgents.length > 0 && (
+          {visibleAgents.length > 0 && (
             <div
               style={{
                 display: "flex",
@@ -362,7 +370,7 @@ function TaskDetailPanel({
                 marginTop: 6,
               }}
             >
-              {recentAgents.map((a) => (
+              {visibleAgents.map((a) => (
                 <button
                   key={a.id}
                   onClick={() => setAssignee(a.name)}
@@ -387,6 +395,29 @@ function TaskDetailPanel({
                   {a.name}
                 </button>
               ))}
+              {hiddenAgentCount > 0 && (
+                <button
+                  onClick={() => setShowAllAgents(!showAllAgents)}
+                  style={{
+                    padding: "3px 8px",
+                    borderRadius: 6,
+                    border: "1px dashed var(--border)",
+                    background: "transparent",
+                    color: "var(--text-hint)",
+                    fontSize: 10,
+                    cursor: "pointer",
+                    fontFamily: "'JetBrains Mono',monospace",
+                    whiteSpace: "nowrap",
+                  }}
+                  title={
+                    showAllAgents
+                      ? "Show only recent agents"
+                      : "Show all agents"
+                  }
+                >
+                  {showAllAgents ? "show less" : `+${hiddenAgentCount} more`}
+                </button>
+              )}
             </div>
           )}
         </div>

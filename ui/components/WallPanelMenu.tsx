@@ -26,11 +26,14 @@ export function WallPanelMenu({ x, y, items, onClose }: Props) {
     function handleKey(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
     }
-    document.addEventListener("mousedown", handleDismiss);
+    // pointerdown, not mousedown: the office viewport preventDefaults
+    // pointerdown on the pannable background (useViewport), which suppresses
+    // the compatibility mousedown — see the same listener in ContextMenu.tsx.
+    document.addEventListener("pointerdown", handleDismiss);
     document.addEventListener("touchstart", handleDismiss);
     document.addEventListener("keydown", handleKey);
     return () => {
-      document.removeEventListener("mousedown", handleDismiss);
+      document.removeEventListener("pointerdown", handleDismiss);
       document.removeEventListener("touchstart", handleDismiss);
       document.removeEventListener("keydown", handleKey);
     };

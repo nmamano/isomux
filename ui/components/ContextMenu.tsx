@@ -40,10 +40,16 @@ export function ContextMenu({
       const target = (e as TouchEvent).touches?.[0]?.target ?? e.target;
       if (ref.current && !ref.current.contains(target as Node)) onClose();
     }
-    document.addEventListener("mousedown", handleDismiss);
+    // pointerdown, not mousedown: the office viewport preventDefaults
+    // pointerdown on the pannable background (useViewport), which suppresses
+    // the compatibility mousedown — a mousedown listener never fires there,
+    // leaving the menu stuck open. pointerdown itself always bubbles.
+    // touchstart stays as a fallback: DeskUnit preventDefaults touchstart,
+    // which on some browsers suppresses the synthesized pointer events.
+    document.addEventListener("pointerdown", handleDismiss);
     document.addEventListener("touchstart", handleDismiss);
     return () => {
-      document.removeEventListener("mousedown", handleDismiss);
+      document.removeEventListener("pointerdown", handleDismiss);
       document.removeEventListener("touchstart", handleDismiss);
     };
   }, [onClose]);

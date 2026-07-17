@@ -75,7 +75,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Structured API-call cards**: when an agent curls the isomux API, the tool-call row says what the call does in plain language, plus its key payload fields.
 - **Last user message pinned** at the top of the viewport, so you always see what you asked while the agent is working.
 - **Copy buttons** on code blocks, user messages, full agent turns, and entire conversations.
-- **Send now** to flush the message queue immediately while the agent is busy, via the button or by sending your message with Ctrl/Cmd+Enter.
+- **Send now** to flush the message queue immediately while the agent is busy, via the button or by sending your message with Ctrl/Cmd+Enter. With an empty input box, Ctrl/Cmd+Enter flushes the queue on its own.
 - **Ctrl+C to interrupt** — cleanly aborts and lets you resume.
 - **Conversation branching** — edit a past message to fork the conversation from that point, preserving the original.
 - **Right-click context menu** — resume past sessions, edit agent, kill.
