@@ -231,13 +231,25 @@ export function EditorPanel({
               const next = prev.slice();
               if (existing.dirty && !opts?.discardDirty) {
                 // Preserve the dirty buffer — this happens after agent-switch
-                // re-mounts when we re-fetch to reinstall the watch. Refresh
-                // only language/size; NOT mtime, or a later save would pass the
-                // staleness check and silently clobber the disk changes.
+                // re-mounts and after WS-reconnect re-arms, when we re-fetch to
+                // reinstall the watch. Refresh only language/size; NOT mtime,
+                // or a later save would pass the staleness check and silently
+                // clobber the disk changes. If disk moved from what we opened
+                // (an external change we missed — e.g. it happened while
+                // disconnected), raise the same banner the live watch shows.
+                // `!==`, not `>`: a restore/copy can legitimately move mtime
+                // BACKWARDS and is still a conflict. (A same-ms replacement
+                // remains undetectable from mtime alone — closing that would
+                // need a revision/signature on the wire; noted as a known
+                // limitation, same as saveFile's `>` stale guard.)
                 next[idx] = {
                   ...existing,
                   language: m.language,
                   size: m.size,
+                  banner:
+                    m.mtime !== existing.mtime
+                      ? { kind: "external", mtime: m.mtime }
+                      : existing.banner,
                 };
               } else {
                 next[idx] = {
@@ -366,6 +378,21 @@ export function EditorPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Re-arm the server-side file watches after a WS reconnect. Watches are
+  // keyed by connectionId on the server and swept on disconnect, and every
+  // WS open delivers a fresh connectionId via session_context — so an editor
+  // that stays mounted across a reconnect (laptop sleep, network blip) would
+  // otherwise silently stop receiving editor_external_change forever.
+  // Re-opening also re-fetches content, catching changes missed while
+  // disconnected (openPath preserves dirty buffers). The ref starts at the
+  // mount-time connectionId because the mount effects already opened with it.
+  const armedConnectionIdRef = useRef(connectionId);
+  useEffect(() => {
+    if (!connectionId || connectionId === armedConnectionIdRef.current) return;
+    armedConnectionIdRef.current = connectionId;
+    for (const t of tabsRef.current) openPath(t.path);
+  }, [connectionId, openPath]);
+
   // Whenever a new initialPath arrives — first mount with one, or the parent
   // sets a new path because the boss clicked another EditRequestCard —
   // either focus the existing tab or open the file. Activate it optimistically
@@ -418,9 +445,9 @@ export function EditorPanel({
     return () => removeRawListener(handler);
   }, [agentId, setTabsAndPersist, openPath]);
 
-  // Release server-side fs.watch handles when the panel unmounts (LogView
+  // Release server-side watch timers when the panel unmounts (LogView
   // reset, agent switch, etc.). Without this, watchers persist on the WS
-  // until disconnect — a slow inotify-slot leak for long-lived browser tabs.
+  // until disconnect — a slow poll-timer leak for long-lived browser tabs.
   // X-button per-tab close already sends editor_close; this is the catch-all
   // for unmount paths the user didn't explicitly trigger.
   useEffect(() => {

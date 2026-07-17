@@ -5,9 +5,7 @@ import {
   readFileSync,
   readSync,
   statSync,
-  watch as fsWatch,
   writeFileSync,
-  type FSWatcher,
 } from "fs";
 import { extname, isAbsolute, join, resolve } from "path";
 import { homedir } from "os";
@@ -25,6 +23,11 @@ export type OpenFileResult =
       mtime: number;
       language: string;
       size: number;
+      // Change signature of the stat this read was served from. Server-side
+      // only (never on the wire): passed to watchFile as the poll baseline so
+      // a save landing between the read and the watch install still emits on
+      // the first poll (the read-then-watch gap).
+      sig: string;
     }
   | { kind: "not_found"; path: string }
   | { kind: "not_file"; path: string }
@@ -38,6 +41,18 @@ export type SaveFileResult =
   | { kind: "io_error"; path: string; message: string };
 
 const MAX_FILE_BYTES = 1_000_000;
+
+// Change signature for the editor watch: mtime alone is not enough — a
+// rename-replace that lands within the same millisecond as the previous
+// state would compare equal. The inode catches replaces, size catches
+// same-ms in-place rewrites of different length.
+function fileSig(st: {
+  mtimeMs: number;
+  ino: number | bigint;
+  size: number;
+}): string {
+  return `${st.mtimeMs}:${st.ino}:${st.size}`;
+}
 
 // Resolve a user-supplied editor path against the agent's cwd. Mirrors
 // resolveDiffCwd in isomux-diff.ts but yields a file path (not a directory).
@@ -143,6 +158,7 @@ export function openFile(absPath: string): OpenFileResult {
     mtime: Math.floor(st.mtimeMs),
     language: detectLanguage(absPath),
     size: st.size,
+    sig: fileSig(st),
   };
 }
 
@@ -186,36 +202,50 @@ export function saveFile(
 export interface FileWatcher {
   agentId: string;
   path: string;
-  watcher: FSWatcher;
+  timer: ReturnType<typeof setInterval>;
 }
+
+const WATCH_POLL_MS = 1000;
 
 export function watchFile(
   absPath: string,
   agentId: string,
   onChange: (mtime: number) => void,
-): FileWatcher | null {
-  try {
-    const watcher = fsWatch(absPath, { persistent: false }, () => {
-      // fs.watch can fire 2+ events per save (e.g., editors that write via
-      // rename). The client treats `editor_external_change` idempotently —
-      // a clean-buffer auto-reload is a no-op when content is unchanged,
-      // and the dirty-buffer banner is set to the same value — so we accept
-      // the duplicate emits rather than debouncing.
-      try {
-        const st = statSync(absPath);
-        onChange(Math.floor(st.mtimeMs));
-      } catch {
-        // File was deleted — silently ignore for v1.
-      }
-    });
-    return { agentId, path: absPath, watcher };
-  } catch {
-    return null;
-  }
+  // The `sig` of the openFile read this watch backs. Using the read-time
+  // signature (not a fresh stat here) closes the read-then-watch gap: a save
+  // landing between the read and this install differs from the baseline, so
+  // the first poll emits and the client refetches.
+  baselineSig: string,
+): FileWatcher {
+  // mtime polling, NOT fs.watch. Task 30ffe109 found fs.watch unusable under
+  // Bun for this: most agent tooling saves via atomic write-to-tmp + rename
+  // (Claude Code's Edit/Write do, observed: `x.tmp.<pid>.<hash>` renamed over
+  // `x`), which replaces the file's inode. A single-file fs.watch binds to
+  // the inode — under Bun a rename-replace fires NO event and the watch is
+  // permanently dead afterwards (verified empirically). Watching the parent
+  // directory doesn't work either: Bun coalesces the create-tmp/write/rename
+  // burst into one early event that fires before the rename lands, so the
+  // change is still missed. A 1s stat poll per open tab is cheap (a handful
+  // of tabs per browser), catches every save mechanism, and dedupes
+  // trivially via the signature comparison.
+  let lastSig = baselineSig;
+  const timer = setInterval(() => {
+    try {
+      const st = statSync(absPath);
+      const s = fileSig(st);
+      if (s === lastSig) return;
+      lastSig = s;
+      onChange(Math.floor(st.mtimeMs));
+    } catch {
+      // File missing — deleted, or mid-rename. Silently ignore for v1; if
+      // it reappears, the next poll emits.
+    }
+  }, WATCH_POLL_MS);
+  // Don't let watch timers hold the process open on shutdown.
+  timer.unref?.();
+  return { agentId, path: absPath, timer };
 }
 
 export function stopWatch(w: FileWatcher) {
-  try {
-    w.watcher.close();
-  } catch {}
+  clearInterval(w.timer);
 }

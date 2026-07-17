@@ -4,7 +4,7 @@
 // registered.
 //
 // The editor is request/response, so it is REST (unlike the interactive
-// terminal). It is also STATEFUL: openFile arms a per-tab fs.watch that pushes
+// terminal). It is also STATEFUL: openFile arms a per-tab watch (mtime poll) that pushes
 // `editor_external_change` over that tab's socket; closeFile disarms it. Because
 // an HTTP request has NO socket, open/close carry the X-Isomux-Connection-Id
 // header (from session_context) and the server binds the watch to that

@@ -483,7 +483,7 @@ let executorDeps: ExecutorDeps;
 // Editor file watchers, keyed by connectionId -> (`${agentId}\0${absPath}` ->
 // watcher). Rekeyed from a per-WS WeakMap when the editor moved to REST (3d.6b):
 // the GET handler has no socket, only the client-supplied X-Isomux-Connection-Id,
-// so each open file's fs.watch + its editor_external_change push bind to the
+// so each open file's watch (mtime poll) + its editor_external_change push bind to the
 // connectionId (resolved back to a socket by the connectionId emit projection).
 // Watchers close on closeFile (DELETE) or WS disconnect (swept by connectionId).
 const editorWatchers = new Map<string, Map<string, FileWatcher>>();
@@ -2368,20 +2368,23 @@ function buildExecutorDeps(): ExecutorDeps {
         editorWatchers.set(connectionId, map);
         const key = editorKey(agentId, r.path);
         const old = map.get(key);
-        if (old) {
-          stopWatch(old);
-          map.delete(key); // drop the stale entry up front; re-set below only if
-          // the new watch installs (a vanished file -> watchFile null -> no
-          // dangling closed watcher left under the key).
-        }
-        const watcher = watchFile(r.path, agentId, (mtime) => {
-          liveEmit(
-            "editor_external_change",
-            { agentId, path: r.path, mtime },
-            { connectionId },
-          );
-        });
-        if (watcher) map.set(key, watcher);
+        if (old) stopWatch(old);
+        // watchFile always installs (mtime poll — no fs.watch handle that
+        // could fail on a vanished file; a vanished file just emits on the
+        // poll that sees it back).
+        const watcher = watchFile(
+          r.path,
+          agentId,
+          (mtime) => {
+            liveEmit(
+              "editor_external_change",
+              { agentId, path: r.path, mtime },
+              { connectionId },
+            );
+          },
+          r.sig,
+        );
+        map.set(key, watcher);
         return {
           ok: true,
           path: r.path,
@@ -4137,8 +4140,8 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         browsers.delete(ws);
         unregisterSocket(ws.data.session.sessionIdHash, ws);
         // Drop this connection's editor watchers on disconnect (keyed by
-        // connectionId now that the editor is REST — a leaked watch leaks an
-        // inotify slot for the life of the tab).
+        // connectionId now that the editor is REST — a leaked watch leaks a
+        // poll timer for the life of the tab).
         const watchMap = editorWatchers.get(ws.data.connectionId);
         if (watchMap) {
           for (const w of watchMap.values()) stopWatch(w);
