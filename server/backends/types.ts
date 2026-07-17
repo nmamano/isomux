@@ -159,7 +159,20 @@ export type NormalizedEvent =
   | { kind: "error"; message: string; code?: string }
   // Free-text system breadcrumb (e.g. Codex auto-decline notice for an
   // elicitation request). Renders as a system-kind log entry.
-  | { kind: "system_text"; text: string };
+  | { kind: "system_text"; text: string }
+  // Background-task lifecycle breadcrumb (Claude-only at v1). Emitted when a
+  // genuinely-background task (run_in_background Bash/Agent, workflow, or a
+  // task backgrounded mid-run) starts or settles, so the transcript shows a
+  // visible trigger for the wake turn that follows a settle. Foreground
+  // subagents are deliberately filtered out by the adapter (they already
+  // render as tool calls). `label` is pre-sanitized one-line text; `phase`
+  // lets the UI style settle outcomes distinctly.
+  | {
+      kind: "task_lifecycle";
+      phase: "started" | "completed" | "failed" | "stopped";
+      taskId: string;
+      label: string;
+    };
 
 // ---------------------------------------------------------------------------
 // Approval decisions

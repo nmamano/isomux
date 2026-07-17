@@ -509,6 +509,9 @@ export class ClaudeSession implements BackendSession {
   private ended = false;
   private closed = false;
   private readonly imageSink: ImageSink;
+  // Per-session by construction: dies with the session, so tracked-task state
+  // can never go stale across resume/swap (each new session gets a fresh one).
+  private readonly taskTracker = new TaskBreadcrumbTracker();
   private pendingApprovals = new Map<
     string,
     {
@@ -550,6 +553,12 @@ export class ClaudeSession implements BackendSession {
       // unhandled and crashes the whole Bun process.
       for await (const msg of this.conversation.messages()) {
         for (const ev of translateSDKMessage(msg, this.imageSink)) {
+          this.enqueue(ev);
+        }
+        // Background-task lifecycle breadcrumbs ride after the message's
+        // translated events (task_started for a tool arrives in a later SDK
+        // message than the tool_use itself, so ordering is naturally correct).
+        for (const ev of this.taskTracker.observe(msg)) {
           this.enqueue(ev);
         }
       }
@@ -896,6 +905,173 @@ export function* translateSDKMessage(
     // tool_call event.
     default:
       break;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Background-task lifecycle breadcrumbs (TaskBreadcrumbTracker)
+// ---------------------------------------------------------------------------
+// The SDK emits system/task_started, task_updated, and task_notification for
+// EVERY task-shaped thing — including ordinary foreground subagents, which
+// already render as Agent tool calls. Breadcrumbing all of them would double-
+// render every subagent, so this tracker only surfaces genuinely-background
+// work (verified against SDK 0.3.170 / binary 2.1.170 via a live probe):
+//
+//   task_type "local_bash"      — run_in_background Bash (born background)
+//   task_type "local_workflow"  — Workflow tool runs (return immediately,
+//                                 settle via task_notification)
+//   any tool_use launched with input.run_in_background === true — covers
+//                                 background Agent-tool subagents, whose
+//                                 task_started is otherwise indistinguishable
+//                                 from a foreground subagent's
+//   task_updated is_backgrounded — a foreground task backgrounded mid-run
+//                                 (Ctrl+B / auto-background on timeout)
+//
+// Settle breadcrumbs (task_notification) are emitted only for tasks tracked
+// at start, which both filters foreground-subagent noise and dedupes repeated
+// notifications for the same task. skip_transcript (ambient/housekeeping
+// tasks) mutes both ends. State is per-ClaudeSession, so it dies with the
+// session — no cross-session staleness (see feedSDKMessages wiring).
+//
+// Rationale (task b4cafa53 diagnosis): a background-task settle wakes an idle
+// agent with a fresh turn, but the triggering notification was invisible in
+// the isomux transcript — the agent appeared to start talking spontaneously.
+// These breadcrumbs give the boss the visible trigger.
+
+const TASK_LABEL_MAX = 200;
+const TRACKED_TASKS_MAX = 200;
+const BG_TOOL_IDS_MAX = 500;
+
+// Collapse to one line and cap length: breadcrumbs must stay unobtrusive and
+// task descriptions/summaries are model- or user-authored free text.
+export function sanitizeTaskLabel(text: string): string {
+  const oneLine = text.replace(/\s+/g, " ").trim();
+  return oneLine.length > TASK_LABEL_MAX
+    ? `${oneLine.slice(0, TASK_LABEL_MAX - 1)}…`
+    : oneLine;
+}
+
+interface TrackedTask {
+  desc: string;
+  // skip_transcript on task_started mutes the settle breadcrumb too — the
+  // task is still tracked so its notification stays filtered/deduped.
+  silent: boolean;
+}
+
+export class TaskBreadcrumbTracker {
+  private tracked = new Map<string, TrackedTask>();
+  private bgToolUseIds = new Set<string>();
+
+  observe(msg: SDKMessage): NormalizedEvent[] {
+    if (msg.type === "assistant") {
+      // Record tool_use ids launched with run_in_background: true (Bash and
+      // Agent alike) so their task_started can be recognized as background.
+      const content = msg.message?.content;
+      if (Array.isArray(content)) {
+        for (const block of content) {
+          if (
+            block.type === "tool_use" &&
+            (block.input as { run_in_background?: unknown } | null)
+              ?.run_in_background === true
+          ) {
+            this.bgToolUseIds.add(block.id);
+            trimInsertionOrdered(this.bgToolUseIds, BG_TOOL_IDS_MAX);
+          }
+        }
+      }
+      return [];
+    }
+    if (msg.type !== "system") return [];
+
+    if (msg.subtype === "task_started") {
+      const isBackground =
+        msg.task_type === "local_bash" ||
+        msg.task_type === "local_workflow" ||
+        (msg.tool_use_id !== undefined &&
+          this.bgToolUseIds.has(msg.tool_use_id));
+      if (!isBackground || this.tracked.has(msg.task_id)) return [];
+      // The correlated tool_use id is consumed — drop it so the bounded set
+      // holds only ids still awaiting their task_started.
+      if (msg.tool_use_id !== undefined)
+        this.bgToolUseIds.delete(msg.tool_use_id);
+      const desc = sanitizeTaskLabel(msg.description || msg.task_id);
+      const silent = msg.skip_transcript === true;
+      this.tracked.set(msg.task_id, { desc, silent });
+      trimInsertionOrdered(this.tracked, TRACKED_TASKS_MAX);
+      if (silent) return [];
+      const kindWord =
+        msg.task_type === "local_workflow"
+          ? "Workflow"
+          : msg.task_type === "local_agent"
+            ? "Background agent"
+            : "Background task";
+      return [
+        {
+          kind: "task_lifecycle",
+          phase: "started",
+          taskId: msg.task_id,
+          // Re-sanitize the assembled label: desc alone fits the cap, but the
+          // prefix can push the total past TASK_LABEL_MAX.
+          label: sanitizeTaskLabel(`${kindWord} started: ${desc}`),
+        },
+      ];
+    }
+
+    if (msg.subtype === "task_updated") {
+      // Only the foreground→background transition is breadcrumb-worthy here;
+      // completion/failure arrives via task_notification.
+      if (msg.patch?.is_backgrounded !== true || this.tracked.has(msg.task_id))
+        return [];
+      const desc = sanitizeTaskLabel(msg.patch.description || msg.task_id);
+      this.tracked.set(msg.task_id, { desc, silent: false });
+      trimInsertionOrdered(this.tracked, TRACKED_TASKS_MAX);
+      return [
+        {
+          kind: "task_lifecycle",
+          phase: "started",
+          taskId: msg.task_id,
+          label: sanitizeTaskLabel(`Task moved to background: ${desc}`),
+        },
+      ];
+    }
+
+    if (msg.subtype === "task_notification") {
+      const rec = this.tracked.get(msg.task_id);
+      if (!rec) return []; // foreground noise or duplicate notification
+      this.tracked.delete(msg.task_id);
+      if (rec.silent || msg.skip_transcript === true) return [];
+      // The SDK summary is already a good one-liner ('Background command
+      // "…" completed (exit code 0)'); fall back to a constructed label.
+      // Sanitize the final string either way so event.label never exceeds
+      // TASK_LABEL_MAX.
+      const label = sanitizeTaskLabel(
+        msg.summary || `Background task ${msg.status}: ${rec.desc}`,
+      );
+      return [
+        {
+          kind: "task_lifecycle",
+          phase: msg.status,
+          taskId: msg.task_id,
+          label,
+        },
+      ];
+    }
+
+    return [];
+  }
+}
+
+// Drop oldest entries past `max`. Map and Set iterate in insertion order, so
+// deleting the first key evicts the oldest — a cheap bound against unbounded
+// growth in very long sessions (leaked ids just age out).
+function trimInsertionOrdered(
+  coll: Map<string, unknown> | Set<string>,
+  max: number,
+) {
+  while (coll.size > max) {
+    const oldest = coll.keys().next().value;
+    if (oldest === undefined) break;
+    coll.delete(oldest);
   }
 }
 

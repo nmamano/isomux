@@ -414,8 +414,24 @@ export const LogEntryCard = memo(function LogEntryCard({
           isMobile={isMobile}
         />
       );
-    case "system":
+    case "system": {
+      // Background-task lifecycle breadcrumbs carry metadata.taskEvent (see
+      // agent-manager's task_lifecycle case). Render with a status dot so
+      // settle outcomes scan at a glance; everything else stays SystemMessage.
+      const taskEvent = entry.metadata?.taskEvent as
+        | { phase?: string }
+        | undefined;
+      if (taskEvent) {
+        return (
+          <TaskBreadcrumb
+            content={entry.content}
+            phase={taskEvent.phase}
+            isMobile={isMobile}
+          />
+        );
+      }
       return <SystemMessage content={entry.content} isMobile={isMobile} />;
+    }
     case "diff": {
       if (!entry.diff)
         return <SystemMessage content={entry.content} isMobile={isMobile} />;
@@ -1213,6 +1229,52 @@ function SystemMessage({
       }}
     >
       {isMultiline ? <Markdown content={content} /> : content}
+    </div>
+  );
+}
+
+// One-line background-task lifecycle breadcrumb (metadata.taskEvent on a
+// system entry). Same unobtrusive centered style as single-line SystemMessage,
+// plus a CSS status dot — a plain <span>, deliberately not a Unicode glyph
+// (iOS Safari emoji-renders glyphs like ▶/●, overriding CSS color).
+function TaskBreadcrumb({
+  content,
+  phase,
+  isMobile,
+}: {
+  content: string;
+  phase?: string;
+  isMobile?: boolean;
+}) {
+  const dotColor =
+    phase === "failed"
+      ? "var(--red)"
+      : phase === "completed"
+        ? "var(--green)"
+        : "var(--text-ghost)"; // started / stopped / unknown
+  return (
+    <div
+      style={{
+        margin: "8px 0",
+        padding: "6px 0",
+        textAlign: "center",
+        color: "var(--text-ghost)",
+        fontSize: isMobile ? 13 : 11,
+        fontStyle: "italic",
+      }}
+    >
+      <span
+        style={{
+          display: "inline-block",
+          width: 6,
+          height: 6,
+          borderRadius: "50%",
+          background: dotColor,
+          marginRight: 6,
+          verticalAlign: "middle",
+        }}
+      />
+      {content}
     </div>
   );
 }

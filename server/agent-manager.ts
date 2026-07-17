@@ -2228,6 +2228,14 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         }
         break;
       }
+      case "task_lifecycle":
+        // Background-task breadcrumb (start / settle). metadata.taskEvent
+        // lets the UI style settle outcomes; the label is pre-sanitized
+        // one-line text from the backend adapter.
+        addLogEntry(agentId, "system", ev.label, {
+          taskEvent: { taskId: ev.taskId, phase: ev.phase },
+        });
+        break;
       case "thinking": {
         const managed = agents.get(agentId);
         const duration_ms =

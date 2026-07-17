@@ -297,6 +297,94 @@ describe("ClaudeSession stream", () => {
     expect(final.done).toBe(true);
   });
 
+  // Regression pin for the TaskBreadcrumbTracker wiring in feedSDKMessages
+  // (task b4cafa53 option C). The tracker itself is covered in
+  // task-breadcrumbs.test.ts; this asserts the SESSION actually feeds it and
+  // interleaves its task_lifecycle events at the right stream positions —
+  // removing/reordering the observe() loop would leave the tracker tests
+  // green while the feature silently disappears.
+  it("interleaves task_lifecycle breadcrumbs for background tasks, none for foreground subagents", async () => {
+    const fake = new FakeSdkClient();
+    const { session, conv } = makeSession(fake);
+    const it = session.stream()[Symbol.asyncIterator]();
+
+    // Background Bash launch: tool_call translates first, then the later
+    // task_started message becomes the breadcrumb.
+    conv.emit({
+      type: "assistant",
+      message: {
+        content: [
+          {
+            type: "tool_use",
+            id: "toolu_bg",
+            name: "Bash",
+            input: { command: "sleep 60", run_in_background: true },
+          },
+        ],
+      },
+    });
+    expect(await nextEvent(it)).toMatchObject({
+      kind: "tool_call",
+      toolUseId: "toolu_bg",
+    });
+    conv.emit({
+      type: "system",
+      subtype: "task_started",
+      task_id: "b1",
+      tool_use_id: "toolu_bg",
+      description: "Sleep in background",
+      task_type: "local_bash",
+    });
+    expect(await nextEvent(it)).toEqual({
+      kind: "task_lifecycle",
+      phase: "started",
+      taskId: "b1",
+      label: "Background task started: Sleep in background",
+    });
+
+    // Foreground subagent: same SDK message pair, but no breadcrumbs — the
+    // next observable event must be the settle of the BACKGROUND task.
+    conv.emit({
+      type: "system",
+      subtype: "task_started",
+      task_id: "a1",
+      tool_use_id: "toolu_fg",
+      description: "Explore the codebase",
+      task_type: "local_agent",
+      subagent_type: "general-purpose",
+    });
+    conv.emit({
+      type: "system",
+      subtype: "task_notification",
+      task_id: "a1",
+      tool_use_id: "toolu_fg",
+      status: "completed",
+      output_file: "",
+      summary: "Explore the codebase",
+    });
+    conv.emit({
+      type: "system",
+      subtype: "task_notification",
+      task_id: "b1",
+      tool_use_id: "toolu_bg",
+      status: "completed",
+      output_file: "/tmp/b1.output",
+      summary:
+        'Background command "Sleep in background" completed (exit code 0)',
+    });
+    expect(await nextEvent(it)).toEqual({
+      kind: "task_lifecycle",
+      phase: "completed",
+      taskId: "b1",
+      label: 'Background command "Sleep in background" completed (exit code 0)',
+    });
+
+    conv.finish();
+    const final = await it.next();
+    expect(final.done).toBe(true);
+    session.close();
+  });
+
   it("emits a normalized error event when the conversation throws mid-stream", async () => {
     const fake = new FakeSdkClient();
     const { session, conv } = makeSession(fake);

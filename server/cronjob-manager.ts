@@ -624,6 +624,14 @@ How to answer questions about Isomux itself: the source lives at https://github.
         writeLog(active, "system", ev.text);
         break;
       }
+      case "task_lifecycle": {
+        // Background-task breadcrumb — same shape as the agent path so cron
+        // run transcripts also show background work start/settle.
+        writeLog(active, "system", ev.label, {
+          taskEvent: { taskId: ev.taskId, phase: ev.phase },
+        });
+        break;
+      }
       case "thinking": {
         writeLog(
           active,
