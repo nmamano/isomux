@@ -25,7 +25,14 @@
 // Zero LLM calls.
 
 import { describe, it, expect, afterEach } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "fs";
 import { join } from "path";
 import {
   startTestServer,
@@ -177,7 +184,10 @@ function logEntriesFor(sock: TestSocket, agentId: string): LogEntry[] {
 // The durable store as persisted on disk.
 function queueFile(
   srv: TestServer,
-): Record<string, { queue?: { text?: string }[]; dedupe?: Record<string, number> }> {
+): Record<
+  string,
+  { queue?: { text?: string }[]; dedupe?: Record<string, number> }
+> {
   const path = join(srv.stateRoot, "message-queues.json");
   if (!existsSync(path)) return {};
   return JSON.parse(readFileSync(path, "utf-8"));
@@ -278,7 +288,11 @@ describe("queue reliability: pendingTurn attach + stream-end backstop (da065287 
     await waitUntil(() => queueOf(server!, a.id).length === 1, 3000, "q=1");
 
     s1.endStream();
-    await waitUntil(() => stateOf(server!, a.id) === "error", 3000, "error state");
+    await waitUntil(
+      () => stateOf(server!, a.id) === "error",
+      3000,
+      "error state",
+    );
     await sleep(150);
     // Not delivered anywhere — no replacement turn raced the dying caller.
     expect(deliveryCount(server, a.id, "queued-later")).toBe(0);
@@ -347,7 +361,11 @@ describe("queue reliability: pendingTurn attach + stream-end backstop (da065287 
     await postAgentMessage(server, recv.id, sender.id, "kickoff");
     const s1 = server.fakeBackend.sessionForAgent(recv.id)!;
     await waitUntil(() => s1.sent.length === 1, 3000, "kickoff in send window");
-    await waitUntil(() => stateOf(server!, recv.id) === "thinking", 3000, "busy");
+    await waitUntil(
+      () => stateOf(server!, recv.id) === "thinking",
+      3000,
+      "busy",
+    );
 
     // NOTE: with manualSend the kickoff item itself is still queued (the drain
     // runs in onSendAccepted, which fires only when session.send resolves), so
@@ -377,7 +395,11 @@ describe("queue reliability: pendingTurn attach + stream-end backstop (da065287 
     // so the drain completes, proving the flush lifecycle is healthy end-to-end.
     const latest = server.fakeBackend.sessionForAgent(recv.id)!;
     latest.releaseSends();
-    await waitUntil(() => queueOf(server!, recv.id).length === 0, 3000, "drained");
+    await waitUntil(
+      () => queueOf(server!, recv.id).length === 0,
+      3000,
+      "drained",
+    );
   });
 });
 
@@ -399,7 +421,11 @@ describe("queue reliability: bounded consumer drain (da065287 L2)", () => {
     await postAgentMessage(server, recv.id, sender.id, "kickoff");
     const s1 = server.fakeBackend.sessionForAgent(recv.id)!;
     await waitUntil(() => s1.sent.length === 1, 3000, "kickoff sent");
-    await waitUntil(() => stateOf(server!, recv.id) === "thinking", 3000, "busy");
+    await waitUntil(
+      () => stateOf(server!, recv.id) === "thinking",
+      3000,
+      "busy",
+    );
 
     await postAgentMessage(server, recv.id, sender.id, "queued-2");
     await waitUntil(() => queueOf(server!, recv.id).length === 1, 3000, "q=1");
@@ -420,7 +446,11 @@ describe("queue reliability: bounded consumer drain (da065287 L2)", () => {
       4000,
       "delivered past the wedged drain",
     );
-    await waitUntil(() => queueOf(server!, recv.id).length === 0, 3000, "drained");
+    await waitUntil(
+      () => queueOf(server!, recv.id).length === 0,
+      3000,
+      "drained",
+    );
     // Exactly once — the wedged old session never received it.
     expect(s1.sent.some((m) => m.text.includes("queued-2"))).toBe(false);
   });
@@ -477,7 +507,11 @@ describe("queue reliability: watchdog (da065287 L3)", () => {
       3000,
       "watchdog delivered",
     );
-    await waitUntil(() => queueOf(server!, recv.id).length === 0, 3000, "drained");
+    await waitUntil(
+      () => queueOf(server!, recv.id).length === 0,
+      3000,
+      "drained",
+    );
   });
 
   it("never touches a busy agent (a long turn is not a wedge)", async () => {
@@ -489,7 +523,11 @@ describe("queue reliability: watchdog (da065287 L3)", () => {
     await postAgentMessage(server, recv.id, sender.id, "kickoff");
     const s1 = server.fakeBackend.sessionForAgent(recv.id)!;
     await waitUntil(() => s1.sent.length === 1, 3000, "kickoff sent");
-    await waitUntil(() => stateOf(server!, recv.id) === "thinking", 3000, "busy");
+    await waitUntil(
+      () => stateOf(server!, recv.id) === "thinking",
+      3000,
+      "busy",
+    );
     await postAgentMessage(server, recv.id, sender.id, "waiting");
     await waitUntil(() => queueOf(server!, recv.id).length === 1, 3000, "q=1");
 
@@ -598,7 +636,11 @@ describe("queue reliability: wake vs. swap (314ee9fb gating)", () => {
       3000,
       "delivered post-swap",
     );
-    await waitUntil(() => queueOf(server!, recv.id).length === 0, 3000, "drained");
+    await waitUntil(
+      () => queueOf(server!, recv.id).length === 0,
+      3000,
+      "drained",
+    );
     expect(agentOf(server, recv.id).privileged).toBe(true);
     // Into the replacement, never the wedged old session.
     expect(s1.sent.some((m) => m.text.includes("mid-drain"))).toBe(false);
@@ -679,7 +721,11 @@ describe("queue reliability: durable queues (9870b472)", () => {
     await postAgentMessage(server, recv.id, sender.id, "kickoff");
     const s1 = server.fakeBackend.sessionForAgent(recv.id)!;
     await waitUntil(() => s1.sent.length === 1, 3000, "kickoff sent");
-    await waitUntil(() => stateOf(server!, recv.id) === "thinking", 3000, "busy");
+    await waitUntil(
+      () => stateOf(server!, recv.id) === "thinking",
+      3000,
+      "busy",
+    );
 
     await postAgentMessage(server, recv.id, sender.id, "durable-1", "cid-d1");
     await waitUntil(() => queueOf(server!, recv.id).length === 1, 3000, "q=1");
@@ -689,7 +735,11 @@ describe("queue reliability: durable queues (9870b472)", () => {
     expect(typeof persisted?.dedupe?.["cid-d1"]).toBe("number");
 
     s1.completeTurn();
-    await waitUntil(() => queueOf(server!, recv.id).length === 0, 3000, "drained");
+    await waitUntil(
+      () => queueOf(server!, recv.id).length === 0,
+      3000,
+      "drained",
+    );
     await waitUntil(
       () => (queueFile(server!)[recv.id]?.queue?.length ?? 0) === 0,
       3000,
@@ -709,7 +759,11 @@ describe("queue reliability: durable queues (9870b472)", () => {
     // Busy via the HUMAN path (no queue-store involvement), then two queued
     // agent messages that would have been dropped by a restart pre-fix.
     await sendHuman(server, owner.rawSessionId, recv.id, "kickoff");
-    await waitUntil(() => stateOf(server!, recv.id) === "thinking", 3000, "busy");
+    await waitUntil(
+      () => stateOf(server!, recv.id) === "thinking",
+      3000,
+      "busy",
+    );
     await postAgentMessage(server, recv.id, sender.id, "m-one", "cid-1");
     await postAgentMessage(server, recv.id, sender.id, "m-two", "cid-2");
     await waitUntil(() => queueOf(server!, recv.id).length === 2, 3000, "q=2");
@@ -727,12 +781,18 @@ describe("queue reliability: durable queues (9870b472)", () => {
       5000,
       "replayed delivery",
     );
-    await waitUntil(() => queueOf(server!, recv.id).length === 0, 3000, "drained");
+    await waitUntil(
+      () => queueOf(server!, recv.id).length === 0,
+      3000,
+      "drained",
+    );
     const replaySession = sessionsFor(server, recv.id)
       .slice()
       .reverse()
       .find((s) => s.sent.some((m) => m.text.includes("m-two")))!;
-    const prompt = replaySession.sent.find((m) => m.text.includes("m-two"))!.text;
+    const prompt = replaySession.sent.find((m) =>
+      m.text.includes("m-two"),
+    )!.text;
     const prefix = formatAgentSenderPrefix(sender.id, "Sender", room.name);
     const expected = [
       "[Note: these messages were queued while you were processing your previous turn — the sender had not seen your most recent reply when they sent them.]",
@@ -749,7 +809,13 @@ describe("queue reliability: durable queues (9870b472)", () => {
 
     // The dedupe window survived the restart: a sender retry with a replayed
     // clientMessageId must not deliver twice.
-    const retry = await postAgentMessage(server, recv.id, sender.id, "m-one", "cid-1");
+    const retry = await postAgentMessage(
+      server,
+      recv.id,
+      sender.id,
+      "m-one",
+      "cid-1",
+    );
     expect(retry.status).toBe(200);
     await sleep(150);
     expect(deliveryCount(server, recv.id, "m-one")).toBe(1);
@@ -771,7 +837,12 @@ describe("queue reliability: durable queues (9870b472)", () => {
         3000,
         "busy",
       );
-      await postAgentMessage(server, target.id, sender.id, `queued-${target.id}`);
+      await postAgentMessage(
+        server,
+        target.id,
+        sender.id,
+        `queued-${target.id}`,
+      );
       await waitUntil(
         () => queueOf(server!, target.id).length === 1,
         3000,
@@ -788,7 +859,11 @@ describe("queue reliability: durable queues (9870b472)", () => {
       "POST",
       `/api/agents/${recv.id}/new-conversation`,
     );
-    await waitUntil(() => queueOf(server!, recv.id).length === 0, 3000, "cleared");
+    await waitUntil(
+      () => queueOf(server!, recv.id).length === 0,
+      3000,
+      "cleared",
+    );
     await waitUntil(
       () => (queueFile(server!)[recv.id]?.queue?.length ?? 0) === 0,
       3000,
@@ -829,7 +904,11 @@ describe("queue reliability: durable queues (9870b472)", () => {
 
     // Busy via the human path (no store write involved in the kickoff).
     await sendHuman(server, owner.rawSessionId, recv.id, "kickoff");
-    await waitUntil(() => stateOf(server!, recv.id) === "thinking", 3000, "busy");
+    await waitUntil(
+      () => stateOf(server!, recv.id) === "thinking",
+      3000,
+      "busy",
+    );
 
     // Make the durable write fail: atomicWriteFileSync renames onto the store
     // path, which cannot succeed while it is a non-empty DIRECTORY.
@@ -837,7 +916,13 @@ describe("queue reliability: durable queues (9870b472)", () => {
     mkdirSync(path);
     writeFileSync(join(path, "keep"), "x");
 
-    const failed = await postAgentMessage(server, recv.id, sender.id, "durable", "cid-p");
+    const failed = await postAgentMessage(
+      server,
+      recv.id,
+      sender.id,
+      "durable",
+      "cid-p",
+    );
     expect(failed.status).toBe(500);
     expect(failed.body.error?.code).toBe("persist_failed");
     // Rolled back: nothing queued.
@@ -846,7 +931,13 @@ describe("queue reliability: durable queues (9870b472)", () => {
     // Unblock the disk and retry with the SAME clientMessageId: the rollback
     // must have released the dedupe key, so the retry is accepted for real.
     rmSync(path, { recursive: true, force: true });
-    const retried = await postAgentMessage(server, recv.id, sender.id, "durable", "cid-p");
+    const retried = await postAgentMessage(
+      server,
+      recv.id,
+      sender.id,
+      "durable",
+      "cid-p",
+    );
     expect(retried.status).toBe(200);
     await waitUntil(() => queueOf(server!, recv.id).length === 1, 3000, "q=1");
     expect(queueFile(server)[recv.id]?.queue?.length).toBe(1);
@@ -868,22 +959,42 @@ describe("queue reliability: durable queues (9870b472)", () => {
     // Busy both via the human path (no store writes involved).
     for (const r of [recvA, recvB]) {
       await sendHuman(server, owner.rawSessionId, r.id, "kickoff");
-      await waitUntil(() => stateOf(server!, r.id) === "thinking", 3000, "busy");
+      await waitUntil(
+        () => stateOf(server!, r.id) === "thinking",
+        3000,
+        "busy",
+      );
     }
 
     // Block the disk; A's acceptance fails and rolls back.
     const path = join(server.stateRoot, "message-queues.json");
     mkdirSync(path);
     writeFileSync(join(path, "keep"), "x");
-    const failed = await postAgentMessage(server, recvA.id, sender.id, "phantom", "cid-a");
+    const failed = await postAgentMessage(
+      server,
+      recvA.id,
+      sender.id,
+      "phantom",
+      "cid-a",
+    );
     expect(failed.status).toBe(500);
     expect(queueOf(server, recvA.id).length).toBe(0);
 
     // Unblock and successfully persist for B.
     rmSync(path, { recursive: true, force: true });
-    const okB = await postAgentMessage(server, recvB.id, sender.id, "b-real", "cid-b");
+    const okB = await postAgentMessage(
+      server,
+      recvB.id,
+      sender.id,
+      "b-real",
+      "cid-b",
+    );
     expect(okB.status).toBe(200);
-    await waitUntil(() => queueOf(server!, recvB.id).length === 1, 3000, "B q=1");
+    await waitUntil(
+      () => queueOf(server!, recvB.id).length === 1,
+      3000,
+      "B q=1",
+    );
 
     // B's save must not have dragged A's rolled-back record onto disk.
     const store = queueFile(server);
