@@ -243,6 +243,7 @@ const SPEC_ROUTE_CONTRACT: Record<
     emits: ["room_closed", "user_updated", "users_list"],
   },
   "rooms.rename": { caps: ["room:manage"], emits: ["room_renamed"] },
+  "rooms.getSettings": { caps: ["room:manage"], emits: [] },
   "rooms.setSettings": {
     caps: ["room:manage"],
     emits: ["room_settings_updated"],

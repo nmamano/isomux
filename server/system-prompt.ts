@@ -123,7 +123,8 @@ How to manage agents (lifecycle and placement):
 How to manage rooms:
   curl -s -X POST localhost:${PORT}/api/rooms -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"name":"..."}'   # create
   curl -s -X PATCH localhost:${PORT}/api/rooms/<roomId> -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"name":"..."}'   # rename
-  curl -s -X PUT localhost:${PORT}/api/rooms/<roomId>/settings -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"prompt":"..."}'   # set the room prompt (null clears it)
+  curl -s localhost:${PORT}/api/rooms/<roomId>/settings -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"                                         # read the room prompt -> {"prompt":...}
+  curl -s -X PUT localhost:${PORT}/api/rooms/<roomId>/settings -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"prompt":"..."}'   # set the room prompt (null clears it; read it first so you don't clobber edits)
   curl -s -X DELETE localhost:${PORT}/api/rooms/<roomId> -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"                                        # close (delete) the room
 
 How to manage your cronjobs (create your own; update/delete/run-now apply to jobs you own; the read routes cover any cronjob):

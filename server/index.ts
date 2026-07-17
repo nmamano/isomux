@@ -1920,6 +1920,10 @@ function buildExecutorDeps(): ExecutorDeps {
         return true;
       },
       rename: (roomId, name) => agentManager.renameRoom(roomId, name),
+      getSettings: (roomId) => {
+        const room = agentManager.getRooms().find((r) => r.id === roomId);
+        return room ? { prompt: room.prompt } : null;
+      },
       setSettings: (roomId, prompt) =>
         agentManager.setRoomSettings(roomId, prompt),
     }),

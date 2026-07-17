@@ -147,14 +147,24 @@ describe("privileged agent: room management (Nil-approved expansion)", () => {
   it("creates rooms (office-wide) and manages rooms it can access", () => {
     expect(can("rooms.create", privilegedAgent)).toBe(true);
     expect(can("rooms.create", normalAgent)).toBe(false); // no room:manage
-    for (const op of ["rooms.rename", "rooms.setSettings", "rooms.close"]) {
+    for (const op of [
+      "rooms.rename",
+      "rooms.getSettings",
+      "rooms.setSettings",
+      "rooms.close",
+    ]) {
       expect(can(op, privilegedAgent, ROOM_PARAMS)).toBe(true); // room access granted
       expect(can(op, normalAgent, ROOM_PARAMS)).toBe(false); // stage-1 block
     }
   });
-  it("is bounded to rooms its spawning user can access (no rename/settings/close on an unreachable room)", () => {
+  it("is bounded to rooms its spawning user can access (no rename/settings read-or-write/close on an unreachable room)", () => {
     const noAccess = deps({ hasRoomAccess: () => false });
-    for (const op of ["rooms.rename", "rooms.setSettings", "rooms.close"]) {
+    for (const op of [
+      "rooms.rename",
+      "rooms.getSettings",
+      "rooms.setSettings",
+      "rooms.close",
+    ]) {
       expect(can(op, privilegedAgent, ROOM_PARAMS, undefined, noAccess)).toBe(
         false,
       );

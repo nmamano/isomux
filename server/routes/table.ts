@@ -500,6 +500,17 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("room:manage", roomParam("roomId")),
     emits: ["room_renamed"],
   }),
+  // Read side of the settings pair: same ACL as the PUT below, so anyone who
+  // can rewrite a room prompt can first read what they'd be overwriting
+  // (agents previously had no sanctioned read — the prompt only rode the WS
+  // office state).
+  defineRoute<void, { prompt: string | null }>({
+    opId: "rooms.getSettings",
+    method: "GET",
+    path: "/api/rooms/:roomId/settings",
+    auth: cap("room:manage", roomParam("roomId")),
+    emits: [],
+  }),
   defineRoute<RoomSettingsReq, NoContent>({
     opId: "rooms.setSettings",
     method: "PUT",

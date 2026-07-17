@@ -1,7 +1,9 @@
 // Room resource handlers — Phase 3d slice 6 (rooms CRUD). The room-structure
 // mutation surface (opIds rooms.{create,close,rename,setSettings}) on the
-// unified REST surface. The route table gates create with room:manage +
-// authenticated, and close/rename/setSettings with room:manage +
+// unified REST surface, plus the read side of the settings pair
+// (rooms.getSettings — same ACL as the PUT, so a writer can read the prompt
+// it would overwrite). The route table gates create with room:manage +
+// authenticated, and close/rename/getSettings/setSettings with room:manage +
 // requiresRoomAccess(:roomId).
 //
 // Strangler EXPAND+CUT in one slice: 3a/3b declared these routes in the table
@@ -15,7 +17,8 @@
 // keeps these handlers contract-shaped, not office-runtime-shaped.
 //
 // NO-ORACLE / owner-diagnostic (Follow-up #6): close/rename/setSettings return
-// false from the core when the room does not exist, which the handler renders as
+// false from the core when the room does not exist (getSettings returns null),
+// which the handler renders as
 // 404 "Room not found". Under rule-based access an OWNER passes the
 // requiresRoomAccess guard even for an unknown id (canAccess(owner, anyId) is
 // true), so the owner reaches this 404; a MEMBER without access is denied at the
@@ -24,7 +27,13 @@
 //
 // LEAF over the executor + the injected RoomsDeps.
 
-import { created, noContent, fail, type RouteHandler } from "../executor.ts";
+import {
+  ok,
+  created,
+  noContent,
+  fail,
+  type RouteHandler,
+} from "../executor.ts";
 import type { RoomWire } from "../../../shared/types.ts";
 
 export interface RoomsDeps {
@@ -41,6 +50,9 @@ export interface RoomsDeps {
   close(roomId: string): boolean;
   // Renames a room. Returns false if the room does not exist (→ 404).
   rename(roomId: string, name: string): boolean;
+  // Reads a room's settings (the prompt; null means no prompt set). Returns
+  // null if the room does not exist (→ 404).
+  getSettings(roomId: string): { prompt: string | null } | null;
   // Sets a room's prompt (null clears). Returns false if the room does not exist
   // (→ 404).
   setSettings(roomId: string, prompt: string | null): boolean;
@@ -71,6 +83,13 @@ export function roomsHandlers(deps: RoomsDeps): Record<string, RouteHandler> {
       if (!name) return fail(422, "invalid_name", "name is required");
       return deps.rename(ctx.params.roomId, name)
         ? noContent()
+        : fail(404, "room_not_found", "Room not found");
+    },
+
+    "rooms.getSettings": (ctx) => {
+      const settings = deps.getSettings(ctx.params.roomId);
+      return settings
+        ? ok(settings)
         : fail(404, "room_not_found", "Room not found");
     },
 
