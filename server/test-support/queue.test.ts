@@ -922,7 +922,7 @@ describe("queue: flush cancelled pre-send (task d7c879da)", () => {
     expect(entries.some((e) => e.content.includes(NOISE))).toBe(false);
   });
 
-  it("an unexpected session swap in the same window still surfaces the 'will retry' message", async () => {
+  it("an unexpected session swap in the same window surfaces 'will retry' AND actually retries post-swap", async () => {
     server = await startTestServer({ fakeBackend: parkingBackend() });
     const owner = await server.seedOwner("Boss");
     const { recv, sock, openGate } = await parkFlushPreSend(
@@ -949,11 +949,25 @@ describe("queue: flush cancelled pre-send (task d7c879da)", () => {
     );
     await swapDone;
 
-    // The undelivered item stays queued for a later flush (today's contract:
-    // setPrivileged doesn't produce a post-swap idle transition, so no retry
-    // fires until the next one — the message is what tells the user their
-    // queued item didn't go out with this swap).
-    expect(queueOf(server, recv.id).length).toBe(1);
+    // Task 314ee9fb: the promised retry now actually fires. replaceSession's
+    // post-swap normalization + flush kick drain the queued item into the
+    // POST-swap session (pre-fix contract: the item sat queued until an
+    // unrelated state change, with the agent stranded visibly busy).
+    await waitUntil(
+      () => queueOf(server!, recv.id).length === 0,
+      3000,
+      "queued item drained post-swap",
+    );
+    const delivered = server.fakeBackend.sessions
+      .filter((s) => s.opts.agentId === recv.id)
+      .some((s) => s.sent.some((m) => m.text.includes("queued-1")));
+    expect(delivered).toBe(true);
+    // And the agent is reachable again, not stranded in a dead busy state.
+    await waitUntil(
+      () => stateOf(server!, recv.id) === "thinking",
+      2000,
+      "delivery turn started",
+    );
   });
 });
 

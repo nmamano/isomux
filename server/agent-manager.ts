@@ -53,6 +53,8 @@ import {
   readEnvFile,
   loadAgentHistory,
   saveAgentHistory,
+  loadMessageQueuesRaw,
+  saveMessageQueues,
   saveFile as savePersistedFile,
   type PersistedAgent,
   type Room,
@@ -320,6 +322,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         `Cleared ${queuedCount} queued message${queuedCount === 1 ? "" : "s"} because the backend is not configured.`,
       );
       emitQueueUpdate(agentId, managed);
+      persistQueueState(agentId, managed);
     }
     updateState(agentId, "waiting_for_response");
   }
@@ -1271,10 +1274,22 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       lastWrittenEntryId: null,
       messageQueue: [],
       flushInProgress: false,
+      flushStartedAt: 0,
+      lastForcedRecoveryAt: 0,
       queueDedupe: new Map(),
       lastActiveAt: Date.now(),
       dormantReason: opts.lazy ? "boot" : null,
     };
+    // Durable queue replay (task 9870b472): re-seed the queue + dedupe window
+    // persisted by the previous run so a restart doesn't drop queued messages
+    // (delivery order preserved; expired dedupe keys dropped). restoreAgents
+    // kicks a flush for every non-empty replayed queue after the loop. A
+    // revived agent has no record (kill removes it), so this no-ops there.
+    const persisted = readPersistedQueueRecord(p.id);
+    if (persisted) {
+      managed.messageQueue = persisted.queue;
+      managed.queueDedupe = persisted.dedupe;
+    }
     agents.set(p.id, managed);
     // Mint (or rotate, on revive) the agent's bearer token before any
     // createSession/resumeSession below reads it via buildSessionEnv. Boot
@@ -1440,6 +1455,44 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     persistAll();
     officeState.setTasksDirect(loadTasks());
     officeStatePersistenceEnabled = true;
+    // Durable-queue hygiene (task 9870b472): drop records for agents that no
+    // longer exist (e.g. killed while the store write failed, or removed from
+    // agents.json by hand). Copy-on-success like every store write: the cache
+    // only advances to the pruned view once it is actually on disk.
+    {
+      const stale = Object.keys(queueStore()).filter((k) => !agents.has(k));
+      if (stale.length > 0) {
+        const next = { ...queueStore() };
+        for (const key of stale) delete next[key];
+        try {
+          saveMessageQueues(next);
+          queueStoreCache = next;
+        } catch (err) {
+          console.error(
+            "Failed to prune stale message-queue records:",
+            errMessage(err),
+          );
+        }
+      }
+    }
+    // Boot replay kick: resume delivery exactly where the restart cut it off.
+    // Fire-and-forget — each flush wakes its (dormant) agent via the !session
+    // resume branch. Plugin hooks are configured before restoreAgents runs
+    // (see index.ts boot ordering), so runAgentTurn is safe to enter. The
+    // queue watchdog is the backstop if any kick is lost.
+    for (const [agentId, m] of agents) {
+      if (m.messageQueue.length > 0) {
+        console.log(
+          `Replaying ${m.messageQueue.length} queued message(s) for ${m.info.name} (${agentId})`,
+        );
+        flushQueue(agentId).catch((err: unknown) => {
+          console.error(
+            `flushQueue (boot-replay) failed for ${agentId}:`,
+            errMessage(err),
+          );
+        });
+      }
+    }
     return [...agents.values()].map((a) => a.info);
   }
 
@@ -2445,7 +2498,12 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // crashes the server. Same pattern as JsonRpcLiteClient.request() in
     // backends/codex/client.ts.
     promise.catch(() => {});
-    managed.pendingTurn = { resolve, reject };
+    // The promise rides on the record so waiters (flushQueue's in-flight-turn
+    // handoff, tryHotAbort) can ATTACH to it instead of replacing the record
+    // with a delegating wrapper — see the pendingTurn field comment in
+    // internal-types.ts for why replacement is forbidden (lost-wakeup hole,
+    // task da065287).
+    managed.pendingTurn = { promise, resolve, reject };
     return promise;
   }
 
@@ -2500,6 +2558,81 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         )
           continue;
         processNormalizedEvent(agentId, ev);
+      }
+      // CLEAN stream end while still bound (no throw, no swap, not aborting):
+      // the backend's stream ended on its own — subprocess death the adapter
+      // didn't surface as an error event. Two hazards if we just return:
+      //   1. a still-owned pendingTurn never settles, permanently stranding
+      //      every `await turn` waiter (sendMessage, a parked flushQueue —
+      //      the task da065287 wedge class);
+      //   2. managed.session keeps pointing at a corpse, so the next message
+      //      sends into a dead session instead of waking a fresh one.
+      // Settle any owned turn, release the pointer (dormant flip mirrors
+      // closeAndDrainSession), and — ONLY in the no-owner/pre-send branch —
+      // normalize the busy state back to waiting_for_response
+      // (enqueueMessage treats thinking/tool_executing as busy and flushQueue
+      // rejects non-idle states, so a stuck busy state with no owning caller
+      // would strand queued messages forever). The mid-turn branch performs
+      // NO state transition; see its comment. All guarded on still-bound +
+      // still-alive so a replacement consumer or a killed agent is untouched.
+      // No-op when adapters behave (they emit an error or a synthetic
+      // turn_completed before ending the stream).
+      if (
+        agents.get(agentId) === managed &&
+        managed.session === boundSession &&
+        !managed.aborting
+      ) {
+        const turn = managed.pendingTurn;
+        managed.pendingTurn = null;
+        managed.session = null;
+        managed.consumerPromise = null;
+        managed.dormantReason = "stream-ended";
+        // Any turn still in its PRE-SEND window (plugin retrieval; no
+        // pendingTurn installed) must bail at its next checkpoint rather than
+        // send into whatever session exists by then — same mechanism
+        // closeAndDrainSession uses. Harmless when a post-send turn existed
+        // (it is settled via the rejection below).
+        managed.turnCancelToken++;
+        for (const event of officeState.updateAgent(agentId, {
+          dormant: true,
+        }))
+          emit(event);
+        if (turn) {
+          // Mid-turn death: settle the turn and let its OWNING caller's catch
+          // (sendMessage / flushQueue) produce the normal loud error state.
+          // Deliberately NO state transition here (review-pinned): a
+          // synchronous flip to waiting_for_response would fire the queue
+          // trigger and could start a replacement turn BEFORE the rejected
+          // caller's continuation runs — which would then stamp state=error
+          // over a live turn and interfere with its lifecycle. Queued items
+          // stay durable and deliver after human recovery.
+          try {
+            turn.reject(
+              new Error("Backend stream ended unexpectedly mid-turn."),
+            );
+          } catch {}
+          addLogEntry(
+            agentId,
+            "error",
+            "Backend stream ended unexpectedly mid-turn.",
+          );
+        } else {
+          console.warn(
+            `Agent ${agentId}: backend stream ended while idle; released the dead session (next message resumes).`,
+          );
+          if (
+            managed.info.state === "thinking" ||
+            managed.info.state === "tool_executing"
+          ) {
+            // No-owner window only (pre-send: busy state claimed, pendingTurn
+            // not yet installed — no caller catch will ever reset the state):
+            // normalize so the agent is reachable again. Fires the queue-flush
+            // trigger when items are waiting, which wakes a fresh session via
+            // the !session branch; the token bump above guarantees the dead
+            // pre-send turn can't also send.
+            updateState(agentId, "waiting_for_response");
+          }
+        }
       }
     } catch (err) {
       if (managed.aborting || managed.session !== boundSession) {
@@ -2620,12 +2753,62 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return managed.info;
   }
 
+  // Upper bound on waiting for a closed session's consumer to drain. A
+  // BackendSession whose stream() never returns after close() (wedged
+  // subprocess / adapter bug) used to park closeAndDrainSession — and
+  // everything stacked behind it (abort's finally, abortPromise, a flushQueue
+  // parked on abortPromise) — FOREVER, wedging all message delivery for the
+  // agent (task da065287). After this timeout we log loudly and proceed.
+  // KNOWN RISK, accepted deliberately: proceeding without a full drain means
+  // the wedged old subprocess may still hold the shared session .jsonl while
+  // a --resume replacement starts writing it (the drain-before-install
+  // rationale in the replaceSession header). A rare corrupted resume beats a
+  // permanent office-visible wedge; runConsumer's bound-session guard already
+  // discards any late in-memory events from the zombie stream. BackendSession
+  // exposes no harder termination primitive than close() today — if adapters
+  // grow a hard-kill, the timeout path below should call it before
+  // proceeding. Test-overridable via _testSetConsumerDrainTimeout.
+  const CONSUMER_DRAIN_TIMEOUT_MS = 15_000;
+  let consumerDrainTimeoutMs = CONSUMER_DRAIN_TIMEOUT_MS;
+
+  // Await a (possibly wedged) consumer with the bounded-drain policy above.
+  // Returns true if the consumer drained, false on timeout. Never throws.
+  async function drainConsumerBounded(
+    agentId: string,
+    consumer: Promise<void>,
+  ): Promise<boolean> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let timedOut = false;
+    try {
+      await Promise.race([
+        consumer.catch(() => {}),
+        new Promise<void>((res) => {
+          timer = setTimeout(() => {
+            timedOut = true;
+            res();
+          }, consumerDrainTimeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+    if (timedOut) {
+      console.error(
+        `Agent ${agentId}: session consumer did not drain within ${consumerDrainTimeoutMs}ms; ` +
+          `proceeding without a full drain (the old subprocess may still be alive — ` +
+          `see the .jsonl overlap note at CONSUMER_DRAIN_TIMEOUT_MS).`,
+      );
+    }
+    return !timedOut;
+  }
+
   // Close the agent's live session and drain its consumer, leaving it dormant
   // (session === null, no subprocess). Shared by replaceSession (installs a
   // replacement right after) and demoteToLazy (doesn't). Bumps turnCancelToken
   // so any concurrent pre-send turn bails, rejects the in-flight turn, sets
-  // info.dormant in lockstep with session, and awaits the old consumer so the
-  // dying subprocess never overlaps whatever installs next. CALLERS MUST NOT
+  // info.dormant in lockstep with session, and awaits the old consumer (with
+  // the bounded-drain policy above) so the dying subprocess never overlaps
+  // whatever installs next. CALLERS MUST NOT
   // mutate session-related state after this resolves without re-checking — a
   // message arriving during the drain await may already have woken a fresh
   // session via flushQueue.
@@ -2647,9 +2830,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     for (const event of officeState.updateAgent(agentId, { dormant: true }))
       emit(event);
     if (oldConsumer) {
-      try {
-        await oldConsumer;
-      } catch {}
+      await drainConsumerBounded(agentId, oldConsumer);
     }
   }
 
@@ -2658,24 +2839,75 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     managed: ManagedAgent,
     newSession: BackendSession,
   ) {
-    // /clear, /resume, /model, /effort, edit-fork, abort's slow path, and
-    // setPrivileged all funnel through here. closeAndDrainSession bumps the
+    // /clear, /resume, /model, /effort, edit-fork, abort's slow path,
+    // setPrivileged, and the queue watchdog's forced recovery all funnel
+    // through here. closeAndDrainSession bumps the
     // cancel token (covers concurrent pre-send turns, same as before) and flips
     // dormant=true; installSession flips it back. The transient dormant blip is
     // invisible (v1 renders no badge) and sessionSwapping already covers the UI
     // for the ~3s drain window.
+    let installedByUs = false;
     for (const event of officeState.updateAgent(agentId, {
       sessionSwapping: true,
     }))
       emit(event);
     try {
       await closeAndDrainSession(agentId, managed);
-      installSession(agentId, managed, newSession);
+      // Conditional install (task 314ee9fb): during the drain await the
+      // session slot is null, and a concurrent installer can legitimately win
+      // it — flushQueue's wake branch defers to us via its sessionSwapping
+      // guard, but sendMessage's wakeSessionForSend does not. If someone won,
+      // do NOT clobber their live session (the old behavior left their
+      // in-flight turn sending into a foreign session); close our
+      // never-installed replacement instead. Residual race for callers that
+      // need THEIR specific session installed (/resume pick, edit-fork): the
+      // concurrent wake now wins and the pick no-ops — rarer and safer than
+      // cross-thread delivery; full swap/wake serialization is task 154e2c14.
+      if (managed.session === null) {
+        installSession(agentId, managed, newSession);
+        installedByUs = true;
+      } else {
+        try {
+          newSession.close();
+        } catch {}
+        console.warn(
+          `Agent ${agentId}: a concurrent wake installed a session during the swap drain; keeping it and discarding the replacement.`,
+        );
+      }
     } finally {
       for (const event of officeState.updateAgent(agentId, {
         sessionSwapping: false,
       }))
         emit(event);
+    }
+    if (agents.get(agentId) !== managed) return; // killed during the drain
+    // Post-swap dead-turn normalization (task 314ee9fb): only when WE
+    // installed (atomic with the null-check above — no await between), any
+    // pre-swap turn is provably dead (closeAndDrainSession rejected or
+    // token-cancelled it) and no new turn can exist (a wake would have
+    // installed a session, contradicting ownership), so a lingering busy
+    // state is a lie. Out-of-band swaps (setPrivileged, /model, /effort)
+    // used to strand the agent visibly "thinking" forever here.
+    if (
+      installedByUs &&
+      !managed.pendingTurn &&
+      (managed.info.state === "thinking" ||
+        managed.info.state === "tool_executing")
+    ) {
+      updateState(agentId, "waiting_for_response");
+    }
+    // Post-swap flush kick (task 314ee9fb): a flush cancelled pre-send by this
+    // swap left its items queued, and a wake that deferred to us (the
+    // sessionSwapping guard) never happened — neither gets retried by a state
+    // transition when the agent was already idle, so kick explicitly.
+    // flushQueue re-checks state/queue/flow/flushInProgress itself.
+    if (managed.messageQueue.length > 0) {
+      flushQueue(agentId).catch((err: unknown) => {
+        console.error(
+          `flushQueue (post-swap) failed for ${agentId}:`,
+          errMessage(err),
+        );
+      });
     }
   }
 
@@ -2692,9 +2924,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // agent was released for idleness; a lazy-restored one was released by a
   // server (re)start. A genuine crash uses each wake path's own wording.
   function dormantWakeMessage(reason: ManagedAgent["dormantReason"]): string {
-    return reason === "boot"
-      ? "Resumed your session after the server restarted."
-      : "Resumed your session (it was released while idle to save memory).";
+    if (reason === "boot")
+      return "Resumed your session after the server restarted.";
+    if (reason === "stream-ended")
+      return "Resumed your session after the backend stream ended unexpectedly.";
+    return "Resumed your session (it was released while idle to save memory).";
   }
 
   // Synchronous guard: only demote a fully-quiescent, resumable live agent.
@@ -2752,6 +2986,96 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       if (await demoteToLazy(agentId)) demoted++;
     }
     return demoted;
+  }
+
+  // --- Queue delivery watchdog (task da065287, layer 3) ----------------------
+  // Self-heal sweep for the invariant "a queued message cannot sit
+  // indefinitely while the agent is idle". Driven by a 30s interval in
+  // index.ts's import.meta.main block (tests call it directly, like
+  // sweepIdleAgents). It only ever acts on the stuck SIGNATURE — idle-state
+  // agent, non-empty queue, no multi-step flow — which excludes every
+  // legitimate wait: a running turn holds thinking/tool_executing (busy states
+  // are deliberately never watchdogged: a long turn is indistinguishable from
+  // a hung one), permission/pick flows are inMultiStepFlow, and normal
+  // handoffs/aborts resolve well under the deadline.
+  //
+  // Two actions:
+  //   - No flush in progress + oldest item older than stuckMs: a trigger was
+  //     missed somewhere — just flushQueue() (idempotent, benign).
+  //   - A flush in progress whose flushStartedAt is older than stuckMs: the
+  //     flush is wedged on some await that never settled. Recovery reuses
+  //     abort's slow-path machinery — a bounded session replacement — which
+  //     settles the zombie through existing channels (turnCancelToken bump for
+  //     pre-send, pendingTurn rejection for handoff/await-turn, session close
+  //     for in-send) so the zombie's OWN catch/finally clears flushInProgress
+  //     and re-fires the flush. flushInProgress is NEVER force-cleared here:
+  //     that would allow two live flushes and a double-send (review-pinned).
+  //     Residue: an adapter whose send() neither settles nor reacts to
+  //     close() keeps the flag held — and later replacements cannot settle it
+  //     either (its pendingTurn was already rejected on the first attempt) —
+  //     so forced recovery is rate-limited per agent and escalates via logs
+  //     rather than replacing sessions every sweep. That terminal behavior is
+  //     deliberate and documented; the 60s guarantee does not cover an
+  //     adapter that violates close/send teardown.
+  const QUEUE_WATCHDOG_STUCK_MS = 60_000;
+  const FORCED_RECOVERY_COOLDOWN_MS = 5 * 60_000;
+
+  async function sweepStuckFlushes(
+    stuckMs: number = QUEUE_WATCHDOG_STUCK_MS,
+  ): Promise<number> {
+    const now = Date.now();
+    let acted = 0;
+    for (const [agentId, managed] of [...agents.entries()]) {
+      if (agents.get(agentId) !== managed) continue; // killed mid-sweep
+      if (managed.messageQueue.length === 0) continue;
+      if (!isQueueIdleState(managed.info.state)) continue;
+      if (inMultiStepFlow(managed)) continue;
+      // A swap owns its own retry via the post-swap kick.
+      if (managed.info.sessionSwapping) continue;
+      if (!managed.flushInProgress) {
+        const oldest = managed.messageQueue[0]?.queuedAt ?? now;
+        if (now - oldest < stuckMs) continue;
+        console.warn(
+          `[queue-watchdog] ${managed.info.name} (${agentId}): ${managed.messageQueue.length} message(s) queued while idle for ${now - oldest}ms with no flush in progress; re-triggering flush`,
+        );
+        flushQueue(agentId).catch((err: unknown) => {
+          console.error(
+            `flushQueue (watchdog) failed for ${agentId}:`,
+            errMessage(err),
+          );
+        });
+        acted++;
+        continue;
+      }
+      if (now - managed.flushStartedAt < stuckMs) continue;
+      if (now - managed.lastForcedRecoveryAt < FORCED_RECOVERY_COOLDOWN_MS)
+        continue;
+      managed.lastForcedRecoveryAt = now;
+      console.error(
+        `[queue-watchdog] ${managed.info.name} (${agentId}): flush stuck for ${now - managed.flushStartedAt}ms with ${managed.messageQueue.length} message(s) queued; forcing recovery via session replacement`,
+      );
+      addLogEntry(agentId, "system", "Message delivery stalled; recovering.");
+      try {
+        // Same resume-or-fresh dance as abort's slow path.
+        const sessionId = pickAutoResumeSessionId(managed);
+        if (managed.sessionId && !sessionId)
+          clearStaleAutoResumeState(agentId, managed);
+        await replaceSession(
+          agentId,
+          managed,
+          sessionId
+            ? createSession(managed, sessionId)
+            : createSession(managed),
+        );
+        acted++;
+      } catch (err) {
+        console.error(
+          `[queue-watchdog] forced recovery failed for ${agentId}:`,
+          errMessage(err),
+        );
+      }
+    }
+    return acted;
   }
 
   // Merge process.env with office and the agent owner's user env files.
@@ -3077,6 +3401,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       lastWrittenEntryId: null,
       messageQueue: [],
       flushInProgress: false,
+      flushStartedAt: 0,
+      lastForcedRecoveryAt: 0,
       queueDedupe: new Map(),
       lastActiveAt: Date.now(),
       dormantReason: null,
@@ -3257,6 +3583,141 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     });
   }
 
+  // --- Durable message queues (task 9870b472) --------------------------------
+  // The live queue + dedupe window are mirrored to ~/.isomux/message-queues.json
+  // and replayed at boot so a restart no longer drops queued messages.
+  // Acceptance (enqueueMessage) persists TRANSACTIONALLY (throw → roll back →
+  // 500 persist_failed, so the sender knows to retry); every post-accept
+  // mutation persists best-effort via persistQueueState — the backend already
+  // accepted (or the user explicitly cleared), so stale disk merely widens
+  // at-least-once replay. emitQueueUpdate stays free of disk I/O on purpose;
+  // each mutation site calls the persist helper explicitly.
+
+  let queueStoreCache: Record<string, unknown> | null = null;
+  function queueStore(): Record<string, unknown> {
+    if (!queueStoreCache) queueStoreCache = loadMessageQueuesRaw();
+    return queueStoreCache;
+  }
+
+  // Narrow an unknown loaded item to a QueuedMessage. Strict on the fields the
+  // flush path reads (id/text/queuedAt/sender shape); parity-loose on optional
+  // extras (sdkText/attachments/scheduledFor), matching the boundary style of
+  // malformedSendFields.
+  function isValidQueuedMessage(v: unknown): v is QueuedMessage {
+    if (typeof v !== "object" || v === null) return false;
+    const r = v as Record<string, unknown>;
+    if (
+      typeof r.id !== "string" ||
+      typeof r.text !== "string" ||
+      typeof r.queuedAt !== "number"
+    )
+      return false;
+    const s = r.sender as Record<string, unknown> | null | undefined;
+    if (typeof s !== "object" || s === null) return false;
+    if (s.kind === "user") return true;
+    if (s.kind === "agent")
+      return (
+        typeof s.agentId === "string" &&
+        typeof s.agentName === "string" &&
+        typeof s.roomName === "string"
+      );
+    return false;
+  }
+
+  // Snapshot the agent's durable record, or null when there is nothing worth
+  // keeping (empty queue, no unexpired dedupe keys).
+  function buildQueueRecord(
+    managed: ManagedAgent,
+  ): { queue: QueuedMessage[]; dedupe: Record<string, number> } | null {
+    const now = Date.now();
+    const dedupe: Record<string, number> = {};
+    for (const [k, v] of managed.queueDedupe) if (v > now) dedupe[k] = v;
+    if (managed.messageQueue.length === 0 && Object.keys(dedupe).length === 0)
+      return null;
+    return { queue: [...managed.messageQueue], dedupe };
+  }
+
+  // THROWS — the transactional acceptance path in enqueueMessage.
+  // COPY-ON-SUCCESS (review-pinned): mutate a copy, write it, and only commit
+  // the copy to the cache after the write succeeds. Mutating the live cache
+  // before a failed save would leave a phantom record that the NEXT successful
+  // save (for any agent) silently resurrects — a message whose sender was told
+  // 500 would come back from the dead on the following restart. The cache must
+  // always mirror the last successfully-persisted disk state.
+  function persistQueueStateThrow(agentId: string, managed: ManagedAgent) {
+    const next = { ...queueStore() };
+    const rec = buildQueueRecord(managed);
+    if (rec === null) delete next[agentId];
+    else next[agentId] = rec;
+    saveMessageQueues(next);
+    queueStoreCache = next;
+  }
+
+  // Best-effort — every post-accept mutation site.
+  function persistQueueState(agentId: string, managed: ManagedAgent) {
+    try {
+      persistQueueStateThrow(agentId, managed);
+    } catch (err) {
+      console.error(
+        `Failed to persist message queue for ${agentId} (durability degraded; live delivery unaffected):`,
+        errMessage(err),
+      );
+    }
+  }
+
+  // Best-effort removal — kill(). Copy-on-success, same rationale as above.
+  function removeQueueRecord(agentId: string) {
+    try {
+      if (!(agentId in queueStore())) return;
+      const next = { ...queueStore() };
+      delete next[agentId];
+      saveMessageQueues(next);
+      queueStoreCache = next;
+    } catch (err) {
+      console.error(
+        `Failed to remove persisted message queue for ${agentId}:`,
+        errMessage(err),
+      );
+    }
+  }
+
+  // Boot-replay read: validate one persisted record. Invalid items are dropped
+  // with a log line; expired dedupe keys are dropped silently.
+  function readPersistedQueueRecord(
+    agentId: string,
+  ): { queue: QueuedMessage[]; dedupe: Map<string, number> } | null {
+    const raw = queueStore()[agentId];
+    if (typeof raw !== "object" || raw === null) return null;
+    const r = raw as Record<string, unknown>;
+    const queue: QueuedMessage[] = [];
+    if (Array.isArray(r.queue)) {
+      for (const item of r.queue) {
+        if (isValidQueuedMessage(item)) queue.push(item);
+        else
+          console.error(
+            `Dropping invalid persisted queued message for ${agentId}:`,
+            JSON.stringify(item)?.slice(0, 200),
+          );
+      }
+    }
+    const dedupe = new Map<string, number>();
+    const now = Date.now();
+    if (
+      typeof r.dedupe === "object" &&
+      r.dedupe !== null &&
+      !Array.isArray(r.dedupe)
+    ) {
+      for (const [k, v] of Object.entries(
+        r.dedupe as Record<string, unknown>,
+      )) {
+        if (typeof v === "number" && Number.isFinite(v) && v > now)
+          dedupe.set(k, v);
+      }
+    }
+    if (queue.length === 0 && dedupe.size === 0) return null;
+    return { queue, dedupe };
+  }
+
   function generateQueuedId(existing: QueuedMessage[]): string {
     const ids = new Set(existing.map((m) => m.id));
     for (;;) {
@@ -3349,8 +3810,25 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       attachments: msg.attachments,
       queuedAt: Date.now(),
     });
-    emitQueueUpdate(agentId, managed);
+    // Transactional acceptance (task 9870b472): item + dedupe key land in
+    // memory, then ONE combined durable write. On failure both are rolled back
+    // and the request fails — acking a message the disk never saw would be
+    // silent loss on restart, hiding the retry signal from the sender.
+    // (recordDedupe's lazy pruning of OTHER expired keys needn't roll back;
+    // only the submitted key must.) Emit/flush happen only after the persist.
     if (msg.clientMessageId) recordDedupe(managed, msg.clientMessageId);
+    try {
+      persistQueueStateThrow(agentId, managed);
+    } catch (err) {
+      managed.messageQueue.pop();
+      if (msg.clientMessageId) managed.queueDedupe.delete(msg.clientMessageId);
+      console.error(
+        `Failed to persist queued message for ${agentId}; rejecting the send:`,
+        errMessage(err),
+      );
+      return { ok: false, error: "persist_failed", status: 500 };
+    }
+    emitQueueUpdate(agentId, managed);
 
     // Idle/waiting_for_response with no multi-step in flight: kick off a flush
     // immediately. flushQueue is gated by flushInProgress and re-checks state
@@ -3374,31 +3852,26 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     if (managed.messageQueue.length === 0) return;
 
     managed.flushInProgress = true;
+    managed.flushStartedAt = Date.now();
     try {
       // Wait for any in-flight turn to truly end before starting a new one. The
       // trigger from updateState fires synchronously inside processMessage,
       // before runConsumer's post-loop code can clear the about-to-resolve
       // pendingTurn — without this wait, createTurnDeferred below would reject
       // that turn and surface a bogus "Superseded" error to the original caller.
-      // Wraps the existing deferred so we wake on either resolve or reject.
-      if (managed.pendingTurn) {
-        const original = managed.pendingTurn;
-        await new Promise<void>((wakeUp) => {
-          managed.pendingTurn = {
-            resolve: () => {
-              original.resolve();
-              wakeUp();
-            },
-            reject: (e: unknown) => {
-              original.reject(e);
-              wakeUp();
-            },
-          };
-        });
+      // ATTACH to the deferred's promise (snapshot once — the slot may be
+      // nulled by the settle path while we're parked); never replace the
+      // record with a wrapper. A wrapper could be orphaned by any settle that
+      // bypasses managed.pendingTurn (e.g. runAgentTurn's send-throw cleanup,
+      // which rejects only the record it installed), permanently stranding
+      // flushInProgress — the task da065287 lost-wakeup bug.
+      {
+        const pending = managed.pendingTurn;
+        if (pending) await pending.promise.catch(() => {});
       }
       // Re-check post-wait — state and queue can change while we waited. The
-      // agents.has() guard catches a kill() during the wait: kill rejects the
-      // pendingTurn wrapper (waking us) and removes the agent from the map but
+      // agents.has() guard catches a kill() during the wait: kill settles the
+      // pendingTurn deferred (waking us) and removes the agent from the map but
       // doesn't update state, so without this check the session-recovery branch
       // below would spawn an SDK subprocess for a deleted agent.
       if (!agents.has(agentId)) return;
@@ -3417,6 +3890,12 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         if (managed.messageQueue.length === 0) return;
       }
       if (!managed.session) {
+        // A session swap is mid-drain (replaceSession's closeAndDrainSession
+        // nulls the session before awaiting the old consumer). Don't race it
+        // by installing a wake session the swap would then have to yield to —
+        // bail and let replaceSession's post-swap flush kick re-fire us
+        // against the properly installed session (task 314ee9fb).
+        if (managed.info.sessionSwapping) return;
         try {
           // Capture before installSession clears them: a clean wake (idle
           // eviction or restart) gets an accurate calm message; only a genuine
@@ -3575,6 +4054,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
               (m) => !sentIds.has(m.id),
             );
             emitQueueUpdate(agentId, managed);
+            // Best-effort durable-removal (task 9870b472). A crash between the
+            // backend accepting the send and this write replays the items on
+            // next boot — at-least-once, mirroring scheduled-messages'
+            // enqueue-then-persist-removal decision.
+            persistQueueState(agentId, managed);
           },
         });
       } catch (err) {
@@ -3641,11 +4125,16 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         managed.flushInProgress = false;
         // Re-flush if more arrived during the await, and we're still in an idle
         // state. After a BackendNotConfiguredError catch the queue is empty,
-        // so this naturally no-ops on that path.
+        // so this naturally no-ops on that path. The sessionSwapping exclusion
+        // mirrors the early-return in the wake branch above — without it, a
+        // flush bailing on a mid-drain swap would re-fire itself from here in
+        // a tight async loop for the whole drain window; the post-swap kick in
+        // replaceSession owns the retry instead.
         if (
           managed.messageQueue.length > 0 &&
           isQueueIdleState(managed.info.state) &&
-          !inMultiStepFlow(managed)
+          !inMultiStepFlow(managed) &&
+          !managed.info.sessionSwapping
         ) {
           flushQueue(agentId).catch(() => {});
         }
@@ -3660,6 +4149,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     if (idx < 0) return false;
     managed.messageQueue.splice(idx, 1);
     emitQueueUpdate(agentId, managed);
+    persistQueueState(agentId, managed);
     return true;
   }
 
@@ -3764,7 +4254,27 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           "Started a fresh session (previous one could not be restored).",
         );
       }
-      updateState(agentId, "waiting_for_response");
+      // State contract (review-pinned): a busy state here belongs to the
+      // CALLER — sendMessage's early-echo beginTurn claims "thinking" for the
+      // very message this wake serves, before any await. Flipping it to
+      // waiting_for_response would (a) flicker the UI and (b) — now that
+      // queues are durable — synchronously fire the queue-flush trigger and
+      // race a flush into the caller's pre-send window, superseding the
+      // caller's own deferred (observed as a bogus "Superseded by a new
+      // turn." flush error during error-state recovery with a surviving
+      // queue). Preserve the claimed state; the caller's turn completion
+      // produces the idle transition that flushes any queued items. Non-busy
+      // states still normalize so the agent leaves "error"/dormant idle
+      // before the send — that covers the executeSkill wakeDormantSession
+      // caller too, which is never busy here (it enqueues instead of waking
+      // when busy, and canDemote guarantees a demoted agent's queue was
+      // empty).
+      if (
+        managed.info.state !== "thinking" &&
+        managed.info.state !== "tool_executing"
+      ) {
+        updateState(agentId, "waiting_for_response");
+      }
       return true;
     } catch (err) {
       if (!echoEarly)
@@ -4006,6 +4516,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         if (managed.messageQueue.length > 0) {
           managed.messageQueue.length = 0;
           emitQueueUpdate(agentId, managed);
+          persistQueueState(agentId, managed);
         }
         // Persist current session topic before switching
         persistCurrentSessionTopic(agentId, managed);
@@ -4453,24 +4964,14 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // Mirror createSession's stale-approval cleanup: replaceSession would
       // have cleared this; the hot path doesn't go through createSession.
       managed.pendingPermission = null;
-      if (!managed.pendingTurn) return;
-      // Wrap-and-wake mirrors flushQueue's in-flight-turn wait. We wait here
-      // so abortPromise doesn't resolve before pendingTurn settles — otherwise
-      // a follow-up createTurnDeferred would supersede the original turn with
-      // a "Superseded" error.
-      const original = managed.pendingTurn;
-      await new Promise<void>((wakeUp) => {
-        managed.pendingTurn = {
-          resolve: () => {
-            original.resolve();
-            wakeUp();
-          },
-          reject: (e: unknown) => {
-            original.reject(e);
-            wakeUp();
-          },
-        };
-      });
+      // Attach to the in-flight turn's promise (snapshot once) so abortPromise
+      // doesn't resolve before pendingTurn settles — otherwise a follow-up
+      // createTurnDeferred would supersede the original turn with a
+      // "Superseded" error. Mirrors flushQueue's in-flight-turn wait; never
+      // replace the record with a wrapper (lost-wakeup hole, task da065287).
+      const pending = managed.pendingTurn;
+      if (!pending) return;
+      await pending.promise.catch(() => {});
     })();
 
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -4560,13 +5061,16 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     revokeAgentToken(agentId);
     officeState.kill(agentId);
     logCache.delete(agentId);
+    // A killed agent's durable queue record must not replay into a future
+    // revive (task 9870b472).
+    removeQueueRecord(agentId);
     // Drop any pending live-Codex-cwd-change marker so a kill during the
     // sub-second replace window doesn't leave a dangling entry for a dead agent.
     pendingCodexCwdReset.delete(agentId);
     if (oldConsumer) {
-      try {
-        await oldConsumer;
-      } catch {}
+      // Bounded like closeAndDrainSession: a wedged stream must not park the
+      // kill() caller forever (same hazard class as task da065287).
+      await drainConsumerBounded(agentId, oldConsumer);
     }
     killSidecar(managed);
     emit({ type: "agent_removed", agentId });
@@ -4771,6 +5275,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     if (managed.messageQueue.length > 0) {
       managed.messageQueue.length = 0;
       emitQueueUpdate(agentId, managed);
+      persistQueueState(agentId, managed);
     }
     persistCurrentSessionTopic(agentId, managed);
 
@@ -4981,6 +5486,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     if (managed.messageQueue.length > 0) {
       managed.messageQueue.length = 0;
       emitQueueUpdate(agentId, managed);
+      persistQueueState(agentId, managed);
     }
     persistCurrentSessionTopic(agentId, managed);
 
@@ -5148,6 +5654,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     if (managed.messageQueue.length > 0) {
       managed.messageQueue.length = 0;
       emitQueueUpdate(agentId, managed);
+      persistQueueState(agentId, managed);
     }
 
     const oldSessionId = managed.sessionId;
@@ -5555,6 +6062,27 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return true;
   }
 
+  // Test-only: override the bounded-drain timeout (see CONSUMER_DRAIN_TIMEOUT_MS).
+  // Returns the previous value so a test can restore it in afterEach.
+  function _testSetConsumerDrainTimeout(ms: number): number {
+    const prev = consumerDrainTimeoutMs;
+    consumerDrainTimeoutMs = ms;
+    return prev;
+  }
+
+  // Test-only: simulate an unknown-bug wedged flush (flushInProgress held with
+  // an aged flushStartedAt) so sweepStuckFlushes' forced-recovery contract can
+  // be exercised. Once layers 1–2 of task da065287 exist, every wire-
+  // constructible wedge is already recovered by those layers themselves — the
+  // forced path is insurance for wedges we haven't found, which by definition
+  // can't be manufactured through honest machinery.
+  function _testWedgeFlush(agentId: string, ageMs: number): void {
+    const managed = agents.get(agentId);
+    if (!managed) throw new Error(`_testWedgeFlush: unknown agent ${agentId}`);
+    managed.flushInProgress = true;
+    managed.flushStartedAt = Date.now() - ageMs;
+  }
+
   // --- Editor file open/save — implementation in file-editor.ts ---
   //
   // The editor is per-WS state (watchers, dirty buffers, tabs); these wrappers
@@ -5627,6 +6155,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     restoreAgents,
     demoteToLazy,
     sweepIdleAgents,
+    sweepStuckFlushes,
     getAgent,
     emitAgentEditRequest,
     emitAgentTerminalCommand,
@@ -5653,6 +6182,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     terminalResize,
     closeTerminal,
     _testSeedTerminalBuffer,
+    _testSetConsumerDrainTimeout,
+    _testWedgeFlush,
     openEditorFile,
     saveEditorFile,
     resolveEditorPathForAgent,

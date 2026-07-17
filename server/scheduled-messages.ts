@@ -17,9 +17,10 @@
 //     exists at fire time — the stored snapshot identifies the schedule-time
 //     sender and the receiver is told the sender is gone (receiver decides
 //     what that means).
-//   - After handoff the message lives in the existing IN-MEMORY queue; a crash
-//     before the flush loses it exactly like any queued message today.
-//     Scheduling does not strengthen the queue's restart guarantees.
+//   - After handoff the message lives in the receiver's queue, which is
+//     itself DURABLE since task 9870b472 (~/.isomux/message-queues.json,
+//     replayed on boot) — the old "crash before the flush loses it" window is
+//     closed; end-to-end delivery is at-least-once.
 
 import type { ScheduledMessageEntry, QueuedMessage } from "../shared/types.ts";
 import type { EnqueueResult } from "./internal-types.ts";

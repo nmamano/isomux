@@ -235,7 +235,11 @@ export function claudeFamilySupportsAutoPermission(family: string): boolean {
 
 // A pending message waiting for the agent to flush it. Senders can be human
 // bosses or other agents; both go through the same queue and flush together
-// when the agent next transitions to an idle state.
+// when the agent next transitions to an idle state. Durable (task 9870b472):
+// the per-agent queue is mirrored to ~/.isomux/message-queues.json and
+// replayed on boot, so a restart no longer drops queued messages (delivery is
+// at-least-once — a crash between backend accept and the durable removal can
+// replay an already-delivered message).
 export interface QueuedMessage {
   id: string; // 8-char hex; UI uses this to cancel
   sender:
@@ -266,8 +270,8 @@ export interface QueuedMessage {
 
 // A message scheduled for future delivery (POST /api/agents/:id/messages with
 // deliverAt). Durable: persisted to ~/.isomux/scheduled-messages.json and
-// reloaded on boot, unlike the in-memory QueuedMessage queue it feeds into at
-// fire time. Sender name/room are SNAPSHOTS taken at schedule time: delivery
+// reloaded on boot; at fire time it hands off to the (also durable)
+// QueuedMessage queue. Sender name/room are SNAPSHOTS taken at schedule time: delivery
 // re-resolves the live display when the sender still exists (fresher name) and
 // falls back to the snapshot when it doesn't (scheduled messages always
 // deliver; the receiver is told when the sender is gone).
@@ -343,7 +347,9 @@ export interface AgentInfo {
   // agents.setPrivileged route; never by an agent. Absent/false on normal
   // agents.
   privileged?: boolean;
-  // In-memory only; never persisted. Empty after server restart.
+  // Mirrored to ~/.isomux/message-queues.json and replayed on boot (task
+  // 9870b472) — a restart no longer empties it. Live source of truth is the
+  // manager's in-memory queue; this wire copy is spliced in by getAllAgents.
   queue: QueuedMessage[];
   // True while server is closing the old SDK session and installing a new one
   // (~3s drain). UI shows a "restarting session" hint while this is true.

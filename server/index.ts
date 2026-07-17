@@ -2203,11 +2203,13 @@ function buildExecutorDeps(): ExecutorDeps {
         if (result.ok) return { ok: true, messageId: result.messageId };
         // enqueueMessage's error code passes through verbatim ("agent not found"
         // 404 — normally pre-empted by the messageRecipientExists precondition;
-        // agent_stopped / agent_error 409; queue_full 429), preserving the legacy
-        // endpoint's status + code contract.
+        // agent_stopped / agent_error 409; queue_full 429; persist_failed 500
+        // when the durable-queue write failed and the message was rolled back —
+        // the sender should retry), preserving the legacy endpoint's
+        // status + code contract.
         return {
           ok: false,
-          status: result.status as 400 | 404 | 409 | 429,
+          status: result.status as 400 | 404 | 409 | 429 | 500,
           code: result.error,
           message: result.error,
         };
@@ -4515,4 +4517,15 @@ if (import.meta.main) {
       .catch((err) => console.error("[idle-evict] sweep failed:", err));
   }, 60_000);
   idleSweep.unref?.();
+  // Queue delivery watchdog (task da065287): self-heal sweep so a queued
+  // message can never sit indefinitely while its agent is idle — re-triggers
+  // missed flushes and force-recovers wedged ones (see sweepStuckFlushes).
+  // Same placement rationale as the idle sweep: main-process only, so the
+  // in-process test harness never inherits a background timer.
+  const queueWatchdog = setInterval(() => {
+    void handle.agentManager
+      .sweepStuckFlushes()
+      .catch((err) => console.error("[queue-watchdog] sweep failed:", err));
+  }, 30_000);
+  queueWatchdog.unref?.();
 }

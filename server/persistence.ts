@@ -1312,6 +1312,56 @@ export function saveScheduledMessages(entries: ScheduledMessageEntry[]) {
 }
 
 // ---------------------------------------------------------------------------
+// Durable per-agent message queues (task 9870b472)
+// ---------------------------------------------------------------------------
+
+const MESSAGE_QUEUES_FILE = join(ISOMUX_DIR, "message-queues.json");
+
+// On-disk shape: { [agentId]: { queue: QueuedMessage[], dedupe: { [cid]: expiresAtMs } } }.
+// Per-record shape validation belongs to agent-manager (which also drops
+// records for agents no longer on disk); this layer owns only the file
+// contract. A corrupt file is QUARANTINED (renamed aside with a timestamp
+// suffix) rather than left in place — same policy as scheduled-messages.
+// Never throws.
+export function loadMessageQueuesRaw(): Record<string, unknown> {
+  try {
+    if (!existsSync(MESSAGE_QUEUES_FILE)) return {};
+    const parsed: unknown = JSON.parse(
+      readFileSync(MESSAGE_QUEUES_FILE, "utf-8"),
+    );
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
+      throw new Error("not an object");
+    return parsed as Record<string, unknown>;
+  } catch (err) {
+    console.error(
+      "Corrupt message-queues.json; quarantining:",
+      errMessage(err),
+    );
+    try {
+      renameSync(
+        MESSAGE_QUEUES_FILE,
+        `${MESSAGE_QUEUES_FILE}.corrupt-${Date.now()}`,
+      );
+    } catch (renameErr) {
+      console.error(
+        "Failed to quarantine message-queues.json:",
+        errMessage(renameErr),
+      );
+    }
+    return {};
+  }
+}
+
+// THROWS on failure. The ACCEPTANCE path (enqueueMessage) needs the throw to
+// roll back and fail the request — an acked-but-unpersisted message would be
+// silent loss on restart (review-pinned, mirrors saveScheduledMessages).
+// Post-accept callers (drain/cancel/clear) catch and log instead: the backend
+// already accepted, and stale disk merely widens at-least-once replay.
+export function saveMessageQueues(store: Record<string, unknown>) {
+  atomicWriteFileSync(MESSAGE_QUEUES_FILE, JSON.stringify(store, null, 2));
+}
+
+// ---------------------------------------------------------------------------
 // File storage (unified files/ directory with SHA256 dedup)
 // ---------------------------------------------------------------------------
 

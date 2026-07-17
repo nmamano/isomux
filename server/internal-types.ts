@@ -25,7 +25,19 @@ export interface ManagedAgent {
   consumerPromise: Promise<void> | null;
   // Per-turn deferred. sendMessage/executeSkill await this; the consumer
   // resolves it when the turn's `stream()` iterator ends at `result`.
-  pendingTurn: { resolve: () => void; reject: (err: unknown) => void } | null;
+  // `promise` is the same promise `resolve`/`reject` settle. Code that must
+  // wait for the in-flight turn to end ATTACHES to it
+  // (`pendingTurn.promise.catch(...)`) — it must NEVER replace this record
+  // with a delegating wrapper. The old wrap-and-wake pattern had a lost-wakeup
+  // hole (task da065287): runAgentTurn's send-throw cleanup only fires when it
+  // still owns the installed record, so a wrapper parked around the original
+  // was orphaned forever, stranding flushInProgress and wedging all delivery
+  // for the agent. Attached waiters wake on any settle, from any settle site.
+  pendingTurn: {
+    promise: Promise<void>;
+    resolve: () => void;
+    reject: (err: unknown) => void;
+  } | null;
   // The aggregate `afterTurn` promise for the most recent turn — all plugins'
   // afterTurn hooks raced against their per-plugin timeout, joined here.
   // runAgentTurn awaits this before starting the next turn so memory writes
@@ -111,13 +123,30 @@ export interface ManagedAgent {
   // Message queue: human + agent senders accumulate here while the agent is
   // busy (state thinking/tool_executing). On transition to idle/waiting_for_response,
   // all entries flush together as one coalesced SDK prompt with sender labels.
-  // In-memory only — not persisted across restarts.
+  // DURABLE (task 9870b472): mirrored to ~/.isomux/message-queues.json and
+  // replayed on boot. Every mutation site MUST persist — acceptance goes
+  // through enqueueMessage's transactional write; every post-accept mutation
+  // must call persistQueueState (best-effort) alongside its emitQueueUpdate.
   messageQueue: QueuedMessage[];
   // Set while flushQueue is mid-flight to prevent re-entry from the
-  // updateState trigger inside the same flush's await chain.
+  // updateState trigger inside the same flush's await chain. Never cleared by
+  // anything other than that flush's own finally — the queue watchdog recovers
+  // a wedged flush by cancelling it (session replacement), not by force-
+  // clearing this flag, so at most one flush can ever be sending.
   flushInProgress: boolean;
+  // Date.now() stamped when the current flush claimed flushInProgress. The
+  // queue watchdog uses it to age an ACTIVE flush (an old queued item can
+  // coexist with a fresh, healthy flush). Meaningless while !flushInProgress.
+  flushStartedAt: number;
+  // Date.now() of the watchdog's last forced recovery for this agent. Forced
+  // recovery is rate-limited (cooldown) so a truly unrecoverable wedge (an
+  // adapter that ignores close/send teardown) escalates via logs instead of
+  // replacing sessions every sweep.
+  lastForcedRecoveryAt: number;
   // clientMessageId → expiresAtMs. Per-receiver dedup window for HTTP retries.
-  // 5 min TTL; entries are pruned lazily inside enqueueMessage.
+  // 5 min TTL; entries are pruned lazily inside enqueueMessage. Persisted with
+  // the queue so a retry arriving after a restart still dedupes against a
+  // replayed item.
   queueDedupe: Map<string, number>;
   // Wall-clock ms of the agent's last activity (turn start, inbound message, or
   // session install/wake). The idle-eviction sweep demotes a live agent to lazy
@@ -128,9 +157,11 @@ export interface ManagedAgent {
   // message accurately: "idle" = demoted by the inactivity sweep; "boot" =
   // lazy-restored on server (re)start; "fresh" = a blank conversation never
   // backed by a subprocess (lazy spawn, or released by /clear) — its wake is
-  // silent because there is nothing to announce resuming. Null while live.
-  // In-memory only.
-  dormantReason: "idle" | "boot" | "fresh" | null;
+  // silent because there is nothing to announce resuming; "stream-ended" = the
+  // backend's event stream ended on its own while the session was still bound
+  // (subprocess died without a proper error event) and runConsumer released
+  // the dead session pointer. Null while live. In-memory only.
+  dormantReason: "idle" | "boot" | "fresh" | "stream-ended" | null;
 }
 
 export type AgentEvent =

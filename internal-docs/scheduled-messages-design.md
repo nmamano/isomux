@@ -65,9 +65,9 @@ Small new module (`server/scheduled-messages.ts`) mirroring cronjob-manager: inj
 
 ## Delivery semantics (explicit, per review)
 
-**At-least-once from acceptance to queue handoff; existing in-memory queue semantics after that.**
+**At-least-once from acceptance to queue handoff; durable queue semantics after that.**
 - Fire order is enqueue-then-persist-removal. A crash between the two re-fires the entry on restart → rare duplicate. The alternative (persist-removal-then-enqueue) turns the same crash window into silent loss. For reminders/wake-ups a rare duplicate beats a silent drop, so at-least-once is the recommendation.
-- After successful handoff, the message lives in the existing in-memory queue: if the recipient is busy and the server crashes before the flush, it is lost exactly like any queued message today. Scheduling does not (and does not claim to) strengthen the queue's restart guarantees.
+- After successful handoff, the message lives in the recipient's queue. UPDATE (task 9870b472, queue-reliability bundle): that queue is now itself durable (`~/.isomux/message-queues.json`, replayed on boot), so the old caveat — "if the recipient is busy and the server crashes before the flush, it is lost" — no longer applies. End-to-end delivery is at-least-once; see `internal-docs/queue-reliability-design.md`.
 
 ## Decisions (RESOLVED by Nil, 2026-07-11)
 

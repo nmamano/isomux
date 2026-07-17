@@ -58,6 +58,17 @@ export interface FakeSessionConfig {
     attachments: AttachmentSpec[] | undefined,
     session: FakeSession,
   ) => void;
+  // When true, send() parks on a test-controlled promise instead of resolving
+  // immediately — settle it with releaseSends()/failSends(). Models a backend
+  // whose send RPC is in flight (queue-reliability tests hold a turn in the
+  // send window and inject send failures).
+  manualSend?: boolean;
+  // When true, close() marks the session closed (pushes ignored, closed
+  // observable) but does NOT end the stream — a parked stream() stays parked
+  // until the test calls endStream() explicitly. Models a wedged subprocess
+  // whose stream never terminates after close (the bounded-drain scenarios);
+  // releasable so swap-race tests can unblock the drain mid-test.
+  hangOnClose?: boolean;
 }
 
 // A scriptable BackendSession. Construct via FakeBackend.createSession /
@@ -79,6 +90,12 @@ export class FakeSession implements BackendSession {
   private readonly abortInPlace: boolean;
   private readonly contextUsage: ContextUsage | null;
   private readonly onSend?: FakeSessionConfig["onSend"];
+  private readonly manualSend: boolean;
+  private readonly hangOnClose: boolean;
+  private sendWaiters: {
+    resolve: () => void;
+    reject: (err: unknown) => void;
+  }[] = [];
 
   constructor(
     opts: CreateSessionOptions,
@@ -92,6 +109,8 @@ export class FakeSession implements BackendSession {
     this.abortInPlace = cfg.abortInPlace ?? false;
     this.contextUsage = cfg.contextUsage ?? null;
     this.onSend = cfg.onSend;
+    this.manualSend = cfg.manualSend ?? false;
+    this.hangOnClose = cfg.hangOnClose ?? false;
     if (cfg.autoSystemInit ?? true) {
       this.push({
         kind: "system_init",
@@ -142,6 +161,20 @@ export class FakeSession implements BackendSession {
     this.wake();
   }
 
+  // Settle all parked manualSend sends successfully (in call order).
+  releaseSends(): void {
+    const waiters = this.sendWaiters;
+    this.sendWaiters = [];
+    for (const w of waiters) w.resolve();
+  }
+
+  // Settle all parked manualSend sends with a rejection (in call order).
+  failSends(err: unknown): void {
+    const waiters = this.sendWaiters;
+    this.sendWaiters = [];
+    for (const w of waiters) w.reject(err);
+  }
+
   private wake(): void {
     if (this.resolveWake) {
       const r = this.resolveWake;
@@ -167,6 +200,11 @@ export class FakeSession implements BackendSession {
   async send(text: string, attachments?: AttachmentSpec[]): Promise<void> {
     this.sent.push({ text, attachments });
     this.onSend?.(text, attachments, this);
+    if (this.manualSend) {
+      await new Promise<void>((resolve, reject) => {
+        this.sendWaiters.push({ resolve, reject });
+      });
+    }
   }
 
   approve(approvalId: string, decision: ApprovalDecision): Promise<void> {
@@ -189,6 +227,12 @@ export class FakeSession implements BackendSession {
   close(): void {
     if (this.closed) return;
     this.closed = true;
+    if (this.hangOnClose) {
+      // Wedged-subprocess model: the stream stays parked (pushes are ignored
+      // via `closed`, but the generator never returns) until the test calls
+      // endStream() explicitly.
+      return;
+    }
     this.ended = true;
     this.wake();
   }

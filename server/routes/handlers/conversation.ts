@@ -48,10 +48,17 @@ import type { ScheduleResult, CancelResult } from "../../scheduled-messages.ts";
 // enqueueMessage's own status + error code passed through verbatim), so the
 // handler stays a thin mapper and the legacy POST /agents/:id/message contract
 // (400 self/unknown, 404 unknown-receiver, 409 agent_error/agent_stopped, 429
-// queue_full) is preserved bit-for-bit.
+// queue_full) is preserved bit-for-bit. 500 persist_failed is new with durable
+// queues (task 9870b472): the durable write failed, the message was rolled
+// back, and the sender should retry.
 export type SendAsAgentResult =
   | { ok: true; messageId?: string }
-  | { ok: false; status: 400 | 404 | 409 | 429; code: string; message: string };
+  | {
+      ok: false;
+      status: 400 | 404 | 409 | 429 | 500;
+      code: string;
+      message: string;
+    };
 
 export interface ConversationDeps {
   // Token-derived attribution (username from identity, NEVER the body) for the
