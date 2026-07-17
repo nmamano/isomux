@@ -10,9 +10,12 @@
 // anything it can't FULLY understand (compound commands, command substitution,
 // unknown flags, non-isomux hosts), and the caller falls back to the plain
 // rendering. A false null costs nothing; a false parse would show a wrong
-// summary. Two deliberate tolerances on top of that:
+// summary. Three deliberate tolerances on top of that:
 // - side-effect-free redirections (`2>/dev/null`, `>/dev/null`, `2>&1`) are
 //   accepted and omitted from the card (see tokenize);
+// - saving output to a file (`> file`, `>> file`, `-o file`) is accepted for
+//   plain paths, and the path is ALWAYS surfaced on the card (outputFile) —
+//   a file write is a side effect the card must not conceal;
 // - a leading `jq ... |` producer stage feeding `curl -d @-` is understood,
 //   resolving the body when the jq program is a simple literal template (see
 //   parseJqInvocation).
@@ -56,11 +59,34 @@ export type IsomuxCurlRequest = {
    * Mutually exclusive with bodyFields/bodyRaw. Null otherwise.
    */
   bodyNote: string | null;
+  /**
+   * Filesystem path the response/output is written to, when the command saves
+   * it via a stdout redirection (`> file`, `>> file`) or `-o file`. This is a
+   * real side effect, so the UI MUST surface it on the card (it is rendered
+   * as an "output → path" note chip); the parser never accepts an output
+   * path it cannot display verbatim. Null when output goes to the terminal.
+   */
+  outputFile: string | null;
+  /** True when outputFile is appended to (`>>`) rather than overwritten. */
+  outputAppend: boolean;
 };
 
 // --- shell tokenizer ---------------------------------------------------------
 
-type Tokenized = { tokens: string[]; pipeTail: string | null };
+type OutputRedirect = { path: string; append: boolean };
+
+type Tokenized = {
+  tokens: string[];
+  pipeTail: string | null;
+  outputRedirect: OutputRedirect | null;
+};
+
+// Conservative allowlist for a redirect target path: plain path characters
+// only. Anything outside (quotes, spaces, globs, braces, parens) bails to raw
+// rendering. `$` is allowed — an unexpanded `$VAR` in the card is shown
+// verbatim, which is honest; `$(` is unreachable because `(` is not in the
+// set, so the word fails to end cleanly and the parse bails.
+const REDIRECT_PATH_RE = /^[A-Za-z0-9_\-./~+%:,$]+$/;
 
 /**
  * Tokenize a single simple shell command. Handles single/double quotes,
@@ -70,8 +96,12 @@ type Tokenized = { tokens: string[]; pipeTail: string | null };
  * `$VAR` references are kept literally — they read well in a summary
  * (e.g. a path containing $AGENT_ID).
  */
-function tokenize(command: string): Tokenized | null {
+function tokenize(
+  command: string,
+  allowFileRedirect: boolean = false,
+): Tokenized | null {
   const src = command.trim();
+  let outputRedirect: OutputRedirect | null = null;
   const tokens: string[] = [];
   let cur = "";
   let hasCur = false;
@@ -148,15 +178,20 @@ function tokenize(command: string): Tokenized | null {
     if (c === "|") {
       if (src[i + 1] === "|") return null; // `||` is control flow, not a pipe
       push();
-      return { tokens, pipeTail: src.slice(i).trim() };
+      return { tokens, pipeTail: src.slice(i).trim(), outputRedirect };
     }
     if (c === ">") {
-      // Tolerate exactly the side-effect-free redirections that transcripts
-      // use constantly: `2>/dev/null`, `>/dev/null`, `1>/dev/null` (with or
+      // Tolerate the side-effect-free redirections that transcripts use
+      // constantly: `2>/dev/null`, `>/dev/null`, `1>/dev/null` (with or
       // without a space before the target) and `2>&1`. They discard or merge
       // streams — no file is written, no request semantics change — so
       // silently dropping them from the card conceals nothing that matters.
-      // Everything else (`> file`, `>>`, `<`, `2>&2`, quoted fd digits) still
+      // With allowFileRedirect (the curl stage of a card-eligible command),
+      // additionally accept a stdout redirection to a plain file path
+      // (`> file`, `>> file`): saving long output to a file is a legitimate
+      // pattern, and the captured path MUST be surfaced on the card since a
+      // file write is a real side effect. Everything else (`2> file`, `<`,
+      // `2>&2`, quoted fd digits, paths outside REDIRECT_PATH_RE) still
       // bails to raw rendering.
       let fd = "";
       if (hasCur) {
@@ -166,14 +201,30 @@ function tokenize(command: string): Tokenized | null {
         fd = cur;
       }
       i++;
-      if (src[i] === ">") return null; // append (>>)
+      let append = false;
+      if (src[i] === ">") {
+        append = true;
+        i++;
+      }
       if (src[i] === "&") {
-        if (fd !== "2" || src[i + 1] !== "1") return null;
+        if (append || fd !== "2" || src[i + 1] !== "1") return null;
         i += 2;
       } else {
         while (i < n && (src[i] === " " || src[i] === "\t")) i++;
-        if (!src.startsWith("/dev/null", i)) return null;
-        i += "/dev/null".length;
+        if (!append && src.startsWith("/dev/null", i)) {
+          i += "/dev/null".length;
+        } else {
+          // A real file target: stdout only, one per command, opt-in.
+          if (!allowFileRedirect || fd === "2" || outputRedirect !== null)
+            return null;
+          let path = "";
+          while (i < n && REDIRECT_PATH_RE.test(src[i])) {
+            path += src[i];
+            i++;
+          }
+          if (path.length === 0) return null;
+          outputRedirect = { path, append };
+        }
       }
       // The redirection must end the word cleanly.
       if (i < n && !" \t\r|".includes(src[i])) return null;
@@ -190,7 +241,7 @@ function tokenize(command: string): Tokenized | null {
     i++;
   }
   push();
-  return { tokens, pipeTail: null };
+  return { tokens, pipeTail: null, outputRedirect };
 }
 
 // Commands accepted as pipeline stages after the curl. A coarse gate that
@@ -844,20 +895,34 @@ export function parseIsomuxCurl(
   command: string,
   ports: readonly string[] = ["4000"],
 ): IsomuxCurlRequest | null {
-  const tokenized = tokenize(command);
+  const tokenized = tokenize(command, true);
   if (!tokenized) return null;
   const { tokens, pipeTail } = tokenized;
   if (tokens.length === 0) return null;
   if (tokens[0] === "curl")
-    return parseCurlStage(tokens, pipeTail, ports, null);
+    return parseCurlStage(
+      tokens,
+      pipeTail,
+      ports,
+      null,
+      tokenized.outputRedirect,
+    );
   if (tokens[0] === "jq") {
     // Producer pipeline: jq builds the JSON body, curl reads it from stdin.
-    if (pipeTail === null) return null;
+    // A redirect on the jq stage itself (`jq ... > f | curl`) would starve
+    // the pipe — nonsense, bail.
+    if (pipeTail === null || tokenized.outputRedirect !== null) return null;
     const body = parseJqInvocation(tokens);
     if (body === null) return null;
-    const next = tokenize(pipeTail.slice(1));
+    const next = tokenize(pipeTail.slice(1), true);
     if (!next || next.tokens[0] !== "curl") return null;
-    return parseCurlStage(next.tokens, next.pipeTail, ports, body);
+    return parseCurlStage(
+      next.tokens,
+      next.pipeTail,
+      ports,
+      body,
+      next.outputRedirect,
+    );
   }
   return null;
 }
@@ -873,6 +938,7 @@ function parseCurlStage(
   pipeTail: string | null,
   ports: readonly string[],
   producer: JqBody | null,
+  outputRedirect: OutputRedirect | null = null,
 ): IsomuxCurlRequest | null {
   if (
     pipeTail !== null &&
@@ -887,6 +953,7 @@ function parseCurlStage(
   const formParts: string[] = [];
   let getStyle = false; // -G/--get sends -d data as query params
   let stdinData = 0; // count of `@-` values seen via @-interpreting data flags
+  let outputFromFlag: string | null = null; // -o/--output with a real path
 
   const applyArg = (kind: ArgKind, value: string): boolean => {
     switch (kind) {
@@ -917,8 +984,15 @@ function parseCurlStage(
       case "ignore":
         return true;
       case "output":
-        // Discarding the response writes no file; any real path rejects.
-        return value === "/dev/null";
+        // `/dev/null` discards silently. A real path is a file write — a
+        // side effect — so it is accepted only when displayable verbatim
+        // (REDIRECT_PATH_RE) and is surfaced on the card via outputFile.
+        // One output target per command.
+        if (value === "/dev/null") return true;
+        if (outputFromFlag !== null || !REDIRECT_PATH_RE.test(value))
+          return false;
+        outputFromFlag = value;
+        return true;
       case "dumpHeader":
         // Headers to stdout only; a file path rejects.
         return value === "-";
@@ -1030,6 +1104,13 @@ function parseCurlStage(
     }
   }
 
+  // One output target per command, from either the shell redirect or -o.
+  if (outputRedirect !== null && outputFromFlag !== null) return null;
+  const outputFile = outputRedirect?.path ?? outputFromFlag;
+  // Output to a file AND a display pipe is shell-legal but nonsense for the
+  // patterns we card (the pipe would receive nothing) — bail to raw.
+  if (outputFile !== null && pipeTail !== null) return null;
+
   return {
     method: resolvedMethod,
     path,
@@ -1039,5 +1120,7 @@ function parseCurlStage(
     hasAuth,
     pipeTail,
     bodyNote,
+    outputFile,
+    outputAppend: outputRedirect?.append ?? false,
   };
 }

@@ -270,14 +270,13 @@ describe("parseIsomuxCurl", () => {
     expect(parseIsomuxCurl("")).toBeNull();
   });
 
-  test("rejects compound commands and file redirections", () => {
+  test("rejects compound commands and stderr file redirections", () => {
     expect(
       parseIsomuxCurl("curl -s localhost:4000/tasks && echo done"),
     ).toBeNull();
     expect(parseIsomuxCurl("curl -s localhost:4000/tasks; ls")).toBeNull();
-    expect(
-      parseIsomuxCurl("curl -s localhost:4000/tasks > out.json"),
-    ).toBeNull();
+    // Stdout-to-file is now accepted WITH the path surfaced on the card
+    // (see the output-to-file suite); stderr-to-file still stays raw.
     expect(
       parseIsomuxCurl("curl -s localhost:4000/tasks 2> /tmp/err.log"),
     ).toBeNull();
@@ -375,13 +374,9 @@ describe("parseIsomuxCurl", () => {
   });
 
   test("rejects options whose semantics the card would conceal", () => {
-    // File write.
-    expect(
-      parseIsomuxCurl("curl -s localhost:4000/tasks -o /tmp/tasks.json"),
-    ).toBeNull();
-    expect(
-      parseIsomuxCurl("curl -s localhost:4000/tasks --output /tmp/t.json"),
-    ).toBeNull();
+    // -o/--output with a real path is now accepted WITH the path surfaced
+    // on the card (see the output-to-file suite), so it no longer belongs
+    // here.
     // Upload: changes method and supplies a body the card wouldn't show.
     expect(
       parseIsomuxCurl("curl -s localhost:4000/api/memory -T /tmp/payload"),
@@ -741,5 +736,95 @@ describe("agent discovery route label", () => {
     expect(describeIsomuxRoute("GET", "/api/agents")).toBe(
       "List office agents",
     );
+  });
+});
+
+describe("parseIsomuxCurl output-to-file", () => {
+  test("stdout redirect to a plain path parses and surfaces the path", () => {
+    const req = parseIsomuxCurl(
+      "curl -s localhost:4000/tasks > /tmp/tasks.json",
+    );
+    expect(req).not.toBeNull();
+    expect(req!.path).toBe("/tasks");
+    expect(req!.outputFile).toBe("/tmp/tasks.json");
+    expect(req!.outputAppend).toBe(false);
+  });
+
+  test("no-space and fd-1 forms parse", () => {
+    expect(
+      parseIsomuxCurl("curl -s localhost:4000/tasks >/tmp/t.json")!.outputFile,
+    ).toBe("/tmp/t.json");
+    expect(
+      parseIsomuxCurl("curl -s localhost:4000/tasks 1> /tmp/t.json")!
+        .outputFile,
+    ).toBe("/tmp/t.json");
+  });
+
+  test("append redirect parses with outputAppend", () => {
+    const req = parseIsomuxCurl("curl -s localhost:4000/tasks >> /tmp/log.txt");
+    expect(req!.outputFile).toBe("/tmp/log.txt");
+    expect(req!.outputAppend).toBe(true);
+  });
+
+  test("-o / --output with a real path parses and surfaces the path", () => {
+    const req = parseIsomuxCurl(
+      "curl -s -o /tmp/out.json localhost:4000/tasks",
+    );
+    expect(req!.outputFile).toBe("/tmp/out.json");
+    expect(req!.outputAppend).toBe(false);
+    expect(
+      parseIsomuxCurl("curl -s --output /tmp/out.json localhost:4000/tasks")!
+        .outputFile,
+    ).toBe("/tmp/out.json");
+  });
+
+  test("redirect works on the curl stage of a jq producer pipeline", () => {
+    const req = parseIsomuxCurl(
+      `jq -n --arg text "hi" '{text: $text}' | curl -s -X POST localhost:4000/api/agents/a1/messages -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -d @- > /tmp/ack.json`,
+    );
+    expect(req).not.toBeNull();
+    expect(req!.outputFile).toBe("/tmp/ack.json");
+  });
+
+  test("silent /dev/null tolerances are unchanged (no outputFile)", () => {
+    const req = parseIsomuxCurl(
+      "curl -s -o /dev/null localhost:4000/tasks 2>/dev/null",
+    );
+    expect(req).not.toBeNull();
+    expect(req!.outputFile).toBeNull();
+  });
+
+  test("conservative bails: stderr-to-file, two outputs, odd paths, pipe combo", () => {
+    // stderr to a file stays raw
+    expect(
+      parseIsomuxCurl("curl -s localhost:4000/tasks 2> /tmp/err.log"),
+    ).toBeNull();
+    // two output targets stays raw
+    expect(
+      parseIsomuxCurl(
+        "curl -s -o /tmp/a.json localhost:4000/tasks > /tmp/b.json",
+      ),
+    ).toBeNull();
+    // path with characters outside the allowlist stays raw
+    expect(
+      parseIsomuxCurl("curl -s localhost:4000/tasks > '/tmp/my file.json'"),
+    ).toBeNull();
+    expect(
+      parseIsomuxCurl("curl -s localhost:4000/tasks > /tmp/$(id).json"),
+    ).toBeNull();
+    // file output combined with a display pipe stays raw
+    expect(
+      parseIsomuxCurl("curl -s localhost:4000/tasks > /tmp/t.json | jq '.'"),
+    ).toBeNull();
+    // redirect on the jq stage of a producer pipeline stays raw
+    expect(
+      parseIsomuxCurl(
+        `jq -n '{a: 1}' > /tmp/x | curl -s -X POST localhost:4000/tasks -d @-`,
+      ),
+    ).toBeNull();
+    // file redirects inside a display-filter tail still stay raw
+    expect(
+      parseIsomuxCurl("curl -s localhost:4000/tasks | jq '.' > /tmp/t.json"),
+    ).toBeNull();
   });
 });

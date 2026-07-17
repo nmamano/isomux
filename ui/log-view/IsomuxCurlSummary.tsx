@@ -131,6 +131,15 @@ export function IsomuxCurlFields({
     // but could not resolve into concrete fields.
     chips.push({ key: null, value: req.bodyNote, note: true });
   }
+  if (req.outputFile) {
+    // A file write is a side effect: always surfaced, never truncated away
+    // silently (truncate keeps the leading part of the path visible).
+    chips.push({
+      key: null,
+      value: `output ${req.outputAppend ? "appended" : "saved"} to ${truncate(req.outputFile, MAX_VALUE_CHARS)}`,
+      note: true,
+    });
+  }
   if (chips.length === 0) return null;
   const hidden = (req.bodyFields?.length ?? 0) - MAX_FIELDS;
   return (
