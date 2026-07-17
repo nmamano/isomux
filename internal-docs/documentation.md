@@ -127,7 +127,7 @@ These aren't user-facing docs, but they do describe features and can fall out of
 - `internal-docs/` — design documents for individual features. Historical/reference only; not expected to stay current, with one maintained exception (below). (Operator-facing docs live in `docs/`; see section 4.)
 - `internal-docs/testing-guide.md` — the **maintained** living reference for the test suite: the tiers (T0-T3), how to run (`bun test` vs `bun run test:live`), the seam-to-test-file map, and conventions. Unlike the rest of `internal-docs/`, keep this current as the test suite evolves. (Its companion `internal-docs/generic-runtime-refactor.md` stays the historical design/decision record.)
 - `server/commands.ts` — per-command `description` fields surface in the slash-command autocomplete UI.
-- `server/agent-manager.ts` `buildSystemPrompt()` (around lines 194–225) — the system prompt injected into every spawned agent. Update when the agent's role or capabilities change.
+- `server/system-prompt.ts` `buildSystemPrompt()` — the system prompt injected into every spawned agent (called from `server/agent-manager.ts`). Update when the agent's role or capabilities change.
 
 ## Quick checklist when adding a user-visible feature
 

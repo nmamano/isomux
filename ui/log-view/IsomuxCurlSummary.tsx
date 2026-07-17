@@ -118,13 +118,18 @@ export function IsomuxCurlFields({
   req: IsomuxCurlRequest;
   isMobile?: boolean;
 }) {
-  const chips: Array<{ key: string | null; value: string }> = [];
+  const chips: Array<{ key: string | null; value: string; note?: boolean }> =
+    [];
   if (req.bodyFields && req.bodyFields.length > 0) {
     for (const f of req.bodyFields.slice(0, MAX_FIELDS)) {
       chips.push({ key: f.key, value: truncate(f.value, MAX_VALUE_CHARS) });
     }
   } else if (req.bodyRaw) {
     chips.push({ key: null, value: truncate(req.bodyRaw, MAX_VALUE_CHARS) });
+  } else if (req.bodyNote) {
+    // e.g. "body built with jq" for producer pipelines the parser accepted
+    // but could not resolve into concrete fields.
+    chips.push({ key: null, value: req.bodyNote, note: true });
   }
   if (chips.length === 0) return null;
   const hidden = (req.bodyFields?.length ?? 0) - MAX_FIELDS;
@@ -132,6 +137,12 @@ export function IsomuxCurlFields({
     <span
       style={{
         flexBasis: "100%",
+        // minWidth 0 all the way down: each level here is a flex item, and a
+        // flex item's default min-width:auto lets a long unbreakable value
+        // (a file path, a URL) propagate its full width up and push the row
+        // past the card and the page edge. With the chain zeroed, the row
+        // caps at the card width and the value span ellipsizes instead.
+        minWidth: 0,
         display: "flex",
         flexWrap: "wrap",
         gap: 4,
@@ -144,6 +155,7 @@ export function IsomuxCurlFields({
           key={i}
           style={{
             display: "inline-flex",
+            minWidth: 0,
             gap: 4,
             padding: "0 6px",
             borderRadius: 4,
@@ -162,7 +174,9 @@ export function IsomuxCurlFields({
           )}
           <span
             style={{
-              color: "var(--text-dim)",
+              color: chip.note ? "var(--text-faint)" : "var(--text-dim)",
+              fontStyle: chip.note ? "italic" : undefined,
+              minWidth: 0,
               overflow: "hidden",
               textOverflow: "ellipsis",
               whiteSpace: "nowrap",

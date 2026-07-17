@@ -270,7 +270,7 @@ describe("parseIsomuxCurl", () => {
     expect(parseIsomuxCurl("")).toBeNull();
   });
 
-  test("rejects compound commands and redirections", () => {
+  test("rejects compound commands and file redirections", () => {
     expect(
       parseIsomuxCurl("curl -s localhost:4000/tasks && echo done"),
     ).toBeNull();
@@ -279,9 +279,55 @@ describe("parseIsomuxCurl", () => {
       parseIsomuxCurl("curl -s localhost:4000/tasks > out.json"),
     ).toBeNull();
     expect(
-      parseIsomuxCurl("curl -s localhost:4000/tasks 2>/dev/null"),
+      parseIsomuxCurl("curl -s localhost:4000/tasks 2> /tmp/err.log"),
     ).toBeNull();
     expect(parseIsomuxCurl("curl -s localhost:4000/tasks || true")).toBeNull();
+  });
+
+  test("accepts side-effect-free stream redirections", () => {
+    // The transcript staples: discard stderr, discard stdout, merge streams.
+    for (const cmd of [
+      "curl -s localhost:4000/tasks 2>/dev/null",
+      "curl -s localhost:4000/tasks 2> /dev/null",
+      "curl -s localhost:4000/tasks >/dev/null",
+      "curl -s localhost:4000/tasks 1>/dev/null",
+      "curl -s localhost:4000/tasks > /dev/null",
+    ]) {
+      const req = parseIsomuxCurl(cmd);
+      expect(req).not.toBeNull();
+      expect(req!.path).toBe("/tasks");
+    }
+    // 2>&1 composes with a display pipe (the real-world failing shape).
+    const req = parseIsomuxCurl(
+      "curl -s localhost:4000/tasks 2>&1 | head -c 250",
+    );
+    expect(req).not.toBeNull();
+    expect(req!.pipeTail).toBe("| head -c 250");
+    // Redirections inside tail stages are tolerated too.
+    expect(
+      parseIsomuxCurl(
+        "curl -s localhost:4000/tasks | python3 -m json.tool 2>/dev/null | head -5",
+      ),
+    ).not.toBeNull();
+  });
+
+  test("rejects redirections beyond the safe set", () => {
+    // Append, weird fds, fd-looking arguments, quoted fd digits.
+    expect(
+      parseIsomuxCurl("curl -s localhost:4000/tasks 2>>/dev/null"),
+    ).toBeNull();
+    expect(parseIsomuxCurl("curl -s localhost:4000/tasks 2>&2")).toBeNull();
+    expect(parseIsomuxCurl("curl -s localhost:4000/tasks >&1")).toBeNull();
+    expect(
+      parseIsomuxCurl("curl -s localhost:4000/tasks abc2>/dev/null"),
+    ).toBeNull();
+    expect(
+      parseIsomuxCurl("curl -s localhost:4000/tasks '2'>/dev/null"),
+    ).toBeNull();
+    expect(
+      parseIsomuxCurl("curl -s localhost:4000/tasks 2>/dev/nullx"),
+    ).toBeNull();
+    expect(parseIsomuxCurl("curl -s localhost:4000/tasks < /tmp/x")).toBeNull();
   });
 
   test("rejects command substitution", () => {
@@ -295,6 +341,36 @@ describe("parseIsomuxCurl", () => {
       parseIsomuxCurl(
         `curl -s -d "{\\"x\\": \\"$(whoami)\\"}" localhost:4000/tasks`,
       ),
+    ).toBeNull();
+  });
+
+  test("value-restricted options: /dev/null, dash, harmless write-out pass", () => {
+    // Discard the response body (no file written).
+    expect(
+      parseIsomuxCurl("curl -s -o /dev/null localhost:4000/tasks"),
+    ).not.toBeNull();
+    expect(
+      parseIsomuxCurl("curl -s --output /dev/null localhost:4000/tasks"),
+    ).not.toBeNull();
+    // Headers to stdout.
+    expect(parseIsomuxCurl("curl -s -D - localhost:4000/tasks")).not.toBeNull();
+    // Status-code write-out, the standard probe idiom.
+    const probe = parseIsomuxCurl(
+      `curl -s -o /dev/null -w '%{http_code}' -X POST localhost:4000/api/agents/a1/diff -d '{}'`,
+    );
+    expect(probe).not.toBeNull();
+    expect(probe!.action).toBe("Show diff in chat");
+    expect(
+      parseIsomuxCurl(
+        `curl -s localhost:4000/tasks --write-out '%{http_code}'`,
+      ),
+    ).not.toBeNull();
+    // But a dump-header file, or a write-out that touches files, rejects.
+    expect(
+      parseIsomuxCurl("curl -s -D /tmp/headers localhost:4000/tasks"),
+    ).toBeNull();
+    expect(
+      parseIsomuxCurl(`curl -s localhost:4000/tasks -w @fmt.txt`),
     ).toBeNull();
   });
 
@@ -333,14 +409,9 @@ describe("parseIsomuxCurl", () => {
     expect(
       parseIsomuxCurl("curl -s localhost:4000/tasks -e http://x"),
     ).toBeNull();
-    // write-out: %output{file} (curl >= 8.3.0) writes a file, so -w is out.
+    // write-out: %output{file} (curl >= 8.3.0) writes a file.
     expect(
       parseIsomuxCurl(`curl -s localhost:4000/tasks -w '%output{/tmp/pwn}x'`),
-    ).toBeNull();
-    expect(
-      parseIsomuxCurl(
-        `curl -s localhost:4000/tasks --write-out '%{http_code}'`,
-      ),
     ).toBeNull();
   });
 
@@ -401,6 +472,166 @@ describe("parseIsomuxCurl", () => {
     expect(req).not.toBeNull();
     expect(req!.path).toBe("/");
     expect(req!.action).toBeNull();
+  });
+});
+
+describe("parseIsomuxCurl jq producer pipelines", () => {
+  const CURL_TAIL = `curl -s -X POST localhost:4000/api/agents/agent-1/messages -H "Authorization: Bearer $T" -H 'Content-Type: application/json' -d @-`;
+
+  test("resolves a literal --arg template into body fields", () => {
+    const req = parseIsomuxCurl(
+      `jq -n --arg text "$MSG" '{text: $text}' | ${CURL_TAIL}`,
+    );
+    expect(req).not.toBeNull();
+    expect(req!.method).toBe("POST");
+    expect(req!.action).toBe("Send agent message");
+    expect(req!.bodyFields).toEqual([{ key: "text", value: "$MSG" }]);
+    expect(req!.bodyNote).toBeNull();
+    expect(req!.hasAuth).toBe(true);
+  });
+
+  test("resolves mixed literals, --argjson, and --rawfile", () => {
+    const req = parseIsomuxCurl(
+      `jq -n --arg t "hi there" --argjson n 5 --rawfile body /tmp/notes.md '{title: $t, count: $n, text: $body, "done": false, note: "x"}' | ${CURL_TAIL}`,
+    );
+    expect(req!.bodyFields).toEqual([
+      { key: "title", value: "hi there" },
+      { key: "count", value: "5" },
+      { key: "text", value: "@/tmp/notes.md" },
+      { key: "done", value: "false" },
+      { key: "note", value: "x" },
+    ]);
+  });
+
+  test("--argjson values are interpreted as JSON, not shown raw", () => {
+    // A JSON string loses its quotes; structured values display compactly.
+    const req = parseIsomuxCurl(
+      `jq -n --argjson s '"hi there"' --argjson o '{"a": 1, "b": [2]}' '{greeting: $s, meta: $o}' | ${CURL_TAIL}`,
+    );
+    expect(req!.bodyFields).toEqual([
+      { key: "greeting", value: "hi there" },
+      { key: "meta", value: '{"a":1,"b":[2]}' },
+    ]);
+  });
+
+  test("invalid --argjson JSON rejects the parse (jq would fail eagerly)", () => {
+    // jq validates --argjson up front: the whole invocation fails and curl
+    // sends an empty body, so any card would misrepresent the request.
+    expect(
+      parseIsomuxCurl(`jq -n --argjson x nope '{x: $x}' | ${CURL_TAIL}`),
+    ).toBeNull();
+    // Even when the program never references the bad var.
+    expect(
+      parseIsomuxCurl(`jq -n --argjson x nope '{y: 1}' | ${CURL_TAIL}`),
+    ).toBeNull();
+  });
+
+  test("clustered -nc and an empty template resolve", () => {
+    const req = parseIsomuxCurl(`jq -nc '{}' | ${CURL_TAIL}`);
+    expect(req).not.toBeNull();
+    expect(req!.bodyFields).toEqual([]);
+  });
+
+  test("complex programs fall back to the body-built-with-jq note", () => {
+    const req = parseIsomuxCurl(
+      `jq -n --arg t "x" '{text: ($t | ascii_upcase)}' | ${CURL_TAIL}`,
+    );
+    expect(req).not.toBeNull();
+    expect(req!.bodyFields).toBeNull();
+    expect(req!.bodyNote).toBe("body built with jq");
+  });
+
+  test("unresolved --rawfile is named in the note, never concealed", () => {
+    const req = parseIsomuxCurl(
+      `jq -n --rawfile body /tmp/notes.md '{text: $body, ts: now}' | ${CURL_TAIL}`,
+    );
+    expect(req!.bodyNote).toBe("body built with jq (reads /tmp/notes.md)");
+  });
+
+  test("string interpolation and undefined vars are not literal templates", () => {
+    expect(
+      parseIsomuxCurl(`jq -n --arg t "x" '{text: "hi \\($t)"}' | ${CURL_TAIL}`)!
+        .bodyNote,
+    ).toBe("body built with jq");
+    expect(
+      parseIsomuxCurl(`jq -n '{text: $missing}' | ${CURL_TAIL}`)!.bodyNote,
+    ).toBe("body built with jq");
+    // Without -n the program reads stdin, so it is never resolved.
+    expect(
+      parseIsomuxCurl(`jq --arg t "x" '{text: $t}' | ${CURL_TAIL}`)!.bodyNote,
+    ).toBe("body built with jq");
+  });
+
+  test("producer curl may keep a display pipe tail", () => {
+    const req = parseIsomuxCurl(
+      `jq -n '{text: "hi"}' | ${CURL_TAIL} | head -c 100`,
+    );
+    expect(req).not.toBeNull();
+    expect(req!.pipeTail).toBe("| head -c 100");
+  });
+
+  test("rejects producers that don't actually feed the body", () => {
+    // No -d @- on the curl: jq output is discarded.
+    expect(
+      parseIsomuxCurl(
+        `jq -n '{text: "hi"}' | curl -s -X POST localhost:4000/tasks -d '{"title":"x"}'`,
+      ),
+    ).toBeNull();
+    // --data-raw does not interpret @, so @- is a literal, not stdin.
+    expect(
+      parseIsomuxCurl(
+        `jq -n '{text: "hi"}' | curl -s -X POST localhost:4000/tasks --data-raw @-`,
+      ),
+    ).toBeNull();
+    // -G diverts data to the query string.
+    expect(
+      parseIsomuxCurl(
+        `jq -n '{text: "hi"}' | curl -s -G localhost:4000/tasks -d @-`,
+      ),
+    ).toBeNull();
+  });
+
+  test("rejects jq stages beyond the safe grammar", () => {
+    // -f reads the program from a file.
+    expect(parseIsomuxCurl(`jq -n -f /tmp/prog.jq | ${CURL_TAIL}`)).toBeNull();
+    // Positional input files after the program.
+    expect(
+      parseIsomuxCurl(`jq '.[0]' /tmp/input.json | ${CURL_TAIL}`),
+    ).toBeNull();
+    // --slurpfile is not on the allowlist.
+    expect(
+      parseIsomuxCurl(
+        `jq -n --slurpfile d /tmp/d.json '{d: $d}' | ${CURL_TAIL}`,
+      ),
+    ).toBeNull();
+    // No program at all.
+    expect(parseIsomuxCurl(`jq -n | ${CURL_TAIL}`)).toBeNull();
+  });
+
+  test("only jq qualifies as a producer; jq without a curl stays raw", () => {
+    expect(parseIsomuxCurl(`sed s/x/y/ /tmp/f | ${CURL_TAIL}`)).toBeNull();
+    expect(parseIsomuxCurl(`jq -n '{a: 1}'`)).toBeNull();
+    expect(parseIsomuxCurl(`jq -n '{a: 1}' | head -5`)).toBeNull();
+    // Producer curl must still target isomux.
+    expect(
+      parseIsomuxCurl(`jq -n '{a: 1}' | curl -s example.com -d @-`),
+    ).toBeNull();
+  });
+
+  test("standalone curl -d @- keeps its old raw-body rendering", () => {
+    const req = parseIsomuxCurl(`curl -s -X POST localhost:4000/tasks -d @-`);
+    expect(req).not.toBeNull();
+    expect(req!.bodyRaw).toBe("@-");
+    expect(req!.bodyNote).toBeNull();
+  });
+
+  test("humanize works through a resolved producer body", () => {
+    const req = parseIsomuxCurl(
+      `jq -n --arg text "hello" '{text: $text}' | ${CURL_TAIL}`,
+    );
+    expect(
+      humanizeIsomuxRequest(req!, (id) => (id === "agent-1" ? "Bob" : null)),
+    ).toBe("Send a message to Bob");
   });
 });
 
@@ -496,5 +727,19 @@ describe("humanizeIsomuxRequest", () => {
   test("unknown route returns null", () => {
     const req = parse("curl -s localhost:4000/api/does-not-exist");
     expect(humanizeIsomuxRequest(req)).toBeNull();
+  });
+});
+
+describe("agent discovery route label", () => {
+  test("GET /agents and /api/agents get the manifest label", () => {
+    const req = parseIsomuxCurl(
+      `curl -s localhost:4000/agents -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"`,
+    );
+    expect(req).not.toBeNull();
+    expect(req!.action).toBe("List office agents");
+    expect(humanizeIsomuxRequest(req!)).toBe("List office agents");
+    expect(describeIsomuxRoute("GET", "/api/agents")).toBe(
+      "List office agents",
+    );
   });
 });

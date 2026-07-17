@@ -7,10 +7,15 @@
 // card (method badge, route, key payload fields) instead of raw shell text.
 //
 // This module is deliberately conservative: parseIsomuxCurl() returns null for
-// anything it can't FULLY understand (compound commands, redirections, command
-// substitution, unknown flags, non-isomux hosts), and the caller falls back to
-// the plain rendering. A false null costs nothing; a false parse would show a
-// wrong summary.
+// anything it can't FULLY understand (compound commands, command substitution,
+// unknown flags, non-isomux hosts), and the caller falls back to the plain
+// rendering. A false null costs nothing; a false parse would show a wrong
+// summary. Two deliberate tolerances on top of that:
+// - side-effect-free redirections (`2>/dev/null`, `>/dev/null`, `2>&1`) are
+//   accepted and omitted from the card (see tokenize);
+// - a leading `jq ... |` producer stage feeding `curl -d @-` is understood,
+//   resolving the body when the jq program is a simple literal template (see
+//   parseJqInvocation).
 
 export type CurlBodyField = { key: string; value: string };
 
@@ -35,14 +40,22 @@ export type IsomuxCurlRequest = {
    * Trailing pipeline, verbatim, e.g. "| jq '.tasks'". Null if none.
    *
    * Accepted tails are shell-checked (each stage must tokenize under the same
-   * conservative rules as the curl itself — no compound commands,
-   * redirections, or substitutions), command-gated (see FILTER_COMMANDS), and
+   * conservative rules as the curl itself — no compound commands, no file
+   * redirections or substitutions; safe stream redirections like
+   * `2>/dev/null` are tolerated), command-gated (see FILTER_COMMANDS), and
    * length-capped (MAX_PIPE_TAIL). They are NOT semantically validated — a
    * `sed w` script can still write a file — so the UI MUST render this string
    * verbatim and untruncated. That is the safety property: the collapsed card
    * never shows less of the tail than the raw rendering would.
    */
   pipeTail: string | null;
+  /**
+   * Short note describing a body the parser accepted but could not resolve
+   * into fields, e.g. "body built with jq" for a `jq ... | curl -d @-`
+   * producer pipeline whose jq program is more than a literal template.
+   * Mutually exclusive with bodyFields/bodyRaw. Null otherwise.
+   */
+  bodyNote: string | null;
 };
 
 // --- shell tokenizer ---------------------------------------------------------
@@ -62,6 +75,10 @@ function tokenize(command: string): Tokenized | null {
   const tokens: string[] = [];
   let cur = "";
   let hasCur = false;
+  // True when any part of the current token came from quotes or a backslash
+  // escape. Needed at `>`: a bare `2` before `>` is an fd number in shell,
+  // but a quoted/escaped one (`'2'>f`) is an argument — we bail on those.
+  let curQuoted = false;
   let i = 0;
   const n = src.length;
   const push = () => {
@@ -70,6 +87,7 @@ function tokenize(command: string): Tokenized | null {
       cur = "";
       hasCur = false;
     }
+    curQuoted = false;
   };
   while (i < n) {
     const c = src[i];
@@ -78,6 +96,7 @@ function tokenize(command: string): Tokenized | null {
       if (end === -1) return null;
       cur += src.slice(i + 1, end);
       hasCur = true;
+      curQuoted = true;
       i = end + 1;
       continue;
     }
@@ -103,6 +122,7 @@ function tokenize(command: string): Tokenized | null {
       }
       if (!closed) return null;
       hasCur = true;
+      curQuoted = true;
       continue;
     }
     if (c === "\\") {
@@ -114,6 +134,7 @@ function tokenize(command: string): Tokenized | null {
       }
       cur += src[i + 1];
       hasCur = true;
+      curQuoted = true;
       i += 2;
       continue;
     }
@@ -129,7 +150,40 @@ function tokenize(command: string): Tokenized | null {
       push();
       return { tokens, pipeTail: src.slice(i).trim() };
     }
-    if (";&<>`()".includes(c)) return null;
+    if (c === ">") {
+      // Tolerate exactly the side-effect-free redirections that transcripts
+      // use constantly: `2>/dev/null`, `>/dev/null`, `1>/dev/null` (with or
+      // without a space before the target) and `2>&1`. They discard or merge
+      // streams — no file is written, no request semantics change — so
+      // silently dropping them from the card conceals nothing that matters.
+      // Everything else (`> file`, `>>`, `<`, `2>&2`, quoted fd digits) still
+      // bails to raw rendering.
+      let fd = "";
+      if (hasCur) {
+        // In shell an fd number before `>` must be a bare unquoted digit
+        // word; anything else (`foo2>`, `'2'>`) is ambiguous — bail.
+        if (curQuoted || (cur !== "1" && cur !== "2")) return null;
+        fd = cur;
+      }
+      i++;
+      if (src[i] === ">") return null; // append (>>)
+      if (src[i] === "&") {
+        if (fd !== "2" || src[i + 1] !== "1") return null;
+        i += 2;
+      } else {
+        while (i < n && (src[i] === " " || src[i] === "\t")) i++;
+        if (!src.startsWith("/dev/null", i)) return null;
+        i += "/dev/null".length;
+      }
+      // The redirection must end the word cleanly.
+      if (i < n && !" \t\r|".includes(src[i])) return null;
+      // Drop the consumed fd digit; the redirection itself is not a token.
+      cur = "";
+      hasCur = false;
+      curQuoted = false;
+      continue;
+    }
+    if (";&<`()".includes(c)) return null;
     if (c === "$" && src[i + 1] === "(") return null;
     cur += c;
     hasCur = true;
@@ -172,8 +226,10 @@ const MAX_PIPE_TAIL = 80;
 /**
  * Validate a captured pipe tail (starting with "|"). Every stage must
  * tokenize under the same conservative rules as the curl itself (so `; rm x`,
- * redirections, and substitutions in the tail bail out) and must invoke an
- * allowed filter command. `python -m json.tool` is allowed as a special case.
+ * file redirections, and substitutions in the tail bail out; the safe stream
+ * redirections tokenize() tolerates — `2>/dev/null` and friends — are fine
+ * and stay visible in the verbatim tail) and must invoke an allowed filter
+ * command. `python -m json.tool` is allowed as a special case.
  * See FILTER_COMMANDS for what this does and does not guarantee.
  */
 function isSafePipeTail(tail: string): boolean {
@@ -229,7 +285,17 @@ const BOOLEAN_SHORT = new Set([
   "6",
 ]);
 
-type ArgKind = "method" | "header" | "data" | "form" | "url" | "ignore";
+type ArgKind =
+  | "method"
+  | "header"
+  | "data"
+  | "dataLiteral"
+  | "form"
+  | "url"
+  | "ignore"
+  | "output"
+  | "dumpHeader"
+  | "writeOut";
 
 // Single-letter flags that take a value (attached or as the next token).
 //
@@ -237,33 +303,52 @@ type ArgKind = "method" | "header" | "data" | "form" | "url" | "ignore";
 // neutral: they may not name a filesystem path, carry credentials, add
 // request headers, or change the request's method/target/body — because the
 // card silently omits them, an ignored option must not hide anything the raw
-// rendering would reveal. Options with concealed semantics (-o/--output
-// writes a file, -T/--upload-file changes method and body, -u/--user and
-// -b/--cookie carry credentials, -A/-e add request headers) are deliberately
-// ABSENT from these tables, so they reject the parse and fall back to raw
-// rendering. -w/--write-out is also rejected: since curl 8.3.0, write-out's
-// %output{file} directive writes to a file, so it is not output-text-only.
+// rendering would reveal. Options with concealed semantics (-T/--upload-file
+// changes method and body, -u/--user and -b/--cookie carry credentials,
+// -A/-e add request headers) are deliberately ABSENT from these tables, so
+// they reject the parse and fall back to raw rendering.
+//
+// Three options are admitted only under a value restriction (checked in
+// applyArg):
+// - "output" (-o/--output): only `/dev/null` — discarding the response
+//   writes no file; any real path still rejects.
+// - "dumpHeader" (-D/--dump-header): only `-` (stdout) — a file path rejects.
+// - "writeOut" (-w/--write-out): rejected when the format reads a file
+//   (@file) or writes one (%output{file}, curl >= 8.3.0); plain status
+//   formats like '%{http_code}' are output-text-only and pass.
+//
+// "data" vs "dataLiteral": -d/--data/--data-binary/--data-ascii interpret a
+// leading `@` as "read the body from this file" (`@-` = stdin), which is what
+// lets a `jq ... | curl -d @-` producer pipeline supply the body.
+// --data-raw never interprets `@`, and --data-urlencode transforms the
+// content, so those are "dataLiteral" and never satisfy a producer.
 const ARG_SHORT: Record<string, ArgKind> = {
   X: "method",
   H: "header",
   d: "data",
   F: "form",
   m: "ignore",
+  o: "output",
+  D: "dumpHeader",
+  w: "writeOut",
 };
 
 const ARG_LONG: Record<string, ArgKind> = {
   "--request": "method",
   "--header": "header",
   "--data": "data",
-  "--data-raw": "data",
+  "--data-raw": "dataLiteral",
   "--data-binary": "data",
   "--data-ascii": "data",
-  "--data-urlencode": "data",
+  "--data-urlencode": "dataLiteral",
   "--form": "form",
   "--url": "url",
   "--max-time": "ignore",
   "--connect-timeout": "ignore",
   "--retry": "ignore",
+  "--output": "output",
+  "--dump-header": "dumpHeader",
+  "--write-out": "writeOut",
 };
 
 // Header names the card may silently omit. Anything else (Cookie carries
@@ -327,6 +412,9 @@ const ROUTE_LABELS: Array<[string, string, string]> = [
     `/api/tasks${suffix}`,
     label,
   ]),
+  // The agent-discovery manifest is exposed both at /agents and /api/agents.
+  ["GET", "/agents", "List office agents"],
+  ["GET", "/api/agents", "List office agents"],
   ["POST", "/api/agents/*/messages", "Send agent message"],
   ["GET", "/api/agents/*/scheduled-messages", "List scheduled messages"],
   ["DELETE", "/api/agents/*/scheduled-messages/*", "Cancel scheduled message"],
@@ -443,6 +531,7 @@ export function humanizeIsomuxRequest(
 
   // Agents
   if (segs[0] === "agents") {
+    if (segs.length === 1 && m === "GET") return "List office agents";
     if (segs.length === 1 && m === "POST") {
       const name = field("name");
       return name
@@ -542,13 +631,214 @@ function displayValue(v: unknown): string {
   return (s ?? "").replace(/\s+/g, " ");
 }
 
+// --- jq producer stage -------------------------------------------------------
+
+// A resolved leading `jq ... |` stage feeding `curl -d @-`: either concrete
+// body fields (the jq program was a literal object template we could
+// evaluate) or a short note for the card ("body built with jq").
+type JqBody =
+  | { kind: "fields"; fields: CurlBodyField[] }
+  | { kind: "note"; note: string };
+
+/**
+ * Read a JSON string literal starting at s[start] (which must be '"').
+ * Returns the decoded value and the index just past the closing quote, or
+ * null for anything that isn't a plain literal (jq `\(...)` interpolation,
+ * bad escapes, unterminated).
+ */
+function readJsonString(
+  s: string,
+  start: number,
+): { value: string; end: number } | null {
+  let i = start + 1;
+  while (i < s.length) {
+    if (s[i] === "\\") {
+      i += 2;
+      continue;
+    }
+    if (s[i] === '"') {
+      const raw = s.slice(start, i + 1);
+      // jq string interpolation executes a jq expression — not a literal.
+      if (raw.includes("\\(")) return null;
+      try {
+        const v: unknown = JSON.parse(raw);
+        return typeof v === "string" ? { value: v, end: i + 1 } : null;
+      } catch {
+        return null;
+      }
+    }
+    i++;
+  }
+  return null;
+}
+
+/**
+ * Evaluate a jq program of the restricted shape `{key: value, ...}` where
+ * each key is a bare identifier or string literal and each value is a $var
+ * reference (looked up in `vars`), a string/number/true/false/null literal.
+ * Anything else — nesting, pipes, functions, interpolation, undefined vars —
+ * returns null and the caller falls back to the "body built with jq" note.
+ */
+function resolveJqTemplate(
+  program: string,
+  vars: Record<string, string>,
+): CurlBodyField[] | null {
+  const m = /^\s*\{([\s\S]*)\}\s*$/.exec(program);
+  if (!m) return null;
+  const inner = m[1];
+  const fields: CurlBodyField[] = [];
+  let i = 0;
+  const n = inner.length;
+  const ws = () => {
+    while (i < n && /\s/.test(inner[i])) i++;
+  };
+  ws();
+  if (i === n) return fields; // "{}"
+  for (;;) {
+    ws();
+    let key: string;
+    const km = /^[A-Za-z_][A-Za-z0-9_]*/.exec(inner.slice(i));
+    if (km) {
+      key = km[0];
+      i += km[0].length;
+    } else if (inner[i] === '"') {
+      const str = readJsonString(inner, i);
+      if (!str) return null;
+      key = str.value;
+      i = str.end;
+    } else return null;
+    ws();
+    if (inner[i] !== ":") return null;
+    i++;
+    ws();
+    let value: string;
+    let vm: RegExpExecArray | null;
+    if ((vm = /^\$[A-Za-z_][A-Za-z0-9_]*/.exec(inner.slice(i)))) {
+      const name = vm[0].slice(1);
+      if (!(name in vars)) return null;
+      value = vars[name];
+      i += vm[0].length;
+    } else if (inner[i] === '"') {
+      const str = readJsonString(inner, i);
+      if (!str) return null;
+      value = str.value;
+      i = str.end;
+    } else if ((vm = /^-?\d+(\.\d+)?/.exec(inner.slice(i)))) {
+      value = vm[0];
+      i += vm[0].length;
+    } else if ((vm = /^(true|false|null)\b/.exec(inner.slice(i)))) {
+      value = vm[1];
+      i += vm[1].length;
+    } else return null;
+    fields.push({ key, value: displayValue(value) });
+    ws();
+    if (i === n) return fields;
+    if (inner[i] !== ",") return null;
+    i++;
+  }
+}
+
+// jq long flags that only shape output formatting; safe to accept and omit
+// from the card.
+const JQ_NEUTRAL_LONG = new Set([
+  "--compact-output",
+  "--raw-output",
+  "--join-output",
+  "--sort-keys",
+  "--ascii-output",
+  "--tab",
+]);
+
+// The short-flag equivalents (clusterable, e.g. -nc); n = --null-input.
+const JQ_NEUTRAL_SHORT = "ncrjSa";
+
+/**
+ * Parse the tokens of a leading `jq` stage. Accepts only a narrow grammar:
+ * neutral output flags, -n/--null-input, --arg/--argjson name value,
+ * --rawfile name path, and exactly one program argument. Returns the body as
+ * concrete fields when the program is a literal template (requires -n),
+ * otherwise a "body built with jq" note; the note names any --rawfile paths
+ * so a file read is never concealed. Unknown flags (e.g. -f reads a program
+ * file, --slurpfile) and positional input files reject the whole parse.
+ */
+function parseJqInvocation(tokens: string[]): JqBody | null {
+  let nullInput = false;
+  const vars: Record<string, string> = {};
+  const rawfiles: string[] = [];
+  let program: string | null = null;
+  for (let i = 1; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (t === "--null-input") {
+      nullInput = true;
+      continue;
+    }
+    if (JQ_NEUTRAL_LONG.has(t)) continue;
+    if (t === "--arg") {
+      const name = tokens[i + 1];
+      const value = tokens[i + 2];
+      if (name === undefined || value === undefined) return null;
+      vars[name] = value;
+      i += 2;
+      continue;
+    }
+    if (t === "--argjson") {
+      const name = tokens[i + 1];
+      const value = tokens[i + 2];
+      if (name === undefined || value === undefined) return null;
+      // --argjson values are JSON, and jq validates them EAGERLY: one invalid
+      // value fails the whole jq invocation (even if the program never
+      // references it), so curl would send an empty body. A card here would
+      // misrepresent the request either way — reject to raw rendering.
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(value);
+      } catch {
+        return null;
+      }
+      // Store the interpreted value (JSON string "hi" displays as hi, an
+      // object as its compact JSON), matching how -d JSON bodies display.
+      vars[name] = displayValue(parsed);
+      i += 2;
+      continue;
+    }
+    if (t === "--rawfile") {
+      const name = tokens[i + 1];
+      const path = tokens[i + 2];
+      if (name === undefined || path === undefined) return null;
+      vars[name] = `@${path}`;
+      rawfiles.push(path);
+      i += 2;
+      continue;
+    }
+    if (/^-[a-zA-Z]+$/.test(t)) {
+      if (![...t.slice(1)].every((ch) => JQ_NEUTRAL_SHORT.includes(ch)))
+        return null;
+      if (t.includes("n")) nullInput = true;
+      continue;
+    }
+    if (t.startsWith("-")) return null;
+    if (program !== null) return null; // input files after the program
+    program = t;
+  }
+  if (program === null) return null;
+  const fields = nullInput ? resolveJqTemplate(program, vars) : null;
+  if (fields) return { kind: "fields", fields };
+  return {
+    kind: "note",
+    note:
+      "body built with jq" +
+      (rawfiles.length > 0 ? ` (reads ${rawfiles.join(", ")})` : ""),
+  };
+}
+
 // --- main entry point --------------------------------------------------------
 
 /**
  * Parse a Bash command string; return a structured request if it is a single
- * curl invocation against the isomux server (optionally piped into a filter),
- * else null. `ports` is the set of local ports the isomux server may listen
- * on (default: the documented 4000).
+ * curl invocation against the isomux server (optionally piped into a
+ * filter), or a `jq ... | curl ... -d @-` producer pipeline where jq builds
+ * the request body. Null for everything else. `ports` is the set of local
+ * ports the isomux server may listen on (default: the documented 4000).
  */
 export function parseIsomuxCurl(
   command: string,
@@ -557,7 +847,33 @@ export function parseIsomuxCurl(
   const tokenized = tokenize(command);
   if (!tokenized) return null;
   const { tokens, pipeTail } = tokenized;
-  if (tokens.length === 0 || tokens[0] !== "curl") return null;
+  if (tokens.length === 0) return null;
+  if (tokens[0] === "curl")
+    return parseCurlStage(tokens, pipeTail, ports, null);
+  if (tokens[0] === "jq") {
+    // Producer pipeline: jq builds the JSON body, curl reads it from stdin.
+    if (pipeTail === null) return null;
+    const body = parseJqInvocation(tokens);
+    if (body === null) return null;
+    const next = tokenize(pipeTail.slice(1));
+    if (!next || next.tokens[0] !== "curl") return null;
+    return parseCurlStage(next.tokens, next.pipeTail, ports, body);
+  }
+  return null;
+}
+
+/**
+ * Parse one tokenized curl invocation (plus its optional display pipe tail).
+ * `producer` is the resolved leading jq stage for producer pipelines; when
+ * present, the curl must read its body from stdin via an @-interpreting data
+ * flag (`-d @-`) and the producer supplies bodyFields/bodyNote.
+ */
+function parseCurlStage(
+  tokens: string[],
+  pipeTail: string | null,
+  ports: readonly string[],
+  producer: JqBody | null,
+): IsomuxCurlRequest | null {
   if (
     pipeTail !== null &&
     (pipeTail.length > MAX_PIPE_TAIL || !isSafePipeTail(pipeTail))
@@ -570,6 +886,7 @@ export function parseIsomuxCurl(
   const dataParts: string[] = [];
   const formParts: string[] = [];
   let getStyle = false; // -G/--get sends -d data as query params
+  let stdinData = 0; // count of `@-` values seen via @-interpreting data flags
 
   const applyArg = (kind: ArgKind, value: string): boolean => {
     switch (kind) {
@@ -584,6 +901,10 @@ export function parseIsomuxCurl(
         return true;
       }
       case "data":
+        if (value === "@-") stdinData++;
+        dataParts.push(value);
+        return true;
+      case "dataLiteral":
         dataParts.push(value);
         return true;
       case "form":
@@ -595,6 +916,18 @@ export function parseIsomuxCurl(
         return true;
       case "ignore":
         return true;
+      case "output":
+        // Discarding the response writes no file; any real path rejects.
+        return value === "/dev/null";
+      case "dumpHeader":
+        // Headers to stdout only; a file path rejects.
+        return value === "-";
+      case "writeOut":
+        // @file reads a format file; %output{file} (curl >= 8.3.0) writes
+        // one. Plain formats like '%{http_code}' are output-text-only.
+        return (
+          !value.toLowerCase().includes("%output") && !value.startsWith("@")
+        );
     }
   };
 
@@ -643,12 +976,30 @@ export function parseIsomuxCurl(
   const path = matchIsomuxUrl(url, new Set(ports));
   if (path === null) return null;
 
+  if (producer !== null) {
+    // The jq output must actually be the request body: exactly one body
+    // argument, `@-`, via an @-interpreting data flag, not diverted to the
+    // query string by -G. Anything else and the card would attribute the jq
+    // body to a request that doesn't carry it.
+    if (
+      stdinData !== 1 ||
+      dataParts.length !== 1 ||
+      formParts.length !== 0 ||
+      getStyle
+    )
+      return null;
+  }
+
   const hasBody = !getStyle && (dataParts.length > 0 || formParts.length > 0);
   const resolvedMethod = method ?? (hasBody ? "POST" : "GET");
 
   let bodyFields: CurlBodyField[] | null = null;
   let bodyRaw: string | null = null;
-  if (hasBody) {
+  let bodyNote: string | null = null;
+  if (producer !== null) {
+    if (producer.kind === "fields") bodyFields = producer.fields;
+    else bodyNote = producer.note;
+  } else if (hasBody) {
     if (formParts.length > 0) {
       bodyFields = formParts.map((part) => {
         const eq = part.indexOf("=");
@@ -687,5 +1038,6 @@ export function parseIsomuxCurl(
     bodyRaw,
     hasAuth,
     pipeTail,
+    bodyNote,
   };
 }
