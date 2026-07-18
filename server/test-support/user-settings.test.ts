@@ -1,12 +1,13 @@
-// Phase 3d slice 9b — the notifRooms/defaultRoom clamp, re-homed onto the REST
-// split (Option A, Nil-gated). Setting one's OWN notif/default goes through the
-// SELF-ONLY view.* routes (clamped to the caller's accessible rooms by the
-// shared applyViewChange core); an owner changing a member's allowedRooms goes
-// through users.setAccess, which PRUNE-clamps the member's existing notif/default
-// to the new access in ONE write (the clamp deferred from slice 6). The old WS
-// update_user (an owner setting a member's notif in one command) is retired —
-// notif/default are self-only now. Asserts the PERSISTED record so it is robust
-// across the slice-5 user-wire projection change.
+// Phase 3d slice 9b — the notifRooms clamp, re-homed onto the REST split
+// (Option A, Nil-gated). Setting one's OWN notifRooms goes through the SELF-ONLY
+// view.* routes (clamped to the caller's accessible rooms by the shared
+// applyViewChange core); an owner changing a member's allowedRooms goes through
+// users.setAccess, which PRUNE-clamps the member's existing notifRooms to the new
+// access in ONE write (the clamp deferred from slice 6). The old WS update_user
+// (an owner setting a member's notif in one command) is retired — notifRooms is
+// self-only now. Asserts the PERSISTED record so it is robust across the slice-5
+// user-wire projection change. (The Default Room setting was later removed, so
+// the former defaultRoom clamp cases are gone.)
 
 import { describe, it, expect, afterEach } from "bun:test";
 import { startTestServer, type TestServer } from "./harness.ts";
@@ -35,22 +36,14 @@ async function http(
   return res.status;
 }
 
-// Self-only view prefs (view.setNotifRooms / view.setDefaultRoom). Clamped to
-// the caller's accessible rooms by the shared applyViewChange core.
+// Self-only view pref (view.setNotifRooms). Clamped to the caller's accessible
+// rooms by the shared applyViewChange core.
 const selfSetNotif = (
   srv: TestServer,
   rawSessionId: string,
   notifRooms: string[],
 ) => http(srv, rawSessionId, "PUT", "/api/me/view/notif-rooms", { notifRooms });
-const selfSetDefault = (
-  srv: TestServer,
-  rawSessionId: string,
-  defaultRoomId: string | null,
-) =>
-  http(srv, rawSessionId, "PUT", "/api/me/view/default-room", {
-    defaultRoomId,
-  });
-// Owner-gated allowedRooms grant; prune-clamps the target's notif/default.
+// Owner-gated allowedRooms grant; prune-clamps the target's notifRooms.
 const ownerSetAccess = (
   srv: TestServer,
   ownerRawSessionId: string,
@@ -80,8 +73,8 @@ async function waitForUserField(
   }
 }
 
-describe("view.setNotifRooms / setDefaultRoom clamp to accessible (3d.9b, self-only)", () => {
-  it("legacy-pref migration (former claim_user) clamps default/notif to the caller's accessible rooms", async () => {
+describe("view.setNotifRooms clamps to accessible (3d.9b, self-only)", () => {
+  it("legacy-pref migration (former claim_user) clamps notif to the caller's accessible rooms", async () => {
     server = await startTestServer();
     await server.seedOwner("Boss");
     const member = await server.seedMember("Mia");
@@ -90,31 +83,15 @@ describe("view.setNotifRooms / setDefaultRoom clamp to accessible (3d.9b, self-o
     const memberId = getUserByName(member.username)!.id;
     expect(updateUserById(memberId, { allowedRooms: [r1] }).ok).toBe(true);
 
-    // The store migration PUTs each legacy pref to its own self-only view.*
-    // route (replacing claim_user). r2 is inaccessible: default -> null, notif
-    // keeps only r1. Each call still 204s (the clamp is silent — no oracle).
-    expect(await selfSetDefault(server, member.rawSessionId, r2)).toBe(204);
+    // The store migration PUTs the legacy notif pref to its self-only view.*
+    // route (replacing claim_user). r2 is inaccessible: notif keeps only r1.
+    // The call still 204s (the clamp is silent — no oracle).
     expect(await selfSetNotif(server, member.rawSessionId, [r1, r2])).toBe(204);
     const u = await waitForUserField(
       memberId,
       (x) => x.notifRooms.length === 1,
     );
     expect(u.notifRooms).toEqual([r1]); // r2 dropped
-    expect(u.defaultRoomId).toBeNull(); // r2 inaccessible -> null
-  });
-
-  it("a self-user can CLEAR their default room (defaultRoomId: null)", async () => {
-    server = await startTestServer();
-    const owner = await server.seedOwner("Boss");
-    const r1 = server.agentManager.getRooms()[0].id;
-    const ownerId = getUserByName(owner.username)!.id;
-
-    expect(await selfSetDefault(server, owner.rawSessionId, r1)).toBe(204);
-    expect(getUserById(ownerId)!.defaultRoomId).toBe(r1);
-    // 3d.9b folded clear-to-null into view.setDefaultRoom (was the update_user
-    // bridge) so the modal can still clear once update_user is gone.
-    expect(await selfSetDefault(server, owner.rawSessionId, null)).toBe(204);
-    expect(getUserById(ownerId)!.defaultRoomId).toBeNull();
   });
 
   it("an owner (allowedRooms=[]) saving their OWN notifRooms keeps every live room (rule access)", async () => {
@@ -144,8 +121,8 @@ describe("view.setNotifRooms / setDefaultRoom clamp to accessible (3d.9b, self-o
   });
 });
 
-describe("users.setAccess prune-clamps notif/default to the new access (3d.9b)", () => {
-  it("revoking a room prunes the member's existing notif and clears a default pointing at it", async () => {
+describe("users.setAccess prune-clamps notifRooms to the new access (3d.9b)", () => {
+  it("revoking a room prunes the member's existing notif pointing at it", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Boss");
     const member = await server.seedMember("Mia");
@@ -153,7 +130,7 @@ describe("users.setAccess prune-clamps notif/default to the new access (3d.9b)",
     const r2 = server.agentManager.createRoom("R2");
     const memberId = getUserByName(member.username)!.id;
 
-    // Grant r1 + r2, then the member sets notif [r1,r2] + default r2 (self).
+    // Grant r1 + r2, then the member sets notif [r1,r2] (self).
     expect(
       await ownerSetAccess(server, owner.rawSessionId, member.username, [
         r1,
@@ -161,17 +138,14 @@ describe("users.setAccess prune-clamps notif/default to the new access (3d.9b)",
       ]),
     ).toBe(200);
     expect(await selfSetNotif(server, member.rawSessionId, [r1, r2])).toBe(204);
-    expect(await selfSetDefault(server, member.rawSessionId, r2)).toBe(204);
     expect(getUserById(memberId)!.notifRooms).toEqual([r1, r2]);
-    expect(getUserById(memberId)!.defaultRoomId).toBe(r2);
 
-    // Owner revokes r2: setAccess prune-clamps notif -> [r1] and default -> null
-    // in ONE write (the atomic clamp deferred from slice 6).
+    // Owner revokes r2: setAccess prune-clamps notif -> [r1] in ONE write (the
+    // atomic clamp deferred from slice 6).
     expect(
       await ownerSetAccess(server, owner.rawSessionId, member.username, [r1]),
     ).toBe(200);
     expect(getUserById(memberId)!.allowedRooms).toEqual([r1]);
     expect(getUserById(memberId)!.notifRooms).toEqual([r1]);
-    expect(getUserById(memberId)!.defaultRoomId).toBeNull();
   });
 });

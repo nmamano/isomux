@@ -13,7 +13,7 @@
 // session username. The same browser origin can host different users over
 // time (user switch, session handoff), and a draft typed by user A must
 // never be restored into user B's composer — nor should B inherit A's view
-// spot over their own default-room preference.
+// spot instead of their own first-visible-room default.
 //
 // LAYOUT:
 // - View spot: one key, "isomux-view", holding {user, roomId, agentId,

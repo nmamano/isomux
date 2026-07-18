@@ -20,7 +20,6 @@ function full(name: string, over: Partial<UserRecord> = {}): UserRecord {
     avatarColor: "#abcdef",
     avatarVariant: "classic",
     createdAt: 1,
-    defaultRoomId: null,
     notifRooms: [],
     envFile: null,
     allowedRooms: [],
@@ -60,7 +59,6 @@ describe("isFullUserView", () => {
       "notifRooms",
       "hidden",
       "order",
-      "defaultRoomId",
       "envFile",
       "memberPrompt",
     ];
@@ -118,12 +116,11 @@ describe("upsertUserView — full-wins-over-public (order-independent)", () => {
 });
 
 describe("upsertUserView — rename carries sensitive fields across the key", () => {
-  it("a PUBLIC-only rename carries grants/default/notif to the new key", () => {
+  it("a PUBLIC-only rename carries grants/notif to the new key", () => {
     const m0 = mapOf(
       full("Alice", {
         allowedRooms: ["r1"],
         notifRooms: ["r1"],
-        defaultRoomId: "r1",
       }),
     );
     const m1 = upsertUserView(m0, pub("Alicia"), "Alice");
@@ -132,7 +129,6 @@ describe("upsertUserView — rename carries sensitive fields across the key", ()
     expect(a.name).toBe("Alicia");
     expect(a.allowedRooms).toEqual(["r1"]);
     expect(a.notifRooms).toEqual(["r1"]);
-    expect(a.defaultRoomId).toBe("r1");
   });
   it("a FULL rename migrates the key and carries the fresh record", () => {
     const m0 = mapOf(full("Alice", { allowedRooms: ["r1"] }));

@@ -60,6 +60,12 @@ const DARK_VARS = {
   "--user-msg-bg": "rgba(126,184,255,0.08)",
   "--tool-result-bg": "rgba(0,0,0,0.15)",
   "--tool-call-bg": "rgba(80,184,108,0.04)",
+  // Isomux API tool-call cards (see LogEntryCard). Dedicated so light themes
+  // can tint them distinctly from ordinary (green) tool calls — on white the
+  // plain --accent-bg tint is too faint to tell apart. Dark themes keep the
+  // accent tint + neutral border (matches --accent-bg / --border here).
+  "--isomux-card-bg": "rgba(126,184,255,0.08)",
+  "--isomux-card-border": "rgba(255,255,255,0.06)",
   "--tool-open-bg": "rgba(0,0,0,0.2)",
   "--thinking-bg": "rgba(255,255,255,0.015)",
   "--thinking-border": "rgba(255,255,255,0.05)",
@@ -154,6 +160,10 @@ const LIGHT_VARS: ThemeVars = {
   "--user-msg-bg": "rgba(59,130,246,0.07)",
   "--tool-result-bg": "rgba(0,0,0,0.03)",
   "--tool-call-bg": "rgba(22,163,74,0.05)",
+  // Stronger than --accent-bg (0.08) + an accent-colored border so isomux
+  // cards read as clearly blue against the green tool calls in light mode.
+  "--isomux-card-bg": "rgba(59,130,246,0.12)",
+  "--isomux-card-border": "rgba(59,130,246,0.28)",
   "--tool-open-bg": "rgba(0,0,0,0.04)",
   "--thinking-bg": "rgba(0,0,0,0.02)",
   "--thinking-border": "rgba(0,0,0,0.06)",
@@ -248,6 +258,8 @@ const NORD_VARS: ThemeVars = {
   "--user-msg-bg": "rgba(136,192,208,0.08)",
   "--tool-result-bg": "rgba(0,0,0,0.15)",
   "--tool-call-bg": "rgba(163,190,140,0.04)",
+  "--isomux-card-bg": "rgba(136,192,208,0.08)",
+  "--isomux-card-border": "rgba(255,255,255,0.06)",
   "--tool-open-bg": "rgba(0,0,0,0.2)",
   "--thinking-bg": "rgba(255,255,255,0.015)",
   "--thinking-border": "rgba(255,255,255,0.05)",
@@ -342,6 +354,8 @@ const DRACULA_VARS: ThemeVars = {
   "--user-msg-bg": "rgba(189,147,249,0.08)",
   "--tool-result-bg": "rgba(0,0,0,0.15)",
   "--tool-call-bg": "rgba(80,250,123,0.04)",
+  "--isomux-card-bg": "rgba(189,147,249,0.08)",
+  "--isomux-card-border": "rgba(255,255,255,0.06)",
   "--tool-open-bg": "rgba(0,0,0,0.2)",
   "--thinking-bg": "rgba(255,255,255,0.015)",
   "--thinking-border": "rgba(255,255,255,0.05)",
@@ -436,6 +450,8 @@ const SOLARIZED_DARK_VARS: ThemeVars = {
   "--user-msg-bg": "rgba(38,139,210,0.08)",
   "--tool-result-bg": "rgba(0,0,0,0.15)",
   "--tool-call-bg": "rgba(133,153,0,0.04)",
+  "--isomux-card-bg": "rgba(38,139,210,0.08)",
+  "--isomux-card-border": "rgba(255,255,255,0.06)",
   "--tool-open-bg": "rgba(0,0,0,0.2)",
   "--thinking-bg": "rgba(255,255,255,0.015)",
   "--thinking-border": "rgba(255,255,255,0.05)",
@@ -529,6 +545,9 @@ const SOLARIZED_LIGHT_VARS: ThemeVars = {
   "--user-msg-bg": "rgba(38,139,210,0.07)",
   "--tool-result-bg": "rgba(0,0,0,0.03)",
   "--tool-call-bg": "rgba(133,153,0,0.05)",
+  // Light theme: stronger accent tint + accent border (see LIGHT_VARS).
+  "--isomux-card-bg": "rgba(38,139,210,0.12)",
+  "--isomux-card-border": "rgba(38,139,210,0.28)",
   "--tool-open-bg": "rgba(0,0,0,0.04)",
   "--thinking-bg": "rgba(0,0,0,0.02)",
   "--thinking-border": "rgba(0,0,0,0.06)",

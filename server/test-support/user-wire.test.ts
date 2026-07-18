@@ -34,7 +34,6 @@ const SENSITIVE = [
   "hidden",
   "order",
   "notifRooms",
-  "defaultRoomId",
   "envFile",
   "memberPrompt",
 ] as const;
@@ -340,7 +339,7 @@ describe("user-wire projection leak closure (3b.5)", () => {
     expect(ownerEv.envFile).toBeUndefined(); // dropped even for owners on the all-event
   });
 
-  it("connect hydration delivers the full self/admin records BEFORE full_state (the UI default-room + owner-roster reads depend on this order)", async () => {
+  it("connect hydration delivers the full self/admin records BEFORE full_state (the UI owner-roster reads depend on this order)", async () => {
     server = await startTestServer();
     const owner = await server.seedOwner("Boss");
     const mia = await server.seedMember("Mia");

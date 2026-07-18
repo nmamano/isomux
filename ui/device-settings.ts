@@ -2,8 +2,8 @@
 //
 // `username` is the name of the boss using this browser; `device` is an
 // optional label for this connection point ("Phone", "Laptop", ...). Per-user
-// preferences (default room, notif rooms, env file path) live server-side
-// keyed by username — see server/users.ts.
+// preferences (notif rooms, env file path) live server-side keyed by username
+// — see server/users.ts.
 
 import type { NotifRoomsSetting } from "../shared/types.ts";
 
@@ -36,14 +36,13 @@ export function setDevice(label: string | null): void {
 
 // Read legacy localStorage prefs used during the one-shot claim_user
 // migration. Once the server acks the claim, the corresponding keys can be
-// cleared via `clearLegacyUserPrefs()` so they don't drift.
+// cleared via `clearLegacyUserPrefs()` so they don't drift. The legacy
+// default-room key is no longer read (the Default Room setting was removed),
+// but clearLegacyUserPrefs still sweeps it so stale keys don't linger.
 export function readLegacyUserPrefs(): {
-  defaultRoomId: string | null;
   notifRooms: NotifRoomsSetting;
 } {
-  if (typeof localStorage === "undefined")
-    return { defaultRoomId: null, notifRooms: [] };
-  const defaultRoomId = localStorage.getItem(LEGACY_KEY_DEFAULT_ROOM);
+  if (typeof localStorage === "undefined") return { notifRooms: [] };
   const raw = localStorage.getItem(LEGACY_KEY_NOTIF_ROOMS);
   let notifRooms: NotifRoomsSetting = [];
   if (raw) {
@@ -56,7 +55,7 @@ export function readLegacyUserPrefs(): {
       // notifications per-room through User Settings if they want.
     } catch {}
   }
-  return { defaultRoomId, notifRooms };
+  return { notifRooms };
 }
 
 export function clearLegacyUserPrefs(): void {

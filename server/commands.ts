@@ -28,6 +28,22 @@ export type CommandConfig = {
    * rather than one per name.
    */
   aliasFor?: string;
+  /**
+   * True for commands whose bare `/name` (no argument) is ALREADY a complete,
+   * useful invocation: clicking them in the "Sk" popover EXECUTES the command
+   * immediately instead of copying `/name ` into the composer. This covers
+   * direct actions (/clear, /context), interactive pickers whose no-arg
+   * behavior IS the intended action (/model, /effort, /resume open the picker),
+   * and commands with a useful default when no arg is given (/diff diffs the
+   * agent cwd — an OPTIONAL directory arg doesn't make the bare form
+   * incomplete; users wanting one still type it via slash autocomplete). Left
+   * false/absent when the bare invocation is NOT the intended action:
+   * /isomux-edit needs a path, and /isomux-cronjob-system-prompt with no arg
+   * only prints a usage/listing en route to the required selector. Only
+   * meaningful for supported commands surfaced in autocomplete; skills never
+   * carry it.
+   */
+  autoRun?: boolean;
 };
 
 // Shorthand for the common unsupported-hardcoded pattern
@@ -61,6 +77,7 @@ export const commands: Record<string, CommandConfig> = {
     overridable: false,
     handler: "clear",
     description: "Wipe conversation history",
+    autoRun: true,
   },
   context: {
     type: "hardcoded",
@@ -69,6 +86,7 @@ export const commands: Record<string, CommandConfig> = {
     overridable: false,
     handler: "context",
     description: "Visualize context window usage",
+    autoRun: true,
   },
   help: {
     type: "hardcoded",
@@ -77,6 +95,7 @@ export const commands: Record<string, CommandConfig> = {
     overridable: false,
     handler: "help",
     description: "List all available commands",
+    autoRun: true,
   },
   resume: {
     type: "hardcoded",
@@ -85,6 +104,8 @@ export const commands: Record<string, CommandConfig> = {
     overridable: false,
     handler: "resume",
     description: "Pick up a previous session",
+    // Interactive picker: takes no argument text, so auto-run opens the list.
+    autoRun: true,
   },
   login: {
     type: "hardcoded",
@@ -93,6 +114,7 @@ export const commands: Record<string, CommandConfig> = {
     overridable: false,
     handler: "login",
     description: "Show how to (re-)authenticate this agent",
+    autoRun: true,
   },
   logout: {
     ...UNSUPPORTED_HARDCODED,
@@ -107,6 +129,7 @@ export const commands: Record<string, CommandConfig> = {
     overridable: false,
     handler: "isomuxAllHands",
     description: "Summary of all agents and their conversations",
+    autoRun: true,
   },
   "isomux-system-prompt": {
     type: "hardcoded",
@@ -115,6 +138,7 @@ export const commands: Record<string, CommandConfig> = {
     overridable: false,
     handler: "isomuxSystemPrompt",
     description: "Show the full system prompt this agent receives",
+    autoRun: true,
   },
   "isomux-cronjob-system-prompt": {
     type: "hardcoded",
@@ -132,6 +156,9 @@ export const commands: Record<string, CommandConfig> = {
     handler: "isomuxDiff",
     description:
       "Peek uncommitted changes in the agent's cwd (or pass a directory)",
+    // No-arg diffs the cwd — a complete, useful invocation. A directory arg is
+    // optional and still reachable via slash autocomplete / manual entry.
+    autoRun: true,
   },
   "isomux-edit": {
     type: "hardcoded",
@@ -149,6 +176,7 @@ export const commands: Record<string, CommandConfig> = {
     overridable: false,
     handler: "isomuxUsage",
     description: "Per-agent / per-room / per-cron-job token spend",
+    autoRun: true,
   },
 
   // =========================================================================
@@ -201,6 +229,8 @@ export const commands: Record<string, CommandConfig> = {
     overridable: false,
     handler: "model",
     description: "Switch model",
+    // Interactive picker: takes no argument text, so auto-run opens the list.
+    autoRun: true,
   },
   fast: {
     ...UNSUPPORTED_HARDCODED,
@@ -213,6 +243,8 @@ export const commands: Record<string, CommandConfig> = {
     overridable: false,
     handler: "effort",
     description: "Set thinking effort level",
+    // Interactive picker: takes no argument text, so auto-run opens the list.
+    autoRun: true,
   },
   advisor: { ...UNSUPPORTED_HARDCODED, description: "Toggle advisor mode" },
 
@@ -230,6 +262,7 @@ export const commands: Record<string, CommandConfig> = {
     overridable: false,
     handler: "usage",
     description: "Where to check subscription and office usage",
+    autoRun: true,
   },
   stats: { ...UNSUPPORTED_HARDCODED, description: "Usage patterns over time" },
   "extra-usage": {
@@ -251,6 +284,9 @@ export const commands: Record<string, CommandConfig> = {
     description:
       "Peek uncommitted changes in the agent's cwd (or pass a directory)",
     aliasFor: "isomux-diff",
+    // Mirror the canonical isomux-diff: no-arg diffs the cwd. Set explicitly on
+    // both names so the alias carries its own autoRun through the wire.
+    autoRun: true,
   },
   rewind: {
     ...UNSUPPORTED_HARDCODED,
@@ -467,6 +503,7 @@ export function autocompleteCommands(): {
   name: string;
   description?: string;
   aliasFor?: string;
+  autoRun?: boolean;
 }[] {
   return Object.entries(commands)
     .filter(([, cfg]) => cfg.autocomplete)
@@ -474,6 +511,7 @@ export function autocompleteCommands(): {
       name,
       description: cfg.description,
       ...(cfg.aliasFor ? { aliasFor: cfg.aliasFor } : {}),
+      ...(cfg.autoRun ? { autoRun: true } : {}),
     }));
 }
 

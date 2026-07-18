@@ -29,6 +29,8 @@ export interface CommandEntry {
   name: string;
   description?: string;
   aliasFor?: string;
+  // No-arg commands EXECUTE on click instead of being copied into the draft.
+  autoRun?: boolean;
 }
 function groupForOrigin(origin: SkillOrigin): GroupKey {
   if (origin === "isomux" || origin === "claude") return "bundled";
@@ -38,8 +40,9 @@ function groupForOrigin(origin: SkillOrigin): GroupKey {
 // Popover listing the agent's available skills, opened from the "Sk" button
 // in the composer. Renders inside the composer's position:relative container
 // and anchors above it (same approach as the slash-command autocomplete).
-// Clicking a skill hands its name to the parent, which inserts `/name ` into
-// the draft; there is no args handling here by design.
+// Clicking an entry hands its name (and its autoRun flag) to the parent: for a
+// no-arg command (autoRun) the parent executes it immediately; otherwise it
+// inserts `/name ` into the draft. There is no args handling here by design.
 export function SkillsPopover({
   skills,
   commands,
@@ -50,7 +53,7 @@ export function SkillsPopover({
   skills: SkillInfo[];
   commands: CommandEntry[];
   isMobile: boolean;
-  onPick: (name: string) => void;
+  onPick: (name: string, autoRun?: boolean) => void;
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -106,15 +109,22 @@ export function SkillsPopover({
       (description ?? "").toLowerCase().includes(q);
     const byGroup = new Map<
       GroupKey,
-      { name: string; description?: string }[]
+      { name: string; description?: string; autoRun?: boolean }[]
     >();
-    const add = (group: GroupKey, name: string, description?: string) => {
+    const add = (
+      group: GroupKey,
+      name: string,
+      description?: string,
+      autoRun?: boolean,
+    ) => {
       if (aliasTargets.has(name) || !matches(name, description)) return;
       const list = byGroup.get(group) ?? [];
-      list.push({ name, description });
+      list.push({ name, description, autoRun });
       byGroup.set(group, list);
     };
-    for (const c of commands) add("commands", c.name, c.description);
+    // Only commands can be auto-run; skills always take a free-form prompt and
+    // are copied into the draft.
+    for (const c of commands) add("commands", c.name, c.description, c.autoRun);
     for (const s of skills)
       add(groupForOrigin(s.origin), s.name, s.description);
     return GROUP_ORDER.filter((g) => byGroup.has(g)).map((g) => ({
@@ -206,7 +216,7 @@ export function SkillsPopover({
                 // box or textarea) so the click doesn't cause a blur-flash;
                 // the parent refocuses the textarea after inserting.
                 onMouseDown={(e) => e.preventDefault()}
-                onClick={() => onPick(s.name)}
+                onClick={() => onPick(s.name, s.autoRun)}
                 // Desktop: full description via native hover tooltip. Mobile
                 // has no hover, so the full description renders inline below.
                 title={!isMobile ? s.description : undefined}

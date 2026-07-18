@@ -778,7 +778,6 @@ export type UserRole = "owner" | "member";
 export interface UserRecord {
   id: string; // stable 8-char hex; the storage key in users.json
   name: string; // display case, e.g. "Nil"; case-insensitively unique
-  defaultRoomId: string | null;
   notifRooms: NotifRoomsSetting;
   envFile: string | null; // absolute path to dotenv file
   createdAt: number;
@@ -976,7 +975,14 @@ export type ServerMessage =
   | {
       type: "slash_commands";
       agentId: string;
-      commands: { name: string; description?: string; aliasFor?: string }[];
+      commands: {
+        name: string;
+        description?: string;
+        aliasFor?: string;
+        // No-arg commands EXECUTE on click in the "Sk" popover instead of
+        // copying `/name ` into the composer (see SkillsPopover).
+        autoRun?: boolean;
+      }[];
       skills: SkillInfo[];
     }
   | { type: "clear_logs"; agentId: string }

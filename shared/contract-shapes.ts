@@ -264,13 +264,6 @@ export interface NotifRoomsReq {
   notifRooms: string[];
 }
 
-export interface DefaultRoomReq {
-  // A room id sets the default; null clears it ("whichever is first"). Group 7
-  // (3d.9b) folded the clear-to-null path here from the retired update_user
-  // bridge so a self-user can clear their default once update_user is gone.
-  defaultRoomId: string | null;
-}
-
 export type UserUpdateReq = Partial<{
   name: string;
   envFile: string | null;

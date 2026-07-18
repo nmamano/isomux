@@ -190,7 +190,12 @@ type Action =
   | {
       type: "slash_commands";
       agentId: string;
-      commands: { name: string; description?: string; aliasFor?: string }[];
+      commands: {
+        name: string;
+        description?: string;
+        aliasFor?: string;
+        autoRun?: boolean;
+      }[];
       skills: SkillInfo[];
     }
   | { type: "clear_logs"; agentId: string }
@@ -256,22 +261,14 @@ const ATTENTION_STATES = new Set(["idle", "error", "waiting_for_response"]);
 export function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case "full_state": {
-      // Apply the user's default room only on the first full_state (when we
-      // haven't seen any rooms yet). Subsequent full_states (e.g. after a
-      // server reconnect) preserve whichever room the user was viewing, as
-      // long as it still exists; otherwise fall back to the first room.
-      let preferredRoomId: string | null = null;
-      if (state.rooms.length === 0) {
-        const username = getUsername();
-        const me = username
-          ? state.users.get(username.toLowerCase())
-          : undefined;
-        preferredRoomId = me?.defaultRoomId ?? null;
-      }
+      // Keep whichever room the user was viewing if it still exists (e.g.
+      // across a server reconnect); otherwise fall back to the first visible
+      // room. The Default Room preference was removed — reload view-restore
+      // (App.tsx / loadSavedView) reopens the last room on a page reload, and
+      // this first-visible fallback covers a genuinely fresh session.
       const currentRoomId = resolveSelectedRoomId(
         action.rooms,
         state.currentRoomId,
-        preferredRoomId,
       );
       return {
         ...state,
@@ -770,25 +767,20 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         dispatch(msg as Action);
         if (msg.type === "full_state") dispatch({ type: "connected" });
         // Once both session_context and users_list have arrived, mirror any
-        // legacy localStorage prefs (defaultRoomId, notifRooms) into the user
-        // record — but only if the server hasn't recorded values for them yet.
-        // The session cookie is authoritative for the username; we don't try
-        // to coerce the device's old localStorage name onto the session.
+        // legacy localStorage notifRooms pref into the user record — but only
+        // if the server hasn't recorded a value yet. The session cookie is
+        // authoritative for the username; we don't try to coerce the device's
+        // old localStorage name onto the session. (Legacy defaultRoom prefs are
+        // no longer migrated — the Default Room setting was removed.)
         if (msg.type === "session_context" && !legacyMigrated) {
           const legacy = readLegacyUserPrefs();
           // One-shot localStorage->server migration of legacy view prefs (the
-          // former claim_user). Each PRESENT value goes to its own self-only
-          // view.* route; an absent/empty value is "nothing to migrate" (no
-          // request), never a clear-to-null/[], so a reload with no legacy keys
-          // can't wipe server-side prefs. Fire-and-forget; the server clamps to
-          // the caller's accessible rooms.
-          const hasLegacy =
-            !!legacy.defaultRoomId || legacy.notifRooms.length > 0;
-          if (legacy.defaultRoomId) {
-            apiFetch("PUT", "/api/me/view/default-room", {
-              defaultRoomId: legacy.defaultRoomId,
-            }).catch(() => {});
-          }
+          // former claim_user). A PRESENT value goes to its self-only view.*
+          // route; an absent/empty value is "nothing to migrate" (no request),
+          // never a clear-to-[], so a reload with no legacy keys can't wipe
+          // server-side prefs. Fire-and-forget; the server clamps to the
+          // caller's accessible rooms.
+          const hasLegacy = legacy.notifRooms.length > 0;
           if (legacy.notifRooms.length > 0) {
             apiFetch("PUT", "/api/me/view/notif-rooms", {
               notifRooms: legacy.notifRooms,

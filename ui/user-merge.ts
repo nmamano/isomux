@@ -30,7 +30,6 @@ export function isFullUserView(u: UserView): u is UserRecord {
     Array.isArray(u.notifRooms) &&
     Array.isArray(u.hidden) &&
     Array.isArray(u.order) &&
-    "defaultRoomId" in u &&
     "envFile" in u &&
     "memberPrompt" in u
   );

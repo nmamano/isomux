@@ -184,7 +184,6 @@ describe("users persistence round-trip (Phase 1.3)", () => {
       role: "owner",
       allowedRooms: ["aaaa0001", "bbbb0002"],
       notifRooms: ["aaaa0001"],
-      defaultRoomId: "bbbb0002",
     });
     const upd = updateUserById(claimed.id, {
       envFile: "/home/alice/.env",
@@ -614,7 +613,7 @@ describe("nested persisted shape + stable-room-IDs migration (Phase 1.3 / 3c.1)"
     expect(bob.username).toBe("Nil");
   });
 
-  it("users' room references (allowedRooms/notifRooms/defaultRoomId) stay intact and id-based", () => {
+  it("users' room references (allowedRooms/notifRooms) stay intact and id-based; a legacy defaultRoomId field is tolerated and dropped", () => {
     seed("users.json", {
       "user-1": {
         id: "user-1",
@@ -622,6 +621,9 @@ describe("nested persisted shape + stable-room-IDs migration (Phase 1.3 / 3c.1)"
         role: "owner",
         allowedRooms: ["aaaa0001", "bbbb0002"],
         notifRooms: ["aaaa0001"],
+        // Simulates an existing users.json written before the Default Room
+        // setting was removed. The read must tolerate it (not crash) and simply
+        // ignore it — the field is dropped from the in-memory record.
         defaultRoomId: "bbbb0002",
         envFile: null,
         createdAt: 1700000000000,
@@ -634,7 +636,9 @@ describe("nested persisted shape + stable-room-IDs migration (Phase 1.3 / 3c.1)"
     const boss = getUserById("user-1");
     expect(boss?.allowedRooms).toEqual(["aaaa0001", "bbbb0002"]);
     expect(boss?.notifRooms).toEqual(["aaaa0001"]);
-    expect(boss?.defaultRoomId).toBe("bbbb0002");
+    expect(
+      (boss as unknown as Record<string, unknown>).defaultRoomId,
+    ).toBeUndefined();
   });
 
   it("killed-agent summaries keep their lastRoomId reference", () => {

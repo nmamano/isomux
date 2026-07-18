@@ -922,16 +922,19 @@ function ToolCall({
       : null;
   }, [name, input]);
   // Isomux API cards get an accent tint so they read differently from
-  // ordinary (green) tool calls; errors stay red either way.
+  // ordinary (green) tool calls; errors stay red either way. The tint uses
+  // dedicated --isomux-card-* vars (not raw --accent-bg / --border) so light
+  // themes can strengthen it — on white the plain accent tint was too faint
+  // to distinguish from the green tool-call background.
   const borderColor = resultIsError
     ? "var(--red)"
     : curlReq
-      ? "var(--border)"
+      ? "var(--isomux-card-border)"
       : "var(--green-border)";
   const bgColor = resultIsError
     ? "var(--red-bg)"
     : curlReq
-      ? "var(--accent-bg)"
+      ? "var(--isomux-card-bg)"
       : "var(--tool-call-bg)";
   const textColor = resultIsError
     ? "var(--red)"

@@ -48,13 +48,8 @@ export function UserManagementModal({
   onSwitchUser: (name: string | null) => void;
   onClose?: () => void;
 }) {
-  const { users, rooms, allRooms, isMobile, sessionContext } = useAppState();
+  const { users, isMobile, sessionContext } = useAppState();
   const isOwner = sessionContext?.role === "owner";
-  // Owners need every room for the Allowed Rooms editor and the user
-  // summaries below, including rooms they've hidden from their own
-  // view. `allRooms` is pushed by the server to owner WSes only;
-  // members fall back to their projected `rooms` (already filtered).
-  const editorRooms = allRooms.length > 0 ? allRooms : rooms;
   const userList = useMemo(
     () => [...users.values()].sort((a, b) => a.name.localeCompare(b.name)),
     [users],
@@ -165,8 +160,8 @@ export function UserManagementModal({
             lineHeight: 1.4,
           }}
         >
-          User profiles are stored on the server. Your default room,
-          notifications, and credentials follow you across devices.
+          User profiles are stored on the server. Your notifications and
+          credentials follow you across devices.
         </p>
 
         {userList.length > 0 && (
@@ -231,7 +226,7 @@ export function UserManagementModal({
                             marginTop: 2,
                           }}
                         >
-                          {summarizeUser(u, editorRooms)}
+                          {summarizeUser(u)}
                         </div>
                       </div>
                       {(isMe || isOwner) && isFullUserView(u) && (
@@ -374,16 +369,11 @@ function sameRoomSet(a: string[], b: string[]): boolean {
   return true;
 }
 
-function summarizeUser(
-  u: UserView,
-  rooms: { id: string; name: string }[],
-): string {
+function summarizeUser(u: UserView): string {
   // Public-only view (e.g. a member's view of another user): no sensitive data
   // is present, so render nothing beyond the name + role badge already shown.
   if (!isFullUserView(u)) return "";
   const parts: string[] = [];
-  const room = rooms.find((r) => r.id === u.defaultRoomId);
-  parts.push(`default: ${room?.name ?? "first room"}`);
   parts.push(
     `${u.allowedRooms.length} room${u.allowedRooms.length === 1 ? "" : "s"} (${u.notifRooms.length} notification${u.notifRooms.length === 1 ? "" : "s"})`,
   );
@@ -418,13 +408,13 @@ function UserEditPanel({
   // but we also hide the editor here so members don't see disabled
   // controls they can't use.
   const isOwner = sessionContext?.role === "owner";
-  // Self-edit vs owner-editing-another. Option A (Nil-gated): Default Room +
-  // Notifications are SELF-only (view.*), so they render only when isMe; an
-  // owner editing a member manages record fields + access, not their prefs.
+  // Self-edit vs owner-editing-another. Option A (Nil-gated): Notifications are
+  // SELF-only (view.*), so they render only when isMe; an owner editing a
+  // member manages record fields + access, not their prefs.
   const isMe = sessionContext?.userId === user.id;
   // The TARGET's access is rule-based for owners (they reach every room without
   // materialized grants), literal allowedRooms for members. Drives the self-pref
-  // rendering (Default Room / Notifications) and whether a save writes grants.
+  // rendering (Notifications) and whether a save writes grants.
   const targetIsOwner = user.role === "owner";
   // Use the unfiltered global rooms list when available so the owner
   // can manage other users' access to rooms they've hidden from their
@@ -433,9 +423,6 @@ function UserEditPanel({
   // projected `rooms` (which already match what they can see).
   const editorRooms = allRooms.length > 0 ? allRooms : rooms;
   const [name, setName] = useState(user.name);
-  const [defaultRoomId, setDefaultRoomId] = useState<string | null>(
-    user.defaultRoomId,
-  );
   const [notifSetting, setNotifSetting] = useState<NotifRoomsSetting>(
     user.notifRooms,
   );
@@ -444,8 +431,8 @@ function UserEditPanel({
   );
   // The room ids the TARGET can reach, for rendering their self prefs: an owner
   // reaches every live room by rule; a member only their (editable) allowedSetting.
-  // Without this an owner self-editing sees no default-room options and disabled
-  // notification toggles (their allowedRooms is [] by rule).
+  // Without this an owner self-editing sees disabled notification toggles (their
+  // allowedRooms is [] by rule).
   const accessibleForPrefs = targetIsOwner
     ? editorRooms.map((r) => r.id)
     : allowedSetting;
@@ -562,11 +549,9 @@ function UserEditPanel({
     );
   }
 
-  // When a room is removed from access, prune notifSetting and clear
-  // defaultRoomId if it pointed at the removed room. The server applies
-  // the same prune on save, but the client-side mirror keeps the form
-  // state consistent mid-edit and avoids surfacing a default the user
-  // can't reach in the merged Rooms section.
+  // When a room is removed from access, prune notifSetting to fit. The server
+  // applies the same prune on save, but the client-side mirror keeps the form
+  // state consistent mid-edit.
   function toggleRoomAllowed(roomId: string) {
     const has = allowedSetting.includes(roomId);
     const newAllowed = has
@@ -574,14 +559,12 @@ function UserEditPanel({
       : [...allowedSetting, roomId];
     setAllowedSetting(newAllowed);
     setNotifSetting(notifSetting.filter((id) => newAllowed.includes(id)));
-    if (has && defaultRoomId === roomId) setDefaultRoomId(null);
   }
 
   function isDirty(): boolean {
     // Name is trim-saved (see handleSave), so compare trimmed to avoid
     // false-positive dirtiness on trailing whitespace the user can't see.
     if (name.trim() !== user.name) return true;
-    if (defaultRoomId !== user.defaultRoomId) return true;
     if ((envFile.trim() || null) !== (user.envFile ?? null)) return true;
     if ((memberPrompt.trim() || null) !== (user.memberPrompt ?? null))
       return true;
@@ -691,10 +674,7 @@ function UserEditPanel({
         }
       }
       // (3) View prefs are SELF-only (Option A: the fields render only for isMe).
-      // default-room accepts null (clear); notif-rooms takes the full list.
-      if (isMe && defaultRoomId !== user.defaultRoomId) {
-        await apiFetch("PUT", "/api/me/view/default-room", { defaultRoomId });
-      }
+      // notif-rooms takes the full list.
       if (isMe && !sameRoomSet(notifSetting, user.notifRooms)) {
         await apiFetch("PUT", "/api/me/view/notif-rooms", {
           notifRooms: notifSetting,
@@ -724,29 +704,6 @@ function UserEditPanel({
         maxLength={32}
         style={inputStyle}
       />
-
-      {isMe && (
-        <>
-          <label style={subLabelStyle}>
-            Default Room{" "}
-            <span style={hintStyle}>(opens when you load Isomux)</span>
-          </label>
-          <select
-            value={defaultRoomId ?? ""}
-            onChange={(e) => setDefaultRoomId(e.target.value || null)}
-            style={inputStyle}
-          >
-            <option value="">Whichever is first</option>
-            {editorRooms
-              .filter((r) => accessibleForPrefs.includes(r.id))
-              .map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.name}
-                </option>
-              ))}
-          </select>
-        </>
-      )}
 
       {isOwner && (!targetIsOwner || isMe) ? (
         <>

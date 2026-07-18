@@ -169,8 +169,10 @@ function load(): Record<string, UserRecord> {
       result[id] = {
         id,
         name: value.name,
-        defaultRoomId:
-          typeof value.defaultRoomId === "string" ? value.defaultRoomId : null,
+        // Default Room was removed (superseded by reload view-restore). A
+        // legacy `defaultRoomId` field in an existing users.json is tolerated
+        // and simply ignored here — reads never break, the field is dropped on
+        // the next rewrite.
         notifRooms: normalizeNotifRooms(value.notifRooms),
         envFile:
           typeof value.envFile === "string" && value.envFile
@@ -306,7 +308,6 @@ export function wouldDeleteLeaveNoOwner(userId: string): boolean {
 export function claimUser(
   name: string,
   initial?: {
-    defaultRoomId?: string | null;
     notifRooms?: NotifRoomsSetting;
     role?: UserRole;
     allowedRooms?: string[];
@@ -325,7 +326,6 @@ export function claimUser(
   const record: UserRecord = {
     id,
     name: name.trim(),
-    defaultRoomId: initial?.defaultRoomId ?? null,
     notifRooms: initial?.notifRooms ?? [...resolvedAllowed],
     envFile: null,
     createdAt: Date.now(),
@@ -441,7 +441,6 @@ export function updateUserById(
     Pick<
       UserRecord,
       | "name"
-      | "defaultRoomId"
       | "notifRooms"
       | "envFile"
       | "allowedRooms"
@@ -477,10 +476,6 @@ export function updateUserById(
   const next: UserRecord = {
     id: existing.id,
     name: nextName,
-    defaultRoomId:
-      changes.defaultRoomId !== undefined
-        ? (changes.defaultRoomId ?? null)
-        : existing.defaultRoomId,
     notifRooms:
       changes.notifRooms !== undefined
         ? normalizeNotifRooms(changes.notifRooms)
@@ -578,7 +573,6 @@ export function updateUser(
     Pick<
       UserRecord,
       | "name"
-      | "defaultRoomId"
       | "notifRooms"
       | "envFile"
       | "allowedRooms"

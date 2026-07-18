@@ -94,7 +94,12 @@ export interface ManagedAgent {
   // callers (newConversation/resume/editAgent/editMessage/`/clear`) can race and
   // orphan the loser's session. See task 154e2c14. Don't remove without replacing.
   abortPromise: Promise<void> | null;
-  slashCommands: { name: string; description?: string; aliasFor?: string }[];
+  slashCommands: {
+    name: string;
+    description?: string;
+    aliasFor?: string;
+    autoRun?: boolean;
+  }[];
   skills: SkillInfo[];
   sdkReportedCommands: string[]; // commands reported by SDK in system:init
   // Timing: track when phases start for duration_ms computation
@@ -223,7 +228,12 @@ export type AgentEvent =
   | {
       type: "slash_commands";
       agentId: string;
-      commands: { name: string; description?: string; aliasFor?: string }[];
+      commands: {
+        name: string;
+        description?: string;
+        aliasFor?: string;
+        autoRun?: boolean;
+      }[];
       skills: SkillInfo[];
     }
   | { type: "terminal_output"; agentId: string; data: string }

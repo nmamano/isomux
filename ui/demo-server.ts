@@ -665,7 +665,7 @@ let sessionContext: SessionContext | null = null;
 
 function seedUsers() {
   const roomIds = state.getState().rooms.map((r) => r.id);
-  const defaultRoomId = roomIds[0] ?? null;
+  const firstRoomId = roomIds[0] ?? null;
   const now = Date.now();
   const usedIds = new Set<string>();
   for (const { name, role } of DEMO_USERS_SEED) {
@@ -674,8 +674,7 @@ function seedUsers() {
     users.set(name.toLowerCase(), {
       id,
       name,
-      defaultRoomId,
-      notifRooms: defaultRoomId ? [defaultRoomId] : [],
+      notifRooms: firstRoomId ? [firstRoomId] : [],
       envFile: null,
       createdAt: now,
       role,
@@ -967,12 +966,10 @@ export async function demoApi(
     // reorder_rooms had no handleCommand case and was silently dropped).
     case "PUT /api/me/view/order":
       return undefined;
-    // 3d.9b view.setNotifRooms / view.setDefaultRoom — self view prefs aren't
-    // modeled per-user in the single-user demo (same as view/order). No-op; the
-    // modal + the legacy-pref migration close optimistically. Replaces the demo
-    // update_user notif/default handling and the claim_user prefs migration.
+    // view.setNotifRooms — self view prefs aren't modeled per-user in the
+    // single-user demo (same as view/order). No-op; the modal + the legacy-pref
+    // migration close optimistically. (Default Room was removed.)
     case "PUT /api/me/view/notif-rooms":
-    case "PUT /api/me/view/default-room":
       return undefined;
     // agents.spawn — build a demo agent, broadcast agent_added + a system log,
     // RETURN { agent } (the dialog awaits the HTTP result; the old
@@ -1130,15 +1127,10 @@ export async function demoApi(
         ? new Set(state.getState().rooms.map((r) => r.id))
         : new Set(allowedRooms);
     const notifRooms = existing.notifRooms.filter((id) => accessible.has(id));
-    const defaultRoomId =
-      existing.defaultRoomId && accessible.has(existing.defaultRoomId)
-        ? existing.defaultRoomId
-        : null;
     const updated: UserRecord = {
       ...existing,
       allowedRooms,
       notifRooms,
-      defaultRoomId,
     };
     users.set(updated.name.toLowerCase(), updated);
     shimEmit({ type: "user_updated", user: updated });

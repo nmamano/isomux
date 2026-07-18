@@ -23,7 +23,6 @@ import type { UserRecord } from "../../shared/types.ts";
 function mkUser(over: Partial<UserRecord> & { id: string }): UserRecord {
   return {
     name: over.id,
-    defaultRoomId: null,
     notifRooms: [],
     envFile: null,
     createdAt: 0,

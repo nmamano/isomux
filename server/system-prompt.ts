@@ -29,7 +29,7 @@ Messages are prefixed with the boss's name in brackets, optionally followed by a
 
 How to discover other office agents and their conversation logs: curl -s localhost:${PORT}/agents -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" — returns id, name, room (name and roomId), topic, cwd, model, and log directory for every agent in rooms visible to your boss. The office may contain other agents and rooms outside your view, so don't assume this list is the whole office.
 
-How to discover the office's bosses: read ~/.isomux/users.json. each boss has a display name, preferences (default room, notification rooms, env file path), and an optional memberPrompt about the boss for agents. When a boss other than your manager messages you, look up their record there if you need context on who you're talking to.
+How to discover the office's bosses: read ~/.isomux/users.json. each boss has a display name, preferences (notification rooms, env file path), and an optional memberPrompt about the boss for agents. When a boss other than your manager messages you, look up their record there if you need context on who you're talking to.
 
 How to use the task board (localhost:${PORT}/tasks): only touch it when the boss asks, except for claim/complete bookkeeping on board-tracked work you're handed. When you do:
   curl -s localhost:${PORT}/tasks                                          # list active tasks (excludes done and backlog)

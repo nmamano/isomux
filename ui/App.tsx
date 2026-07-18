@@ -121,10 +121,10 @@ export function App() {
   // cronjobs) after a page reload, and restore unsent chat drafts. The
   // restore runs ONCE, after the first full_state, so every saved id can be
   // validated against what actually still exists — a killed agent, a closed
-  // room, or lost access silently falls back to the normal default view
-  // (including the user's server-side default-room preference, which
-  // full_state already applied and which the restore only overrides when the
-  // saved room is still valid). Gated off in the demo (llmConnected=false),
+  // room, or lost access silently falls back to the normal default view (the
+  // first visible room, which full_state already selected; the restore only
+  // overrides it when the saved room is still valid). Gated off in the demo
+  // (llmConnected=false),
   // where restoring a previous visitor's spot would break the scripted
   // landing-page experience. `restored` is state (not a ref) on purpose: the
   // save effects below read it from the SAME render, so on the restore

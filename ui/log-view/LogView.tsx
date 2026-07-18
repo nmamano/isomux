@@ -1467,9 +1467,29 @@ export function LogView({
     window.getSelection()?.removeAllRanges();
   }
 
-  // Skills popover pick: insert the bare `/name ` at the textarea caret (the
-  // caret position survives the focus moving to the popover) and close.
-  function handleSkillPick(name: string) {
+  // Skills popover pick. A no-arg command (autoRun) EXECUTES immediately —
+  // same fire-and-forget POST as handleSend, with the bare `/name` as the
+  // message — instead of being copied into the draft. Everything else (skills,
+  // and commands that take an argument) inserts `/name ` at the caret so the
+  // user can type the rest. The popover only opens on an empty composer, so
+  // auto-run never discards typed text.
+  function handleSkillPick(name: string, autoRun?: boolean) {
+    // Only a literal true executes — any other value (mixed-version or replay
+    // wire data) falls through to the safe insert path.
+    if (autoRun === true) {
+      setSkillsOpen(false);
+      if (!connected) {
+        setSendError(true);
+        return;
+      }
+      apiFetch("POST", `/api/agents/${agent.id}/messages`, {
+        text: `/${name}`,
+        device: device || undefined,
+      }).catch(() => {});
+      setSendError(false);
+      setAutoScroll(true);
+      return;
+    }
     const current = inputRef.current;
     const ta = textareaRef.current;
     const snippet = `/${name} `;

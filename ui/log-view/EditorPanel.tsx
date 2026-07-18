@@ -84,6 +84,39 @@ function writeTabs(agentId: string, paths: string[]) {
   } catch {}
 }
 
+// Most-recently-opened file paths, per agent, newest first. Distinct from
+// TABS_KEY (currently-open tabs): recents survive a full close of every tab
+// so the empty editor offers a one-click reopen. A fuller always-visible file
+// browser is the separate, more ambitious file-nav sidebar (task 4c8740f5) —
+// deliberately NOT built here; this is the lightweight quick-reopen affordance.
+const RECENT_KEY = (agentId: string) => `isomux:editor:recent:${agentId}`;
+const MAX_RECENT = 12;
+
+function readRecent(agentId: string): string[] {
+  if (typeof localStorage === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(RECENT_KEY(agentId));
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .filter((p): p is string => typeof p === "string")
+      .slice(0, MAX_RECENT);
+  } catch {
+    return [];
+  }
+}
+
+function writeRecent(agentId: string, paths: string[]) {
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(
+      RECENT_KEY(agentId),
+      JSON.stringify(paths.slice(0, MAX_RECENT)),
+    );
+  } catch {}
+}
+
 function languageExtension(language: string) {
   switch (language) {
     case "javascript":
@@ -110,6 +143,11 @@ function languageExtension(language: string) {
 function basename(path: string): string {
   const i = path.lastIndexOf("/");
   return i === -1 ? path : path.slice(i + 1);
+}
+
+function dirname(path: string): string {
+  const i = path.lastIndexOf("/");
+  return i <= 0 ? "" : path.slice(0, i);
 }
 
 export function EditorPanel({
@@ -166,6 +204,12 @@ export function EditorPanel({
     return getEditorState(agentId)?.activePath ?? null;
   });
   const [pendingError, setPendingError] = useState<string | null>(null);
+  // Recently-opened file paths (newest first), backed by localStorage so they
+  // survive closing every tab and a full page reload. Surfaced in the empty
+  // editor for one-click reopen.
+  const [recentPaths, setRecentPaths] = useState<string[]>(() =>
+    readRecent(agentId),
+  );
   const [tabMenuOpen, setTabMenuOpen] = useState(false);
   const tabMenuRef = useRef<HTMLDivElement>(null);
   const tabMenuButtonRef = useRef<HTMLButtonElement>(null);
@@ -210,6 +254,26 @@ export function EditorPanel({
     setEditorState(agentId, { tabs: snapshot, activePath });
   }, [agentId, tabs, activePath]);
 
+  // Push a resolved path to the front of the recents MRU (deduped, capped).
+  // Callers OPT IN via openPath's `recordRecent` flag — only genuine
+  // user/agent opens (an edit request / initial requested open, a Recent
+  // click) record. Hydration (tab restore), reconnect watch re-arm, and silent
+  // external-change reloads call openPath too but must NOT record; the openPath
+  // call site spells out that lifecycle exclusion.
+  const recordRecent = useCallback(
+    (path: string) => {
+      setRecentPaths((prev) => {
+        const next = [path, ...prev.filter((p) => p !== path)].slice(
+          0,
+          MAX_RECENT,
+        );
+        writeRecent(agentId, next);
+        return next;
+      });
+    },
+    [agentId],
+  );
+
   // Open (or reload) a file: GET its content, (re)arm the watch on the resolved
   // path, and merge it into the tab list — keyed by the RESOLVED path the server
   // returns (so it matches editor_external_change). Replaces the editor_open WS
@@ -218,7 +282,10 @@ export function EditorPanel({
   // to re-arm the watch); pass discardDirty for the banner Reload buttons, which
   // exist precisely to throw the dirty buffer away in favor of disk.
   const openPath = useCallback(
-    (path: string, opts?: { discardDirty?: boolean }) => {
+    (
+      path: string,
+      opts?: { discardDirty?: boolean; recordRecent?: boolean },
+    ) => {
       setPendingError(null);
       apiFetch<{
         path: string;
@@ -293,6 +360,13 @@ export function EditorPanel({
             ];
           });
           setActivePath((prev) => prev ?? m.path);
+          // Only record for genuinely user/agent-initiated opens (an edit
+          // request or a recents click). NOT for hydration (module-store /
+          // localStorage tab restore), reconnect watch re-arming, or silent
+          // external-change reloads — those call openPath too but the user
+          // opened nothing, and their async completions would reorder the MRU
+          // arbitrarily. Records the server-RESOLVED path, not the input.
+          if (opts?.recordRecent) recordRecent(m.path);
         })
         .catch((err) => {
           // A 404 on a path we already hold a tab for means the file was
@@ -317,7 +391,7 @@ export function EditorPanel({
           );
         });
     },
-    [agentId, connectionId, setTabsAndPersist],
+    [agentId, connectionId, setTabsAndPersist, recordRecent],
   );
 
   // Disarm a file watch (DELETE) — used on tab close + panel unmount. The
@@ -455,7 +529,9 @@ export function EditorPanel({
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setActivePath(initialPath);
     const existing = tabsRef.current.find((t) => t.path === initialPath);
-    if (!existing) openPath(initialPath);
+    // A genuine user/agent-initiated open (edit request card, /isomux-edit) —
+    // record it in the recents MRU.
+    if (!existing) openPath(initialPath, { recordRecent: true });
     onPathOpened?.(initialPath);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialPath]);
@@ -1195,6 +1271,89 @@ export function EditorPanel({
           >
             Dismiss
           </button>
+        </div>
+      )}
+
+      {/* Recently-opened files: shown only in the empty editor as a quick
+          reopen list. When any tab is open the editor body takes over. A
+          persistent, always-visible file browser is the separate file-nav
+          sidebar (task 4c8740f5), intentionally out of scope here. */}
+      {tabs.length === 0 && recentPaths.length > 0 && (
+        <div
+          style={{
+            padding: mobile ? "12px 12px 8px" : "10px 12px 6px",
+            borderBottom: "1px solid var(--border)",
+            background: "var(--bg-surface)",
+            flexShrink: 0,
+            overflowY: "auto",
+            maxHeight: "60%",
+          }}
+        >
+          <div
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              letterSpacing: 1,
+              textTransform: "uppercase",
+              color: "var(--text-ghost)",
+              marginBottom: 6,
+            }}
+          >
+            Recently opened
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+            {recentPaths.map((p) => (
+              <button
+                key={p}
+                onClick={() => {
+                  setActivePath(p);
+                  openPath(p, { recordRecent: true });
+                }}
+                title={p}
+                style={{
+                  display: "flex",
+                  alignItems: "baseline",
+                  gap: 8,
+                  width: "100%",
+                  textAlign: "left",
+                  padding: mobile ? "8px 8px" : "4px 8px",
+                  background: "transparent",
+                  border: "none",
+                  borderRadius: 4,
+                  cursor: "pointer",
+                  fontFamily: "'JetBrains Mono',monospace",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = "var(--bg-subtle)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = "transparent";
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: mobile ? 14 : 12,
+                    color: "var(--text-secondary)",
+                    flexShrink: 0,
+                  }}
+                >
+                  {basename(p)}
+                </span>
+                <span
+                  style={{
+                    fontSize: mobile ? 11 : 10,
+                    color: "var(--text-ghost)",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    minWidth: 0,
+                  }}
+                >
+                  {dirname(p)}
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
