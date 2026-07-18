@@ -4,6 +4,7 @@ import type {
   AgentOutfit,
   AgentState,
   Attachment,
+  ContextUsageWire,
   EffortLevel,
   KilledAgentSummary,
   LogEntry,
@@ -370,6 +371,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     "sessionSwapping",
     "topicStale",
     "turnHadHumanInput",
+    // In-memory context-fullness snapshot (not in PersistedAgent). Broadcast at
+    // every turn boundary + Codex usage_update, so persisting on each would
+    // rewrite agents.json needlessly.
+    "contextUsage",
     // Pure runtime field: not in the persisted shape, and restore overrides it
     // (everyone lazy-restores dormant regardless). Without this, every dormant
     // toggle — demote, wake, swap, and now every lazy spawn + /clear release —
@@ -2131,6 +2136,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // Null the slot so nothing ever waits on an orphaned old-conversation
     // request (it still self-discards at commit via the gen check).
     managed.contextSampleInFlight = null;
+    // Clear (or restore) the UI indicator to match. Idempotent: a no-op when
+    // both the new and last-broadcast values are already absent.
+    broadcastContextUsage(managed);
   }
 
   // Model changes invalidate the MEASUREMENT but not the conversation: a
@@ -2141,6 +2149,52 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   function invalidateContextMeasurement(managed: ManagedAgent): void {
     managed.contextUsage = null;
     managed.contextSampleInFlight = null;
+    broadcastContextUsage(managed);
+  }
+
+  // Snapshot -> wire shape (drops the internal `source`).
+  function contextUsageWire(
+    snap: ContextUsageSnapshot | null,
+  ): ContextUsageWire | undefined {
+    if (!snap) return undefined;
+    return {
+      model: snap.model,
+      totalTokens: snap.totalTokens,
+      maxTokens: snap.maxTokens,
+      percentage: snap.percentage,
+      sampledAtMs: snap.sampledAtMs,
+    };
+  }
+
+  // Whether two samples differ in any DISPLAYED value (model, window, the
+  // rounded integer percentage the pill shows, or the token count the popover
+  // shows). Used to throttle the Codex usage_update broadcast path; the raw
+  // float still drives the stored snapshot and the threshold notices.
+  function displayedContextChanged(
+    prev: ContextUsageWire | undefined,
+    next: ContextUsageSnapshot,
+  ): boolean {
+    if (!prev) return true;
+    return (
+      prev.model !== next.model ||
+      prev.maxTokens !== next.maxTokens ||
+      Math.round(prev.percentage) !== Math.round(next.percentage) ||
+      prev.totalTokens !== next.totalTokens
+    );
+  }
+
+  // Push the current fullness snapshot to the UI over agent_updated. The wire
+  // copy lives on managed.info.contextUsage (mirrored by officeState.updateAgent)
+  // and is the last-broadcast baseline for the usage_update throttle. Skips the
+  // fully-redundant clear-when-already-clear case so the many reset call sites
+  // don't emit dead agent_updated events.
+  function broadcastContextUsage(managed: ManagedAgent): void {
+    const wire = contextUsageWire(managed.contextUsage);
+    if (!wire && managed.info.contextUsage === undefined) return;
+    for (const event of officeState.updateAgent(managed.info.id, {
+      contextUsage: wire,
+    }))
+      eventHandler(event);
   }
 
   // Commit an async sample iff it still belongs to the current conversation
@@ -2156,7 +2210,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     if (managed.session !== token.session) return false;
     if (token.seq <= managed.contextUsageCommittedSeq) return false;
     managed.contextUsageCommittedSeq = token.seq;
-    managed.contextUsage = {
+    const snapshot: ContextUsageSnapshot = {
       model: ctx.model,
       totalTokens: ctx.totalTokens,
       maxTokens: ctx.maxTokens,
@@ -2164,6 +2218,15 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       sampledAtMs: Date.now(),
       source,
     };
+    // turn_completed / on_demand broadcast every commit (turn-boundary cadence
+    // is already low). Only the Codex usage_update path is throttled, and on
+    // displayed values, so a burst of notifications for one turn doesn't spam
+    // the WS. Compare against the last-broadcast wire BEFORE overwriting it.
+    const shouldBroadcast =
+      source !== "usage_update" ||
+      displayedContextChanged(managed.info.contextUsage, snapshot);
+    managed.contextUsage = snapshot;
+    if (shouldBroadcast) broadcastContextUsage(managed);
     return true;
   }
 

@@ -1,0 +1,207 @@
+import { useEffect, useRef, useState } from "react";
+import type { ContextUsageWire } from "../../shared/types.ts";
+
+// Battery-style context-fullness indicator (task 27096236; design:
+// internal-docs/context-fullness-visibility.md). Rendered as inline SVG, NOT a
+// Unicode glyph — iOS Safari emoji-renders the battery/🔋 family and overrides
+// CSS color, which would defeat the "color shifts as it fills" behavior.
+//
+// Color band comes from the RAW float percentage so the icon agrees with the
+// server-injected [context check] notices (thresholds 50/75, per Nil
+// 2026-07-18): < 50 -> dim (--text-muted), 50-74 -> --orange, >= 75 -> --red.
+export function bandColor(pct: number): string {
+  if (pct >= 75) return "var(--red)";
+  if (pct >= 50) return "var(--orange)";
+  return "var(--text-muted)";
+}
+
+export function ContextBattery({
+  usage,
+  isMobile,
+}: {
+  usage: ContextUsageWire | undefined;
+  isMobile?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  // Popover is fixed-positioned (header/cwd-row ancestors clip overflow), so we
+  // anchor it to the button's viewport rect at open time.
+  const [coords, setCoords] = useState<{ top: number; right: number } | null>(
+    null,
+  );
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+
+  // The popover is actually mounted only when open AND a live snapshot AND
+  // anchor coords exist. Deriving it (rather than trusting `open` alone) keeps
+  // the outside-click listeners in lockstep with what's on screen: if `usage`
+  // clears while open, popoverOpen flips false and the effect tears the
+  // listeners down instead of leaking them behind a null render.
+  const popoverOpen = open && !!usage && coords !== null;
+
+  // Reset the toggle when the snapshot disappears (/clear, model-change
+  // invalidation, resume) so a later repopulation can't silently reopen the
+  // popover at stale coordinates. Render-phase state adjustment (React's
+  // documented "reset state when a prop changes" pattern): it re-renders in
+  // place before commit, so there's no cascading render and no setState-in-
+  // effect. The condition self-terminates (open is false after the update).
+  if (!usage && open) {
+    setOpen(false);
+    setCoords(null);
+  }
+
+  // Dismiss on outside pointer / Escape. The popover is fixed-positioned (not a
+  // DOM descendant of the button), so we ignore clicks inside either the button
+  // or the popover and close on anything else.
+  useEffect(() => {
+    if (!popoverOpen) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (btnRef.current?.contains(t)) return;
+      if (popRef.current?.contains(t)) return;
+      setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [popoverOpen]);
+
+  if (!usage) return null;
+
+  const pct = usage.percentage;
+  const rounded = Math.round(pct);
+  const color = bandColor(pct);
+  const fillFrac = Math.max(0, Math.min(1, pct / 100));
+  // Inner fill spans x:2..19 (17px wide) inside the 0.5..20.5 shell.
+  const fillW = 17 * fillFrac;
+
+  const tokens = usage.totalTokens.toLocaleString("en-US");
+  const maxTokens = usage.maxTokens.toLocaleString("en-US");
+  // Plain spaced hyphen (not an em dash) per Nil's prose rule.
+  const detail = `Context: ${tokens} / ${maxTokens} tokens (${rounded}%) - as of last turn.`;
+  const nudge =
+    pct >= 50
+      ? " Consider asking the agent to wrap up, or /clear for a fresh session."
+      : "";
+  const full = detail + nudge;
+
+  const toggle = () => {
+    const next = !open;
+    if (next && btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect();
+      setCoords({
+        top: r.bottom + 6,
+        right: Math.max(8, window.innerWidth - r.right),
+      });
+    }
+    setOpen(next);
+  };
+
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        flexShrink: 0,
+        color,
+      }}
+    >
+      <button
+        ref={btnRef}
+        onClick={toggle}
+        title={isMobile ? undefined : full}
+        aria-label={`Context ${rounded}% full. Tap for details.`}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 4,
+          background: "none",
+          border: "none",
+          padding: 0,
+          margin: 0,
+          cursor: "pointer",
+          color: "inherit",
+          lineHeight: 1,
+        }}
+      >
+        <svg
+          width={22}
+          height={11}
+          viewBox="0 0 24 12"
+          aria-hidden="true"
+          style={{ display: "block", flexShrink: 0 }}
+        >
+          {/* shell outline (slightly lighter so the fill reads against it) */}
+          <rect
+            x={0.5}
+            y={1}
+            width={20}
+            height={10}
+            rx={2.5}
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={1}
+            opacity={0.55}
+          />
+          {/* terminal nub */}
+          <rect x={21} y={4} width={2} height={4} rx={1} fill="currentColor" />
+          {/* proportional fill */}
+          {fillW > 0 && (
+            <rect
+              x={2}
+              y={2.5}
+              width={fillW}
+              height={7}
+              rx={1.2}
+              fill="currentColor"
+            />
+          )}
+        </svg>
+        {!isMobile && (
+          <span
+            className="context-battery-pct"
+            style={{
+              fontFamily: "'JetBrains Mono',monospace",
+              fontSize: 11,
+              fontWeight: 600,
+              color: "inherit",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {rounded}%
+          </span>
+        )}
+      </button>
+      {popoverOpen && (
+        <div
+          ref={popRef}
+          role="tooltip"
+          style={{
+            position: "fixed",
+            top: coords.top,
+            right: coords.right,
+            zIndex: 1000,
+            maxWidth: 260,
+            padding: "8px 10px",
+            background: "var(--bg-surface-solid)",
+            border: "1px solid var(--border-medium)",
+            borderRadius: 6,
+            boxShadow: "0 4px 16px rgba(0,0,0,0.35)",
+            color: "var(--text-secondary)",
+            fontSize: 12,
+            lineHeight: 1.4,
+            fontWeight: 400,
+            whiteSpace: "normal",
+          }}
+        >
+          {full}
+        </div>
+      )}
+    </span>
+  );
+}

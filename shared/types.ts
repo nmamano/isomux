@@ -294,6 +294,21 @@ export interface ScheduledMessageEntry {
   createdAt: number;
 }
 
+// Context-window fullness snapshot pushed to the UI over agent_updated
+// (internal-docs/context-fullness-visibility.md). Same shape as the server's
+// internal ContextUsageSnapshot minus `source`. `percentage` is the backend's
+// raw float (0..100) — round only for display so the icon's color band and the
+// injected [context check] notices key off the same value. Absent/undefined =>
+// the indicator is hidden (no committed measurement: fresh/blank conversation,
+// Codex before its first turn, right after a server restart).
+export interface ContextUsageWire {
+  model: string;
+  totalTokens: number;
+  maxTokens: number;
+  percentage: number;
+  sampledAtMs: number;
+}
+
 // What the browser knows about an agent
 export interface AgentInfo {
   id: string;
@@ -383,6 +398,13 @@ export interface AgentInfo {
   // agent-only turn (one agent messages another, the receiver answers and
   // idles) stays silent.
   turnHadHumanInput: boolean;
+  // Live context-window fullness of the CURRENT conversation, pushed over
+  // agent_updated (internal-docs/context-fullness-visibility.md). Absent while
+  // there's no committed measurement (fresh conversation, Codex pre-first-turn,
+  // right after a server restart) — the UI hides the battery indicator.
+  // In-memory server-side and NOT part of PersistedAgent, so a restart clears
+  // it until the next completed turn repopulates it.
+  contextUsage?: ContextUsageWire;
 }
 
 // File attachment metadata

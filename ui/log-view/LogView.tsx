@@ -30,6 +30,7 @@ import {
 import { SunIcon, MoonIcon } from "../components/ThemeIcons.tsx";
 import { ThemePicker } from "../components/ThemePicker.tsx";
 import { NavActions, type NavAction } from "../components/NavActions.tsx";
+import { ContextBattery } from "./ContextBattery.tsx";
 import {
   TasksIcon,
   AgentIcon,
@@ -1717,6 +1718,7 @@ export function LogView({
                 >
                   {agent.cwd}
                 </span>
+                <ContextBattery usage={agent.contextUsage} isMobile />
               </div>
             </div>
           </div>
@@ -1947,6 +1949,12 @@ export function LogView({
                   </span>
                 </>
               )}
+              {agent.contextUsage && (
+                <span style={{ color: "var(--text-ghost)", flexShrink: 0 }}>
+                  &middot;
+                </span>
+              )}
+              <ContextBattery usage={agent.contextUsage} />
             </div>
             <div
               style={{

@@ -27,6 +27,7 @@ import { startTestServer, type TestServer } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
 import { stripOutboundEnvelope } from "../plugin-hooks.ts";
 import { OfficeState } from "../../shared/office-state.ts";
+import type { AgentEvent } from "../internal-types.ts";
 import { createAgentManager } from "../agent-manager.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import { setOfficeEnvFileProvider } from "../env-loader.ts";
@@ -766,6 +767,114 @@ describe("context-fullness: agent-facing threshold notices (task 50392514)", () 
     await waitUntil(() => s2.sent.length === 2, 3000, "turn4 parked");
     expect(s2.sent[1].text).toContain("[context check: 70% full");
     s2.releaseSends();
+  });
+});
+
+// The UI indicator's data path (task 27096236): a committed sample broadcasts
+// AgentInfo.contextUsage over agent_updated (wire shape = snapshot minus
+// `source`), reset paths clear it, and the Codex usage_update path is throttled
+// on displayed values. DI-level with a capturing eventSink.
+describe("context-fullness: WS broadcast of AgentInfo.contextUsage (task 27096236)", () => {
+  function makeManagerWithSink(
+    fake: FakeBackend,
+    sink: (e: AgentEvent) => void,
+  ): ReturnType<typeof createAgentManager> {
+    const mgr = createAgentManager({
+      resolveBackend: () => fake,
+      officeState: new OfficeState({ rooms: diRooms("room-a") }),
+      initialRooms: [],
+      eventSink: sink,
+    });
+    mgr.configurePluginHooksDeps();
+    return mgr;
+  }
+
+  // agent_updated events that actually carry a contextUsage change.
+  function ctxBroadcasts(
+    events: AgentEvent[],
+  ): Extract<AgentEvent, { type: "agent_updated" }>[] {
+    return events.filter(
+      (e): e is Extract<AgentEvent, { type: "agent_updated" }> =>
+        e.type === "agent_updated" && "contextUsage" in e.changes,
+    );
+  }
+
+  const tokenUsage = {
+    inputTokens: 1,
+    outputTokens: 1,
+    cacheReadInputTokens: 0,
+    cacheCreationInputTokens: 0,
+  };
+
+  it("a committed turn_completed sample broadcasts the contextUsage wire (no `source`) and mirrors it onto AgentInfo", async () => {
+    const captured: AgentEvent[] = [];
+    const mgr = makeManagerWithSink(backendWith(usage(40)), (e) =>
+      captured.push(e),
+    );
+    const info = await diSpawn(mgr);
+    await diRunTurn(mgr, info.id, "hello");
+    await waitUntil(
+      () => ctxBroadcasts(captured).length >= 1,
+      3000,
+      "contextUsage broadcast",
+    );
+
+    const wire = ctxBroadcasts(captured).at(-1)!.changes.contextUsage;
+    expect(wire).toEqual({
+      model: "fake-model",
+      totalTokens: 40_000,
+      maxTokens: 100_000,
+      percentage: 40,
+      sampledAtMs: expect.any(Number),
+    });
+    // The internal `source` discriminator must NOT leak onto the wire.
+    expect("source" in (wire as object)).toBe(false);
+    // Mirrored onto public AgentInfo so a late-joining client's full_state sees it.
+    expect(mgr.getAgent(info.id)?.contextUsage?.percentage).toBe(40);
+  });
+
+  it("/clear (newConversation) broadcasts contextUsage: undefined to clear the indicator", async () => {
+    const captured: AgentEvent[] = [];
+    const mgr = makeManagerWithSink(backendWith(usage(60)), (e) =>
+      captured.push(e),
+    );
+    const info = await diSpawn(mgr);
+    await diRunTurn(mgr, info.id, "hello");
+    await waitUntil(
+      () => mgr.getAgent(info.id)?.contextUsage != null,
+      3000,
+      "snapshot present",
+    );
+
+    captured.length = 0;
+    await mgr.newConversation(info.id);
+
+    const cleared = ctxBroadcasts(captured).find(
+      (e) => e.changes.contextUsage === undefined,
+    );
+    expect(cleared).toBeTruthy();
+    expect(mgr.getAgent(info.id)?.contextUsage).toBeUndefined();
+  });
+
+  it("throttles the Codex usage_update path: a second identical displayed value does not re-broadcast", async () => {
+    const captured: AgentEvent[] = [];
+    const fake = backendWith(usage(55));
+    const mgr = makeManagerWithSink(fake, (e) => captured.push(e));
+    const info = await diSpawn(mgr);
+    await diRunTurn(mgr, info.id, "hello");
+    await waitUntil(
+      () => mgr.getAgent(info.id)?.contextUsage != null,
+      3000,
+      "initial snapshot",
+    );
+
+    const session = fake.sessionForAgent(info.id)!;
+    // First usage_update with a value equal to the current one: same displayed
+    // percentage/tokens, so the throttle suppresses the broadcast.
+    captured.length = 0;
+    session.push({ kind: "usage_update", tokenUsage });
+    await sleep(60);
+    expect(ctxBroadcasts(captured)).toHaveLength(0);
   });
 });
 
