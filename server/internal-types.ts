@@ -191,10 +191,19 @@ export type EventHandler = (event: AgentEvent) => void;
 // from under it (abort / resume / model switch / etc.). Callers of
 // sendMessage / executeSkill / editMessage filter this out so a user-
 // initiated interrupt doesn't surface as a scary log entry.
+//
+// `reason` rides along so catch sites can tell WHY the swap happened without
+// racing any external flag: "settings" marks a deliberate settings-driven
+// replace (model/effort/permission/sandbox/cwd edit) — flushQueue's handler
+// words its interrupt notice as expected behavior instead of a stall
+// (task 8ba27b27). Undefined for every other swap (abort slow path,
+// setPrivileged, watchdog forced recovery, /clear, /resume, ...).
 export class SessionSwappedError extends Error {
-  constructor(message = "Session replaced.") {
+  readonly reason?: "settings";
+  constructor(message = "Session replaced.", reason?: "settings") {
     super(message);
     this.name = "SessionSwappedError";
+    this.reason = reason;
   }
 }
 

@@ -858,6 +858,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             sessionId
               ? createSession(managed, sessionId)
               : createSession(managed),
+            // Settings-driven swap: a mid-flight flush turn cancelled by this
+            // replace gets the reason stamped on its SessionSwappedError, so
+            // flushQueue's handler can word the interrupt as expected behavior
+            // instead of a stall (task 8ba27b27).
+            "settings",
           );
         } catch (err) {
           // replaceSession failed before installing the fresh session: the old
@@ -2855,14 +2860,21 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // mutate session-related state after this resolves without re-checking — a
   // message arriving during the drain await may already have woken a fresh
   // session via flushQueue.
-  async function closeAndDrainSession(agentId: string, managed: ManagedAgent) {
+  async function closeAndDrainSession(
+    agentId: string,
+    managed: ManagedAgent,
+    // Stamped onto the SessionSwappedError handed to the in-flight turn, so
+    // catch sites can tell a deliberate settings-driven swap apart from other
+    // swaps without racing any external state (task 8ba27b27).
+    swapReason?: "settings",
+  ) {
     managed.turnCancelToken++;
     const oldConsumer = managed.consumerPromise;
     const turn = managed.pendingTurn;
     managed.pendingTurn = null;
     if (turn) {
       try {
-        turn.reject(new SessionSwappedError());
+        turn.reject(new SessionSwappedError(undefined, swapReason));
       } catch {}
     }
     try {
@@ -2881,6 +2893,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     agentId: string,
     managed: ManagedAgent,
     newSession: BackendSession,
+    // Passed through to closeAndDrainSession — see its swapReason note.
+    swapReason?: "settings",
   ) {
     // /clear, /resume, /model, /effort, edit-fork, abort's slow path,
     // setPrivileged, and the queue watchdog's forced recovery all funnel
@@ -2895,7 +2909,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     }))
       emit(event);
     try {
-      await closeAndDrainSession(agentId, managed);
+      await closeAndDrainSession(agentId, managed, swapReason);
       // Conditional install (task 314ee9fb): during the drain await the
       // session slot is null, and a concurrent installer can legitimately win
       // it — flushQueue's wake branch defers to us via its sessionSwapping
@@ -4134,6 +4148,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           //     rejection lands while `aborting` is still true.
           // Unexpected swaps (idle demotion, out-of-band replaceSession)
           // match neither and still surface the message.
+          //
+          // Settings-driven swaps (model/effort/permission/sandbox/cwd edits)
+          // stamp reason: "settings" on the rejection; they aren't a stall, so
+          // word them as the expected behavior they are instead of the generic
+          // interrupted-will-retry line (task 8ba27b27).
           const userInitiated =
             managed.aborting ||
             managed.turnCancelToken === managed.abortCancelToken;
@@ -4141,7 +4160,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             addLogEntry(
               agentId,
               "system",
-              "Queue flush interrupted by session change; will retry.",
+              err.reason === "settings"
+                ? "Restarting session to apply settings; queued messages will send after the restart."
+                : "Queue flush interrupted by session change; will retry.",
             );
           }
           return;
@@ -4684,6 +4705,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
                 sessionId
                   ? createSession(managed, sessionId)
                   : createSession(managed),
+                // Settings-driven swap — see the editAgent replace (8ba27b27).
+                "settings",
               );
             },
           );
@@ -4744,6 +4767,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
                 sessionId
                   ? createSession(managed, sessionId)
                   : createSession(managed),
+                // Settings-driven swap — see the editAgent replace (8ba27b27).
+                "settings",
               );
             },
           );

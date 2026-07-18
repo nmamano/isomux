@@ -971,6 +971,73 @@ describe("queue: flush cancelled pre-send (task d7c879da)", () => {
   });
 });
 
+// Task 8ba27b27: changing a setting (e.g. thinking effort) while messages are
+// queued swaps the session out from under the in-flight flush turn. That's
+// expected behavior, not a stall: the settings-driven replace stamps
+// reason "settings" on the SessionSwappedError it rejects the turn with, and
+// flushQueue's catch words the notice accordingly ("Restarting session to
+// apply settings...") instead of the generic stall-sounding line — while the
+// post-swap kick still delivers the queued item, same as any other swap.
+describe("queue: settings-driven swap mid-flush (task 8ba27b27)", () => {
+  it("effort change with a queued message words the notice as expected behavior and still delivers", async () => {
+    server = await startTestServer({ fakeBackend: parkingBackend() });
+    const owner = await server.seedOwner("Boss");
+    const room = server.agentManager.getRooms()[0];
+    // Codex receiver for the same reason as the d7c879da tests above: the
+    // replace starts a FRESH session instead of tripping Claude's resume
+    // preflight on the fake session id's missing .jsonl.
+    const recv = await spawnAgent(server, "Receiver", room.id, "codex");
+    const sender = await spawnAgent(server, "Sender", room.id);
+    const sock = await server.connectWs(owner.rawSessionId);
+    await sock.waitFor("full_state");
+
+    // Kickoff flush turn parks in-flight (parkingBackend accepts the send but
+    // never completes the turn), with a second message queued behind it —
+    // the exact production window from the task report.
+    await postAgentMessage(server, recv.id, sender.id, "kickoff");
+    await waitUntil(
+      () => stateOf(server!, recv.id) === "thinking",
+      2000,
+      "busy",
+    );
+    await postAgentMessage(server, recv.id, sender.id, "queued-1");
+    await waitUntil(() => queueOf(server!, recv.id).length === 1, 2000, "q=1");
+
+    // Effort change: editAgent's replace rejects the in-flight flush turn
+    // with SessionSwappedError(reason: "settings").
+    await server.agentManager.editAgent(recv.id, { effort: "medium" });
+
+    await waitUntil(
+      () =>
+        logEntriesFor(sock, recv.id).some(
+          (e) =>
+            e.kind === "system" &&
+            e.content.includes("Restarting session to apply settings"),
+        ),
+      2000,
+      "settings-swap notice surfaced",
+    );
+    // The stall-sounding generic line never appears for this swap.
+    expect(
+      logEntriesFor(sock, recv.id).some((e) =>
+        e.content.includes("Queue flush interrupted by session change"),
+      ),
+    ).toBe(false);
+
+    // And the notice's promise holds: the post-swap kick drains the queued
+    // item into the fresh session.
+    await waitUntil(
+      () => queueOf(server!, recv.id).length === 0,
+      3000,
+      "queued item drained post-swap",
+    );
+    const delivered = server.fakeBackend.sessions
+      .filter((s) => s.opts.agentId === recv.id)
+      .some((s) => s.sent.some((m) => m.text.includes("queued-1")));
+    expect(delivered).toBe(true);
+  });
+});
+
 // sendNow flag on the USER send (Ctrl/Cmd+Enter "deliver now", task 2226d4ce).
 // A thin composition over existing machinery: when the message lands in a busy
 // agent's queue, sendMessage triggers the same abort+flush as POST /send-now.
