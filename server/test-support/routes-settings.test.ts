@@ -13,9 +13,14 @@
 //     nothing hidden.
 //   - member with no access -> 403 (the uniform FORBIDDEN; no exists-vs-hidden
 //     oracle), prompt untouched.
-//   - GET mirrors the PUT's guard behavior exactly (200 { prompt } for a
-//     reader who could write; owner + unknown id -> 404; member with no
+//   - GET mirrors the PUT's guard behavior exactly (200 { prompt, version } for
+//     a reader who could write; owner + unknown id -> 404; member with no
 //     access -> 403) and round-trips what the PUT saved (null when unset).
+//   - Optimistic concurrency (task 44a2c98d, mirroring memory READ→REPLACE):
+//     the GET returns a version over the prompt bytes; the PUT REQUIRES it
+//     (missing -> 400 invalid_version), a stale version -> 409 version_conflict
+//     carrying the CURRENT version, and neither failure writes or broadcasts.
+//     Existence is checked before the version, so an unknown room stays 404.
 //
 // The room-structure mutations (create/close/rename) are in
 // routes-rooms-rest.test.ts; the per-recipient projection/ACL of these events is
@@ -62,11 +67,16 @@ async function putSettings(
   roomId: string,
   prompt: string | null,
   rawSessionId: string,
+  // The version from a preceding GET. `undefined` omits the field entirely
+  // (the missing-version 400 case).
+  version?: string,
 ): Promise<Res> {
   const res = await srv.http(`/api/rooms/${roomId}/settings`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prompt }),
+    body: JSON.stringify(
+      version === undefined ? { prompt } : { prompt, version },
+    ),
     rawSessionId,
   });
   let body: unknown = null;
@@ -78,6 +88,17 @@ async function putSettings(
   return { status: res.status, body };
 }
 
+// Read the current settings version the way a real writer does (GET first).
+async function versionFor(
+  srv: TestServer,
+  roomId: string,
+  rawSessionId: string,
+): Promise<string> {
+  const r = await getSettings(srv, roomId, rawSessionId);
+  if (r.status !== 200) throw new Error(`versionFor -> ${r.status}`);
+  return (r.body as { version: string }).version;
+}
+
 describe("rooms.setSettings REST (Phase 3d slice 6)", () => {
   it("owner save returns 204, persists the room prompt, and broadcasts room_settings_updated", async () => {
     const srv = await startTestServer();
@@ -85,11 +106,13 @@ describe("rooms.setSettings REST (Phase 3d slice 6)", () => {
     const owner = await srv.seedOwner("Boss");
     const room = srv.agentManager.getRooms()[0];
     const sock = await srv.connectWs(owner.rawSessionId);
+    const version = await versionFor(srv, room.id, owner.rawSessionId);
     const res = await putSettings(
       srv,
       room.id,
       "room prompt",
       owner.rawSessionId,
+      version,
     );
     expect(res.status).toBe(204);
     expect(srv.agentManager.getRooms()[0].prompt).toBe("room prompt");
@@ -100,7 +123,15 @@ describe("rooms.setSettings REST (Phase 3d slice 6)", () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
-    const res = await putSettings(srv, "deadbeef", "x", owner.rawSessionId);
+    // Any version: existence is checked BEFORE the version guard, so an unknown
+    // room is a 404, never a bogus version_conflict.
+    const res = await putSettings(
+      srv,
+      "deadbeef",
+      "x",
+      owner.rawSessionId,
+      "0123456789ab",
+    );
     expect(res.status).toBe(404);
     expect((res.body as { error?: { code?: string } }).error?.code).toBe(
       "room_not_found",
@@ -110,34 +141,127 @@ describe("rooms.setSettings REST (Phase 3d slice 6)", () => {
   it("member with no access -> 403 (uniform FORBIDDEN, no oracle), prompt untouched", async () => {
     const srv = await startTestServer();
     server = srv;
-    await srv.seedOwner("Boss");
+    const owner = await srv.seedOwner("Boss");
     const member = await srv.seedMember("Mia");
     const room = srv.agentManager.getRooms()[0];
-    const res = await putSettings(srv, room.id, "y", member.rawSessionId);
+    const version = await versionFor(srv, room.id, owner.rawSessionId);
+    const res = await putSettings(
+      srv,
+      room.id,
+      "y",
+      member.rawSessionId,
+      version,
+    );
     expect(res.status).toBe(403);
     expect(srv.agentManager.getRooms()[0].prompt).toBeNull();
+  });
+
+  it("missing version -> 400 invalid_version, prompt untouched (write must carry the GET's version)", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const room = srv.agentManager.getRooms()[0];
+    const res = await putSettings(srv, room.id, "x", owner.rawSessionId);
+    expect(res.status).toBe(400);
+    expect((res.body as { error?: { code?: string } }).error?.code).toBe(
+      "invalid_version",
+    );
+    expect(srv.agentManager.getRooms()[0].prompt).toBeNull();
+  });
+
+  it("stale version -> 409 version_conflict with the CURRENT version, nothing written or broadcast", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const room = srv.agentManager.getRooms()[0];
+    // Writer A reads, then writer B saves — A's version is now stale.
+    const staleVersion = await versionFor(srv, room.id, owner.rawSessionId);
+    expect(
+      (
+        await putSettings(
+          srv,
+          room.id,
+          "B's prompt",
+          owner.rawSessionId,
+          staleVersion,
+        )
+      ).status,
+    ).toBe(204);
+    const sock = await srv.connectWs(owner.rawSessionId);
+    const res = await putSettings(
+      srv,
+      room.id,
+      "A's clobber",
+      owner.rawSessionId,
+      staleVersion,
+    );
+    expect(res.status).toBe(409);
+    const err = (res.body as { error?: { code?: string; version?: string } })
+      .error;
+    expect(err?.code).toBe("version_conflict");
+    // The 409 carries the CURRENT version so the caller can re-read and retry.
+    expect(err?.version).toBe(
+      await versionFor(srv, room.id, owner.rawSessionId),
+    );
+    // Nothing written, nothing broadcast (no double-signal on the reject path).
+    expect(srv.agentManager.getRooms()[0].prompt).toBe("B's prompt");
+    await new Promise((r) => setTimeout(r, 150));
+    expect(
+      sock.messages.some(
+        (m) => (m as { type?: string }).type === "room_settings_updated",
+      ),
+    ).toBe(false);
+  });
+
+  it("round-trip: the version returned by the post-save GET lets the next save through", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const room = srv.agentManager.getRooms()[0];
+    const v1 = await versionFor(srv, room.id, owner.rawSessionId);
+    expect(
+      (await putSettings(srv, room.id, "first", owner.rawSessionId, v1)).status,
+    ).toBe(204);
+    const v2 = await versionFor(srv, room.id, owner.rawSessionId);
+    expect(v2).not.toBe(v1);
+    expect(
+      (await putSettings(srv, room.id, "second", owner.rawSessionId, v2))
+        .status,
+    ).toBe(204);
+    expect(srv.agentManager.getRooms()[0].prompt).toBe("second");
   });
 });
 
 describe("rooms.getSettings REST (settings read pair)", () => {
-  it("owner read -> 200 { prompt: null } before any save, then round-trips the PUT value", async () => {
+  it("owner read -> 200 { prompt: null, version } before any save, then round-trips the PUT value", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
     const room = srv.agentManager.getRooms()[0];
     const before = await getSettings(srv, room.id, owner.rawSessionId);
     expect(before.status).toBe(200);
-    expect(before.body).toEqual({ prompt: null });
+    const beforeBody = before.body as {
+      prompt: string | null;
+      version: string;
+    };
+    expect(beforeBody.prompt).toBeNull();
+    // The never-set prompt still versions (sha of "" — the missing-file
+    // sentinel convention shared with memory versionOf).
+    expect(beforeBody.version).toMatch(/^[0-9a-f]{12}$/);
     const put = await putSettings(
       srv,
       room.id,
       "room prompt",
       owner.rawSessionId,
+      beforeBody.version,
     );
     expect(put.status).toBe(204);
     const after = await getSettings(srv, room.id, owner.rawSessionId);
     expect(after.status).toBe(200);
-    expect(after.body).toEqual({ prompt: "room prompt" });
+    const afterBody = after.body as { prompt: string | null; version: string };
+    expect(afterBody.prompt).toBe("room prompt");
+    expect(afterBody.version).toMatch(/^[0-9a-f]{12}$/);
+    expect(afterBody.version).not.toBe(beforeBody.version);
   });
 
   it("owner + unknown room id -> 404 room_not_found (mirrors the PUT; Follow-up #6)", async () => {

@@ -50,7 +50,6 @@ import type {
   SessionInfo,
   SessionWire,
   InviteWire,
-  OfficeSettings,
   Attachment,
   BackendModelWire,
   LogEntry,
@@ -76,6 +75,7 @@ import type {
   RoomCreateReq,
   RoomRenameReq,
   RoomSettingsReq,
+  RoomSettingsRes,
   ViewOrderReq,
   NotifRoomsReq,
   DefaultRoomReq,
@@ -85,6 +85,7 @@ import type {
   AccessSettingsReq,
   AccessSettings,
   OfficeSettingsReq,
+  OfficeSettingsRes,
   ValidateCwdReq,
   ValidateEnvReq,
   TaskCreateReq,
@@ -503,8 +504,9 @@ export const API_ROUTES: readonly RouteDef[] = [
   // Read side of the settings pair: same ACL as the PUT below, so anyone who
   // can rewrite a room prompt can first read what they'd be overwriting
   // (agents previously had no sanctioned read — the prompt only rode the WS
-  // office state).
-  defineRoute<void, { prompt: string | null }>({
+  // office state). Returns the prompt + its version; the PUT requires that
+  // version back (optimistic concurrency, mirroring memory READ→REPLACE).
+  defineRoute<void, RoomSettingsRes>({
     opId: "rooms.getSettings",
     method: "GET",
     path: "/api/rooms/:roomId/settings",
@@ -651,7 +653,7 @@ export const API_ROUTES: readonly RouteDef[] = [
   }),
 
   // --- Office settings, validation, backends --------------------------------
-  defineRoute<void, OfficeSettings>({
+  defineRoute<void, OfficeSettingsRes>({
     opId: "office.getSettings",
     method: "GET",
     path: "/api/office/settings",

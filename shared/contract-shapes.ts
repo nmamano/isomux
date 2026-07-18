@@ -18,6 +18,7 @@ import type {
   Attachment,
   MemoryScope,
   MemoryItem,
+  OfficeSettings,
 } from "./types.ts";
 
 // --- Wire projections (response / event shapes) -----------------------------
@@ -81,7 +82,14 @@ export type EditAgentReq = Partial<
     // rejected with 422 invalid_model_family rather than silently coerced.
     | "agentType"
   >
->;
+> & {
+  // REQUIRED iff customInstructions is present in the body (task 44a2c98d):
+  // echo back AgentInfo.customInstructionsVersion as read off full_state /
+  // agent_updated. Missing then -> 400 invalid_version; stale -> 409
+  // version_conflict with the current version. Scalar-only edits omit it and
+  // stay friction-free.
+  customInstructionsVersion?: string;
+};
 
 export interface ReviveReq {
   roomId: string;
@@ -204,8 +212,19 @@ export interface RoomRenameReq {
   name: string;
 }
 
+// Room-prompt write. `version` is the token from a preceding rooms.getSettings
+// read — a mismatch means the prompt changed under you (409 version_conflict),
+// mirroring the memory read-before-replace contract.
 export interface RoomSettingsReq {
   prompt: string | null;
+  version: string;
+}
+
+// rooms.getSettings response: the prompt + its optimistic-concurrency version
+// (sha of the prompt bytes; a never-set/cleared prompt hashes "").
+export interface RoomSettingsRes {
+  prompt: string | null;
+  version: string;
 }
 
 export interface ViewOrderReq {
@@ -259,7 +278,15 @@ export interface OfficeSettingsReq {
   // explicit null/empty clears it, a string sets it. The handler keys on the
   // undefined-vs-null distinction, so null must be representable in the contract.
   name?: string | null;
+  // Token from a preceding office.getSettings read. The PUT replaces the whole
+  // settings blob (prompt/envFile/name), so ONE version guards the whole clobber
+  // surface — a mismatch is a 409 version_conflict, mirroring memory REPLACE.
+  version: string;
 }
+
+// office.getSettings response: the full settings + their optimistic-concurrency
+// version (sha over the canonical [prompt, envFile, name] serialization).
+export type OfficeSettingsRes = OfficeSettings & { version: string };
 
 export interface ValidateCwdReq {
   cwd: string;

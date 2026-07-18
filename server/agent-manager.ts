@@ -125,6 +125,7 @@ import type {
   NormalizedEvent,
 } from "./backends/types.ts";
 import { OfficeState } from "../shared/office-state.ts";
+import { versionOf } from "../shared/blob-version.ts";
 import { buildEnvForUserId, setOfficeEnvFileProvider } from "./env-loader.ts";
 import {
   mintAgentToken,
@@ -704,6 +705,12 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       cwd: managed.info.cwd,
       outfit: managed.info.outfit,
       customInstructions: managed.info.customInstructions,
+      // The version token travels WITH the blob (lockstep invariant): a
+      // rollback that restored the blob but kept the bumped token would leave
+      // the stored token underived from the stored blob, and every client —
+      // which never saw an agent_updated for the held-back edit — would false-
+      // 409 on its next valid instructions edit.
+      customInstructionsVersion: managed.info.customInstructionsVersion,
       permissionMode: managed.info.permissionMode,
       modelFamily: managed.info.modelFamily,
       effort: managed.info.effort,
@@ -1226,6 +1233,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // Determined by the textCount scan below after logs load.
       topicStale: false,
       customInstructions: p.customInstructions ?? null,
+      // Derived from the blob (never persisted separately), so legacy records
+      // that predate the field backfill correctly on load.
+      customInstructionsVersion: versionOf(p.customInstructions ?? ""),
       agentType,
       ...(codexSandbox ? { codexSandbox } : {}),
       capabilities: getBackend(agentType).capabilities,

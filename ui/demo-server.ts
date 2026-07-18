@@ -1,4 +1,5 @@
 import { OfficeState, type OfficeEvent } from "../shared/office-state.ts";
+import { versionOf } from "../shared/blob-version.ts";
 import type {
   CronCreateReq,
   CronUpdateReq,
@@ -248,6 +249,7 @@ function seedOffice() {
       topic: char.topic,
       topicStale: false,
       customInstructions: char.customInstructions,
+      customInstructionsVersion: versionOf(char.customInstructions ?? ""),
       agentType: "claude",
       capabilities: DEFAULT_AGENT_CAPABILITIES,
       userId: null,
@@ -907,10 +909,17 @@ export async function demoApi(
       shimEmit({ type: "cronjobs_prompt_updated", value: cronjobsPrompt });
       return undefined;
     }
+    // office.getSettings — the settings modal reads the optimistic-concurrency
+    // version on open (production requires it back on the PUT). The demo is
+    // single-writer so conflicts can't happen: serve a fixed token and let the
+    // PUT below ignore it.
+    case "GET /api/office/settings":
+      return { ...state.office, version: "demo-version" };
     // office.setSettings — set + broadcast office_settings_updated; no body
     // (204-like). Mirrors the retired update_office_settings handleCommand:
     // name === undefined preserves the current name (a stale tab), else it sets
-    // or clears. The demo has no env validation, so every save succeeds.
+    // or clears. The demo has no env validation, so every save succeeds (the
+    // version guard is production-only; the demo ignores b.version).
     case "PUT /api/office/settings": {
       const b = (body ?? {}) as OfficeSettingsReq;
       const envFile = b.envFile && b.envFile.trim() ? b.envFile.trim() : null;
@@ -1202,6 +1211,14 @@ export async function demoApi(
   // room_settings_updated. No settings_save_response (the dialog reads the HTTP
   // response now); returns no body (204-like). Listed before the bare /:id route.
   const roomSettingsMatch = pathname.match(/^\/api\/rooms\/([^/]+)\/settings$/);
+  // rooms.getSettings — the settings modal reads the optimistic-concurrency
+  // version on open (production requires it back on the PUT). Single-writer
+  // demo: fixed token, PUT ignores it.
+  if (roomSettingsMatch && method === "GET") {
+    const id = decodeURIComponent(roomSettingsMatch[1]);
+    const room = state.rooms.find((r) => r.id === id);
+    return { prompt: room?.prompt ?? null, version: "demo-version" };
+  }
   if (roomSettingsMatch && method === "PUT") {
     const id = decodeURIComponent(roomSettingsMatch[1]);
     const b = (body ?? {}) as RoomSettingsReq;

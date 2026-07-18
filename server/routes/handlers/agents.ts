@@ -70,7 +70,11 @@ export type EditResult =
         | "invalid_model_family"
         | "edit_failed";
       message: string;
-    };
+    }
+  // The customInstructions blob changed since the caller's read (task
+  // 44a2c98d): carries the CURRENT version so the caller can re-read and
+  // retry. Mapped to 409 version_conflict.
+  | { ok: false; reason: "version_conflict"; version: string };
 // revive delegates to the core, which already returns this discriminated shape.
 export type ReviveResult =
   | { ok: true; agent: AgentInfo }
@@ -168,6 +172,7 @@ function malformedAgentFields(b: Record<string, unknown>): boolean {
     badStr(b.name) ||
     badStr(b.cwd) ||
     badStr(b.customInstructions) ||
+    badStr(b.customInstructionsVersion) ||
     badStr(b.modelFamily) ||
     badStr(b.effort) ||
     badStr(b.permissionMode) ||
@@ -318,8 +323,31 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
       if (malformedAgentFields(b)) {
         return fail(422, "invalid_request", "malformed agent field");
       }
+      // Blob-bearing writes are version-guarded (task 44a2c98d): a PATCH that
+      // carries customInstructions must echo the agent's
+      // customInstructionsVersion (read off full_state / agent_updated).
+      // Scalar-only edits skip this entirely — no version, no friction.
+      if (
+        b.customInstructions !== undefined &&
+        (typeof b.customInstructionsVersion !== "string" ||
+          b.customInstructionsVersion.length === 0)
+      ) {
+        return fail(
+          400,
+          "invalid_version",
+          "customInstructionsVersion is required when customInstructions is present (read it off the agent first)",
+        );
+      }
       const r = await deps.edit(ctx.params.id, b);
       if (!r.ok) {
+        if (r.reason === "version_conflict") {
+          return fail(
+            409,
+            "version_conflict",
+            "the agent's custom instructions changed since your read; re-read and retry",
+            { version: r.version },
+          );
+        }
         const status =
           r.reason === "invalid_cwd"
             ? 400

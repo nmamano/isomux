@@ -50,12 +50,23 @@ export interface RoomsDeps {
   close(roomId: string): boolean;
   // Renames a room. Returns false if the room does not exist (→ 404).
   rename(roomId: string, name: string): boolean;
-  // Reads a room's settings (the prompt; null means no prompt set). Returns
-  // null if the room does not exist (→ 404).
-  getSettings(roomId: string): { prompt: string | null } | null;
-  // Sets a room's prompt (null clears). Returns false if the room does not exist
-  // (→ 404).
-  setSettings(roomId: string, prompt: string | null): boolean;
+  // Reads a room's settings (the prompt; null means no prompt set) plus the
+  // prompt's optimistic-concurrency version. Returns null if the room does not
+  // exist (→ 404).
+  getSettings(
+    roomId: string,
+  ): { prompt: string | null; version: string } | null;
+  // Sets a room's prompt (null clears), guarded by the version from a preceding
+  // getSettings — a mismatch writes nothing and reports the current version
+  // (→ 409), mirroring the memory read-before-replace contract.
+  setSettings(
+    roomId: string,
+    prompt: string | null,
+    expectedVersion: string,
+  ):
+    | { ok: true }
+    | { ok: false; reason: "room_not_found" }
+    | { ok: false; reason: "version_conflict"; version: string };
 }
 
 export function roomsHandlers(deps: RoomsDeps): Record<string, RouteHandler> {
@@ -94,9 +105,28 @@ export function roomsHandlers(deps: RoomsDeps): Record<string, RouteHandler> {
     },
 
     "rooms.setSettings": (ctx) => {
-      const b = (ctx.body ?? {}) as { prompt?: unknown };
+      const b = (ctx.body ?? {}) as { prompt?: unknown; version?: unknown };
       const prompt = typeof b.prompt === "string" ? b.prompt : null;
-      if (!deps.setSettings(ctx.params.roomId, prompt)) {
+      // Version is required (shape check, never an existence oracle): the write
+      // replaces the whole prompt blob, so it must carry the version from a
+      // preceding GET — same rail as memory.replace.
+      if (typeof b.version !== "string" || b.version.length === 0) {
+        return fail(
+          400,
+          "invalid_version",
+          "version is required (from a preceding GET of the settings)",
+        );
+      }
+      const r = deps.setSettings(ctx.params.roomId, prompt, b.version);
+      if (!r.ok) {
+        if (r.reason === "version_conflict") {
+          return fail(
+            409,
+            "version_conflict",
+            "the room prompt changed since your read; re-read and retry",
+            { version: r.version },
+          );
+        }
         return fail(404, "room_not_found", "Room not found");
       }
       return noContent();

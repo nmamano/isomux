@@ -2,7 +2,10 @@ import { useState, useEffect, useRef } from "react";
 import { useAppState } from "../store.tsx";
 import { apiFetch, ApiError } from "../api.ts";
 import { useMemoryEditor } from "../hooks/useMemoryEditor.ts";
-import type { OfficeSettingsReq } from "../../shared/contract-shapes.ts";
+import type {
+  OfficeSettingsReq,
+  OfficeSettingsRes,
+} from "../../shared/contract-shapes.ts";
 import {
   dialogInput,
   dialogCancelBtn,
@@ -29,9 +32,40 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
   // guarded save). Disabled until the load resolves; saved separately from the
   // office settings PUT.
   const mem = useMemoryEditor("office", null, !readOnly);
+  // The settings PUT is version-guarded (optimistic concurrency, mirroring the
+  // memory editor): GET on open (owner-only GET, so skip for read-only members
+  // — they never save), send the version back on save; a 409 means another
+  // writer saved since. The token must stay coupled to the BYTES read with it,
+  // so ALL guarded fields (prompt/envFile/name — one version over the whole
+  // blob) hydrate from the same GET response; never pair store-snapshot fields
+  // with the GET's version, or a fresher server blob gets silently blessed
+  // over. Until the load resolves the fields are read-only and Save stays
+  // disabled; the store values paint first purely as placeholders.
+  const [settingsVersion, setSettingsVersion] = useState<string | null>(null);
   const [status, setStatus] = useState<ValidationStatus>({ kind: "idle" });
   const [saving, setSaving] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const settingsLoaded = settingsVersion != null;
+
+  useEffect(() => {
+    if (readOnly) return;
+    let cancelled = false;
+    apiFetch<OfficeSettingsRes>("GET", "/api/office/settings")
+      .then((r) => {
+        if (cancelled) return;
+        setText(r.prompt ?? "");
+        setEnvFile(r.envFile ?? "");
+        setName(r.name ?? "");
+        setSettingsVersion(r.version);
+      })
+      .catch(() => {
+        // Leave version null -> fields stay read-only, Save stays disabled
+        // (no way to write safely).
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [readOnly]);
 
   // Ask the server to re-validate the stored env file on open. Members
   // can't validate office env files (the server gates that command to
@@ -74,11 +108,13 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
     // rides the permissive /api/memory surface, not the owner-only settings
     // endpoint. Either failing surfaces server.message in the shared status slot
     // and keeps the dialog open; a memory conflict (409) asks the user to reopen.
+    if (settingsVersion == null) return;
     setSaving(true);
     const body: OfficeSettingsReq = {
       prompt: text.trim() ? text : null,
       envFile: envFile.trim() || null,
       name: name.trim() || null,
+      version: settingsVersion,
     };
     try {
       await apiFetch<void>("PUT", "/api/office/settings", body);
@@ -89,10 +125,18 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
       }
       onClose();
     } catch (e) {
-      setStatus({
-        kind: "error",
-        message: e instanceof ApiError ? e.message : "Save failed",
-      });
+      if (e instanceof ApiError && e.code === "version_conflict") {
+        setStatus({
+          kind: "error",
+          message:
+            "Office settings changed since you opened this — reopen the dialog to edit the latest.",
+        });
+      } else {
+        setStatus({
+          kind: "error",
+          message: e instanceof ApiError ? e.message : "Save failed",
+        });
+      }
     } finally {
       setSaving(false);
     }
@@ -200,8 +244,8 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
           onChange={(e) => setName(e.target.value)}
           placeholder="Nil's Office"
           maxLength={60}
-          readOnly={readOnly}
-          style={readOnly ? readOnlyInputStyle : inputStyle}
+          readOnly={readOnly || !settingsLoaded}
+          style={readOnly || !settingsLoaded ? readOnlyInputStyle : inputStyle}
         />
 
         <label
@@ -226,8 +270,8 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
             setStatus({ kind: "idle" });
           }}
           placeholder="/home/you/.secrets/office.env"
-          readOnly={readOnly}
-          style={readOnly ? readOnlyInputStyle : inputStyle}
+          readOnly={readOnly || !settingsLoaded}
+          style={readOnly || !settingsLoaded ? readOnlyInputStyle : inputStyle}
         />
         <ValidationLine status={status} />
 
@@ -252,9 +296,9 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
           onChange={(e) => setText(e.target.value)}
           placeholder="e.g. Always write tests. Use TypeScript. Be concise."
           rows={8}
-          readOnly={readOnly}
+          readOnly={readOnly || !settingsLoaded}
           style={{
-            ...(readOnly ? readOnlyInputStyle : inputStyle),
+            ...(readOnly || !settingsLoaded ? readOnlyInputStyle : inputStyle),
             resize: "vertical",
           }}
         />
@@ -328,7 +372,7 @@ export function OfficePromptModal({ onClose }: { onClose: () => void }) {
             <button
               onClick={() => void handleSave()}
               style={saveBtnStyle}
-              disabled={saving}
+              disabled={saving || settingsVersion == null}
             >
               {saving ? "Saving…" : "Save"}
             </button>

@@ -10,7 +10,7 @@ Syntax: `/isomux-second-opinion {peer-agent-name} {optional question}`
 
 ### 1. Pick the peer
 
-If a peer name was supplied, look up their agent ID in `~/.isomux/agents-summary.json` (match name case-insensitively). Otherwise try to infer the peer from context — e.g., an agent the boss and you have already paired or consulted with in this session. If there's a clear inference, use it (and briefly confirm who you picked). Otherwise, list candidates (prefer agents whose `cwd` matches yours) and ask the boss to pick. You need the peer's agent ID to POST messages to them.
+If a peer name was supplied, look up their agent ID via the agent manifest: `curl -s localhost:4000/agents -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"` (4000 is the default isomux server port; adjust if your office runs on a different one). Match the name case-insensitively. Otherwise try to infer the peer from context — e.g., an agent the boss and you have already paired or consulted with in this session. If there's a clear inference, use it (and briefly confirm who you picked). Otherwise, list candidates (prefer agents whose `cwd` matches yours) and ask the boss to pick. You need the peer's agent ID to POST messages to them.
 
 ### 2. Frame the question
 

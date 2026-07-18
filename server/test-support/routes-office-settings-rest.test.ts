@@ -3,12 +3,19 @@
 //
 // What this freezes:
 //   - getSettings returns the FULL OfficeSettings incl envFile (owner-only by
-//     guard); member/agent 403; no identity 401.
+//     guard) plus the optimistic-concurrency `version` over the whole blob;
+//     member/agent 403; no identity 401.
 //   - setSettings validates COMPLETELY before mutate/emit: an invalid env path or
 //     over-long name returns 400 and does NOT mutate state or emit (no double-
 //     signal). Valid save 204 + persists + emits office_settings_updated.
 //   - name omitted-vs-null at the REST boundary: omitting preserves the current
 //     name, explicit null clears it (the validate-then-apply core's semantics).
+//   - Optimistic concurrency (task 44a2c98d, mirroring memory READ→REPLACE):
+//     the PUT REQUIRES the version from a preceding GET (missing -> 400
+//     invalid_version); a stale version -> 409 version_conflict carrying the
+//     CURRENT version, checked BEFORE field validation (a stale writer is told
+//     to re-read first), and neither failure writes or emits. One version
+//     guards the whole blob (the PUT replaces prompt/envFile/name wholesale).
 //
 // KNOWN-LEAK BRIDGE (do NOT "fix" by accident): office_settings_updated still
 // broadcasts envFile to every browser via the legacy broadcast(event) bridge.
@@ -79,6 +86,16 @@ async function api(
   return { status: res.status, body };
 }
 
+// Read the current settings version the way a real writer does (GET first).
+async function officeVersion(
+  srv: TestServer,
+  rawSessionId: string,
+): Promise<string> {
+  const r = await api(srv, "/api/office/settings", { rawSessionId });
+  if (r.status !== 200) throw new Error(`officeVersion -> ${r.status}`);
+  return (r.body as { version: string }).version;
+}
+
 async function spawnAgent(
   srv: TestServer,
   name: string,
@@ -118,10 +135,12 @@ describe("routes/office.getSettings REST", () => {
       rawSessionId: owner.rawSessionId,
     });
     expect(r.status).toBe(200);
-    const s = r.body as OfficeSettings;
+    const s = r.body as OfficeSettings & { version: string };
     expect(s.prompt).toBe("P");
     expect(s.name).toBe("Acme");
     expect(s.envFile).toBe("/opt/office.env");
+    // Optimistic-concurrency version over the whole blob, required by the PUT.
+    expect(s.version).toMatch(/^[0-9a-f]{12}$/);
 
     expect(
       (
@@ -147,10 +166,16 @@ describe("routes/office.setSettings REST", () => {
     const envPath = join(srv.stateRoot, "office.env");
     writeFileSync(envPath, "K=v\n");
 
+    const version = await officeVersion(srv, owner.rawSessionId);
     const r = await api(srv, "/api/office/settings", {
       method: "PUT",
       rawSessionId: owner.rawSessionId,
-      body: { prompt: "office prompt", envFile: envPath, name: "Acme" },
+      body: {
+        prompt: "office prompt",
+        envFile: envPath,
+        name: "Acme",
+        version,
+      },
     });
     expect(r.status).toBe(204);
 
@@ -184,10 +209,11 @@ describe("routes/office.setSettings REST", () => {
     const owner = await srv.seedOwner("Boss");
     const sock = await srv.connectWs(owner.rawSessionId);
 
+    const version = await officeVersion(srv, owner.rawSessionId);
     const r = await api(srv, "/api/office/settings", {
       method: "PUT",
       rawSessionId: owner.rawSessionId,
-      body: { prompt: "nope", envFile: "./relative.env", name: null },
+      body: { prompt: "nope", envFile: "./relative.env", name: null, version },
     });
     expect(r.status).toBe(400);
     // State untouched: validation ran BEFORE any mutation.
@@ -205,13 +231,81 @@ describe("routes/office.setSettings REST", () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
+    const version = await officeVersion(srv, owner.rawSessionId);
     const r = await api(srv, "/api/office/settings", {
       method: "PUT",
       rawSessionId: owner.rawSessionId,
-      body: { prompt: "p", envFile: null, name: "x".repeat(61) },
+      body: { prompt: "p", envFile: null, name: "x".repeat(61), version },
     });
     expect(r.status).toBe(400);
     expect(srv.agentManager.getOfficeSettings().name).toBeNull();
+  });
+
+  it("missing version -> 400 invalid_version, state untouched (write must carry the GET's version)", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r = await api(srv, "/api/office/settings", {
+      method: "PUT",
+      rawSessionId: owner.rawSessionId,
+      body: { prompt: "p", envFile: null },
+    });
+    expect(r.status).toBe(400);
+    expect((r.body as { error?: { code?: string } }).error?.code).toBe(
+      "invalid_version",
+    );
+    expect(srv.agentManager.getOfficeSettings().prompt).toBeNull();
+  });
+
+  it("stale version -> 409 version_conflict with the CURRENT version, nothing written or emitted (checked before field validation)", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    // Writer A reads, then writer B saves — A's version is now stale.
+    const staleVersion = await officeVersion(srv, owner.rawSessionId);
+    expect(
+      (
+        await api(srv, "/api/office/settings", {
+          method: "PUT",
+          rawSessionId: owner.rawSessionId,
+          body: {
+            prompt: "B's prompt",
+            envFile: null,
+            name: "B",
+            version: staleVersion,
+          },
+        })
+      ).status,
+    ).toBe(204);
+    const sock = await srv.connectWs(owner.rawSessionId);
+    // A's write also carries an INVALID env path: the version guard runs first,
+    // so the stale writer hears 409 (re-read), not 400 (fix your env path).
+    const r = await api(srv, "/api/office/settings", {
+      method: "PUT",
+      rawSessionId: owner.rawSessionId,
+      body: {
+        prompt: "A's clobber",
+        envFile: "./relative.env",
+        name: "A",
+        version: staleVersion,
+      },
+    });
+    expect(r.status).toBe(409);
+    const err = (r.body as { error?: { code?: string; version?: string } })
+      .error;
+    expect(err?.code).toBe("version_conflict");
+    // The 409 carries the CURRENT version so the caller can re-read and retry.
+    expect(err?.version).toBe(await officeVersion(srv, owner.rawSessionId));
+    // Nothing written, nothing emitted.
+    const s = srv.agentManager.getOfficeSettings();
+    expect(s.prompt).toBe("B's prompt");
+    expect(s.name).toBe("B");
+    await sleep(150);
+    expect(
+      sock.messages.some(
+        (m) => (m as { type?: string }).type === "office_settings_updated",
+      ),
+    ).toBe(false);
   });
 
   it("name omitted preserves; explicit null clears (shared core, mirrors WS arm)", async () => {
@@ -224,7 +318,12 @@ describe("routes/office.setSettings REST", () => {
         await api(srv, "/api/office/settings", {
           method: "PUT",
           rawSessionId: owner.rawSessionId,
-          body: { prompt: "P1", envFile: null, name: "KeepMe" },
+          body: {
+            prompt: "P1",
+            envFile: null,
+            name: "KeepMe",
+            version: await officeVersion(srv, owner.rawSessionId),
+          },
         })
       ).status,
     ).toBe(204);
@@ -235,7 +334,11 @@ describe("routes/office.setSettings REST", () => {
         await api(srv, "/api/office/settings", {
           method: "PUT",
           rawSessionId: owner.rawSessionId,
-          body: { prompt: "P2", envFile: null },
+          body: {
+            prompt: "P2",
+            envFile: null,
+            version: await officeVersion(srv, owner.rawSessionId),
+          },
         })
       ).status,
     ).toBe(204);
@@ -247,7 +350,12 @@ describe("routes/office.setSettings REST", () => {
         await api(srv, "/api/office/settings", {
           method: "PUT",
           rawSessionId: owner.rawSessionId,
-          body: { prompt: "P3", envFile: null, name: null },
+          body: {
+            prompt: "P3",
+            envFile: null,
+            name: null,
+            version: await officeVersion(srv, owner.rawSessionId),
+          },
         })
       ).status,
     ).toBe(204);
@@ -263,12 +371,13 @@ describe("routes/office.setSettings REST", () => {
     const agent = await spawnAgent(srv, "Worker", room.id);
     const token = getAgentTokenRaw(agent.id)!;
 
+    // The guard rejects before the version shape check, so any version works.
     expect(
       (
         await api(srv, "/api/office/settings", {
           method: "PUT",
           rawSessionId: member.rawSessionId,
-          body: { prompt: "x", envFile: null },
+          body: { prompt: "x", envFile: null, version: "0123456789ab" },
         })
       ).status,
     ).toBe(403);
@@ -277,7 +386,7 @@ describe("routes/office.setSettings REST", () => {
         await api(srv, "/api/office/settings", {
           method: "PUT",
           bearer: token,
-          body: { prompt: "x", envFile: null },
+          body: { prompt: "x", envFile: null, version: "0123456789ab" },
         })
       ).status,
     ).toBe(403);
@@ -285,7 +394,7 @@ describe("routes/office.setSettings REST", () => {
       (
         await api(srv, "/api/office/settings", {
           method: "PUT",
-          body: { prompt: "x", envFile: null },
+          body: { prompt: "x", envFile: null, version: "0123456789ab" },
         })
       ).status,
     ).toBe(401);

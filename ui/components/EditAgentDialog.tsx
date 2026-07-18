@@ -371,7 +371,11 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       // shim throw, apiFetch guard) falls back to a generic message so the dialog
       // never clears `saving` without surfacing the failure.
       const msg =
-        e instanceof ApiError ? e.message || "Save failed" : "Save failed";
+        e instanceof ApiError && e.code === "version_conflict"
+          ? "Custom instructions changed since you opened this — reopen the dialog to edit the latest."
+          : e instanceof ApiError
+            ? e.message || "Save failed"
+            : "Save failed";
       if (e instanceof ApiError && e.code === "name_taken") {
         setNameError(msg);
         setCwdError(null);
@@ -421,8 +425,13 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       if (JSON.stringify(outfit) !== JSON.stringify(agent!.outfit))
         changes.outfit = outfit;
       const trimmedInstructions = customInstructions.trim();
-      if (trimmedInstructions !== (agent!.customInstructions ?? ""))
+      if (trimmedInstructions !== (agent!.customInstructions ?? "")) {
         changes.customInstructions = trimmedInstructions;
+        // Blob-bearing writes are version-guarded: echo the token from the
+        // agent object (kept current by agent_updated) so a concurrent edit
+        // surfaces as a 409 instead of a silent clobber.
+        changes.customInstructionsVersion = agent!.customInstructionsVersion;
+      }
       if (engineChanged) {
         // The menus now show the new engine's options, so send the chosen
         // values along with the switch; the server validates each against the
@@ -483,9 +492,17 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
       // Block the dialog (await + surface errors) when something restarts the
       // session — a cwd change (server cwd validation), an engine switch (fresh
       // conversation), or a privilege toggle (token re-mint + session-swap) —
-      // so the user sees it took before closing. Other edits stay
+      // or when the edit can meaningfully FAIL: a custom-instructions change is
+      // version-guarded (409 on a concurrent edit), so it must await and
+      // surface the conflict, never fire-and-forget past it. Other edits stay
       // fire-and-forget with an optimistic close (prior behavior).
-      if (changes.cwd || changes.agentType || privilegedChanged || mem.dirty) {
+      if (
+        changes.cwd ||
+        changes.agentType ||
+        changes.customInstructions !== undefined ||
+        privilegedChanged ||
+        mem.dirty
+      ) {
         // A session-swap (cwd/engine/privilege) or a destructive memory REPLACE
         // must await + surface its error before closing — never fire-and-forget.
         setSaving(true);

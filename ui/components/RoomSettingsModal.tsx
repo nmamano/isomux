@@ -5,6 +5,7 @@ import { useMemoryEditor } from "../hooks/useMemoryEditor.ts";
 import type {
   RoomRenameReq,
   RoomSettingsReq,
+  RoomSettingsRes,
 } from "../../shared/contract-shapes.ts";
 import {
   dialogInput,
@@ -34,13 +35,40 @@ export function RoomSettingsModal({
   // Room memory is edited via the unified /api/memory verbs (load + version-
   // guarded save). Saved separately from the room settings PUT.
   const mem = useMemoryEditor("room", roomId, true);
+  // The settings PUT is version-guarded (optimistic concurrency, mirroring the
+  // memory editor): GET on open, send the version back on save; a 409 means
+  // another writer saved since — keep the dialog open and say so. The token
+  // must stay coupled to the BYTES read with it, so the prompt field hydrates
+  // from the same GET response (never pair a store-snapshot prompt with the
+  // GET's version — a fresher server prompt would be silently blessed over).
+  // Until the load resolves the field is read-only and Save stays disabled;
+  // the store value paints first purely as a placeholder.
+  const [settingsVersion, setSettingsVersion] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const settingsLoaded = settingsVersion != null;
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch<RoomSettingsRes>("GET", `/api/rooms/${roomId}/settings`)
+      .then((r) => {
+        if (cancelled) return;
+        setPrompt(r.prompt ?? "");
+        setSettingsVersion(r.version);
+      })
+      .catch(() => {
+        // Leave version null -> field stays read-only, Save stays disabled
+        // (no way to write safely).
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [roomId]);
 
   function handleSave() {
     const trimmedName = name.trim();
-    if (!trimmedName) return;
+    if (!trimmedName || settingsVersion == null) return;
     setSaving(true);
     setError(null);
     // Rename is an independent, cosmetic field; fire-and-forget, parity with the
@@ -57,6 +85,7 @@ export function RoomSettingsModal({
     // inline. Memory is a separate version-guarded REPLACE on /api/memory.
     const settingsBody: RoomSettingsReq = {
       prompt: prompt.trim() ? prompt : null,
+      version: settingsVersion,
     };
     void (async () => {
       try {
@@ -72,7 +101,13 @@ export function RoomSettingsModal({
         }
         onClose();
       } catch (e) {
-        setError(e instanceof ApiError ? e.message : "Save failed");
+        if (e instanceof ApiError && e.code === "version_conflict") {
+          setError(
+            "Room settings changed since you opened this — reopen the dialog to edit the latest.",
+          );
+        } else {
+          setError(e instanceof ApiError ? e.message : "Save failed");
+        }
       } finally {
         setSaving(false);
       }
@@ -183,6 +218,7 @@ export function RoomSettingsModal({
           onChange={(e) => setPrompt(e.target.value)}
           placeholder="e.g. You're in the Marketing room. Match our brand voice."
           rows={8}
+          readOnly={!settingsLoaded}
           style={{ ...inputStyle, resize: "vertical" }}
         />
         <p
@@ -268,7 +304,8 @@ export function RoomSettingsModal({
               Cancel
             </button>
             {(() => {
-              const disabled = saving || !name.trim();
+              const disabled =
+                saving || !name.trim() || settingsVersion == null;
               return (
                 <button
                   onClick={handleSave}

@@ -34,9 +34,9 @@ import {
   writeFileSync,
   renameSync,
 } from "fs";
-import { createHash } from "crypto";
 import { dirname, join } from "path";
 import { STATE_ROOT } from "./config.ts";
+import { versionOf } from "../shared/blob-version.ts";
 import type { MemoryItem, MemoryScope } from "../shared/types.ts";
 
 // A scopeId (roomId / agentId / userId) is interpolated into a filesystem path,
@@ -154,12 +154,13 @@ export function renderCapped(lines: readonly string[], cap: number): string {
 // value (sha256("")[:12]), which serves as the missing-file sentinel — so a
 // READ -> REPLACE round-trip works on a never-written scope. 12 hex chars keeps
 // collision anxiety out of reviews while staying compact.
-export function versionOf(content: string): string {
-  return createHash("sha256")
-    .update(content, "utf8")
-    .digest("hex")
-    .slice(0, 12);
-}
+//
+// The implementation moved to shared/blob-version.ts (task 44a2c98d) so the
+// same token derivation serves the prompt-blob version guards, including
+// AgentInfo.customInstructionsVersion, which is maintained inside the
+// browser-bundled shared/office-state.ts. Re-exported here so existing
+// memory-surface imports keep working.
+export { versionOf } from "../shared/blob-version.ts";
 
 // --- op-log -----------------------------------------------------------------
 

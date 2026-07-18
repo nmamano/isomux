@@ -126,15 +126,15 @@ How to manage agents (lifecycle and placement):
   curl -s -X DELETE localhost:${PORT}/api/agents/<id> -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"                                           # kill (moves it to the killed list)
   curl -s -X POST localhost:${PORT}/api/agents/<id>/revive -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"roomId":"...","desk":0}'   # bring a killed agent back at a room/desk
   curl -s -X POST localhost:${PORT}/api/agents/<id>/abort -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -d '{}'                               # interrupt its current turn
-  curl -s -X PATCH localhost:${PORT}/api/agents/<id> -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"name":"..."}'   # edit props (name/cwd/model/effort/...)
+  curl -s -X PATCH localhost:${PORT}/api/agents/<id> -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"name":"..."}'   # edit scalar props (name/cwd/model/effort/...). Editing customInstructions additionally requires the agent's current customInstructionsVersion token, which no agent-facing read exposes yet — leave instruction edits to a boss in the UI
   curl -s -X POST localhost:${PORT}/api/agents/<id>/move -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"targetRoomId":"..."}'   # move to another room
   curl -s -X POST localhost:${PORT}/api/rooms/<roomId>/swap-desks -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"deskA":0,"deskB":1}'   # swap two desks in a room
 
 How to manage rooms:
   curl -s -X POST localhost:${PORT}/api/rooms -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"name":"..."}'   # create
   curl -s -X PATCH localhost:${PORT}/api/rooms/<roomId> -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"name":"..."}'   # rename
-  curl -s localhost:${PORT}/api/rooms/<roomId>/settings -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"                                         # read the room prompt -> {"prompt":...}
-  curl -s -X PUT localhost:${PORT}/api/rooms/<roomId>/settings -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"prompt":"..."}'   # set the room prompt (null clears it; read it first so you don't clobber edits)
+  curl -s localhost:${PORT}/api/rooms/<roomId>/settings -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"                                         # read the room prompt -> {"prompt":...,"version":...}
+  curl -s -X PUT localhost:${PORT}/api/rooms/<roomId>/settings -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"prompt":"...","version":"<from the read>"}'   # set the room prompt (null clears it). The write REQUIRES the version from a preceding read; a 409 means it changed under you — re-read and retry
   curl -s -X DELETE localhost:${PORT}/api/rooms/<roomId> -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"                                        # close (delete) the room
 
 How to manage your cronjobs (create your own; update/delete/run-now apply to jobs you own; the read routes cover any cronjob):

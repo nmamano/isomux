@@ -140,7 +140,7 @@ import {
 } from "./routes/executor.ts";
 import { tasksHandlers } from "./routes/handlers/tasks.ts";
 import { memoryHandlers } from "./routes/handlers/memory.ts";
-import { memoryStore, isSafeScopeId } from "./memory-store.ts";
+import { memoryStore, isSafeScopeId, versionOf } from "./memory-store.ts";
 import { cronHandlers } from "./routes/handlers/cron.ts";
 import { agentAffordanceHandlers } from "./routes/handlers/agent-affordances.ts";
 import { uploadsHandlers } from "./routes/handlers/uploads.ts";
@@ -790,15 +790,34 @@ async function applyAccessSettings(
 // office/tasks slice). Object-level AUTH is NOT here: REST enforces it in the
 // route table (guard + precondition).
 
-// office.setSettings core. Validates COMPLETELY before it mutates/emits (no
-// double-signal on an invalid env path or over-long name). name === undefined
-// PRESERVES the current name (a caller that omits it, e.g. a stale tab); null or
-// empty CLEARS it. setOfficeSettings emits office_settings_updated via the sink.
+// Optimistic-concurrency version over the WHOLE office-settings blob: the PUT
+// replaces prompt/envFile/name wholesale, so one version guards the whole
+// clobber surface. Canonical array serialization (stable order, distinguishes
+// null from ""), hashed with the same versionOf as memory files.
+function officeSettingsVersion(): string {
+  const s = agentManager.getOfficeSettings();
+  return versionOf(JSON.stringify([s.prompt, s.envFile, s.name]));
+}
+
+// office.setSettings core. The version guard runs FIRST (a stale writer is told
+// to re-read before hearing about field validation), then validates COMPLETELY
+// before it mutates/emits (no double-signal on an invalid env path or over-long
+// name). name === undefined PRESERVES the current name (a caller that omits it,
+// e.g. a stale tab); null or empty CLEARS it. setOfficeSettings emits
+// office_settings_updated via the sink.
 function applyOfficeSettings(input: {
   prompt: string | null;
   envFile: string | null;
   name?: string | null;
-}): { ok: true } | { ok: false; status: 400; error: string } {
+  expectedVersion: string;
+}):
+  | { ok: true }
+  | { ok: false; status: 400; error: string }
+  | { ok: false; conflict: true; version: string } {
+  const currentVersion = officeSettingsVersion();
+  if (input.expectedVersion !== currentVersion) {
+    return { ok: false, conflict: true, version: currentVersion };
+  }
   const envFile =
     input.envFile && input.envFile.trim() ? input.envFile.trim() : null;
   if (envFile) {
@@ -1844,7 +1863,10 @@ function buildExecutorDeps(): ExecutorDeps {
   // agentManager.validateCwd directly; validate.env/backends share the cores.
   register(
     officeSettingsHandlers({
-      getSettings: () => agentManager.getOfficeSettings(),
+      getSettings: () => ({
+        ...agentManager.getOfficeSettings(),
+        version: officeSettingsVersion(),
+      }),
       applySettings: (input) => applyOfficeSettings(input),
     }),
   );
@@ -1922,10 +1944,30 @@ function buildExecutorDeps(): ExecutorDeps {
       rename: (roomId, name) => agentManager.renameRoom(roomId, name),
       getSettings: (roomId) => {
         const room = agentManager.getRooms().find((r) => r.id === roomId);
-        return room ? { prompt: room.prompt } : null;
+        // Version over the prompt bytes ("" for a never-set/cleared prompt),
+        // same versionOf as memory files.
+        return room
+          ? { prompt: room.prompt, version: versionOf(room.prompt ?? "") }
+          : null;
       },
-      setSettings: (roomId, prompt) =>
-        agentManager.setRoomSettings(roomId, prompt),
+      setSettings: (roomId, prompt, expectedVersion) => {
+        // Check-then-write is atomic on the single-threaded event loop (same
+        // reasoning as memory-store.replace). Existence first so an unknown
+        // room stays a 404, never a bogus conflict.
+        const room = agentManager.getRooms().find((r) => r.id === roomId);
+        if (!room) return { ok: false, reason: "room_not_found" };
+        const currentVersion = versionOf(room.prompt ?? "");
+        if (expectedVersion !== currentVersion) {
+          return {
+            ok: false,
+            reason: "version_conflict",
+            version: currentVersion,
+          };
+        }
+        return agentManager.setRoomSettings(roomId, prompt)
+          ? { ok: true }
+          : { ok: false, reason: "room_not_found" };
+      },
     }),
   );
   // 3d.7 — agent lifecycle. The cores own the token lifecycle (spawn/revive mint,
@@ -2053,7 +2095,32 @@ function buildExecutorDeps(): ExecutorDeps {
       revive: (agentId, roomId, desk) =>
         agentManager.revive(agentId, roomId, desk),
       edit: async (agentId, changes) => {
-        // Validation first, side effects (saveRecentCwd) only after ALL checks
+        // Version guard FIRST (task 44a2c98d), before any field validation — a
+        // stale writer is told to re-read before hearing about a bad cwd. Only
+        // blob-bearing edits carry a version (the handler enforces presence);
+        // compare against the agent's STORED token so the check is exactly
+        // "the version the reads returned", independent of derivation details.
+        if (changes.customInstructions !== undefined) {
+          const current = agentManager.getAgent(agentId);
+          if (!current) {
+            return {
+              ok: false,
+              reason: "agent_not_found",
+              message: "Agent not found.",
+            };
+          }
+          if (
+            changes.customInstructionsVersion !==
+            current.customInstructionsVersion
+          ) {
+            return {
+              ok: false,
+              reason: "version_conflict",
+              version: current.customInstructionsVersion,
+            };
+          }
+        }
+        // Validation next, side effects (saveRecentCwd) only after ALL checks
         // pass — a rejected edit must not mutate the recent-cwd list. Check
         // order matches the spawn dep: cwd, then modelFamily.
         if (changes.cwd) {
@@ -2102,9 +2169,12 @@ function buildExecutorDeps(): ExecutorDeps {
           // EditAgentReq.customInstructions is string|null|undefined (the
           // AgentInfo Pick widens it); editAgent wants string|undefined. The WS
           // edit_agent command never carried null (the dialog clears via ""), so
-          // coerce null->undefined to preserve parity.
+          // coerce null->undefined to preserve parity. The version token was
+          // consumed by the guard above — strip it so only real agent fields
+          // reach the core.
+          const { customInstructionsVersion: _version, ...fields } = changes;
           await agentManager.editAgent(agentId, {
-            ...changes,
+            ...fields,
             customInstructions: changes.customInstructions ?? undefined,
           });
           const agent = agentManager.getAgent(agentId);

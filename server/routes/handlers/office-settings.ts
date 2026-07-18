@@ -33,20 +33,27 @@ import {
 } from "../executor.ts";
 import type { OfficeSettings } from "../../../shared/types.ts";
 
-// setSettings outcome the seam shapes: ok, or a status-mapped validation failure
-// (400 invalid env path / over-long name). The handler maps it 1:1.
+// setSettings outcome the seam shapes: ok, a status-mapped validation failure
+// (400 invalid env path / over-long name), or a version conflict carrying the
+// CURRENT version (409 — the settings changed since the caller's read). The
+// handler maps them 1:1.
 export type ApplyOfficeSettingsResult =
   | { ok: true }
-  | { ok: false; status: HandlerErrorStatus; error: string };
+  | { ok: false; status: HandlerErrorStatus; error: string }
+  | { ok: false; conflict: true; version: string };
 
 export interface OfficeSettingsDeps {
-  getSettings(): OfficeSettings;
-  // Validate-then-apply. `name === undefined` preserves the current name; null or
-  // empty clears it. Throws nothing — invalid input returns { ok: false }.
+  // Full settings + their optimistic-concurrency version (one version over the
+  // whole blob — the PUT replaces prompt/envFile/name wholesale).
+  getSettings(): OfficeSettings & { version: string };
+  // Validate-then-apply, guarded by the version from a preceding getSettings.
+  // `name === undefined` preserves the current name; null or empty clears it.
+  // Throws nothing — invalid input returns { ok: false }.
   applySettings(input: {
     prompt: string | null;
     envFile: string | null;
     name?: string | null;
+    expectedVersion: string;
   }): ApplyOfficeSettingsResult;
 }
 
@@ -61,6 +68,7 @@ export function officeSettingsHandlers(
         prompt?: unknown;
         envFile?: unknown;
         name?: unknown;
+        version?: unknown;
       };
       const prompt = typeof b.prompt === "string" ? b.prompt : null;
       const envFile = typeof b.envFile === "string" ? b.envFile : null;
@@ -73,8 +81,32 @@ export function officeSettingsHandlers(
           : typeof b.name === "string"
             ? b.name
             : null;
-      const r = deps.applySettings({ prompt, envFile, name });
-      if (!r.ok) return fail(r.status, "set_settings_failed", r.error);
+      // The PUT replaces the whole settings blob, so it must carry the version
+      // from a preceding GET — same rail as memory.replace.
+      if (typeof b.version !== "string" || b.version.length === 0) {
+        return fail(
+          400,
+          "invalid_version",
+          "version is required (from a preceding GET of the settings)",
+        );
+      }
+      const r = deps.applySettings({
+        prompt,
+        envFile,
+        name,
+        expectedVersion: b.version,
+      });
+      if (!r.ok) {
+        if ("conflict" in r) {
+          return fail(
+            409,
+            "version_conflict",
+            "the office settings changed since your read; re-read and retry",
+            { version: r.version },
+          );
+        }
+        return fail(r.status, "set_settings_failed", r.error);
+      }
       return noContent();
     },
   };

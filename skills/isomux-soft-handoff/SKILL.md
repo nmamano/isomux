@@ -10,7 +10,7 @@ Syntax: `/isomux-soft-handoff {peer-agent-name}` (or omit the name to be prompte
 
 ### 1. Pick the peer
 
-If a peer name was supplied, look up their agent ID in `~/.isomux/agents-summary.json` (match name case-insensitively). Otherwise try to infer the peer from context — e.g., an agent the boss and you have already paired or consulted with in this session. If there's a clear inference, use it (and briefly confirm who you picked). Otherwise, list candidates (prefer agents whose `cwd` matches yours) and ask the boss to pick. You need the peer's agent ID to POST messages to them.
+If a peer name was supplied, look up their agent ID via the agent manifest: `curl -s localhost:4000/agents -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"` (4000 is the default isomux server port; adjust if your office runs on a different one). Match the name case-insensitively. Otherwise try to infer the peer from context — e.g., an agent the boss and you have already paired or consulted with in this session. If there's a clear inference, use it (and briefly confirm who you picked). Otherwise, list candidates (prefer agents whose `cwd` matches yours) and ask the boss to pick. You need the peer's agent ID to POST messages to them.
 
 Flag to the boss before proceeding if:
 
@@ -27,7 +27,7 @@ Write a brief detailed enough that the boss doesn't have to re-explain anything.
 - **Working state** — dirty files, active worktrees, anything not in git yet.
 - **Decisions made along the way** that aren't obvious from the diff.
 - **Open questions / unconfirmed assumptions** so they know what to revisit with the boss.
-- **Pointers to context** — relevant files, internal-docs pages, related skills. As a backstop, mention that the peer can read your session log via the path in `agents-summary.json` if they need deeper context.
+- **Pointers to context** — relevant files, internal-docs pages, related skills. As a backstop, mention that the peer can read your session log via the `logDir` field in the agent manifest (the `GET /agents` curl above) if they need deeper context.
 
 ### 3. Send the brief
 

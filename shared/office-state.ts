@@ -8,6 +8,7 @@ import type {
 } from "./types.ts";
 import { DEFAULT_AGENT_CAPABILITIES, DEFAULT_EFFORT } from "./types.ts";
 import { generateTaskId, generateRoomId } from "./types.ts";
+import { versionOf } from "./blob-version.ts";
 import {
   SHIRT_COLORS,
   HAIR_COLORS,
@@ -241,6 +242,9 @@ export class OfficeState {
       topic: null,
       topicStale: false,
       customInstructions: opts.customInstructions || null,
+      // Maintained in lockstep with customInstructions (see AgentInfo docs):
+      // the optimistic-concurrency token an edit must echo back.
+      customInstructionsVersion: versionOf(opts.customInstructions || ""),
       agentType: opts.agentType ?? "claude",
       capabilities: opts.capabilities ?? DEFAULT_AGENT_CAPABILITIES,
       ...(opts.codexSandbox ? { codexSandbox: opts.codexSandbox } : {}),
@@ -323,6 +327,12 @@ export class OfficeState {
     ) {
       agent.customInstructions = changes.customInstructions || null;
       updated.customInstructions = agent.customInstructions;
+      // Lockstep version bump rides the same agent_updated changes, so every
+      // client's copy of the token stays current without a refetch.
+      agent.customInstructionsVersion = versionOf(
+        agent.customInstructions ?? "",
+      );
+      updated.customInstructionsVersion = agent.customInstructionsVersion;
     }
     if (
       changes.permissionMode &&

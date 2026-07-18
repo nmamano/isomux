@@ -601,6 +601,200 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
     expect(loadRecentCwds()).not.toContain("/tmp");
   });
 
+  // --- customInstructions version guard (task 44a2c98d) ----------------------
+  // Blob-bearing PATCHes must echo AgentInfo.customInstructionsVersion (the
+  // read surface is the wire object — there is no GET /api/agents/:id).
+  // Scalar-only edits stay version-free (pinned by "owner edits" above, which
+  // PATCHes name without a version and gets 200).
+
+  it("PATCH customInstructions WITHOUT the version -> 400 invalid_version; blob untouched", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const x = await spawnAt(srv, "X", r1, 0);
+    const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
+      body: { customInstructions: "be terse" },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(400);
+    expect(errCode(res.body)).toBe("invalid_version");
+    expect(srv.agentManager.getAgent(x.id)?.customInstructions).toBeNull();
+  });
+
+  it("PATCH customInstructions WITH the current version -> 200; blob + version advance in lockstep on the returned agent", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const x = await spawnAt(srv, "X", r1, 0);
+    // Capture the token as a primitive: getAgent returns the LIVE object, so
+    // reading the field off it after the PATCH would see the bumped value.
+    const beforeVersion = srv.agentManager.getAgent(
+      x.id,
+    )!.customInstructionsVersion;
+    expect(beforeVersion).toMatch(/^[0-9a-f]{12}$/);
+    const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
+      body: {
+        customInstructions: "be terse",
+        customInstructionsVersion: beforeVersion,
+      },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(200);
+    const returned = (
+      res.body as {
+        agent: {
+          customInstructions: string;
+          customInstructionsVersion: string;
+        };
+      }
+    ).agent;
+    expect(returned.customInstructions).toBe("be terse");
+    expect(returned.customInstructionsVersion).toMatch(/^[0-9a-f]{12}$/);
+    expect(returned.customInstructionsVersion).not.toBe(beforeVersion);
+    expect(srv.agentManager.getAgent(x.id)?.customInstructions).toBe(
+      "be terse",
+    );
+  });
+
+  it("PATCH customInstructions with a STALE version -> 409 version_conflict carrying the CURRENT version; blob untouched", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const x = await spawnAt(srv, "X", r1, 0);
+    // Writer A reads, then writer B saves — A's token is now stale.
+    const staleVersion = srv.agentManager.getAgent(
+      x.id,
+    )!.customInstructionsVersion;
+    expect(
+      (
+        await req(srv, "PATCH", `/api/agents/${x.id}`, {
+          body: {
+            customInstructions: "B's instructions",
+            customInstructionsVersion: staleVersion,
+          },
+          rawSessionId: owner.rawSessionId,
+        })
+      ).status,
+    ).toBe(200);
+    const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
+      body: {
+        customInstructions: "A's clobber",
+        customInstructionsVersion: staleVersion,
+      },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(409);
+    const err = (res.body as { error?: { code?: string; version?: string } })
+      .error;
+    expect(err?.code).toBe("version_conflict");
+    expect(err?.version).toBe(
+      srv.agentManager.getAgent(x.id)!.customInstructionsVersion,
+    );
+    expect(srv.agentManager.getAgent(x.id)?.customInstructions).toBe(
+      "B's instructions",
+    );
+  });
+
+  it("failed cwd+instructions edit rolls back blob AND version in LOCKSTEP — the client's old token still works (no false 409)", async () => {
+    // Reviewer2 finding (task 44a2c98d): the editAgent rollback snapshot must
+    // restore customInstructionsVersion together with customInstructions. If it
+    // didn't, a failed combined edit would leave the stored token derived from
+    // the REJECTED blob while every client (which never saw an agent_updated —
+    // the broadcast is held until the session side effect succeeds) still holds
+    // the old token, so their next valid edit would false-409.
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const x = await spawnAt(srv, "X", r1, 0);
+    // Wake the agent so it holds a live session with a sessionId: a cwd change
+    // on a session-bearing Claude agent must relocate the session's .jsonl, and
+    // no such file exists anywhere for the fake session id — the move preflight
+    // fails and the whole edit rolls back (the path under test). All Claude-dir
+    // consults on this path are read-only, so no host state is touched.
+    const enq = srv.agentManager.enqueueMessage(x.id, {
+      sender: { kind: "user", username: "tester" },
+      text: "wake",
+    });
+    expect(enq.ok).toBe(true);
+    const deadline = Date.now() + 2000;
+    while (srv.agentManager.getCurrentSessionId(x.id) === null) {
+      if (Date.now() > deadline) throw new Error("wake never set a sessionId");
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    const oldCwd = srv.agentManager.getAgent(x.id)!.cwd;
+    const v0 = srv.agentManager.getAgent(x.id)!.customInstructionsVersion;
+
+    const res = await req(srv, "PATCH", `/api/agents/${x.id}`, {
+      body: {
+        cwd: "/tmp",
+        customInstructions: "be terse",
+        customInstructionsVersion: v0,
+      },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(400);
+    expect(errCode(res.body)).toBe("edit_failed");
+
+    // Rollback restored the PAIR: blob back to null, token back to v0, cwd
+    // untouched.
+    const after = srv.agentManager.getAgent(x.id)!;
+    expect(after.customInstructions).toBeNull();
+    expect(after.customInstructionsVersion).toBe(v0);
+    expect(after.cwd).toBe(oldCwd);
+
+    // The client's old token is still valid: a plain instructions edit with v0
+    // succeeds (this is the assertion that would fail with a token-only bump
+    // left behind by the rollback).
+    const retry = await req(srv, "PATCH", `/api/agents/${x.id}`, {
+      body: {
+        customInstructions: "be terse",
+        customInstructionsVersion: v0,
+      },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(retry.status).toBe(200);
+    expect(srv.agentManager.getAgent(x.id)?.customInstructions).toBe(
+      "be terse",
+    );
+  });
+
+  it("agent_updated broadcast carries the bumped customInstructionsVersion alongside the blob (clients stay current without a refetch)", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const x = await spawnAt(srv, "X", r1, 0);
+    const sock = await srv.connectWs(owner.rawSessionId);
+    const version = srv.agentManager.getAgent(x.id)!.customInstructionsVersion;
+    await req(srv, "PATCH", `/api/agents/${x.id}`, {
+      body: {
+        customInstructions: "be terse",
+        customInstructionsVersion: version,
+      },
+      rawSessionId: owner.rawSessionId,
+    });
+    await sock.waitFor("agent_updated");
+    const evt = sock.messages.find(
+      (m) =>
+        (m as { type?: string }).type === "agent_updated" &&
+        (m as { changes?: { customInstructions?: unknown } }).changes
+          ?.customInstructions !== undefined,
+    ) as {
+      changes: {
+        customInstructions: string;
+        customInstructionsVersion: string;
+      };
+    };
+    expect(evt.changes.customInstructions).toBe("be terse");
+    expect(evt.changes.customInstructionsVersion).toBe(
+      srv.agentManager.getAgent(x.id)!.customInstructionsVersion,
+    );
+  });
+
   it("PATCH a valid same-engine modelFamily -> 200 with the change applied (strict check doesn't over-reject)", async () => {
     const srv = await startTestServer();
     server = srv;
