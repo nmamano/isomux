@@ -47,6 +47,7 @@ export interface TasksDeps {
     description?: string;
     priority?: TaskItem["priority"];
     assignee?: string;
+    roomId?: string;
   }): TaskItem;
   updateTask(id: string, changes: TaskChanges): TaskItem | null;
   deleteTask(id: string): boolean;
@@ -57,15 +58,45 @@ export interface TasksDeps {
     createdBy: string;
     username: string | undefined;
   };
+  // The set of room ids this caller can ACCESS (owner → every live room by rule;
+  // member → their granted rooms; agent → its spawning user's accessible set).
+  // Room ACCESS, not view — a hidden room stays accessible. Global tasks (no
+  // roomId) are visible to everyone and are NOT represented here.
+  accessibleRoomIds(identity: Identity): Set<string>;
+  // The room a create with NO roomId in the body defaults to: an AGENT caller's
+  // OWN room, or undefined (office-global) for a user / unknown identity. This is
+  // how "agent create → the agent's room" and "direct user/API create with no
+  // room param → global" are both realized.
+  defaultCreateRoomId(identity: Identity): string | undefined;
+}
+
+// A task is visible to a caller when it is office-global (no roomId) OR its room
+// is in the caller's accessible set. Used for list/get filtering and as the
+// pre-mutation object-visibility gate (update/claim/done/delete → 404 when the
+// caller can't see the task, so a room-task id is not a cross-room oracle).
+function taskVisible(task: TaskItem, accessible: Set<string>): boolean {
+  return !task.roomId || accessible.has(task.roomId);
 }
 
 export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
+  // Pre-mutation object-visibility gate: resolve the task and confirm the caller
+  // can see it (accessible room ∪ global). A missing task and a task the caller
+  // can't see BOTH return null → the handlers 404 uniformly, so a mutation can
+  // neither write across rooms nor probe a room-task's existence.
+  const visibleTask = (id: string, identity: Identity): TaskItem | null => {
+    const t = deps.listTasks().find((x) => x.id === id);
+    if (!t) return null;
+    return taskVisible(t, deps.accessibleRoomIds(identity)) ? t : null;
+  };
   return {
     "tasks.list": (ctx) => {
       const status = ctx.query.get("status");
       const assignee = ctx.query.get("assignee");
       const titleFilter = ctx.query.get("title");
-      let filtered = deps.listTasks();
+      // Room scope FIRST: a caller only ever sees their accessible rooms UNION
+      // office-global tasks; the status/assignee/title filters narrow within that.
+      const accessible = deps.accessibleRoomIds(ctx.identity);
+      let filtered = deps.listTasks().filter((t) => taskVisible(t, accessible));
       if (!status) {
         filtered = filtered.filter(
           (t) => t.status !== "done" && t.status !== "backlog",
@@ -82,8 +113,13 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
     },
 
     "tasks.get": (ctx) => {
+      const accessible = deps.accessibleRoomIds(ctx.identity);
       const task = deps.listTasks().find((t) => t.id === ctx.params.id);
-      return task ? ok(task) : fail(404, "not_found");
+      // Not-found and not-visible collapse to the SAME 404: a room-task id must
+      // not be an existence oracle for a caller outside its room.
+      return task && taskVisible(task, accessible)
+        ? ok(task)
+        : fail(404, "not_found");
     },
 
     "tasks.create": (ctx) => {
@@ -94,6 +130,28 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
       if (body.priority !== undefined && !isValidPriority(body.priority)) {
         return fail(400, "invalid_request", "invalid priority, must be P0-P3");
       }
+      // Resolve which room the task is filed under (Nil's create-stamping rule):
+      //   - body omits roomId       → scope default (agent's room / global)
+      //   - body roomId === ""       → office-global (explicit)
+      //   - body roomId is a room id → that room, IF the caller can access it
+      // An explicit target the caller can't access is a UNIFORM 404 (no
+      // unknown-vs-forbidden oracle; an owner's all-rooms set naturally lets them
+      // tell a truly unknown id apart). A non-string roomId is a 400 shape error.
+      let roomId: string | undefined;
+      if (Object.prototype.hasOwnProperty.call(body, "roomId")) {
+        if (typeof body.roomId !== "string") {
+          return fail(400, "invalid_request", "roomId must be a string");
+        }
+        if (body.roomId.length === 0) {
+          roomId = undefined; // explicit global
+        } else if (deps.accessibleRoomIds(ctx.identity).has(body.roomId)) {
+          roomId = body.roomId;
+        } else {
+          return fail(404, "not_found");
+        }
+      } else {
+        roomId = deps.defaultCreateRoomId(ctx.identity);
+      }
       const { createdBy, username } = deps.attributionFor(ctx.identity);
       const task = deps.createTask({
         title: body.title,
@@ -103,6 +161,7 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
           typeof body.description === "string" ? body.description : undefined,
         priority: body.priority,
         assignee: typeof body.assignee === "string" ? body.assignee : undefined,
+        roomId,
       });
       return created(task);
     },
@@ -119,6 +178,11 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
       if (body.priority !== undefined && !isValidPriority(body.priority)) {
         return fail(400, "invalid_request", "invalid priority, must be P0-P3");
       }
+      // Object-visibility gate AFTER body-shape validation (a malformed body is
+      // the caller's own 400 regardless of the task; a well-formed write to a
+      // task the caller can't see is the same 404 as an unknown id).
+      if (!visibleTask(ctx.params.id, ctx.identity))
+        return fail(404, "not_found");
       const changes: TaskChanges = {};
       if (typeof body.title === "string") changes.title = body.title;
       if (body.description !== undefined) {
@@ -139,6 +203,8 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
 
     "tasks.claim": (ctx) => {
       const body = (ctx.body ?? {}) as TaskClaimReq;
+      if (!visibleTask(ctx.params.id, ctx.identity))
+        return fail(404, "not_found");
       const changes: TaskChanges = { status: "in_progress" };
       if (typeof body.assignee === "string") changes.assignee = body.assignee;
       const task = deps.updateTask(ctx.params.id, changes);
@@ -146,11 +212,15 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
     },
 
     "tasks.done": (ctx) => {
+      if (!visibleTask(ctx.params.id, ctx.identity))
+        return fail(404, "not_found");
       const task = deps.updateTask(ctx.params.id, { status: "done" });
       return task ? ok(task) : fail(404, "not_found");
     },
 
     "tasks.delete": (ctx) => {
+      if (!visibleTask(ctx.params.id, ctx.identity))
+        return fail(404, "not_found");
       return deps.deleteTask(ctx.params.id)
         ? noContent()
         : fail(404, "not_found");

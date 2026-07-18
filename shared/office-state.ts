@@ -575,8 +575,16 @@ export class OfficeState {
       priority?: TaskPriority;
       assignee?: string;
       username?: string;
+      roomId?: string;
     },
   ): OfficeEvent[] {
+    // Normalize roomId: only a non-empty string scopes the task; anything else
+    // (undefined or "") is office-global, represented as an ABSENT field so the
+    // persisted/wire shape has one canonical "global" — no empty-string variant.
+    const roomId =
+      typeof opts?.roomId === "string" && opts.roomId.length > 0
+        ? opts.roomId
+        : undefined;
     const task: TaskItem = {
       id: generateTaskId(this._tasks.map((t) => t.id)),
       title: title.trim(),
@@ -587,6 +595,7 @@ export class OfficeState {
       createdBy,
       username: opts?.username,
       createdAt: Date.now(),
+      ...(roomId ? { roomId } : {}),
     };
     this._tasks.push(task);
     const events: OfficeEvent[] = [

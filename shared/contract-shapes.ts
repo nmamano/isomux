@@ -324,6 +324,10 @@ export interface TaskCreateReq {
   description?: string;
   priority?: TaskItem["priority"];
   assignee?: string;
+  // Room to file the task under. Absent === scope default (an AGENT caller's own
+  // room, a USER caller global); an explicit empty string === office-global; a
+  // non-empty id scopes it to that room (subject to the caller's room access).
+  roomId?: string;
 }
 
 export type TaskUpdateReq = Partial<{

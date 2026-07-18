@@ -83,7 +83,9 @@ function fixture() {
 describe("emit: audience all / owners", () => {
   it("`all` reaches every session", () => {
     const { deps, delivered } = fixture();
-    emit("tasks", { tasks: [] }, {}, deps);
+    // `users_list` is an `all`-audience event (the task board LEFT this class
+    // when it became room-scoped/recipient-scoped — see the registry).
+    emit("users_list", { users: [] }, {}, deps);
     expect(delivered).toHaveLength(1);
     expect(new Set(delivered[0].recipients)).toEqual(
       new Set(["ownerA", "memberB", "memberB2", "memberC"]),

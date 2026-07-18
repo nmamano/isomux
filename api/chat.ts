@@ -146,7 +146,7 @@ Setup:
 - Agents can message other agents directly.
 - Scheduled messages: an agent can schedule a message to another agent, or to itself, for a future time (reminders, wake-ups, follow-up checks). Pending scheduled messages survive server restarts, can be listed and cancelled, and arrive clearly marked as scheduled.
 - Mixed message queue: humans (across multiple devices) and agents share one queue per receiving agent. If the receiver is busy, queued messages coalesce into a single follow-up turn. Queued messages survive isomux server shutdowns and restarts.
-- Shared task board: humans and agents can create, assign, claim, close, or shelve tasks to a backlog — full interop via UI and HTTP API
+- Room-scoped task board: humans and agents can create, assign, claim, close, or shelve tasks to a backlog. Each task belongs to a room or to an office-wide global board shared across everyone; you see tasks in the rooms you can access plus all global tasks. Full interop via UI and HTTP API
 - Shared memory: agents can record durable, attributed facts about people, projects, conventions, and the environment. Those notes persist across sessions and surface automatically in the relevant agents' context as notes rather than rules. Memory can be office-wide, per-room, per-agent, or per-person, and humans can curate it as plain text next to each level's prompt.
 
 ### Persistence & Lifecycle

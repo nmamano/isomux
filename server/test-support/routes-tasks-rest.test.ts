@@ -16,7 +16,7 @@ import {
   type TestSocket,
 } from "./harness.ts";
 import { mintAgentToken } from "../identity/tokens.ts";
-import { getUserByName } from "../users.ts";
+import { getUserByName, updateUserById } from "../users.ts";
 import type { AgentInfo, TaskItem } from "../../shared/types.ts";
 
 let server: TestServer | null = null;
@@ -291,5 +291,253 @@ describe("routes/tasks REST: idempotency + WS double-signal", () => {
       2000,
       "tasks event carrying the new task",
     );
+  });
+});
+
+// --- Room scoping: visibility ∪ globals, create-stamping, no-oracle ----------
+describe("routes/tasks REST: room scoping", () => {
+  // Shorthand: POST a task as an owner cookie, optionally into a room. Omitting
+  // roomId exercises the scope default; roomId:"" is an explicit global.
+  function postTask(
+    srv: TestServer,
+    rawSessionId: string,
+    title: string,
+    roomId?: string,
+  ) {
+    const body: Record<string, unknown> = { title };
+    if (roomId !== undefined) body.roomId = roomId;
+    return api(srv, "/api/tasks", { method: "POST", rawSessionId, body });
+  }
+  const idsOf = (r: Res) => new Set((r.body as TaskItem[]).map((t) => t.id));
+
+  it("owner sees every room + globals; a member sees only granted rooms + globals", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const member = await srv.seedMember("Mia");
+    const roomA = srv.agentManager.getRooms()[0].id;
+    const roomB = srv.agentManager.createRoom("Room B");
+    // Grant Mia roomB ONLY (not roomA).
+    updateUserById(getUserByName("Mia")!.id, { allowedRooms: [roomB] });
+
+    const inA = (await postTask(srv, owner.rawSessionId, "in A", roomA))
+      .body as TaskItem;
+    const inB = (await postTask(srv, owner.rawSessionId, "in B", roomB))
+      .body as TaskItem;
+    const glob = (await postTask(srv, owner.rawSessionId, "global", ""))
+      .body as TaskItem;
+    expect(inA.roomId).toBe(roomA);
+    expect(inB.roomId).toBe(roomB);
+    expect(glob.roomId).toBeUndefined(); // explicit "" normalizes to global
+
+    // Owner: sees all three.
+    const ownerIds = idsOf(
+      await api(srv, "/api/tasks", { rawSessionId: owner.rawSessionId }),
+    );
+    expect(ownerIds.has(inA.id)).toBe(true);
+    expect(ownerIds.has(inB.id)).toBe(true);
+    expect(ownerIds.has(glob.id)).toBe(true);
+
+    // Member: roomB + global, NOT roomA.
+    const miaIds = idsOf(
+      await api(srv, "/api/tasks", { rawSessionId: member.rawSessionId }),
+    );
+    expect(miaIds.has(inB.id)).toBe(true);
+    expect(miaIds.has(glob.id)).toBe(true);
+    expect(miaIds.has(inA.id)).toBe(false);
+
+    // No oracle: GET + every mutation on the invisible roomA task is a 404, and
+    // the task is untouched.
+    for (const [method, path, body] of [
+      ["GET", `/api/tasks/${inA.id}`, undefined],
+      ["PATCH", `/api/tasks/${inA.id}`, { status: "done" }],
+      ["POST", `/api/tasks/${inA.id}/claim`, { assignee: "Mia" }],
+      ["POST", `/api/tasks/${inA.id}/done`, {}],
+      ["DELETE", `/api/tasks/${inA.id}`, undefined],
+    ] as const) {
+      const r = await api(srv, path, {
+        method,
+        rawSessionId: member.rawSessionId,
+        body,
+      });
+      expect(r.status).toBe(404);
+    }
+    expect(
+      srv.agentManager.getTasks().find((t) => t.id === inA.id)?.status,
+    ).toBe("open");
+  });
+
+  it("create into an inaccessible OR unknown room is a uniform 404 (no room oracle)", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const member = await srv.seedMember("Mia");
+    const roomA = srv.agentManager.getRooms()[0].id; // Mia has no grant
+
+    const forbidden = await postTask(srv, member.rawSessionId, "x", roomA);
+    expect(forbidden.status).toBe(404);
+    const unknown = await postTask(srv, member.rawSessionId, "x", "deadbeef");
+    expect(unknown.status).toBe(404);
+    // A non-string roomId is a shape 400, distinct from the room-access 404.
+    const badShape = await api(srv, "/api/tasks", {
+      method: "POST",
+      rawSessionId: member.rawSessionId,
+      body: { title: "x", roomId: 7 },
+    });
+    expect(badShape.status).toBe(400);
+    // Explicit global + no-room both succeed as global for a user caller.
+    const glob = await postTask(srv, member.rawSessionId, "g", "");
+    expect(glob.status).toBe(201);
+    expect((glob.body as TaskItem).roomId).toBeUndefined();
+    const noRoom = await postTask(srv, member.rawSessionId, "n");
+    expect((noRoom.body as TaskItem).roomId).toBeUndefined();
+  });
+
+  it("an agent create defaults to the agent's OWN room; roomId:'' makes it global", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const ownerId = getUserByName("Boss")!.id;
+    const roomA = srv.agentManager.getRooms()[0].id;
+    const bot = await spawnAgent(srv, "RoomBot"); // spawns into roomA
+    const token = mintAgentToken(bot.id, ownerId);
+
+    const mine = (
+      await api(srv, "/api/tasks", {
+        method: "POST",
+        bearer: token,
+        body: { title: "mine" },
+      })
+    ).body as TaskItem;
+    expect(mine.roomId).toBe(roomA); // stamped with the agent's room
+
+    const glob = (
+      await api(srv, "/api/tasks", {
+        method: "POST",
+        bearer: token,
+        body: { title: "shared", roomId: "" },
+      })
+    ).body as TaskItem;
+    expect(glob.roomId).toBeUndefined();
+  });
+
+  it("legacy loopback /tasks is GLOBALS-ONLY: hides room tasks and refuses to mutate them", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const roomB = srv.agentManager.createRoom("Room B");
+    const inB = (await postTask(srv, owner.rawSessionId, "in B", roomB))
+      .body as TaskItem;
+    const glob = (await postTask(srv, owner.rawSessionId, "glob", ""))
+      .body as TaskItem;
+
+    // GET list (loopback, no cookie): only the global task.
+    const legacyIds = idsOf(await api(srv, "/tasks"));
+    expect(legacyIds.has(glob.id)).toBe(true);
+    expect(legacyIds.has(inB.id)).toBe(false);
+    // GET + every mutation on the room task is a 404 through the legacy surface.
+    expect((await api(srv, `/tasks/${inB.id}`)).status).toBe(404);
+    expect(
+      (
+        await api(srv, `/tasks/${inB.id}`, {
+          method: "PATCH",
+          body: { status: "done" },
+        })
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await api(srv, `/tasks/${inB.id}/claim`, {
+          method: "POST",
+          body: { assignee: "x" },
+        })
+      ).status,
+    ).toBe(404);
+    expect(
+      (await api(srv, `/tasks/${inB.id}/done`, { method: "POST", body: {} }))
+        .status,
+    ).toBe(404);
+    expect(
+      srv.agentManager.getTasks().find((t) => t.id === inB.id)?.status,
+    ).toBe("open");
+    // Legacy create files GLOBAL even if the body names a room.
+    const legacyCreate = (
+      await api(srv, "/tasks", {
+        method: "POST",
+        body: { title: "leg", createdBy: "c", roomId: roomB },
+      })
+    ).body as TaskItem;
+    expect(legacyCreate.roomId).toBeUndefined();
+  });
+
+  it("a mutation fans out per-recipient: a member socket never receives a room task it can't see", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const member = await srv.seedMember("Mia");
+    const roomB = srv.agentManager.createRoom("Room B"); // Mia has no grant
+    const ownerSock: TestSocket = await srv.connectWs(owner.rawSessionId);
+    const memberSock: TestSocket = await srv.connectWs(member.rawSessionId);
+
+    const inB = (await postTask(srv, owner.rawSessionId, "in B", roomB))
+      .body as TaskItem;
+
+    const carries = (s: TestSocket) =>
+      s.messages.some(
+        (m) =>
+          (m as { type?: string }).type === "tasks" &&
+          ((m as { tasks?: TaskItem[] }).tasks ?? []).some(
+            (t) => t.id === inB.id,
+          ),
+      );
+    // Owner's projection carries the room task.
+    await waitUntil(() => carries(ownerSock), 2000, "owner sees room task");
+    // Member got a `tasks` push, but NONE of them carry the room-B task.
+    await waitUntil(
+      () =>
+        memberSock.messages.some(
+          (m) => (m as { type?: string }).type === "tasks",
+        ),
+      2000,
+      "member got a tasks push",
+    );
+    expect(carries(memberSock)).toBe(false);
+  });
+
+  it("granting a member room access (setAccess) live-re-projects their board", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const member = await srv.seedMember("Mia");
+    const roomB = srv.agentManager.createRoom("Room B"); // Mia has no grant yet
+    const inB = (await postTask(srv, owner.rawSessionId, "in B", roomB))
+      .body as TaskItem;
+
+    const sock: TestSocket = await srv.connectWs(member.rawSessionId);
+    const carriesInB = () =>
+      sock.messages.some(
+        (m) =>
+          (m as { type?: string }).type === "tasks" &&
+          ((m as { tasks?: TaskItem[] }).tasks ?? []).some(
+            (t) => t.id === inB.id,
+          ),
+      );
+    // Connect hydration arrives and does NOT include the room-B task.
+    await waitUntil(
+      () =>
+        sock.messages.some((m) => (m as { type?: string }).type === "tasks"),
+      2000,
+      "member connect tasks",
+    );
+    expect(carriesInB()).toBe(false);
+
+    // Owner grants Mia access to roomB → her board must re-project live (this is
+    // what pushTasksForUserId at the setAccess site guarantees).
+    const grant = await api(srv, `/api/users/${member.username}/access`, {
+      method: "PUT",
+      rawSessionId: owner.rawSessionId,
+      body: { allowedRooms: [roomB] },
+    });
+    expect(grant.status).toBe(200);
+    await waitUntil(carriesInB, 2000, "board re-projected after grant");
   });
 });

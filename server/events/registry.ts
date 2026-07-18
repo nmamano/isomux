@@ -307,7 +307,15 @@ export const EVENT_REGISTRY = {
     audience: "recipient-scoped",
     projectionKey: { kind: "userId" },
   },
-  tasks: { audience: "all", projectionKey: { kind: "all" } },
+  // Room-scoped board: each socket gets its OWN task list projected to the
+  // rooms its user can access (∪ office-global tasks), so this is per-recipient,
+  // NOT an all-audience broadcast. Delivered by an explicit per-socket loop
+  // (pushTasksToEachWs → sendTasksTo), same model as presence_list — never a
+  // uniform `all` payload. connectionId is the concrete recipient key.
+  tasks: {
+    audience: "recipient-scoped",
+    projectionKey: { kind: "connectionId" },
+  },
   cronjobs_state: { audience: "all", projectionKey: { kind: "all" } },
   cronjob_added: { audience: "all", projectionKey: { kind: "all" } },
   cronjob_updated: { audience: "all", projectionKey: { kind: "all" } },
@@ -335,13 +343,13 @@ export const EVENT_REGISTRY = {
 // Office-wide events are the easiest leak class, so the set is FROZEN and
 // reviewed explicitly. A contract test asserts the registry's audience:"all"
 // set is exactly this allowlist — adding an `all` event without updating this
-// list (a deliberate, reviewed act) fails the test. Each is justified: a global
-// shared board, or reduced office-wide metadata (no UserRecord/OfficeSettings
-// envFile/access/prompt rides an `all` channel).
+// list (a deliberate, reviewed act) fails the test. Each is justified as
+// reduced office-wide metadata (no UserRecord/OfficeSettings envFile/access/
+// prompt rides an `all` channel). The task board LEFT this class when it became
+// room-scoped — it is now per-recipient projected (see the `tasks` entry).
 export const ALL_AUDIENCE_ALLOWLIST: ReadonlySet<EventId> = new Set<EventId>([
   "users_list",
   "user_updated",
-  "tasks",
   "cronjobs_state",
   "cronjob_added",
   "cronjob_updated",

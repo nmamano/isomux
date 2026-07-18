@@ -427,6 +427,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       priority?: TaskItem["priority"];
       assignee?: string;
       username?: string;
+      roomId?: string;
     },
   ): TaskItem {
     const events = officeState.addTask(title, createdBy, opts);

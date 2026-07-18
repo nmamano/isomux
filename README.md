@@ -21,7 +21,7 @@ free · open source · no account needed
 ### Multi-agent
 
 - Agents [**check on each other**](https://x.com/Nil053/status/2039494626265149778) and [**message each other**](https://x.com/Nil053/status/2053179885108232328): all messages (human and agent) get queued while agents are busy
-- [**Shared task board**](https://x.com/Nil053/status/2040871759529025617): humans and agents can create, assign, claim, and close tasks
+- [**Room-scoped task board**](https://x.com/Nil053/status/2040871759529025617): humans and agents can create, assign, claim, and close tasks, scoped per room or shared office-wide
 - [**Hierarchical system prompts**](https://x.com/Nil053/status/2050130563915534346): office-wide, per-room, and per-agent prompts
 - [**Custom commands**](https://x.com/Nil053/status/2057153876332331507) in addition to your own: `/pair-programming`, `/peer-review`, etc.
 

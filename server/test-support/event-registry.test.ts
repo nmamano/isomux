@@ -55,7 +55,9 @@ const SPEC_AUDIENCES: Record<string, AudienceStrategy> = {
   users_admin_list: "owners",
   user_admin_updated: "owners",
   user_self_updated: "recipient-scoped",
-  tasks: "all",
+  // Room-scoped board: per-recipient projected (accessible rooms ∪ globals),
+  // delivered by a per-socket loop like presence_list — NOT an `all` broadcast.
+  tasks: "recipient-scoped",
   cronjobs_state: "all",
   cronjob_added: "all",
   cronjob_updated: "all",

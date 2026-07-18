@@ -1,7 +1,12 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { useAppState } from "../store.tsx";
 import { apiFetch } from "../api.ts";
-import type { TaskItem, TaskStatus, TaskPriority } from "../../shared/types.ts";
+import type {
+  TaskItem,
+  TaskStatus,
+  TaskPriority,
+  RoomWire,
+} from "../../shared/types.ts";
 import type {
   TaskCreateReq,
   TaskUpdateReq,
@@ -77,6 +82,9 @@ function TaskDetailPanel({
   agents = [],
   closeRef,
   fullScreen = false,
+  rooms = [],
+  createRoomId = "",
+  onCreateRoomChange,
 }: {
   task?: TaskItem;
   onClose: () => void;
@@ -84,7 +92,17 @@ function TaskDetailPanel({
   agents?: { name: string; id: string }[];
   closeRef?: React.MutableRefObject<(() => void) | null>;
   fullScreen?: boolean;
+  // Rooms the caller can see, for the create-mode "Create in" selector and for
+  // labelling an existing task's room. Empty when no rooms are visible.
+  rooms?: RoomWire[];
+  // Create-mode target room ("" === office-global), lifted to TaskView so the
+  // quick-add row and this panel share ONE create target. Ignored in edit mode
+  // (moving a task between rooms is out of scope).
+  createRoomId?: string;
+  onCreateRoomChange?: (roomId: string) => void;
 }) {
+  const roomLabel = (roomId: string | undefined) =>
+    roomId ? (rooms.find((r) => r.id === roomId)?.name ?? "Unknown room") : "";
   // Most-recent agents first — the raw list is oldest-first and can be long.
   // Capped to MAX_ASSIGNEE_SUGGESTIONS by default; a "+N more" chip expands to
   // the full list (same recency order, so the visible chips don't reshuffle).
@@ -183,6 +201,9 @@ function TaskDetailPanel({
         description: description.trim() || undefined,
         priority: priority || undefined,
         assignee: assignee.trim() || undefined,
+        // "" is an EXPLICIT office-global create (distinct from omitting the
+        // field, which a user caller also treats as global — same result here).
+        roomId: createRoomId,
       };
       apiFetch<TaskItem>("POST", "/api/tasks", body).catch(() => {});
     } else if (task) {
@@ -310,6 +331,39 @@ function TaskDetailPanel({
             }}
           />
         </div>
+
+        {mode === "create" ? (
+          <div>
+            <label style={labelStyle}>Create in</label>
+            <select
+              value={createRoomId}
+              onChange={(e) => onCreateRoomChange?.(e.target.value)}
+              style={inputStyle}
+            >
+              <option value="">Global (office-wide)</option>
+              {rooms.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : (
+          task && (
+            <div>
+              <label style={labelStyle}>Room</label>
+              <div
+                style={{
+                  ...inputStyle,
+                  color: "var(--text-dim)",
+                  cursor: "default",
+                }}
+              >
+                {task.roomId ? roomLabel(task.roomId) : "Global (office-wide)"}
+              </div>
+            </div>
+          )
+        )}
 
         <div>
           <label style={labelStyle}>Description</label>
@@ -545,11 +599,35 @@ export function TaskView({
   onClose: () => void;
   onFocusAgent?: (agentId: string) => void;
 }) {
-  const { tasks, tasksLoaded, agents, isMobile } = useAppState();
+  const { tasks, tasksLoaded, agents, isMobile, rooms, currentRoomId } =
+    useAppState();
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<
     TaskStatus | "all" | "active"
   >("active");
+  // Room controls captured ONCE from the office's current room and held stable
+  // while the Tasks view is open — they do NOT silently follow the office room
+  // tab. viewRoom filters the (already server-scoped) list; createRoomId is the
+  // shared create target for the quick-add row and the create panel.
+  //   viewRoom:     "all" | "global" | <roomId>
+  //   createRoomId: "" (office-global) | <roomId>
+  const [viewRoom, setViewRoom] = useState<string>(() =>
+    currentRoomId && rooms.some((r) => r.id === currentRoomId)
+      ? currentRoomId
+      : "all",
+  );
+  const [createRoomId, setCreateRoomId] = useState<string>(() =>
+    currentRoomId && rooms.some((r) => r.id === currentRoomId)
+      ? currentRoomId
+      : "",
+  );
+  const roomNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const r of rooms) m.set(r.id, r.name);
+    return m;
+  }, [rooms]);
+  const roomLabel = (roomId: string | undefined) =>
+    roomId ? (roomNameById.get(roomId) ?? "Unknown room") : "Global";
   const [creating, setCreating] = useState(false);
   const [filterAssignee, setFilterAssignee] = useState("");
   const [sortField, setSortField] = useState<SortField>("createdAt");
@@ -593,7 +671,8 @@ export function TaskView({
   function handleQuickAdd() {
     const title = quickTitle.trim();
     if (!title) return;
-    const body: TaskCreateReq = { title };
+    // Quick-add files into the shared create target ("" === office-global).
+    const body: TaskCreateReq = { title, roomId: createRoomId };
     apiFetch<TaskItem>("POST", "/api/tasks", body).catch(() => {});
     setQuickTitle("");
     quickAddRef.current?.focus();
@@ -645,6 +724,14 @@ export function TaskView({
 
   const filtered = useMemo(() => {
     let list = tasks;
+    // Room view filter (client-side, on top of the server's access scoping):
+    // "all" shows everything visible, "global" only office-global tasks, a room
+    // id only that room's tasks.
+    if (viewRoom === "global") {
+      list = list.filter((t) => !t.roomId);
+    } else if (viewRoom !== "all") {
+      list = list.filter((t) => t.roomId === viewRoom);
+    }
     if (filterStatus === "active") {
       list = list.filter((t) => t.status !== "done" && t.status !== "backlog");
     } else if (filterStatus !== "all") {
@@ -691,7 +778,15 @@ export function TaskView({
       return sortDir === "asc" ? cmp : -cmp;
     });
     return sorted;
-  }, [tasks, filterStatus, search, filterAssignee, sortField, sortDir]);
+  }, [
+    tasks,
+    viewRoom,
+    filterStatus,
+    search,
+    filterAssignee,
+    sortField,
+    sortDir,
+  ]);
 
   function renderName(name: string | undefined) {
     if (!name) return "";
@@ -854,6 +949,20 @@ export function TaskView({
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <select
+            value={viewRoom}
+            onChange={(e) => setViewRoom(e.target.value)}
+            title="Filter tasks by room"
+            style={isMobile ? { ...selectStyle, flex: 1 } : selectStyle}
+          >
+            <option value="all">All rooms</option>
+            <option value="global">Global</option>
+            {rooms.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.name}
+              </option>
+            ))}
+          </select>
+          <select
             value={filterStatus}
             onChange={(e) =>
               setFilterStatus(e.target.value as TaskStatus | "all" | "active")
@@ -932,6 +1041,23 @@ export function TaskView({
                 outline: "none",
               }}
             />
+            <select
+              value={createRoomId}
+              onChange={(e) => setCreateRoomId(e.target.value)}
+              title="New tasks are filed in this room"
+              style={{
+                ...selectStyle,
+                flexShrink: 0,
+                maxWidth: isMobile ? 120 : 160,
+              }}
+            >
+              <option value="">Global</option>
+              {rooms.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
           </div>
 
           {/* Search bar */}
@@ -1144,6 +1270,30 @@ export function TaskView({
                           whiteSpace: "nowrap",
                         }}
                       >
+                        {viewRoom === "all" && (
+                          <span
+                            style={{
+                              fontSize: 9,
+                              fontWeight: 700,
+                              fontFamily: "'JetBrains Mono',monospace",
+                              color: task.roomId
+                                ? "var(--text-dim)"
+                                : "var(--text-hint)",
+                              border: "1px solid var(--border-subtle)",
+                              borderRadius: 4,
+                              padding: "1px 5px",
+                              marginRight: 6,
+                              whiteSpace: "nowrap",
+                            }}
+                            title={
+                              task.roomId
+                                ? `Room: ${roomLabel(task.roomId)}`
+                                : "Office-global task"
+                            }
+                          >
+                            {roomLabel(task.roomId)}
+                          </span>
+                        )}
                         {task.title}
                         {task.description && (
                           <span
@@ -1219,6 +1369,9 @@ export function TaskView({
               mode="create"
               onClose={() => setCreating(false)}
               agents={agents}
+              rooms={rooms}
+              createRoomId={createRoomId}
+              onCreateRoomChange={setCreateRoomId}
             />
           ) : selectedTask ? (
             <TaskDetailPanel
@@ -1226,6 +1379,7 @@ export function TaskView({
               task={selectedTask}
               onClose={() => setSelectedId(null)}
               agents={agents}
+              rooms={rooms}
             />
           ) : null)}
       </div>
@@ -1238,6 +1392,9 @@ export function TaskView({
             mode="create"
             onClose={() => setCreating(false)}
             agents={agents}
+            rooms={rooms}
+            createRoomId={createRoomId}
+            onCreateRoomChange={setCreateRoomId}
             fullScreen
           />
         ) : selectedTask ? (
@@ -1246,6 +1403,7 @@ export function TaskView({
             task={selectedTask}
             onClose={() => setSelectedId(null)}
             agents={agents}
+            rooms={rooms}
             fullScreen
           />
         ) : null)}

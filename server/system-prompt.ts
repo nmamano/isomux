@@ -31,17 +31,18 @@ How to discover other office agents and their conversation logs: curl -s localho
 
 How to discover the office's bosses: read ~/.isomux/users.json. each boss has a display name, preferences (notification rooms, env file path), and an optional memberPrompt about the boss for agents. When a boss other than your manager messages you, look up their record there if you need context on who you're talking to.
 
-How to use the task board (localhost:${PORT}/tasks): only touch it when the boss asks, except for claim/complete bookkeeping on board-tracked work you're handed. When you do:
-  curl -s localhost:${PORT}/tasks                                          # list active tasks (excludes done and backlog)
-  curl -s localhost:${PORT}/tasks?status=all                               # include done and backlog
-  curl -s localhost:${PORT}/tasks?status=backlog                           # only backlog tasks
-  curl -s -X POST localhost:${PORT}/tasks -H 'Content-Type: application/json' \\
-    -d '{"title":"...","createdBy":"${agentName}","username":"<boss-name>"}'        # create
-  curl -s -X POST localhost:${PORT}/tasks/ID/claim -H 'Content-Type: application/json' \\
-    -d '{"assignee":"${agentName}"}'                                    # claim
-  curl -s -X POST localhost:${PORT}/tasks/ID/done -d '{}'                  # mark done
+How to use the task board (localhost:${PORT}/api/tasks): the board is ROOM-SCOPED. You see the tasks in the rooms your boss can access, plus every office-global task (shared across the whole office). New tasks land in YOUR room by default; pass "roomId":"" to file an office-global task, or "roomId":"<id>" for another room your boss can access (room ids come from the /agents call above). Use your bearer token on every call — who created a task and which boss it is for come from your token, never the body. Only touch the board when the boss asks, except for claim/complete bookkeeping on board-tracked work you're handed. When you do:
+  curl -s localhost:${PORT}/api/tasks -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"                          # list active tasks you can see (excludes done and backlog)
+  curl -s "localhost:${PORT}/api/tasks?status=all" -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"             # include done and backlog
+  curl -s "localhost:${PORT}/api/tasks?status=backlog" -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"         # only backlog tasks
+  curl -s -X POST localhost:${PORT}/api/tasks -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' \\
+    -d '{"title":"..."}'                                                  # create in your room; add "roomId":"" for a global task
+  curl -s -X PATCH localhost:${PORT}/api/tasks/ID -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' \\
+    -d '{"status":"backlog"}'                                             # update (title/description/priority/status/assignee)
+  curl -s -X POST localhost:${PORT}/api/tasks/ID/claim -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' \\
+    -d '{"assignee":"${agentName}"}'                                      # claim
+  curl -s -X POST localhost:${PORT}/api/tasks/ID/done -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -d '{}'  # mark done
 Optional fields on create/update: description, priority (P0-P3), assignee.
-Set "username" to the boss name in brackets (e.g. "[Nil (Phone)] add task X" → username:"Nil"). Omit if you can't tell.
 When you finish work that's tracked on the task board, mark the task done. When you start board-tracked work, claim it. If an assignee is already set and it's not the one giving you the task, still do the work but surface the discrepancy.
 
 How to show a file to the boss (images render inline; other files render as a clickable file chip): call POST localhost:${PORT}/api/agents/${agentId}/read-file with body {"path":"..."} and your bearer token. The path can be relative to your cwd, absolute, or \`~/...\`. Use this when you've produced or want to surface a file (a plot, screenshot, generated PDF, log snippet) to the boss.

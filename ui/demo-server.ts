@@ -940,12 +940,18 @@ export async function demoApi(
     // TaskItem). createdBy/username are token-derived in prod; demo user = Ricky.
     case "POST /api/tasks": {
       const b = (body ?? {}) as TaskCreateReq;
+      // Room-scoped board: the demo user Ricky is an owner who reaches every
+      // room, so a per-recipient projection is the identity (Ricky sees all
+      // rooms ∪ globals). We still thread roomId through so the board exercises
+      // room-scoped tasks; the Tasks view's create-target selector supplies it
+      // (absent/"" → office-global).
       emitEvents(
         state.addTask(b.title, "Ricky", {
           description: b.description,
           priority: b.priority,
           assignee: b.assignee,
           username: "Ricky",
+          roomId: b.roomId,
         }),
       );
       return state.tasks.at(-1);

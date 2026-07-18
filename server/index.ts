@@ -1296,6 +1296,37 @@ function attributionFor(identity: Identity): {
   return { createdBy, username };
 }
 
+// The room ACCESS set for a caller identity, for room-scoping the task board.
+// Resolves the acting user (a USER identity's own record, or an AGENT identity's
+// SPAWNING user — "agents are bounded by their manager's room access") and
+// returns accessibleRoomIdsFor(user): every live room for an owner (by rule),
+// the granted rooms for a member. An identity with no resolvable user (a
+// cron-run, or a token whose user is gone) sees ONLY office-global tasks, so it
+// gets the empty set. This is room ACCESS, never the hidden/order view filter —
+// a hidden room is still accessible, so its tasks still show.
+function accessibleRoomIdsForIdentity(identity: Identity): Set<string> {
+  const user = identity.userId ? getUserById(identity.userId) : null;
+  return user ? accessibleRoomIdsFor(user) : new Set<string>();
+}
+
+// The room a create with NO roomId in the body defaults to (Nil's stamping
+// rule): an AGENT caller's OWN room, else undefined (office-global) for a user /
+// cron-run / unknown identity. The agent's room is used verbatim even if its
+// spawning user can't currently access it — "agent create → the agent's room" is
+// the authoritative rule; an explicit cross-room target is what the access guard
+// in the handler checks.
+function defaultCreateRoomIdForIdentity(
+  identity: Identity,
+): string | undefined {
+  if (identity.scope === "agent" && identity.agentId) {
+    const agent = agentManager
+      .getAllAgents()
+      .find((a) => a.id === identity.agentId);
+    if (agent?.roomId) return agent.roomId;
+  }
+  return undefined;
+}
+
 // Assemble the executor deps for the migrated /api surface. Called from
 // startServer once the managers exist. Each resource slice registers its
 // handlers (and any precondition enforcers) here over its own slim deps bundle;
@@ -1320,16 +1351,20 @@ function buildExecutorDeps(): ExecutorDeps {
         description,
         priority,
         assignee,
+        roomId,
       }) =>
         agentManager.addTask(title, createdBy, {
           description,
           priority,
           assignee,
           username,
+          roomId,
         }),
       updateTask: (id, changes) => agentManager.updateTask(id, changes),
       deleteTask: (id) => agentManager.deleteTask(id),
       attributionFor,
+      accessibleRoomIds: accessibleRoomIdsForIdentity,
+      defaultCreateRoomId: defaultCreateRoomIdForIdentity,
     }),
   );
 
@@ -1813,6 +1848,8 @@ function buildExecutorDeps(): ExecutorDeps {
           { userId: result.user.id },
         );
         pushProjectedFullStateForUserId(result.user.id);
+        // Their accessible-room set changed → re-project the room-scoped board.
+        pushTasksForUserId(result.user.id);
         const presenceTouched = refreshPresenceForUser(
           result.user.id,
           {
@@ -1927,7 +1964,12 @@ function buildExecutorDeps(): ExecutorDeps {
           const result = updateUserById(creator.id, {
             allowedRooms: [...creator.allowedRooms, newRoomId],
           });
-          if (result.ok) pushProjectedFullStateForUserId(creator.id);
+          if (result.ok) {
+            pushProjectedFullStateForUserId(creator.id);
+            // Creator's accessible set grew by the new room — re-project the
+            // board (the room is empty today, but keeps access↔board in lockstep).
+            pushTasksForUserId(creator.id);
+          }
         }
         // A new room is empty so no ghost moves post-cut (room ids are stable);
         // the re-push is harmless and keeps every room mutation paired with a
@@ -1967,6 +2009,16 @@ function buildExecutorDeps(): ExecutorDeps {
         // Drop any ghost orphaned by the close (its currentRoomId was the
         // now-gone room); buildPresenceListFor filters dangling entries.
         pushPresenceListToEachWs();
+        // NOTE (room-scoped board): the loop above stripped the closed roomId
+        // from every user's allowedRooms, and owners project against LIVE rooms
+        // — so this room's tasks are now inaccessible to EVERYONE and simply
+        // become orphans carrying a dead roomId. We deliberately do NOT re-push
+        // the board here (unlike the access-change invariant at setAccess):
+        // whether a close should reassign those tasks to global, delete them, or
+        // preserve them as inaccessible orphans is an unresolved product decision
+        // flagged to the Manager. Until it lands, orphans drop out of each board
+        // on the next task mutation or reload. Don't add a tasks re-push here
+        // without that decision.
         return true;
       },
       rename: (roomId, name) => agentManager.renameRoom(roomId, name),
@@ -2877,6 +2929,45 @@ function pushPresenceListForUserId(userId: string) {
   }
 }
 
+// --- Room-scoped task board fan-out (mirrors the presence_list projection) ---
+// The `tasks` wire event is per-recipient PROJECTED, not an all-audience
+// broadcast: each socket receives only the tasks in the rooms its user can
+// ACCESS, UNION every office-global task (no roomId). Access, not view — a
+// hidden room's tasks still show. This is the reconnect/full_state hydration
+// shape too, so a reload and a live push agree.
+function projectTasksForSession(session: SessionLookup): TaskItem[] {
+  const user = getUserById(session.userId);
+  const accessible = user ? accessibleRoomIdsFor(user) : new Set<string>();
+  return agentManager
+    .getTasks()
+    .filter((t) => !t.roomId || accessible.has(t.roomId));
+}
+
+function sendTasksTo(ws: ServerWebSocket<WsData>) {
+  ws.send(
+    JSON.stringify({
+      type: "tasks",
+      tasks: projectTasksForSession(ws.data.session),
+    }),
+  );
+}
+
+// Re-project the board to EVERY socket. Called on any task mutation — a single
+// task's room membership decides who sees it, so the whole list is re-pushed
+// per-recipient (same cost model as pushPresenceListToEachWs).
+function pushTasksToEachWs() {
+  for (const ws of browsers) sendTasksTo(ws);
+}
+
+// Re-project the board to just ONE user's sockets. Called after that user's room
+// ACCESS changes (allowedRooms edit, creator room grant), which shifts which
+// room-scoped tasks they may see — no other user's projection changed.
+function pushTasksForUserId(userId: string) {
+  for (const ws of browsers) {
+    if (ws.data.session.userId === userId) sendTasksTo(ws);
+  }
+}
+
 // Dedupe preserving FIRST occurrence (used for the sparse `order` list, so a
 // hand-edited or client-sent order with duplicates resolves deterministically).
 function dedupeFirstWins(ids: readonly string[]): string[] {
@@ -3262,13 +3353,14 @@ function routeAgentEventToWs(ws: ServerWebSocket<WsData>, event: AgentEvent) {
 function wireEventSinks(): void {
   // Wire AgentManager events to WebSocket broadcasts
   agentManager.onEvent((event) => {
-    // Task mutations carry the full list as a domain event; the wire still
-    // uses the legacy `{type:"tasks", tasks}` shape so the UI doesn't change.
+    // Task mutations carry the full list as a domain event, but the board is
+    // ROOM-SCOPED: each socket gets its own `tasks` list projected to the rooms
+    // its user can access (∪ globals), so we re-push per-recipient rather than
+    // broadcasting one list. The domain event's `tasks` payload is ignored here —
+    // projectTasksForSession reads the live board per recipient. Same shape as
+    // the connect-time hydration, so a reload and a live push agree.
     if (event.type === "tasks_changed") {
-      // Routed through the emit() helper (audience `all`) rather than a raw
-      // broadcast, so the migrated tasks core ops share one wire path. emit()
-      // resolves `all` -> every session, so the wire stays byte-identical.
-      liveEmit("tasks", { tasks: event.tasks });
+      pushTasksToEachWs();
       return;
     }
     // Office settings: envFile is owner-only and NEVER rides this all-audience
@@ -3802,6 +3894,17 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         const taskId = parts[1];
         const action = parts[2]; // "claim" or "done"
 
+        // ROOM-SCOPING on the LEGACY identity-free surface: this loopback route
+        // carries no caller identity, so it can project to exactly ONE room set —
+        // the office-GLOBAL board (tasks with no roomId). Every op here is scoped
+        // to globals: list/get hide room-scoped tasks, create files global (its
+        // body can't name a room), and a room-scoped task id is a 404 on
+        // get/patch/claim/done — otherwise a known/guessed id would be a
+        // cross-room read OR write bypass around the new boundary. Room-scoped
+        // tasks live on the identity-required /api/tasks surface (agents use their
+        // bearer token there); cron runs, which have no room, use this board.
+        const isGlobal = (t: TaskItem) => !t.roomId;
+
         // DELETE blocked at HTTP level
         if (req.method === "DELETE") {
           return new Response(
@@ -3810,12 +3913,12 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           );
         }
 
-        // GET /tasks — list (excludes done and backlog by default)
+        // GET /tasks — list (globals only; excludes done and backlog by default)
         if (req.method === "GET" && !taskId) {
           const status = url.searchParams.get("status");
           const assignee = url.searchParams.get("assignee");
           const titleFilter = url.searchParams.get("title");
-          let filtered = agentManager.getTasks();
+          let filtered = agentManager.getTasks().filter(isGlobal);
           if (!status) {
             filtered = filtered.filter(
               (t) => t.status !== "done" && t.status !== "backlog",
@@ -3837,10 +3940,10 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           });
         }
 
-        // GET /tasks/:id — detail
+        // GET /tasks/:id — detail (globals only; a room-scoped id is a 404)
         if (req.method === "GET" && taskId && !action) {
           const task = agentManager.getTasks().find((t) => t.id === taskId);
-          if (!task)
+          if (!task || !isGlobal(task))
             return new Response(JSON.stringify({ error: "not found" }), {
               status: 404,
               headers: corsHeaders,
@@ -3934,6 +4037,13 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           if (body.assignee !== undefined)
             changes.assignee =
               typeof body.assignee === "string" ? body.assignee : undefined;
+          // Globals-only wall: a room-scoped id 404s here (no cross-room write).
+          const existing = agentManager.getTasks().find((t) => t.id === taskId);
+          if (!existing || !isGlobal(existing))
+            return new Response(JSON.stringify({ error: "not found" }), {
+              status: 404,
+              headers: corsHeaders,
+            });
           const task = agentManager.updateTask(taskId, changes);
           if (!task)
             return new Response(JSON.stringify({ error: "not found" }), {
@@ -3959,6 +4069,13 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           };
           if (typeof body.assignee === "string")
             changes.assignee = body.assignee;
+          // Globals-only wall: a room-scoped id 404s here (no cross-room write).
+          const existing = agentManager.getTasks().find((t) => t.id === taskId);
+          if (!existing || !isGlobal(existing))
+            return new Response(JSON.stringify({ error: "not found" }), {
+              status: 404,
+              headers: corsHeaders,
+            });
           const task = agentManager.updateTask(taskId, changes);
           if (!task)
             return new Response(JSON.stringify({ error: "not found" }), {
@@ -3974,6 +4091,13 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           try {
             await req.json();
           } catch {}
+          // Globals-only wall: a room-scoped id 404s here (no cross-room write).
+          const existing = agentManager.getTasks().find((t) => t.id === taskId);
+          if (!existing || !isGlobal(existing))
+            return new Response(JSON.stringify({ error: "not found" }), {
+              status: 404,
+              headers: corsHeaders,
+            });
           const task = agentManager.updateTask(taskId, { status: "done" });
           if (!task)
             return new Response(JSON.stringify({ error: "not found" }), {
@@ -4201,13 +4325,9 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
             }),
           );
         }
-        // Send tasks
-        ws.send(
-          JSON.stringify({
-            type: "tasks",
-            tasks: agentManager.getTasks(),
-          }),
-        );
+        // Send tasks — room-scoped to this session's accessible rooms ∪ globals
+        // (same projection as the live per-recipient re-push).
+        sendTasksTo(ws);
         // Send cronjobs + cronjobsPrompt
         ws.send(
           JSON.stringify({

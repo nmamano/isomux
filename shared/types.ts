@@ -509,6 +509,12 @@ export interface TaskItem {
   createdBy: string; // Actor that created the record (agent name or user name)
   username?: string; // Human boss this record is on behalf of
   createdAt: number;
+  // Room this task belongs to. ABSENT/empty === office-global (visible to
+  // everyone). A non-empty id scopes the task to that room: it is visible only
+  // to callers who can access the room, UNION every global task. Existing tasks
+  // (persisted before room-scoping) have no roomId and so are global — no
+  // migration.
+  roomId?: string;
 }
 
 // isomux-memory — one durable, attributed fact line. Persisted as a single raw
