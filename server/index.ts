@@ -2359,6 +2359,24 @@ function buildExecutorDeps(): ExecutorDeps {
         // immediate ack. .catch swallows (the WS path had no error surface).
         void agentManager.newConversation(agentId, agentType).catch(() => {});
       },
+      handoff: async (agentId, text) => {
+        // Self-handoff (task 8883e45d): the manager owns the reset-then-deliver
+        // (agentManager.handoff — guarded to one in-flight handoff per agent, so a
+        // concurrent second handoff is rejected rather than clobbering this one's
+        // brief). AWAIT it and map its
+        // outcome honestly: enqueueMessage's transactional persist can fail
+        // (persist_failed / agent_stopped / queue_full), and returning {ok:true}
+        // regardless would tell the caller a brief was delivered when none was.
+        // Same status+code passthrough as sendAsAgent.
+        const r = await agentManager.handoff(agentId, text);
+        if (r.ok) return { ok: true };
+        return {
+          ok: false,
+          status: r.status as 400 | 404 | 409 | 429 | 500,
+          code: r.error,
+          message: r.error,
+        };
+      },
       resume: (agentId, sessionId) => {
         void agentManager.resume(agentId, sessionId).catch(() => {});
       },

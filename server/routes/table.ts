@@ -66,6 +66,7 @@ import type {
   EditMessageReq,
   ResumeReq,
   NewConversationReq,
+  HandoffReq,
   TopicReq,
   AffordanceReadFileReq,
   AffordanceEditFileReq,
@@ -397,6 +398,23 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/agents/:id/new-conversation",
     auth: cap(["agent:converse", "self:affordance"], conversationReset),
     emits: ["clear_logs"],
+  }),
+  // Instant self-handoff (task 8883e45d): reset the session (like
+  // new-conversation) AND deliver {text} into the fresh session as the agent's
+  // own brief, in one call — the fast path the /handoff skill uses instead of the
+  // up-to-30s deliverAt + separate reset detour. One handoff at a time per agent
+  // (a concurrent second gets 409 handoff_in_progress, so the running one can't
+  // be clobbered into a false success); the enqueue is transactional, so a
+  // delivery failure surfaces as an HTTP error, not a false ack. Same auth split
+  // as new-conversation (conversationReset): an operator
+  // hands off any reachable agent, an ordinary agent only itself. Emits
+  // clear_logs (the reset) then the fresh turn's log_entry (the injected brief).
+  defineRoute<HandoffReq, { ok: true }>({
+    opId: "agents.handoff",
+    method: "POST",
+    path: "/api/agents/:id/handoff",
+    auth: cap(["agent:converse", "self:affordance"], conversationReset),
+    emits: ["clear_logs", "log_entry"],
   }),
   defineRoute<ResumeReq, NoContent>({
     opId: "agents.resume",

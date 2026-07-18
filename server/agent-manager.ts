@@ -3795,6 +3795,17 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // scheduled messages always deliver (Nil's decision, task 8ff369b5) — the
   // receiver decides what the sender's absence means.
   function queuedItemPrefix(m: QueuedMessage, receiverAgentId: string): string {
+    // A self-handoff brief (POST /api/agents/:id/handoff, task 8883e45d):
+    // injected into the agent's OWN freshly-reset session, so mark it as coming
+    // from its previous session. The fresh copy reads it as its own brief and
+    // carries the work forward instead of replying to a sender.
+    if (
+      m.handoff &&
+      m.sender.kind === "agent" &&
+      m.sender.agentId === receiverAgentId
+    ) {
+      return `[Handoff from your previous session] `;
+    }
     if (m.scheduledFor === undefined || m.sender.kind !== "agent") {
       return senderPrefixText(m.sender);
     }
@@ -4005,6 +4016,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // the copy would silently lose the scheduled marker in the flush prefix.
       scheduledFor?: number;
       scheduledSenderGone?: boolean;
+      // Set by the self-handoff dep (task 8883e45d) when injecting a brief into
+      // the sender's own freshly-reset session. Copied below so the flush prefix
+      // marks it as a handoff from the previous session (no reply-to-self).
+      handoff?: boolean;
     },
   ): EnqueueResult {
     const managed = agents.get(agentId);
@@ -4040,6 +4055,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         ? { scheduledFor: msg.scheduledFor }
         : {}),
       ...(msg.scheduledSenderGone ? { scheduledSenderGone: true } : {}),
+      ...(msg.handoff ? { handoff: true } : {}),
       attachments: msg.attachments,
       queuedAt: Date.now(),
     });
@@ -4267,6 +4283,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
                     : {}),
                 };
               }
+              // Self-handoff provenance (task 8883e45d): mirror the flush-prefix
+              // marker into the persisted log entry, matching the scheduled path.
+              if (m.handoff) meta = { ...(meta ?? {}), handoff: true };
               addLogEntry(agentId, "user_message", m.text, meta, m.attachments);
             }
             // Trigger topic generation only after the user_message log entries
@@ -5612,6 +5631,57 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     await closeAndDrainSession(agentId, managed);
   }
 
+  // In-flight handoff guard (task 8883e45d). A handoff resets the agent then
+  // enqueues the brief; a SECOND concurrent handoff for the same agent must not
+  // run, because its reset would clear the first's just-enqueued brief — leaving
+  // the first caller a false success (told ok, brief gone). We reject the second
+  // with 409 handoff_in_progress rather than chaining, so the ONE caller that
+  // runs keeps the honest "delivered, or told why not" guarantee. First wins;
+  // the loser is told to retry.
+  const handoffInProgress = new Set<string>();
+
+  // Self-handoff (task 8883e45d): reset the agent's session (reuse
+  // newConversation, which wipes the queue) THEN deliver `text` into the fresh
+  // session as a self-addressed brief. ORDER is load-bearing — the enqueue runs
+  // AFTER the reset, so the queue-clear can't drop the brief. The brief is
+  // DELIVERED unless the enqueue itself fails (persist/stopped/full, returned
+  // verbatim below so the caller is told) — it is the fresh session's first turn
+  // UNLESS an unrelated inbound message races in during the sub-second reset
+  // drain (the same swap-wake window every session swap has —
+  // closeAndDrainSession's contract; full serialization is 154e2c14), in which
+  // case the brief simply queues behind it (still delivered, never lost). The
+  // check-and-set below is synchronous (no await between), so it's atomic on the
+  // single-threaded loop: only the first of N concurrent calls proceeds.
+  async function handoff(
+    agentId: string,
+    text: string,
+  ): Promise<EnqueueResult> {
+    if (!agents.has(agentId))
+      return { ok: false, error: "agent not found", status: 404 };
+    if (handoffInProgress.has(agentId))
+      return { ok: false, error: "handoff_in_progress", status: 409 };
+    handoffInProgress.add(agentId);
+    try {
+      await newConversation(agentId);
+      // Re-resolve AFTER the reset: the agent may have been killed during the
+      // drain. getAgentDisplay also gives the spoof-proof server-side sender.
+      const self = getAgentDisplay(agentId);
+      if (!self) return { ok: false, error: "agent not found", status: 404 };
+      return enqueueMessage(agentId, {
+        sender: {
+          kind: "agent",
+          agentId,
+          agentName: self.name,
+          roomName: self.roomName,
+        },
+        text,
+        handoff: true,
+      });
+    } finally {
+      handoffInProgress.delete(agentId);
+    }
+  }
+
   // Switch the agent's mirror cwd to a session's stored cwd ahead of a resume, so
   // the resumed conversation runs in the directory it left off in. cwd is a
   // property of the session; the agent's cwd field is just the mirror. Validates
@@ -6464,6 +6534,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     kill,
     revive,
     newConversation,
+    handoff,
     resume,
     editMessage,
     setTopic,

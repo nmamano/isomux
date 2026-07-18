@@ -38,6 +38,7 @@ import type {
   EditMessageReq,
   ResumeReq,
   NewConversationReq,
+  HandoffReq,
 } from "../../../shared/contract-shapes.ts";
 // Pure format parser (no state) — safe for a leaf handler module to import.
 import { parseDeliverAt } from "../../scheduled-messages.ts";
@@ -53,6 +54,19 @@ import type { ScheduleResult, CancelResult } from "../../scheduled-messages.ts";
 // back, and the sender should retry.
 export type SendAsAgentResult =
   | { ok: true; messageId?: string }
+  | {
+      ok: false;
+      status: 400 | 404 | 409 | 429 | 500;
+      code: string;
+      message: string;
+    };
+
+// The self-handoff outcome (task 8883e45d). Mirrors SendAsAgentResult's failure
+// shape: the reset always runs, but the brief's transactional enqueue can fail
+// (persist_failed 500 / agent_stopped 409 / queue_full 429 / agent-gone 404), so
+// the handler maps a failure to a real HTTP error instead of a false {ok:true}.
+export type HandoffResult =
+  | { ok: true }
   | {
       ok: false;
       status: 400 | 404 | 409 | 429 | 500;
@@ -115,6 +129,12 @@ export interface ConversationDeps {
   cancelQueued(agentId: string, messageId: string): void;
   sendNow(agentId: string): void;
   newConversation(agentId: string, agentType?: AgentBackendType): void;
+  // Self-handoff (task 8883e45d): reset the agent's session then deliver `text`
+  // into the fresh session as a self-handoff brief. The manager guards to one
+  // in-flight handoff per agent (a concurrent second is rejected). AWAITED (not
+  // fire-and-forget) so the brief's transactional enqueue failure surfaces as a
+  // real HTTP error rather than a false success.
+  handoff(agentId: string, text: string): Promise<HandoffResult>;
   resume(agentId: string, sessionId: string): void;
   listSessions(agentId: string): {
     sessions: SessionInfo[];
@@ -294,6 +314,24 @@ export function conversationHandlers(
           : undefined;
       deps.newConversation(ctx.params.id, agentType);
       return noContent();
+    },
+
+    // Instant self-handoff (task 8883e45d): reset the session then deliver the
+    // brief into the fresh session, in one call. Same auth split as
+    // newConversation (conversationReset). 422 on empty/missing text — a handoff
+    // with no brief is useless, and matches resume's required-field style. AWAITS
+    // the reset+enqueue and maps an enqueue failure to a real HTTP error, so the
+    // caller never gets a false {ok:true} when the brief was not
+    // persisted/delivered. The caller's own turn is typically aborted by its
+    // reset mid-request; the handler still runs to completion server-side.
+    "agents.handoff": async (ctx) => {
+      const b = (ctx.body ?? {}) as Partial<HandoffReq>;
+      if (typeof b.text !== "string" || b.text.length === 0) {
+        return fail(422, "invalid_text", "text is required");
+      }
+      const r = await deps.handoff(ctx.params.id, b.text);
+      if (!r.ok) return fail(r.status, r.code, r.message);
+      return ok({ ok: true });
     },
 
     "agents.resume": (ctx) => {

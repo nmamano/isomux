@@ -594,6 +594,7 @@ const ROUTE_LABELS: Array<[string, string, string]> = [
   ["GET", "/agents", "List office agents"],
   ["GET", "/api/agents", "List office agents"],
   ["POST", "/api/agents/*/messages", "Send agent message"],
+  ["POST", "/api/agents/*/handoff", "Hand off to fresh session"],
   ["GET", "/api/agents/*/scheduled-messages", "List scheduled messages"],
   ["DELETE", "/api/agents/*/scheduled-messages/*", "Cancel scheduled message"],
   ["POST", "/api/agents/*/read-file", "Share file to chat"],
@@ -743,6 +744,8 @@ export function humanizeIsomuxRequest(
           return "Suggest a terminal command";
         if (sub === "new-conversation" && m === "POST")
           return `Clear ${who}'s conversation`;
+        if (sub === "handoff" && m === "POST")
+          return `Hand off ${who} to a fresh session`;
         if (sub === "send-now" && m === "POST")
           return `Flush ${who}'s queue now`;
         if (sub === "abort" && m === "POST") return `Interrupt ${who}`;

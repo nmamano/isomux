@@ -100,11 +100,12 @@ const CRON_PARAMS = { id: "job-1" };
 const ROOM_PARAMS = { roomId: "r-1" };
 
 describe("privileged agent: INTENDED room-scoped operator routes are reachable", () => {
-  it("drives another agent's chat (resume / sendNow / newConversation / cancelQueued / editMessage)", () => {
+  it("drives another agent's chat (resume / sendNow / newConversation / handoff / cancelQueued / editMessage)", () => {
     const DRIVE_OPS = [
       "agents.resume",
       "agents.sendNow",
       "agents.newConversation",
+      "agents.handoff",
       "agents.cancelQueued",
       "agents.editMessage",
     ];
@@ -119,11 +120,12 @@ describe("privileged agent: INTENDED room-scoped operator routes are reachable",
     for (const op of DRIVE_OPS) {
       expect(can(op, normalAgent, OTHER)).toBe(false);
     }
-    // newConversation is the ONE exception with a self path (task: self-handoff):
-    // a normal agent may clear ITS OWN session, and nothing else.
-    expect(can("agents.newConversation", normalAgent, { id: "a-1" })).toBe(
-      true,
-    );
+    // newConversation and handoff are the TWO exceptions with a self path (both
+    // ride conversationReset): a normal agent may reset/hand off ITS OWN session,
+    // and nothing else.
+    for (const op of ["agents.newConversation", "agents.handoff"]) {
+      expect(can(op, normalAgent, { id: "a-1" })).toBe(true);
+    }
     // The other four have no self path — a normal agent is blocked even on itself.
     for (const op of [
       "agents.resume",

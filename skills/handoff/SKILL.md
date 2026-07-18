@@ -1,13 +1,13 @@
 ---
 name: handoff
 alias: isomux-handoff
-description: Continue an unfinished task on a fresh session. The agent writes a short forward-looking brief of what's left, the boss approves it, and the agent then schedules that brief as a wake-up to itself and resets its session.
+description: Continue an unfinished task on a fresh session. The agent writes a short forward-looking brief of what's left, the boss approves it, and the agent then hands off to a fresh copy of itself that resumes on just that brief.
 ---
 
 Continue your unfinished task on a fresh session. Use this when your context is
 getting full but the work isn't done: you distil what's LEFT (not what happened)
-into a brief, schedule it as a wake-up to yourself, and reset your session so a
-clean copy resumes.
+into a brief and hand off to a fresh copy of yourself that resumes on just that
+brief.
 
 ### 1. Write the handoff brief
 
@@ -35,24 +35,23 @@ Keep it tight.
 
 ### 2. Get the boss's approval
 
-Show the boss the exact brief you intend to schedule and wait for their
+Show the boss the exact brief you intend to hand off and wait for their
 confirmation.
 
-### 3. Schedule the wake-up, then reset
+### 3. Hand off
 
-1. Schedule the approved brief as a wake-up to yourself 5s out (it just queues
-   until this turn ends):
+Hand off to a fresh copy of yourself with the approved brief. This resets your
+session and delivers the brief into the fresh session in one step, so a clean
+copy resumes on the brief - instantly, with no wait:
 
-   ```
-   curl -s -X POST localhost:4000/api/agents/<your-own-id>/messages \
-     -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" \
-     -H 'Content-Type: application/json' \
-     -d '{"text":"<the approved brief>","deliverAt":"<5s from now>"}'
-   ```
+```
+curl -s -X POST localhost:4000/api/agents/<your-own-id>/handoff \
+  -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"text":"<the approved brief>"}'
+```
 
-2. Once step 1 returns a `scheduledId`, reset your session:
-
-   ```
-   curl -s -X POST localhost:4000/api/agents/<your-own-id>/new-conversation \
-     -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -d '{}'
-   ```
+Your current turn ends as the reset takes effect; the fresh session picks up the
+brief on its own. (For a genuine FUTURE reminder or wake-up instead of an
+immediate handoff, use the scheduled-message path - a POST to your own
+`/messages` with a `deliverAt` - rather than this endpoint.)

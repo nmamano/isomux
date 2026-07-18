@@ -78,6 +78,18 @@ Small new module (`server/scheduled-messages.ts`) mirroring cronjob-manager: inj
 
 400 `self_send` stays for immediate sends (loop hazard) but is **lifted when `deliverAt` is present** — a future self-message is the reminder/wake-up use case. `scheduledFor` on `QueuedMessage` lets the flush prompt mark it ("scheduled message from yourself, scheduled for <time>") so the recipient doesn't parrot a reply to itself.
 
+### Self-handoff fast path (task 8883e45d, superseding the old deliverAt handoff)
+
+The `/handoff` skill (an agent nearing its context limit continuing on a fresh session) used to piggyback on this path: schedule the brief to itself `deliverAt` ~5s out, then reset. That has two costs — up to a 30s scheduler-tick wait, and a two-call dance (a *raw* self-send can't be used because `newConversation` wipes the in-memory queue, so the brief had to be scheduled, not enqueued). **`POST /api/agents/:id/handoff` replaces it**: one call that resets the session (reuses `newConversation`) then enqueues the brief into the now-fresh session with a `handoff` marker on `QueuedMessage`. Because the enqueue happens *after* the reset, the queue-clear can't drop it, and there's no scheduler-tick delay.
+
+Correctness properties (the endpoint's job is a one-call guarantee, so these are load-bearing):
+
+- **The successful caller's brief is delivered, or that caller is told why not.** The enqueue is the same transactional path as a normal send: on a durable-write failure it rolls back and returns `persist_failed` (500); `agent_stopped`/`queue_full` surface too. The handler *awaits* the reset+enqueue and maps any failure to a real HTTP error — never a false `{ok:true}`.
+- **One handoff at a time per agent** (a `handoffInProgress` set in `agent-manager`). A second handoff for an agent whose handoff is still running is **rejected with 409 `handoff_in_progress`**, not chained. This is deliberate: chaining a second handoff would let its reset clear the first's just-enqueued brief, so the first caller would get a `200` for a brief that then vanished — a false success. First caller wins and keeps the honest guarantee above; the loser is told to retry. The check-and-set is synchronous (atomic on the single-threaded loop), so exactly one of N concurrent callers proceeds.
+- **Ordering caveat (not atomicity).** For the one caller that proceeds, the brief is the fresh session's *first* turn unless an *unrelated* inbound message races in during the sub-second reset drain — the same swap-wake window every `closeAndDrainSession` caller has (full swap/wake serialization is the separate task 154e2c14). In that case the brief simply queues behind the racing message; it is still delivered, never lost. We deliberately do **not** try to out-serialize the platform's known window here.
+
+The `handoff` marker drives its own flush prefix ("[Handoff from your previous session]"), distinct from the scheduled self-prefix, so the fresh copy treats it as its own brief. Auth is the same `conversationReset` split as `new-conversation`. The scheduled-message self path above stays as-is for genuine future reminders/wake-ups.
+
 ## Limits
 
 - Max 20 pending per sender → 429 `schedule_full`.

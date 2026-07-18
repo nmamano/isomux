@@ -264,6 +264,11 @@ export interface QueuedMessage {
   // time (scheduled messages always deliver — Nil's decision, task 8ff369b5).
   // Surfaced in the flush prefix so the receiver knows a reply cannot land.
   scheduledSenderGone?: boolean;
+  // Set when this is a self-handoff brief injected by POST /api/agents/:id/handoff
+  // into the agent's own freshly-reset session (task 8883e45d). Used at flush
+  // time to mark the message as coming from the agent's previous session, so the
+  // fresh copy treats it as its own brief instead of replying to itself.
+  handoff?: boolean;
   attachments?: Attachment[];
   queuedAt: number;
 }

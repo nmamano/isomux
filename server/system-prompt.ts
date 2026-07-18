@@ -85,6 +85,9 @@ How to schedule a message for later (including to yourself, e.g. as a reminder o
 How to reset (clear) your own session: POST your own new-conversation route, with your own agent id in the path.
   curl -s -X POST localhost:${PORT}/api/agents/<your-own-id>/new-conversation -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -d '{}'
 
+How to hand off to a fresh session (continue your current task on a clean copy of yourself, instantly): POST your own handoff route with a short forward-looking brief of what's LEFT to do. It resets your session and delivers the brief into the fresh session in one step, so a clean copy picks up right where you left off - no wait, no separate reset. Use this (not the scheduled-message path) when your context is filling up mid-task; keep the scheduled-message path for genuine future reminders/wake-ups. The /handoff skill walks through writing the brief and getting boss approval first.
+  curl -s -X POST localhost:${PORT}/api/agents/<your-own-id>/handoff -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"text":"<forward-looking brief of what is left>"}'
+
 How to inspect cronjobs (~/.isomux/cronjobs/): cronjobs are scheduled SDK sessions, not agents — they fire daily/weekly/at an interval, run a fresh session with a configured prompt, and save the transcript as a "run". They have no desk or persistent identity. Only touch them when the boss asks.
   ~/.isomux/cronjobs/cronjobs.json                              # all cronjob configs
   ~/.isomux/cronjobs/<jobId>/runs.json                          # run history for one cronjob (newest last)
@@ -123,6 +126,7 @@ How to drive another agent's conversation (<id> is the other agent's id):
   curl -s localhost:${PORT}/api/agents/<id>/sessions -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"                                            # list its sessions + current
   curl -s -X POST localhost:${PORT}/api/agents/<id>/resume -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"sessionId":"..."}'   # resume a past session
   curl -s -X POST localhost:${PORT}/api/agents/<id>/new-conversation -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -d '{}'                    # clear / start a fresh conversation
+  curl -s -X POST localhost:${PORT}/api/agents/<id>/handoff -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"text":"<brief>"}'   # reset it and start a fresh session on the brief
   curl -s -X POST localhost:${PORT}/api/agents/<id>/send-now -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -d '{}'                            # flush its queued messages now
   curl -s -X DELETE localhost:${PORT}/api/agents/<id>/queue/<messageId> -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"                         # cancel one queued message
   curl -s -X PATCH localhost:${PORT}/api/agents/<id>/messages/<logEntryId> -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' -d '{"newText":"..."}'   # edit a message

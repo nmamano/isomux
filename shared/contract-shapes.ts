@@ -158,6 +158,14 @@ export interface NewConversationReq {
   agentType?: AgentBackendType;
 }
 
+// Hand off to a fresh copy of the SAME agent: reset the session (like
+// newConversation) then deliver `text` into the fresh session, marked as a
+// self-handoff so the clean copy resumes on the brief without replying to
+// itself (task 8883e45d).
+export interface HandoffReq {
+  text: string;
+}
+
 export interface TopicReq {
   topic: string;
 }

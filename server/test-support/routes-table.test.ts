@@ -227,6 +227,13 @@ const SPEC_ROUTE_CONTRACT: Record<
     caps: ["agent:converse", "self:affordance"],
     emits: ["clear_logs"],
   },
+  // handoff: same conversationReset split as newConversation (operator → room
+  // access; ordinary agent → self). Resets (clear_logs) then delivers the brief
+  // into the fresh session (log_entry).
+  "agents.handoff": {
+    caps: ["agent:converse", "self:affordance"],
+    emits: ["clear_logs", "log_entry"],
+  },
   "agents.resume": { caps: ["agent:converse"], emits: ["log_entry"] },
   "agents.listSessions": { caps: ["office:read"], emits: [] },
   // Agents — self-affordances
