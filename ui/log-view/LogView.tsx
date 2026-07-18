@@ -491,12 +491,7 @@ export function LogView({
     isMobile,
     connected,
     sidePanels,
-    rooms,
   } = useAppState();
-  // Room ordinal for the header "R{n}:" badge, derived from the agent's
-  // stable roomId. A -1 (room not in the viewer's visible set) renders no
-  // badge, never "R0".
-  const agentRoomIndex = rooms.findIndex((r) => r.id === agent.roomId);
   // Use `pointer: coarse` instead of viewport `isMobile` so narrow desktop
   // windows (split-screen) with a hardware keyboard still send on Enter.
   const isTouchPrimary = useMemo(
@@ -1674,20 +1669,6 @@ export function LogView({
                   }}
                 >
                   {agent.name}
-                  {agentRoomIndex > 0 ? (
-                    <span
-                      style={{
-                        opacity: 0.4,
-                        fontWeight: 400,
-                        fontSize: 12,
-                        marginLeft: 6,
-                      }}
-                    >
-                      R{agentRoomIndex + 1}:{agent.desk + 1}
-                    </span>
-                  ) : (
-                    ""
-                  )}
                 </span>
                 {STATE_LABELS[agent.state] && (
                   <HeaderTimer
@@ -1695,6 +1676,7 @@ export function LogView({
                     stateChangedAt={stateChangedAt.get(agent.id)}
                   />
                 )}
+                <ContextBattery usage={agent.contextUsage} isMobile />
                 <NavActions actions={mobileAgentActions} viewport="mobile" />
               </div>
               <div
@@ -1718,7 +1700,6 @@ export function LogView({
                 >
                   {agent.cwd}
                 </span>
-                <ContextBattery usage={agent.contextUsage} isMobile />
               </div>
             </div>
           </div>
@@ -1767,23 +1748,70 @@ export function LogView({
               <span style={{ flexShrink: 0 }}>
                 <StatusLight state={agent.state} size={8} />
               </span>
-              <span
-                onClick={onEditAgent}
+              <div
                 style={{
-                  fontWeight: 600,
-                  color: "var(--text-primary)",
-                  cursor: "pointer",
-                  whiteSpace: "nowrap",
+                  display: "flex",
+                  flexDirection: "column",
+                  justifyContent: "center",
+                  gap: 1,
                   flexShrink: 0,
+                  minWidth: 0,
                 }}
-                title="Edit agent"
               >
-                <span style={{ opacity: 0.5 }}>
-                  {agentRoomIndex > 0 ? `R${agentRoomIndex + 1}:` : ""}
-                  {agent.desk + 1} ·
-                </span>{" "}
-                {agent.name}
-              </span>
+                <span
+                  onClick={onEditAgent}
+                  style={{
+                    fontWeight: 600,
+                    color: "var(--text-primary)",
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                    lineHeight: 1.2,
+                  }}
+                  title="Edit agent"
+                >
+                  {agent.name}
+                </span>
+                <span
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                    lineHeight: 1,
+                  }}
+                >
+                  <span
+                    style={{
+                      fontFamily: "'JetBrains Mono',monospace",
+                      color: "var(--text-ghost)",
+                      fontSize: 11,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {familyDisplayLabel(agent.modelFamily)}
+                  </span>
+                  {agent.agentType !== "claude" && (
+                    <>
+                      <span style={{ color: "var(--text-ghost)" }}>
+                        &middot;
+                      </span>
+                      <span
+                        style={{
+                          fontFamily: "'JetBrains Mono',monospace",
+                          fontSize: 10,
+                          fontWeight: 600,
+                          letterSpacing: 0.5,
+                          textTransform: "uppercase",
+                          color: "var(--accent-blue, #5eafff)",
+                          whiteSpace: "nowrap",
+                        }}
+                        title={`Backend: ${agent.agentType}`}
+                      >
+                        {agent.agentType}
+                      </span>
+                    </>
+                  )}
+                </span>
+              </div>
               {STATE_LABELS[agent.state] && (
                 <HeaderTimer
                   state={agent.state}
@@ -1913,42 +1941,6 @@ export function LogView({
               >
                 {agent.cwd.replace(/^\/home\/[^/]+/, "~")}
               </span>
-              <span style={{ color: "var(--text-ghost)", flexShrink: 0 }}>
-                &middot;
-              </span>
-              <span
-                style={{
-                  fontFamily: "'JetBrains Mono',monospace",
-                  color: "var(--text-ghost)",
-                  fontSize: 11,
-                  whiteSpace: "nowrap",
-                  flexShrink: 0,
-                }}
-              >
-                {familyDisplayLabel(agent.modelFamily)}
-              </span>
-              {agent.agentType !== "claude" && (
-                <>
-                  <span style={{ color: "var(--text-ghost)", flexShrink: 0 }}>
-                    &middot;
-                  </span>
-                  <span
-                    style={{
-                      fontFamily: "'JetBrains Mono',monospace",
-                      fontSize: 10,
-                      fontWeight: 600,
-                      letterSpacing: 0.5,
-                      textTransform: "uppercase",
-                      color: "var(--accent-blue, #5eafff)",
-                      whiteSpace: "nowrap",
-                      flexShrink: 0,
-                    }}
-                    title={`Backend: ${agent.agentType}`}
-                  >
-                    {agent.agentType}
-                  </span>
-                </>
-              )}
               {agent.contextUsage && (
                 <span style={{ color: "var(--text-ghost)", flexShrink: 0 }}>
                   &middot;

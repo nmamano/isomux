@@ -174,14 +174,6 @@ ${emitThemesCss()}
     .log-view-column .nav-action-label { display: none; }
   }
 
-  /* Cramped log view: the context battery drops its % label and goes icon-only
-     (the color band + tap/hover popover still convey the reading). Same
-     container context as the nav-label rule, at a tighter width so the number
-     stays visible in normal use. */
-  @container (max-width: 640px) {
-    .log-view-column .context-battery-pct { display: none; }
-  }
-
   /* Side panel resizer: invisible 6 px hit target with a 1 px visible line
      drawn via ::after so the line tints on hover/drag without layout reflow. */
   .panel-resizer { background: transparent; }

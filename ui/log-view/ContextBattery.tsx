@@ -1,14 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import type { ContextUsageWire } from "../../shared/types.ts";
 
-// Battery-style context-fullness indicator (task 27096236; design:
+// Battery-style context indicator (task 27096236; design:
 // internal-docs/context-fullness-visibility.md). Rendered as inline SVG, NOT a
 // Unicode glyph — iOS Safari emoji-renders the battery/🔋 family and overrides
-// CSS color, which would defeat the "color shifts as it fills" behavior.
+// CSS color, which would defeat the color behavior.
 //
-// Color band comes from the RAW float percentage so the icon agrees with the
-// server-injected [context check] notices (thresholds 50/75, per Nil
-// 2026-07-18): < 50 -> dim (--text-muted), 50-74 -> --orange, >= 75 -> --red.
+// Phone-battery metaphor: the fill and the number are the REMAINING context
+// (100% on a fresh session, draining to 0 as it fills). The COLOR, however,
+// comes from the RAW fullness percentage so it agrees with the server-injected
+// [context check] notices (thresholds 50/75, per Nil 2026-07-18): a nearly
+// drained battery goes red. bandColor: < 50 -> dim (--text-muted), 50-74 ->
+// --orange, >= 75 -> --red. Never feed the remaining value into bandColor.
 export function bandColor(pct: number): string {
   if (pct >= 75) return "var(--red)";
   if (pct >= 50) return "var(--orange)";
@@ -74,16 +77,24 @@ export function ContextBattery({
   if (!usage) return null;
 
   const pct = usage.percentage;
-  const rounded = Math.round(pct);
+  // Phone-battery metaphor: the battery shows REMAINING context, so it starts
+  // full (100%) on a fresh session and drains DOWN as context fills. The
+  // displayed number and the fill proportion are both the remaining fraction,
+  // but the COLOR stays driven by FULLNESS (bandColor of the raw usage pct) so
+  // a nearly-empty battery (near-full context) reads red. Do NOT feed the
+  // remaining value into bandColor.
+  // Clamp to [0,100] so a malformed/out-of-range snapshot can't show a negative
+  // or >100 number; keeps the label in step with the clamped fill below.
+  const remaining = Math.max(0, Math.min(100, Math.round(100 - pct)));
   const color = bandColor(pct);
-  const fillFrac = Math.max(0, Math.min(1, pct / 100));
+  const fillFrac = Math.max(0, Math.min(1, (100 - pct) / 100));
   // Inner fill spans x:2..19 (17px wide) inside the 0.5..20.5 shell.
   const fillW = 17 * fillFrac;
 
   const tokens = usage.totalTokens.toLocaleString("en-US");
   const maxTokens = usage.maxTokens.toLocaleString("en-US");
   // Plain spaced hyphen (not an em dash) per Nil's prose rule.
-  const detail = `Context: ${tokens} / ${maxTokens} tokens (${rounded}%) - as of last turn.`;
+  const detail = `Context: ${tokens} / ${maxTokens} tokens used (${remaining}% left).`;
   const nudge =
     pct >= 50
       ? " Consider asking the agent to wrap up, or /clear for a fresh session."
@@ -115,11 +126,12 @@ export function ContextBattery({
         ref={btnRef}
         onClick={toggle}
         title={isMobile ? undefined : full}
-        aria-label={`Context ${rounded}% full. Tap for details.`}
+        aria-label={`Context battery ${remaining}% remaining. Tap for details.`}
         style={{
           display: "inline-flex",
+          flexDirection: "column",
           alignItems: "center",
-          gap: 4,
+          gap: 1,
           background: "none",
           border: "none",
           padding: 0,
@@ -162,20 +174,19 @@ export function ContextBattery({
             />
           )}
         </svg>
-        {!isMobile && (
-          <span
-            className="context-battery-pct"
-            style={{
-              fontFamily: "'JetBrains Mono',monospace",
-              fontSize: 11,
-              fontWeight: 600,
-              color: "inherit",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {rounded}%
-          </span>
-        )}
+        <span
+          className="context-battery-pct"
+          style={{
+            fontFamily: "'JetBrains Mono',monospace",
+            fontSize: 9,
+            fontWeight: 600,
+            color: "inherit",
+            whiteSpace: "nowrap",
+            lineHeight: 1,
+          }}
+        >
+          {remaining}%
+        </span>
       </button>
       {popoverOpen && (
         <div
