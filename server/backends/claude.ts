@@ -760,6 +760,25 @@ export function* translateSDKMessage(
       } else if (subtype === "local_command_output") {
         const { content } = msg;
         if (content) yield { kind: "system_text", text: content };
+      } else if (subtype === "permission_denied") {
+        // Auto-denied tool call (SDK >= 0.3.x): the deny short-circuit in
+        // canUseTool — auto-mode classifier, deny rule, dontAsk — emits this
+        // alongside the is_error tool_result the model sees. Surface it so
+        // the transcript shows the denial natively; older SDKs simply never
+        // emit the subtype. Free-text fields are sanitized to one line here
+        // (message is rule/classifier-authored prose of arbitrary shape).
+        yield {
+          kind: "permission_denied",
+          toolUseId: msg.tool_use_id,
+          toolName: msg.tool_name,
+          message: sanitizeTaskLabel(msg.message ?? ""),
+          ...(msg.decision_reason
+            ? { decisionReason: sanitizeTaskLabel(msg.decision_reason) }
+            : {}),
+          // Subagent origin, preserved for the transcript even though the
+          // card doesn't display it yet — dropped here, it's unrecoverable.
+          ...(msg.agent_id ? { agentId: msg.agent_id } : {}),
+        };
       }
       break;
     }
@@ -943,7 +962,8 @@ const TRACKED_TASKS_MAX = 200;
 const BG_TOOL_IDS_MAX = 500;
 
 // Collapse to one line and cap length: breadcrumbs must stay unobtrusive and
-// task descriptions/summaries are model- or user-authored free text.
+// task descriptions/summaries are model- or user-authored free text. Also
+// reused by the permission_denied translation above for the same reason.
 export function sanitizeTaskLabel(text: string): string {
   const oneLine = text.replace(/\s+/g, " ").trim();
   return oneLine.length > TASK_LABEL_MAX

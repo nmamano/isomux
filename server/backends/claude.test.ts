@@ -119,6 +119,89 @@ describe("translateSDKMessage — system", () => {
     expect(events).toEqual([]);
   });
 
+  it("permission_denied emits a permission_denied event", () => {
+    const events = translate({
+      type: "system",
+      subtype: "permission_denied",
+      tool_name: "Bash",
+      tool_use_id: "toolu-1",
+      decision_reason_type: "classifier",
+      decision_reason: "Auto mode declined this command",
+      message: "Permission to use Bash has been denied.",
+      uuid: "u-1",
+      session_id: "s-1",
+    });
+    expect(events).toEqual([
+      {
+        kind: "permission_denied",
+        toolUseId: "toolu-1",
+        toolName: "Bash",
+        message: "Permission to use Bash has been denied.",
+        decisionReason: "Auto mode declined this command",
+      },
+    ]);
+  });
+
+  it("permission_denied without decision_reason omits decisionReason", () => {
+    const events = translate({
+      type: "system",
+      subtype: "permission_denied",
+      tool_name: "Write",
+      tool_use_id: "toolu-2",
+      message: "Denied by rule.",
+      uuid: "u-2",
+      session_id: "s-1",
+    });
+    expect(events).toEqual([
+      {
+        kind: "permission_denied",
+        toolUseId: "toolu-2",
+        toolName: "Write",
+        message: "Denied by rule.",
+      },
+    ]);
+  });
+
+  it("permission_denied preserves the subagent agent_id", () => {
+    const events = translate({
+      type: "system",
+      subtype: "permission_denied",
+      tool_name: "Bash",
+      tool_use_id: "toolu-4",
+      agent_id: "subagent-7",
+      message: "Denied.",
+      uuid: "u-4",
+      session_id: "s-1",
+    });
+    expect(events).toEqual([
+      {
+        kind: "permission_denied",
+        toolUseId: "toolu-4",
+        toolName: "Bash",
+        message: "Denied.",
+        agentId: "subagent-7",
+      },
+    ]);
+  });
+
+  it("permission_denied free text is collapsed to one capped line", () => {
+    const events = translate({
+      type: "system",
+      subtype: "permission_denied",
+      tool_name: "Bash",
+      tool_use_id: "toolu-3",
+      message: `multi\nline\t${"x".repeat(300)}`,
+      uuid: "u-3",
+      session_id: "s-1",
+    });
+    expect(events).toHaveLength(1);
+    const ev = events[0] as { kind: string; message: string };
+    expect(ev.kind).toBe("permission_denied");
+    expect(ev.message).not.toInclude("\n");
+    expect(ev.message).toStartWith("multi line x");
+    expect(ev.message.length).toBeLessThanOrEqual(200);
+  });
+
   it("unknown system subtype is dropped", () => {
     const events = translate({ type: "system", subtype: "compact_boundary" });
     expect(events).toEqual([]);

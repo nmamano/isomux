@@ -2236,6 +2236,31 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           taskEvent: { taskId: ev.taskId, phase: ev.phase },
         });
         break;
+      case "permission_denied": {
+        // Auto-mode / rule denial of a tool call, surfaced natively (the
+        // denied tool_result still reaches the model). metadata
+        // .permissionDenied lets the UI render a distinct denial card; the
+        // content string keeps the entry readable for raw consumers. Fields
+        // arrive pre-sanitized (one line) from the backend adapter.
+        const reason = ev.decisionReason || ev.message;
+        addLogEntry(
+          agentId,
+          "system",
+          `Tool call denied: ${ev.toolName}${reason ? ` (${reason})` : ""}`,
+          {
+            permissionDenied: {
+              toolUseId: ev.toolUseId,
+              toolName: ev.toolName,
+              message: ev.message,
+              ...(ev.decisionReason
+                ? { decisionReason: ev.decisionReason }
+                : {}),
+              ...(ev.agentId ? { agentId: ev.agentId } : {}),
+            },
+          },
+        );
+        break;
+      }
       case "thinking": {
         const managed = agents.get(agentId);
         const duration_ms =

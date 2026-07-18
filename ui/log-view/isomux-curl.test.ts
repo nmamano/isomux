@@ -630,6 +630,178 @@ describe("parseIsomuxCurl jq producer pipelines", () => {
   });
 });
 
+describe("parseIsomuxCurl heredoc / -Rs slurp producers", () => {
+  const CURL_TAIL = `curl -s -X POST localhost:4000/api/agents/agent-1/messages -H "Authorization: Bearer $T" -H 'Content-Type: application/json' -d @-`;
+
+  test("manager-brief shape: heredoc-fed jq -Rs resolves the body as fields", () => {
+    const req = parseIsomuxCurl(
+      `jq -Rs '{text: .}' <<'EOF' | ${CURL_TAIL}\nTASK: fix the parser.\nDetails on a second line.\nEOF`,
+    );
+    expect(req).not.toBeNull();
+    expect(req!.method).toBe("POST");
+    expect(req!.action).toBe("Send agent message");
+    // The heredoc body IS the payload, shown as the field value (whitespace
+    // collapsed for display, like every other field).
+    expect(req!.bodyFields).toEqual([
+      { key: "text", value: "TASK: fix the parser. Details on a second line." },
+    ]);
+    expect(req!.bodyNote).toBeNull();
+    expect(req!.hasAuth).toBe(true);
+  });
+
+  test("no-space program, long flags, and double-quoted delimiter", () => {
+    const req = parseIsomuxCurl(
+      `jq --raw-input --slurp '{text:.}' <<"END" | ${CURL_TAIL}\nhello\nEND`,
+    );
+    expect(req!.bodyFields).toEqual([{ key: "text", value: "hello" }]);
+  });
+
+  test("heredoc composes with --arg vars and literals", () => {
+    const req = parseIsomuxCurl(
+      `jq -Rs --arg who Nil '{text: ., from: $who, urgent: true}' <<'EOF' | ${CURL_TAIL}\nthe brief\nEOF`,
+    );
+    expect(req!.bodyFields).toEqual([
+      { key: "text", value: "the brief" },
+      { key: "from", value: "Nil" },
+      { key: "urgent", value: "true" },
+    ]);
+  });
+
+  test("unquoted delimiter accepted only for expansion-free bodies", () => {
+    expect(
+      parseIsomuxCurl(
+        `jq -Rs '{text: .}' <<EOF | ${CURL_TAIL}\nplain prose body\nEOF`,
+      )!.bodyFields,
+    ).toEqual([{ key: "text", value: "plain prose body" }]);
+    // $, backtick, or backslash in an unquoted heredoc would be expanded by
+    // the shell — the card would show pre-expansion text. Stays raw.
+    expect(
+      parseIsomuxCurl(
+        `jq -Rs '{text: .}' <<EOF | ${CURL_TAIL}\ncosts $HOME dollars\nEOF`,
+      ),
+    ).toBeNull();
+    // Quoted delimiter takes the same body literally — accepted.
+    expect(
+      parseIsomuxCurl(
+        `jq -Rs '{text: .}' <<'EOF' | ${CURL_TAIL}\ncosts $HOME dollars\nEOF`,
+      )!.bodyFields,
+    ).toEqual([{ key: "text", value: "costs $HOME dollars" }]);
+  });
+
+  test("empty heredoc body resolves to an empty field", () => {
+    const req = parseIsomuxCurl(
+      `jq -Rs '{text: .}' <<'EOF' | ${CURL_TAIL}\nEOF`,
+    );
+    expect(req!.bodyFields).toEqual([{ key: "text", value: "" }]);
+  });
+
+  test("heredoc with an unresolvable program stays raw — the body is never concealed", () => {
+    // A "body built with jq" note here would hide the payload text, unlike
+    // the file-fed case where naming the path is full disclosure.
+    expect(
+      parseIsomuxCurl(
+        `jq -Rs '{text: (. | rtrimstr("\\n"))}' <<'EOF' | ${CURL_TAIL}\nbody\nEOF`,
+      ),
+    ).toBeNull();
+  });
+
+  test("file-fed jq -Rs resolves the body with an @path marker", () => {
+    const req = parseIsomuxCurl(
+      `jq -Rs '{text: .}' /tmp/brief.md | ${CURL_TAIL}`,
+    );
+    expect(req).not.toBeNull();
+    expect(req!.bodyFields).toEqual([{ key: "text", value: "@/tmp/brief.md" }]);
+    expect(req!.bodyNote).toBeNull();
+  });
+
+  test("file-fed with an unresolvable program falls back to a note naming the file", () => {
+    const req = parseIsomuxCurl(
+      `jq -Rs '{text: (. | ascii_upcase)}' /tmp/brief.md | ${CURL_TAIL}`,
+    );
+    expect(req).not.toBeNull();
+    expect(req!.bodyFields).toBeNull();
+    expect(req!.bodyNote).toBe("body built with jq (reads /tmp/brief.md)");
+  });
+
+  test("input-shaping flags without a modeled input source", () => {
+    // -Rs reading (empty) stdin: accepted, unresolved — note only.
+    expect(parseIsomuxCurl(`jq -Rs '{text: .}' | ${CURL_TAIL}`)!.bodyNote).toBe(
+      "body built with jq",
+    );
+    // `.` under -n has no input to show — never resolves to a field.
+    expect(parseIsomuxCurl(`jq -n '{text: .}' | ${CURL_TAIL}`)!.bodyNote).toBe(
+      "body built with jq",
+    );
+  });
+
+  test("rejects input shapes beyond the -Rs slurp grammar", () => {
+    // Heredoc without both -R and -s: line-by-line / JSON input semantics
+    // we don't model.
+    expect(
+      parseIsomuxCurl(`jq -R '{text: .}' <<'EOF' | ${CURL_TAIL}\nx\nEOF`),
+    ).toBeNull();
+    expect(
+      parseIsomuxCurl(`jq -s '{text: .}' <<'EOF' | ${CURL_TAIL}\nx\nEOF`),
+    ).toBeNull();
+    // -n ignores the heredoc entirely — a card would misattribute it.
+    expect(
+      parseIsomuxCurl(`jq -nRs '{a: 1}' <<'EOF' | ${CURL_TAIL}\nx\nEOF`),
+    ).toBeNull();
+    // Two input files, or a file without -Rs, stay raw.
+    expect(
+      parseIsomuxCurl(`jq -Rs '{text: .}' /tmp/a /tmp/b | ${CURL_TAIL}`),
+    ).toBeNull();
+    expect(
+      parseIsomuxCurl(`jq '.[0]' /tmp/input.json | ${CURL_TAIL}`),
+    ).toBeNull();
+  });
+
+  test("rejects malformed or out-of-grammar heredocs", () => {
+    // Unterminated body.
+    expect(
+      parseIsomuxCurl(`jq -Rs '{text: .}' <<'EOF' | ${CURL_TAIL}\nbody only`),
+    ).toBeNull();
+    // Trailing command after the terminator.
+    expect(
+      parseIsomuxCurl(
+        `jq -Rs '{text: .}' <<'EOF' | ${CURL_TAIL}\nbody\nEOF\nrm -rf /tmp/x`,
+      ),
+    ).toBeNull();
+    // Tab-stripping and herestring forms.
+    expect(
+      parseIsomuxCurl(`jq -Rs '{text: .}' <<-'EOF' | ${CURL_TAIL}\nbody\nEOF`),
+    ).toBeNull();
+    expect(
+      parseIsomuxCurl(`jq -Rs '{text: .}' <<<'body' | ${CURL_TAIL}`),
+    ).toBeNull();
+    // Heredoc attached past the producer stage.
+    expect(
+      parseIsomuxCurl(`jq -n '{a: 1}' | ${CURL_TAIL} <<'EOF'\nbody\nEOF`),
+    ).toBeNull();
+    // Heredoc feeding a bare curl (no jq producer).
+    expect(
+      parseIsomuxCurl(
+        `curl -s -X POST localhost:4000/tasks -d @- <<'EOF'\n{"title":"x"}\nEOF`,
+      ),
+    ).toBeNull();
+    // A second heredoc on the same line.
+    expect(
+      parseIsomuxCurl(
+        `jq -Rs '{text: .}' <<'EOF' <<'EOG' | ${CURL_TAIL}\nbody\nEOF`,
+      ),
+    ).toBeNull();
+  });
+
+  test("humanize works through a heredoc-resolved body", () => {
+    const req = parseIsomuxCurl(
+      `jq -Rs '{text: .}' <<'EOF' | ${CURL_TAIL}\nhello\nEOF`,
+    );
+    expect(
+      humanizeIsomuxRequest(req!, (id) => (id === "agent-1" ? "Bob" : null)),
+    ).toBe("Send a message to Bob");
+  });
+});
+
 describe("describeIsomuxRoute", () => {
   test("matches with query strings and trailing slashes", () => {
     expect(describeIsomuxRoute("GET", "/tasks?status=all")).toBe("List tasks");

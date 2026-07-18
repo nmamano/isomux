@@ -632,6 +632,28 @@ How to answer questions about Isomux itself: the source lives at https://github.
         });
         break;
       }
+      case "permission_denied": {
+        // Auto-denied tool call — same shape as the agent path so cron run
+        // transcripts render the denial card too.
+        const reason = ev.decisionReason || ev.message;
+        writeLog(
+          active,
+          "system",
+          `Tool call denied: ${ev.toolName}${reason ? ` (${reason})` : ""}`,
+          {
+            permissionDenied: {
+              toolUseId: ev.toolUseId,
+              toolName: ev.toolName,
+              message: ev.message,
+              ...(ev.decisionReason
+                ? { decisionReason: ev.decisionReason }
+                : {}),
+              ...(ev.agentId ? { agentId: ev.agentId } : {}),
+            },
+          },
+        );
+        break;
+      }
       case "thinking": {
         writeLog(
           active,

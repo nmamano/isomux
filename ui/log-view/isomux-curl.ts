@@ -18,7 +18,12 @@
 //   a file write is a side effect the card must not conceal;
 // - a leading `jq ... |` producer stage feeding `curl -d @-` is understood,
 //   resolving the body when the jq program is a simple literal template (see
-//   parseJqInvocation).
+//   parseJqInvocation). The producer's input may be a heredoc
+//   (`jq -Rs '{text: .}' <<'EOF' | curl ... -d @-` — the standard multiline
+//   message shape; quoted delimiters always, unquoted ones for
+//   expansion-free bodies) or a single positional file
+//   (`jq -Rs '{text: .}' file`); see extractHeredoc and the -Rs handling in
+//   parseJqInvocation.
 
 export type CurlBodyField = { key: string; value: string };
 
@@ -242,6 +247,128 @@ function tokenize(
   }
   push();
   return { tokens, pipeTail: null, outputRedirect };
+}
+
+// --- heredoc extraction ------------------------------------------------------
+
+type Heredoc = { line: string; body: string };
+
+// Delimiter word for a heredoc: a plain identifier-ish token (EOF, END, MSG1).
+const HEREDOC_DELIM_RE = /^[A-Za-z0-9_]+/;
+
+/**
+ * Recognize the one heredoc shape transcripts actually use — a producer
+ * pipeline whose FIRST stage reads a heredoc, with the body immediately after
+ * the pipeline line and nothing after the terminator:
+ *
+ *   jq -Rs '{text: .}' <<'EOF' | curl ... -d @-
+ *   <body lines...>
+ *   EOF
+ *
+ * Returns the pipeline line with the `<<DELIM` operator removed, plus the
+ * body text. Returns null for anything else — no heredoc, herestrings
+ * (`<<<`), tab-stripping heredocs (`<<-`), two heredocs, a heredoc attached
+ * past the first `|`, an unterminated body, or trailing commands after the
+ * terminator. Callers then tokenize the untouched command, whose stray `<` /
+ * newline makes tokenize() bail, so every rejected shape degrades to raw
+ * rendering rather than a wrong card.
+ *
+ * Unquoted delimiters (`<<EOF`) expand `$VAR`/`$(...)`/backticks and process
+ * backslashes inside the body; a card would show pre-expansion text as if it
+ * were the payload. They are accepted only when the body contains none of
+ * those characters (expansion is then the identity); quoted delimiters
+ * (`<<'EOF'`, `<<"EOF"`) take the body literally and are always eligible.
+ */
+function extractHeredoc(command: string): Heredoc | null {
+  const nl = command.indexOf("\n");
+  if (nl === -1) return null;
+  const head = command.slice(0, nl);
+  // A trailing continuation would splice the next body line into the
+  // pipeline; too entangled to model.
+  if (head.endsWith("\\")) return null;
+
+  // Quote-aware scan of the pipeline line for a single unquoted `<<` that
+  // appears before the first unquoted `|`.
+  let i = 0;
+  const n = head.length;
+  let opStart = -1;
+  let opEnd = -1;
+  let delim: string | null = null;
+  let quoted = false;
+  let sawPipe = false;
+  while (i < n) {
+    const c = head[i];
+    if (c === "'") {
+      const end = head.indexOf("'", i + 1);
+      if (end === -1) return null;
+      i = end + 1;
+      continue;
+    }
+    if (c === '"') {
+      i++;
+      while (i < n && head[i] !== '"') {
+        if (head[i] === "\\") i++;
+        i++;
+      }
+      if (i >= n) return null;
+      i++;
+      continue;
+    }
+    if (c === "\\") {
+      i += 2;
+      continue;
+    }
+    if (c === "|") {
+      sawPipe = true;
+      i++;
+      continue;
+    }
+    if (c === "<" && head[i + 1] === "<") {
+      // Second heredoc, herestring, <<- form, heredoc past the producer
+      // stage, or an fd/word glued to the operator: all beyond the grammar.
+      if (opStart !== -1) return null;
+      if (head[i + 2] === "<" || head[i + 2] === "-") return null;
+      if (sawPipe) return null;
+      if (i > 0 && head[i - 1] !== " " && head[i - 1] !== "\t") return null;
+      opStart = i;
+      i += 2;
+      while (i < n && (head[i] === " " || head[i] === "\t")) i++;
+      const q = head[i];
+      if (q === "'" || q === '"') {
+        const end = head.indexOf(q, i + 1);
+        if (end === -1) return null;
+        delim = head.slice(i + 1, end);
+        if (!/^[A-Za-z0-9_]+$/.test(delim)) return null;
+        quoted = true;
+        i = end + 1;
+      } else {
+        const m = HEREDOC_DELIM_RE.exec(head.slice(i));
+        if (!m) return null;
+        delim = m[0];
+        quoted = false;
+        i += m[0].length;
+      }
+      // The operator must end the word cleanly.
+      if (i < n && !" \t|".includes(head[i])) return null;
+      opEnd = i;
+      continue;
+    }
+    if (c === "<") return null;
+    i++;
+  }
+  if (opStart === -1 || delim === null) return null;
+
+  const lines = command.slice(nl + 1).split("\n");
+  const di = lines.indexOf(delim);
+  if (di === -1) return null;
+  // The terminator must end the command — a trailing command after the
+  // heredoc is a compound shape the card can't summarize.
+  for (let k = di + 1; k < lines.length; k++) {
+    if (lines[k].trim() !== "") return null;
+  }
+  const body = lines.slice(0, di).join("\n");
+  if (!quoted && /[$`\\]/.test(body)) return null;
+  return { line: head.slice(0, opStart) + " " + head.slice(opEnd), body };
 }
 
 // Commands accepted as pipeline stages after the curl. A coarse gate that
@@ -726,13 +853,17 @@ function readJsonString(
 /**
  * Evaluate a jq program of the restricted shape `{key: value, ...}` where
  * each key is a bare identifier or string literal and each value is a $var
- * reference (looked up in `vars`), a string/number/true/false/null literal.
- * Anything else — nesting, pipes, functions, interpolation, undefined vars —
- * returns null and the caller falls back to the "body built with jq" note.
+ * reference (looked up in `vars`), a string/number/true/false/null literal,
+ * or a bare `.` (the whole input) when `dotValue` supplies what `.` holds —
+ * the heredoc body or an `@file` marker for the `-Rs` slurp shapes.
+ * Anything else — nesting, pipes, functions, interpolation, undefined vars,
+ * `.` without a known input, `.foo` field access — returns null and the
+ * caller falls back to the "body built with jq" note (or raw rendering).
  */
 function resolveJqTemplate(
   program: string,
   vars: Record<string, string>,
+  dotValue: string | null = null,
 ): CurlBodyField[] | null {
   const m = /^\s*\{([\s\S]*)\}\s*$/.exec(program);
   if (!m) return null;
@@ -780,6 +911,13 @@ function resolveJqTemplate(
     } else if ((vm = /^(true|false|null)\b/.exec(inner.slice(i)))) {
       value = vm[1];
       i += vm[1].length;
+    } else if (inner[i] === ".") {
+      // Bare `.` = the whole slurped input. Only literal when the caller
+      // knows what the input is; `.foo` / `.5` / `. | f` fail the parse at
+      // the following separator check, which is the conservative outcome.
+      if (dotValue === null) return null;
+      value = dotValue;
+      i++;
     } else return null;
     fields.push({ key, value: displayValue(value) });
     ws();
@@ -800,27 +938,49 @@ const JQ_NEUTRAL_LONG = new Set([
   "--tab",
 ]);
 
-// The short-flag equivalents (clusterable, e.g. -nc); n = --null-input.
-const JQ_NEUTRAL_SHORT = "ncrjSa";
+// The short-flag equivalents (clusterable, e.g. -nc). The input-shaping
+// flags n (--null-input), R (--raw-input), and s (--slurp) are handled
+// explicitly in the cluster loop, not here.
+const JQ_NEUTRAL_SHORT = "crjSa";
 
 /**
  * Parse the tokens of a leading `jq` stage. Accepts only a narrow grammar:
- * neutral output flags, -n/--null-input, --arg/--argjson name value,
- * --rawfile name path, and exactly one program argument. Returns the body as
- * concrete fields when the program is a literal template (requires -n),
- * otherwise a "body built with jq" note; the note names any --rawfile paths
- * so a file read is never concealed. Unknown flags (e.g. -f reads a program
- * file, --slurpfile) and positional input files reject the whole parse.
+ * neutral output flags, the input-shaping flags -n/--null-input,
+ * -R/--raw-input, and -s/--slurp, --arg/--argjson name value,
+ * --rawfile name path, exactly one program argument, and (in the -Rs slurp
+ * shape only) one positional input file. Returns the body as concrete fields
+ * when the program is a literal template and the input is known: with -n
+ * there is no input, and with -Rs (raw slurp) `.` is the whole input —
+ * either the heredoc body passed in `heredocBody` or an `@file` marker for a
+ * positional file. Otherwise a "body built with jq" note; the note names any
+ * files read (--rawfile, positional input) so a file read is never
+ * concealed. A heredoc whose body can't be shown as fields returns null —
+ * the body IS the payload, and a note would conceal it. Unknown flags (e.g.
+ * -f reads a program file, --slurpfile) reject the whole parse.
  */
-function parseJqInvocation(tokens: string[]): JqBody | null {
+function parseJqInvocation(
+  tokens: string[],
+  heredocBody: string | null = null,
+): JqBody | null {
   let nullInput = false;
+  let rawInput = false;
+  let slurp = false;
   const vars: Record<string, string> = {};
-  const rawfiles: string[] = [];
+  const readFiles: string[] = [];
+  const inputFiles: string[] = [];
   let program: string | null = null;
   for (let i = 1; i < tokens.length; i++) {
     const t = tokens[i];
     if (t === "--null-input") {
       nullInput = true;
+      continue;
+    }
+    if (t === "--raw-input") {
+      rawInput = true;
+      continue;
+    }
+    if (t === "--slurp") {
+      slurp = true;
       continue;
     }
     if (JQ_NEUTRAL_LONG.has(t)) continue;
@@ -857,28 +1017,57 @@ function parseJqInvocation(tokens: string[]): JqBody | null {
       const path = tokens[i + 2];
       if (name === undefined || path === undefined) return null;
       vars[name] = `@${path}`;
-      rawfiles.push(path);
+      readFiles.push(path);
       i += 2;
       continue;
     }
     if (/^-[a-zA-Z]+$/.test(t)) {
-      if (![...t.slice(1)].every((ch) => JQ_NEUTRAL_SHORT.includes(ch)))
-        return null;
-      if (t.includes("n")) nullInput = true;
+      for (const ch of t.slice(1)) {
+        if (ch === "n") nullInput = true;
+        else if (ch === "R") rawInput = true;
+        else if (ch === "s") slurp = true;
+        else if (!JQ_NEUTRAL_SHORT.includes(ch)) return null;
+      }
       continue;
     }
     if (t.startsWith("-")) return null;
-    if (program !== null) return null; // input files after the program
-    program = t;
+    if (program === null) {
+      program = t;
+      continue;
+    }
+    inputFiles.push(t);
   }
   if (program === null) return null;
-  const fields = nullInput ? resolveJqTemplate(program, vars) : null;
-  if (fields) return { kind: "fields", fields };
+
+  // -Rs (and no -n): the whole raw input becomes one JSON string bound to
+  // `.` — the manager-brief producer shape. Any other combination that
+  // involves real input (positional files, a heredoc) models input semantics
+  // we don't understand, and rejects.
+  const rawSlurp = rawInput && slurp && !nullInput;
+  if (heredocBody !== null) {
+    // The heredoc body IS the payload: either the card shows it as a field,
+    // or the whole parse bails to raw rendering. A note would conceal it.
+    if (!rawSlurp || inputFiles.length > 0) return null;
+    const fields = resolveJqTemplate(program, vars, heredocBody);
+    return fields ? { kind: "fields", fields } : null;
+  }
+  if (inputFiles.length > 0) {
+    if (!rawSlurp || inputFiles.length !== 1) return null;
+    const file = inputFiles[0];
+    const fields = resolveJqTemplate(program, vars, `@${file}`);
+    if (fields) return { kind: "fields", fields };
+    // Unresolved program: fall through to the note, which names the file so
+    // the read is never concealed.
+    readFiles.push(file);
+  } else if (nullInput) {
+    const fields = resolveJqTemplate(program, vars);
+    if (fields) return { kind: "fields", fields };
+  }
   return {
     kind: "note",
     note:
       "body built with jq" +
-      (rawfiles.length > 0 ? ` (reads ${rawfiles.join(", ")})` : ""),
+      (readFiles.length > 0 ? ` (reads ${readFiles.join(", ")})` : ""),
   };
 }
 
@@ -888,18 +1077,27 @@ function parseJqInvocation(tokens: string[]): JqBody | null {
  * Parse a Bash command string; return a structured request if it is a single
  * curl invocation against the isomux server (optionally piped into a
  * filter), or a `jq ... | curl ... -d @-` producer pipeline where jq builds
- * the request body. Null for everything else. `ports` is the set of local
- * ports the isomux server may listen on (default: the documented 4000).
+ * the request body — from --arg templates, a positional input file, or a
+ * heredoc (`jq -Rs '{text: .}' <<'EOF' | curl ... -d @-`). Null for
+ * everything else. `ports` is the set of local ports the isomux server may
+ * listen on (default: the documented 4000).
  */
 export function parseIsomuxCurl(
   command: string,
   ports: readonly string[] = ["4000"],
 ): IsomuxCurlRequest | null {
-  const tokenized = tokenize(command, true);
+  // A recognized heredoc is stripped off before tokenizing; its body is only
+  // meaningful for a jq producer stage (checked below). When extractHeredoc
+  // returns null, the untouched command's `<`/newline makes tokenize() bail.
+  const heredoc = extractHeredoc(command);
+  const tokenized = tokenize(heredoc ? heredoc.line : command, true);
   if (!tokenized) return null;
   const { tokens, pipeTail } = tokenized;
   if (tokens.length === 0) return null;
-  if (tokens[0] === "curl")
+  if (tokens[0] === "curl") {
+    // A heredoc feeding curl itself (`curl -d @- <<'EOF'`) is not a shape we
+    // card; only the jq-producer form below understands heredoc input.
+    if (heredoc) return null;
     return parseCurlStage(
       tokens,
       pipeTail,
@@ -907,12 +1105,13 @@ export function parseIsomuxCurl(
       null,
       tokenized.outputRedirect,
     );
+  }
   if (tokens[0] === "jq") {
     // Producer pipeline: jq builds the JSON body, curl reads it from stdin.
     // A redirect on the jq stage itself (`jq ... > f | curl`) would starve
     // the pipe — nonsense, bail.
     if (pipeTail === null || tokenized.outputRedirect !== null) return null;
-    const body = parseJqInvocation(tokens);
+    const body = parseJqInvocation(tokens, heredoc?.body ?? null);
     if (body === null) return null;
     const next = tokenize(pipeTail.slice(1), true);
     if (!next || next.tokens[0] !== "curl") return null;

@@ -415,6 +415,18 @@ export const LogEntryCard = memo(function LogEntryCard({
         />
       );
     case "system": {
+      // Auto-denied tool calls carry metadata.permissionDenied (see
+      // agent-manager's permission_denied case). Sessions from before this
+      // feature (or older SDKs that never emit the event) simply have no such
+      // entries; nothing else guards on it.
+      const permissionDenied = entry.metadata?.permissionDenied as
+        | { toolName?: string; message?: string; decisionReason?: string }
+        | undefined;
+      if (permissionDenied) {
+        return (
+          <PermissionDeniedCard denial={permissionDenied} isMobile={isMobile} />
+        );
+      }
       // Background-task lifecycle breadcrumbs carry metadata.taskEvent (see
       // agent-manager's task_lifecycle case). Render with a status dot so
       // settle outcomes scan at a glance; everything else stays SystemMessage.
@@ -1275,6 +1287,62 @@ function TaskBreadcrumb({
         }}
       />
       {content}
+    </div>
+  );
+}
+
+// Compact card for a tool call auto-denied without an interactive prompt
+// (metadata.permissionDenied on a system entry — auto-mode classifier, deny
+// rule, dontAsk). Styled distinctly from both SystemMessage and the error
+// block: a red-edged card, since the denial is a policy outcome the boss
+// should notice, not an agent failure. No Unicode glyph for the marker (iOS
+// Safari emoji-renders glyphs, overriding CSS color).
+function PermissionDeniedCard({
+  denial,
+  isMobile,
+}: {
+  denial: { toolName?: string; message?: string; decisionReason?: string };
+  isMobile?: boolean;
+}) {
+  // Prefer the deciding component's human-readable reason; the message (what
+  // the model was told) is the fallback and stays available on hover.
+  const reason = denial.decisionReason || denial.message;
+  return (
+    <div
+      style={{
+        margin: "8px 0",
+        padding: "5px 10px",
+        borderLeft: "3px solid var(--red)",
+        borderRadius: 4,
+        background: "var(--bg-code)",
+        fontSize: isMobile ? 13 : 12,
+        display: "flex",
+        gap: 6,
+        alignItems: "baseline",
+        flexWrap: "wrap",
+      }}
+      title={denial.message}
+    >
+      <span style={{ color: "var(--red)", fontWeight: 600, flexShrink: 0 }}>
+        Denied
+      </span>
+      {denial.toolName && (
+        <span
+          style={{
+            color: "var(--text-primary)",
+            fontFamily: "'JetBrains Mono',monospace",
+            fontWeight: 600,
+            flexShrink: 0,
+          }}
+        >
+          {denial.toolName}
+        </span>
+      )}
+      {reason && (
+        <span style={{ color: "var(--text-dim)", overflowWrap: "anywhere" }}>
+          {reason}
+        </span>
+      )}
     </div>
   );
 }

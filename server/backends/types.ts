@@ -172,6 +172,28 @@ export type NormalizedEvent =
       phase: "started" | "completed" | "failed" | "stopped";
       taskId: string;
       label: string;
+    }
+  // A tool call was auto-denied without an interactive prompt (Claude-only at
+  // v1): newer SDKs emit system/permission_denied for the deny short-circuit
+  // in canUseTool — auto-mode classifier, deny rules, dontAsk mode. The
+  // denied tool_result still reaches the model either way; this event just
+  // makes the denial visible natively in the transcript. Older SDKs never
+  // emit the subtype, so absence is normal. `message` and `decisionReason`
+  // are pre-sanitized one-line text from the backend adapter.
+  | {
+      kind: "permission_denied";
+      toolUseId: string;
+      toolName: string;
+      /** The rejection message returned to the model in the tool_result. */
+      message: string;
+      /** Human-readable reason from the deciding component, when available. */
+      decisionReason?: string;
+      /**
+       * Subagent id when the denied tool call originated inside a subagent
+       * (mirrors the SDK's agent_id). Preserved so stored transcripts keep
+       * the origin distinguishable; not displayed at v1.
+       */
+      agentId?: string;
     };
 
 // ---------------------------------------------------------------------------
