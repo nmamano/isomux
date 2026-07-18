@@ -33,6 +33,7 @@ import {
   agentManagerMatch,
   messageSend,
   scheduledMessagesOwner,
+  conversationReset,
   cronjobOwnerOrOfficeOwner,
   runParamMustEqualTokenRun,
   and,
@@ -385,11 +386,16 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("agent:converse", agentParam("id")),
     emits: ["log_entry"],
   }),
+  // Clear the session and start a fresh conversation. Operators (users +
+  // privileged agents holding agent:converse) clear any agent in an accessible
+  // room; an ordinary agent may clear ITSELF (self:affordance), which is what
+  // lets the /isomux-self-handoff skill schedule a wake-up then reset its own
+  // session. conversationReset enforces the operator-vs-self split.
   defineRoute<NewConversationReq, NoContent>({
     opId: "agents.newConversation",
     method: "POST",
     path: "/api/agents/:id/new-conversation",
-    auth: cap("agent:converse", agentParam("id")),
+    auth: cap(["agent:converse", "self:affordance"], conversationReset),
     emits: ["clear_logs"],
   }),
   defineRoute<ResumeReq, NoContent>({

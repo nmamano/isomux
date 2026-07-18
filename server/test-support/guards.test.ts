@@ -42,6 +42,7 @@ import {
   requiresRoomAccess,
   cronjobOwnerOrOfficeOwner,
   messageSend,
+  conversationReset,
   and,
   or,
   type GuardDeps,
@@ -626,5 +627,72 @@ describe("guard: messageSend", () => {
     expect(messageSend(ctx(run, { id: "a-recip" }, { text: "hi" }))).toEqual(
       DENY,
     );
+  });
+});
+
+describe("guard: conversationReset", () => {
+  it("USER: delegates to room access on the target agent", () => {
+    const accessible = makeDeps({
+      roomIdForAgent: () => "r-1",
+      hasRoomAccess: () => true,
+    });
+    expect(
+      conversationReset(ctx(userMember, { id: "a-x" }, undefined, accessible)),
+    ).toEqual(OK);
+    const hidden = makeDeps({
+      roomIdForAgent: () => "r-1",
+      hasRoomAccess: () => false,
+    });
+    expect(
+      conversationReset(ctx(userMember, { id: "a-x" }, undefined, hidden)),
+    ).toEqual(DENY);
+  });
+  it("PRIVILEGED AGENT: clears another agent in an accessible room (room-based)", () => {
+    const accessible = makeDeps({
+      roomIdForAgent: () => "r-1",
+      hasRoomAccess: () => true,
+    });
+    expect(
+      conversationReset(
+        ctx(privilegedAgent, { id: "a-other" }, undefined, accessible),
+      ),
+    ).toEqual(OK);
+  });
+  it("PRIVILEGED AGENT: denied when the target's room is inaccessible", () => {
+    const hidden = makeDeps({
+      roomIdForAgent: () => "r-h",
+      hasRoomAccess: () => false,
+    });
+    expect(
+      conversationReset(
+        ctx(privilegedAgent, { id: "a-other" }, undefined, hidden),
+      ),
+    ).toEqual(DENY);
+  });
+  it("ORDINARY AGENT: may clear ITSELF (:id === token agentId)", () => {
+    // hasRoomAccess deliberately true — proves the self branch does NOT depend
+    // on room access, it binds to the token agentId.
+    const anyRoom = makeDeps({
+      roomIdForAgent: () => "r-1",
+      hasRoomAccess: () => true,
+    });
+    expect(
+      conversationReset(ctx(agent, { id: "a-1" }, undefined, anyRoom)),
+    ).toEqual(OK);
+  });
+  it("CONFUSED-DEPUTY BLOCK: ordinary agent CANNOT clear another agent even when its spawning user has room access", () => {
+    // The escalation trap: hasRoomAccess keys on the spawning-user id, which is
+    // true for every agent that user owns. An ordinary agent (no agent:converse)
+    // must STILL be denied clearing a different agent — self-branch only.
+    const roomTrue = makeDeps({
+      roomIdForAgent: () => "r-1",
+      hasRoomAccess: () => true,
+    });
+    expect(
+      conversationReset(ctx(agent, { id: "a-other" }, undefined, roomTrue)),
+    ).toEqual(DENY);
+  });
+  it("CRON-RUN: denied (a run has no session to reset)", () => {
+    expect(conversationReset(ctx(run, { id: "a-1" }))).toEqual(DENY);
   });
 });

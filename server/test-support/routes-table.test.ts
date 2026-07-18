@@ -220,7 +220,13 @@ const SPEC_ROUTE_CONTRACT: Record<
     emits: [],
   },
   "agents.sendNow": { caps: ["agent:converse"], emits: ["log_entry"] },
-  "agents.newConversation": { caps: ["agent:converse"], emits: ["clear_logs"] },
+  // newConversation: a USER or a PRIVILEGED agent clears via converse rights; an
+  // ORDINARY agent clears ONLY itself via self:affordance. conversationReset
+  // scopes the agent branch (privileged → room access; ordinary → self).
+  "agents.newConversation": {
+    caps: ["agent:converse", "self:affordance"],
+    emits: ["clear_logs"],
+  },
   "agents.resume": { caps: ["agent:converse"], emits: ["log_entry"] },
   "agents.listSessions": { caps: ["office:read"], emits: [] },
   // Agents — self-affordances

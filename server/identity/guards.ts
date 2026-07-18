@@ -347,6 +347,35 @@ export const scheduledMessagesOwner: Guard = (ctx) => {
   }
 };
 
+// Conversation reset (agents.newConversation): who may clear an agent's session
+// and start it fresh.
+//   USER     → room access to the target agent (an operator clears agents it
+//              can see), unchanged.
+//   AGENT    → a PRIVILEGED agent (holds agent:converse — granted so it can
+//              drive other agents' sessions the way its user does) clears any
+//              agent in an accessible room, exactly as today; an ORDINARY agent
+//              (self:affordance only, no agent:converse) may clear ONLY ITSELF.
+//              The privilege signal is the CAPABILITY, not scope alone — same
+//              shape as cronjobOwnerOrOfficeOwner. It matters here because
+//              hasRoomAccess keys on the agent's SPAWNING-USER id, so a bare
+//              room check would let any ordinary agent clear every other agent
+//              its user owns (a confused-deputy escalation). The self branch
+//              binds to the token agentId, so that path is self-only by
+//              construction.
+//   CRON-RUN → deny (a run has no session to reset).
+export const conversationReset: Guard = (ctx) => {
+  switch (ctx.identity.scope) {
+    case "user":
+      return messageSendUserGuard(ctx);
+    case "agent":
+      return identityHasCapability(ctx.identity, "agent:converse")
+        ? messageSendUserGuard(ctx)
+        : agentParamMustEqualTokenAgent(ctx);
+    case "cron-run":
+      return FORBIDDEN;
+  }
+};
+
 // --- Combinators ------------------------------------------------------------
 // Typed composition for the route table's compound guards (e.g. agents.move /
 // agents.revive need access to BOTH the source and target room). Encoding these

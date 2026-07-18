@@ -101,16 +101,37 @@ const ROOM_PARAMS = { roomId: "r-1" };
 
 describe("privileged agent: INTENDED room-scoped operator routes are reachable", () => {
   it("drives another agent's chat (resume / sendNow / newConversation / cancelQueued / editMessage)", () => {
-    for (const op of [
+    const DRIVE_OPS = [
       "agents.resume",
       "agents.sendNow",
       "agents.newConversation",
       "agents.cancelQueued",
       "agents.editMessage",
-    ]) {
+    ];
+    // A privileged agent reaches all of them on any reachable agent.
+    for (const op of DRIVE_OPS) {
       expect(can(op, privilegedAgent, AGENT_PARAMS)).toBe(true);
-      // A NORMAL agent lacks agent:converse and is blocked at stage 1.
-      expect(can(op, normalAgent, AGENT_PARAMS)).toBe(false);
+    }
+    // A NORMAL agent lacks agent:converse and is blocked from driving ANOTHER
+    // agent. AGENT_PARAMS.id (a-1) collides with normalAgent's own agentId, so
+    // target a different agent to test the "someone else's chat" case.
+    const OTHER = { id: "a-other" };
+    for (const op of DRIVE_OPS) {
+      expect(can(op, normalAgent, OTHER)).toBe(false);
+    }
+    // newConversation is the ONE exception with a self path (task: self-handoff):
+    // a normal agent may clear ITS OWN session, and nothing else.
+    expect(can("agents.newConversation", normalAgent, { id: "a-1" })).toBe(
+      true,
+    );
+    // The other four have no self path — a normal agent is blocked even on itself.
+    for (const op of [
+      "agents.resume",
+      "agents.sendNow",
+      "agents.cancelQueued",
+      "agents.editMessage",
+    ]) {
+      expect(can(op, normalAgent, { id: "a-1" })).toBe(false);
     }
   });
   it("reads sessions / lifecycle / editor / uploads on a reachable agent", () => {

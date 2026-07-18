@@ -82,6 +82,9 @@ How to schedule a message for later (including to yourself, e.g. as a reminder o
   curl -s localhost:${PORT}/api/agents/<your-own-id>/scheduled-messages -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"                        # list your pending scheduled messages
   curl -s -X DELETE localhost:${PORT}/api/agents/<your-own-id>/scheduled-messages/<scheduledId> -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN"  # cancel one
 
+How to reset (clear) your own session: POST your own new-conversation route, with your own agent id in the path.
+  curl -s -X POST localhost:${PORT}/api/agents/<your-own-id>/new-conversation -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -d '{}'
+
 How to inspect cronjobs (~/.isomux/cronjobs/): cronjobs are scheduled SDK sessions, not agents — they fire daily/weekly/at an interval, run a fresh session with a configured prompt, and save the transcript as a "run". They have no desk or persistent identity. Only touch them when the boss asks.
   ~/.isomux/cronjobs/cronjobs.json                              # all cronjob configs
   ~/.isomux/cronjobs/<jobId>/runs.json                          # run history for one cronjob (newest last)
