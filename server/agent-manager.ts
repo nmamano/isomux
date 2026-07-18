@@ -149,7 +149,7 @@ import {
 import {
   configurePluginHooks,
   runAgentTurn,
-  stripPluginPrefix,
+  stripOutboundEnvelope,
 } from "./plugin-hooks.ts";
 // --- Dependency injection (Phase 0.2) ---
 //
@@ -1294,6 +1294,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       contextSampleSeq: 0,
       contextUsageCommittedSeq: 0,
       contextSampleInFlight: null,
+      firedAgentThresholds: new Set(),
       pendingResume: false,
       pendingResumeSessions: [],
       pendingModelPick: false,
@@ -2114,13 +2115,19 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // Reset the conversation's fullness state. Must be called SYNCHRONOUSLY
   // (never after an await) at semantic conversation boundaries — see the
   // lifecycle matrix in the design doc. `restore` serves edit-fork rollback,
-  // which puts the stashed pre-fork measurement back instead of leaving null.
+  // which puts the stashed pre-fork measurement AND fired-notice set back
+  // instead of clearing them (the rolled-back conversation keeps its already-
+  // fired notices so they don't re-fire).
   function resetContextUsage(
     managed: ManagedAgent,
-    restore: ContextUsageSnapshot | null = null,
+    restore: {
+      snapshot: ContextUsageSnapshot | null;
+      fired: Set<number>;
+    } | null = null,
   ): void {
     managed.contextGen++;
-    managed.contextUsage = restore;
+    managed.contextUsage = restore ? restore.snapshot : null;
+    managed.firedAgentThresholds = restore ? restore.fired : new Set();
     // Null the slot so nothing ever waits on an orphaned old-conversation
     // request (it still self-discards at commit via the gen check).
     managed.contextSampleInFlight = null;
@@ -3624,6 +3631,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       contextSampleSeq: 0,
       contextUsageCommittedSeq: 0,
       contextSampleInFlight: null,
+      firedAgentThresholds: new Set(),
       pendingResume: false,
       pendingResumeSessions: [],
       pendingModelPick: false,
@@ -5925,6 +5933,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // conversation, so it gets its fullness measurement back too (snapshots
     // are immutable-by-replacement, so holding the reference is safe).
     const oldContextUsage = managed.contextUsage;
+    // Same for the fired-notice set. Clone it: the fork's resetContextUsage
+    // REPLACES the live set with a fresh one, but a defensive copy keeps this
+    // stash pristine regardless of aliasing.
+    const oldFiredAgentThresholds = new Set(managed.firedAgentThresholds);
 
     // Find target up front so the ephemeral short-circuit and the not-found
     // error can return before the fork pipeline runs.
@@ -6044,17 +6056,18 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // target's uuid to forkSessionBeforeMessage; each backend handles
       // predecessor-resolution and first-message semantics internally.
       //
-      // stripPluginPrefix recovers `sdkText` from any turn where a beforeTurn
-      // plugin (e.g. mem0) contributed a prefix block — the SDK records the
-      // wrapped `${blocks}\n\nUser message:\n${sdkText}` form, but log entries
-      // only carry `sdkText`. Without the strip, every edit on a turn that lit
-      // up a plugin would fall through to the "could not locate" branch below.
+      // stripOutboundEnvelope recovers `sdkText` from any turn where a built-in
+      // block (context-fullness notice) or a beforeTurn plugin (e.g. mem0)
+      // contributed a prefix block — the SDK records the wrapped
+      // `${blocks}\n\nUser message:\n${sdkText}` form, but log entries only carry
+      // `sdkText`. Without the strip, every edit on a turn that carried an
+      // envelope block would fall through to the "could not locate" branch below.
       let matchCount = 0;
       let targetIdx = -1;
       for (let i = 0; i < backendMessages.length; i++) {
         const m = backendMessages[i];
         if (m.role !== "user") continue;
-        if (stripPluginPrefix(m.text) === prefixedContent) {
+        if (stripOutboundEnvelope(m.text) === prefixedContent) {
           if (matchCount === occurrenceIndex) {
             targetIdx = i;
             break;
@@ -6310,13 +6323,18 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         }))
           emit(event);
 
-        // Fullness measurement: restore the parent's snapshot ONLY when the
-        // parent session was actually reinstalled (managed.sessionId back to
-        // oldSessionId). If rollback failed, the session still points at the
-        // fork (broken or not), so the parent measurement would mislabel it —
-        // keep it null instead. Either way the gen bump inside discards any
-        // in-flight sample from the abandoned fork.
-        resetContextUsage(managed, rollbackRestored ? oldContextUsage : null);
+        // Fullness measurement: restore the parent's snapshot + fired-notice
+        // set ONLY when the parent session was actually reinstalled
+        // (managed.sessionId back to oldSessionId). If rollback failed, the
+        // session still points at the fork (broken or not), so the parent
+        // measurement would mislabel it — clear it instead. Either way the gen
+        // bump inside discards any in-flight sample from the abandoned fork.
+        resetContextUsage(
+          managed,
+          rollbackRestored
+            ? { snapshot: oldContextUsage, fired: oldFiredAgentThresholds }
+            : null,
+        );
       }
 
       if (err instanceof BackendNotConfiguredError) {

@@ -8,12 +8,11 @@ Nil greenlit a REDUCED scope for the first batch — the server-side core only. 
 
 - The per-agent in-memory snapshot with the race-safe commit protocol and the lifecycle matrix (§1 minus the WS broadcast, §4). Sampling at `turn_completed` (both engines) + Codex `usage_update`.
 - `GET /api/agents/:id/context` (§2's endpoint) and its system-prompt recipe.
-- `contextSampleInFlight` is wired (populated + identity-guard-cleared) but has no consumer yet — its consumer is the pre-send notice step.
+- **Task 50392514 (2026-07-18 batch 2)** — the injected 60%/85% auto-notices (§2's notice mechanics) + the outbound-envelope generalization (§2a). `contextSampleInFlight` now has its consumer: the pre-send notice step in `runAgentTurn` awaits it with a ~500ms bound. Added `ManagedAgent.firedAgentThresholds` (reset with the generation, restored on edit-fork rollback, preserved on model change). `stripPluginPrefix` → `stripOutboundEnvelope` (accepts `isomux:` and `plugin:` blocks; plugin-only transcripts strip identically). Notice text uses a plain hyphen, not an em dash (Nil's prose rule). The fired-set is mutated ONLY by the send path at send-accept time (after `session.send` resolves, so a failed/swapped send never burns a notice) — the commit path never touches it. The UI `firedUiThresholds` set is deliberately NOT added yet (belongs to task 27096236).
 
 **Follow-up tasks, NOT implemented (the sections below describing them are design reference for those tasks):**
 
-- Task 50392514 — the injected 60%/85% auto-notices, including the outbound-envelope generalization (§2's notice mechanics, §2a).
-- Task 27096236 — the UI indicator and the `AgentInfo.contextUsage` WS field (§3, and §1's "Broadcast" paragraph). Nil wants a battery-style icon; placement is unsolved (nav bar too crowded). The DeskUnit/desk-encoding idea is permanently dead.
+- Task 27096236 — the UI indicator and the `AgentInfo.contextUsage` WS field (§3, and §1's "Broadcast" paragraph). Nil wants a battery-style icon; placement is unsolved (nav bar too crowded). The DeskUnit/desk-encoding idea is permanently dead. See the placement proposal appended at the end of this doc (2026-07-18 batch 2) — HOLDING for Nil's placement pick.
 
 Decisions resolved with the reduced scope: threshold values/notice policy are moot until 50392514; no snapshot persistence across server restarts is ACCEPTED for v1 — after a restart + resume, the snapshot repopulates at the end of the first completed turn of the resumed conversation. (Cheap seed-earlier option, not built: fire one `refreshContextUsage` when a Claude session is installed on wake/resume — the SDK control request can report the resumed transcript without waiting for a turn. Codex has no equivalent until its first `tokenUsage` notification.)
 
@@ -101,8 +100,8 @@ Payload:
 - Thresholds: 60% (heads-up) and 85% (wrap up), matching the UI colors. Once per threshold per generation — after a compaction drop and re-cross there is no repeat (fired-set only resets with the generation).
 
 ```
-[context check: 68% full — 136,000 / 200,000 tokens. Budget accordingly.]
-[context check: 87% full — 174,000 / 200,000 tokens. Wrap up: finish or hand off current work; tell the boss a /clear is advisable.]
+[context check: 68% full - 136,000 / 200,000 tokens. Budget accordingly.]
+[context check: 87% full - 174,000 / 200,000 tokens. Wrap up: finish or hand off current work; tell the boss a /clear is advisable.]
 ```
 
 Notices ride the next outbound send only — never start a turn on their own, so idle agents cost nothing. Both absolute tokens and percentage are included so prompts keyed to absolute sizes ("200k") work on any window. ~30 tokens of overhead, at most twice per generation.
@@ -196,6 +195,46 @@ User message:
 2. Auto-injected notices always-on vs opt-out — deferred with task 50392514.
 3. UI placement — reworked under task 27096236 (battery-style icon, placement TBD; desk nametag permanently dead).
 4. Snapshot not persisted across server restarts in v1 — ACCEPTED.
+
+## Battery indicator — placement proposal (task 27096236, 2026-07-18 batch 2) — HOLDING for Nil
+
+Design only. The battery UI is NOT built. This section resolves the one open question that blocks it: **where does the indicator live?** Nil's direction: a phone-battery icon that shows the percentage (token counts on hover at most) and shifts color as it fills. Ruled out already: the desk sprite / DeskUnit nametag encoding (permanently dead).
+
+### Fixed decisions (independent of placement)
+
+- **Render the battery as inline SVG, never a Unicode glyph.** iOS Safari emoji-renders certain Unicode symbols (🔋 and the battery/▶/★ family) and overrides CSS color — which would defeat the whole "color shifts as it fills" point. A hand-drawn SVG (rounded-rect shell + a proportional fill rect + a small terminal nub) is ~15 lines and fully color-controllable. (Same class of gotcha recorded in Nil's memory about iOS auto-emoji rendering.)
+- **Color bands = the notice thresholds**, computed from the raw float percentage so the icon and the injected notices agree: `< 60%` → `--text-muted` (dim, informational), `60–84%` → `--orange`, `≥ 85%` → `--red`. Vars live in `ui/themes.ts`.
+- **Label + hover.** Percentage shown as text next to the fill (rounded integer). Hover/tap tooltip: `132,400 / 200,000 tokens (66%) — as of last turn.` Touch has no hover, so the tooltip must also open on tap (a tiny popover), not hover-only.
+- **Hidden while unavailable** (snapshot null / `available:false`): no icon at all, not an empty shell.
+
+### Candidate placements
+
+**A. LogView header, right cluster (inline with the model label).** `ui/log-view/LogView.tsx` desktop header ~L1876–1930 (right before the model-family label at L1906 / the Codex backend badge), mobile header ~L1640–1700.
+- *Pros:* This is where `/context` conceptually lives and where a human already scans for run metadata (model, cwd, state). At-a-glance without opening a popover. Reuses the existing metadata strip — no new surface.
+- *Cons:* This strip is the single most contested space in the app; a container query already hides action labels below 1199px. A battery + `%` is ~34px, narrower than a text pill but still additive. Needs a narrow-width rule (icon-only, drop the `%`) and, on mobile's 2-row header, likely belongs on the cwd row, not the name row.
+
+**B. Message composer, top-right of the input box.** The send/compose area at the bottom of LogView.
+- *Pros:* Roomy — the composer row has slack the header doesn't. It sits exactly where the "is there room for another message?" decision is made, so the signal is adjacent to the action it informs. Naturally full-width on mobile, so no 2-row squeeze.
+- *Cons:* Invisible while the human is scrolled up reading history. Divorced from the other run metadata (model/cwd/state all live in the header), so two places to look. Composer already carries attachment chips + queued-message chips; not empty either.
+
+**C. Header, "quiet until it matters" (a rendering variant of A).** Same slot as A, but below 60% the battery renders ghosted and icon-only (no `%` number); it only surfaces the number + color band once it crosses into orange.
+- *Pros:* Removes the crowding objection almost entirely — for the majority of a conversation's life the footprint is a single dim ~12px glyph, and it grows into a labeled chip precisely when it's worth reading.
+- *Cons:* Partially conflicts with Nil's "show %" — a human who wants the number at 40% won't see it without hovering. It's a real taste tradeoff, not a dominated option, which is why it's listed separately.
+
+### Recommendation
+
+Home it in the **LogView header right cluster (A)**, rendered with **C's quiet-until-it-matters behavior as the default** — dim icon-only under 60%, expanding to icon + `%` + color in the orange/red bands. That keeps the contested header strip calm at rest, honors "color shifts as it fills," and puts the number front-and-center exactly when it's actionable (which is also when the injected notices fire, so the two agree). Mobile: place it on the cwd row, icon-only, tap for the token popover.
+
+The one genuine call left for Nil is the A-vs-C tension: **always show the `%` (pure A), or keep it quiet below 60% (A+C).** Everything else above is settled. If Nil prefers the number always visible, drop the C behavior and add the narrow-width icon-only rule instead. Composer (B) is the fallback only if the header truly can't absorb even the quiet form.
+
+### Data path / WS push field needed (to be built with the UI, NOT in this batch)
+
+The snapshot already exists server-side (task 50392514 batch). What's missing for the UI:
+
+- **`AgentInfo.contextUsage?`** (`shared/types.ts`, the `AgentInfo` interface ~L293) — optional, snapshot shape **minus `source`**: `{ model: string; totalTokens: number; maxTokens: number; percentage: number; sampledAtMs: number }`. Absent/undefined ⇒ pill hidden.
+- **Broadcast from the sample-commit path** (`commitContextSample` in `server/agent-manager.ts`): emit `agent_updated` with `changes: { contextUsage }` whenever a committed sample changes displayed values. Per §1: broadcast every committed `turn_completed` / `on_demand` sample (turn-boundary cadence is already low); throttle ONLY the Codex `usage_update` path, and on *displayed* values (integer percentage / rounded token count / model / maxTokens change). Reset paths already null the snapshot; they should broadcast `contextUsage: undefined` so the pill clears.
+- **Store:** none. `ui/store.tsx`'s `agent_updated` reducer (~L344) already merges partial `changes` via `{ ...a, ...action.changes }`, so a new field surfaces to components automatically.
+- **Optional server-authoritative UI notice** (§3): a one-shot ephemeral chat line at first ≥85% crossing per generation, tracked by a separate `firedUiThresholds` set (deliberately NOT added in the 50392514 batch — different audience from the agent-facing set). Independent of placement; can ship with or after the pill.
 
 ## Review log
 

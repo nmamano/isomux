@@ -25,6 +25,7 @@ import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
+import { stripOutboundEnvelope } from "../plugin-hooks.ts";
 import { OfficeState } from "../../shared/office-state.ts";
 import { createAgentManager } from "../agent-manager.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
@@ -595,6 +596,176 @@ describe("context-fullness: snapshot lifecycle through GET /api/agents/:id/conte
     } finally {
       for (const s of fake.sessions) s.close();
     }
+  });
+});
+
+describe("context-fullness: agent-facing threshold notices (task 50392514)", () => {
+  it("injects the 60% notice into the next send once, then the 85% notice when fullness rises", async () => {
+    // Mutable fullness the fake backend reports at each turn_completed sample.
+    let pct = 68;
+    const srv = await startTestServer({
+      fakeBackend: new FakeBackend({
+        session: {
+          contextUsage: () => Promise.resolve(usage(pct)),
+          onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }),
+        },
+      }),
+    });
+    server = srv;
+    await srv.seedOwner("Boss");
+    const room = srv.agentManager.getRooms()[0];
+    const agent = await spawnAgent(srv, "Worker", room.id);
+    const token = getAgentTokenRaw(agent.id)!;
+    const sess = () => srv.fakeBackend.sessionForAgent(agent.id)!;
+    const lastSent = () => sess().sent[sess().sent.length - 1].text;
+
+    // Turn 1: no prior sample, so nothing is injected; turn_completed then
+    // commits the 68% reading.
+    await runTurn(srv, agent.id, "one");
+    expect(lastSent()).not.toContain("context check");
+    // Confirm the 68% snapshot is committed before the next send races it.
+    let r = await getContext(srv, agent.id, { bearer: token });
+    expect(r.body).toMatchObject({ available: true, percentage: 68 });
+
+    // Turn 2: 68% >= 60 and 60 not yet fired -> the 60 notice rides this send,
+    // wrapped in the reserved isomux envelope. The unwrapped payload (what the
+    // log entry and edit-fork matching see) round-trips cleanly.
+    await runTurn(srv, agent.id, "two");
+    const turn2 = lastSent();
+    expect(turn2.startsWith("--- begin isomux: context-check ---")).toBe(true);
+    expect(turn2).toContain(
+      "[context check: 68% full - 68,000 / 100,000 tokens. Budget accordingly.]",
+    );
+    const unwrapped2 = stripOutboundEnvelope(turn2);
+    expect(unwrapped2).not.toContain("---");
+    expect(unwrapped2.endsWith("two")).toBe(true);
+
+    // Turn 3: still 68%, 60 already fired, 85 not reached -> no notice at all.
+    await runTurn(srv, agent.id, "three");
+    const turn3 = lastSent();
+    expect(turn3).not.toContain("context check");
+    expect(turn3).not.toContain("--- begin isomux:");
+
+    // Fullness rises past 85. The turn-4 send predates the new sample (still
+    // 68% -> no notice); turn 4's completion commits 90%.
+    pct = 90;
+    await runTurn(srv, agent.id, "four");
+    expect(lastSent()).not.toContain("context check");
+    r = await getContext(srv, agent.id, { bearer: token });
+    expect(r.body).toMatchObject({ available: true, percentage: 90 });
+
+    // Turn 5: 90% >= 85 and 85 not yet fired -> the wrap-up notice fires.
+    await runTurn(srv, agent.id, "five");
+    const turn5 = lastSent();
+    expect(turn5).toContain(
+      "[context check: 90% full - 90,000 / 100,000 tokens.",
+    );
+    expect(turn5).toContain("Wrap up:");
+  });
+
+  it("resets the fired-notice set on /clear so the 60% notice can fire again", async () => {
+    const srv = await startTestServer({ fakeBackend: backendWith(usage(70)) });
+    server = srv;
+    await srv.seedOwner("Boss");
+    const room = srv.agentManager.getRooms()[0];
+    const agent = await spawnAgent(srv, "Worker", room.id);
+    const token = getAgentTokenRaw(agent.id)!;
+    const sess = () => srv.fakeBackend.sessionForAgent(agent.id)!;
+    const lastSent = () => sess().sent[sess().sent.length - 1].text;
+
+    await runTurn(srv, agent.id, "one");
+    let r = await getContext(srv, agent.id, { bearer: token });
+    expect(r.body).toMatchObject({ available: true, percentage: 70 });
+    await runTurn(srv, agent.id, "two");
+    expect(lastSent()).toContain("[context check: 70% full");
+
+    // A second turn at the same level does NOT re-fire.
+    await runTurn(srv, agent.id, "three");
+    expect(lastSent()).not.toContain("context check");
+
+    // /clear resets the generation AND the fired-notice set. The fresh
+    // conversation re-crosses 60% and the notice fires again.
+    await srv.agentManager.newConversation(agent.id);
+    await runTurn(srv, agent.id, "fresh-one");
+    r = await getContext(srv, agent.id, { bearer: token });
+    expect(r.body).toMatchObject({ available: true, percentage: 70 });
+    await runTurn(srv, agent.id, "fresh-two");
+    expect(lastSent()).toContain("[context check: 70% full");
+  });
+
+  it("a swap during send() does not let the stale old send burn the fresh generation's notice (P1 deferred-send race)", async () => {
+    // manualSend parks every send() so we can hold turn 2 in the send window,
+    // /clear the conversation, THEN resolve the OLD session's send — exactly
+    // the race where an old-session send resolves after replaceSession. The
+    // mark-after-send must skip via the generation guard, so the fresh
+    // fired-set stays empty and the 60% notice can fire again.
+    const srv = await startTestServer({
+      fakeBackend: new FakeBackend({
+        session: {
+          contextUsage: () => Promise.resolve(usage(70)),
+          manualSend: true,
+        },
+      }),
+    });
+    server = srv;
+    await srv.seedOwner("Boss");
+    const room = srv.agentManager.getRooms()[0];
+    const agent = await spawnAgent(srv, "Worker", room.id);
+    const token = getAgentTokenRaw(agent.id)!;
+    const send = (text: string) =>
+      srv.agentManager.enqueueMessage(agent.id, {
+        sender: { kind: "user", username: "Boss" },
+        text,
+      });
+    const curSess = () => srv.fakeBackend.sessionForAgent(agent.id)!;
+    const settled = () => {
+      const s = srv.agentManager.getAgent(agent.id)?.state;
+      return s !== undefined && s !== "thinking" && s !== "tool_executing";
+    };
+
+    // Turn 1: park -> release -> complete, seeding the 70% sample.
+    send("one");
+    await waitUntil(() => curSess().sent.length === 1, 3000, "turn1 parked");
+    curSess().releaseSends();
+    curSess().completeTurn();
+    await waitUntil(settled, 3000, "turn1 done");
+    let r = await getContext(srv, agent.id, { bearer: token });
+    expect(r.body).toMatchObject({ available: true, percentage: 70 });
+
+    // Turn 2: build injects the 60 notice (70% >= 60); hold it in the send
+    // window (do NOT release).
+    const s1 = curSess();
+    send("two");
+    await waitUntil(() => s1.sent.length === 2, 3000, "turn2 parked");
+    expect(s1.sent[1].text).toContain("[context check: 70% full");
+
+    // Swap the conversation WHILE turn 2's send is parked (bumps the
+    // generation, replaces the fired-set), THEN let the OLD session's send
+    // resolve. The generation guard must skip the now-stale mark.
+    await srv.agentManager.newConversation(agent.id);
+    s1.releaseSends();
+    await sleep(50); // let the stale turn-2 continuation unwind past the mark
+
+    // Fresh conversation is dormant; turn 3 wakes a new session and re-seeds
+    // 70%. Its first turn has no sample yet -> no notice.
+    send("three");
+    await waitUntil(() => curSess() !== s1, 3000, "turn3 session woke");
+    const s2 = curSess();
+    await waitUntil(() => s2.sent.length === 1, 3000, "turn3 parked");
+    expect(s2.sent[0].text).not.toContain("context check");
+    s2.releaseSends();
+    s2.completeTurn();
+    await waitUntil(settled, 3000, "turn3 done");
+    r = await getContext(srv, agent.id, { bearer: token });
+    expect(r.body).toMatchObject({ available: true, percentage: 70 });
+
+    // Turn 4: the 60 notice MUST fire again — proof the stale turn-2 send did
+    // NOT consume the fresh generation's fired-set. (With the bug, turn 2's
+    // late send would have marked 60 on the new gen and this would be absent.)
+    send("four");
+    await waitUntil(() => s2.sent.length === 2, 3000, "turn4 parked");
+    expect(s2.sent[1].text).toContain("[context check: 70% full");
+    s2.releaseSends();
   });
 });
 

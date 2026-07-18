@@ -11,9 +11,12 @@
  *   2. Running every enabled plugin's `beforeTurn` in parallel against the
  *      same context. Per-plugin 5s race; on throw or timeout the plugin
  *      contributes no prefix and the failure goes to plugins.jsonl.
- *   3. Assembling per-plugin prefix blocks in alphabetical id order,
- *      delimiter-wrapped, and prepending them to the outgoing text with
- *      a `User message:` separator.
+ *   3. Assembling the outbound envelope: built-in blocks first (currently just
+ *      the context-fullness notice — server coordination, NOT a plugin), then
+ *      per-plugin prefix blocks in alphabetical id order, each delimiter-
+ *      wrapped, prepended to the outgoing text with a `User message:` separator.
+ *      stripOutboundEnvelope is the exact inverse (used by edit-to-fork
+ *      matching).
  *   4. beginTurn + createTurnDeferred + session.send + await turn.
  *   5. Snapshotting logCache after the caller's onSendAccepted callback
  *      runs but before the agent's turn output lands, so user_message
@@ -195,16 +198,34 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
     checkCancelled();
   }
 
-  // 5. Assemble the final outgoing text.
+  // 4b. Built-in outbound blocks (server coordination, NOT plugins — no
+  // enable/disable coupling, absent from plugin discovery + failure
+  // accounting). Currently just the context-fullness notice. Computed after
+  // the plugin loop so the just-finished turn's fire-and-forget sample has the
+  // most time to land; the bounded await inside caps the added latency (~500ms
+  // worst case, and only on turns where a sample is still in flight).
+  const contextNotice = await buildContextNoticeBlock(managed);
+  // The await above can straddle a Stop / session swap.
+  checkCancelled();
+
+  // 5. Assemble the outbound envelope: built-in blocks first, then plugin
+  // blocks in sorted order, then the user payload. Built-ins get their own
+  // reserved `isomux:` delimiter (NOT a fake plugin id) so stripOutboundEnvelope
+  // round-trips them for edit-to-fork matching.
+  const envelopeBlocks: string[] = [];
+  if (contextNotice) {
+    envelopeBlocks.push(
+      `--- begin isomux: context-check ---\n${contextNotice.block}\n--- end isomux: context-check ---`,
+    );
+  }
+  for (const { id, prefix } of prefixes) {
+    envelopeBlocks.push(
+      `--- begin plugin: ${id} ---\n${prefix}\n--- end plugin: ${id} ---`,
+    );
+  }
   let finalText = sdkText;
-  if (prefixes.length > 0) {
-    const blocks = prefixes
-      .map(
-        ({ id, prefix }) =>
-          `--- begin plugin: ${id} ---\n${prefix}\n--- end plugin: ${id} ---`,
-      )
-      .join("\n\n");
-    finalText = `${blocks}${USER_MESSAGE_SEPARATOR}${sdkText}`;
+  if (envelopeBlocks.length > 0) {
+    finalText = `${envelopeBlocks.join("\n\n")}${USER_MESSAGE_SEPARATOR}${sdkText}`;
   }
 
   // Final pre-send cancel check. Catches a Stop/swap that fires after the
@@ -235,6 +256,25 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
       finalText,
       attachments && attachments.length > 0 ? attachments : undefined,
     );
+    // Send accepted: consume the fullness notice NOW (never before send, so a
+    // failed send doesn't burn a once-per-generation notice). The sample-commit
+    // path never touches this set, so runAgentTurn is its sole mutator — see
+    // internal-types.ts firedAgentThresholds.
+    //
+    // Generation guard: `session.send()` can straddle a replaceSession swap
+    // (/clear, resume-to-different-id, edit-fork). If the OLD session's send
+    // resolves AFTER a reset, the live set is the NEW generation's fresh one —
+    // marking it here would burn its notice. Only mark when the generation is
+    // unchanged. We guard on `contextGen`, NOT session identity or the cancel
+    // token: a model/effort restart swaps the session (and bumps the cancel
+    // token) but CONTINUES the same conversation, keeping the same fired-set —
+    // there the notice really did go out on the old session's now-resumed
+    // transcript, so marking is correct and a session/token guard would wrongly
+    // let it re-fire next turn. `contextGen` bumps iff the conversation reset,
+    // which is exactly iff the fired-set was replaced.
+    if (contextNotice && managed.contextGen === contextNotice.gen) {
+      markContextThresholdFired(managed, contextNotice.threshold);
+    }
     if (onSendAccepted) {
       try {
         onSendAccepted();
@@ -301,47 +341,148 @@ export async function runAgentTurn(opts: RunAgentTurnOpts): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// stripPluginPrefix — inverse of the wrap built in runAgentTurn step 5
+// stripOutboundEnvelope — inverse of the wrap built in runAgentTurn step 5
 // ---------------------------------------------------------------------------
 
 const USER_MESSAGE_SEPARATOR = "\n\nUser message:\n";
 
-// Boundary between the final plugin block and the user payload, anchored on
-// the full `--- end plugin: <id> ---` line so we don't false-strip on a
-// `---` substring that happens to precede the separator inside a plugin
-// prefix (e.g. a stored memory that ends with `---`). Plugin ids are
-// constrained to `[a-z0-9_-]+` in persistence.ts:726.
-const END_PLUGIN_AND_SEPARATOR =
-  /(?:^|\n)--- end plugin: [a-z0-9_-]+ ---\n\nUser message:\n/;
+// Boundary between the final envelope block and the user payload, anchored on
+// the full closing line of EITHER a built-in (`isomux`) or plugin block so we
+// don't false-strip on a `---` substring that happens to precede the separator
+// inside a block body (e.g. a stored memory that ends with `---`). Plugin ids
+// are constrained to `[a-z0-9_-]+` in persistence.ts:726; the sole built-in id
+// (`context-check`) matches the same grammar.
+const END_ENVELOPE_AND_SEPARATOR =
+  /(?:^|\n)--- end (?:isomux|plugin): [a-z0-9_-]+ ---\n\nUser message:\n/;
 
 /** Recover the unwrapped `sdkText` from a backend-recorded user message.
  *
- *  When at least one `beforeTurn` hook returned a non-empty prefix,
- *  `runAgentTurn` rewrites the outgoing text as
- *  `${blocks}${USER_MESSAGE_SEPARATOR}${sdkText}` (see step 5 above). The
- *  backend persists the wrapped form into its session transcript, but the
- *  isomux log entry only carries the unwrapped `sdkText`. Edit-message
- *  matching needs the two to line up, so this helper strips the wrap back
- *  off.
+ *  When at least one built-in block (the context-fullness notice) or a
+ *  `beforeTurn` plugin returned a non-empty prefix, `runAgentTurn` rewrites the
+ *  outgoing text as `${blocks}${USER_MESSAGE_SEPARATOR}${sdkText}` (see step 5
+ *  above). The backend persists the wrapped form into its session transcript,
+ *  but the isomux log entry only carries the unwrapped `sdkText`. Edit-message
+ *  matching needs the two to line up, so this helper strips the wrap back off.
  *
- *  Returns the input unchanged when no wrap is present (no plugins enabled,
- *  no plugin contributed a prefix this turn, or the text isn't a user
- *  message at all). Two guards keep regular user text safe from accidental
- *  stripping:
- *    1. The text must start with `--- begin plugin: ` — a user whose
- *       message happens to contain the separator pattern but didn't open
- *       with a begin marker is left alone.
- *    2. The boundary regex matches the FULL `--- end plugin: <id> ---`
- *       closing line shape (not just three dashes), so a plugin prefix
- *       containing `---` immediately before a stray separator can't
- *       short-circuit the split.
- *  The FIRST match wins, which is the structural boundary — anything that
- *  looks like the pattern in the user payload comes later in the string. */
-export function stripPluginPrefix(text: string): string {
-  if (!text.startsWith("--- begin plugin: ")) return text;
-  const m = END_PLUGIN_AND_SEPARATOR.exec(text);
+ *  Returns the input unchanged when no wrap is present (no built-in block fired,
+ *  no plugin contributed a prefix this turn, or the text isn't a user message at
+ *  all). Two guards keep regular user text safe from accidental stripping:
+ *    1. The text must start with `--- begin isomux: ` or `--- begin plugin: ` —
+ *       a user whose message happens to contain the separator pattern but didn't
+ *       open with a begin marker is left alone.
+ *    2. The boundary regex matches the FULL `--- end (isomux|plugin): <id> ---`
+ *       closing line shape (not just three dashes), so a block body containing
+ *       `---` immediately before a stray separator can't short-circuit the split.
+ *  The FIRST match wins, which is the structural boundary — anything that looks
+ *  like the pattern in the user payload comes later in the string. Old
+ *  transcripts (plugin-only wraps) strip identically: the plugin grammar is
+ *  unchanged, strictly extended with the `isomux` alternative. */
+export function stripOutboundEnvelope(text: string): string {
+  if (
+    !text.startsWith("--- begin isomux: ") &&
+    !text.startsWith("--- begin plugin: ")
+  ) {
+    return text;
+  }
+  const m = END_ENVELOPE_AND_SEPARATOR.exec(text);
   if (!m) return text;
   return text.slice(m.index + m[0].length);
+}
+
+// ---------------------------------------------------------------------------
+// Built-in context-fullness notices (task 50392514)
+//
+// Design: internal-docs/context-fullness-visibility.md §2. The server injects a
+// one-line fullness notice into the agent's NEXT outbound message the first time
+// the conversation crosses each threshold, so system-prompt rules like "wrap up
+// past 200k" fire even when the agent never thinks to poll GET .../context.
+// Reads live on ManagedAgent (contextUsage / contextSampleInFlight /
+// firedAgentThresholds) — no dependency injection needed; the fired-set is
+// reset/restored by resetContextUsage in agent-manager at conversation
+// boundaries.
+// ---------------------------------------------------------------------------
+
+// How long the pre-send step waits for the just-finished turn's fire-and-forget
+// sample to land before proceeding with whatever snapshot is already committed.
+// A notice delayed by one turn beats delaying every send.
+const CONTEXT_NOTICE_SAMPLE_WAIT_MS = 500;
+
+// Agent-facing fullness thresholds (raw percentage), ascending. Once each per
+// conversation generation. Kept in step with the UI color bands in the design
+// doc §3 (60 = orange/plan-around-it, 85 = red/wrap-up).
+const CONTEXT_NOTICE_THRESHOLDS = [60, 85] as const;
+
+export function formatContextNotice(
+  threshold: number,
+  snap: { totalTokens: number; maxTokens: number; percentage: number },
+): string {
+  const pct = Math.round(snap.percentage);
+  const used = snap.totalTokens.toLocaleString("en-US");
+  const max = snap.maxTokens.toLocaleString("en-US");
+  const advice =
+    threshold >= 85
+      ? "Wrap up: finish or hand off current work; tell the boss a /clear is advisable."
+      : "Budget accordingly.";
+  return `[context check: ${pct}% full - ${used} / ${max} tokens. ${advice}]`;
+}
+
+/** The highest fullness threshold newly reached (percentage >= threshold) but
+ *  not yet fired this generation, or null. Pure read — never mutates the fired
+ *  set. Uses the raw float percentage, never a rounded display value. */
+export function pickContextThreshold(managed: ManagedAgent): number | null {
+  const snap = managed.contextUsage;
+  if (!snap) return null;
+  let chosen: number | null = null;
+  for (const t of CONTEXT_NOTICE_THRESHOLDS) {
+    if (snap.percentage >= t && !managed.firedAgentThresholds.has(t))
+      chosen = t;
+  }
+  return chosen;
+}
+
+/** Bounded-await the in-flight sample so the notice reflects the just-finished
+ *  turn, then evaluate thresholds against the current snapshot (re-read AFTER
+ *  the await, so a mid-await conversation reset degrades cleanly to null). If
+ *  the first sample clears multiple bands at once (e.g. lands at 87%), only the
+ *  HIGHEST newly-reached band is emitted. Does NOT mark the threshold fired —
+ *  that happens only once the send is accepted, so a failed/swapped send never
+ *  burns a notice. Captures `contextGen` for the send-accept guard: everything
+ *  from here to `session.send()` is synchronous, so this equals the generation
+ *  in effect at send time — a reset during the send await bumps `contextGen`
+ *  (and replaces the fired-set), and the guard then skips the stale mark. */
+async function buildContextNoticeBlock(
+  managed: ManagedAgent,
+): Promise<{ threshold: number; block: string; gen: number } | null> {
+  const inFlight = managed.contextSampleInFlight;
+  if (inFlight) {
+    await Promise.race([
+      inFlight,
+      new Promise<void>((res) =>
+        setTimeout(res, CONTEXT_NOTICE_SAMPLE_WAIT_MS),
+      ),
+    ]);
+  }
+  const threshold = pickContextThreshold(managed);
+  // pickContextThreshold returns non-null only when contextUsage is present.
+  if (threshold === null || !managed.contextUsage) return null;
+  return {
+    threshold,
+    block: formatContextNotice(threshold, managed.contextUsage),
+    gen: managed.contextGen,
+  };
+}
+
+/** Mark `threshold` and every lower threshold fired for this generation. When a
+ *  first sample clears multiple bands, only the highest emitted a notice, but
+ *  all lower ones are consumed here so they never fire redundantly on a later
+ *  turn. The set is reset with the conversation generation (resetContextUsage). */
+export function markContextThresholdFired(
+  managed: ManagedAgent,
+  threshold: number,
+): void {
+  for (const t of CONTEXT_NOTICE_THRESHOLDS) {
+    if (t <= threshold) managed.firedAgentThresholds.add(t);
+  }
 }
 
 // ---------------------------------------------------------------------------

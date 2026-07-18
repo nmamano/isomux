@@ -131,10 +131,18 @@ export interface ManagedAgent {
   contextUsageCommittedSeq: number;
   // Latest pending fire-and-forget refresh, identity-guarded on clear (an older
   // promise's finally must not evict a newer one; a generation reset nulls the
-  // slot so nothing waits on an orphaned old-conversation request). No consumer
-  // in this batch — the pre-send context notice (task 50392514) will await it
-  // with a bounded timeout.
+  // slot so nothing waits on an orphaned old-conversation request). The pre-send
+  // context-notice step in runAgentTurn awaits it with a bounded timeout so a
+  // just-finished turn's sample lands before the notice is evaluated.
   contextSampleInFlight: Promise<void> | null;
+  // Agent-facing fullness thresholds already fired THIS generation (the raw
+  // percentage values that were crossed, e.g. 60, 85). Evaluated and mutated
+  // EXCLUSIVELY by the pre-send notice step in runAgentTurn, at send-accept time
+  // — never by the sample-commit path, so a committed high sample can't consume
+  // a notice before an outbound message exists to carry it. Reset with the
+  // generation (resetContextUsage); restored on edit-fork rollback; preserved on
+  // model change (the conversation continues, already-fired notices stay fired).
+  firedAgentThresholds: Set<number>;
   // /resume two-step state
   pendingResume: boolean;
   pendingResumeSessions: {
