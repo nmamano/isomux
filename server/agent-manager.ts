@@ -6115,9 +6115,16 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     absPath: string,
     content: string,
     expectedMtime: number,
+    expectedRev: number | undefined,
     force: boolean,
   ): SaveFileResult {
-    return saveEditorFileImpl(absPath, content, expectedMtime, force);
+    return saveEditorFileImpl(
+      absPath,
+      content,
+      expectedMtime,
+      expectedRev,
+      force,
+    );
   }
 
   function resolveEditorPathForAgent(

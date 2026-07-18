@@ -2364,7 +2364,8 @@ function buildExecutorDeps(): ExecutorDeps {
             message: r.message,
           };
         // r.kind === "ok": install (or replace) the watch for this connection; the
-        // callback pushes editor_external_change to the connection's socket.
+        // callback pushes editor_external_change (or editor_file_deleted, on a
+        // confirmed deletion) to the connection's socket.
         const map =
           editorWatchers.get(connectionId) ?? new Map<string, FileWatcher>();
         editorWatchers.set(connectionId, map);
@@ -2377,12 +2378,20 @@ function buildExecutorDeps(): ExecutorDeps {
         const watcher = watchFile(
           r.path,
           agentId,
-          (mtime) => {
-            liveEmit(
-              "editor_external_change",
-              { agentId, path: r.path, mtime },
-              { connectionId },
-            );
+          (ev) => {
+            if (ev.kind === "deleted") {
+              liveEmit(
+                "editor_file_deleted",
+                { agentId, path: r.path },
+                { connectionId },
+              );
+            } else {
+              liveEmit(
+                "editor_external_change",
+                { agentId, path: r.path, mtime: ev.mtime, rev: ev.rev },
+                { connectionId },
+              );
+            }
           },
           r.sig,
         );
@@ -2394,9 +2403,10 @@ function buildExecutorDeps(): ExecutorDeps {
           mtime: r.mtime,
           language: r.language,
           size: r.size,
+          rev: r.rev,
         };
       },
-      saveFile: (agentId, path, content, expectedMtime, force) => {
+      saveFile: (agentId, path, content, expectedMtime, expectedRev, force) => {
         const abs = agentManager.resolveEditorPathForAgent(agentId, path);
         if (!abs)
           return {
@@ -2409,11 +2419,19 @@ function buildExecutorDeps(): ExecutorDeps {
           abs,
           content,
           expectedMtime,
+          expectedRev,
           force,
         );
-        if (result.kind === "ok") return { ok: true, mtime: result.mtime };
+        if (result.kind === "ok")
+          return { ok: true, mtime: result.mtime, rev: result.rev };
+        if (result.kind === "deleted") return { ok: false, deleted: true };
         if (result.kind === "stale")
-          return { ok: false, stale: true, currentMtime: result.currentMtime };
+          return {
+            ok: false,
+            stale: true,
+            currentMtime: result.currentMtime,
+            currentRev: result.currentRev,
+          };
         return {
           ok: false,
           status: 500,

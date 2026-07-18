@@ -33,7 +33,8 @@ import {
 
 // The routing subject for recipient-scoped events — supplied by the emit call
 // site (NOT carried in the payload). connectionId targets a single socket
-// (session_context / presence_list / editor_external_change / session_expired);
+// (session_context / presence_list / editor_external_change /
+// editor_file_deleted / session_expired);
 // userId targets every socket of one user (full_state / invites_list /
 // sessions_active_list). Both absent on an `all`/`owners`/room-ACL emit.
 export interface EmitContext {

@@ -44,6 +44,9 @@ const SPEC_AUDIENCES: Record<string, AudienceStrategy> = {
   all_rooms_list: "owners",
   presence_list: "recipient-scoped",
   editor_external_change: "recipient-scoped",
+  // Editor file lifecycle (task 1ed49547): the watch's confirmed-deletion
+  // push, same single-socket scoping as editor_external_change.
+  editor_file_deleted: "recipient-scoped",
   session_expired: "recipient-scoped",
   // Office-wide — all
   users_list: "all",

@@ -1386,10 +1386,11 @@ export async function demoApi(
       mtime: 0,
       language: "plaintext",
       size: 0,
+      rev: 1,
     };
   }
   if (method === "PUT" && /^\/api\/agents\/[^/]+\/file$/.test(pathname)) {
-    return { ok: true, mtime: 0 };
+    return { ok: true, mtime: 0, rev: 1 };
   }
   if (
     method === "DELETE" &&

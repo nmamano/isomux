@@ -41,17 +41,24 @@ interface Tab {
   path: string;
   content: string;
   mtime: number;
+  // Server-issued revision this buffer is based on. Compared against the
+  // rev on external-change pushes and reconnect re-opens — unlike mtime, it
+  // catches rollbacks and same-millisecond replaces (server-side signature
+  // includes the inode).
+  rev: number;
   language: string;
   size: number;
   dirty: boolean;
-  // Save banner state. "stale": disk newer than expectedMtime; user must
+  // Save banner state. "stale": disk changed since we opened; user must
   // pick Overwrite or Reload. "external": file changed under us while we
   // hold a clean buffer (auto-reloaded already → null) or a dirty buffer
-  // (banner: "Reload? lose edits").
+  // (banner: "Reload? lose edits"). "deleted": file is gone from disk —
+  // nothing to reload; user picks Save-to-recreate or Close.
   banner:
     | null
     | { kind: "stale"; currentMtime: number }
     | { kind: "external"; mtime: number }
+    | { kind: "deleted" }
     | { kind: "save_error"; message: string };
 }
 
@@ -148,6 +155,7 @@ export function EditorPanel({
       path: t.path,
       content: t.content,
       mtime: t.mtime,
+      rev: t.rev,
       language: t.language,
       size: t.size,
       dirty: t.dirty,
@@ -194,6 +202,7 @@ export function EditorPanel({
       path: t.path,
       content: t.content,
       mtime: t.mtime,
+      rev: t.rev,
       language: t.language,
       size: t.size,
       dirty: t.dirty,
@@ -217,6 +226,7 @@ export function EditorPanel({
         mtime: number;
         language: string;
         size: number;
+        rev: number;
       }>(
         "GET",
         `/api/agents/${agentId}/file?path=${encodeURIComponent(path)}`,
@@ -232,22 +242,25 @@ export function EditorPanel({
               if (existing.dirty && !opts?.discardDirty) {
                 // Preserve the dirty buffer — this happens after agent-switch
                 // re-mounts and after WS-reconnect re-arms, when we re-fetch to
-                // reinstall the watch. Refresh only language/size; NOT mtime,
-                // or a later save would pass the staleness check and silently
-                // clobber the disk changes. If disk moved from what we opened
-                // (an external change we missed — e.g. it happened while
-                // disconnected), raise the same banner the live watch shows.
-                // `!==`, not `>`: a restore/copy can legitimately move mtime
-                // BACKWARDS and is still a conflict. (A same-ms replacement
-                // remains undetectable from mtime alone — closing that would
-                // need a revision/signature on the wire; noted as a known
-                // limitation, same as saveFile's `>` stale guard.)
+                // reinstall the watch. Refresh only language/size; NOT
+                // mtime/rev, or a later save would pass the staleness check
+                // and silently clobber the disk changes. If disk moved from
+                // what we opened (an external change we missed — e.g. it
+                // happened while disconnected), raise the same banner the live
+                // watch shows. The comparison is rev-only: the server-side
+                // signature behind it catches rollbacks and same-ms replaces
+                // that mtime can't, mtime is part of that signature (so a rev
+                // match implies an mtime match within one server process), and
+                // revs never collide across a server restart (each process
+                // reserves a persisted generation for its rev space) — a
+                // restart shows up as a mismatch, i.e. a benign false
+                // conflict, never a missed one.
                 next[idx] = {
                   ...existing,
                   language: m.language,
                   size: m.size,
                   banner:
-                    m.mtime !== existing.mtime
+                    m.rev !== existing.rev
                       ? { kind: "external", mtime: m.mtime }
                       : existing.banner,
                 };
@@ -256,6 +269,7 @@ export function EditorPanel({
                   path: m.path,
                   content: m.content,
                   mtime: m.mtime,
+                  rev: m.rev,
                   language: m.language,
                   size: m.size,
                   dirty: false,
@@ -270,6 +284,7 @@ export function EditorPanel({
                 path: m.path,
                 content: m.content,
                 mtime: m.mtime,
+                rev: m.rev,
                 language: m.language,
                 size: m.size,
                 dirty: false,
@@ -280,6 +295,21 @@ export function EditorPanel({
           setActivePath((prev) => prev ?? m.path);
         })
         .catch((err) => {
+          // A 404 on a path we already hold a tab for means the file was
+          // deleted on disk (e.g. while we were disconnected — the live watch
+          // couldn't tell us). Surface the deletion banner on that tab instead
+          // of a dead-end "not found" error line.
+          if (err instanceof ApiError && err.code === "not_found") {
+            const existing = tabsRef.current.find((t) => t.path === path);
+            if (existing) {
+              setTabsAndPersist((prev) =>
+                prev.map((t) =>
+                  t.path === path ? { ...t, banner: { kind: "deleted" } } : t,
+                ),
+              );
+              return;
+            }
+          }
           // The server formats the open-error message per reason (not found / not
           // a file / binary / too large / bad path / io), so just surface it.
           setPendingError(
@@ -305,18 +335,27 @@ export function EditorPanel({
   );
 
   // Save (PUT) a tab. Replaces editor_save + the editor_save_response event:
-  // .then applies the new mtime / clears dirty; .catch maps the 409 stale
-  // conflict (currentMtime rides ApiError.detail) to the stale banner, else a
-  // save_error banner.
+  // .then applies the new mtime/rev / clears dirty; .catch maps the 409 stale
+  // conflict (currentMtime rides ApiError.detail) to the stale banner, the 409
+  // deleted conflict to the deletion banner, else a save_error banner. Returns
+  // whether the save landed, so callers can chain follow-up work (the
+  // recreate flow re-opens to re-arm the watch).
   const saveTab = useCallback(
-    (path: string, content: string, expectedMtime: number, force: boolean) => {
-      apiFetch<{ ok: true; mtime: number }>(
+    (
+      path: string,
+      content: string,
+      expectedMtime: number,
+      expectedRev: number,
+      force: boolean,
+    ): Promise<boolean> => {
+      return apiFetch<{ ok: true; mtime: number; rev: number }>(
         "PUT",
         `/api/agents/${agentId}/file`,
         {
           path,
           content,
           expectedMtime,
+          expectedRev,
           force,
         },
       )
@@ -324,10 +363,17 @@ export function EditorPanel({
           setTabsAndPersist((prev) =>
             prev.map((t) =>
               t.path === path
-                ? { ...t, mtime: m.mtime, dirty: false, banner: null }
+                ? {
+                    ...t,
+                    mtime: m.mtime,
+                    rev: m.rev,
+                    dirty: false,
+                    banner: null,
+                  }
                 : t,
             ),
           );
+          return true;
         })
         .catch((err) => {
           setTabsAndPersist((prev) =>
@@ -340,6 +386,11 @@ export function EditorPanel({
                     : t.mtime;
                 return { ...t, banner: { kind: "stale", currentMtime } };
               }
+              if (err instanceof ApiError && err.code === "deleted") {
+                // The file vanished from disk before this save. NOT a content
+                // conflict — offer save-to-recreate, not overwrite/reload.
+                return { ...t, banner: { kind: "deleted" } };
+              }
               return {
                 ...t,
                 banner: {
@@ -350,6 +401,7 @@ export function EditorPanel({
               };
             }),
           );
+          return false;
         });
     },
     [agentId, setTabsAndPersist],
@@ -427,6 +479,10 @@ export function EditorPanel({
         // invocation doesn't fire two open round-trips.
         const existing = tabsRef.current.find((t) => t.path === m.path);
         if (!existing) return;
+        // Same revision as the buffer's basis → this is the echo of our own
+        // save (the watch poll sees the write we just made): nothing external
+        // happened, skip the banner/refetch entirely.
+        if (m.rev === existing.rev) return;
         if (existing.dirty) {
           setTabsAndPersist((prev) =>
             prev.map((t) =>
@@ -439,6 +495,19 @@ export function EditorPanel({
           // Clean buffer → silently re-fetch by re-opening.
           openPath(m.path);
         }
+      }
+      if (msg.type === "editor_file_deleted" && msg.agentId === agentId) {
+        const m = msg;
+        const existing = tabsRef.current.find((t) => t.path === m.path);
+        if (!existing) return;
+        // Deletion banner regardless of dirty state — a clean buffer can't
+        // silently "reload" a file that no longer exists; the buffer is now
+        // the only copy, so surface Save-to-recreate / Close.
+        setTabsAndPersist((prev) =>
+          prev.map((t) =>
+            t.path === m.path ? { ...t, banner: { kind: "deleted" } } : t,
+          ),
+        );
       }
     };
     addRawListener(handler);
@@ -582,7 +651,8 @@ export function EditorPanel({
     if (!path) return;
     const tab = tabsRef.current.find((t) => t.path === path);
     if (!tab) return;
-    saveTab(path, tab.content, tab.mtime, false);
+    // saveTab never rejects (errors surface as banners) — fire-and-forget.
+    void saveTab(path, tab.content, tab.mtime, tab.rev, false);
   }, [saveTab]);
 
   // Save with Ctrl+S / Cmd+S — must capture to suppress browser save dialog.
@@ -644,9 +714,34 @@ export function EditorPanel({
 
   const overwrite = useCallback(() => {
     if (!activeTab) return;
-    // Force-save: bypass the mtime check.
-    saveTab(activeTab.path, activeTab.content, activeTab.mtime, true);
+    // Force-save: bypass the revision/mtime check. saveTab never rejects
+    // (errors surface as banners) — fire-and-forget.
+    void saveTab(
+      activeTab.path,
+      activeTab.content,
+      activeTab.mtime,
+      activeTab.rev,
+      true,
+    );
   }, [activeTab, saveTab]);
+
+  // Deleted-banner "Save to recreate": force-write the buffer back to disk,
+  // then re-open the path. The re-open re-arms the server-side watch — needed
+  // when the deletion was discovered via a reconnect re-open 404, where no
+  // watch is installed — and refreshes mtime/rev from the recreated file.
+  const recreateFromBuffer = useCallback(() => {
+    if (!activeTab) return;
+    // saveTab never rejects (errors surface as banners).
+    void saveTab(
+      activeTab.path,
+      activeTab.content,
+      activeTab.mtime,
+      activeTab.rev,
+      true,
+    ).then((saved) => {
+      if (saved) openPath(activeTab.path);
+    });
+  }, [activeTab, saveTab, openPath]);
 
   const reloadFromDisk = useCallback(() => {
     if (!activeTab) return;
@@ -1044,6 +1139,26 @@ export function EditorPanel({
                 style={bannerBtn("var(--text-secondary)")}
               >
                 Dismiss
+              </button>
+            </>
+          )}
+          {activeTab.banner.kind === "deleted" && (
+            <>
+              <span style={{ flex: 1 }}>
+                File was deleted on disk. Saving will recreate it from this
+                buffer.
+              </span>
+              <button
+                onClick={recreateFromBuffer}
+                style={bannerBtn("var(--orange)")}
+              >
+                Save to recreate
+              </button>
+              <button
+                onClick={() => closeTab(activeTab.path)}
+                style={bannerBtn("var(--text-secondary)")}
+              >
+                Close tab
               </button>
             </>
           )}

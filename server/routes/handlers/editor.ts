@@ -43,14 +43,19 @@ export type OpenFileOutcome =
       mtime: number;
       language: string;
       size: number;
+      // Server-issued revision; the client compares revisions instead of
+      // timestamps (closes the same-millisecond mtime blind spot).
+      rev: number;
     }
   | { ok: false; status: HandlerErrorStatus; code: string; message: string };
 
-// saveFile result: ok(mtime), the 409 stale-conflict (carries currentMtime for the
-// client banner), or an io error.
+// saveFile result: ok(mtime+rev), the 409 stale-conflict (carries currentMtime +
+// currentRev for the client banner), the 409 deleted-conflict (the file is gone
+// from disk — the client offers save-to-recreate), or an io error.
 export type SaveFileOutcome =
-  | { ok: true; mtime: number }
-  | { ok: false; stale: true; currentMtime: number }
+  | { ok: true; mtime: number; rev: number }
+  | { ok: false; stale: true; currentMtime: number; currentRev: number }
+  | { ok: false; deleted: true }
   | { ok: false; status: HandlerErrorStatus; code: string; message: string };
 
 export interface EditorDeps {
@@ -69,12 +74,14 @@ export interface EditorDeps {
     path: string,
     connectionId: string,
   ): OpenFileOutcome;
-  // Save with the mtime-conflict guard (force bypasses it).
+  // Save with the revision-conflict guard (mtime-based when the client sent no
+  // expectedRev; force bypasses either).
   saveFile(
     agentId: string,
     path: string,
     content: string,
     expectedMtime: number,
+    expectedRev: number | undefined,
     force: boolean,
   ): SaveFileOutcome;
   // Disarm the (connectionId, agentId, path) watch. No-op safe (an already-gone
@@ -135,6 +142,7 @@ export function editorHandlers(deps: EditorDeps): Record<string, RouteHandler> {
           mtime: r.mtime,
           language: r.language,
           size: r.size,
+          rev: r.rev,
         });
       }
       return fail(r.status, r.code, r.message);
@@ -166,19 +174,41 @@ export function editorHandlers(deps: EditorDeps): Record<string, RouteHandler> {
       if (b.force !== undefined && typeof b.force !== "boolean") {
         return fail(422, "invalid_request", "force must be a boolean");
       }
+      // Optional (an older client omits it and gets the legacy mtime guard).
+      // Same finite-number boundary as expectedMtime: a crafted non-finite
+      // value never matches any real rev, but reject it explicitly anyway.
+      if (
+        b.expectedRev !== undefined &&
+        (typeof b.expectedRev !== "number" || !Number.isFinite(b.expectedRev))
+      ) {
+        return fail(
+          422,
+          "invalid_request",
+          "expectedRev must be a finite number",
+        );
+      }
       const r = deps.saveFile(
         ctx.params.id,
         b.path,
         b.content,
         b.expectedMtime,
+        b.expectedRev,
         b.force ?? false,
       );
-      if (r.ok) return ok({ ok: true, mtime: r.mtime });
+      if (r.ok) return ok({ ok: true, mtime: r.mtime, rev: r.rev });
+      if ("deleted" in r) {
+        // 409 Conflict — the file was deleted on disk. Distinct code so the
+        // client shows the deletion banner (save-to-recreate / close), not the
+        // "changed on disk" one.
+        return fail(409, "deleted", "File was deleted on disk.");
+      }
       if ("stale" in r) {
         // 409 Conflict — the disk changed since the client opened it. currentMtime
-        // rides the error envelope (ApiError.detail) for the client's stale banner.
+        // + currentRev ride the error envelope (ApiError.detail) for the client's
+        // stale banner.
         return fail(409, "stale", "File changed on disk since you opened it.", {
           currentMtime: r.currentMtime,
+          currentRev: r.currentRev,
         });
       }
       return fail(r.status, r.code, r.message);

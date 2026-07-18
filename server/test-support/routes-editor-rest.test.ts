@@ -11,7 +11,14 @@
 // openFile reads actual bytes off disk.
 
 import { describe, it, expect, afterEach } from "bun:test";
-import { writeFileSync, readFileSync, statSync, mkdirSync } from "fs";
+import {
+  writeFileSync,
+  readFileSync,
+  statSync,
+  mkdirSync,
+  unlinkSync,
+  utimesSync,
+} from "fs";
 import { join } from "path";
 import {
   startTestServer,
@@ -272,6 +279,151 @@ describe("agents.saveFile REST (Phase 3d slice 6b)", () => {
       rawSessionId: owner.rawSessionId,
     });
     expect(res.status).toBe(422);
+  });
+
+  it("non-finite expectedRev (Infinity) -> 422", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const x = await spawnAt(srv, "X", r1);
+    const p = join(srv.stateRoot, "inf-rev.txt");
+    const res = await srv.http(`/api/agents/${x.id}/file`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: `{"path":${JSON.stringify(p)},"content":"x","expectedMtime":0,"expectedRev":1e999}`,
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(422);
+  });
+});
+
+// Editor file lifecycle (tasks 1ed49547 + 259224b6): the wire-level revision
+// on open/save, and the distinct deleted-conflict on save.
+describe("editor revision + deletion contract", () => {
+  it("open returns rev; save with that rev -> 200 { ok, mtime, rev }", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const x = await spawnAt(srv, "X", r1);
+    const file = join(srv.stateRoot, "rev.txt");
+    writeFileSync(file, "v0\n", "utf8");
+    const { connectionId } = await connect(srv, owner.rawSessionId);
+
+    const open = await req(
+      srv,
+      "GET",
+      `/api/agents/${x.id}/file?path=${file}`,
+      { rawSessionId: owner.rawSessionId, connectionId },
+    );
+    expect(open.status).toBe(200);
+    const opened = open.body as { mtime: number; rev: number };
+    expect(typeof opened.rev).toBe("number");
+
+    const save = await req(srv, "PUT", `/api/agents/${x.id}/file`, {
+      rawSessionId: owner.rawSessionId,
+      body: {
+        path: file,
+        // Longer than "v0\n" so the write is a signature change even within
+        // the same millisecond.
+        content: "v1 with more bytes\n",
+        expectedMtime: opened.mtime,
+        expectedRev: opened.rev,
+      },
+    });
+    expect(save.status).toBe(200);
+    const saved = save.body as { ok: boolean; rev: number };
+    expect(saved.ok).toBe(true);
+    expect(saved.rev).toBeGreaterThan(opened.rev);
+  });
+
+  it("rev mismatch -> 409 stale even when mtime moved BACKWARDS (rollback)", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const x = await spawnAt(srv, "X", r1);
+    const file = join(srv.stateRoot, "rollback.txt");
+    writeFileSync(file, "v0\n", "utf8");
+    const { connectionId } = await connect(srv, owner.rawSessionId);
+    const open = await req(
+      srv,
+      "GET",
+      `/api/agents/${x.id}/file?path=${file}`,
+      { rawSessionId: owner.rawSessionId, connectionId },
+    );
+    expect(open.status).toBe(200);
+    const opened = open.body as { mtime: number; rev: number };
+
+    // External change whose mtime is OLDER than the open — the legacy
+    // `currentMtime > expectedMtime` guard would let this save clobber it.
+    writeFileSync(file, "restored older version\n", "utf8");
+    const past = new Date(Date.now() - 60_000);
+    utimesSync(file, past, past);
+
+    const save = await req(srv, "PUT", `/api/agents/${x.id}/file`, {
+      rawSessionId: owner.rawSessionId,
+      body: {
+        path: file,
+        content: "mine\n",
+        expectedMtime: opened.mtime,
+        expectedRev: opened.rev,
+      },
+    });
+    expect(save.status).toBe(409);
+    expect(errCode(save.body)).toBe("stale");
+    // currentRev rides the error envelope next to currentMtime.
+    expect(
+      typeof (save.body as { error?: { currentRev?: number } }).error
+        ?.currentRev,
+    ).toBe("number");
+    expect(readFileSync(file, "utf8")).toBe("restored older version\n");
+  });
+
+  it("save on a deleted path -> 409 deleted; force recreates the file", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const x = await spawnAt(srv, "X", r1);
+    const file = join(srv.stateRoot, "gone.txt");
+    writeFileSync(file, "v0\n", "utf8");
+    const { connectionId } = await connect(srv, owner.rawSessionId);
+    const open = await req(
+      srv,
+      "GET",
+      `/api/agents/${x.id}/file?path=${file}`,
+      { rawSessionId: owner.rawSessionId, connectionId },
+    );
+    expect(open.status).toBe(200);
+    const opened = open.body as { mtime: number; rev: number };
+    unlinkSync(file);
+
+    const refused = await req(srv, "PUT", `/api/agents/${x.id}/file`, {
+      rawSessionId: owner.rawSessionId,
+      body: {
+        path: file,
+        content: "recreated\n",
+        expectedMtime: opened.mtime,
+        expectedRev: opened.rev,
+      },
+    });
+    expect(refused.status).toBe(409);
+    expect(errCode(refused.body)).toBe("deleted");
+
+    const forced = await req(srv, "PUT", `/api/agents/${x.id}/file`, {
+      rawSessionId: owner.rawSessionId,
+      body: {
+        path: file,
+        content: "recreated\n",
+        expectedMtime: opened.mtime,
+        expectedRev: opened.rev,
+        force: true,
+      },
+    });
+    expect(forced.status).toBe(200);
+    expect(readFileSync(file, "utf8")).toBe("recreated\n");
   });
 });
 

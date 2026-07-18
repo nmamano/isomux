@@ -10,6 +10,8 @@ export interface PersistedTab {
   path: string;
   content: string;
   mtime: number;
+  // Server-issued revision this buffer is based on (see server/file-editor.ts).
+  rev: number;
   language: string;
   size: number;
   dirty: boolean;

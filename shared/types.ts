@@ -967,7 +967,12 @@ export type ServerMessage =
       agentId: string;
       path: string;
       mtime: number;
+      rev: number;
     }
+  // The watched file was confirmed deleted on disk (distinct from a content
+  // change: there is nothing to reload). Same recipient scoping as
+  // editor_external_change.
+  | { type: "editor_file_deleted"; agentId: string; path: string }
   | {
       type: "office_settings_updated";
       prompt: string | null;

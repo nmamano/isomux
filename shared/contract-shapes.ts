@@ -186,6 +186,13 @@ export interface EditorSaveReq {
   path: string;
   content: string;
   expectedMtime: number;
+  /**
+   * Server-issued revision from the open/save this buffer is based on. When
+   * present the save guard compares revisions (catches rollbacks and
+   * same-millisecond replaces the mtime comparison misses); omitted by older
+   * clients, which get the legacy mtime guard.
+   */
+  expectedRev?: number;
   force?: boolean;
 }
 

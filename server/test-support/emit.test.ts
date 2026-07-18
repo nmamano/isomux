@@ -183,7 +183,7 @@ describe("emit: recipient-scoped — concrete key required, no fanout fallback",
     const { deps, delivered } = fixture();
     emit(
       "editor_external_change",
-      { agentId: "a1", path: "/x", mtime: 1 },
+      { agentId: "a1", path: "/x", mtime: 1, rev: 1 },
       { connectionId: "cGone" },
       deps,
     );

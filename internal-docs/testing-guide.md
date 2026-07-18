@@ -113,7 +113,7 @@ Feature → risk tier → deterministic test path → live/manual coverage. A co
 | Visual office / animated characters / skeuomorphic / themes | manual | - | visual |
 | Auto-generated topic | T1/T3 | endpoint returns non-empty, at most 8 words (mechanism) | T3 quality spot-check |
 | Terminal | T1 (partial) | event-registry audience for terminal_output/terminal_exit; terminal_open buffered-replay ACL covered (projection.test.ts, task 39ce6225); interactive PTY input/resize/close routing deferred to a future seam | opt-in real PTY |
-| Editor | T1 | editor_open/save/external-change routes + path safety | - |
+| Editor | T1 | editor_open/save/external-change routes + path safety; watch deletion/recreation lifecycle + per-path revision guard (file-editor-watch.test.ts, routes-editor-rest.test.ts) | - |
 | Diff tool | T0/T1 | diff summary unit + POST diff route | - |
 | Browser preview card (preview-url) | T0/T1 | `preview-capture.test.ts`: capturePreview seam with a fake shell-script "browser" — strict validation matrix, host input policy (IP literals, mixed/public DNS, IPv4-mapped v6), no_browser/unreachable/capture_failed/timeout/busy codes, group-kill on deadline, temp-dir cleanup + slot release on every path. REST (`routes-agent-affordances-rest.test.ts`): full path via `ISOMUX_PREVIEW_BROWSER` fake → file-view log_entry with sanitized caption; 400s; cross-agent 403. ROUTE CAPS: `routes-table.test.ts`. | real-Chrome capture (needs Chrome on the box; exercised in normal office use) |
 | Voice-to-text / TTS | manual | - | browser manual |

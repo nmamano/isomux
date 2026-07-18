@@ -231,12 +231,12 @@ Grouped by resource. `Cap` = `requiredCapability`; `Guard` = `resourceGuard`. A 
 
 **Agents — editor (browser)**
 
-The editor is request/response, so it is REST (unlike the interactive terminal). `GET …/file` opens-and-registers a watch keyed by `(connectionId, agentId, path)`; the watch pushes `editor_external_change` over that session's WS; `DELETE …/file/watch` unregisters. Both `GET` and `DELETE` carry `X-Isomux-Connection-Id` (from `session_context`); the server verifies that connection belongs to the authenticated session before binding/unbinding, so the push reaches the right tab and cannot be aimed at another user's socket (see Conventions › Connection binding).
+The editor is request/response, so it is REST (unlike the interactive terminal). `GET …/file` opens-and-registers a watch keyed by `(connectionId, agentId, path)`; the watch pushes `editor_external_change` (or `editor_file_deleted`, once the path is confirmed missing on two consecutive polls) over that session's WS; `DELETE …/file/watch` unregisters. Both `GET` and `DELETE` carry `X-Isomux-Connection-Id` (from `session_context`); the server verifies that connection belongs to the authenticated session before binding/unbinding, so the push reaches the right tab and cannot be aimed at another user's socket (see Conventions › Connection binding).
 
 | opId | Method · Path | Cap | Guard | Request | Response | Emits | Crosswalk · status |
 |---|---|---|---|---|---|---|---|
-| `agents.openFile` | GET `/api/agents/:id/file?path=` | `editor:use` | `requiresRoomAccess(:id)` | — | `{ content, mtime, language, size }` | `editor_external_change`† | WS:editor_open `[strangle]`, `[delete]` editor_content/editor_open_error |
-| `agents.saveFile` | PUT `/api/agents/:id/file` | `editor:use` | `requiresRoomAccess(:id)` | `EditorSaveReq` | `{ ok: true, mtime }` or `409 { reason:"stale", currentMtime }` | — | WS:editor_save `[strangle]`, `[delete]` editor_save_response |
+| `agents.openFile` | GET `/api/agents/:id/file?path=` | `editor:use` | `requiresRoomAccess(:id)` | — | `{ content, mtime, language, size, rev }` | `editor_external_change` / `editor_file_deleted`† | WS:editor_open `[strangle]`, `[delete]` editor_content/editor_open_error |
+| `agents.saveFile` | PUT `/api/agents/:id/file` | `editor:use` | `requiresRoomAccess(:id)` | `EditorSaveReq` (optional `expectedRev` — revision guard; falls back to the mtime guard when absent) | `{ ok: true, mtime, rev }`, `409 { code:"stale", currentMtime, currentRev }`, or `409 { code:"deleted" }` (file gone from disk; `force` recreates) | — | WS:editor_save `[strangle]`, `[delete]` editor_save_response |
 | `agents.closeFile` | DELETE `/api/agents/:id/file/watch?path=` | `editor:use` | `requiresRoomAccess(:id)` | — | `204` | — | WS:editor_close `[strangle]` |
 
 † pushed asynchronously to the watching session, not on the GET response.
@@ -377,7 +377,8 @@ Events whose mutation removes or relocates their projection source (`agent_remov
 | `full_state` | `{ agents, rooms, office, recentCwds, killedAgents }` | recipient-scoped | `userId` (ACL projection) | rooms filtered to the recipient's visible set; agents filtered by visibility and carry a stable `roomId` (no dense index post-3c.4); killed filtered by `lastRoomId` |
 | `all_rooms_list` | `{ rooms: RoomWire[] }` | owners | owner-flag | unfiltered global rooms; owners only |
 | `presence_list` | `{ entries, totalOnlineUsers }` | recipient-scoped | `connectionId` + per-session projection | entries carry the stable `currentRoomId`, filtered per recipient to their visible rooms (no dense remap post-3c.4); off-scene entries omitted |
-| `editor_external_change` | `{ agentId, path, mtime }` | recipient-scoped | `connectionId` | only the session whose watch is open |
+| `editor_external_change` | `{ agentId, path, mtime, rev }` | recipient-scoped | `connectionId` | only the session whose watch is open; `rev` is the server-issued per-path revision (the client ignores echoes of its own save by rev equality) |
+| `editor_file_deleted` | `{ agentId, path }` | recipient-scoped | `connectionId` | the watched file was confirmed deleted (two consecutive missing polls); same scoping as `editor_external_change` |
 | `session_expired` | `{}` | recipient-scoped | `connectionId` | the socket being expired |
 
 **Office-wide (audience `all` — the leak-prone class)**

@@ -149,7 +149,13 @@ export interface EventPayloads {
   // payload. Phase 3 emits this once-per-socket in a loop (deliver() shapes per
   // recipient) — it is NOT a broadcast event, despite reaching many sockets.
   presence_list: { entries: PresenceInfo[]; totalOnlineUsers: number };
-  editor_external_change: { agentId: string; path: string; mtime: number };
+  editor_external_change: {
+    agentId: string;
+    path: string;
+    mtime: number;
+    rev: number;
+  };
+  editor_file_deleted: { agentId: string; path: string };
   session_expired: Record<string, never>;
 
   // Office-wide (audience `all` — the leak-prone class; reduced projections only)
@@ -279,6 +285,10 @@ export const EVENT_REGISTRY = {
     projectionKey: { kind: "connectionId" },
   },
   editor_external_change: {
+    audience: "recipient-scoped",
+    projectionKey: { kind: "connectionId" },
+  },
+  editor_file_deleted: {
     audience: "recipient-scoped",
     projectionKey: { kind: "connectionId" },
   },
