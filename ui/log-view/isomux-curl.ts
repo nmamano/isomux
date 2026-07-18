@@ -601,6 +601,8 @@ const ROUTE_LABELS: Array<[string, string, string]> = [
   ["POST", "/api/agents/*/diff", "Show diff in chat"],
   ["POST", "/api/agents/*/edit-file", "Offer file in editor"],
   ["POST", "/api/agents/*/terminal-command", "Suggest terminal command"],
+  ["GET", "/api/agents/*/context", "Check context usage"],
+  ["GET", "/api/agents/*/instructions", "Read agent instructions"],
   ["GET", "/api/memory", "Read memory"],
   ["POST", "/api/memory", "Append memory"],
   ["PUT", "/api/memory", "Replace memory"],

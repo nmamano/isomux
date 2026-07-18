@@ -817,6 +817,15 @@ describe("describeIsomuxRoute", () => {
   test("method must match", () => {
     expect(describeIsomuxRoute("DELETE", "/api/memory")).toBeNull();
   });
+
+  test("agent context and instructions reads are labeled", () => {
+    expect(describeIsomuxRoute("GET", "/api/agents/agent-123/context")).toBe(
+      "Check context usage",
+    );
+    expect(
+      describeIsomuxRoute("GET", "/api/agents/agent-123/instructions"),
+    ).toBe("Read agent instructions");
+  });
 });
 
 describe("humanizeIsomuxRequest", () => {
