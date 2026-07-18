@@ -10,9 +10,11 @@ Nil greenlit a REDUCED scope for the first batch — the server-side core only. 
 - `GET /api/agents/:id/context` (§2's endpoint) and its system-prompt recipe.
 - **Task 50392514 (2026-07-18 batch 2)** — the injected 50%/75% auto-notices (§2's notice mechanics) + the outbound-envelope generalization (§2a). `contextSampleInFlight` now has its consumer: the pre-send notice step in `runAgentTurn` awaits it with a ~500ms bound. Added `ManagedAgent.firedAgentThresholds` (reset with the generation, restored on edit-fork rollback, preserved on model change). `stripPluginPrefix` → `stripOutboundEnvelope` (accepts `isomux:` and `plugin:` blocks; plugin-only transcripts strip identically). Notice text uses a plain hyphen, not an em dash (Nil's prose rule). The fired-set is mutated ONLY by the send path at send-accept time (after `session.send` resolves, so a failed/swapped send never burns a notice) — the commit path never touches it. The UI `firedUiThresholds` set is deliberately NOT added yet (belongs to task 27096236).
 
-**Follow-up tasks, NOT implemented (the sections below describing them are design reference for those tasks):**
+- **Task 27096236 (SHIPPED 2026-07-18)** — the battery indicator + the `AgentInfo.contextUsage` WS field (§3, and §1's "Broadcast" paragraph). Shipped as an inline-SVG battery in the LogView header right cluster, **always showing the percentage** (Nil's pick over the quiet-below-threshold variant). Metaphor **revised per Nil to a phone battery = UNUSED context**: it shows the *remaining* %, drains as context fills, with color still driven by fullness (near-full context = low battery = red). The % is stacked under the SVG and shows on mobile too; to make header room, the model+engine badge moved onto its own line under the agent name and the `R{n}:{desk}` tag was removed. The popover copy dropped the "as of last turn" phrasing. NOTE: §3 and the placement proposal below predate these revisions (they describe the old fullness metaphor, the quiet-below-threshold default, and the "as of last turn" copy) — kept as design history, not current behavior.
 
-- Task 27096236 — the UI indicator and the `AgentInfo.contextUsage` WS field (§3, and §1's "Broadcast" paragraph). Nil wants a battery-style icon; placement is unsolved (nav bar too crowded). The DeskUnit/desk-encoding idea is permanently dead. See the placement proposal appended at the end of this doc (2026-07-18 batch 2) — HOLDING for Nil's placement pick.
+**Still NOT implemented (design reference only):**
+
+- The server-authoritative UI ephemeral chat notice at first ≥75% crossing (`firedUiThresholds`, §3) — deliberately deferred; distinct audience from the agent-facing notice.
 
 Decisions resolved with the reduced scope: threshold values/notice policy are moot until 50392514; no snapshot persistence across server restarts is ACCEPTED for v1 — after a restart + resume, the snapshot repopulates at the end of the first completed turn of the resumed conversation. (Cheap seed-earlier option, not built: fire one `refreshContextUsage` when a Claude session is installed on wake/resume — the SDK control request can report the resumed transcript without waiting for a turn. Codex has no equivalent until its first `tokenUsage` notification.)
 
@@ -196,9 +198,9 @@ User message:
 3. UI placement — reworked under task 27096236 (battery-style icon, placement TBD; desk nametag permanently dead).
 4. Snapshot not persisted across server restarts in v1 — ACCEPTED.
 
-## Battery indicator — placement proposal (task 27096236, 2026-07-18 batch 2) — HOLDING for Nil
+## Battery indicator — placement proposal (task 27096236) — SHIPPED (revised; see Status)
 
-Design only. The battery UI is NOT built. This section resolves the one open question that blocks it: **where does the indicator live?** Nil's direction: a phone-battery icon that shows the percentage (token counts on hover at most) and shifts color as it fills. Ruled out already: the desk sprite / DeskUnit nametag encoding (permanently dead).
+NOTE: SHIPPED (revised) — see the Status section for what actually landed (phone-battery = remaining %, always-show %, LogView header right cluster). The proposal below is kept as design history and predates those revisions. It resolved the one open question that blocked the build: **where does the indicator live?** Nil's direction: a phone-battery icon that shows the percentage (token counts on hover at most) and shifts color as it fills. Ruled out already: the desk sprite / DeskUnit nametag encoding (permanently dead).
 
 ### Fixed decisions (independent of placement)
 
