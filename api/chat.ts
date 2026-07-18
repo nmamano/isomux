@@ -111,7 +111,6 @@ Setup:
 
 ### Conversation View
 - Input drafts preserved when switching between agents and across page reloads
-- Reload reopens the same spot: after a page reload or app relaunch, the UI returns to the room and view you were on, including an open agent chat
 - Markdown rendering for agent output
 - Collapsible thinking and tool-call cards with timing for each step
 - Structured cards for agent curl calls to the isomux API, describing each call in plain language with its key payload fields
