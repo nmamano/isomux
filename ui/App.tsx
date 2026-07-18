@@ -1,6 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useAppState, useDispatch } from "./store.tsx";
+import { useAppState, useDispatch, useFeatures } from "./store.tsx";
 import { send } from "./ws.ts";
+import {
+  loadSavedView,
+  loadUserDrafts,
+  pruneUserDrafts,
+  saveDraft,
+  saveView,
+} from "./view-persistence.ts";
 import { OfficeView, type ViewportControls } from "./office/OfficeView.tsx";
 import { LogView } from "./log-view/LogView.tsx";
 import { AgentListView } from "./components/AgentListView.tsx";
@@ -62,7 +69,9 @@ export function App() {
     office,
     connected,
     sessionContext,
+    hasReceivedInitialState,
   } = useAppState();
+  const features = useFeatures();
   // Keep the tab title in sync with the office name. Server renders the
   // correct title into index.html for cold loads; this effect only takes over
   // once full_state has landed (connected=true) so we don't briefly overwrite
@@ -107,6 +116,108 @@ export function App() {
   const [tasksOpen, setTasksOpen] = useState(false);
   const [cronjobsOpen, setCronjobsOpen] = useState(false);
   const [updateOpen, setUpdateOpen] = useState(false);
+
+  // Refresh persistence: reopen the same spot (room / agent chat / tasks /
+  // cronjobs) after a page reload, and restore unsent chat drafts. The
+  // restore runs ONCE, after the first full_state, so every saved id can be
+  // validated against what actually still exists — a killed agent, a closed
+  // room, or lost access silently falls back to the normal default view
+  // (including the user's server-side default-room preference, which
+  // full_state already applied and which the restore only overrides when the
+  // saved room is still valid). Gated off in the demo (llmConnected=false),
+  // where restoring a previous visitor's spot would break the scripted
+  // landing-page experience. `restored` is state (not a ref) on purpose: the
+  // save effects below read it from the SAME render, so on the restore
+  // commit they still see false and can't clobber the saved data with the
+  // pre-restore defaults before it has been applied. Both persisted surfaces
+  // are user-owned: view loads reject an owner mismatch, and draft keys are
+  // user-namespaced, so a user switch on the same browser can't leak user
+  // A's drafts or view spot into user B's session. The session_context
+  // username is the server-authoritative identity and arrives before
+  // full_state on every WS open, so gating on it costs nothing in practice.
+  const persistEnabled = features.llmConnected;
+  const persistUser = sessionContext?.username ?? null;
+  const [restored, setRestored] = useState(false);
+  useEffect(() => {
+    if (!persistEnabled || restored || !hasReceivedInitialState || !persistUser)
+      return;
+    // One-shot hydration from an external system (localStorage) — the flag
+    // flip must be state (see above) and can only happen here.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setRestored(true);
+    // Drafts: only re-dispatch for agents that still exist, and prune this
+    // user's saved keys for agents that don't (killed, or no longer
+    // visible). Only our own namespace is pruned — another user's agents
+    // can't be validated against this session's ACL-filtered list.
+    const liveAgentIds = new Set(agents.map((a) => a.id));
+    const savedDrafts = loadUserDrafts(persistUser);
+    for (const [agentId, text] of Object.entries(savedDrafts)) {
+      if (liveAgentIds.has(agentId)) {
+        dispatch({ type: "set_draft", agentId, text });
+      }
+    }
+    pruneUserDrafts(persistUser, liveAgentIds);
+    const saved = loadSavedView(persistUser);
+    if (!saved) return;
+    // Room and agent restore independently on purpose: agents can be moved
+    // across rooms, and the view selection deliberately doesn't follow the
+    // focused agent (matches live behavior in the presence effect below).
+    if (saved.roomId && rooms.some((r) => r.id === saved.roomId)) {
+      dispatch({ type: "set_current_room", roomId: saved.roomId });
+    }
+    if (saved.agentId && agents.some((a) => a.id === saved.agentId)) {
+      dispatch({ type: "focus", agentId: saved.agentId });
+    }
+    if (saved.panel === "tasks") setTasksOpen(true);
+    else if (saved.panel === "cronjobs") setCronjobsOpen(true);
+  }, [
+    persistEnabled,
+    restored,
+    hasReceivedInitialState,
+    persistUser,
+    agents,
+    rooms,
+    dispatch,
+  ]);
+
+  // Save the view spot whenever it changes (post-restore only).
+  useEffect(() => {
+    if (!persistEnabled || !restored || !persistUser) return;
+    saveView(persistUser, {
+      roomId: currentRoomId,
+      agentId: focusedAgentId,
+      panel: tasksOpen ? "tasks" : cronjobsOpen ? "cronjobs" : null,
+    });
+  }, [
+    persistEnabled,
+    restored,
+    persistUser,
+    currentRoomId,
+    focusedAgentId,
+    tasksOpen,
+    cronjobsOpen,
+  ]);
+
+  // Write drafts through to their per-composer keys (post-restore only) by
+  // diffing against the previous Map: only the changed composer's key is
+  // written, and a cleared/sent draft (entry deleted by set_draft "") removes
+  // its key. Per-composer keys — not a whole-map mirror — is what keeps
+  // multi-tab safe: a second tab that never saw this tab's draft can't
+  // clobber it, because it only ever writes the keys IT changes.
+  const prevDraftsRef = useRef<Map<string, string> | null>(null);
+  useEffect(() => {
+    if (!persistEnabled || !restored || !persistUser) return;
+    const prev = prevDraftsRef.current;
+    prevDraftsRef.current = drafts;
+    for (const [agentId, text] of drafts) {
+      if (prev?.get(agentId) !== text) saveDraft(persistUser, agentId, text);
+    }
+    if (prev) {
+      for (const agentId of prev.keys()) {
+        if (!drafts.has(agentId)) saveDraft(persistUser, agentId, "");
+      }
+    }
+  }, [persistEnabled, restored, persistUser, drafts]);
 
   const viewportControlsRef = useRef<ViewportControls | null>(null);
   const focusedAgent = focusedAgentId

@@ -110,7 +110,8 @@ Setup:
 - Hierarchical system prompts — three user-defined layers compose into the assembled system prompt for every agent: office-wide (shared by every agent in every room), per-room (shared by every agent in a given room — useful for grouping by project or role), and per-agent (custom instructions for one agent). All three are editable from the UI.
 
 ### Conversation View
-- Input drafts preserved when switching between agents
+- Input drafts preserved when switching between agents and across page reloads
+- Reload reopens the same spot: after a page reload or app relaunch, the UI returns to the room and view you were on, including an open agent chat
 - Markdown rendering for agent output
 - Collapsible thinking and tool-call cards with timing for each step
 - Structured cards for agent curl calls to the isomux API, describing each call in plain language with its key payload fields
