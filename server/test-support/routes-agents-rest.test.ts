@@ -20,6 +20,8 @@ import { describe, it, expect, afterEach } from "bun:test";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { FakeBackend } from "./fake-backend.ts";
 import { loadRecentCwds } from "../persistence.ts";
+import { getAgentTokenRaw } from "../identity/tokens.ts";
+import { getUserByName } from "../users.ts";
 
 let server: TestServer | null = null;
 
@@ -37,10 +39,11 @@ async function req(
   srv: TestServer,
   method: string,
   path: string,
-  init: { body?: unknown; rawSessionId?: string } = {},
+  init: { body?: unknown; rawSessionId?: string; bearer?: string } = {},
 ): Promise<Res> {
   const headers: Record<string, string> = {};
   if (init.body !== undefined) headers["Content-Type"] = "application/json";
+  if (init.bearer) headers["Authorization"] = `Bearer ${init.bearer}`;
   const res = await srv.http(path, {
     method,
     headers,
@@ -602,8 +605,9 @@ describe("agents.update REST (Phase 3d slice 7b)", () => {
   });
 
   // --- customInstructions version guard (task 44a2c98d) ----------------------
-  // Blob-bearing PATCHes must echo AgentInfo.customInstructionsVersion (the
-  // read surface is the wire object — there is no GET /api/agents/:id).
+  // Blob-bearing PATCHes must echo AgentInfo.customInstructionsVersion (read
+  // surfaces: the wire object for the UI, GET /api/agents/:id/instructions for
+  // agents — pinned in the "agents.readInstructions REST" block below).
   // Scalar-only edits stay version-free (pinned by "owner edits" above, which
   // PATCHes name without a version and gets 200).
 
@@ -904,6 +908,175 @@ describe("agents.revive REST (Phase 3d slice 7b)", () => {
     const res = await req(srv, "POST", "/api/agents/whatever/revive", {
       body: { roomId: r1, desk: 0 },
     });
+    expect(res.status).toBe(401);
+  });
+});
+
+describe("agents.readInstructions REST (task 68891fa1)", () => {
+  // The sanctioned read half of the read-then-PATCH flow: GET
+  // /api/agents/:id/instructions -> { customInstructions,
+  // customInstructionsVersion }. Nil-decided policy pinned here: the read is
+  // `authenticated` + room access — EVERY agent (privileged or not) may read
+  // any agent it can see; privilege gates only the WRITE (agents.update), and
+  // the version token is a lost-update guard, not an authorization mechanism.
+
+  // Spawn an agent MANAGED BY a specific user, so its bearer token carries
+  // that user's room access (an unowned agent's token has access to nothing).
+  async function spawnOwnedBy(
+    srv: TestServer,
+    name: string,
+    roomId: string,
+    desk: number,
+    username: string,
+    customInstructions?: string,
+  ) {
+    const user = getUserByName(username);
+    if (!user) throw new Error(`unknown user: ${username}`);
+    const a = await srv.agentManager.spawn(
+      name,
+      srv.stateRoot,
+      "default",
+      desk,
+      customInstructions,
+      roomId,
+      undefined,
+      undefined,
+      undefined,
+      username,
+      "claude",
+      undefined,
+      user.id,
+    );
+    if (!a) throw new Error(`spawn failed: ${name}`);
+    return a;
+  }
+
+  it("a NON-privileged agent bearer reads a room-mate's blob + version -> 200 (reads are not privilege-gated)", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const target = await spawnOwnedBy(
+      srv,
+      "Target",
+      r1,
+      0,
+      owner.username,
+      "be terse",
+    );
+    const reader = await spawnOwnedBy(srv, "Reader", r1, 1, owner.username);
+    const token = getAgentTokenRaw(reader.id);
+    if (!token) throw new Error("agent token not minted on spawn");
+    const res = await req(srv, "GET", `/api/agents/${target.id}/instructions`, {
+      bearer: token,
+    });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      customInstructions: "be terse",
+      customInstructionsVersion: srv.agentManager.getAgent(target.id)!
+        .customInstructionsVersion,
+    });
+  });
+
+  it("a null blob reads as { customInstructions: null } with the sentinel version (still echoable)", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const target = await spawnOwnedBy(srv, "Target", r1, 0, owner.username);
+    const reader = await spawnOwnedBy(srv, "Reader", r1, 1, owner.username);
+    const res = await req(srv, "GET", `/api/agents/${target.id}/instructions`, {
+      bearer: getAgentTokenRaw(reader.id)!,
+    });
+    expect(res.status).toBe(200);
+    const body = res.body as {
+      customInstructions: string | null;
+      customInstructionsVersion: string;
+    };
+    expect(body.customInstructions).toBeNull();
+    expect(body.customInstructionsVersion).toMatch(/^[0-9a-f]{12}$/);
+  });
+
+  it("read -> PATCH echoing the returned version -> 200; the pre-edit version is then stale (409)", async () => {
+    // The end-to-end flow the endpoint exists for: an operator reads the blob
+    // + version, edits, and echoes the version back through agents.update.
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const target = await spawnOwnedBy(srv, "Target", r1, 0, owner.username);
+    const read = await req(
+      srv,
+      "GET",
+      `/api/agents/${target.id}/instructions`,
+      { rawSessionId: owner.rawSessionId },
+    );
+    expect(read.status).toBe(200);
+    const { customInstructionsVersion: v0 } = read.body as {
+      customInstructionsVersion: string;
+    };
+    const patch = await req(srv, "PATCH", `/api/agents/${target.id}`, {
+      body: { customInstructions: "be terse", customInstructionsVersion: v0 },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(patch.status).toBe(200);
+    // A re-read returns the advanced version; the old token is now stale.
+    const reread = await req(
+      srv,
+      "GET",
+      `/api/agents/${target.id}/instructions`,
+      { rawSessionId: owner.rawSessionId },
+    );
+    expect(
+      (reread.body as { customInstructionsVersion: string })
+        .customInstructionsVersion,
+    ).not.toBe(v0);
+    const stale = await req(srv, "PATCH", `/api/agents/${target.id}`, {
+      body: { customInstructions: "clobber", customInstructionsVersion: v0 },
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(stale.status).toBe(409);
+    expect(errCode(stale.body)).toBe("version_conflict");
+  });
+
+  it("an agent bearer without room access to the target -> uniform 403 (same for a nonexistent id — no existence oracle)", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const member = await srv.seedMember("Mia"); // no room grants
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const target = await spawnOwnedBy(srv, "Target", r1, 0, owner.username);
+    // Reader is managed by the grant-less member, so its token can't see r1.
+    const reader = await spawnOwnedBy(srv, "Reader", r1, 1, member.username);
+    const token = getAgentTokenRaw(reader.id)!;
+    const denied = await req(
+      srv,
+      "GET",
+      `/api/agents/${target.id}/instructions`,
+      { bearer: token },
+    );
+    expect(denied.status).toBe(403);
+    const missing = await req(
+      srv,
+      "GET",
+      "/api/agents/agent-0-none/instructions",
+      { bearer: token },
+    );
+    expect(missing.status).toBe(403);
+  });
+
+  it("no identity -> 401", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const target = await spawnOwnedBy(srv, "Target", r1, 0, owner.username);
+    const res = await req(
+      srv,
+      "GET",
+      `/api/agents/${target.id}/instructions`,
+      {},
+    );
     expect(res.status).toBe(401);
   });
 });

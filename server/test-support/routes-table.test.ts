@@ -188,6 +188,9 @@ const SPEC_ROUTE_CONTRACT: Record<
   },
   "agents.abort": { caps: ["agent:manage"], emits: [] },
   "agents.update": { caps: ["agent:manage"], emits: ["agent_updated"] },
+  // caps: [] = `authenticated`-kind (task 68891fa1): every agent may READ the
+  // blob + version; only the WRITE (agents.update) is capability-gated.
+  "agents.readInstructions": { caps: [], emits: [] },
   "agents.setPrivileged": {
     caps: ["agent:privilege"],
     emits: ["agent_updated"],

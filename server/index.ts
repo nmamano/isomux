@@ -2012,6 +2012,7 @@ function buildExecutorDeps(): ExecutorDeps {
     agentsHandlers({
       kill: (agentId) => agentManager.kill(agentId),
       abort: (agentId) => agentManager.abort(agentId),
+      getAgent: (agentId) => agentManager.getAgent(agentId),
       move: (agentId, targetRoomId) => {
         const current = agentManager.getAgent(agentId);
         // agentParam proved the agent existed; a miss here is a post-guard race.

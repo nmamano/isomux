@@ -208,6 +208,14 @@ type MessageAck = { messageId: string };
 type ScheduledAck = { scheduledId: string; deliverAt: string };
 type ScheduledMessagesListRes = { scheduled: ScheduledMessageEntry[] };
 type AgentEnvelope = { agent: AgentInfo };
+// agents.readInstructions (task 68891fa1): the customInstructions blob + its
+// concurrency token — the read half of the read-then-PATCH flow that
+// agents.update's version guard (44a2c98d) expects. Field names match
+// EditAgentReq exactly so a caller reads, edits, and echoes the version back.
+type AgentInstructionsRes = {
+  customInstructions: string | null;
+  customInstructionsVersion: string;
+};
 type OkTrue = { ok: true };
 
 // ---------------------------------------------------------------------------
@@ -252,6 +260,20 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/agents/:id",
     auth: cap("agent:manage", agentParam("id")),
     emits: ["agent_updated"],
+  }),
+  // Read an agent's customInstructions blob + version token (task 68891fa1).
+  // `authenticated` (no capability), Nil-ruled: EVERY agent may read any agent
+  // it can see — privilege gates the WRITE (agents.update), and the version
+  // token is a lost-update/race guard, NOT an authorization mechanism. The
+  // agentParam guard matches the roster's room-access VISIBILITY (who you can
+  // read; the payload is deliberately narrower than the roster's): an
+  // inaccessible or nonexistent :id is a uniform 403 (no existence oracle).
+  defineRoute<void, AgentInstructionsRes>({
+    opId: "agents.readInstructions",
+    method: "GET",
+    path: "/api/agents/:id/instructions",
+    auth: authn(agentParam("id")),
+    emits: [],
   }),
   // Owner-administrative privilege toggle. Its OWN route (not a field on
   // agents.update), mirroring users.setAccess vs users.update: editing normal

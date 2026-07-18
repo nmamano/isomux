@@ -157,6 +157,10 @@ export interface AgentsDeps {
     agentId: string,
     privileged: boolean,
   ): Promise<AgentInfo | null>;
+  // Live AgentInfo lookup for the instructions read (task 68891fa1). The
+  // agentParam guard already gated existence + room access, so a miss here is
+  // a post-guard race (-> defensive 404).
+  getAgent(agentId: string): AgentInfo | undefined;
 }
 
 // Reject a present-but-wrong-typed optional agent field at the boundary, so
@@ -200,6 +204,21 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
     "agents.abort": async (ctx) => {
       await deps.abort(ctx.params.id);
       return noContent();
+    },
+
+    // Sanctioned read of the customInstructions blob + version token (task
+    // 68891fa1): the read half of the read-then-PATCH flow agents.update's
+    // version guard expects. Authorization is the route's `authenticated` +
+    // agentParam guard (every agent with room access may read — see table.ts);
+    // this just projects the two fields off the live agent.
+    "agents.readInstructions": (ctx) => {
+      const agent = deps.getAgent(ctx.params.id);
+      // agentParam proved the agent existed; a miss here is a post-guard race.
+      if (!agent) return fail(404, "agent_not_found", "Agent not found");
+      return ok({
+        customInstructions: agent.customInstructions,
+        customInstructionsVersion: agent.customInstructionsVersion,
+      });
     },
 
     "agents.move": (ctx) => {
@@ -325,8 +344,10 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
       }
       // Blob-bearing writes are version-guarded (task 44a2c98d): a PATCH that
       // carries customInstructions must echo the agent's
-      // customInstructionsVersion (read off full_state / agent_updated).
-      // Scalar-only edits skip this entirely — no version, no friction.
+      // customInstructionsVersion — read off full_state / agent_updated (UI)
+      // or GET /api/agents/:id/instructions (agents.readInstructions, the
+      // agent-facing read). Scalar-only edits skip this entirely — no version,
+      // no friction.
       if (
         b.customInstructions !== undefined &&
         (typeof b.customInstructionsVersion !== "string" ||
@@ -335,7 +356,7 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
         return fail(
           400,
           "invalid_version",
-          "customInstructionsVersion is required when customInstructions is present (read it off the agent first)",
+          "customInstructionsVersion is required when customInstructions is present (read it via GET /api/agents/:id/instructions first)",
         );
       }
       const r = await deps.edit(ctx.params.id, b);

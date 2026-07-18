@@ -322,9 +322,11 @@ export interface AgentInfo {
   // spawn/editAgent + the server's load/restore paths). A PATCH that carries
   // customInstructions must echo this token back (customInstructionsVersion in
   // EditAgentReq); a mismatch is a 409 version_conflict. Scalar-only edits
-  // (name/cwd/model/...) don't require it. This is the READ surface for the
-  // version — there is no GET /api/agents/:id; the edit dialog reads the agent
-  // off full_state / agent_updated.
+  // (name/cwd/model/...) don't require it. READ surfaces: the UI edit dialog
+  // reads the agent off full_state / agent_updated; agents read blob + version
+  // via GET /api/agents/:id/instructions (agents.readInstructions, task
+  // 68891fa1 — open to every authenticated identity with room access to the
+  // agent; the version is a concurrency token, not an authorization gate).
   customInstructionsVersion: string;
   // Which engine this agent runs on. Fixed at spawn time. Existing agents
   // persisted before this field landed default to "claude" on load.

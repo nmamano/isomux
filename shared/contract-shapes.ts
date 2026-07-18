@@ -85,9 +85,10 @@ export type EditAgentReq = Partial<
 > & {
   // REQUIRED iff customInstructions is present in the body (task 44a2c98d):
   // echo back AgentInfo.customInstructionsVersion as read off full_state /
-  // agent_updated. Missing then -> 400 invalid_version; stale -> 409
-  // version_conflict with the current version. Scalar-only edits omit it and
-  // stay friction-free.
+  // agent_updated (UI) or GET /api/agents/:id/instructions
+  // (agents.readInstructions, task 68891fa1 — the agent-facing read). Missing
+  // then -> 400 invalid_version; stale -> 409 version_conflict with the
+  // current version. Scalar-only edits omit it and stay friction-free.
   customInstructionsVersion?: string;
 };
 
