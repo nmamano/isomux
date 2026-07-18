@@ -223,6 +223,9 @@ export function EditorPanel({
   // Tracks the language currently installed in the lang compartment so the
   // sync effect only reconfigures when the buffer's language actually changes.
   const installedLangRef = useRef<string | null>(null);
+  // Tracks whether the empty-editor read-only lock is installed, so we only
+  // reconfigure the compartment on transitions (not every render).
+  const readonlyInstalledRef = useRef<boolean>(false);
 
   const setTabsAndPersist = useCallback(
     (updater: (prev: Tab[]) => Tab[]) => {
@@ -702,10 +705,28 @@ export function EditorPanel({
         view.dispatch({ effects: langCompartmentRef.current.reconfigure([]) });
         installedLangRef.current = null;
       }
+      // With no file open, lock the empty buffer: keystrokes would otherwise
+      // land in a scratch doc that's never saved anywhere.
+      if (!readonlyInstalledRef.current) {
+        view.dispatch({
+          effects: readonlyCompartmentRef.current.reconfigure([
+            EditorState.readOnly.of(true),
+            EditorView.editable.of(false),
+          ]),
+        });
+        readonlyInstalledRef.current = true;
+      }
       return;
     }
     const tab = tabs.find((t) => t.path === activePath);
     if (!tab) return;
+    // A real file is open — restore editability if we'd locked it.
+    if (readonlyInstalledRef.current) {
+      view.dispatch({
+        effects: readonlyCompartmentRef.current.reconfigure([]),
+      });
+      readonlyInstalledRef.current = false;
+    }
     const current = view.state.doc.toString();
     if (current !== tab.content) {
       view.dispatch({
@@ -1357,7 +1378,24 @@ export function EditorPanel({
         </div>
       )}
 
-      {/* Editor body */}
+      {/* Editor body. Hidden (not unmounted — the CodeMirror view stays attached)
+          when no file is open, so its empty "1"-line gutter doesn't show; a plain
+          placeholder takes its place. */}
+      {tabs.length === 0 && (
+        <div
+          style={{
+            flex: 1,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "var(--text-ghost)",
+            fontSize: 12,
+            fontFamily: "'JetBrains Mono', monospace",
+          }}
+        >
+          No file open
+        </div>
+      )}
       <div
         ref={containerRef}
         style={{
@@ -1365,6 +1403,7 @@ export function EditorPanel({
           overflow: "auto",
           fontFamily: "'JetBrains Mono', monospace",
           fontSize: 13,
+          display: tabs.length === 0 ? "none" : undefined,
         }}
       />
 

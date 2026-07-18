@@ -600,6 +600,11 @@ function TaskDetailPanel({
             }}
           >
             {mode === "create" ? "Create" : "Save"}
+            <span style={{ marginLeft: 6, opacity: 0.6, fontWeight: 400 }}>
+              {(navigator.platform || "").includes("Mac")
+                ? "⌘+Enter"
+                : "Ctrl+Enter"}
+            </span>
           </button>
           {mode === "edit" && (
             <button
@@ -1031,6 +1036,9 @@ export function TaskView({
                   !e.repeat &&
                   !e.nativeEvent.isComposing
                 ) {
+                  // Prevent the keystroke's default so it can't land as a
+                  // newline in the description field we focus on open.
+                  e.preventDefault();
                   openCreatePanel();
                 }
               }}

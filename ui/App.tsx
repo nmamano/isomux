@@ -333,6 +333,12 @@ export function App() {
         setCtxMenu(null);
         setEditAgent(null);
       }
+      // "t": toggle the task board from anywhere (office view or while viewing an
+      // agent), as long as you're not typing into a field.
+      if (!isInput && e.key === "t" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        e.preventDefault();
+        setTasksOpen((v) => !v);
+      }
       // Viewport zoom/pan shortcuts (only from office view): 0 → reset, +/= → zoom in, - → zoom out.
       // "=" accepted as an alias for "+" so users don't need Shift on US layouts.
       // Ref is null when OfficeView isn't mounted (mobile list, log view, etc.) — don't swallow the key in those cases.
