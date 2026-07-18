@@ -2250,9 +2250,10 @@ export function LogView({
               ))}
             </div>
           )}
-          {skillsOpen && (
+          {skillsOpen && input.trim() === "" && (
             <SkillsPopover
               skills={agentCmds?.skills ?? []}
+              commands={agentCmds?.commands ?? []}
               isMobile={isMobile}
               onPick={handleSkillPick}
               onClose={() => setSkillsOpen(false)}
@@ -2288,32 +2289,46 @@ export function LogView({
                 <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
               </svg>
             </button>
-            {(agentCmds?.skills.length ?? 0) > 0 && (
-              // Plain-text "Sk" on purpose: decorative Unicode glyphs get
-              // hijacked by iOS Safari's emoji renderer (see the ▶ note in
-              // TerminalPanel), and plain text needs no such gating.
-              <button
-                data-skills-toggle
-                onClick={() => setSkillsOpen((o) => !o)}
-                style={{
-                  background: "none",
-                  border: "none",
-                  padding: 0,
-                  color: skillsOpen ? "var(--green)" : "var(--text-muted)",
-                  cursor: "pointer",
-                  lineHeight: "20px",
-                  fontSize: 12,
-                  fontWeight: 700,
-                  fontFamily: "'JetBrains Mono',monospace",
-                  flexShrink: 0,
-                  opacity: skillsOpen ? 1 : 0.7,
-                  transition: "opacity 0.15s, color 0.15s",
-                }}
-                title="Skills"
-              >
-                Sk
-              </button>
-            )}
+            {(agentCmds?.skills.length ?? 0) +
+              (agentCmds?.commands.length ?? 0) >
+              0 &&
+              // Only offered on an empty draft: slash commands/skills are
+              // recognized only as the very first thing in a message
+              // (agent-manager isSlash checks startsWith), so mid-draft
+              // insertion would produce text that never expands.
+              input.trim() === "" && (
+                // Plain-text "Sk" on purpose: decorative Unicode glyphs get
+                // hijacked by iOS Safari's emoji renderer (see the ▶ note in
+                // TerminalPanel), and plain text needs no such gating.
+                <button
+                  data-skills-toggle
+                  onClick={() => setSkillsOpen((o) => !o)}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    padding: 0,
+                    color: skillsOpen ? "var(--green)" : "var(--text-muted)",
+                    cursor: "pointer",
+                    // Flex-center the glyph in the same 20px box the paperclip
+                    // occupies, then nudge up to optically match the svg's
+                    // baseline-driven position (it sat visibly low before).
+                    display: "flex",
+                    alignItems: "center",
+                    height: 20,
+                    position: "relative",
+                    top: -2,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    fontFamily: "'JetBrains Mono',monospace",
+                    flexShrink: 0,
+                    opacity: skillsOpen ? 1 : 0.7,
+                    transition: "opacity 0.15s, color 0.15s",
+                  }}
+                  title="Skills & commands"
+                >
+                  Sk
+                </button>
+              )}
             <span
               style={{
                 color: isBusy ? "var(--text-ghost)" : "var(--green)",

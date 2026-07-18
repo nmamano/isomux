@@ -1,19 +1,35 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { SkillInfo, SkillOrigin } from "../../shared/types.ts";
 
-// Display groups in the agreed order: bundled / user / project / plugin.
-// "isomux" is the origin of skills bundled with isomux, hence "Bundled".
-// The "claude" origin exists in the SkillOrigin union but no discovery path
-// currently emits it; fold it into Bundled rather than surfacing a fifth
-// group that was never part of the agreed grouping.
-type GroupKey = "bundled" | "user" | "project" | "plugin";
-const GROUP_ORDER: GroupKey[] = ["bundled", "user", "project", "plugin"];
+// Display groups: built-in commands first (mirrors /help), then skills in
+// the agreed order: bundled / user / project / plugin. "isomux" is the
+// origin of skills bundled with isomux, hence "Bundled". The "claude" origin
+// exists in the SkillOrigin union but no discovery path currently emits it;
+// fold it into Bundled rather than surfacing an extra group that was never
+// part of the agreed grouping.
+type GroupKey = "commands" | "bundled" | "user" | "project" | "plugin";
+const GROUP_ORDER: GroupKey[] = [
+  "commands",
+  "bundled",
+  "user",
+  "project",
+  "plugin",
+];
 const GROUP_LABELS: Record<GroupKey, string> = {
+  commands: "Commands",
   bundled: "Bundled",
   user: "User",
   project: "Project",
   plugin: "Plugin",
 };
+
+// Built-in slash commands ride the same slash_commands wire message as
+// skills but with a simpler shape (no origin).
+export interface CommandEntry {
+  name: string;
+  description?: string;
+  aliasFor?: string;
+}
 function groupForOrigin(origin: SkillOrigin): GroupKey {
   if (origin === "isomux" || origin === "claude") return "bundled";
   return origin;
@@ -26,11 +42,13 @@ function groupForOrigin(origin: SkillOrigin): GroupKey {
 // the draft; there is no args handling here by design.
 export function SkillsPopover({
   skills,
+  commands,
   isMobile,
   onPick,
   onClose,
 }: {
   skills: SkillInfo[];
+  commands: CommandEntry[];
   isMobile: boolean;
   onPick: (name: string) => void;
   onClose: () => void;
@@ -72,34 +90,39 @@ export function SkillsPopover({
   }, [isMobile]);
 
   const groups = useMemo(() => {
-    // A skill entry with aliasFor is a friendlier alias of a canonical
-    // (on-disk) name. Mirror /help: show one line per skill — the alias —
-    // and hide the canonical it points at.
+    // An entry with aliasFor is a friendlier alias of a canonical name
+    // (skills: on-disk name; commands: e.g. /diff for /isomux-diff). Mirror
+    // /help: show one line per entry — the alias — and hide the canonical
+    // it points at.
     const aliasTargets = new Set(
-      skills.filter((s) => s.aliasFor).map((s) => s.aliasFor as string),
+      [...skills, ...commands]
+        .filter((s) => s.aliasFor)
+        .map((s) => s.aliasFor as string),
     );
     const q = filter.trim().toLowerCase();
-    const byGroup = new Map<GroupKey, SkillInfo[]>();
-    for (const s of skills) {
-      if (aliasTargets.has(s.name)) continue;
-      if (
-        q &&
-        !s.name.toLowerCase().includes(q) &&
-        !(s.description ?? "").toLowerCase().includes(q)
-      ) {
-        continue;
-      }
-      const group = groupForOrigin(s.origin);
+    const matches = (name: string, description?: string) =>
+      !q ||
+      name.toLowerCase().includes(q) ||
+      (description ?? "").toLowerCase().includes(q);
+    const byGroup = new Map<
+      GroupKey,
+      { name: string; description?: string }[]
+    >();
+    const add = (group: GroupKey, name: string, description?: string) => {
+      if (aliasTargets.has(name) || !matches(name, description)) return;
       const list = byGroup.get(group) ?? [];
-      list.push(s);
+      list.push({ name, description });
       byGroup.set(group, list);
-    }
+    };
+    for (const c of commands) add("commands", c.name, c.description);
+    for (const s of skills)
+      add(groupForOrigin(s.origin), s.name, s.description);
     return GROUP_ORDER.filter((g) => byGroup.has(g)).map((g) => ({
       key: g,
       label: GROUP_LABELS[g],
       skills: byGroup.get(g)!.sort((a, b) => a.name.localeCompare(b.name)),
     }));
-  }, [skills, filter]);
+  }, [skills, commands, filter]);
 
   return (
     <div
@@ -110,7 +133,9 @@ export function SkillsPopover({
         left: 8,
         right: isMobile ? 8 : 20,
         marginBottom: 4,
-        background: "var(--bg-surface)",
+        // Solid variant on purpose: the popover floats over chat content and
+        // the translucent --bg-surface lets it bleed through (Nil 2026-07-17).
+        background: "var(--bg-surface-solid)",
         border: "1px solid var(--border-medium)",
         borderRadius: 8,
         boxShadow: "0 -4px 16px rgba(0,0,0,0.3)",
@@ -131,7 +156,7 @@ export function SkillsPopover({
           ref={filterRef}
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          placeholder="Filter skills..."
+          placeholder="Filter skills & commands..."
           style={{
             width: "100%",
             boxSizing: "border-box",
@@ -157,7 +182,7 @@ export function SkillsPopover({
               color: "var(--text-ghost)",
             }}
           >
-            No matching skills
+            No matching skills or commands
           </div>
         )}
         {groups.map((group) => (
