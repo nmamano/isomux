@@ -162,67 +162,67 @@ describe("pickContextThreshold", () => {
   });
 
   it("returns null below the lowest threshold", () => {
-    expect(pickContextThreshold(fakeManaged(snap(59.9)))).toBeNull();
+    expect(pickContextThreshold(fakeManaged(snap(49.9)))).toBeNull();
   });
 
-  it("returns 60 in the 60–84 band", () => {
-    expect(pickContextThreshold(fakeManaged(snap(60)))).toBe(60);
-    expect(pickContextThreshold(fakeManaged(snap(84.9)))).toBe(60);
+  it("returns 50 in the 50–74 band", () => {
+    expect(pickContextThreshold(fakeManaged(snap(50)))).toBe(50);
+    expect(pickContextThreshold(fakeManaged(snap(74.9)))).toBe(50);
   });
 
   it("returns the HIGHEST newly-reached band when a first sample clears several", () => {
-    // Lands at 87% with nothing fired yet — only the 85 notice should emit.
-    expect(pickContextThreshold(fakeManaged(snap(87)))).toBe(85);
+    // Lands at 90% with nothing fired yet — only the 75 notice should emit.
+    expect(pickContextThreshold(fakeManaged(snap(90)))).toBe(75);
   });
 
-  it("returns 85 once 60 has already fired", () => {
-    expect(pickContextThreshold(fakeManaged(snap(90), [60]))).toBe(85);
+  it("returns 75 once 50 has already fired", () => {
+    expect(pickContextThreshold(fakeManaged(snap(90), [50]))).toBe(75);
   });
 
   it("returns null once every reached band has fired", () => {
-    expect(pickContextThreshold(fakeManaged(snap(90), [60, 85]))).toBeNull();
-    expect(pickContextThreshold(fakeManaged(snap(70), [60]))).toBeNull();
+    expect(pickContextThreshold(fakeManaged(snap(90), [50, 75]))).toBeNull();
+    expect(pickContextThreshold(fakeManaged(snap(70), [50]))).toBeNull();
   });
 });
 
 describe("markContextThresholdFired", () => {
   it("marks the given threshold and every lower one", () => {
-    const m = fakeManaged(snap(87));
-    markContextThresholdFired(m, 85);
-    // Both 60 and 85 are consumed so neither re-fires on a later turn.
-    expect(m.firedAgentThresholds.has(60)).toBe(true);
-    expect(m.firedAgentThresholds.has(85)).toBe(true);
+    const m = fakeManaged(snap(90));
+    markContextThresholdFired(m, 75);
+    // Both 50 and 75 are consumed so neither re-fires on a later turn.
+    expect(m.firedAgentThresholds.has(50)).toBe(true);
+    expect(m.firedAgentThresholds.has(75)).toBe(true);
     expect(pickContextThreshold(m)).toBeNull();
   });
 
-  it("marking 60 leaves 85 available", () => {
+  it("marking 50 leaves 75 available", () => {
     const m = fakeManaged(snap(90));
-    markContextThresholdFired(m, 60);
-    expect(m.firedAgentThresholds.has(60)).toBe(true);
-    expect(m.firedAgentThresholds.has(85)).toBe(false);
-    expect(pickContextThreshold(m)).toBe(85);
+    markContextThresholdFired(m, 50);
+    expect(m.firedAgentThresholds.has(50)).toBe(true);
+    expect(m.firedAgentThresholds.has(75)).toBe(false);
+    expect(pickContextThreshold(m)).toBe(75);
   });
 });
 
 describe("formatContextNotice", () => {
-  it("formats the 60 band with a plain hyphen, comma grouping, and rounded pct", () => {
+  it("formats the 50 band with a plain hyphen, comma grouping, and rounded pct", () => {
     // 68% of 200k = 136,000. No em dash (Nil's prose rule); spaced hyphen.
-    const line = formatContextNotice(60, snap(68));
+    const line = formatContextNotice(50, snap(68));
     expect(line).toBe(
       "[context check: 68% full - 136,000 / 200,000 tokens. Budget accordingly.]",
     );
     expect(line).not.toContain("—"); // em dash
   });
 
-  it("formats the 85 band with wrap-up advice", () => {
-    const line = formatContextNotice(85, snap(87));
+  it("formats the 75 band with wrap-up advice", () => {
+    const line = formatContextNotice(75, snap(87));
     expect(line).toBe(
       "[context check: 87% full - 174,000 / 200,000 tokens. Wrap up: finish or hand off current work; tell the boss a /clear is advisable.]",
     );
   });
 
   it("rounds the displayed percentage from the raw float", () => {
-    expect(formatContextNotice(60, snap(60.4))).toContain("60% full");
-    expect(formatContextNotice(85, snap(85.6))).toContain("86% full");
+    expect(formatContextNotice(50, snap(50.4))).toContain("50% full");
+    expect(formatContextNotice(75, snap(75.6))).toContain("76% full");
   });
 });

@@ -409,8 +409,8 @@ const CONTEXT_NOTICE_SAMPLE_WAIT_MS = 500;
 
 // Agent-facing fullness thresholds (raw percentage), ascending. Once each per
 // conversation generation. Kept in step with the UI color bands in the design
-// doc §3 (60 = orange/plan-around-it, 85 = red/wrap-up).
-const CONTEXT_NOTICE_THRESHOLDS = [60, 85] as const;
+// doc §3 (50 = orange/plan-around-it, 75 = red/wrap-up).
+const CONTEXT_NOTICE_THRESHOLDS = [50, 75] as const;
 
 export function formatContextNotice(
   threshold: number,
@@ -420,7 +420,7 @@ export function formatContextNotice(
   const used = snap.totalTokens.toLocaleString("en-US");
   const max = snap.maxTokens.toLocaleString("en-US");
   const advice =
-    threshold >= 85
+    threshold >= 75
       ? "Wrap up: finish or hand off current work; tell the boss a /clear is advisable."
       : "Budget accordingly.";
   return `[context check: ${pct}% full - ${used} / ${max} tokens. ${advice}]`;

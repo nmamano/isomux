@@ -8,7 +8,7 @@ Nil greenlit a REDUCED scope for the first batch — the server-side core only. 
 
 - The per-agent in-memory snapshot with the race-safe commit protocol and the lifecycle matrix (§1 minus the WS broadcast, §4). Sampling at `turn_completed` (both engines) + Codex `usage_update`.
 - `GET /api/agents/:id/context` (§2's endpoint) and its system-prompt recipe.
-- **Task 50392514 (2026-07-18 batch 2)** — the injected 60%/85% auto-notices (§2's notice mechanics) + the outbound-envelope generalization (§2a). `contextSampleInFlight` now has its consumer: the pre-send notice step in `runAgentTurn` awaits it with a ~500ms bound. Added `ManagedAgent.firedAgentThresholds` (reset with the generation, restored on edit-fork rollback, preserved on model change). `stripPluginPrefix` → `stripOutboundEnvelope` (accepts `isomux:` and `plugin:` blocks; plugin-only transcripts strip identically). Notice text uses a plain hyphen, not an em dash (Nil's prose rule). The fired-set is mutated ONLY by the send path at send-accept time (after `session.send` resolves, so a failed/swapped send never burns a notice) — the commit path never touches it. The UI `firedUiThresholds` set is deliberately NOT added yet (belongs to task 27096236).
+- **Task 50392514 (2026-07-18 batch 2)** — the injected 50%/75% auto-notices (§2's notice mechanics) + the outbound-envelope generalization (§2a). `contextSampleInFlight` now has its consumer: the pre-send notice step in `runAgentTurn` awaits it with a ~500ms bound. Added `ManagedAgent.firedAgentThresholds` (reset with the generation, restored on edit-fork rollback, preserved on model change). `stripPluginPrefix` → `stripOutboundEnvelope` (accepts `isomux:` and `plugin:` blocks; plugin-only transcripts strip identically). Notice text uses a plain hyphen, not an em dash (Nil's prose rule). The fired-set is mutated ONLY by the send path at send-accept time (after `session.send` resolves, so a failed/swapped send never burns a notice) — the commit path never touches it. The UI `firedUiThresholds` set is deliberately NOT added yet (belongs to task 27096236).
 
 **Follow-up tasks, NOT implemented (the sections below describing them are design reference for those tasks):**
 
@@ -72,7 +72,7 @@ On resolve, commit only if `managed.contextGen === gen && managed.session === se
 
 `contextSampleInFlight` ownership: with overlapping refreshes, an older promise's `finally` must not clear a newer promise from the slot — standard identity guard (`if (managed.contextSampleInFlight === ownPromise) managed.contextSampleInFlight = null`). A generation reset also synchronously nulls the slot (in addition to bumping `contextGen`), so the first send of a fresh conversation never spends its 500ms budget awaiting an old conversation's request; the orphaned request still self-discards via the gen/session checks.
 
-**Commit side effects** (all in one place, server-authoritative): store snapshot → broadcast if changed → evaluate the **UI threshold only** (§3). The commit path never touches `firedAgentThresholds` — that set is evaluated and mutated exclusively by the pre-send step in `runAgentTurn`, at the moment it actually injects the block (§2). Otherwise a committed 85% sample would consume the agent notice before any outbound send existed to carry it. Threshold evaluation always uses the raw float, never throttled/rounded broadcast values.
+**Commit side effects** (all in one place, server-authoritative): store snapshot → broadcast if changed → evaluate the **UI threshold only** (§3). The commit path never touches `firedAgentThresholds` — that set is evaluated and mutated exclusively by the pre-send step in `runAgentTurn`, at the moment it actually injects the block (§2). Otherwise a committed 75% sample would consume the agent notice before any outbound send existed to carry it. Threshold evaluation always uses the raw float, never throttled/rounded broadcast values.
 
 Broadcast: extend `AgentInfo` (`shared/types.ts`) with an optional `contextUsage` field (same shape minus `source`) and emit `agent_updated` with `changes: { contextUsage }`. Cadence: every committed `turn_completed` / `on_demand` sample broadcasts (turn-boundary frequency is already low); only the Codex `usage_update` path is throttled, and on displayed values — broadcast when `model` or `maxTokens` changes, or when the integer percentage or displayed rounded token count changes.
 
@@ -97,7 +97,7 @@ Payload:
 - Runs after the previous turn's `afterTurn` gate, before backend send, with `checkCancelled()` after any await.
 - First awaits `contextSampleInFlight` with a short bounded timeout (~500ms, tunable) so the notice reflects the just-finished turn instead of racing the fire-and-forget refresh. On timeout, proceeds with whatever snapshot is committed — a notice delayed by one turn beats delaying every send.
 - If the raw percentage has reached a threshold not yet fired this generation, prepends one line to the outgoing envelope (§2a). If the first available sample already clears multiple thresholds (e.g. lands at 87%), only the HIGHEST newly-reached notice is emitted, and all thresholds ≤ it are marked fired.
-- Thresholds: 60% (heads-up) and 85% (wrap up), matching the UI colors. Once per threshold per generation — after a compaction drop and re-cross there is no repeat (fired-set only resets with the generation).
+- Thresholds: 50% (heads-up) and 75% (wrap up), matching the UI colors. Once per threshold per generation — after a compaction drop and re-cross there is no repeat (fired-set only resets with the generation).
 
 ```
 [context check: 68% full - 136,000 / 200,000 tokens. Budget accordingly.]
@@ -139,14 +139,14 @@ User message:
 
 | fullness | color | meaning |
 |---|---|---|
-| < 60% | `--text-muted` (dim) | fine, informational |
-| 60–84% | `--orange` | plan around it |
-| ≥ 85% | `--red` | wrap up / clear soon |
+| < 50% | `--text-muted` (dim) | fine, informational |
+| 50–74% | `--orange` | plan around it |
+| ≥ 75% | `--red` | wrap up / clear soon |
 
 **Suggest actions, concretely:**
 
 - Click/tap on the pill opens a small popover (focus-reachable; works on touch where hover doesn't exist): `Context: 132,400 / 200,000 tokens (66%) — as of last turn.` At orange/red it appends: `Consider asking the agent to wrap up, or /clear for a fresh session.` Desktop hover shows the same content as a tooltip.
-- On first crossing ≥ 85% **per generation**, one ephemeral system notice in the chat: `Context is 87% full. Consider having the agent wrap up or summarize its state, then /clear.` Emitted server-side from the sample-commit path (`emitEphemeralLog`, same family as the session-swap indicator; not persisted into the transcript) — the server is the single authority, so multiple connected clients or reconnects cannot duplicate it. Tracked by `firedUiThresholds`, deliberately separate from the agent-facing fired-set: different audiences, and one firing must not suppress the other.
+- On first crossing ≥ 75% **per generation**, one ephemeral system notice in the chat: `Context is 87% full. Consider having the agent wrap up or summarize its state, then /clear.` Emitted server-side from the sample-commit path (`emitEphemeralLog`, same family as the session-swap indicator; not persisted into the transcript) — the server is the single authority, so multiple connected clients or reconnects cannot duplicate it. Tracked by `firedUiThresholds`, deliberately separate from the agent-facing fired-set: different audiences, and one firing must not suppress the other.
 - No buttons in v1. A "Clear conversation" action in the popover is a natural v2 if the text nudge proves insufficient.
 
 ### 4. Lifecycle: conversation generation, not subprocess replacement
@@ -203,7 +203,7 @@ Design only. The battery UI is NOT built. This section resolves the one open que
 ### Fixed decisions (independent of placement)
 
 - **Render the battery as inline SVG, never a Unicode glyph.** iOS Safari emoji-renders certain Unicode symbols (🔋 and the battery/▶/★ family) and overrides CSS color — which would defeat the whole "color shifts as it fills" point. A hand-drawn SVG (rounded-rect shell + a proportional fill rect + a small terminal nub) is ~15 lines and fully color-controllable. (Same class of gotcha recorded in Nil's memory about iOS auto-emoji rendering.)
-- **Color bands = the notice thresholds**, computed from the raw float percentage so the icon and the injected notices agree: `< 60%` → `--text-muted` (dim, informational), `60–84%` → `--orange`, `≥ 85%` → `--red`. Vars live in `ui/themes.ts`.
+- **Color bands = the notice thresholds**, computed from the raw float percentage so the icon and the injected notices agree: `< 50%` → `--text-muted` (dim, informational), `50–74%` → `--orange`, `≥ 75%` → `--red`. Vars live in `ui/themes.ts`.
 - **Label + hover.** Percentage shown as text next to the fill (rounded integer). Hover/tap tooltip: `132,400 / 200,000 tokens (66%) — as of last turn.` Touch has no hover, so the tooltip must also open on tap (a tiny popover), not hover-only.
 - **Hidden while unavailable** (snapshot null / `available:false`): no icon at all, not an empty shell.
 
@@ -217,15 +217,15 @@ Design only. The battery UI is NOT built. This section resolves the one open que
 - *Pros:* Roomy — the composer row has slack the header doesn't. It sits exactly where the "is there room for another message?" decision is made, so the signal is adjacent to the action it informs. Naturally full-width on mobile, so no 2-row squeeze.
 - *Cons:* Invisible while the human is scrolled up reading history. Divorced from the other run metadata (model/cwd/state all live in the header), so two places to look. Composer already carries attachment chips + queued-message chips; not empty either.
 
-**C. Header, "quiet until it matters" (a rendering variant of A).** Same slot as A, but below 60% the battery renders ghosted and icon-only (no `%` number); it only surfaces the number + color band once it crosses into orange.
+**C. Header, "quiet until it matters" (a rendering variant of A).** Same slot as A, but below 50% the battery renders ghosted and icon-only (no `%` number); it only surfaces the number + color band once it crosses into orange.
 - *Pros:* Removes the crowding objection almost entirely — for the majority of a conversation's life the footprint is a single dim ~12px glyph, and it grows into a labeled chip precisely when it's worth reading.
 - *Cons:* Partially conflicts with Nil's "show %" — a human who wants the number at 40% won't see it without hovering. It's a real taste tradeoff, not a dominated option, which is why it's listed separately.
 
 ### Recommendation
 
-Home it in the **LogView header right cluster (A)**, rendered with **C's quiet-until-it-matters behavior as the default** — dim icon-only under 60%, expanding to icon + `%` + color in the orange/red bands. That keeps the contested header strip calm at rest, honors "color shifts as it fills," and puts the number front-and-center exactly when it's actionable (which is also when the injected notices fire, so the two agree). Mobile: place it on the cwd row, icon-only, tap for the token popover.
+Home it in the **LogView header right cluster (A)**, rendered with **C's quiet-until-it-matters behavior as the default** — dim icon-only under 50%, expanding to icon + `%` + color in the orange/red bands. That keeps the contested header strip calm at rest, honors "color shifts as it fills," and puts the number front-and-center exactly when it's actionable (which is also when the injected notices fire, so the two agree). Mobile: place it on the cwd row, icon-only, tap for the token popover.
 
-The one genuine call left for Nil is the A-vs-C tension: **always show the `%` (pure A), or keep it quiet below 60% (A+C).** Everything else above is settled. If Nil prefers the number always visible, drop the C behavior and add the narrow-width icon-only rule instead. Composer (B) is the fallback only if the header truly can't absorb even the quiet form.
+The one genuine call left for Nil is the A-vs-C tension: **always show the `%` (pure A), or keep it quiet below 50% (A+C).** Everything else above is settled. If Nil prefers the number always visible, drop the C behavior and add the narrow-width icon-only rule instead. Composer (B) is the fallback only if the header truly can't absorb even the quiet form.
 
 ### Data path / WS push field needed (to be built with the UI, NOT in this batch)
 
@@ -234,7 +234,7 @@ The snapshot already exists server-side (task 50392514 batch). What's missing fo
 - **`AgentInfo.contextUsage?`** (`shared/types.ts`, the `AgentInfo` interface ~L293) — optional, snapshot shape **minus `source`**: `{ model: string; totalTokens: number; maxTokens: number; percentage: number; sampledAtMs: number }`. Absent/undefined ⇒ pill hidden.
 - **Broadcast from the sample-commit path** (`commitContextSample` in `server/agent-manager.ts`): emit `agent_updated` with `changes: { contextUsage }` whenever a committed sample changes displayed values. Per §1: broadcast every committed `turn_completed` / `on_demand` sample (turn-boundary cadence is already low); throttle ONLY the Codex `usage_update` path, and on *displayed* values (integer percentage / rounded token count / model / maxTokens change). Reset paths already null the snapshot; they should broadcast `contextUsage: undefined` so the pill clears.
 - **Store:** none. `ui/store.tsx`'s `agent_updated` reducer (~L344) already merges partial `changes` via `{ ...a, ...action.changes }`, so a new field surfaces to components automatically.
-- **Optional server-authoritative UI notice** (§3): a one-shot ephemeral chat line at first ≥85% crossing per generation, tracked by a separate `firedUiThresholds` set (deliberately NOT added in the 50392514 batch — different audience from the agent-facing set). Independent of placement; can ship with or after the pill.
+- **Optional server-authoritative UI notice** (§3): a one-shot ephemeral chat line at first ≥75% crossing per generation, tracked by a separate `firedUiThresholds` set (deliberately NOT added in the 50392514 batch — different audience from the agent-facing set). Independent of placement; can ship with or after the pill.
 
 ## Review log
 

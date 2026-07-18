@@ -155,7 +155,7 @@ Setup:
 - Resume past conversations from session files (via /resume or right-click menu)
 - All conversations are persisted forever in append-only JSONL logs
 - Kill removes agent and frees desk
-- Context self-check: every agent can ask how full its own context window is (an API documented in its system prompt), so instructions like "start wrapping up past 80% of context" have something real to check against. A reading is the latest backend sample and may lag the in-flight turn (roughly the last turn boundary); humans get the same view with /context. The server also nudges the agent as its window fills — a one-line notice on its next message the first time the conversation passes roughly 60% and then 85% — so wrap-up instructions fire even when the agent never thinks to check
+- Context self-check: every agent can ask how full its own context window is (an API documented in its system prompt), so instructions like "start wrapping up past 80% of context" have something real to check against. A reading is the latest backend sample and may lag the in-flight turn (roughly the last turn boundary); humans get the same view with /context. The server also nudges the agent as its window fills — a one-line notice on its next message the first time the conversation passes roughly 50% and then 75% — so wrap-up suggestions fire even when the agent never thinks to check
 
 ### Mobile Support
 - Open from your phone — same server URL (whether VPN-only or public via Funnel / reverse proxy), touch-optimized UI

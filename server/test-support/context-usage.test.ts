@@ -600,7 +600,7 @@ describe("context-fullness: snapshot lifecycle through GET /api/agents/:id/conte
 });
 
 describe("context-fullness: agent-facing threshold notices (task 50392514)", () => {
-  it("injects the 60% notice into the next send once, then the 85% notice when fullness rises", async () => {
+  it("injects the 50% notice into the next send once, then the 75% notice when fullness rises", async () => {
     // Mutable fullness the fake backend reports at each turn_completed sample.
     let pct = 68;
     const srv = await startTestServer({
@@ -627,7 +627,7 @@ describe("context-fullness: agent-facing threshold notices (task 50392514)", () 
     let r = await getContext(srv, agent.id, { bearer: token });
     expect(r.body).toMatchObject({ available: true, percentage: 68 });
 
-    // Turn 2: 68% >= 60 and 60 not yet fired -> the 60 notice rides this send,
+    // Turn 2: 68% >= 50 and 50 not yet fired -> the 50 notice rides this send,
     // wrapped in the reserved isomux envelope. The unwrapped payload (what the
     // log entry and edit-fork matching see) round-trips cleanly.
     await runTurn(srv, agent.id, "two");
@@ -640,13 +640,13 @@ describe("context-fullness: agent-facing threshold notices (task 50392514)", () 
     expect(unwrapped2).not.toContain("---");
     expect(unwrapped2.endsWith("two")).toBe(true);
 
-    // Turn 3: still 68%, 60 already fired, 85 not reached -> no notice at all.
+    // Turn 3: still 68%, 50 already fired, 75 not reached -> no notice at all.
     await runTurn(srv, agent.id, "three");
     const turn3 = lastSent();
     expect(turn3).not.toContain("context check");
     expect(turn3).not.toContain("--- begin isomux:");
 
-    // Fullness rises past 85. The turn-4 send predates the new sample (still
+    // Fullness rises past 75. The turn-4 send predates the new sample (still
     // 68% -> no notice); turn 4's completion commits 90%.
     pct = 90;
     await runTurn(srv, agent.id, "four");
@@ -654,7 +654,7 @@ describe("context-fullness: agent-facing threshold notices (task 50392514)", () 
     r = await getContext(srv, agent.id, { bearer: token });
     expect(r.body).toMatchObject({ available: true, percentage: 90 });
 
-    // Turn 5: 90% >= 85 and 85 not yet fired -> the wrap-up notice fires.
+    // Turn 5: 90% >= 75 and 75 not yet fired -> the wrap-up notice fires.
     await runTurn(srv, agent.id, "five");
     const turn5 = lastSent();
     expect(turn5).toContain(
@@ -663,7 +663,7 @@ describe("context-fullness: agent-facing threshold notices (task 50392514)", () 
     expect(turn5).toContain("Wrap up:");
   });
 
-  it("resets the fired-notice set on /clear so the 60% notice can fire again", async () => {
+  it("resets the fired-notice set on /clear so the 50% notice can fire again", async () => {
     const srv = await startTestServer({ fakeBackend: backendWith(usage(70)) });
     server = srv;
     await srv.seedOwner("Boss");
@@ -684,7 +684,7 @@ describe("context-fullness: agent-facing threshold notices (task 50392514)", () 
     expect(lastSent()).not.toContain("context check");
 
     // /clear resets the generation AND the fired-notice set. The fresh
-    // conversation re-crosses 60% and the notice fires again.
+    // conversation re-crosses 50% and the notice fires again.
     await srv.agentManager.newConversation(agent.id);
     await runTurn(srv, agent.id, "fresh-one");
     r = await getContext(srv, agent.id, { bearer: token });
