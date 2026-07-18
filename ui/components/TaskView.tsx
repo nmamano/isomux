@@ -555,7 +555,9 @@ export function TaskView({
   const [sortField, setSortField] = useState<SortField>("createdAt");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [quickTitle, setQuickTitle] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const quickAddRef = useRef<HTMLInputElement>(null);
   const closeRef = useRef<(() => void) | null>(null);
   const pendingSelectRef = useRef<string | null>(null);
 
@@ -579,9 +581,23 @@ export function TaskView({
     }
   }, [panelOpen]);
 
+  // Focus the quick-add input on open so a title can be typed immediately —
+  // creating a task is the most common reason to open the board.
   useEffect(() => {
-    inputRef.current?.focus();
+    quickAddRef.current?.focus();
   }, []);
+
+  // Create a task from just the title in the quick-add input. Fire-and-forget
+  // (the `tasks` broadcast echoes the new row back); the input is cleared and
+  // kept focused so several tasks can be entered in a row.
+  function handleQuickAdd() {
+    const title = quickTitle.trim();
+    if (!title) return;
+    const body: TaskCreateReq = { title };
+    apiFetch<TaskItem>("POST", "/api/tasks", body).catch(() => {});
+    setQuickTitle("");
+    quickAddRef.current?.focus();
+  }
 
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
@@ -591,6 +607,29 @@ export function TaskView({
           tryClosePanel();
         } else {
           onClose();
+        }
+        return;
+      }
+      // "n" jumps focus to the quick-add input — but only when the user isn't
+      // already typing in a field and no detail panel is open (the panel has its
+      // own inputs). Capture phase, so it fires before the focused element.
+      if (
+        (e.key === "n" || e.key === "N") &&
+        !panelOpen &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey
+      ) {
+        const t = e.target as HTMLElement | null;
+        const typing =
+          t?.tagName === "INPUT" ||
+          t?.tagName === "TEXTAREA" ||
+          t?.tagName === "SELECT" ||
+          !!t?.isContentEditable;
+        if (!typing) {
+          e.preventDefault();
+          e.stopPropagation();
+          quickAddRef.current?.focus();
         }
       }
     }
@@ -851,6 +890,50 @@ export function TaskView({
             overflow: "hidden",
           }}
         >
+          {/* Quick add — title-only fast path (press "n" to focus, Enter to add) */}
+          <div
+            style={{
+              display: "flex",
+              gap: 8,
+              padding: isMobile ? "10px 12px 0" : "10px 20px 0",
+            }}
+          >
+            <input
+              ref={quickAddRef}
+              type="text"
+              value={quickTitle}
+              onChange={(e) => setQuickTitle(e.target.value)}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                // Ignore auto-repeat (held Enter would double-post the title
+                // before the cleared state commits) and IME composition (Enter
+                // there confirms composed text, e.g. CJK, not a submit).
+                if (
+                  e.key === "Enter" &&
+                  !e.repeat &&
+                  !e.nativeEvent.isComposing
+                ) {
+                  handleQuickAdd();
+                }
+              }}
+              placeholder={
+                isMobile
+                  ? "Quick add a task…"
+                  : "Quick add a task — type a title, press Enter (n to focus)"
+              }
+              style={{
+                flex: 1,
+                padding: "9px 12px",
+                borderRadius: 8,
+                border: "1px solid var(--border)",
+                background: "var(--bg-input)",
+                color: "var(--text-primary)",
+                fontSize: 13,
+                outline: "none",
+              }}
+            />
+          </div>
+
           {/* Search bar */}
           <div
             style={{
