@@ -22,6 +22,13 @@ type SortField =
   | "createdAt";
 type SortDir = "asc" | "desc";
 
+// A deferred action to run once the currently-open panel finishes closing
+// through its dirty/discard flow: select a row, or open the create panel with a
+// seeded title. Exactly one is ever pending (see pendingNavRef).
+type PendingNav =
+  | { kind: "select"; id: string }
+  | { kind: "create"; title: string };
+
 const STATUS_ORDER: Record<TaskStatus, number> = {
   in_progress: 0,
   open: 1,
@@ -85,6 +92,8 @@ function TaskDetailPanel({
   rooms = [],
   createRoomId = "",
   onCreateRoomChange,
+  initialTitle = "",
+  onCancelClose,
 }: {
   task?: TaskItem;
   onClose: () => void;
@@ -92,6 +101,14 @@ function TaskDetailPanel({
   agents?: { name: string; id: string }[];
   closeRef?: React.MutableRefObject<(() => void) | null>;
   fullScreen?: boolean;
+  // Called when the user cancels the discard prompt, i.e. abandons a close that
+  // some parent action requested. Lets the parent drop any queued
+  // navigation/create intent so a later close doesn't act on it stale.
+  onCancelClose?: () => void;
+  // Create-mode title seeded from the quick-add input, so pressing Enter there
+  // opens this panel with the typed title already filled in. Ignored in edit
+  // mode (the title comes from the task).
+  initialTitle?: string;
   // Rooms the caller can see, for the create-mode "Create in" selector and for
   // labelling an existing task's room. Empty when no rooms are visible.
   rooms?: RoomWire[];
@@ -119,7 +136,7 @@ function TaskDetailPanel({
   const visibleAgents = showAllAgents
     ? sortedAgents
     : sortedAgents.slice(0, MAX_ASSIGNEE_SUGGESTIONS);
-  const [title, setTitle] = useState(task?.title || "");
+  const [title, setTitle] = useState(task?.title || initialTitle || "");
   const [description, setDescription] = useState(task?.description || "");
   const [priority, setPriority] = useState<TaskPriority | "">(
     task?.priority || "",
@@ -141,7 +158,7 @@ function TaskDetailPanel({
       setStatus(task.status);
       setAssignee(task.assignee || "");
     } else {
-      setTitle("");
+      setTitle(initialTitle || "");
       setDescription("");
       setPriority("");
       setStatus("open");
@@ -150,7 +167,7 @@ function TaskDetailPanel({
     setConfirmDelete(false);
     setConfirmDiscard(false);
     setShowAllAgents(false);
-  }, [task]);
+  }, [task, initialTitle]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
   function isDirty(): boolean {
@@ -266,7 +283,18 @@ function TaskDetailPanel({
       };
 
   return (
-    <div style={outerStyle}>
+    <div
+      style={outerStyle}
+      onKeyDownCapture={(e) => {
+        // Ctrl/Cmd+Enter submits from any field in the panel (the description
+        // is focused on open, where plain Enter must stay a newline). Capture
+        // phase so it fires before the field's own key handler.
+        if ((e.metaKey || e.ctrlKey) && e.key === "Enter" && !e.repeat) {
+          e.preventDefault();
+          handleSave();
+        }
+      }}
+    >
       {/* Header */}
       <div
         style={{
@@ -321,12 +349,13 @@ function TaskDetailPanel({
         <div>
           <label style={labelStyle}>Title</label>
           <input
-            autoFocus={mode === "create"}
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             style={inputStyle}
             onKeyDown={(e) => {
-              if (e.key === "Enter") handleSave();
+              // Plain Enter saves; Ctrl/Cmd+Enter is handled by the panel's
+              // capture handler (avoid double-submitting here).
+              if (e.key === "Enter" && !e.metaKey && !e.ctrlKey) handleSave();
               e.stopPropagation();
             }}
           />
@@ -368,6 +397,7 @@ function TaskDetailPanel({
         <div>
           <label style={labelStyle}>Description</label>
           <textarea
+            autoFocus={mode === "create"}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows={3}
@@ -533,7 +563,10 @@ function TaskDetailPanel({
               Discard
             </button>
             <button
-              onClick={() => setConfirmDiscard(false)}
+              onClick={() => {
+                setConfirmDiscard(false);
+                onCancelClose?.();
+              }}
               style={{
                 padding: "6px 12px",
                 borderRadius: 6,
@@ -634,10 +667,16 @@ export function TaskView({
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [quickTitle, setQuickTitle] = useState("");
+  // Title seeded into the create panel when the quick-add row opens it (Enter).
+  const [createInitialTitle, setCreateInitialTitle] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const quickAddRef = useRef<HTMLInputElement>(null);
   const closeRef = useRef<(() => void) | null>(null);
-  const pendingSelectRef = useRef<string | null>(null);
+  // ONE pending post-close intent, not two: the discard prompt is inline (not
+  // modal), so a row click and a quick-add Enter could otherwise both queue and
+  // one would leak. Setting either overwrites the other, so the latest
+  // requested transition wins and exactly one ever drains.
+  const pendingNavRef = useRef<PendingNav | null>(null);
 
   const selectedTask = selectedId
     ? tasks.find((t) => t.id === selectedId)
@@ -650,12 +689,27 @@ export function TaskView({
     }
   }
 
-  // After a panel closes, apply any pending row selection from a click that triggered the close
+  // The user backed out of a discard prompt, so the close that some action
+  // (row click / quick-add Enter) requested is no longer happening. Drop the
+  // queued intents so a later, unrelated close doesn't act on them.
+  function cancelPendingNav() {
+    pendingNavRef.current = null;
+  }
+
+  // After a panel closes, apply any pending intent from the action that
+  // triggered the close: a row click selects that task; a quick-add Enter opens
+  // the create panel. Deferring lets the close run through the panel's
+  // dirty/discard flow first, instead of silently dropping unsaved edits.
   useEffect(() => {
-    if (!panelOpen && pendingSelectRef.current) {
-      const id = pendingSelectRef.current;
-      pendingSelectRef.current = null;
-      setSelectedId(id);
+    if (panelOpen) return;
+    const pending = pendingNavRef.current;
+    if (!pending) return;
+    pendingNavRef.current = null;
+    if (pending.kind === "select") {
+      setSelectedId(pending.id);
+    } else {
+      setCreateInitialTitle(pending.title);
+      setCreating(true);
     }
   }, [panelOpen]);
 
@@ -665,17 +719,26 @@ export function TaskView({
     quickAddRef.current?.focus();
   }, []);
 
-  // Create a task from just the title in the quick-add input. Fire-and-forget
-  // (the `tasks` broadcast echoes the new row back); the input is cleared and
-  // kept focused so several tasks can be entered in a row.
-  function handleQuickAdd() {
+  // Enter in the quick-add row does NOT create the task; it opens the full
+  // create panel seeded with the typed title and focused on the description,
+  // where Ctrl/Cmd+Enter actually creates. This keeps a title-only mistake from
+  // committing a bare task and nudges toward adding detail.
+  function openCreatePanel() {
+    // Create panel already open — don't reseed the title and clobber edits.
+    if (creating) return;
     const title = quickTitle.trim();
-    if (!title) return;
-    // Quick-add files into the shared create target ("" === office-global).
-    const body: TaskCreateReq = { title, roomId: createRoomId };
-    apiFetch<TaskItem>("POST", "/api/tasks", body).catch(() => {});
     setQuickTitle("");
-    quickAddRef.current?.focus();
+    if (panelOpen) {
+      // An edit panel is open (dirty edits possible). Route the switch through
+      // its close/dirty flow — which may prompt to discard — and defer opening
+      // create until it has actually closed, mirroring the row-click path.
+      pendingNavRef.current = { kind: "create", title };
+      tryClosePanel();
+      return;
+    }
+    setCreateInitialTitle(title);
+    setSelectedId(null);
+    setCreating(true);
   }
 
   useEffect(() => {
@@ -928,63 +991,6 @@ export function TaskView({
               {filtered.length} shown
             </span>
           </div>
-          <button
-            onClick={() => {
-              setCreating(true);
-              setSelectedId(null);
-            }}
-            style={{
-              padding: "4px 10px",
-              borderRadius: 6,
-              border: "none",
-              background: "var(--accent)",
-              color: "var(--bg-base)",
-              fontSize: 11,
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
-          >
-            Add
-          </button>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <select
-            value={viewRoom}
-            onChange={(e) => setViewRoom(e.target.value)}
-            title="Filter tasks by room"
-            style={isMobile ? { ...selectStyle, flex: 1 } : selectStyle}
-          >
-            <option value="all">All rooms</option>
-            <option value="global">Global</option>
-            {rooms.map((r) => (
-              <option key={r.id} value={r.id}>
-                {r.name}
-              </option>
-            ))}
-          </select>
-          <select
-            value={filterStatus}
-            onChange={(e) =>
-              setFilterStatus(e.target.value as TaskStatus | "all" | "active")
-            }
-            style={isMobile ? { ...selectStyle, flex: 1 } : selectStyle}
-          >
-            <option value="active">Open + In Progress</option>
-            <option value="open">Open</option>
-            <option value="in_progress">In Progress</option>
-            <option value="backlog">Backlog</option>
-            <option value="done">Done</option>
-            <option value="all">All</option>
-          </select>
-          {!isMobile && (
-            <input
-              value={filterAssignee}
-              onChange={(e) => setFilterAssignee(e.target.value)}
-              placeholder="Filter assignee..."
-              style={{ ...selectStyle, width: 130 }}
-              onKeyDown={(e) => e.stopPropagation()}
-            />
-          )}
         </div>
       </div>
 
@@ -999,10 +1005,13 @@ export function TaskView({
             overflow: "hidden",
           }}
         >
-          {/* Quick add — title-only fast path (press "n" to focus, Enter to add) */}
+          {/* Quick add — type a title, press Enter (or "n" to focus). Enter
+              opens the detail panel; it does not create immediately. Sits ABOVE
+              the filter row: it is a create affordance, not a view control. */}
           <div
             style={{
               display: "flex",
+              alignItems: "center",
               gap: 8,
               padding: isMobile ? "10px 12px 0" : "10px 20px 0",
             }}
@@ -1014,22 +1023,18 @@ export function TaskView({
               onChange={(e) => setQuickTitle(e.target.value)}
               onKeyDown={(e) => {
                 e.stopPropagation();
-                // Ignore auto-repeat (held Enter would double-post the title
-                // before the cleared state commits) and IME composition (Enter
-                // there confirms composed text, e.g. CJK, not a submit).
+                // Ignore auto-repeat (held Enter would re-open the panel) and
+                // IME composition (Enter there confirms composed text, e.g.
+                // CJK, not a submit).
                 if (
                   e.key === "Enter" &&
                   !e.repeat &&
                   !e.nativeEvent.isComposing
                 ) {
-                  handleQuickAdd();
+                  openCreatePanel();
                 }
               }}
-              placeholder={
-                isMobile
-                  ? "Quick add a task…"
-                  : "Quick add a task — type a title, press Enter (n to focus)"
-              }
+              placeholder="Quick add a task…"
               style={{
                 flex: 1,
                 padding: "9px 12px",
@@ -1041,6 +1046,15 @@ export function TaskView({
                 outline: "none",
               }}
             />
+            <span
+              style={{
+                fontSize: 12,
+                color: "var(--text-muted)",
+                flexShrink: 0,
+              }}
+            >
+              for
+            </span>
             <select
               value={createRoomId}
               onChange={(e) => setCreateRoomId(e.target.value)}
@@ -1060,15 +1074,72 @@ export function TaskView({
             </select>
           </div>
 
-          {/* Search bar */}
+          {/* Hint — Enter opens the detail panel (not an immediate create). */}
+          <div
+            style={{
+              padding: isMobile ? "4px 12px 0" : "4px 20px 0",
+              fontSize: 11,
+              color: "var(--text-hint)",
+              fontFamily: "'JetBrains Mono',monospace",
+            }}
+          >
+            {isMobile
+              ? "Enter to add details"
+              : "Enter to add details · n to focus"}
+          </div>
+
+          {/* Filter row — view/status/assignee + search. These narrow the table
+              below, so they sit UNDER the quick-add create affordance. */}
           <div
             style={{
               display: "flex",
+              flexDirection: isMobile ? "column" : "row",
               gap: 8,
-              padding: isMobile ? "10px 12px" : "10px 20px",
+              padding: isMobile ? "8px 12px 10px" : "10px 20px",
               borderBottom: "1px solid var(--border-subtle)",
             }}
           >
+            <div style={{ display: "flex", gap: 8 }}>
+              <select
+                value={viewRoom}
+                onChange={(e) => setViewRoom(e.target.value)}
+                title="Filter tasks by room"
+                style={isMobile ? { ...selectStyle, flex: 1 } : selectStyle}
+              >
+                <option value="all">All rooms</option>
+                <option value="global">Global</option>
+                {rooms.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={filterStatus}
+                onChange={(e) =>
+                  setFilterStatus(
+                    e.target.value as TaskStatus | "all" | "active",
+                  )
+                }
+                style={isMobile ? { ...selectStyle, flex: 1 } : selectStyle}
+              >
+                <option value="active">Open + In Progress</option>
+                <option value="open">Open</option>
+                <option value="in_progress">In Progress</option>
+                <option value="backlog">Backlog</option>
+                <option value="done">Done</option>
+                <option value="all">All</option>
+              </select>
+              {!isMobile && (
+                <input
+                  value={filterAssignee}
+                  onChange={(e) => setFilterAssignee(e.target.value)}
+                  placeholder="Filter assignee..."
+                  style={{ ...selectStyle, width: 130 }}
+                  onKeyDown={(e) => e.stopPropagation()}
+                />
+              )}
+            </div>
             <input
               ref={inputRef}
               type="text"
@@ -1077,7 +1148,7 @@ export function TaskView({
               onKeyDown={(e) => e.stopPropagation()}
               placeholder="Search tasks..."
               style={{
-                flex: 1,
+                flex: isMobile ? undefined : 1,
                 padding: "9px 12px",
                 borderRadius: 8,
                 border: "1px solid var(--border)",
@@ -1202,8 +1273,11 @@ export function TaskView({
                           return;
                         }
                         if (panelOpen) {
+                          pendingNavRef.current = {
+                            kind: "select",
+                            id: task.id,
+                          };
                           tryClosePanel();
-                          pendingSelectRef.current = task.id;
                           return;
                         }
                         setSelectedId(task.id);
@@ -1365,6 +1439,7 @@ export function TaskView({
         {!isMobile &&
           (creating ? (
             <TaskDetailPanel
+              key="create"
               closeRef={closeRef}
               mode="create"
               onClose={() => setCreating(false)}
@@ -1372,6 +1447,8 @@ export function TaskView({
               rooms={rooms}
               createRoomId={createRoomId}
               onCreateRoomChange={setCreateRoomId}
+              initialTitle={createInitialTitle}
+              onCancelClose={cancelPendingNav}
             />
           ) : selectedTask ? (
             <TaskDetailPanel
@@ -1380,6 +1457,7 @@ export function TaskView({
               onClose={() => setSelectedId(null)}
               agents={agents}
               rooms={rooms}
+              onCancelClose={cancelPendingNav}
             />
           ) : null)}
       </div>
@@ -1388,6 +1466,7 @@ export function TaskView({
       {isMobile &&
         (creating ? (
           <TaskDetailPanel
+            key="create"
             closeRef={closeRef}
             mode="create"
             onClose={() => setCreating(false)}
@@ -1395,6 +1474,8 @@ export function TaskView({
             rooms={rooms}
             createRoomId={createRoomId}
             onCreateRoomChange={setCreateRoomId}
+            initialTitle={createInitialTitle}
+            onCancelClose={cancelPendingNav}
             fullScreen
           />
         ) : selectedTask ? (
@@ -1404,6 +1485,7 @@ export function TaskView({
             onClose={() => setSelectedId(null)}
             agents={agents}
             rooms={rooms}
+            onCancelClose={cancelPendingNav}
             fullScreen
           />
         ) : null)}
