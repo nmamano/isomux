@@ -191,6 +191,26 @@ export interface AffordancePreviewUrlReq {
   wait?: number;
 }
 
+/**
+ * GET /api/agents/:id/context — an agent's own context-window fullness.
+ * The reading is the latest backend sample and may lag the caller's in-flight
+ * turn (an agent asking about itself is always mid-turn); treat it as "as of
+ * roughly the last turn boundary". `percentage` is a raw float 0..100.
+ * Unavailable reasons: "no_session" = blank/fresh conversation with nothing to
+ * measure; "not_yet_measured" = a conversation exists but no sample has landed
+ * yet (e.g. Codex before its first turn, or right after a server restart).
+ */
+export type AgentContextUsageResp =
+  | {
+      available: true;
+      model: string;
+      totalTokens: number;
+      maxTokens: number;
+      percentage: number;
+      sampledAtMs: number;
+    }
+  | { available: false; reason: "no_session" | "not_yet_measured" };
+
 export interface EditorSaveReq {
   path: string;
   content: string;

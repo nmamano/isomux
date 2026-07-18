@@ -8,6 +8,23 @@ import type {
 import type { BackendSession } from "./backends/types.ts";
 import type { OfficeEvent } from "../shared/office-state.ts";
 
+// A committed context-fullness sample (design: internal-docs/
+// context-fullness-visibility.md). Window occupancy of the CURRENT
+// conversation — prompt size of the last turn vs the model's window — NOT
+// cumulative usage accounting (that lives in sessions.json via
+// accumulateSessionUsage; keep the two separate). `model` labels the window
+// the sample was measured against, so a stale pre-model-swap sample can't get
+// relabeled by the agent's current model. `percentage` is the backend's raw
+// float (0..100), never a rounded display value.
+export interface ContextUsageSnapshot {
+  model: string;
+  totalTokens: number;
+  maxTokens: number;
+  percentage: number;
+  sampledAtMs: number;
+  source: "turn_completed" | "usage_update" | "on_demand";
+}
+
 // Internal agent state
 export interface ManagedAgent {
   // Readonly to enforce that AgentInfo mutation goes through OfficeState
@@ -91,6 +108,33 @@ export interface ManagedAgent {
   // result if it changed during the await — otherwise an in-flight LLM call
   // would stomp on the cleared state when it finally returns.
   topicGenToken: number;
+  // --- Context-window fullness (internal-docs/context-fullness-visibility.md).
+  // Latest committed fullness measurement for the CURRENT conversation, or null
+  // when none exists (fresh/blank conversation, resumed-but-not-yet-sampled,
+  // backend can't report — e.g. Codex before its first turn's tokenUsage
+  // notification). In-memory only; lost on server restart and repopulated at
+  // the end of the first completed turn.
+  contextUsage: ContextUsageSnapshot | null;
+  // Conversation-generation token. Bumped SYNCHRONOUSLY (never after an await)
+  // by every path that resets or switches the conversation (/clear, engine
+  // switch, resume to a different session, edit-fork, abandoned codex thread).
+  // An async getContextUsage() refresh captures it at initiation and commits
+  // only if it still matches — a late resolution from the old conversation can
+  // never repopulate the new one. Same pattern as topicGenToken above, kept
+  // separate because setTopic bumps that one without a conversation reset.
+  contextGen: number;
+  // Monotonic sample-initiation counter; a commit also requires
+  // seq > contextUsageCommittedSeq, so an older in-flight request can never
+  // overwrite a newer committed sample. Both init 0 and stay global across
+  // generations (never reset).
+  contextSampleSeq: number;
+  contextUsageCommittedSeq: number;
+  // Latest pending fire-and-forget refresh, identity-guarded on clear (an older
+  // promise's finally must not evict a newer one; a generation reset nulls the
+  // slot so nothing waits on an orphaned old-conversation request). No consumer
+  // in this batch — the pre-send context notice (task 50392514) will await it
+  // with a bounded timeout.
+  contextSampleInFlight: Promise<void> | null;
   // /resume two-step state
   pendingResume: boolean;
   pendingResumeSessions: {

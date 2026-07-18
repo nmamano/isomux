@@ -1454,6 +1454,8 @@ function buildExecutorDeps(): ExecutorDeps {
         agentManager.emitAgentTerminalCommand(agentId, command),
       emitAgentPreviewUrl: (agentId, body) =>
         agentManager.emitAgentPreviewUrl(agentId, body),
+      getAgentContextUsage: (agentId) =>
+        agentManager.getAgentContextUsage(agentId),
     }),
   );
 

@@ -71,6 +71,7 @@ import type {
   AffordanceDiffReq,
   AffordanceTerminalCmdReq,
   AffordancePreviewUrlReq,
+  AgentContextUsageResp,
   EditorSaveReq,
   RoomCreateReq,
   RoomRenameReq,
@@ -444,6 +445,16 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/agents/:id/preview-url",
     auth: cap("self:affordance", agentParamMustEqualTokenAgent),
     emits: ["log_entry"],
+  }),
+  // Context-window fullness self-check (internal-docs/
+  // context-fullness-visibility.md): the agent's own latest fullness sample.
+  // Read-only — nothing lands in chat, so no log_entry emit.
+  defineRoute<void, AgentContextUsageResp>({
+    opId: "agents.contextUsage",
+    method: "GET",
+    path: "/api/agents/:id/context",
+    auth: cap("self:affordance", agentParamMustEqualTokenAgent),
+    emits: [],
   }),
 
   // --- Agents — editor (browser) --------------------------------------------

@@ -35,6 +35,7 @@ import type {
   AffordanceDiffReq,
   AffordanceTerminalCmdReq,
   AffordancePreviewUrlReq,
+  AgentContextUsageResp,
 } from "../../../shared/contract-shapes.ts";
 
 // The manager's affordance result: ok, or a failure carrying an HTTP-mappable
@@ -65,6 +66,9 @@ export interface AgentAffordanceDeps {
     agentId: string,
     body: unknown,
   ): Promise<PreviewAffordanceResult>;
+  // Context-fullness self-check. Never throws for "no data" — unavailability
+  // is a structured { available: false, reason } payload, not an error.
+  getAgentContextUsage(agentId: string): Promise<AgentContextUsageResp>;
 }
 
 // Map a manager AffordanceResult to a HandlerResult. Status is narrowed at the
@@ -146,5 +150,11 @@ export function agentAffordanceHandlers(
         return fail(500, "capture_failed", "unexpected error during capture");
       }
     },
+
+    "agents.contextUsage": async (ctx) =>
+      // GET, no body. The manager op owns all semantics (live attempt with
+      // snapshot fallback, availability reasons); unavailability is a 200 with
+      // { available: false } so callers branch on the payload, not on status.
+      ok(await deps.getAgentContextUsage(ctx.params.id)),
   };
 }

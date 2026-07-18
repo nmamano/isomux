@@ -113,6 +113,7 @@ import {
   SessionSwappedError,
   inMultiStepFlow,
   type ManagedAgent,
+  type ContextUsageSnapshot,
   type AgentEvent,
   type EventHandler,
   type EnqueueResult,
@@ -122,8 +123,10 @@ import type {
   ApprovalDecision,
   Backend,
   BackendSession,
+  ContextUsage,
   NormalizedEvent,
 } from "./backends/types.ts";
+import type { AgentContextUsageResp } from "../shared/contract-shapes.ts";
 import { OfficeState } from "../shared/office-state.ts";
 import { versionOf } from "../shared/blob-version.ts";
 import { buildEnvForUserId, setOfficeEnvFileProvider } from "./env-loader.ts";
@@ -903,6 +906,13 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       }
     }
 
+    // A committed model change invalidates the context-fullness measurement
+    // (taken against the old model's window) without resetting the
+    // conversation. Effort/permission/sandbox changes preserve it — same
+    // window, same transcript. Runs only after the replace above succeeded
+    // (a throw rolled the edit back, so the old measurement still stands).
+    if (updated.modelFamily) invalidateContextMeasurement(managed);
+
     for (const event of events) eventHandler(event);
   }
 
@@ -1279,6 +1289,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       topicGenerating: false,
       topicMessageCount: persistedTopicCount,
       topicGenToken: 0,
+      contextUsage: null,
+      contextGen: 0,
+      contextSampleSeq: 0,
+      contextUsageCommittedSeq: 0,
+      contextSampleInFlight: null,
       pendingResume: false,
       pendingResumeSessions: [],
       pendingModelPick: false,
@@ -2091,6 +2106,140 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   }
 
   // Process one normalized event from a BackendSession stream.
+  // --- Context-window fullness -----------------------------------------------
+  // Design: internal-docs/context-fullness-visibility.md. A parallel read path
+  // to usage ACCOUNTING (accumulateSessionUsage): fullness is window occupancy
+  // of the current conversation, accounting is cumulative spend. Keep separate.
+
+  // Reset the conversation's fullness state. Must be called SYNCHRONOUSLY
+  // (never after an await) at semantic conversation boundaries — see the
+  // lifecycle matrix in the design doc. `restore` serves edit-fork rollback,
+  // which puts the stashed pre-fork measurement back instead of leaving null.
+  function resetContextUsage(
+    managed: ManagedAgent,
+    restore: ContextUsageSnapshot | null = null,
+  ): void {
+    managed.contextGen++;
+    managed.contextUsage = restore;
+    // Null the slot so nothing ever waits on an orphaned old-conversation
+    // request (it still self-discards at commit via the gen check).
+    managed.contextSampleInFlight = null;
+  }
+
+  // Model changes invalidate the MEASUREMENT but not the conversation: a
+  // sample taken against the old model's window isn't actionable, but the
+  // transcript continues, so contextGen stays put. In-flight samples from the
+  // pre-change session self-discard via the session-identity check at commit
+  // (every model change goes through a session replace).
+  function invalidateContextMeasurement(managed: ManagedAgent): void {
+    managed.contextUsage = null;
+    managed.contextSampleInFlight = null;
+  }
+
+  // Commit an async sample iff it still belongs to the current conversation
+  // (gen), the session object that produced it (identity), and nothing newer
+  // has landed (seq). Returns whether it committed.
+  function commitContextSample(
+    managed: ManagedAgent,
+    token: { gen: number; session: BackendSession; seq: number },
+    ctx: ContextUsage,
+    source: ContextUsageSnapshot["source"],
+  ): boolean {
+    if (managed.contextGen !== token.gen) return false;
+    if (managed.session !== token.session) return false;
+    if (token.seq <= managed.contextUsageCommittedSeq) return false;
+    managed.contextUsageCommittedSeq = token.seq;
+    managed.contextUsage = {
+      model: ctx.model,
+      totalTokens: ctx.totalTokens,
+      maxTokens: ctx.maxTokens,
+      percentage: ctx.percentage,
+      sampledAtMs: Date.now(),
+      source,
+    };
+    return true;
+  }
+
+  // Fire-and-forget refresh, initiated from the (synchronous) normalized-event
+  // handler at turn boundaries (both engines) and on Codex's cumulative-usage
+  // notifications (a free cache read — freshness bonus, not a timing
+  // guarantee). Claude pays one control-request RPC per turn_completed. The
+  // capture-then-commit protocol makes the async resolution safe against
+  // /clear, resume, fork, and out-of-order arrivals.
+  function refreshContextUsage(
+    managed: ManagedAgent,
+    source: ContextUsageSnapshot["source"],
+  ): void {
+    const session = managed.session;
+    if (!session) return;
+    const token = {
+      gen: managed.contextGen,
+      session,
+      seq: ++managed.contextSampleSeq,
+    };
+    const inFlight: Promise<void> = (async () => {
+      try {
+        const ctx = await session.getContextUsage();
+        if (ctx) commitContextSample(managed, token, ctx, source);
+      } catch {
+        // Best-effort: an unavailable reading is represented by the absence
+        // of a fresher snapshot, never by an error state.
+      }
+    })().finally(() => {
+      // Identity guard: an older promise's finally must not evict a newer one.
+      if (managed.contextSampleInFlight === inFlight) {
+        managed.contextSampleInFlight = null;
+      }
+    });
+    managed.contextSampleInFlight = inFlight;
+  }
+
+  // GET /api/agents/:id/context — the agent-facing self-check op. Tries a live
+  // reading first (also refreshing the stored snapshot through the same commit
+  // protocol, so it loses cleanly to newer samples or a conversation swap that
+  // happens mid-await), then serves whatever snapshot is committed.
+  async function getAgentContextUsage(
+    agentId: string,
+  ): Promise<AgentContextUsageResp> {
+    const managed = agents.get(agentId);
+    if (!managed) return { available: false, reason: "no_session" };
+    const session = managed.session;
+    if (session) {
+      const token = {
+        gen: managed.contextGen,
+        session,
+        seq: ++managed.contextSampleSeq,
+      };
+      try {
+        const ctx = await session.getContextUsage();
+        if (ctx) commitContextSample(managed, token, ctx, "on_demand");
+      } catch {
+        // Fall through to the stored snapshot.
+      }
+    }
+    const snap = managed.contextUsage;
+    if (snap) {
+      return {
+        available: true,
+        model: snap.model,
+        totalTokens: snap.totalTokens,
+        maxTokens: snap.maxTokens,
+        percentage: snap.percentage,
+        sampledAtMs: snap.sampledAtMs,
+      };
+    }
+    // No committed measurement: distinguish "nothing to measure" (blank/fresh
+    // conversation) from "a conversation exists but no sample landed yet"
+    // (Codex pre-first-turn, right after a server restart, live call failed).
+    return {
+      available: false,
+      reason:
+        managed.session || managed.sessionId
+          ? "not_yet_measured"
+          : "no_session",
+    };
+  }
+
   function processNormalizedEvent(agentId: string, ev: NormalizedEvent) {
     const newState = deriveStateFromEvent(ev);
     if (newState) {
@@ -2135,6 +2284,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             logCache.set(agentId, []);
             emit({ type: "clear_logs", agentId });
             addLogEntry(agentId, "system", "Conversation cleared.");
+            // New thread id on an old conversation = conversation boundary
+            // (e.g. the fresh thread of a committed Codex cwd change). Usually
+            // redundant with an earlier reset at the semantic call site;
+            // resetContextUsage is idempotent-safe to repeat.
+            resetContextUsage(managed);
           }
           managed.sessionId = sessionId;
           // Record the cwd this session was born in (source of truth for
@@ -2346,6 +2500,12 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             );
           }
         }
+        // Context-fullness sample at the turn boundary (both engines, any turn
+        // status — the backend reading reflects whatever actually landed in
+        // the transcript). Fire-and-forget: pendingTurn below still resolves
+        // synchronously, so turn semantics don't change; the commit protocol
+        // inside makes the late resolution safe.
+        if (managed) refreshContextUsage(managed, "turn_completed");
         if (ev.status !== "completed") {
           // Hot-abort path (Codex): the natural turn_completed with
           // status="interrupted" arrives after a user-initiated turn/interrupt.
@@ -2408,6 +2568,12 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         // it like a turn_completed for the purposes of accumulation; no
         // turn-completed log/state side effects.
         const managed = agents.get(agentId);
+        // Context-fullness freshness bonus: the Codex adapter refreshed its
+        // cached last-turn breakdown alongside this notification, so a sample
+        // here is a free cache read. Timing relative to turn boundaries is NOT
+        // guaranteed by the event contract — the turn_completed sample above
+        // is the correctness baseline; this only makes the reading fresher.
+        if (managed) refreshContextUsage(managed, "usage_update");
         if (managed?.sessionId) {
           const cumulative = accumulateSessionUsage(
             agentId,
@@ -3223,6 +3389,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   ): boolean {
     if (!managed.sessionId) return false;
     managed.sessionId = null;
+    // Dropping the conversation id for a fresh start is a conversation
+    // boundary: the old transcript's fullness measurement doesn't describe
+    // the blank conversation that follows.
+    resetContextUsage(managed);
     logCache.set(agentId, []);
     emit({ type: "clear_logs", agentId });
     return true;
@@ -3449,6 +3619,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       topicGenerating: false,
       topicMessageCount: 0,
       topicGenToken: 0,
+      contextUsage: null,
+      contextGen: 0,
+      contextSampleSeq: 0,
+      contextUsageCommittedSeq: 0,
+      contextSampleInFlight: null,
       pendingResume: false,
       pendingResumeSessions: [],
       pendingModelPick: false,
@@ -4585,6 +4760,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         }
         // Persist current session topic before switching
         persistCurrentSessionTopic(agentId, managed);
+        // Captured before the swap: picking a DIFFERENT session is a
+        // conversation switch (reset below); re-picking the current one
+        // continues it and keeps the fullness measurement.
+        const prevResumeSessionId = managed.sessionId;
         // Perform the resume
         try {
           // cwd is a property of the session: restore the picked session's cwd
@@ -4608,6 +4787,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             throw err;
           }
           managed.sessionId = picked.sessionId;
+          if (picked.sessionId !== prevResumeSessionId)
+            resetContextUsage(managed);
           // Record the cwd we resumed in: backfill legacy/missing, or repair a
           // present-but-invalid value so it isn't sticky on future resumes.
           recordResumedSessionCwd(
@@ -4714,6 +4895,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
             modelFamily: picked.family,
           }))
             emit(event);
+          // A sample measured against the old model's window isn't actionable;
+          // invalidate the measurement (the conversation itself continues —
+          // no gen bump). Repopulates at the end of the next completed turn.
+          invalidateContextMeasurement(managed);
           addLogEntry(
             agentId,
             "system",
@@ -5406,6 +5591,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     managed.topicGenerating = false;
     managed.topicMessageCount = 0;
     managed.topicGenToken++;
+    // /clear and engine switches both land here: a blank conversation has no
+    // fullness measurement. Runs before the drain await per the order contract
+    // above, so a late sample from the old session self-discards on gen.
+    resetContextUsage(managed);
     // Match /clear's behavior: wipe the chat. Without this, the timeline
     // continues across session boundaries and editing an old entry hits the
     // cross-session dead-end.
@@ -5561,6 +5750,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       persistQueueState(agentId, managed);
     }
     persistCurrentSessionTopic(agentId, managed);
+    // Captured before the swap: resuming a DIFFERENT session is a conversation
+    // switch (reset below); re-resuming the current one continues it (fullness
+    // is a property of the transcript, so the measurement stays valid).
+    const prevResumeSessionId = managed.sessionId;
 
     try {
       // cwd is a property of the session: restore the cwd this session ran in
@@ -5584,6 +5777,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         throw err;
       }
       managed.sessionId = sessionId;
+      if (sessionId !== prevResumeSessionId) resetContextUsage(managed);
       // Record the cwd we actually resumed in: backfill a legacy/missing value, or
       // repair a present-but-invalid one so it isn't sticky on future resumes.
       recordResumedSessionCwd(
@@ -5657,6 +5851,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     }
 
     const oldLogCache = [...(logCache.get(agentId) ?? [])];
+    // Stashed for the rollback path: a failed fork restores the pre-edit
+    // conversation, so it gets its fullness measurement back too (snapshots
+    // are immutable-by-replacement, so holding the reference is safe).
+    const oldContextUsage = managed.contextUsage;
 
     // Find target up front so the ephemeral short-circuit and the not-found
     // error can return before the fork pipeline runs.
@@ -5939,6 +6137,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         (e) => e.kind === "user_message" || e.kind === "text",
       ).length;
       managed.topicGenToken++;
+      // A fork truncates the transcript, so the parent's fullness measurement
+      // overstates the child's context. Reset; the first turn on the fork
+      // repopulates it.
+      resetContextUsage(managed);
 
       // --- Phase 2: UI/cache mutations (point of no return) ---
 
@@ -6011,10 +6213,12 @@ Once complete, it takes effect immediately for all Isomux agents.`;
 
       if (managed.sessionId !== oldSessionId) {
         // We switched to the fork — roll back to old session and restore UI
+        let rollbackRestored = false;
         try {
           const rollbackSession = createSession(managed, oldSessionId);
           await replaceSession(agentId, managed, rollbackSession);
           managed.sessionId = oldSessionId;
+          rollbackRestored = true;
         } catch {
           // Can't restore session — the generic-error path below sets state to
           // "error" which surfaces the broken session. The BackendNotConfigured
@@ -6035,6 +6239,14 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           topicStale: oldTopicStale,
         }))
           emit(event);
+
+        // Fullness measurement: restore the parent's snapshot ONLY when the
+        // parent session was actually reinstalled (managed.sessionId back to
+        // oldSessionId). If rollback failed, the session still points at the
+        // fork (broken or not), so the parent measurement would mislabel it —
+        // keep it null instead. Either way the gen bump inside discards any
+        // in-flight sample from the abandoned fork.
+        resetContextUsage(managed, rollbackRestored ? oldContextUsage : null);
       }
 
       if (err instanceof BackendNotConfiguredError) {
@@ -6241,6 +6453,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     emitAgentReadFile,
     emitAgentDiff,
     emitAgentPreviewUrl,
+    getAgentContextUsage,
     spawn,
     enqueueMessage,
     addSystemNote,

@@ -49,8 +49,10 @@ export interface FakeSessionConfig {
   slashCommands?: string[];
   // canAbortInPlace() return value (default false, matching Claude).
   abortInPlace?: boolean;
-  // getContextUsage() return value (default null, matching Codex v1).
-  contextUsage?: ContextUsage | null;
+  // getContextUsage() return value (default null, matching Codex v1). The
+  // function form is called per invocation and lets a test control resolution
+  // timing/values (context-fullness commit-protocol races and ordering).
+  contextUsage?: ContextUsage | null | (() => Promise<ContextUsage | null>);
   // Optional auto-responder invoked on each send() — lets a test script a
   // reply turn without reaching into the session mid-flight.
   onSend?: (
@@ -88,7 +90,7 @@ export class FakeSession implements BackendSession {
   private resolveWake: (() => void) | null = null;
   private ended = false;
   private readonly abortInPlace: boolean;
-  private readonly contextUsage: ContextUsage | null;
+  private readonly contextUsage: FakeSessionConfig["contextUsage"];
   private readonly onSend?: FakeSessionConfig["onSend"];
   private readonly manualSend: boolean;
   private readonly hangOnClose: boolean;
@@ -221,7 +223,8 @@ export class FakeSession implements BackendSession {
   }
 
   async getContextUsage(): Promise<ContextUsage | null> {
-    return this.contextUsage;
+    const v = this.contextUsage;
+    return typeof v === "function" ? v() : (v ?? null);
   }
 
   close(): void {
