@@ -46,6 +46,7 @@ import { useSwipeLeftRight } from "../hooks/useSwipeLeftRight.ts";
 import { getDevice } from "../device-settings.ts";
 import { useSelectionCite } from "./useSelectionCite.ts";
 import { CiteSelectionButton } from "./CiteSelectionButton.tsx";
+import { SkillsPopover } from "./SkillsPopover.tsx";
 
 const STATE_LABELS: Partial<Record<AgentState, string>> = {
   thinking: "Thinking",
@@ -515,6 +516,7 @@ export function LogView({
     dispatch({ type: "set_draft", agentId: agent.id, text });
   const [autoScroll, setAutoScroll] = useState(true);
   const [selectedIdx, setSelectedIdx] = useState(0);
+  const [skillsOpen, setSkillsOpen] = useState(false);
   const [editingTopic, setEditingTopic] = useState(false);
   const [topicDraft, setTopicDraft] = useState("");
   const topicInputRef = useRef<HTMLInputElement>(null);
@@ -1403,10 +1405,13 @@ export function LogView({
     // If no files, let default text paste through
   }
 
-  function handleCite(text: string) {
+  // Insert a multi-line block into the draft: at the caret when the textarea
+  // is focused, appended at the end otherwise, always separated from
+  // surrounding text by newlines. Shared by the cite pill and the terminal
+  // "send to chat" affordance.
+  function insertBlockIntoDraft(block: string) {
     const ta = textareaRef.current;
     const current = inputRef.current;
-    const block = `Cited text:\n"""\n${text}\n"""\n`;
 
     let newDraft: string;
     let caretPos: number;
@@ -1442,10 +1447,6 @@ export function LogView({
     }
 
     setInput(newDraft);
-    // Collapse the chat selection so the pill goes away. selectionchange will
-    // null out the hook state too, but clearCite first for snappy feedback.
-    clearCite();
-    window.getSelection()?.removeAllRanges();
     // The textarea is controlled — wait one frame for React to flush the new
     // value into the DOM, then focus + position caret + resize. preventScroll
     // keeps the chat from jumping when the textarea grabs focus.
@@ -1456,6 +1457,52 @@ export function LogView({
       ta2.setSelectionRange(caretPos, caretPos);
       autoResize(ta2);
     });
+  }
+
+  function handleCite(text: string) {
+    insertBlockIntoDraft(`Cited text:\n"""\n${text}\n"""\n`);
+    // Collapse the chat selection so the pill goes away. selectionchange will
+    // null out the hook state too, but clearCite first for snappy feedback.
+    clearCite();
+    window.getSelection()?.removeAllRanges();
+  }
+
+  // Skills popover pick: insert the bare `/name ` at the textarea caret (the
+  // caret position survives the focus moving to the popover) and close.
+  function handleSkillPick(name: string) {
+    const current = inputRef.current;
+    const ta = textareaRef.current;
+    const snippet = `/${name} `;
+    const start = Math.min(
+      ta?.selectionStart ?? current.length,
+      current.length,
+    );
+    const end = Math.min(ta?.selectionEnd ?? current.length, current.length);
+    const newDraft = current.slice(0, start) + snippet + current.slice(end);
+    const caretPos = start + snippet.length;
+    setInput(newDraft);
+    setSkillsOpen(false);
+    requestAnimationFrame(() => {
+      const ta2 = textareaRef.current;
+      if (!ta2) return;
+      ta2.focus({ preventScroll: true });
+      ta2.setSelectionRange(caretPos, caretPos);
+      autoResize(ta2);
+    });
+  }
+
+  // Terminal "send to chat": wrap the terminal selection in a fenced code
+  // block and add it to the draft. The fence is longer than any backtick run
+  // inside the selection so terminal output containing ``` can't break out.
+  function handleTerminalSendToChat(text: string) {
+    const body = text.replace(/\s+$/, "");
+    if (!body) return;
+    const longestRun = (body.match(/`+/g) ?? []).reduce(
+      (m, r) => Math.max(m, r.length),
+      0,
+    );
+    const fence = "`".repeat(Math.max(3, longestRun + 1));
+    insertBlockIntoDraft(`${fence}\n${body}\n${fence}\n`);
   }
 
   function handleSend(opts?: { sendNow?: boolean }) {
@@ -2203,6 +2250,14 @@ export function LogView({
               ))}
             </div>
           )}
+          {skillsOpen && (
+            <SkillsPopover
+              skills={agentCmds?.skills ?? []}
+              isMobile={isMobile}
+              onPick={handleSkillPick}
+              onClose={() => setSkillsOpen(false)}
+            />
+          )}
           <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
             <button
               onClick={() => fileInputRef.current?.click()}
@@ -2233,6 +2288,32 @@ export function LogView({
                 <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
               </svg>
             </button>
+            {(agentCmds?.skills.length ?? 0) > 0 && (
+              // Plain-text "Sk" on purpose: decorative Unicode glyphs get
+              // hijacked by iOS Safari's emoji renderer (see the ▶ note in
+              // TerminalPanel), and plain text needs no such gating.
+              <button
+                data-skills-toggle
+                onClick={() => setSkillsOpen((o) => !o)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  color: skillsOpen ? "var(--green)" : "var(--text-muted)",
+                  cursor: "pointer",
+                  lineHeight: "20px",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  fontFamily: "'JetBrains Mono',monospace",
+                  flexShrink: 0,
+                  opacity: skillsOpen ? 1 : 0.7,
+                  transition: "opacity 0.15s, color 0.15s",
+                }}
+                title="Skills"
+              >
+                Sk
+              </button>
+            )}
             <span
               style={{
                 color: isBusy ? "var(--text-ghost)" : "var(--green)",
@@ -2755,6 +2836,7 @@ export function LogView({
             agentId={agent.id}
             onClose={() => setTerminalOpen(false)}
             autoFocus={terminalAutoFocus}
+            onSendToChat={handleTerminalSendToChat}
           />
         </div>
       )}
@@ -2804,6 +2886,13 @@ export function LogView({
             onClose={() => setTerminalOpen(false)}
             autoFocus={terminalAutoFocus}
             mobile
+            // On mobile the terminal is a full-screen overlay covering the
+            // composer, so also close it — otherwise the insert would be
+            // invisible and the tap would appear to do nothing.
+            onSendToChat={(text) => {
+              handleTerminalSendToChat(text);
+              setTerminalOpen(false);
+            }}
           />
         </div>
       )}

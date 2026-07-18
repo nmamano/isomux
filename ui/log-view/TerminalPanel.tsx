@@ -252,6 +252,7 @@ export function TerminalPanel({
   onClose,
   autoFocus = true,
   mobile = false,
+  onSendToChat,
 }: {
   agentId: string;
   onClose: () => void;
@@ -266,6 +267,10 @@ export function TerminalPanel({
   // overrides that make xterm's hidden helper textarea focusable enough
   // for iOS Safari to surface the keyboard.
   mobile?: boolean;
+  // When set, a "Send to chat" pill appears while the terminal has a text
+  // selection; activating it hands the selected text to the parent (which
+  // inserts it into the chat draft as a fenced code block).
+  onSendToChat?: (text: string) => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -278,6 +283,9 @@ export function TerminalPanel({
   const scrollMovedRef = useRef<(() => boolean) | null>(null);
   const { mode } = useTheme();
   const [exited, setExited] = useState<number | null>(null);
+  // Whether xterm currently has a text selection — drives the "Send to
+  // chat" pill's visibility.
+  const [hasSelection, setHasSelection] = useState(false);
   const [ctrlActive, setCtrlActive] = useState(false);
   const ctrlActiveRef = useRef(false);
   // Tracks whether the soft keyboard is currently up (visualViewport noticeably
@@ -399,6 +407,12 @@ export function TerminalPanel({
       sendInput(data);
     });
 
+    // Selection tracking for the "Send to chat" pill. Fires on both select
+    // and deselect; disposed with the terminal (term.dispose()).
+    term.onSelectionChange(() => {
+      setHasSelection(term.hasSelection());
+    });
+
     termRef.current = term;
     fitRef.current = fitAddon;
 
@@ -427,6 +441,7 @@ export function TerminalPanel({
       term.dispose();
       termRef.current = null;
       fitRef.current = null;
+      setHasSelection(false);
     };
   }, [agentId]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -587,6 +602,16 @@ export function TerminalPanel({
     inputProxyRef.current?.focus();
   }, [mobile]);
 
+  // Shared action for the "Send to chat" pill — invoked from pointerdown
+  // (mouse/touch) and from keyboard-generated clicks (Enter/Space on the
+  // focused button, which emit click without a preceding pointerdown).
+  function sendSelectionToChat() {
+    const term = termRef.current;
+    const text = term?.getSelection() ?? "";
+    if (text.trim()) onSendToChat?.(text);
+    term?.clearSelection();
+  }
+
   function handleRespawn() {
     setExited(null);
     termRef.current?.clear();
@@ -713,6 +738,61 @@ export function TerminalPanel({
       >
         <div ref={containerRef} style={{ width: "100%", height: "100%" }} />
         {mobile && <MobileInputProxy ref={inputProxyRef} onInput={sendInput} />}
+        {/* "Send to chat" pill — shown only while a selection exists. Top-
+            right of the body: clear of the exit overlay (bottom-center), the
+            soft-key bar (bottom) and the scrollbar edge. It can cover the
+            top-right corner of terminal content, but only transiently while
+            a selection is active; every overlay position covers *something*,
+            and the top-right corner is the least likely to hold the output
+            the user is reading (which trails at the bottom). */}
+        {onSendToChat && hasSelection && (
+          <button
+            // Activate on pointerdown, which fires uniformly for mouse and
+            // touch. A click-based version with a canceled touchstart is a
+            // trap: canceling touchstart suppresses the compatibility click
+            // on touch browsers, leaving a visible but dead button.
+            // preventDefault here keeps focus (and the xterm selection's
+            // owner) where it is without a blur flash; the click swallower
+            // below stops any follow-up click from bubbling to handleBodyTap
+            // and popping the mobile keyboard.
+            onPointerDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              sendSelectionToChat();
+            }}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              // detail === 0 marks a keyboard-generated click (Enter/Space
+              // on the focused button) — no pointerdown preceded it, so the
+              // action runs here. Pointer-generated clicks (detail >= 1)
+              // already ran it in pointerdown and are only swallowed.
+              if (e.detail === 0) sendSelectionToChat();
+            }}
+            style={{
+              position: "absolute",
+              top: 8,
+              right: 16,
+              padding: "4px 10px",
+              borderRadius: 6,
+              border: "1px solid var(--border-medium)",
+              background: "var(--bg-overlay)",
+              color: "var(--text-secondary)",
+              fontFamily: "'JetBrains Mono', monospace",
+              fontSize: 11,
+              fontWeight: 600,
+              cursor: "pointer",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.25)",
+              zIndex: 2,
+              userSelect: "none",
+              WebkitUserSelect: "none",
+              WebkitTapHighlightColor: "transparent",
+            }}
+            title="Insert the selected text into the chat input as a code block"
+          >
+            Send to chat
+          </button>
+        )}
         {/* Exit overlay — anchored to the body so it floats above whatever
             sits below (soft-key bar on mobile, nothing on desktop). */}
         {exited !== null && (

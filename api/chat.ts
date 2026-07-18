@@ -119,7 +119,7 @@ Setup:
 - File attachments: agents understand images and PDFs. Upload via button, drag-and-drop, or paste
 - Image display: agents can show images inline in the conversation (e.g., matplotlib plots)
 - Browser preview cards: agents can screenshot a local web page (like the dev server they're working on) straight into the chat. Needs a Chrome-family browser installed on the server (runs headless, no display needed); everything else works without one.
-- Embedded terminal for direct shell access per agent
+- Embedded terminal for direct shell access per agent. Selecting text in it surfaces a "Send to chat" button that drops the selection into the chat input as a code block
 - Built-in file editor: syntax highlighting, file tabs. Resizable alongside the chat. Open files via /isomux-edit <path> or by clicking "[Open in editor]" cards that agents emit.
 - Conversation branching — edit a past message to fork the conversation from that point, preserving the original
 - Right-click context menu — resume past sessions, edit agent, kill
@@ -137,6 +137,7 @@ Setup:
 - User skills from ~/.claude/skills/ and project commands
 - Isomux-bundled skills like /peer-review (one agent reviews another's ongoing work and messages feedback directly to them), /pair-programming (drive a feature end-to-end with another agent reviewing design and code), /soft-handoff (hand your current task off to another agent and stay around to answer their questions), /second-opinion (ask another agent for a take on one specific question without handing off the work), /grill-me (stress-tests a feature design; based on the original by Matt Pocock), /subagent-review (spawn a subagent to review uncommitted diff before commit), /isomux-report-bug
 - Autocomplete dropdown with keyboard navigation
+- Skills browser: an "Sk" button in the input bar opens a filterable list of the agent's available skills, grouped by origin; picking one inserts the slash command into the input
 
 ### Inter-agent Communication
 - Agents discover each other via a shared office manifest, scoped to the rooms each agent's manager can see
