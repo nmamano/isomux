@@ -1,14 +1,17 @@
 // Browser preview capture — the engine behind POST /api/agents/:id/preview-url
-// (task dcfd5a97). Screenshots a local/private URL with a Chrome-family headless
-// CLI (zero bundled browser deps) so an agent can drop a page preview card into
-// its chat. Design doc: reviewed by Reviewer5, approved by Nil 2026-07-12.
+// (task dcfd5a97). Screenshots a URL with a Chrome-family headless CLI (zero
+// bundled browser deps) so an agent can drop a page preview card into its
+// chat. Design doc: reviewed by Reviewer5, approved by Nil 2026-07-12.
 //
 // Shape notes frozen by that review:
-//   - The host check is an INPUT POLICY, not an enforced network boundary:
-//     agents already have unrestricted shell access, and Chrome resolves DNS
-//     independently after our one-time lookup (redirects/subresources can go
-//     anywhere). We scope the feature to local/private dev servers; we do not
-//     claim SSRF enforcement.
+//   - Any http(s) URL is accepted (task fb02f521, Nil 2026-07-12): the
+//     original local/private-host input policy was dropped because it never
+//     was an enforced network boundary — agents already have unrestricted
+//     shell access, and Chrome resolves DNS independently (redirects and
+//     subresources can go anywhere). The compensating control is the agent
+//     system prompt, which tells agents the page renders in a real browser on
+//     the server and to decline previews of suspicious/untrusted sites.
+//     Syntax checks remain: http(s) only, no embedded credentials.
 //   - Pre-flight fetch: the target receives TWO requests (this fetch, then
 //     Chrome). Deliberate: it converts the overwhelmingly common failure (dev
 //     server not running) into a precise `unreachable` error instead of a
@@ -24,7 +27,7 @@
 //   - All failure statuses fit the executor's HandlerErrorStatus union
 //     (400/429/500); distinct `code`s carry the failure kind.
 //
-// Testable seam: capturePreview(body, deps) — findBrowser / fetchFn / lookupFn /
+// Testable seam: capturePreview(body, deps) — findBrowser / fetchFn /
 // deadlineMs are injectable (preview-capture.test.ts uses a fake shell-script
 // "browser" via ISOMUX_PREVIEW_BROWSER / findBrowser, so the real spawn, group
 // kill, and temp-dir cleanup paths run deterministically without Chrome).
@@ -33,8 +36,6 @@ import { mkdtemp, readFile, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import { spawn } from "child_process";
-import { lookup } from "dns/promises";
-import { isIP } from "net";
 
 export type PreviewErrorCode =
   | "invalid_request"
@@ -67,13 +68,9 @@ export interface PreviewCaptureDeps {
   findBrowser?: () => string | null;
   /** Pre-flight reachability fetch. Default: global fetch. */
   fetchFn?: typeof fetch;
-  /** DNS resolution for the input policy check. Default: dns.promises.lookup. */
-  lookupFn?: (
-    hostname: string,
-  ) => Promise<Array<{ address: string; family: number }>>;
   /**
-   * Overall capture deadline covering DNS policy, pre-flight, and the browser
-   * run (queue-free by design: busy is an immediate 429). Termination starts
+   * Overall capture deadline covering the pre-flight and the browser run
+   * (queue-free by design: busy is an immediate 429). Termination starts
    * at the deadline; the call can return up to KILL_GRACE_MS later while a
    * stubborn browser is reaped — never before the child is dead.
    */
@@ -194,158 +191,6 @@ export function parsePreviewParams(
   }
 
   return { ok: true, url, width, height, wait };
-}
-
-// ---------------------------------------------------------------------------
-// Input policy: local/private hosts only (loopback, RFC1918, tailscale CGNAT,
-// link-local, ULA). Named hosts (including single-label like `auntie`) are
-// resolved and EVERY answer must fall in the allowed sets — mixed records are
-// rejected. IPv4-mapped IPv6 is unwrapped before checking.
-
-function ipv4Allowed(ip: string): boolean {
-  const parts = ip.split(".").map(Number);
-  if (parts.length !== 4) return false;
-  if (parts.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return false;
-  const [a, b] = parts as [number, number, number, number];
-  if (a === 127 || a === 10) return true; // loopback, RFC1918
-  if (a === 172 && b >= 16 && b <= 31) return true; // RFC1918
-  if (a === 192 && b === 168) return true; // RFC1918
-  if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT (tailscale)
-  if (a === 169 && b === 254) return true; // link-local
-  return false;
-}
-
-// Expand an IPv6 literal into its 8 16-bit groups (handles `::` compression
-// and embedded dotted-quad tails like `::ffff:1.2.3.4`). Returns null on
-// malformed input — callers treat null as "not allowed", the safe direction.
-function parseIpv6Groups(ip: string): number[] | null {
-  const dc = ip.indexOf("::");
-  let head = ip;
-  let tail = "";
-  if (dc !== -1) {
-    head = ip.slice(0, dc);
-    tail = ip.slice(dc + 2);
-    if (tail.includes("::")) return null; // at most one compression
-  }
-  const parseSide = (s: string): number[] | null => {
-    if (s === "") return [];
-    const out: number[] = [];
-    for (const part of s.split(":")) {
-      if (part.includes(".")) {
-        const v4 = part.split(".").map(Number);
-        if (v4.length !== 4) return null;
-        if (v4.some((n) => !Number.isInteger(n) || n < 0 || n > 255))
-          return null;
-        out.push((v4[0] << 8) | v4[1], (v4[2] << 8) | v4[3]);
-      } else {
-        if (!/^[0-9a-f]{1,4}$/.test(part)) return null;
-        out.push(parseInt(part, 16));
-      }
-    }
-    return out;
-  };
-  const h = parseSide(head);
-  const t = parseSide(tail);
-  if (!h || !t) return null;
-  if (dc === -1) return h.length === 8 ? h : null;
-  const fill = 8 - h.length - t.length;
-  if (fill < 1) return null;
-  return [...h, ...Array<number>(fill).fill(0), ...t];
-}
-
-function ipv6Allowed(ip: string): boolean {
-  const g = parseIpv6Groups(ip.toLowerCase());
-  if (!g) return false;
-  // IPv4-mapped (::ffff:0:0/96) in ANY textual form — dotted (::ffff:1.2.3.4)
-  // or hex (::ffff:7f00:1) — unwraps to the v4 policy.
-  if (
-    g[0] === 0 &&
-    g[1] === 0 &&
-    g[2] === 0 &&
-    g[3] === 0 &&
-    g[4] === 0 &&
-    g[5] === 0xffff
-  ) {
-    return ipv4Allowed(
-      `${g[6] >> 8}.${g[6] & 0xff}.${g[7] >> 8}.${g[7] & 0xff}`,
-    );
-  }
-  if (g.slice(0, 7).every((x) => x === 0) && g[7] === 1) return true; // ::1
-  if ((g[0] & 0xffc0) === 0xfe80) return true; // link-local fe80::/10
-  if ((g[0] & 0xfe00) === 0xfc00) return true; // ULA fc00::/7
-  return false;
-}
-
-function addressAllowed(address: string): boolean {
-  const family = isIP(address);
-  if (family === 4) return ipv4Allowed(address);
-  if (family === 6) return ipv6Allowed(address);
-  return false;
-}
-
-const BLOCKED_HOST_MSG =
-  "preview is for local/private dev servers (localhost, LAN, tailscale); public URLs are rejected";
-
-// Sentinel rejection for withBudget so callers can map deadline exhaustion to
-// capture_timeout distinctly from the operation's own failure.
-class BudgetExceeded extends Error {}
-
-// Race a promise against the remaining deadline budget. dns.promises.lookup
-// has no timeout of its own, so an unbounded resolver would otherwise hold the
-// request past the advertised deadline.
-function withBudget<T>(p: Promise<T>, budgetMs: number): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new BudgetExceeded()),
-      Math.max(1, budgetMs),
-    );
-    p.then(
-      (v) => {
-        clearTimeout(timer);
-        resolve(v);
-      },
-      (err: unknown) => {
-        clearTimeout(timer);
-        reject(err instanceof Error ? err : new Error(String(err)));
-      },
-    );
-  });
-}
-
-async function checkHostPolicy(
-  url: URL,
-  lookupFn: NonNullable<PreviewCaptureDeps["lookupFn"]>,
-  budgetMs: number,
-): Promise<PreviewFailure | null> {
-  // URL.hostname keeps IPv6 brackets and can carry a trailing dot; normalize.
-  let host = url.hostname.replace(/^\[|\]$/g, "").replace(/\.$/, "");
-  host = host.toLowerCase();
-  if (isIP(host)) {
-    return addressAllowed(host) ? null : invalid(BLOCKED_HOST_MSG);
-  }
-  let answers: Array<{ address: string; family: number }>;
-  try {
-    answers = await withBudget(lookupFn(host), budgetMs);
-  } catch (err) {
-    if (err instanceof BudgetExceeded) {
-      return fail(
-        500,
-        "capture_timeout",
-        `DNS resolution of \`${host}\` exceeded the capture deadline`,
-      );
-    }
-    return fail(
-      500,
-      "unreachable",
-      `could not resolve host \`${host}\`: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
-  if (answers.length === 0) {
-    return fail(500, "unreachable", `host \`${host}\` did not resolve`);
-  }
-  return answers.every((a) => addressAllowed(a.address))
-    ? null
-    : invalid(BLOCKED_HOST_MSG);
 }
 
 // ---------------------------------------------------------------------------
@@ -536,7 +381,7 @@ function previewFilename(url: URL): string {
 }
 
 /**
- * Validate, policy-check, pre-flight, and capture a screenshot of `body.url`.
+ * Validate, pre-flight, and capture a screenshot of `body.url`.
  * Returns the PNG plus a sanitized caption/filename; never throws for expected
  * failures (they come back as structured PreviewFailure values).
  */
@@ -549,22 +394,13 @@ export async function capturePreview(
   const { url, width, height, wait } = parsed;
 
   // Deadline contract: ONE absolute deadline from here (right after the
-  // synchronous parse) bounds DNS policy resolution, pre-flight, and the
-  // browser run. On expiry, termination STARTS at the deadline; the response
-  // can then take up to KILL_GRACE_MS longer while a stubborn browser is
-  // SIGKILLed and reaped — we never return before the child is dead, so the
-  // temp-dir cleanup can't race a live Chrome. Net: response ≤ deadline + 2s.
+  // synchronous parse) bounds the pre-flight and the browser run. On expiry,
+  // termination STARTS at the deadline; the response can then take up to
+  // KILL_GRACE_MS longer while a stubborn browser is SIGKILLed and reaped —
+  // we never return before the child is dead, so the temp-dir cleanup can't
+  // race a live Chrome. Net: response ≤ deadline + 2s.
   const deadlineMs = deps.deadlineMs ?? DEFAULT_DEADLINE_MS;
   const deadline = Date.now() + deadlineMs;
-
-  const lookupFn =
-    deps.lookupFn ?? ((host: string) => lookup(host, { all: true }));
-  const policyFailure = await checkHostPolicy(
-    url,
-    lookupFn,
-    deadline - Date.now(),
-  );
-  if (policyFailure) return policyFailure;
 
   const findBrowser = deps.findBrowser ?? defaultFindBrowser;
   const executable = findBrowser();

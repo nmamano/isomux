@@ -179,7 +179,7 @@ export interface AffordanceTerminalCmdReq {
 }
 
 export interface AffordancePreviewUrlReq {
-  /** http(s) URL of a local/private dev server to screenshot. */
+  /** http(s) URL to screenshot. */
   url: string;
   /** Integers, 320..2560 each. Default 1280x800. */
   viewport?: { width: number; height: number };

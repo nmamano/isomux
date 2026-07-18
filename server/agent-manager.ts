@@ -1675,7 +1675,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     return { ok: true };
   }
 
-  // Screenshot a local/private URL (headless Chrome CLI via preview-capture.ts)
+  // Screenshot a URL (headless Chrome CLI via preview-capture.ts)
   // and emit a `file-view` card, reusing read-file's attachment path. Used by
   // POST /api/agents/:id/preview-url (task dcfd5a97). Unlike the sync
   // affordances this is async, and failures return structured HTTP errors

@@ -1,14 +1,13 @@
 // preview-capture unit tests (task dcfd5a97) — the capturePreview seam with
 // injected deps. The "browser" is a fake shell script (via deps.findBrowser),
 // so the REAL spawn / group-kill / temp-dir-cleanup paths run deterministically
-// without Chrome; fetchFn/lookupFn fakes keep the suite network-free. Zero LLM.
+// without Chrome; a fetchFn fake keeps the suite network-free. Zero LLM.
 //
 // What this freezes:
 //   - strict validation (no clamping): url/viewport/wait violations are 400
-//     invalid_request BEFORE any network or process work.
-//   - input policy: IP literals checked directly; named hosts resolved and
-//     EVERY answer must be private (mixed public/private records rejected);
-//     IPv4-mapped IPv6 unwrapped; public → 400; lookup failure → unreachable.
+//     invalid_request BEFORE any network or process work. Syntax-only: any
+//     http(s) host — loopback, private, or public — is accepted (the
+//     local/private-only input policy was dropped in task fb02f521).
 //   - engine/no_browser, pre-flight/unreachable, child nonzero + stderr tail,
 //     no/invalid PNG, timeout kill, and busy (429, no queueing) all map to
 //     the distinct codes the design pinned — and the temp dir is gone and the
@@ -86,7 +85,6 @@ function deps(overrides: Partial<PreviewCaptureDeps> = {}): PreviewCaptureDeps {
   return {
     findBrowser: () => fakeBrowser,
     fetchFn: okFetch,
-    lookupFn: () => Promise.resolve([{ address: "127.0.0.1", family: 4 }]),
     tmpBase,
     ...overrides,
   };
@@ -145,95 +143,36 @@ describe("preview-capture: validation (strict, no clamping)", () => {
   }
 });
 
-describe("preview-capture: host input policy", () => {
-  // Private/loopback IP literals pass the policy; findBrowser:null then stops
-  // the run cheaply — reaching no_browser PROVES the policy said yes.
-  const allowedIps = [
+describe("preview-capture: any host passes validation (policy dropped, fb02f521)", () => {
+  // Syntax-only validation now: loopback, private, AND public hosts are all
+  // accepted. findBrowser:null stops the run cheaply right after validation —
+  // reaching no_browser PROVES the URL was accepted.
+  const hosts = [
     "127.0.0.1",
-    "10.1.2.3",
-    "172.16.0.9",
     "192.168.1.1",
     "100.100.7.7", // tailscale CGNAT
-    "169.254.10.10", // link-local
     "[::1]",
-    "[::ffff:7f00:1]", // IPv4-mapped loopback, HEX form
+    "8.8.8.8", // public IPv4 — rejected under the old policy
+    "[2001:4860:4860::8888]", // public IPv6
+    "example.com", // named host, no DNS resolution step anymore
+    "auntie", // single-label host
   ];
-  for (const ip of allowedIps) {
-    it(`allows IP literal ${ip}`, async () => {
+  for (const host of hosts) {
+    it(`accepts http://${host}`, async () => {
       const r = await capturePreview(
-        { url: `http://${ip}:3000/` },
+        { url: `http://${host}:3000/` },
         deps({ findBrowser: () => null }),
       );
       expectFail(r, 500, "no_browser");
     });
   }
 
-  const blockedIps = [
-    "8.8.8.8",
-    "1.1.1.1",
-    "172.32.0.1",
-    "100.128.0.1",
-    "[::ffff:808:808]", // IPv4-mapped 8.8.8.8, HEX form
-  ];
-  for (const ip of blockedIps) {
-    it(`blocks public IP literal ${ip}`, async () => {
-      const r = await capturePreview({ url: `http://${ip}/` }, deps());
-      expectFail(r, 400, "invalid_request");
-    });
-  }
-
-  it("blocks a hostname resolving to a public address", async () => {
+  it("accepts an https URL to a public named host", async () => {
     const r = await capturePreview(
-      { url: "http://example.com/" },
-      deps({
-        lookupFn: () =>
-          Promise.resolve([{ address: "93.184.216.34", family: 4 }]),
-      }),
+      { url: "https://example.com/some/page" },
+      deps({ findBrowser: () => null }),
     );
-    expectFail(r, 400, "invalid_request");
-  });
-
-  it("blocks mixed private+public DNS answers", async () => {
-    const r = await capturePreview(
-      { url: "http://sneaky.example/" },
-      deps({
-        lookupFn: () =>
-          Promise.resolve([
-            { address: "127.0.0.1", family: 4 },
-            { address: "93.184.216.34", family: 4 },
-          ]),
-      }),
-    );
-    expectFail(r, 400, "invalid_request");
-  });
-
-  it("blocks IPv4-mapped IPv6 of a public address, allows mapped loopback", async () => {
-    const blocked = await capturePreview(
-      { url: "http://h/" },
-      deps({
-        lookupFn: () =>
-          Promise.resolve([{ address: "::ffff:8.8.8.8", family: 6 }]),
-      }),
-    );
-    expectFail(blocked, 400, "invalid_request");
-
-    const allowed = await capturePreview(
-      { url: "http://h/" },
-      deps({
-        findBrowser: () => null,
-        lookupFn: () =>
-          Promise.resolve([{ address: "::ffff:127.0.0.1", family: 6 }]),
-      }),
-    );
-    expectFail(allowed, 500, "no_browser");
-  });
-
-  it("maps DNS resolution failure to 500 unreachable", async () => {
-    const r = await capturePreview(
-      { url: "http://no-such-host.internal/" },
-      deps({ lookupFn: () => Promise.reject(new Error("ENOTFOUND")) }),
-    );
-    expectFail(r, 500, "unreachable");
+    expectFail(r, 500, "no_browser");
   });
 });
 
@@ -300,20 +239,6 @@ describe("preview-capture: engine, pre-flight, and capture failures", () => {
     // SIGTERM at the 400ms deadline; sh dies on it, so no grace needed.
     expect(Date.now() - started).toBeLessThan(2_000);
     expect(tmpLeftovers()).toEqual([]);
-  });
-
-  it("DNS lookup that never resolves -> capture_timeout within the deadline", async () => {
-    const started = Date.now();
-    const r = await capturePreview(
-      { url: "http://never-resolves.internal/" },
-      deps({
-        lookupFn: () => new Promise(() => {}), // hangs forever
-        deadlineMs: 300,
-      }),
-    );
-    expectFail(r, 500, "capture_timeout");
-    expect(r.error).toContain("DNS");
-    expect(Date.now() - started).toBeLessThan(2_000);
   });
 
   it("PNG completed only AFTER the deadline -> capture_timeout, not success", async () => {

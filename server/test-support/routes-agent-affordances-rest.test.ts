@@ -323,7 +323,7 @@ describe("routes/agent-affordances REST: preview-url (task dcfd5a97)", () => {
   // A fake shell-script "browser" (via ISOMUX_PREVIEW_BROWSER) writes a valid
   // PNG to the --screenshot path, so the FULL production path — handler →
   // manager → preview-capture spawn → savePersistedFile → file-view log_entry —
-  // runs without Chrome. Deeper engine coverage (timeouts, kills, policy
+  // runs without Chrome. Deeper engine coverage (timeouts, kills, validation
   // matrix) lives in preview-capture.test.ts.
   function fakeBrowserScript(srv: TestServer): string {
     const p = join(srv.stateRoot, "fake-browser.sh");
@@ -382,7 +382,7 @@ printf '\\0\\0\\0\\0IEND\\256B\\140\\202' >> "$out"
     }
   });
 
-  it("missing url -> 400; public URL -> 400 invalid_request (policy)", async () => {
+  it("missing url -> 400; embedded credentials -> 400 invalid_request", async () => {
     const srv = await startTestServer();
     server = srv;
     await srv.seedOwner("Boss");
@@ -399,17 +399,18 @@ printf '\\0\\0\\0\\0IEND\\256B\\140\\202' >> "$out"
     );
     expect(missing.status).toBe(400);
 
-    // Public IP literal: rejected by the input policy BEFORE any network work,
-    // so this stays hermetic.
-    const publicUrl = await affordance(
+    // Syntax-only validation (the local/private-only host policy was dropped
+    // in task fb02f521): embedded credentials are rejected BEFORE any network
+    // work, so this stays hermetic.
+    const withCreds = await affordance(
       srv,
       agent.id,
       "preview-url",
-      { url: "http://8.8.8.8/" },
+      { url: "http://user:pw@127.0.0.1:3000/" },
       { bearer: token },
     );
-    expect(publicUrl.status).toBe(400);
-    expect(publicUrl.body.error?.code).toBe("invalid_request");
+    expect(withCreds.status).toBe(400);
+    expect(withCreds.body.error?.code).toBe("invalid_request");
   });
 
   it("an agent token cannot preview into a DIFFERENT agent's chat -> 403", async () => {
