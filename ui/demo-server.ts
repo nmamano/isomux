@@ -757,7 +757,11 @@ function emitEvents(events: OfficeEvent[]) {
         });
         break;
       case "agent_removed":
-        shimEmit({ type: "agent_removed", agentId: event.agentId });
+        shimEmit({
+          type: "agent_removed",
+          agentId: event.agentId,
+          roomId: event.roomId,
+        });
         break;
       case "agent_updated":
         shimEmit({

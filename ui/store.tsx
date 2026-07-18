@@ -157,7 +157,7 @@ type Action =
       killedAgents: KilledAgentSummary[];
     }
   | { type: "agent_added"; agent: AgentInfo }
-  | { type: "agent_removed"; agentId: string }
+  | { type: "agent_removed"; agentId: string; roomId: string }
   | { type: "agent_updated"; agentId: string; changes: Partial<AgentInfo> }
   | { type: "killed_agent_added"; agent: KilledAgentSummary }
   | { type: "killed_agent_removed"; agentId: string; lastRoomId: string }

@@ -1087,6 +1087,51 @@ describe("update_user room-access grant / revoke (Phase 1.2)", () => {
   });
 });
 
+describe("agent_removed room-ACL (task 03382535 — 3b.3 flip of the broadcast-all bridge)", () => {
+  it("agent_removed reaches only sessions that can see the removed agent's room", async () => {
+    server = await boot();
+    const r1 = server.agentManager.getRooms()[0].id;
+    const [r2] = makeRoomsBeforeOwner(server, ["R2"]);
+    const owner = await server.seedOwner("Boss");
+    const member = await server.seedMember("Mia");
+
+    const hidden = await spawnIn(server, "Hid", r2);
+    const visible = await spawnIn(server, "Vis", r1);
+
+    const ownerSock = await connectSettled(server, owner.rawSessionId);
+    await setAccess(server, owner.rawSessionId, member.username, [r1]);
+    const memberSock = await connectSettled(server, member.rawSessionId);
+
+    // Hidden-room kill first, visible-room kill second; waiting for the
+    // SECOND agent_removed on the member socket is the barrier proving the
+    // first one had every chance to arrive.
+    await server.agentManager.kill(hidden.id);
+    await server.agentManager.kill(visible.id);
+
+    await waitForMessageWhere(
+      ownerSock,
+      (m) => m.type === "agent_removed" && m.agentId === hidden.id,
+    );
+    await waitForMessageWhere(
+      memberSock,
+      (m) => m.type === "agent_removed" && m.agentId === visible.id,
+    );
+    // Pre-3b.3 characterization (now FLIPPED): the member used to receive the
+    // hidden-room agent_removed too (broadcast-all id leak). Scoped to the
+    // carried pre-removal roomId, it must not arrive.
+    expect(
+      bag(memberSock).some(
+        (m) => m.type === "agent_removed" && m.agentId === hidden.id,
+      ),
+    ).toBe(false);
+    // The wire event carries the pre-removal roomId (audience input).
+    const ownerRemoved = bag(ownerSock).find(
+      (m) => m.type === "agent_removed" && m.agentId === hidden.id,
+    );
+    expect(ownerRemoved?.roomId).toBe(r2);
+  });
+});
+
 describe("killed-agent summary ACL (Phase 1.2)", () => {
   it("killed summaries are filtered by lastRoomId per recipient; killed_agent_added is suppressed for the restricted member", async () => {
     server = await boot();

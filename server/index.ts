@@ -75,6 +75,7 @@ import {
   updateUserById,
   deleteUser,
   wouldDeleteLeaveNoOwner,
+  setOnUserRoleChanged,
 } from "./users.ts";
 import { hostname as osHostname, userInfo } from "os";
 import { watchFile, stopWatch, type FileWatcher } from "./file-editor.ts";
@@ -344,6 +345,35 @@ function registerBootHooks(): void {
   // "My devices" sessions table consistent on the same events.
   setOnSessionsChanged(() => {
     emitSessionsList();
+  });
+
+  // Role changes (promote/demote) refresh the cached ws.data.session on the
+  // affected user's connected sockets immediately (task edac170a). Without
+  // this, role-keyed audience selection — ownerSessions in liveEmitDeps —
+  // reads the STALE cached role until the socket's next inbound message
+  // re-validates it, so a just-demoted ex-owner could receive one more
+  // owner-only event (invite_revoked / session_revoked). REFRESH, not evict:
+  // the session itself is still valid (eviction via session_expired+close is
+  // reserved for invalidated sessions — revoke/logout/delete/expiry), and
+  // this is the same revalidateByHash the per-message recheck uses, just run
+  // proactively. If revalidation fails (session expired/orphaned in the
+  // meantime), fall back to the notify-then-close contract the per-message
+  // path applies.
+  setOnUserRoleChanged((userId) => {
+    for (const ws of browsers) {
+      if (ws.data.session.userId !== userId) continue;
+      const fresh = revalidateByHash(ws.data.session.sessionIdHash);
+      if (!fresh) {
+        try {
+          ws.send(JSON.stringify({ type: "session_expired" }));
+        } catch {}
+        try {
+          ws.close();
+        } catch {}
+        continue;
+      }
+      ws.data.session = fresh;
+    }
   });
 
   // First-install onboarding: pre-spawn one Claude and one Codex welcome agent
@@ -3018,13 +3048,14 @@ function routeAgentEvent(event: AgentEvent) {
 // helper (registry audience) + the projection-aware deliver(), replacing the
 // implicit per-WS routeAgentEvent for every event whose registry audience maps
 // 1:1 to today's access decision (verified byte-identical; projection.test
-// stays green). The two events that need pre-mutation context the domain event
-// drops stay on the routeAgentEvent bridge until slice 3b.3 carries the ids and
-// tightens the ACL:
-//   - agent_removed: domain {agentId} lacks the pre-removal roomId the room-ACL
-//     audience needs (and the agent is already gone from state here).
+// stays green). One event that needs pre-mutation context the domain event
+// drops stays on the routeAgentEvent bridge until the carried-context slice
+// lands for it:
 //   - agent_updated MOVE (changes.roomId set): carries the NEW roomId but drops
 //     the OLD room the old∪new move audience needs.
+// agent_removed left the bridge (task 03382535): the domain event now carries
+// the pre-removal roomId, so it rides the registry's room-ACL audience
+// (carriedRoomId) instead of the old broadcast-all.
 function emitAgentEvent(event: AgentEvent): void {
   switch (event.type) {
     case "log_entry":
@@ -3064,6 +3095,16 @@ function emitAgentEvent(event: AgentEvent): void {
         lastRoomId: event.lastRoomId,
       });
       break;
+    case "agent_removed":
+      // Room-ACL via the CARRIED pre-removal roomId (task 03382535). The agent
+      // is already gone from state, so the registry's carriedRoomId projection
+      // is what makes the audience computable; sessions that couldn't see the
+      // room no longer learn the id existed.
+      liveEmit("agent_removed", {
+        agentId: event.agentId,
+        roomId: event.roomId,
+      });
+      break;
     case "room_created":
       liveEmit("room_created", { room: event.room });
       break;
@@ -3095,15 +3136,16 @@ function emitAgentEvent(event: AgentEvent): void {
       }
       break;
     default:
-      // TODO(3b.3): the routeAgentEvent bridge is BOUNDED — after this slice
-      // routeAgentEvent is allowed ONLY for agent_removed and agent_updated with
-      // changes.roomId set (handled in the case above), plus any explicitly
-      // documented bridge case. Nothing else may be added here. agent_removed
-      // keeps today's
-      // broadcast-all (a minor id leak) until 3b.3 tightens it to room-ACL with a
-      // characterization flip; the bounded-bridge + behavioral raw-send invariant
-      // (no un-projected fanout outside the projection dispatcher) is enforced by
-      // the contract-test slice.
+      // The routeAgentEvent bridge is BOUNDED — it is allowed ONLY for
+      // agent_updated with changes.roomId set (handled in the case above),
+      // plus any explicitly documented bridge case. Nothing else may be added
+      // here. agent_removed left the bridge in task 03382535 (carried roomId →
+      // room-ACL; the 3b.3 characterization flip lives in projection.test.ts);
+      // the bounded-bridge + behavioral raw-send invariant (no un-projected
+      // fanout outside the projection dispatcher) is enforced by the
+      // contract-test slice. This default is unreachable for the remaining
+      // event types (office_settings_updated / tasks_changed are handled
+      // before emitAgentEvent is called).
       routeAgentEvent(event);
       break;
   }
@@ -3126,9 +3168,14 @@ function routeAgentEventToWs(ws: ServerWebSocket<WsData>, event: AgentEvent) {
       break;
     }
     case "agent_removed": {
-      // Idempotent on the receiver — fine to deliver even if they never
-      // saw the agent.
-      ws.send(JSON.stringify(event));
+      // Defensive/legacy branch: agent_removed is delivered via the emit()
+      // registry (room-ACL on the carried pre-removal roomId), not this
+      // bridge, so this case is not normally reached. Scoped like
+      // killed_agent_added right below — a session that couldn't see the
+      // room must not learn the id existed (task 03382535).
+      if (roomAllowedForSession(session, event.roomId)) {
+        ws.send(JSON.stringify(event));
+      }
       break;
     }
     case "killed_agent_added": {
@@ -3237,8 +3284,9 @@ function wireEventSinks(): void {
     }
     // All remaining events touch a specific room or agent. Slice 3b.1 routes the
     // clean room-ACL events through the emit() helper (registry audience) +
-    // projection-aware deliver(); agent_removed and agent_updated-MOVE stay on
-    // the routeAgentEvent bridge inside emitAgentEvent until slice 3b.3.
+    // projection-aware deliver(); agent_updated-MOVE stays on the
+    // routeAgentEvent bridge inside emitAgentEvent (agent_removed left the
+    // bridge in task 03382535 — carried roomId → room-ACL).
     emitAgentEvent(event);
     // Any mutation of the global rooms list also refreshes the owner-only
     // admin view of all rooms (used by UserManagementModal). Done here
@@ -4521,6 +4569,7 @@ async function stopServer(server: Server<WsData>): Promise<void> {
   setRoomsSnapshotProvider(() => []);
   setOnInviteConsumed(() => {});
   setOnSessionsChanged(() => {});
+  setOnUserRoleChanged(() => {});
   setOnOwnerCreated(async () => {});
   // Clear the cron module-read bridge so command-handlers/usage-report don't
   // read a dead manager between boots, and the loopback origin port.

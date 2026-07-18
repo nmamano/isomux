@@ -331,6 +331,45 @@ describe("routes/invites REST: revoke authz + non-leak", () => {
     });
     expect(missing.status).toBe(404);
   });
+
+  it("a demoted ex-owner's CONNECTED socket leaves the owners audience immediately (task edac170a)", async () => {
+    // ownerSessions in liveEmitDeps selects owner-broadcast recipients by the
+    // CACHED ws.data.session.role. Before the setOnUserRoleChanged refresh
+    // hook, a just-demoted ex-owner who stayed connected and SILENT (no
+    // inbound message → no per-message revalidateByHash self-heal) received
+    // one more owner-only event. This freezes the proactive refresh.
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const alice = await srv.seedMember("Alice");
+    await srv.seedMember("Bob");
+    const pb = await mintFor(srv, owner.rawSessionId, "Bob");
+
+    // Promote Alice in the record, THEN connect — the socket caches an
+    // owner-role session.
+    expect(setUserRole("Alice", "owner")).toBe(true);
+    const aliceSock = await srv.connectWs(alice.rawSessionId);
+    const ownerSock = await srv.connectWs(owner.rawSessionId);
+
+    // Demote while her socket stays connected and idle.
+    expect(setUserRole("Alice", "member")).toBe(true);
+
+    // Owner-only fan-out AFTER the demote.
+    const ok = await api(srv, `/api/invites/${pb}`, {
+      method: "DELETE",
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(ok.status).toBe(204);
+    const revoked = (await ownerSock.waitFor("invite_revoked")) as {
+      tokenPrefix?: string;
+    };
+    expect(revoked.tokenPrefix).toBe(pb);
+
+    // ping/pong barrier: any stale-role delivery would already be buffered.
+    aliceSock.send({ type: "ping" });
+    await aliceSock.waitFor("pong");
+    expect(countType(aliceSock, "invite_revoked")).toBe(0);
+  });
 });
 
 describe("routes/invites REST: mint validation + officeOwner + mintSelf", () => {

@@ -358,7 +358,7 @@ Events whose mutation removes or relocates their projection source (`agent_remov
 | `clear_logs` | `{ agentId }` | room-ACL | `agentId → roomId` | |
 | `slash_commands` | `{ agentId, commands, skills }` | room-ACL | `agentId → roomId` | server-pushed; no inbound route |
 | `agent_added` | `{ agent: AgentInfo }` | room-ACL | `agent.roomId` | room index projected per recipient; suppressed if hidden |
-| `agent_removed` | `{ agentId, roomId }` | room-ACL | `roomId` (carried; room at removal) | `[behavior-change]` today broadcast-all; scoping removes a minor id leak. `roomId` in the payload makes the audience computable after the delete |
+| `agent_removed` | `{ agentId, roomId }` | room-ACL | `roomId` (carried; room at removal) | `[behavior-change]` LANDED (task 03382535): the live wire now carries the pre-removal roomId and scopes delivery room-ACL (was broadcast-all — a minor id leak). `roomId` in the payload makes the audience computable after the delete |
 | `agent_updated` | `{ agentId, changes: Partial<AgentInfo> & { oldRoomId?, newRoomId? } }` (a move sets `oldRoomId`+`newRoomId`) | room-ACL | `agentId → roomId`; on move `oldRoomId ∪ newRoomId` (both carried) | a room-move triggers a recipient `full_state` refresh instead of a raw delta |
 | `killed_agent_added` | `{ agent: KilledAgentSummary }` | room-ACL | `lastRoomId` | |
 | `killed_agent_removed` | `{ agentId, lastRoomId }` | room-ACL | `lastRoomId` | |

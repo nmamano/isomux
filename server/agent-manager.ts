@@ -5117,7 +5117,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       await drainConsumerBounded(agentId, oldConsumer);
     }
     killSidecar(managed);
-    emit({ type: "agent_removed", agentId });
+    // Carry the pre-removal roomId (task 03382535): the agent is already gone
+    // from the live map, so the room-ACL audience must be computable from the
+    // event itself, not a live lookup. Matches killedSummary.lastRoomId.
+    emit({ type: "agent_removed", agentId, roomId: managed.info.roomId });
     if (killedSummary) {
       emit({ type: "killed_agent_added", agent: killedSummary });
     }

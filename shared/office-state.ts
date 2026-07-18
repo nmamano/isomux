@@ -22,7 +22,9 @@ import {
 // Domain events — callers translate these to ServerMessage
 export type OfficeEvent =
   | { type: "agent_added"; agent: AgentInfo }
-  | { type: "agent_removed"; agentId: string }
+  // Carries the pre-removal roomId so consumers can compute a room-scoped
+  // audience after the agent is gone from state (task 03382535).
+  | { type: "agent_removed"; agentId: string; roomId: string }
   | { type: "agent_updated"; agentId: string; changes: Partial<AgentInfo> }
   | { type: "room_created"; room: RoomWire }
   | { type: "room_closed"; roomId: string }
@@ -277,9 +279,12 @@ export class OfficeState {
   }
 
   kill(agentId: string): OfficeEvent[] {
-    if (!this.agents.has(agentId)) return [];
+    const agent = this.agents.get(agentId);
+    if (!agent) return [];
     this.agents.delete(agentId);
-    const events: OfficeEvent[] = [{ type: "agent_removed", agentId }];
+    const events: OfficeEvent[] = [
+      { type: "agent_removed", agentId, roomId: agent.roomId },
+    ];
     this.emitEvents(events);
     return events;
   }

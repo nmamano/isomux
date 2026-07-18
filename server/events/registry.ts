@@ -18,7 +18,8 @@
 //   - users_list / user_updated carry UserPublicWire, never UserRecord; owners
 //     get full records via users_admin_list / user_admin_updated, and the
 //     subject gets their own full record via user_self_updated (3b.5)
-//   - agent_removed carries `roomId`; agent_updated-move carries old/new room ids
+//   - agent_removed carries `roomId` (LIVE since task 03382535 — the wire now
+//     matches this registry shape); agent_updated-move carries old/new room ids
 //   - RETIRED (fold into HTTP responses, absent here): the `*_response` family,
 //     sessions_list, cronjob_runs(_complete), invite_minted, the *_blocked
 //     family, editor_content/editor_open_error, rooms_reordered. `pong` is
@@ -115,8 +116,8 @@ export interface EventPayloads {
     skills: SkillInfo[];
   };
   agent_added: { agent: AgentInfo };
-  // TARGET: carries the pre-removal roomId so the audience is computable after
-  // the agent is gone from state.
+  // Carries the pre-removal roomId so the audience is computable after the
+  // agent is gone from state. LIVE (task 03382535): the wire event carries it.
   agent_removed: { agentId: string; roomId: string };
   // TARGET: a move sets oldRoomId+newRoomId on `changes` so emit selects the
   // union of both rooms (departing + arriving sessions both refresh).

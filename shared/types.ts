@@ -951,7 +951,10 @@ export type ServerMessage =
       killedAgents: KilledAgentSummary[];
     }
   | { type: "agent_added"; agent: AgentInfo }
-  | { type: "agent_removed"; agentId: string }
+  // Carries the agent's pre-removal roomId; delivery is scoped to sessions
+  // that can see that room (same posture as the killed_agent_* pair below),
+  // so a session outside the room never learns the id existed.
+  | { type: "agent_removed"; agentId: string; roomId: string }
   | { type: "agent_updated"; agentId: string; changes: Partial<AgentInfo> }
   // Killed-agent chip lifecycle. ACL-filtered server-side: both variants
   // are delivered only to sessions whose visible rooms include the

@@ -358,6 +358,20 @@ export function claimUser(
   return record;
 }
 
+// Fired after a role actually changes (promote or demote) via
+// setUserRoleById — the single role mutator. index.ts wires this at boot to
+// refresh the cached `ws.data.session` on the user's connected sockets, so
+// role-keyed audience selection (e.g. the owners-audience fan-out in
+// liveEmitDeps) reflects the change immediately instead of after the next
+// inbound message's revalidateByHash (task edac170a: a just-demoted ex-owner
+// could otherwise receive one more owner-only event). Defaults to no-op so
+// users.ts stays standalone; mirrors auth.ts's setOnSessionsChanged.
+let onUserRoleChangedHook: (userId: string) => void = () => {};
+
+export function setOnUserRoleChanged(cb: (userId: string) => void): void {
+  onUserRoleChangedHook = cb;
+}
+
 // Promote/demote an existing user by id. No-op if the user doesn't exist
 // or already has the target role.
 export function setUserRoleById(id: string, role: UserRole): boolean {
@@ -371,6 +385,13 @@ export function setUserRoleById(id: string, role: UserRole): boolean {
   } catch (err) {
     users[id] = existing;
     throw err;
+  }
+  // Post-persist: the on-disk role is authoritative, notify the transport
+  // layer. A hook exception must not fail the (already-persisted) mutation.
+  try {
+    onUserRoleChangedHook(id);
+  } catch (err) {
+    console.error("[users] onUserRoleChangedHook threw:", err);
   }
   return true;
 }
