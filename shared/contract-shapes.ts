@@ -317,6 +317,15 @@ export interface ValidateCwdReq {
 export interface ValidateEnvReq {
   scope: "office" | "user";
   username?: string;
+  // When present, validate THIS path instead of the subject's STORED envFile —
+  // lets the settings UI check a typed-but-unsaved path on blur. Only valid
+  // with scope:"user" (rejected otherwise), and must be non-blank when
+  // provided (a blank path must not silently fall back to the stored env).
+  // Authorization is unchanged (validateEnvBodySelfSubject on scope/username):
+  // the subject user could save the same path via users.update and then
+  // validate it stored, so an explicit path exposes no information the caller
+  // couldn't already reach — it only makes the probe non-mutating.
+  path?: string;
 }
 
 export interface TaskCreateReq {

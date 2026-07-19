@@ -948,6 +948,10 @@ export interface PresenceInfo {
 // Wire shape for an active session (owner UI).
 export interface SessionWire {
   sessionPrefix: string; // 8-char display prefix; not the full token
+  // Stable owning-user id (authoritative on the stored session). The Users
+  // page groups sessions per user by this, so a rename or casing change can
+  // never split one user's sessions across roster rows.
+  userId: string;
   username: string;
   createdAt: number;
   lastSeenAt: number;
@@ -1057,10 +1061,15 @@ export type ServerMessage =
   // entries are otherwise filtered from `entries` for the in-scene
   // ghost wire). Same value for every recipient — it answers "who is
   // online anywhere in the office", not "who is in rooms I can see".
+  // onlineUserIds is the id set behind that count (same all-audience
+  // aggregate, same cadence); the Users page reads it for the per-user
+  // online dot, which `entries` can't answer (room-filtered, off-scene
+  // sessions omitted).
   | {
       type: "presence_list";
       entries: PresenceInfo[];
       totalOnlineUsers: number;
+      onlineUserIds: string[];
     }
   // Owner-only: unfiltered global rooms list. Owners with an explicit
   // allowedRooms list still see only their subset in the main UI, but

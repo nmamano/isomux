@@ -126,7 +126,7 @@ async function handleAdmin(req: Request): Promise<Response> {
   if (user.role !== "owner") {
     return jsonResponse(400, {
       ok: false,
-      error: `User "${name}" is a member, not an owner. The owner-login CLI is for owner recovery; have an owner mint a normal invite from the Access pane.`,
+      error: `User "${name}" is a member, not an owner. The owner-login CLI is for owner recovery; have an owner mint a normal invite from the Invites pane.`,
     });
   }
   const minted = await mintInvite({

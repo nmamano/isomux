@@ -3,12 +3,19 @@
 // App's main view switch, closed via the header back arrow, ESC, or the
 // browser back button (goHome → popstate).
 //
-// Layout: a sidebar (master) lists every user plus the account section
-// (Access & invites for owners, My devices for members) with Sign out pinned
-// at the bottom; the detail area shows the selected user's editor, organized
-// into sections (Identity / Rooms / Agent context) with a sticky save footer.
-// On mobile exactly one of the two panes shows at a time — the list first,
-// then the detail with a back row.
+// Layout: a sidebar (master) shows the account section (Access / Invites /
+// Sessions for owners, My devices for members) ABOVE the user list — so the
+// entries stay reachable however long the roster grows — with Sign out pinned
+// at the bottom; the detail area shows the selected user's editor,
+// organized into sections (Identity / Rooms / Agent context) with a sticky
+// save footer. On mobile exactly one of the two panes shows at a time — the
+// list first, then the detail with a back row.
+//
+// The user rows double as a roster (task 8e882cd4): a green dot on the
+// avatar for users with a live connection (store.onlineUserIds, an
+// all-audience presence aggregate), plus — for OWNER viewers only — a
+// session count / last-seen summary derived from the active-sessions list.
+// Non-owner viewers get only the dot and a bare "online".
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppState } from "../store.tsx";
@@ -35,8 +42,11 @@ import {
   dialogSaveBtn,
   dialogHint,
 } from "./dialog-styles.ts";
-import { AccessPane } from "./AccessPane.tsx";
+import { ExternalAccessPane } from "./ExternalAccessPane.tsx";
+import { InvitesPane } from "./InvitesPane.tsx";
+import { SessionsPane } from "./SessionsPane.tsx";
 import { MyDevicesPane } from "./MyDevicesPane.tsx";
+import { useAccessListsSeed, formatRelative } from "./access-shared.tsx";
 
 type ValidationStatus =
   | { kind: "idle" }
@@ -44,12 +54,19 @@ type ValidationStatus =
   | { kind: "ok"; keyCount?: number }
   | { kind: "error"; message: string };
 
-// What the detail pane shows: a user's editor, or the account section
-// (Access & invites / My devices). null = nothing selected — on mobile that
-// means the list is showing; on desktop the detail renders a placeholder.
-// Keyed by the STABLE user id (not the lowercased-name map key), so a rename
-// from this or another session never dangles the selection.
-type Selection = { kind: "user"; id: string } | { kind: "account" };
+// Account-section entries in the sidebar. Owners get the three panes the old
+// "Access & invites" section was split into (task 07514e7f); members get the
+// single self-scoped "My devices" pane.
+type AccountSection = "access" | "invites" | "sessions" | "devices";
+
+// What the detail pane shows: a user's editor, or one account section.
+// null = nothing selected — on mobile that means the list is showing; on
+// desktop the detail renders a placeholder. User selections are keyed by the
+// STABLE user id (not the lowercased-name map key), so a rename from this or
+// another session never dangles the selection.
+type Selection =
+  | { kind: "user"; id: string }
+  | { kind: "section"; section: AccountSection };
 
 export function UserSettingsView({
   initialUserId,
@@ -65,12 +82,38 @@ export function UserSettingsView({
   onSwitchUser: (name: string | null) => void;
   onClose: () => void;
 }) {
-  const { users, isMobile, sessionContext } = useAppState();
+  const { users, isMobile, sessionContext, onlineUserIds, activeSessions } =
+    useAppState();
   const isOwner = sessionContext?.role === "owner";
   const userList = useMemo(
     () => [...users.values()].sort((a, b) => a.name.localeCompare(b.name)),
     [users],
   );
+
+  // Roster signals (task 8e882cd4). Seed the invites + sessions lists here
+  // (not just in the account panes): the owner sidebar's per-user session
+  // count / last-seen needs sessions data even when no account pane is open.
+  // For members the seed only feeds the My devices pane — their roster rows
+  // never render session stats (owner-only signal).
+  useAccessListsSeed();
+  const onlineSet = useMemo(() => new Set(onlineUserIds), [onlineUserIds]);
+  // Per-user aggregate over the active auth sessions, keyed by the STABLE
+  // userId (SessionWire.userId) so a rename or casing change can never split
+  // one user's sessions across rows. lastSeenAt is the max across the user's
+  // sessions — the "last login/activity" answer for offline users.
+  const sessionStats = useMemo(() => {
+    const stats = new Map<string, { count: number; lastSeenAt: number }>();
+    for (const s of activeSessions) {
+      const cur = stats.get(s.userId);
+      if (cur) {
+        cur.count += 1;
+        if (s.lastSeenAt > cur.lastSeenAt) cur.lastSeenAt = s.lastSeenAt;
+      } else {
+        stats.set(s.userId, { count: 1, lastSeenAt: s.lastSeenAt });
+      }
+    }
+    return stats;
+  }, [activeSessions]);
 
   const [selection, setSelection] = useState<Selection | null>(() => {
     if (initialUserId) {
@@ -129,8 +172,8 @@ export function UserSettingsView({
   }, [users, initialUserId, isMobile, sessionContext]);
 
   // Filled by the currently-mounted detail panel — UserEditPanel, or the
-  // External access card inside AccessPane — whichever holds unsaved form
-  // state. Lets us route every navigation away from it (sidebar click,
+  // External access card inside ExternalAccessPane — whichever holds unsaved
+  // form state. Lets us route every navigation away from it (sidebar click,
   // header back arrow, ESC, mobile back row) through the panel's
   // dirty-check, so we surface the "Discard unsaved changes?" prompt
   // instead of silently dropping in-progress edits.
@@ -149,8 +192,8 @@ export function UserSettingsView({
     defaultAppliedRef.current = true;
     const same =
       selection !== null &&
-      (next.kind === "account"
-        ? selection.kind === "account"
+      (next.kind === "section"
+        ? selection.kind === "section" && selection.section === next.section
         : selection.kind === "user" && selection.id === next.id);
     if (same) return;
     leaveEdit(() => setSelection(next));
@@ -197,7 +240,15 @@ export function UserSettingsView({
     (sessionContext?.userId === u.id || isOwner) && isFullUserView(u);
 
   const accountAvailable = isOwner || !!sessionContext;
-  const accountLabel = isOwner ? "Access & invites" : "My devices";
+  // Owner: the three panes the old "Access & invites" section was split
+  // into. Member: the single self-scoped devices pane.
+  const accountEntries: { section: AccountSection; label: string }[] = isOwner
+    ? [
+        { section: "access", label: "Access" },
+        { section: "invites", label: "Invites" },
+        { section: "sessions", label: "Sessions" },
+      ]
+    : [{ section: "devices", label: "My devices" }];
 
   function signOut() {
     setLogoutBlockedReason(null);
@@ -289,13 +340,71 @@ export function UserSettingsView({
               padding: "12px 0",
             }}
           >
-            <div style={sidebarSectionLabel}>Users</div>
+            {/* Account section sits ABOVE the user list (Nil spec, task
+                07514e7f): the entries must stay reachable however long the
+                roster below grows. */}
+            {accountAvailable && (
+              <>
+                <div style={sidebarSectionLabel}>Account</div>
+                {accountEntries.map((entry) => {
+                  const entrySelected =
+                    selection?.kind === "section" &&
+                    selection.section === entry.section;
+                  return (
+                    <button
+                      key={entry.section}
+                      onClick={() =>
+                        select({ kind: "section", section: entry.section })
+                      }
+                      aria-current={entrySelected ? "true" : undefined}
+                      style={{
+                        width: "100%",
+                        textAlign: "left",
+                        font: "inherit",
+                        padding: "8px 14px 8px 22px",
+                        fontSize: 13,
+                        fontWeight: 600,
+                        color: "var(--text-primary)",
+                        border: "none",
+                        cursor: "pointer",
+                        background: entrySelected
+                          ? "var(--bg-hover)"
+                          : "transparent",
+                        borderLeft: entrySelected
+                          ? "2px solid var(--accent)"
+                          : "2px solid transparent",
+                      }}
+                    >
+                      {entry.label}
+                    </button>
+                  );
+                })}
+              </>
+            )}
+
+            <div
+              style={{
+                ...sidebarSectionLabel,
+                marginTop: accountAvailable ? 18 : 0,
+              }}
+            >
+              Users
+            </div>
             {userList.map((u) => {
               const isMe = sessionContext?.userId === u.id;
               const selected =
                 selection?.kind === "user" && selection.id === u.id;
               const editable = canEdit(u);
-              const summary = summarizeUser(u);
+              const online = onlineSet.has(u.id);
+              // Session count / last-seen are OWNER-only signals (task
+              // 8e882cd4); non-owner viewers get just the online dot and a
+              // bare "online". The server already scopes /api/sessions to the
+              // caller, but the design keeps even a member's own session
+              // stats off the roster for consistency.
+              const summary = summarizeRoster(
+                online,
+                isOwner ? (sessionStats.get(u.id) ?? null) : null,
+              );
               // Editable rows are real <button>s (keyboard-focusable, with
               // aria-current marking the selection); rows the session can't
               // edit render as plain non-interactive divs.
@@ -332,11 +441,22 @@ export function UserSettingsView({
                     opacity: editable ? 1 : 0.55,
                   }}
                 >
-                  <GhostGraphic
-                    variant={u.avatarVariant}
-                    color={u.avatarColor}
-                    size={22}
-                  />
+                  <span
+                    style={{
+                      position: "relative",
+                      display: "flex",
+                      flexShrink: 0,
+                    }}
+                  >
+                    <GhostGraphic
+                      variant={u.avatarVariant}
+                      color={u.avatarColor}
+                      size={22}
+                    />
+                    {online && (
+                      <span style={onlineDotStyle} title="Online now" />
+                    )}
+                  </span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div
                       style={{
@@ -391,41 +511,6 @@ export function UserSettingsView({
                 </Row>
               );
             })}
-
-            {accountAvailable && (
-              <>
-                <div style={{ ...sidebarSectionLabel, marginTop: 18 }}>
-                  Account
-                </div>
-                <button
-                  onClick={() => select({ kind: "account" })}
-                  aria-current={
-                    selection?.kind === "account" ? "true" : undefined
-                  }
-                  style={{
-                    width: "100%",
-                    textAlign: "left",
-                    font: "inherit",
-                    padding: "8px 14px 8px 22px",
-                    fontSize: 13,
-                    fontWeight: 600,
-                    color: "var(--text-primary)",
-                    border: "none",
-                    cursor: "pointer",
-                    background:
-                      selection?.kind === "account"
-                        ? "var(--bg-hover)"
-                        : "transparent",
-                    borderLeft:
-                      selection?.kind === "account"
-                        ? "2px solid var(--accent)"
-                        : "2px solid transparent",
-                  }}
-                >
-                  {accountLabel}
-                </button>
-              </>
-            )}
 
             <div style={{ flex: 1 }} />
 
@@ -506,7 +591,7 @@ export function UserSettingsView({
                 &larr; All users
               </button>
             )}
-            {selection?.kind === "account" ? (
+            {selection?.kind === "section" ? (
               <div
                 style={{
                   padding: isMobile ? "0 16px 24px" : "0 24px 24px",
@@ -515,12 +600,18 @@ export function UserSettingsView({
                   boxSizing: "border-box",
                 }}
               >
-                {isOwner ? (
-                  // AccessPane's External access card holds unsaved form
-                  // state; it registers into detailCloseRef so navigating
-                  // away routes through its own discard prompt.
-                  <AccessPane closeRef={detailCloseRef} />
-                ) : sessionContext ? (
+                {/* Owner-only sections render null for members (unreachable
+                    via the sidebar, which only offers "devices" to them). The
+                    External access card holds unsaved form state; it registers
+                    into detailCloseRef so navigating away routes through its
+                    own discard prompt. */}
+                {selection.section === "access" && isOwner ? (
+                  <ExternalAccessPane closeRef={detailCloseRef} />
+                ) : selection.section === "invites" && isOwner ? (
+                  <InvitesPane />
+                ) : selection.section === "sessions" && isOwner ? (
+                  <SessionsPane />
+                ) : selection.section === "devices" && sessionContext ? (
                   <MyDevicesPane />
                 ) : null}
               </div>
@@ -589,17 +680,23 @@ function sameRoomSet(a: string[], b: string[]): boolean {
   return true;
 }
 
-function summarizeUser(u: UserView): string {
-  // Public-only view (e.g. a member's view of another user): no sensitive data
-  // is present, so render nothing beyond the name + role badge already shown.
-  if (!isFullUserView(u)) return "";
-  const parts: string[] = [];
-  parts.push(
-    `${u.allowedRooms.length} room${u.allowedRooms.length === 1 ? "" : "s"} (${u.notifRooms.length} notification${u.notifRooms.length === 1 ? "" : "s"})`,
-  );
-  if (u.envFile) parts.push("env: configured");
-  if (u.memberPrompt) parts.push("profile: set");
-  return parts.join(" · ");
+// One-line roster summary under the user's name (task 8e882cd4). Replaces the
+// old rooms/env/profile line, which truncated into invisibility and answered
+// nothing anyone asked; this one answers "are they here, and if not, when
+// were they last?". Kept short enough to never ellipsize at sidebar width.
+// `stats` is non-null only for OWNER viewers (session count / last-seen are
+// owner-only signals); everyone else gets a bare "online" or, when offline,
+// no line at all — same as the old public-view behavior.
+function summarizeRoster(
+  online: boolean,
+  stats: { count: number; lastSeenAt: number } | null,
+): string {
+  if (online) {
+    if (!stats) return "online";
+    return `online · ${stats.count} session${stats.count === 1 ? "" : "s"}`;
+  }
+  if (!stats) return "";
+  return `last seen ${formatRelative(stats.lastSeenAt)}`;
 }
 
 function UserEditPanel({
@@ -724,22 +821,27 @@ function UserEditPanel({
       });
   }
 
-  // Validate the stored envFile on open.
-  useEffect(() => {
-    if (!user.envFile) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+  // Env-path validation (task 4733fa30): ONE path-based flow serves both the
+  // stored value (validated on open and when the record refreshes) and the
+  // typed-but-unsaved value (validated on input blur — previously a bad path
+  // only surfaced after saving). The seq ref drops out-of-order responses so
+  // a slow probe can't overwrite a newer result.
+  const validationSeqRef = useRef(0);
+  function runEnvValidation(path: string) {
+    const seq = ++validationSeqRef.current;
+    const trimmed = path.trim();
+    if (!trimmed) {
       setValidation({ kind: "idle" });
       return;
     }
     setValidation({ kind: "pending" });
-    let cancelled = false;
     apiFetch<{ ok: boolean; keyCount?: number; error?: string }>(
       "POST",
       "/api/validate/env",
-      { scope: "user", username: user.name },
+      { scope: "user", username: user.name, path: trimmed },
     )
       .then((r) => {
-        if (cancelled) return;
+        if (seq !== validationSeqRef.current) return;
         if (r.ok) setValidation({ kind: "ok", keyCount: r.keyCount });
         else
           setValidation({
@@ -748,15 +850,25 @@ function UserEditPanel({
           });
       })
       .catch((e) => {
-        if (cancelled) return;
+        if (seq !== validationSeqRef.current) return;
         setValidation({
           kind: "error",
           message: e instanceof ApiError ? e.message : "Invalid env file",
         });
       });
-    return () => {
-      cancelled = true;
-    };
+  }
+
+  // Validate the stored envFile on open. No cancellation cleanup needed: any
+  // newer run (effect re-run or input blur) bumps the seq, which makes stale
+  // responses drop themselves; a post-unmount response is a no-op setState.
+  useEffect(() => {
+    // One-shot probe kick-off, not state synchronization — same
+    // setState-in-effect exemption the old stored-value validation used.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    runEnvValidation(user.envFile ?? "");
+    // runEnvValidation reads only user.name besides its argument; both are
+    // covered by these deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user.envFile, user.name]);
 
   // notifSetting and allowedSetting are both strict string[] (no "all"
@@ -831,6 +943,19 @@ function UserEditPanel({
     return () => {
       if (closeRef) closeRef.current = null;
     };
+  });
+
+  // Tab-close guard while dirty (save-flow friction pass, task 4733fa30):
+  // in-app navigation already routes through the discard prompt, but closing
+  // or reloading the tab was the one silent loss path. No deps — the handler
+  // must see fresh form state each render.
+  useEffect(() => {
+    function onBeforeUnload(e: BeforeUnloadEvent) {
+      if (!isDirty()) return;
+      e.preventDefault();
+    }
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
   });
 
   async function handleSave() {
@@ -918,6 +1043,12 @@ function UserEditPanel({
   }
 
   const contentPad = isMobile ? "0 16px" : "0 24px";
+
+  // Drives the dirty-aware Save button (save-flow friction pass, task
+  // 4733fa30): disabled + "Saved" when the form matches the record, so "did
+  // I save?" is answerable at a glance — the convention the External access
+  // card already follows.
+  const dirty = isDirty();
 
   return (
     <div
@@ -1203,6 +1334,7 @@ function UserEditPanel({
             setEnvFile(e.target.value);
             setValidation({ kind: "idle" });
           }}
+          onBlur={() => runEnvValidation(envFile)}
           placeholder="/home/you/.secrets/me.env"
           style={inputStyle}
         />
@@ -1379,14 +1511,15 @@ function UserEditPanel({
               </button>
               <button
                 onClick={() => void handleSave()}
-                disabled={saving || !name.trim()}
+                disabled={saving || !dirty || !name.trim()}
                 style={{
                   ...saveBtnStyle,
-                  opacity: saving || !name.trim() ? 0.5 : 1,
-                  cursor: saving || !name.trim() ? "default" : "pointer",
+                  opacity: saving || !dirty || !name.trim() ? 0.5 : 1,
+                  cursor:
+                    saving || !dirty || !name.trim() ? "default" : "pointer",
                 }}
               >
-                {saving ? "Saving…" : "Save"}
+                {saving ? "Saving…" : dirty ? "Save" : "Saved"}
               </button>
             </div>
           </div>
@@ -1556,6 +1689,20 @@ function ValidationLine({ status }: { status: ValidationStatus }) {
     </p>
   );
 }
+
+// Green presence dot overlaid on the sidebar avatar for users with a live
+// connection. Ringed in the page background so it reads as a badge over any
+// ghost color.
+const onlineDotStyle: React.CSSProperties = {
+  position: "absolute",
+  right: -2,
+  bottom: -1,
+  width: 7,
+  height: 7,
+  borderRadius: "50%",
+  background: "var(--green)",
+  border: "1.5px solid var(--bg-base)",
+};
 
 const sidebarSectionLabel: React.CSSProperties = {
   fontSize: 10,

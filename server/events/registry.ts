@@ -149,7 +149,13 @@ export interface EventPayloads {
   // recipient-scoped per connectionId: each socket gets its OWN dense-remapped
   // payload. Phase 3 emits this once-per-socket in a loop (deliver() shapes per
   // recipient) — it is NOT a broadcast event, despite reaching many sockets.
-  presence_list: { entries: PresenceInfo[]; totalOnlineUsers: number };
+  // onlineUserIds (and its derived count totalOnlineUsers) are the same
+  // all-audience aggregate for every recipient; only `entries` is projected.
+  presence_list: {
+    entries: PresenceInfo[];
+    totalOnlineUsers: number;
+    onlineUserIds: string[];
+  };
   editor_external_change: {
     agentId: string;
     path: string;

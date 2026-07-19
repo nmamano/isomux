@@ -39,11 +39,11 @@ If you don't get to it on the first boot, the same form is served on every subse
 
 ### 2. Inviting members
 
-Once you're the owner, open `User Settings` → `Access` pane:
+Once you're the owner, open `User Settings` → `Invites` section:
 
 - **Issue invite**: enter a display name, pick a role. For a new member, you can also check the rooms they should have access to, so they land in those rooms the moment they accept instead of an empty office (leave all unchecked to grant rooms later from their user settings). Click `Issue invite`. The URL appears once — copy it. The URL is one-time per device and expires 24 hours after issuing if unused.
 - **Outstanding invites**: every unclaimed invite is listed with its token prefix; revoke any from this table.
-- **Active sessions**: every currently-signed-in device; revoke any to immediately disconnect them.
+- **Active sessions**: every currently-signed-in device, listed in the separate `Sessions` section; revoke any to immediately disconnect them.
 
 Send each URL to the invitee through whatever channel you trust (Signal, text, email). The invitee opens it on their device → cookie set → they're in. No installs, no accounts, no passwords.
 
@@ -55,11 +55,11 @@ Inviting a user who already exists requires the `Issue an additional invite` con
 
 ### 4. Member self-invites
 
-Members can add more of their own devices without involving the owner. In `User Settings`, the `My devices` pane (which replaces the `Access` pane for non-owner roles) has a `Generate device link` button with no other knobs. Click it; the URL appears once. Copy it, open it on the other device, you're in as the same identity.
+Members can add more of their own devices without involving the owner. In `User Settings`, the `My devices` pane (which replaces the owner-only `Access` / `Invites` / `Sessions` sections for non-owner roles) has a `Generate device link` button with no other knobs. Click it; the URL appears once. Copy it, open it on the other device, you're in as the same identity.
 
 Self-device links are tighter than owner-issued invites by design: **1h TTL** and **at most one outstanding at a time** (generating a new one replaces the previous). The 1h window matches the legitimate flow ("both my devices are right here, click it now"). The role, target user, and TTL are all fixed server-side from the caller's session, so a tampered client can't extend the window, change the role, or mint for a different identity. The wire-level check rejects any such attempt.
 
-The `My devices` pane also lists the member's outstanding invites and active sessions, scoped to themselves — same tables as the owner's `Access` pane, filtered to one identity.
+The `My devices` pane also lists the member's outstanding invites and active sessions, scoped to themselves — same tables as the owner's `Invites` and `Sessions` sections, filtered to one identity.
 
 ### 5. Sign out
 
@@ -187,11 +187,11 @@ All three files are written atomically (temp + rename) and serialized under a si
 The 1-year cap is a deliberate usability/security trade-off. The
 cookie carries `HttpOnly`, `SameSite=Lax`, `Secure`-on-HTTPS,
 host-only scope, and a per-message server-side recheck so a revoke
-from the Access pane disconnects an active session within ~1s — the
+from the Sessions pane disconnects an active session within ~1s — the
 residual risk is the shared-device case where the user forgot to
 sign out (the security audit calls this out under external-access
 "session lifetime on shared devices"). Devices used in untrusted
-environments should be revoked from the Access pane (or signed out
+environments should be revoked from the Sessions pane (or signed out
 explicitly) rather than relying on session expiry.
 
 ## Trust model boundaries
@@ -221,6 +221,6 @@ That prints a one-time login URL valid for 15 minutes. The CLI talks to the runn
 ## Operating notes
 
 - **Members lose access at server restart? No.** Sessions persist to disk; restarts pick up the in-memory map from `sessions.json`.
-- **Revoking a live session?** The Access pane revoke button: the corresponding WebSocket force-closes within ~1s (per-message session recheck catches it). HTTP requests with the revoked cookie return 401 immediately.
-- **Member tries to mint an invite for a new user?** Rejected at the wire level. Members can mint self-invites for their own additional devices (1h TTL, max 1 active) but can't invite new identities. The Access pane is scoped per role; the server-side check is the actual gate.
+- **Revoking a live session?** The Sessions pane revoke button: the corresponding WebSocket force-closes within ~1s (per-message session recheck catches it). HTTP requests with the revoked cookie return 401 immediately.
+- **Member tries to mint an invite for a new user?** Rejected at the wire level. Members can mint self-invites for their own additional devices (1h TTL, max 1 active) but can't invite new identities. The account panes are scoped per role; the server-side check is the actual gate.
 - **CSRF / CSWSH?** Origin is checked on WS upgrade and on state-changing HTTP methods. Browsers always send Origin; non-browser callers (agents on the same host) don't. Agent affordances and inter-agent messaging are bearer-authenticated (each agent's injected `ISOMUX_AGENT_TOKEN`); the loopback bypass now covers only the shared task board, cronjob reads, and backup status.

@@ -77,7 +77,7 @@ Visit the HTTPS URL it prints (e.g. `https://my-mac-mini.<tailnet>.ts.net`) — 
 
 Isomux gates every browser request (HTTP and WebSocket) by a session cookie. No accounts, no passwords.
 
-To grant someone access, mint a single-use invite link in `User Settings → Access` and send it to them out-of-band (Signal, text, email). They click and they're in.
+To grant someone access, mint a single-use invite link in `User Settings → Invites` and send it to them out-of-band (Signal, text, email). They click and they're in.
 
 Two roles exist:
 

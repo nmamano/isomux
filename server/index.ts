@@ -887,13 +887,25 @@ function applyOfficeSettings(input: {
 // targets the CALLER's OWN env (selfUserId) — the subject the precondition
 // already authorized as "self". Without this self-resolution an authorized
 // own-env probe would validate nothing and return a false ok.
+//
+// An explicit non-empty `path` (users-page follow-up 4733fa30) validates THAT
+// path instead of the stored one, so the settings UI can check a typed-but-
+// unsaved value on blur. The override applies ONLY to scope:"user" (the REST
+// handler rejects other combinations at the boundary; this core gate keeps
+// the rule even for future callers). AUTH is unchanged — the precondition
+// still authorizes the scope/username subject, and the subject could save the
+// same path via users.update and validate it stored, so this exposes no new
+// reachable filesystem information; it only makes the probe non-mutating.
 function resolveAndValidateEnv(
   scope: string,
   username: string | undefined,
   selfUserId: string | undefined,
+  path?: string,
 ): { ok: boolean; keyCount?: number; error?: string; envFile: string | null } {
   let envFile: string | null = null;
-  if (scope === "office") {
+  if (scope === "user" && path !== undefined && path.trim() !== "") {
+    envFile = path.trim();
+  } else if (scope === "office") {
     envFile = agentManager.getOfficeSettings().envFile;
   } else if (scope === "user") {
     const rec = username
@@ -1008,24 +1020,28 @@ function buildPresenceListFor(session: SessionLookup): PresenceInfo[] {
   return out;
 }
 
-// Count distinct online userIds across the WHOLE presence map (not the
+// Distinct online userIds across the WHOLE presence map (not the
 // per-recipient filtered `entries`). Off-scene sessions (viewMode
 // "away" / currentRoomId === null) are included — "online" here means
 // "has a live WS that has sent at least one presence_update", which is
 // independent of whether the session is currently visible in a scene.
-// Same value broadcast to every recipient.
-function countTotalOnlineUsers(): number {
+// Same value broadcast to every recipient; totalOnlineUsers is its size.
+// Sorted so equal sets serialize identically regardless of presence-map
+// iteration order.
+function listOnlineUserIds(): string[] {
   const seen = new Set<string>();
   for (const p of listAllPresence()) seen.add(p.userId);
-  return seen.size;
+  return Array.from(seen).sort();
 }
 
 function sendPresenceListTo(ws: ServerWebSocket<WsData>) {
+  const onlineUserIds = listOnlineUserIds();
   ws.send(
     JSON.stringify({
       type: "presence_list",
       entries: buildPresenceListFor(ws.data.session),
-      totalOnlineUsers: countTotalOnlineUsers(),
+      totalOnlineUsers: onlineUserIds.length,
+      onlineUserIds,
     }),
   );
 }
@@ -2641,8 +2657,8 @@ function buildExecutorDeps(): ExecutorDeps {
           return errMessage(err, "Invalid directory");
         }
       },
-      validateEnv: (scope, username, selfUserId) =>
-        resolveAndValidateEnv(scope, username, selfUserId),
+      validateEnv: (scope, username, selfUserId, path) =>
+        resolveAndValidateEnv(scope, username, selfUserId, path),
     }),
   );
   register(

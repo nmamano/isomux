@@ -30,13 +30,17 @@ export interface ValidateDeps {
   // Resolve the scope/user's env-file path and count its keys. AUTH is NOT here
   // (the validateEnvBodySelfSubject precondition owns it); this is resolution
   // only. For scope:"user", an omitted username resolves to the CALLER's own env
-  // via selfUserId (the subject the precondition authorized as "self"). The
-  // resolved path is returned by the core but DROPPED by the REST handler (the
-  // retired request_settings_validation WS arm used to echo it).
+  // via selfUserId (the subject the precondition authorized as "self"). An
+  // explicit non-empty `path` validates THAT path instead of the stored one
+  // (typed-but-unsaved settings-UI probe; same authorization — see
+  // ValidateEnvReq). The resolved path is returned by the core but DROPPED by
+  // the REST handler (the retired request_settings_validation WS arm used to
+  // echo it).
   validateEnv(
     scope: string,
     username: string | undefined,
     selfUserId: string | undefined,
+    path: string | undefined,
   ): { ok: boolean; keyCount?: number; error?: string; envFile: string | null };
 }
 
@@ -60,15 +64,35 @@ export function validateHandlers(
     },
 
     "validate.env": (ctx) => {
-      const b = (ctx.body ?? {}) as { scope?: unknown; username?: unknown };
+      const b = (ctx.body ?? {}) as {
+        scope?: unknown;
+        username?: unknown;
+        path?: unknown;
+      };
       const scope = typeof b.scope === "string" ? b.scope : "";
       const username = typeof b.username === "string" ? b.username : undefined;
+      const path = typeof b.path === "string" ? b.path : undefined;
+      // Input-validation at the untyped REST boundary for the explicit-path
+      // probe: a PROVIDED path must be non-blank (a blank one must not
+      // silently fall back to the stored env and report a misleading ok), and
+      // the override exists only for the user-scope settings UI — reject it
+      // for any other scope rather than leaving the combination ambiguous.
+      if (path !== undefined && path.trim() === "") {
+        return ok({ ok: false, error: "path must not be empty" });
+      }
+      if (path !== undefined && scope !== "user") {
+        return ok({
+          ok: false,
+          error: 'path is only supported with scope "user"',
+        });
+      }
       // Omitted username on scope:"user" resolves to the caller's own env inside
       // the core; pass the caller's userId so "self" is concrete.
       const r = deps.validateEnv(
         scope,
         username,
         ctx.identity.userId ?? undefined,
+        path,
       );
       // Drop the resolved env-file path (envFile) from the REST response by
       // design — only the WS echo carries it.

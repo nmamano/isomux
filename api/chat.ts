@@ -85,6 +85,7 @@ Setup:
 - Drag agents between desks to rearrange
 - Color themes: Dark, Light, Nord, Dracula, Solarized Dark/Light. Click the moon through the window to switch between dark and light
 - Live user presence: other connected people (and the user's other devices) appear as small floating ghosts in the office, parked next to the agent they're viewing. Each user picks a color and one of 8 ghost styles from User Settings. The name tag above each ghost shows username and device. Clicking a ghost opens that user's settings.
+- User roster: owners can see each user's signed-in sessions and last-active time from the Users page.
 
 ### Skeuomorphic Details
 - Click the **corkboard** on the wall to open the shared task board
@@ -168,7 +169,7 @@ Setup:
 
 ### Access & Invites
 - Self-hosted browser auth: every request is gated by a session cookie. No accounts, no passwords.
-- Single-use invite links: the office owner mints a URL in User Settings → Access, sends it out-of-band (text, Signal, email), the invitee clicks and is signed in. One URL per device.
+- Single-use invite links: the office owner mints a URL in User Settings → Invites, sends it out-of-band (text, Signal, email), the invitee clicks and is signed in. One URL per device.
 - Two roles: owner (can invite users, revoke sessions, and set per-user room access) and member (can act in the rooms the owner allowed, can't invite or revoke). Members aren't necessarily given the run of the office — owners pick which rooms each member sees, either on the member's invite (so they land in the right rooms from the first click) or any time from their user settings.
 - The owner can revoke any active session or unconsumed invite from the Access pane; revocation force-closes the affected WebSocket within ~1s.
 - Sessions roll for 30 days on activity, capped at 1 year from creation. They survive server restarts.

@@ -139,6 +139,11 @@ export interface AppState {
   // every recipient — answers "who is online anywhere", not "who is in
   // a room I can see". Renders as the total chip in RoomTabBar.
   totalOnlineUsers: number;
+  // The id set behind totalOnlineUsers (same all-audience aggregate, same
+  // broadcast cadence). Backs the per-user online dot on the Users page
+  // roster — `presences` can't answer it (room-filtered per recipient,
+  // off-scene sessions omitted).
+  onlineUserIds: string[];
   // ACL-filtered list of currently-killed agents available to revive
   // from the spawn menu. Server-capped (12) and ACL-filtered per
   // session; the UI just renders the array as chips sorted killedAt
@@ -222,6 +227,7 @@ type Action =
       type: "presence_list";
       entries: PresenceInfo[];
       totalOnlineUsers: number;
+      onlineUserIds: string[];
     }
   | { type: "all_rooms_list"; rooms: RoomWire[] }
   | { type: "invites_list"; invites: InviteWire[] }
@@ -574,11 +580,12 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         presences: action.entries,
         totalOnlineUsers: action.totalOnlineUsers,
+        onlineUserIds: action.onlineUserIds,
       };
     case "session_context":
       // session_context arrives as the first message on every WS open,
       // including reconnects. Reset the owner-only loaded flags so the
-      // AccessPane re-requests fresh lists; otherwise a mint/revoke on
+      // account panes re-request fresh lists; otherwise a mint/revoke on
       // another client wouldn't reach a client that disconnected and came
       // back. We keep the cached arrays in place so the UI doesn't flicker
       // to "Loading…" while the refresh is in flight.
@@ -717,6 +724,7 @@ export const initialState: AppState = {
   hasReceivedInitialState: false,
   presences: [],
   totalOnlineUsers: 0,
+  onlineUserIds: [],
   killedAgents: [],
 };
 

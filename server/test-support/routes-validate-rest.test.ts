@@ -415,3 +415,115 @@ describe("routes/validate.env REST: resolution core (keyCount + error)", () => {
     expect((broken.body as { ok: boolean }).ok).toBe(false);
   });
 });
+
+describe("routes/validate.env REST: explicit typed path (users-page follow-up 4733fa30)", () => {
+  it("member validates a TYPED path for self: overrides the stored env; missing file -> {ok:false}; provided-blank path is rejected", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const member = await srv.seedMember("Alice");
+
+    // Stored env: 3 keys. Typed candidate: 2 keys. The response keyCount tells
+    // us which one was actually validated.
+    const storedPath = join(srv.stateRoot, "alice-stored.env");
+    writeFileSync(storedPath, "A=1\nB=2\nC=3\n");
+    const typedPath = join(srv.stateRoot, "alice-typed.env");
+    writeFileSync(typedPath, "X=1\nY=2\n");
+    const alice = getUserByName("Alice");
+    expect(alice).toBeTruthy();
+    expect(updateUserById(alice!.id, { envFile: storedPath }).ok).toBe(true);
+
+    const typed = await api(srv, "/api/validate/env", {
+      method: "POST",
+      rawSessionId: member.rawSessionId,
+      body: { scope: "user", username: "Alice", path: typedPath },
+    });
+    expect(typed.status).toBe(200);
+    expect(typed.body).toEqual({ ok: true, keyCount: 2 });
+
+    // A typed path that doesn't resolve surfaces the error even though the
+    // STORED env is fine — this is the whole point (validate before save).
+    const missing = await api(srv, "/api/validate/env", {
+      method: "POST",
+      rawSessionId: member.rawSessionId,
+      body: {
+        scope: "user",
+        username: "Alice",
+        path: join(srv.stateRoot, "nope.env"),
+      },
+    });
+    expect(missing.status).toBe(200);
+    expect((missing.body as { ok: boolean }).ok).toBe(false);
+
+    // A PROVIDED blank/whitespace path is a boundary error — it must not
+    // silently fall back to the stored env and report a misleading ok.
+    // (Omitted path -> stored resolution is pinned by the earlier tests.)
+    const blank = await api(srv, "/api/validate/env", {
+      method: "POST",
+      rawSessionId: member.rawSessionId,
+      body: { scope: "user", username: "Alice", path: "   " },
+    });
+    expect(blank.status).toBe(200);
+    expect((blank.body as { ok: boolean }).ok).toBe(false);
+    expect(typeof (blank.body as { error?: string }).error).toBe("string");
+  });
+
+  it("owner validates a TYPED path for ANOTHER user; path with scope 'office' is rejected", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    await srv.seedMember("Alice");
+
+    const typedPath = join(srv.stateRoot, "candidate.env");
+    writeFileSync(typedPath, "A=1\nB=2\n");
+
+    // Owner probing a typed path on a member subject: allowed, validates the
+    // TYPED path (Alice has no stored env, so keyCount proves the override).
+    const other = await api(srv, "/api/validate/env", {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      body: { scope: "user", username: "Alice", path: typedPath },
+    });
+    expect(other.status).toBe(200);
+    expect(other.body).toEqual({ ok: true, keyCount: 2 });
+
+    // The override exists only for the user-scope settings UI; any other
+    // scope + path combination is rejected rather than left ambiguous.
+    const office = await api(srv, "/api/validate/env", {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      body: { scope: "office", path: typedPath },
+    });
+    expect(office.status).toBe(200);
+    expect((office.body as { ok: boolean }).ok).toBe(false);
+    expect(typeof (office.body as { error?: string }).error).toBe("string");
+  });
+
+  it("typed path does NOT widen the subject policy: member + another user's subject stays 403 even with a path", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const member = await srv.seedMember("Alice");
+
+    const anyPath = join(srv.stateRoot, "whatever.env");
+    writeFileSync(anyPath, "A=1\n");
+    expect(
+      (
+        await api(srv, "/api/validate/env", {
+          method: "POST",
+          rawSessionId: member.rawSessionId,
+          body: { scope: "user", username: "Boss", path: anyPath },
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await api(srv, "/api/validate/env", {
+          method: "POST",
+          rawSessionId: member.rawSessionId,
+          body: { scope: "office", path: anyPath },
+        })
+      ).status,
+    ).toBe(403);
+  });
+});

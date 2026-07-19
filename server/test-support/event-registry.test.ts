@@ -17,8 +17,10 @@ import {
   isEventId,
   type AudienceStrategy,
   type EventId,
+  type EventPayloads,
   type RegistryEvent,
 } from "../events/registry.ts";
+import type { ServerMessage } from "../../shared/types.ts";
 
 // The spec's event id → audience map (Server API Spec → Event registry). The
 // registry must match this EXACTLY — a drift in either direction fails here.
@@ -164,5 +166,25 @@ describe("event registry: intentional delta vs today's live wire", () => {
     // The new/renamed events ARE in the registry.
     expect(isEventId("tasks")).toBe(true);
     expect(isEventId("cron_run_log_entry")).toBe(true);
+  });
+});
+
+// Registry ↔ wire shape sync (users-page follow-up 8e882cd4). presence_list is
+// sent through a direct per-socket ws.send (not the typed emit path), so tsc
+// never forces its EventPayloads entry to match the ServerMessage variant —
+// the two silently diverged when onlineUserIds was first added. These
+// COMPILE-TIME mutual-assignability checks (enforced by `tsc --noEmit`, which
+// covers test files) fail if either side gains or loses a field the other
+// lacks; the runtime expects only keep the test from being empty.
+describe("event registry ↔ ServerMessage shape sync", () => {
+  it("presence_list payload matches the wire variant in both directions", () => {
+    type Registry = EventPayloads["presence_list"] & {
+      type: "presence_list";
+    };
+    type Wire = Extract<ServerMessage, { type: "presence_list" }>;
+    const toWire = (p: Registry): Wire => p;
+    const toRegistry = (w: Wire): Registry => w;
+    expect(typeof toWire).toBe("function");
+    expect(typeof toRegistry).toBe("function");
   });
 });

@@ -20,6 +20,7 @@ import {
   type TestSocket,
 } from "./harness.ts";
 import type { PresenceInfo } from "../../shared/types.ts";
+import { getUserByName } from "../users.ts";
 
 let server: TestServer | null = null;
 
@@ -256,5 +257,83 @@ describe("presence — id-keyed wire (Phase 3c slice 4)", () => {
     expect(
       presenceEntry(lists[lists.length - 1], ownerCid)!.currentRoomId,
     ).toBe(r1);
+  });
+});
+
+describe("presence — onlineUserIds roster aggregate (users-page follow-up 8e882cd4)", () => {
+  it("every recipient gets the SAME onlineUserIds (with totalOnlineUsers = its size), including users whose ghosts are filtered from their entries", async () => {
+    server = await startTestServer();
+    const r1 = server.agentManager.getRooms()[0].id;
+    const [r2] = makeRoomsBeforeOwner(server, ["R2"]);
+    const owner = await server.seedOwner("Boss");
+    const member = await server.seedMember("Mia");
+
+    const ownerSock = await connectSettled(server, owner.rawSessionId);
+    await setAccess(server, owner.rawSessionId, member.username, [r2]);
+    const memberSock = await connectSettled(server, member.rawSessionId);
+    const ownerCid = connectionIdOf(ownerSock);
+    const memberCid = connectionIdOf(memberSock);
+
+    const ownerId = getUserByName("Boss")!.id;
+    const memberId = getUserByName("Mia")!.id;
+    const want = [ownerId, memberId].sort();
+
+    // Owner parks in R1 — a room the member can't see, so the owner's ghost is
+    // filtered from the member's `entries`. The member goes off-scene
+    // (currentRoomId null), so their ghost appears in NO ONE's entries. Both
+    // must still count as online in the roster aggregate.
+    presenceUpdate(ownerSock, r1);
+    presenceUpdate(memberSock, null);
+
+    const matchesWant = (m: Msg) =>
+      m.type === "presence_list" &&
+      JSON.stringify(m.onlineUserIds) === JSON.stringify(want);
+    const memberView = await waitForMessageWhere(memberSock, matchesWant);
+    const ownerView = await waitForMessageWhere(ownerSock, matchesWant);
+
+    // Same aggregate for both recipients; the count is derived from it.
+    expect(memberView.totalOnlineUsers).toBe(2);
+    expect(ownerView.totalOnlineUsers).toBe(2);
+
+    // The per-recipient entry filters are unchanged: the member's list carries
+    // NEITHER ghost (owner's is room-filtered, their own is off-scene) even
+    // though both users ride its onlineUserIds.
+    expect(presenceEntry(memberView, ownerCid)).toBeUndefined();
+    expect(presenceEntry(memberView, memberCid)).toBeUndefined();
+  });
+
+  it("a disconnect drops the user from onlineUserIds on the next broadcast", async () => {
+    server = await startTestServer();
+    const r1 = server.agentManager.getRooms()[0].id;
+    const owner = await server.seedOwner("Boss");
+    const member = await server.seedMember("Mia");
+    await setAccess(server, owner.rawSessionId, member.username, [r1]);
+
+    const ownerSock = await connectSettled(server, owner.rawSessionId);
+    const memberSock = await connectSettled(server, member.rawSessionId);
+
+    const ownerId = getUserByName("Boss")!.id;
+    const memberId = getUserByName("Mia")!.id;
+    const both = [ownerId, memberId].sort();
+
+    presenceUpdate(ownerSock, r1);
+    presenceUpdate(memberSock, r1);
+    await waitForMessageWhere(
+      ownerSock,
+      (m) =>
+        m.type === "presence_list" &&
+        JSON.stringify(m.onlineUserIds) === JSON.stringify(both),
+    );
+
+    // Close the member's only connection: removePresence fires a rebroadcast
+    // whose aggregate no longer carries the member.
+    memberSock.close();
+    const after = await waitForMessageWhere(
+      ownerSock,
+      (m) =>
+        m.type === "presence_list" &&
+        JSON.stringify(m.onlineUserIds) === JSON.stringify([ownerId]),
+    );
+    expect(after.totalOnlineUsers).toBe(1);
   });
 });

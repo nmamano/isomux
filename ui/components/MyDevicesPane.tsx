@@ -1,62 +1,40 @@
-// Member-scoped "My devices" pane: parallel to AccessPane but every
-// list is filtered to the current user. The mint-invite form collapses
-// to a single "Generate device link" button (the server fixes role to
-// member, TTL to 1 hour, target to the caller's own username, and
-// replaces any prior outstanding self-invite). Mounts on the User
-// Settings page (UserSettingsView) when the session role is not "owner".
+// Member-scoped "My devices" pane: parallel to the owner-only account panes
+// (ExternalAccessPane / InvitesPane / SessionsPane) but every list is
+// filtered to the current user, and small enough to stay ONE sidebar entry.
+// The mint-invite form collapses to a single "Generate device link" button
+// (the server fixes role to member, TTL to 1 hour, target to the caller's
+// own username, and replaces any prior outstanding self-invite). Mounts on
+// the User Settings page (UserSettingsView) when the session role is not
+// "owner". List seeding happens in UserSettingsView (useAccessListsSeed).
 
-import { useEffect, useRef, useState } from "react";
-import { useAppState, useDispatch } from "../store.tsx";
+import { useState } from "react";
+import { useAppState } from "../store.tsx";
 import { apiFetch, ApiError } from "../api.ts";
-import type { InviteWire, SessionWire } from "../../shared/types.ts";
+import type { InviteWire } from "../../shared/types.ts";
 import { dialogSaveBtn } from "./dialog-styles.ts";
 import {
   InvitesTable,
   SessionsTable,
   MintedUrlBox,
+  BlockedNoteBanner,
   renderListSection,
+  useAutoClearBlockedNote,
   sectionHeader,
   subsectionHeader,
   hint,
   cardStyle,
-} from "./AccessPane.tsx";
+} from "./access-shared.tsx";
 
 export function MyDevicesPane() {
   const { invitesList, invitesLoaded, activeSessions, activeSessionsLoaded } =
     useAppState();
-  const dispatch = useDispatch();
 
   // Server-side lockout-prevention rejections (a 409 from sessions.revoke,
   // surfaced by SessionsTable's onBlocked) are owner-relevant in practice (a
   // member's session can't be the office's last owner session), but the banner
   // is wired in case a future role-change races a revoke.
   const [blockedNote, setBlockedNote] = useState<string | null>(null);
-  const prevSessionsLenRef = useRef<number>(activeSessions.length);
-
-  // Same lazy-seed pattern as AccessPane. The server returns the member-scoped
-  // subset for non-owner callers; the same store slice backs both views, so a
-  // member never sees foreign rows. Mutations still arrive as scoped broadcasts.
-  useEffect(() => {
-    if (!invitesLoaded) {
-      apiFetch<{ invites: InviteWire[] }>("GET", "/api/invites")
-        .then((r) => dispatch({ type: "invites_list", invites: r.invites }))
-        .catch(() => {});
-    }
-    if (!activeSessionsLoaded) {
-      apiFetch<{ sessions: SessionWire[] }>("GET", "/api/sessions")
-        .then((r) =>
-          dispatch({ type: "sessions_active_list", sessions: r.sessions }),
-        )
-        .catch(() => {});
-    }
-  }, [invitesLoaded, activeSessionsLoaded, dispatch]);
-
-  useEffect(() => {
-    const prev = prevSessionsLenRef.current;
-    const curr = activeSessions.length;
-    prevSessionsLenRef.current = curr;
-    if (curr < prev) setBlockedNote(null);
-  }, [activeSessions.length]);
+  useAutoClearBlockedNote(setBlockedNote);
 
   return (
     <div style={{ marginTop: 24 }}>
@@ -68,36 +46,10 @@ export function MyDevicesPane() {
       </p>
 
       {blockedNote && (
-        <div
-          style={{
-            margin: "8px 0",
-            padding: "8px 12px",
-            border: "1px solid #ff6b6b",
-            borderRadius: 6,
-            background: "rgba(255,107,107,0.08)",
-            fontSize: 12,
-            color: "#ff6b6b",
-            display: "flex",
-            gap: 8,
-            alignItems: "flex-start",
-          }}
-        >
-          <span style={{ flex: 1 }}>{blockedNote}</span>
-          <button
-            onClick={() => setBlockedNote(null)}
-            style={{
-              background: "transparent",
-              border: "none",
-              color: "#ff6b6b",
-              cursor: "pointer",
-              fontSize: 14,
-              padding: 0,
-            }}
-            title="Dismiss"
-          >
-            ×
-          </button>
-        </div>
+        <BlockedNoteBanner
+          note={blockedNote}
+          onDismiss={() => setBlockedNote(null)}
+        />
       )}
 
       <GenerateDeviceLinkForm />

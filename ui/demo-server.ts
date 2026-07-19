@@ -300,7 +300,12 @@ function emitStephenPresence() {
   };
   // Demo only ever has the one Stephen ghost online, so the total
   // matches the entries length. The shim mirrors the real wire shape.
-  shimEmit({ type: "presence_list", entries: [entry], totalOnlineUsers: 1 });
+  shimEmit({
+    type: "presence_list",
+    entries: [entry],
+    totalOnlineUsers: 1,
+    onlineUserIds: [stephen.id],
+  });
 }
 
 function startStephenGhostCycle() {
@@ -645,7 +650,7 @@ function seedCronjobs() {
 // Users: maintained as a plain in-memory map (not via OfficeState), same as
 // cronjobs. The demo fakes auth — sendInitialState emits a session_context
 // for Ricky (owner), so the modal renders the same "real office" surfaces
-// (AccessPane for owners, Sign out, etc.) instead of the pre-auth picker.
+// (owner account panes, Sign out, etc.) instead of the pre-auth picker.
 const users = new Map<string, UserRecord>();
 
 const DEMO_USERS_SEED: { name: string; role: UserRole }[] = [
@@ -707,9 +712,11 @@ function seedUsers() {
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
   const PHONE_UA =
     "Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1";
+  const stephen = users.get("stephen");
   activeSessionsList = [
     {
       sessionPrefix: CURRENT_SESSION_PREFIX,
+      userId: ricky?.id ?? "demo-ricky",
       username: "Ricky",
       createdAt: now - 7 * 86400000,
       lastSeenAt: now - 30_000,
@@ -719,6 +726,7 @@ function seedUsers() {
     },
     {
       sessionPrefix: "7e9f0a12",
+      userId: stephen?.id ?? "demo-stephen",
       username: "Stephen",
       createdAt: now - 3 * 86400000,
       lastSeenAt: now - 2 * 3600000,
@@ -728,6 +736,7 @@ function seedUsers() {
     },
     {
       sessionPrefix: "9f8e7d6c",
+      userId: stephen?.id ?? "demo-stephen",
       username: "Stephen",
       createdAt: now - 5 * 86400000,
       lastSeenAt: now - 15 * 60_000,
