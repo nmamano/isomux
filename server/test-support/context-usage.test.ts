@@ -290,6 +290,38 @@ describe("context-fullness: snapshot lifecycle through GET /api/agents/:id/conte
     });
   });
 
+  it("/context slash command serves the committed snapshot after the session is released (no wake, no lifecycle note)", async () => {
+    // The typed /context used to answer "No active session." for a vacated
+    // (idle-released) session while the battery pill still showed the last
+    // committed reading — task 714d80da. It now serves that same snapshot,
+    // rendered IDENTICALLY to the live case: remaining context doesn't change
+    // when the session process is released, so no lifecycle note (Nil).
+    const srv = await startTestServer({ fakeBackend: backendWith(usage(63)) });
+    server = srv;
+    await srv.seedOwner("Boss");
+    const room = srv.agentManager.getRooms()[0];
+    const agent = await spawnAgent(srv, "Worker", room.id);
+
+    await runTurn(srv, agent.id, "hi"); // turn_completed commits 63
+    await releaseSession(srv, agent.id); // dormant: session === null
+
+    await srv.agentManager.sendMessage(agent.id, "/context", "Boss");
+    const sys = srv.agentManager
+      .getAgentLogs(agent.id)
+      .filter((e) => e.kind === "system")
+      .map((e) => e.content);
+    const reading = sys.find((c) => c.includes("fake-model"));
+    expect(reading).toBeDefined();
+    expect(reading!).toContain("(63%)");
+    // Identical to the live rendering: no released-session or degraded-read
+    // note of any kind.
+    expect(reading!).not.toContain("Showing the last committed reading");
+    expect(reading!).not.toContain("released");
+    expect(sys).not.toContain("No active session.");
+    // Reading the snapshot must NOT wake the released session.
+    expect(srv.agentManager.getAgent(agent.id)?.dormant).toBe(true);
+  });
+
   it("live session reporting null (Codex-before-first-tokenUsage shape) -> not_yet_measured", async () => {
     const srv = await startTestServer({ fakeBackend: backendWith() });
     server = srv;

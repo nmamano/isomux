@@ -6419,9 +6419,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           // case where both rollback fails AND the backend is unconfigured).
         }
 
-        // Restore the old log cache and UI
+        // Restore the old log cache and UI. rollback: this clear restores the
+        // PRIOR timeline (the fork failed), so it is not a conversation
+        // boundary — clients must keep transient cues like the unread dot.
         logCache.set(agentId, oldLogCache);
-        emit({ type: "clear_logs", agentId });
+        emit({ type: "clear_logs", agentId, rollback: true });
         for (const entry of oldLogCache) {
           emit({ type: "log_entry", entry });
         }

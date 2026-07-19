@@ -98,6 +98,7 @@ import type {
   MemoryReadRes,
   MemoryAppendRes,
   MemoryWriteRes,
+  SkillUsageCountsRes,
   CronCreateReq,
   CronUpdateReq,
   CronRunMessageReq,
@@ -828,6 +829,19 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "PUT",
     path: "/api/memory",
     auth: cap("memory:write", authenticated),
+    emits: [],
+  }),
+
+  // --- Skill usage (per-user Sk-menu sort counts; task f1769b1a) ------------
+  // The CALLER's own skill-use counters (keyed off the token/cookie userId,
+  // never a param — one user cannot read another's counts through this route).
+  // office:read keeps plain agent tokens out (they lack it); the Sk popover is
+  // the intended consumer.
+  defineRoute<void, SkillUsageCountsRes>({
+    opId: "skills.usageCounts",
+    method: "GET",
+    path: "/api/skill-usage",
+    auth: cap("office:read", authenticated),
     emits: [],
   }),
 

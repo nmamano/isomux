@@ -608,6 +608,8 @@ const ROUTE_LABELS: Array<[string, string, string]> = [
   ["POST", "/api/memory", "Append memory"],
   ["PUT", "/api/memory", "Replace memory"],
   ["GET", "/api/cronjobs", "List cronjobs"],
+  // Per-user Sk-menu counters (reachable by privileged agent tokens).
+  ["GET", "/api/skill-usage", "Read skill-use counts"],
 ];
 
 export function describeIsomuxRoute(

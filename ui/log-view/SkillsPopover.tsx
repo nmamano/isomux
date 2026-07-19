@@ -1,41 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { SkillInfo, SkillOrigin } from "../../shared/types.ts";
+import type { SkillInfo } from "../../shared/types.ts";
+import { apiFetch } from "../api.ts";
+import { buildSkillsMenuGroups, type CommandEntry } from "./skills-grouping.ts";
 
-// Display groups: built-in commands first (mirrors /help), then skills in
-// the agreed order: bundled / user / project / plugin. "isomux" is the
-// origin of skills bundled with isomux, hence "Bundled". The "claude" origin
-// exists in the SkillOrigin union but no discovery path currently emits it;
-// fold it into Bundled rather than surfacing an extra group that was never
-// part of the agreed grouping.
-type GroupKey = "commands" | "bundled" | "user" | "project" | "plugin";
-const GROUP_ORDER: GroupKey[] = [
-  "commands",
-  "bundled",
-  "user",
-  "project",
-  "plugin",
-];
-const GROUP_LABELS: Record<GroupKey, string> = {
-  commands: "Commands",
-  bundled: "Bundled",
-  user: "User",
-  project: "Project",
-  plugin: "Plugin",
-};
-
-// Built-in slash commands ride the same slash_commands wire message as
-// skills but with a simpler shape (no origin).
-export interface CommandEntry {
-  name: string;
-  description?: string;
-  aliasFor?: string;
-  // No-arg commands EXECUTE on click instead of being copied into the draft.
-  autoRun?: boolean;
-}
-function groupForOrigin(origin: SkillOrigin): GroupKey {
-  if (origin === "isomux" || origin === "claude") return "bundled";
-  return origin;
-}
+// Display groups + most-used ranking live in skills-grouping.ts (a pure,
+// unit-tested transform); this component owns fetching the counts and
+// rendering the returned groups.
+export type { CommandEntry } from "./skills-grouping.ts";
 
 // Popover listing the agent's available skills, opened from the "Sk" button
 // in the composer. Renders inside the composer's position:relative container
@@ -59,6 +30,23 @@ export function SkillsPopover({
   const ref = useRef<HTMLDivElement>(null);
   const filterRef = useRef<HTMLInputElement>(null);
   const [filter, setFilter] = useState("");
+  // The viewing user's per-skill use counters (server-side so they follow the
+  // user across devices — task f1769b1a). Fetched fresh on every open; until
+  // (or if never) loaded, all counts read 0 and the alphabetical order stands.
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  useEffect(() => {
+    let alive = true;
+    apiFetch<{ counts: Record<string, number> }>("GET", "/api/skill-usage")
+      .then((r) => {
+        if (alive && r?.counts) setCounts(r.counts);
+      })
+      .catch(() => {
+        // Demo build / transient failure: sorting falls back to alphabetical.
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   // Outside-click / Escape dismissal. Capture phase so a preventDefault
   // somewhere below can't swallow the dismiss (same defensive pattern as
@@ -92,47 +80,10 @@ export function SkillsPopover({
     if (!isMobile) filterRef.current?.focus();
   }, [isMobile]);
 
-  const groups = useMemo(() => {
-    // An entry with aliasFor is a friendlier alias of a canonical name
-    // (skills: on-disk name; commands: e.g. /diff for /isomux-diff). Mirror
-    // /help: show one line per entry — the alias — and hide the canonical
-    // it points at.
-    const aliasTargets = new Set(
-      [...skills, ...commands]
-        .filter((s) => s.aliasFor)
-        .map((s) => s.aliasFor as string),
-    );
-    const q = filter.trim().toLowerCase();
-    const matches = (name: string, description?: string) =>
-      !q ||
-      name.toLowerCase().includes(q) ||
-      (description ?? "").toLowerCase().includes(q);
-    const byGroup = new Map<
-      GroupKey,
-      { name: string; description?: string; autoRun?: boolean }[]
-    >();
-    const add = (
-      group: GroupKey,
-      name: string,
-      description?: string,
-      autoRun?: boolean,
-    ) => {
-      if (aliasTargets.has(name) || !matches(name, description)) return;
-      const list = byGroup.get(group) ?? [];
-      list.push({ name, description, autoRun });
-      byGroup.set(group, list);
-    };
-    // Only commands can be auto-run; skills always take a free-form prompt and
-    // are copied into the draft.
-    for (const c of commands) add("commands", c.name, c.description, c.autoRun);
-    for (const s of skills)
-      add(groupForOrigin(s.origin), s.name, s.description);
-    return GROUP_ORDER.filter((g) => byGroup.has(g)).map((g) => ({
-      key: g,
-      label: GROUP_LABELS[g],
-      skills: byGroup.get(g)!.sort((a, b) => a.name.localeCompare(b.name)),
-    }));
-  }, [skills, commands, filter]);
+  const groups = useMemo(
+    () => buildSkillsMenuGroups({ skills, commands, counts, filter }),
+    [skills, commands, filter, counts],
+  );
 
   return (
     <div
@@ -245,6 +196,21 @@ export function SkillsPopover({
                   }}
                 >
                   /{s.name}
+                  {s.count > 0 && (
+                    // Use count (drives the most-used-first sort). Nested in
+                    // the name span so it rides the name line in both the
+                    // desktop row and mobile column layouts.
+                    <span
+                      style={{
+                        marginLeft: 6,
+                        color: "var(--text-ghost)",
+                        fontSize: 10,
+                        fontWeight: 400,
+                      }}
+                    >
+                      ×{s.count}
+                    </span>
+                  )}
                 </span>
                 {s.description && (
                   <span

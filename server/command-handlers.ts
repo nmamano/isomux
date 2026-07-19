@@ -30,6 +30,7 @@ import { memoryStore } from "./memory-store.ts";
 import { getUserByName } from "./users.ts";
 import { listCronjobs, buildCronjobSystemPrompt } from "./cronjob-manager.ts";
 import { resolveSkillPrompt } from "./skills.ts";
+import { recordSkillUse } from "./skill-usage.ts";
 import {
   ensureCodexWrapperScript,
   codexWrapperCommandForShell,
@@ -259,13 +260,62 @@ export function createCommandHandling(deps: HandlerDeps) {
     async context(agentId, managed, _args, rawText, username, device) {
       const userMeta = buildMeta(username, device);
       deps.addLogEntry(agentId, "user_message", rawText, userMeta);
+      // Shared header for both the live reading and the snapshot fallback.
+      const headerLines = (u: {
+        model: string;
+        totalTokens: number;
+        maxTokens: number;
+        percentage: number;
+      }): string[] => {
+        const pct = Math.round(u.percentage);
+        const barLen = 30;
+        const filled = Math.round((barLen * u.percentage) / 100);
+        const bar = "█".repeat(filled) + "░".repeat(barLen - filled);
+        return [
+          `**${u.model}** — ${u.totalTokens.toLocaleString()} / ${u.maxTokens.toLocaleString()} tokens (${pct}%)`,
+          `\`${bar}\``,
+        ];
+      };
+      // No live session (released while idle, or never started), or the live
+      // read fails: fall back to the last committed snapshot — the same
+      // reading the battery pill shows (task 714d80da). Reading the snapshot
+      // does NOT wake a dormant session.
+      const snapshotFallback = (note?: (age: string) => string): boolean => {
+        const snap = managed.contextUsage;
+        if (!snap) return false;
+        const lines = [...headerLines(snap)];
+        if (note) {
+          const ageMs = Date.now() - snap.sampledAtMs;
+          const ageMin = Math.round(ageMs / 60_000);
+          const age =
+            ageMin < 1
+              ? "less than a minute ago"
+              : ageMin < 60
+                ? `${ageMin}m ago`
+                : `${Math.floor(ageMin / 60)}h ${ageMin % 60}m ago`;
+          lines.push("", note(age));
+        }
+        deps.addLogEntry(agentId, "system", lines.join("\n"));
+        return true;
+      };
       if (!managed.session) {
+        // Released-while-idle renders IDENTICALLY to the live case (no
+        // lifecycle note — remaining context doesn't change when the session
+        // process is released; Nil's call, task 714d80da).
+        if (snapshotFallback()) return true;
         deps.addLogEntry(agentId, "system", "No active session.");
         return true;
       }
       try {
         const ctx = await managed.session.getContextUsage();
         if (!ctx) {
+          if (
+            snapshotFallback(
+              (age) =>
+                `Live measurement unavailable. Showing the last committed reading, sampled ${age}.`,
+            )
+          )
+            return true;
           deps.addLogEntry(
             agentId,
             "system",
@@ -273,16 +323,7 @@ export function createCommandHandling(deps: HandlerDeps) {
           );
           return true;
         }
-        const lines: string[] = [];
-
-        const pct = Math.round(ctx.percentage);
-        const barLen = 30;
-        const filled = Math.round((barLen * ctx.percentage) / 100);
-        const bar = "█".repeat(filled) + "░".repeat(barLen - filled);
-        lines.push(
-          `**${ctx.model}** — ${ctx.totalTokens.toLocaleString()} / ${ctx.maxTokens.toLocaleString()} tokens (${pct}%)`,
-        );
-        lines.push(`\`${bar}\``);
+        const lines: string[] = [...headerLines(ctx)];
 
         if ((ctx.categories?.length ?? 0) > 0 && ctx.categories) {
           lines.push("");
@@ -324,6 +365,13 @@ export function createCommandHandling(deps: HandlerDeps) {
 
         deps.addLogEntry(agentId, "system", lines.join("\n"));
       } catch (err) {
+        if (
+          snapshotFallback(
+            (age) =>
+              `Live measurement failed. Showing the last committed reading, sampled ${age}.`,
+          )
+        )
+          return true;
         deps.addLogEntry(
           agentId,
           "system",
@@ -1033,9 +1081,23 @@ export function createCommandHandling(deps: HandlerDeps) {
     const userMeta = buildMeta(username, device);
     const cfg: CommandConfig | undefined = commands[cmd];
 
+    // Count the dispatched use under the invoking user — Sk-menu ranking
+    // rides these counts (task f1769b1a). COMMANDS and skills both count (the
+    // menu ranks across both), under the name as typed/picked; only actual
+    // dispatches count (unknown/unsupported echoes don't), and senders with
+    // no user record (agents/system) are skipped. Hidden command spellings
+    // (autocomplete:false — /new, /reset) are skipped too: they can never
+    // surface in the menu, so their counts would be dead data.
+    const countUse = () => {
+      if (!username) return;
+      const user = getUserByName(username);
+      if (user) recordSkillUse(user.id, cmd);
+    };
+
     // Step 1: Config lookup (non-overridable)
     if (cfg && !cfg.overridable) {
       if (cfg.supported && cfg.handler && commandHandlers[cfg.handler]) {
+        if (cfg.autocomplete) countUse();
         return commandHandlers[cfg.handler](
           agentId,
           managed,
@@ -1054,6 +1116,7 @@ export function createCommandHandling(deps: HandlerDeps) {
     // Step 2: Skill override check (for overridable config entries OR unknown commands)
     const skillPrompt = resolveSkillPrompt(cmd, managed.info.cwd);
     if (skillPrompt) {
+      countUse();
       return executeSkill(
         agentId,
         managed,
@@ -1068,6 +1131,7 @@ export function createCommandHandling(deps: HandlerDeps) {
     // Step 3: Config lookup (overridable, no skill found)
     if (cfg && cfg.overridable) {
       if (cfg.supported && cfg.handler && commandHandlers[cfg.handler]) {
+        if (cfg.autocomplete) countUse();
         return commandHandlers[cfg.handler](
           agentId,
           managed,

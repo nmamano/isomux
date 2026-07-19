@@ -232,7 +232,11 @@ export interface ManagedAgent {
 export type AgentEvent =
   | OfficeEvent
   | { type: "log_entry"; entry: LogEntry }
-  | { type: "clear_logs"; agentId: string }
+  // `rollback: true` marks a clear that RESTORES a prior visible timeline
+  // (failed edit-fork rollback) rather than establishing a new conversation
+  // boundary — clients keep transient per-conversation cues (the unread dot)
+  // instead of dropping them (task 8d763325).
+  | { type: "clear_logs"; agentId: string; rollback?: boolean }
   | {
       type: "slash_commands";
       agentId: string;

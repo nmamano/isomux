@@ -145,6 +145,8 @@ import { memoryStore, isSafeScopeId, versionOf } from "./memory-store.ts";
 import { cronHandlers } from "./routes/handlers/cron.ts";
 import { agentAffordanceHandlers } from "./routes/handlers/agent-affordances.ts";
 import { uploadsHandlers } from "./routes/handlers/uploads.ts";
+import { skillUsageHandlers } from "./routes/handlers/skill-usage.ts";
+import { getSkillUseCounts } from "./skill-usage.ts";
 import { invitesHandlers } from "./routes/handlers/invites.ts";
 import { sessionsHandlers } from "./routes/handlers/sessions.ts";
 import { accessHandlers } from "./routes/handlers/access.ts";
@@ -1507,6 +1509,15 @@ function buildExecutorDeps(): ExecutorDeps {
         agentManager.emitAgentPreviewUrl(agentId, body),
       getAgentContextUsage: (agentId) =>
         agentManager.getAgentContextUsage(agentId),
+    }),
+  );
+
+  // Skill usage (task f1769b1a): the caller's own per-skill use counters,
+  // driving the Sk-menu sort. Read-only; increments live at the slash-command
+  // dispatch site in command-handlers.ts.
+  register(
+    skillUsageHandlers({
+      countsFor: (userId) => getSkillUseCounts(userId),
     }),
   );
 
@@ -3169,7 +3180,12 @@ function emitAgentEvent(event: AgentEvent): void {
       liveEmit("log_entry", { entry: event.entry });
       break;
     case "clear_logs":
-      liveEmit("clear_logs", { agentId: event.agentId });
+      liveEmit(
+        "clear_logs",
+        event.rollback
+          ? { agentId: event.agentId, rollback: true }
+          : { agentId: event.agentId },
+      );
       break;
     case "slash_commands":
       liveEmit("slash_commands", {

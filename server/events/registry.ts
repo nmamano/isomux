@@ -109,7 +109,9 @@ export interface RegistryEvent {
 export interface EventPayloads {
   // Live agent / room stream (room-ACL)
   log_entry: { entry: LogEntry };
-  clear_logs: { agentId: string };
+  // rollback marks a restore-of-prior-timeline clear (failed edit-fork
+  // rollback), not a conversation boundary; clients keep the unread dot.
+  clear_logs: { agentId: string; rollback?: boolean };
   slash_commands: {
     agentId: string;
     commands: { name: string; description?: string; aliasFor?: string }[];

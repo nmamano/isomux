@@ -1021,7 +1021,9 @@ export type ServerMessage =
       }[];
       skills: SkillInfo[];
     }
-  | { type: "clear_logs"; agentId: string }
+  // rollback: this clear restores a prior timeline (failed edit-fork rollback),
+  // not a conversation boundary — clients keep the unread dot.
+  | { type: "clear_logs"; agentId: string; rollback?: boolean }
   | { type: "terminal_output"; agentId: string; data: string }
   | { type: "terminal_exit"; agentId: string; exitCode: number }
   | {

@@ -29,6 +29,7 @@ import {
 } from "../auth.ts";
 import { _testResetUsers } from "../users.ts";
 import { _testResetTokens } from "../identity/tokens.ts";
+import { _testResetSkillUsage } from "../skill-usage.ts";
 import { registerProductionCronjobManagerForModuleReads } from "../cronjob-manager.ts";
 import type { UserRole } from "../../shared/types.ts";
 
@@ -130,6 +131,7 @@ async function bootTestServer(
     _testResetState();
     _testResetUsers();
     _testResetTokens();
+    _testResetSkillUsage();
     registerProductionCronjobManagerForModuleReads(null);
 
     const fakeBackend =

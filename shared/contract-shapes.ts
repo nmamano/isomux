@@ -390,6 +390,13 @@ export interface TaskClaimReq {
   assignee?: string;
 }
 
+// skills.usageCounts response: the CALLING user's per-skill use counters
+// (skill name -> count; skills never used are absent). Drives the Sk-menu
+// sort order (task f1769b1a).
+export interface SkillUsageCountsRes {
+  counts: Record<string, number>;
+}
+
 export interface CronCreateReq {
   name: string;
   schedule: Cronjob["schedule"];

@@ -76,3 +76,42 @@ describe("reducer: log_entries_batch", () => {
     expect((merged.logs.get(T) ?? []).map((e) => e.id)).toEqual(["b"]);
   });
 });
+
+describe("reducer: clear_logs", () => {
+  it("clears the agent's unread (needsAttention) dot along with its logs", () => {
+    // The dot is per-client state; the server-broadcast clear_logs (fired by
+    // new-conversation and every other conversation boundary) is what makes
+    // ALL clients drop it — task 8d763325. Seed dots for two agents; the
+    // cleared one loses its dot, the other keeps it.
+    const seeded = {
+      ...reducer(initialState, {
+        type: "log_entry",
+        entry: entry("e1", "agent-1", 100),
+      }),
+      needsAttention: new Set(["agent-1", "agent-2"]),
+    };
+    const after = reducer(seeded, { type: "clear_logs", agentId: "agent-1" });
+    expect(after.logs.get("agent-1")).toEqual([]);
+    expect(after.needsAttention.has("agent-1")).toBe(false);
+    expect(after.needsAttention.has("agent-2")).toBe(true);
+  });
+
+  it("keeps the dot on a rollback clear (failed edit-fork restores the prior timeline)", () => {
+    const seeded = {
+      ...reducer(initialState, {
+        type: "log_entry",
+        entry: entry("e1", "agent-1", 100),
+      }),
+      needsAttention: new Set(["agent-1"]),
+    };
+    const after = reducer(seeded, {
+      type: "clear_logs",
+      agentId: "agent-1",
+      rollback: true,
+    });
+    // Logs still clear (the server replays the restored entries right after)…
+    expect(after.logs.get("agent-1")).toEqual([]);
+    // …but the unseen-result dot survives: nothing was semantically retired.
+    expect(after.needsAttention.has("agent-1")).toBe(true);
+  });
+});

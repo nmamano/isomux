@@ -102,7 +102,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Built-in slash commands**: `/clear`, `/help`, `/context`, `/resume`, `/model`, `/effort`.
 - **Spawn dialog**: pick model, permission mode, thinking effort, and working directory (with recent-CWD suggestions) when creating an agent.
 - **Autocomplete dropdown** with keyboard navigation for slash commands.
-- **Skills browser** — the "Sk" button in the input bar (shown while the draft is empty) opens a filterable list of built-in commands and the agent's available skills, grouped by origin; picking one inserts the slash command into the input.
+- **Skills browser** — the "Sk" button in the input bar opens a list of commands and skills, with the most-used ones first; pick one to insert it into the input.
 - **User skills** from `~/.claude/skills/` and project commands.
 
 ### Cron jobs

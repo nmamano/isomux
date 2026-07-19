@@ -203,7 +203,7 @@ type Action =
       }[];
       skills: SkillInfo[];
     }
-  | { type: "clear_logs"; agentId: string }
+  | { type: "clear_logs"; agentId: string; rollback?: boolean }
   | { type: "set_mobile"; isMobile: boolean }
   | { type: "toggle_mobile_view" }
   | {
@@ -484,7 +484,17 @@ export function reducer(state: AppState, action: Action): AppState {
       logs.set(action.agentId, []);
       const logEntryIds = new Map(state.logEntryIds);
       logEntryIds.set(action.agentId, new Set());
-      return { ...state, logs, logEntryIds };
+      // A conversation boundary (new-conversation/clear, resume, edit-fork)
+      // retires the unread dot everywhere: the dot points at a turn that just
+      // got wiped/replaced. Server-broadcast, so ALL connected clients clear
+      // in lockstep — previously only the clearing client's dot went away
+      // (via its own focus), and everyone else kept a stale dot. A rollback
+      // clear (failed edit-fork restoring the PRIOR timeline) is not a
+      // boundary — the old unseen result comes back, so the dot stays.
+      if (action.rollback) return { ...state, logs, logEntryIds };
+      const needsAttention = new Set(state.needsAttention);
+      needsAttention.delete(action.agentId);
+      return { ...state, logs, logEntryIds, needsAttention };
     }
     case "set_mobile":
       return { ...state, isMobile: action.isMobile };

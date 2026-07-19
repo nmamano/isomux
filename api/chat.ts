@@ -138,7 +138,7 @@ Setup:
 - User skills from ~/.claude/skills/ and project commands
 - Isomux-bundled skills like /peer-review (one agent reviews another's ongoing work and messages feedback directly to them), /pair-programming (drive a feature end-to-end with another agent reviewing design and code), /soft-handoff (hand your current task off to another agent and stay around to answer their questions), /second-opinion (ask another agent for a take on one specific question without handing off the work), /grill-me (stress-tests a feature design; based on the original by Matt Pocock), /subagent-review (spawn a subagent to review uncommitted diff before commit), /handoff (an agent nearing its context limit continues its unfinished task on a fresh session: it writes a brief of what's left, the boss approves, and it restarts clean on just that brief), /isomux-report-bug
 - Autocomplete dropdown with keyboard navigation
-- Skills browser: an "Sk" button in the input bar (shown while the draft is empty) opens a filterable list of built-in commands and the agent's available skills, grouped by origin; picking one inserts the slash command into the input
+- Skills browser: the "Sk" button in the input bar opens a list of commands and skills, with the most-used ones first; pick one to insert it into the input
 
 ### Inter-agent Communication
 - Agents discover each other via a shared office manifest, scoped to the rooms each agent's manager can see
