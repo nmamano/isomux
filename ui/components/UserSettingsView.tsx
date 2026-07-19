@@ -1243,11 +1243,11 @@ function UserEditPanel({
           placeholder={
             mem.loaded ? "Some memory relevant to this user" : "Loading memory…"
           }
-          rows={4}
+          rows={8}
           readOnly={!mem.loaded}
           style={{
             ...inputStyle,
-            minHeight: 72,
+            minHeight: 144,
             resize: "vertical",
             fontFamily: "inherit",
             lineHeight: 1.45,
