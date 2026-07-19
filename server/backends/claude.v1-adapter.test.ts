@@ -4,78 +4,12 @@ import type {
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 import {
-  translateExecutableArgs,
   makePushableInput,
   sessionOptsToV1,
   wrapV1Query,
   type PushableInput,
   type V1QueryLike,
 } from "./claude";
-
-// ---------------------------------------------------------------------------
-// translateExecutableArgs — V2 "--flag value" pairs → V1 extraArgs record
-// ---------------------------------------------------------------------------
-
-describe("translateExecutableArgs", () => {
-  it("empty array yields empty record", () => {
-    expect(translateExecutableArgs([])).toEqual({});
-  });
-
-  it("--append-system-prompt with value → record entry", () => {
-    expect(
-      translateExecutableArgs(["--append-system-prompt", "you are helpful"]),
-    ).toEqual({ "append-system-prompt": "you are helpful" });
-  });
-
-  it("--effort with value → record entry", () => {
-    expect(translateExecutableArgs(["--effort", "max"])).toEqual({
-      effort: "max",
-    });
-  });
-
-  it("both recognized pairs → both translated", () => {
-    expect(
-      translateExecutableArgs([
-        "--append-system-prompt",
-        "sys",
-        "--effort",
-        "high",
-      ]),
-    ).toEqual({
-      "append-system-prompt": "sys",
-      effort: "high",
-    });
-  });
-
-  it("recognizes pairs regardless of order", () => {
-    expect(
-      translateExecutableArgs([
-        "--effort",
-        "low",
-        "--append-system-prompt",
-        "p",
-      ]),
-    ).toEqual({ effort: "low", "append-system-prompt": "p" });
-  });
-
-  it("throws on unrecognized flag — silent dropping would hide future bugs", () => {
-    expect(() => translateExecutableArgs(["--unknown", "value"])).toThrow(
-      /unrecognized/,
-    );
-  });
-
-  it("throws on bare flag with no following value (odd length)", () => {
-    expect(() => translateExecutableArgs(["--append-system-prompt"])).toThrow(
-      /requires a string value/,
-    );
-  });
-
-  it("throws when --effort is the last token", () => {
-    expect(() =>
-      translateExecutableArgs(["--append-system-prompt", "x", "--effort"]),
-    ).toThrow(/requires a string value/);
-  });
-});
 
 // ---------------------------------------------------------------------------
 // makePushableInput — pushable async iterable for query()'s prompt arg
@@ -359,7 +293,7 @@ describe("wrapV1Query", () => {
 });
 
 // ---------------------------------------------------------------------------
-// sessionOptsToV1 — swap executableArgs → extraArgs, add resume when set
+// sessionOptsToV1 — verbatim passthrough, add resume when set
 // ---------------------------------------------------------------------------
 
 describe("sessionOptsToV1", () => {
@@ -370,27 +304,21 @@ describe("sessionOptsToV1", () => {
     permissionMode: "default" as const,
   };
 
-  it("drops executableArgs and sets extraArgs from the translated pairs", () => {
+  it("passes typed systemPrompt/effort through untouched — the prompt must ride the typed option (stdin), never extraArgs/argv (task e6a0387a)", () => {
     const v1 = sessionOptsToV1({
       ...base,
-      executableArgs: ["--append-system-prompt", "sys", "--effort", "high"],
-    });
-    expect(v1).not.toHaveProperty("executableArgs");
-    expect(v1.extraArgs).toEqual({
-      "append-system-prompt": "sys",
+      systemPrompt: { type: "preset", preset: "claude_code", append: "sys" },
       effort: "high",
     });
-  });
-
-  it("omits extraArgs entirely when there are no executableArgs", () => {
-    const v1 = sessionOptsToV1(base);
+    expect(v1.systemPrompt).toEqual({
+      type: "preset",
+      preset: "claude_code",
+      append: "sys",
+    });
+    expect(v1.effort).toBe("high");
+    // Regression guard: nothing may reintroduce the argv path for the prompt.
     expect(v1).not.toHaveProperty("extraArgs");
     expect(v1).not.toHaveProperty("executableArgs");
-  });
-
-  it("omits extraArgs when executableArgs is an empty array", () => {
-    const v1 = sessionOptsToV1({ ...base, executableArgs: [] });
-    expect(v1).not.toHaveProperty("extraArgs");
   });
 
   it("adds resume when resumeSessionId is provided", () => {

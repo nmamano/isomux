@@ -1,5 +1,6 @@
 // Concatenate baseline boilerplate, office prompt, room prompt, and agent custom
-// instructions into the exact string that gets injected as --append-system-prompt.
+// instructions into the exact string that gets appended to the model's system
+// prompt (Claude: the SDK's typed systemPrompt append; Codex: developerInstructions).
 // Pure function so it can be reused by /isomux-system-prompt for inspection.
 //
 // PORT is read once at module load. Same pattern as admin-socket.ts /

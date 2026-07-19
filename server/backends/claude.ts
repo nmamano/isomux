@@ -26,6 +26,7 @@ import {
   query,
   forkSession as sdkForkSession,
   getSessionMessages as sdkGetSessionMessages,
+  type EffortLevel as SdkEffortLevel,
   type SDKMessage,
   type SDKResultMessage,
   type SDKUserMessage,
@@ -41,14 +42,19 @@ import {
 
 // Internal session-options shape — the boundary between the orchestrator-
 // facing `buildSdkOpts` and the SDK adapters. Defined here (not aliased to an
-// SDK type) so adapter changes don't ripple into every caller, and so the
-// `executableArgs` field can carry the V2-style `--flag value` pairs isomux
-// has historically produced. The V1 adapter parses those into V1's typed
-// `extraArgs` via `translateExecutableArgs` below.
+// SDK type) so adapter changes don't ripple into every caller. Every field is
+// a valid SDK `Options` field, so `sessionOptsToV1` can spread it verbatim.
+//
+// `systemPrompt` uses the SDK's typed option (preset + append) rather than a
+// raw `--append-system-prompt` CLI flag: the typed option travels inside the
+// `initialize` control request over the child's stdin, so the multi-KB prompt
+// never appears in the process argv (task e6a0387a — argv is world-readable
+// via /proc/<pid>/cmdline and dumped wholesale by `systemctl status`).
 export interface SdkSessionOptions {
   model: string;
   pathToClaudeCodeExecutable: string;
-  executableArgs?: string[];
+  systemPrompt?: Options["systemPrompt"];
+  effort?: SdkEffortLevel;
   env?: { [key: string]: string | undefined };
   cwd: string;
   permissionMode: PermissionMode;
@@ -205,62 +211,17 @@ export interface SdkClient {
 // into the input iterable; `close()` ends the iterable + best-effort
 // `interrupt()`s the query.
 
-// V2 used `executableArgs: ["--append-system-prompt", X, "--effort", Y]` to
-// prepend Claude CLI flags. V1's `executableArgs` is for the JS runtime
-// (node/bun/deno), not the Claude CLI — forwarding our pairs would be a
-// behavioral bug. Translate to V1's typed `extraArgs`.
-//
-// Deliberately narrow: only the pairs `buildSdkOpts` actually produces are
-// recognized. Anything else throws — adding a new flag through this path
-// without updating this translator would silently drop it.
-export function translateExecutableArgs(
-  executableArgs: string[],
-): Record<string, string> {
-  const extraArgs: Record<string, string> = {};
-  for (let i = 0; i < executableArgs.length; i++) {
-    const flag = executableArgs[i];
-    const value = executableArgs[i + 1];
-    if (flag === "--append-system-prompt") {
-      if (typeof value !== "string") {
-        throw new Error(
-          "translateExecutableArgs: --append-system-prompt requires a string value",
-        );
-      }
-      extraArgs["append-system-prompt"] = value;
-      i++;
-    } else if (flag === "--effort") {
-      if (typeof value !== "string") {
-        throw new Error(
-          "translateExecutableArgs: --effort requires a string value",
-        );
-      }
-      extraArgs.effort = value;
-      i++;
-    } else {
-      throw new Error(
-        `translateExecutableArgs: unrecognized arg ${JSON.stringify(flag)} ` +
-          `(V1's executableArgs is for the JS runtime, not the Claude CLI — ` +
-          `add a case here only if the flag is one we own)`,
-      );
-    }
-  }
-  return extraArgs;
-}
-
-// Exported for test coverage of the executableArgs→extraArgs swap and the
-// optional `resume` add-on. Internal otherwise.
+// Exported for test coverage of the passthrough + optional `resume` add-on.
+// Internal otherwise. SdkSessionOptions is a strict subset of the SDK's
+// `Options` (see the interface comment above), so this is a plain spread by
+// design. Do not translate `systemPrompt` into `extraArgs`: extraArgs is
+// rendered onto the child's argv (task e6a0387a).
 export function sessionOptsToV1(
   opts: SdkSessionOptions,
   resumeSessionId?: string,
 ): Options {
-  const { executableArgs, ...rest } = opts;
-  const extraArgs =
-    executableArgs && executableArgs.length > 0
-      ? translateExecutableArgs(executableArgs)
-      : undefined;
   return {
-    ...rest,
-    ...(extraArgs ? { extraArgs } : {}),
+    ...opts,
     ...(resumeSessionId ? { resume: resumeSessionId } : {}),
   };
 }
@@ -1103,7 +1064,7 @@ export function buildClaudeUserMessage(
 // SDK session option builder
 // ---------------------------------------------------------------------------
 // Shared by createSession / resumeSession. Pulls in safety-hooks, builds the
-// --append-system-prompt / --effort args, normalizes the model family.
+// typed systemPrompt / effort options, normalizes the model family.
 
 function buildSdkOpts(opts: CreateSessionOptions): SdkSessionOptions {
   const familyKey = opts.modelFamily as ModelFamily;
@@ -1113,15 +1074,21 @@ function buildSdkOpts(opts: CreateSessionOptions): SdkSessionOptions {
     // permissionMode is `string` at the Backend boundary; narrow at the call site.
     permissionMode: opts.permissionMode as PermissionMode,
     pathToClaudeCodeExecutable: CLAUDE_NATIVE_BIN,
-    // executableArgs injects --append-system-prompt and --effort. When
-    // pathToClaudeCodeExecutable is a native binary, executableArgs are
-    // prepended to the CLI args verbatim (verified against SDK 0.2.116 sdk.mjs).
-    executableArgs: [
-      "--append-system-prompt",
-      opts.systemPrompt,
-      "--effort",
-      opts.effort,
-    ],
+    // "Default with additions": keep the claude_code base prompt and append
+    // isomux's assembled prompt. The typed option travels over stdin (the
+    // SDK's `initialize` control request), NOT argv — do not route the prompt
+    // through extraArgs/CLI flags, that leaks it to `ps`/`systemctl status`
+    // (task e6a0387a).
+    systemPrompt: {
+      type: "preset",
+      preset: "claude_code",
+      append: opts.systemPrompt,
+    },
+    // effort is `string` at the Backend boundary; upstream validateEffort
+    // guarantees a Claude-legal level (narrower than shared EffortLevel,
+    // which includes Codex-only values). Narrow at the call site, same
+    // pattern as permissionMode.
+    effort: opts.effort as SdkEffortLevel,
     cwd: opts.cwd,
     hooks: createSafetyHooks(),
     // AskUserQuestion has no usable UI in isomux: the canUseTool approval

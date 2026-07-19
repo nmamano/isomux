@@ -33,12 +33,14 @@ function baseOpts() {
   return {
     model: "claude-haiku-4-5-20251001",
     pathToClaudeCodeExecutable: CLAUDE_NATIVE_BIN,
-    executableArgs: [
-      "--append-system-prompt",
-      "You answer in <=5 words.",
-      "--effort",
-      "low",
-    ],
+    // Typed options, mirroring buildSdkOpts: the prompt travels over stdin
+    // (initialize control request), never argv (task e6a0387a).
+    systemPrompt: {
+      type: "preset",
+      preset: "claude_code",
+      append: "You answer in <=5 words.",
+    } as const,
+    effort: "low" as const,
     cwd: "/tmp",
     permissionMode: "default" as const,
     disallowedTools: ["AskUserQuestion"],

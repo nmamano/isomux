@@ -7,6 +7,8 @@ Updated 2026-03-27 with live testing results.
 
 The Agent SDK works with a Claude Pro/Max subscription despite docs saying it requires an API key. **Tested and confirmed**: both V1 `query()` and V2 `unstable_v2_createSession()` work with subscription auth, including multi-turn. The SDK is our primary integration path.
 
+> **Status note (2026-07-19, task e6a0387a):** the V2 limitations documented below are historical. Production now uses V1 `query()` with typed `Options` — the system prompt is passed as `systemPrompt: { type: 'preset', preset: 'claude_code', append }` and effort as the typed `effort` option (see `buildSdkOpts` in `server/backends/claude.ts`). The old `executableArgs: ["--append-system-prompt", ...]` workaround (and its V1 `extraArgs` translation) is gone: it rendered every agent's full system prompt onto the child's argv, leaking it to `ps` / `systemctl status` / `/proc/<pid>/cmdline`. The typed option travels inside the `initialize` control request over stdin.
+
 ---
 
 ## Live Test Results (2026-03-27)

@@ -816,6 +816,58 @@ describe("createClaudeBackend.oneShotPrompt", () => {
   });
 });
 
+describe("createClaudeBackend.createSession/resumeSession — SDK option shape", () => {
+  // Regression guard for task e6a0387a: the assembled system prompt must reach
+  // the SDK as the typed `systemPrompt` option (preset + append, which travels
+  // over the child's stdin), and must NEVER be routed through executableArgs/
+  // extraArgs — both are rendered onto the child's argv, where the full prompt
+  // leaks to `ps` / `systemctl status` / /proc/<pid>/cmdline.
+  const createOpts = {
+    agentId: "agent-x",
+    cwd: "/tmp",
+    systemPrompt: "THE ASSEMBLED PROMPT",
+    modelFamily: "haiku",
+    effort: "high",
+    permissionMode: "default",
+  };
+
+  function assertTypedShape(opts: FakeSdkClient["createCalls"][0]["opts"]) {
+    expect(opts.systemPrompt).toEqual({
+      type: "preset",
+      preset: "claude_code",
+      append: "THE ASSEMBLED PROMPT",
+    });
+    expect(opts.effort).toBe("high");
+    expect(opts).not.toHaveProperty("executableArgs");
+    expect(opts).not.toHaveProperty("extraArgs");
+    // The prompt may appear nowhere else in the option bag (e.g. a future
+    // argv-shaped field) — only inside the typed systemPrompt option.
+    const { systemPrompt, ...rest } = opts;
+    void systemPrompt;
+    const restJson = JSON.stringify(rest, (_k, v) =>
+      typeof v === "function" ? undefined : v,
+    );
+    expect(restJson).not.toContain("THE ASSEMBLED PROMPT");
+  }
+
+  it("createSession builds typed systemPrompt/effort, no argv-bound fields", () => {
+    const fake = new FakeSdkClient();
+    const backend = createClaudeBackend(fake);
+    backend.createSession(createOpts);
+    expect(fake.createCalls).toHaveLength(1);
+    assertTypedShape(fake.createCalls[0].opts);
+  });
+
+  it("resumeSession builds the same typed shape", () => {
+    const fake = new FakeSdkClient();
+    const backend = createClaudeBackend(fake);
+    backend.resumeSession("s-42", createOpts);
+    expect(fake.resumeCalls).toHaveLength(1);
+    expect(fake.resumeCalls[0].sessionId).toBe("s-42");
+    assertTypedShape(fake.resumeCalls[0].opts);
+  });
+});
+
 describe("createClaudeBackend default instance", () => {
   it("module export `claudeBackend` is constructed from the production V1 SDK client", async () => {
     // We can't make real SDK calls here, but we can verify capabilities are
