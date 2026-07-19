@@ -1590,1042 +1590,724 @@ export function LogView({
               height: "calc(100vh - var(--banner-h, 0px))",
             }),
         display: "flex",
-        flexDirection: "row",
+        flexDirection: isMobile ? "row" : "column",
         background: "var(--bg-base)",
         animation: "termEnter 0.3s ease-out",
       }}
     >
-      <div
-        className="log-view-column"
-        onDragOver={handleDragOver}
-        onDragEnter={handleDragEnter}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-        style={{
-          flex: 1,
-          display: "flex",
-          flexDirection: "column",
-          minWidth: 0,
-          position: "relative",
-          containerType: "inline-size",
-        }}
-      >
-        {/* Header */}
-        {isMobile ? (
-          <div
+      {!isMobile && (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "stretch",
+            justifyContent: "space-between",
+            padding: "0 16px 0 0",
+            height: 48,
+            background: "var(--bg-surface)",
+            borderBottom: "1px solid var(--border-strong)",
+            flexShrink: 0,
+          }}
+        >
+          <button
+            onClick={onBack}
             style={{
               display: "flex",
-              flexDirection: "row",
-              alignItems: "stretch",
-              padding: "0 12px 0 0",
-              paddingTop: "env(safe-area-inset-top, 0px)",
-              background: "var(--bg-surface)",
-              borderBottom: "1px solid var(--border-strong)",
+              alignItems: "center",
+              gap: 8,
+              padding: "0 16px",
+              border: "none",
+              borderRight: "1px solid var(--border-medium)",
+              background: "var(--btn-surface)",
+              color: "var(--text-dim)",
+              fontSize: 13,
+              cursor: "pointer",
               flexShrink: 0,
             }}
           >
-            <button
-              onClick={onBack}
-              style={{
-                padding: "12px 14px",
-                border: "none",
-                borderRight: "1px solid var(--border-medium)",
-                background: "var(--btn-surface)",
-                color: "var(--text-dim)",
-                fontSize: 20,
-                cursor: "pointer",
-                lineHeight: 1,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                flexShrink: 0,
-              }}
-            >
-              ←
-            </button>
+            ← Back to Office
+          </button>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              fontSize: 13,
+              flex: 1,
+              minWidth: 0,
+              marginLeft: 12,
+            }}
+          >
+            <span style={{ flexShrink: 0 }}>
+              <StatusLight state={agent.state} size={8} />
+            </span>
             <div
               style={{
                 display: "flex",
                 flexDirection: "column",
-                flex: 1,
-                overflow: "hidden",
-                padding: "8px 10px",
-                gap: 2,
+                justifyContent: "center",
+                gap: 1,
+                flexShrink: 0,
+                minWidth: 0,
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <StatusLight state={agent.state} size={8} />
-                <span
-                  onClick={onEditAgent}
-                  style={{
-                    fontWeight: 600,
-                    color: "var(--text-primary)",
-                    fontSize: 15,
-                    cursor: "pointer",
-                    flex: 1,
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {agent.name}
-                </span>
-                {STATE_LABELS[agent.state] && (
-                  <HeaderTimer
-                    state={agent.state}
-                    stateChangedAt={stateChangedAt.get(agent.id)}
-                  />
-                )}
-                <ContextBattery usage={agent.contextUsage} isMobile />
-                <NavActions actions={mobileAgentActions} viewport="mobile" />
-              </div>
-              <div
+              <span
+                onClick={onEditAgent}
+                style={{
+                  fontWeight: 600,
+                  color: "var(--text-primary)",
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                  lineHeight: 1.2,
+                }}
+                title="Edit agent"
+              >
+                {agent.name}
+              </span>
+              <span
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  gap: 6,
-                  paddingLeft: 16,
+                  gap: 4,
+                  lineHeight: 1,
                 }}
               >
                 <span
                   style={{
                     fontFamily: "'JetBrains Mono',monospace",
-                    color: "var(--text-muted)",
-                    fontSize: 12,
+                    color: "var(--text-ghost)",
+                    fontSize: 11,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {familyDisplayLabel(agent.modelFamily)}
+                </span>
+                {agent.agentType !== "claude" && (
+                  <>
+                    <span style={{ color: "var(--text-ghost)" }}>&middot;</span>
+                    <span
+                      style={{
+                        fontFamily: "'JetBrains Mono',monospace",
+                        fontSize: 10,
+                        fontWeight: 600,
+                        letterSpacing: 0.5,
+                        textTransform: "uppercase",
+                        color: "var(--accent-blue, #5eafff)",
+                        whiteSpace: "nowrap",
+                      }}
+                      title={`Backend: ${agent.agentType}`}
+                    >
+                      {agent.agentType}
+                    </span>
+                  </>
+                )}
+              </span>
+            </div>
+            {STATE_LABELS[agent.state] && (
+              <HeaderTimer
+                state={agent.state}
+                stateChangedAt={stateChangedAt.get(agent.id)}
+              />
+            )}
+            {agent.topic && agent.topic !== "..." && !editingTopic && (
+              <>
+                <span style={{ color: "var(--text-ghost)" }}>&middot;</span>
+                <span
+                  onClick={() => {
+                    setEditingTopic(true);
+                    setTopicDraft(agent.topic ?? "");
+                    setTimeout(() => topicInputRef.current?.focus(), 0);
+                  }}
+                  style={{
+                    color: "var(--text-secondary)",
+                    fontSize: 13,
+                    cursor: "text",
                     overflow: "hidden",
                     textOverflow: "ellipsis",
                     whiteSpace: "nowrap",
-                    flex: 1,
+                    minWidth: 0,
                   }}
+                  title={agent.topic ?? "Click to edit topic"}
                 >
-                  {agent.cwd}
+                  {agent.topic}
                 </span>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div
-            style={{
-              display: "flex",
-              alignItems: "stretch",
-              justifyContent: "space-between",
-              padding: "0 16px 0 0",
-              height: 48,
-              background: "var(--bg-surface)",
-              borderBottom: "1px solid var(--border-strong)",
-              flexShrink: 0,
-            }}
-          >
-            <button
-              onClick={onBack}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                padding: "0 16px",
-                border: "none",
-                borderRight: "1px solid var(--border-medium)",
-                background: "var(--btn-surface)",
-                color: "var(--text-dim)",
-                fontSize: 13,
-                cursor: "pointer",
-                flexShrink: 0,
-              }}
-            >
-              ← Back to Office
-            </button>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                fontSize: 13,
-                flex: 1,
-                minWidth: 0,
-                marginLeft: 12,
-              }}
-            >
-              <span style={{ flexShrink: 0 }}>
-                <StatusLight state={agent.state} size={8} />
-              </span>
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  justifyContent: "center",
-                  gap: 1,
-                  flexShrink: 0,
-                  minWidth: 0,
-                }}
-              >
-                <span
-                  onClick={onEditAgent}
-                  style={{
-                    fontWeight: 600,
-                    color: "var(--text-primary)",
-                    cursor: "pointer",
-                    whiteSpace: "nowrap",
-                    lineHeight: 1.2,
+                <button
+                  onClick={() => {
+                    apiFetch("DELETE", `/api/agents/${agent.id}/topic`).catch(
+                      () => {},
+                    );
                   }}
-                  title="Edit agent"
-                >
-                  {agent.name}
-                </span>
-                <span
+                  disabled={!canRegenerateTopic}
+                  title={
+                    canRegenerateTopic
+                      ? "Regenerate topic from conversation"
+                      : "No conversation history to summarize"
+                  }
                   style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 4,
+                    background: "none",
+                    border: "none",
+                    cursor: canRegenerateTopic ? "pointer" : "default",
+                    color: "var(--text-secondary)",
+                    fontSize: 15,
+                    padding: "0 4px",
+                    opacity: canRegenerateTopic ? 0.8 : 0.3,
+                    transition: "opacity 0.2s",
                     lineHeight: 1,
                   }}
                 >
-                  <span
-                    style={{
-                      fontFamily: "'JetBrains Mono',monospace",
-                      color: "var(--text-ghost)",
-                      fontSize: 11,
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {familyDisplayLabel(agent.modelFamily)}
-                  </span>
-                  {agent.agentType !== "claude" && (
-                    <>
-                      <span style={{ color: "var(--text-ghost)" }}>
-                        &middot;
-                      </span>
-                      <span
-                        style={{
-                          fontFamily: "'JetBrains Mono',monospace",
-                          fontSize: 10,
-                          fontWeight: 600,
-                          letterSpacing: 0.5,
-                          textTransform: "uppercase",
-                          color: "var(--accent-blue, #5eafff)",
-                          whiteSpace: "nowrap",
-                        }}
-                        title={`Backend: ${agent.agentType}`}
-                      >
-                        {agent.agentType}
-                      </span>
-                    </>
-                  )}
+                  ↻
+                </button>
+              </>
+            )}
+            {agent.topic === "..." && (
+              <>
+                <span style={{ color: "var(--text-ghost)" }}>&middot;</span>
+                <span style={{ color: "var(--text-ghost)", fontSize: 13 }}>
+                  ...
                 </span>
-              </div>
-              {STATE_LABELS[agent.state] && (
-                <HeaderTimer
-                  state={agent.state}
-                  stateChangedAt={stateChangedAt.get(agent.id)}
-                />
-              )}
-              {agent.topic && agent.topic !== "..." && !editingTopic && (
-                <>
-                  <span style={{ color: "var(--text-ghost)" }}>&middot;</span>
-                  <span
-                    onClick={() => {
-                      setEditingTopic(true);
-                      setTopicDraft(agent.topic ?? "");
-                      setTimeout(() => topicInputRef.current?.focus(), 0);
-                    }}
-                    style={{
-                      color: "var(--text-secondary)",
-                      fontSize: 13,
-                      cursor: "text",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                      minWidth: 0,
-                    }}
-                    title={agent.topic ?? "Click to edit topic"}
-                  >
-                    {agent.topic}
-                  </span>
-                  <button
-                    onClick={() => {
-                      apiFetch("DELETE", `/api/agents/${agent.id}/topic`).catch(
-                        () => {},
-                      );
-                    }}
-                    disabled={!canRegenerateTopic}
-                    title={
-                      canRegenerateTopic
-                        ? "Regenerate topic from conversation"
-                        : "No conversation history to summarize"
-                    }
-                    style={{
-                      background: "none",
-                      border: "none",
-                      cursor: canRegenerateTopic ? "pointer" : "default",
-                      color: "var(--text-secondary)",
-                      fontSize: 15,
-                      padding: "0 4px",
-                      opacity: canRegenerateTopic ? 0.8 : 0.3,
-                      transition: "opacity 0.2s",
-                      lineHeight: 1,
-                    }}
-                  >
-                    ↻
-                  </button>
-                </>
-              )}
-              {agent.topic === "..." && (
-                <>
-                  <span style={{ color: "var(--text-ghost)" }}>&middot;</span>
-                  <span style={{ color: "var(--text-ghost)", fontSize: 13 }}>
-                    ...
-                  </span>
-                </>
-              )}
-              {editingTopic && (
-                <input
-                  ref={topicInputRef}
-                  value={topicDraft}
-                  onChange={(e) => setTopicDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      const trimmed = topicDraft.trim();
-                      if (trimmed && trimmed !== agent.topic) {
-                        apiFetch("PUT", `/api/agents/${agent.id}/topic`, {
-                          topic: trimmed,
-                        } satisfies TopicReq).catch(() => {});
-                      }
-                      topicSavedRef.current = true;
-                      setEditingTopic(false);
-                    }
-                    if (e.key === "Escape") {
-                      topicSavedRef.current = true;
-                      setEditingTopic(false);
-                    }
-                  }}
-                  onBlur={() => {
-                    if (topicSavedRef.current) {
-                      topicSavedRef.current = false;
-                      setEditingTopic(false);
-                      return;
-                    }
+              </>
+            )}
+            {editingTopic && (
+              <input
+                ref={topicInputRef}
+                value={topicDraft}
+                onChange={(e) => setTopicDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
                     const trimmed = topicDraft.trim();
                     if (trimmed && trimmed !== agent.topic) {
                       apiFetch("PUT", `/api/agents/${agent.id}/topic`, {
                         topic: trimmed,
                       } satisfies TopicReq).catch(() => {});
                     }
+                    topicSavedRef.current = true;
                     setEditingTopic(false);
-                  }}
-                  style={{
-                    background: "transparent",
-                    border: "1px solid var(--border-medium)",
-                    borderRadius: 4,
-                    color: "var(--text-muted)",
-                    fontSize: 12,
-                    padding: "1px 6px",
-                    outline: "none",
-                    width: 200,
-                  }}
-                />
-              )}
+                  }
+                  if (e.key === "Escape") {
+                    topicSavedRef.current = true;
+                    setEditingTopic(false);
+                  }
+                }}
+                onBlur={() => {
+                  if (topicSavedRef.current) {
+                    topicSavedRef.current = false;
+                    setEditingTopic(false);
+                    return;
+                  }
+                  const trimmed = topicDraft.trim();
+                  if (trimmed && trimmed !== agent.topic) {
+                    apiFetch("PUT", `/api/agents/${agent.id}/topic`, {
+                      topic: trimmed,
+                    } satisfies TopicReq).catch(() => {});
+                  }
+                  setEditingTopic(false);
+                }}
+                style={{
+                  background: "transparent",
+                  border: "1px solid var(--border-medium)",
+                  borderRadius: 4,
+                  color: "var(--text-muted)",
+                  fontSize: 12,
+                  padding: "1px 6px",
+                  outline: "none",
+                  width: 200,
+                }}
+              />
+            )}
+            <span style={{ color: "var(--text-ghost)", flexShrink: 0 }}>
+              &middot;
+            </span>
+            <span
+              title={agent.cwd}
+              style={{
+                fontFamily: "'JetBrains Mono',monospace",
+                color: "var(--text-muted)",
+                fontSize: 12,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                minWidth: 0,
+                flexShrink: 1,
+              }}
+            >
+              {agent.cwd.replace(/^\/home\/[^/]+/, "~")}
+            </span>
+            {agent.contextUsage && (
               <span style={{ color: "var(--text-ghost)", flexShrink: 0 }}>
                 &middot;
               </span>
-              <span
-                title={agent.cwd}
-                style={{
-                  fontFamily: "'JetBrains Mono',monospace",
-                  color: "var(--text-muted)",
-                  fontSize: 12,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                  minWidth: 0,
-                  flexShrink: 1,
-                }}
-              >
-                {agent.cwd.replace(/^\/home\/[^/]+/, "~")}
-              </span>
-              {agent.contextUsage && (
-                <span style={{ color: "var(--text-ghost)", flexShrink: 0 }}>
-                  &middot;
-                </span>
-              )}
-              <ContextBattery usage={agent.contextUsage} />
-            </div>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                flexShrink: 0,
-                marginLeft: 12,
-              }}
-            >
-              <NavActions actions={desktopAgentActions} viewport="desktop" />
-            </div>
+            )}
+            <ContextBattery usage={agent.contextUsage} />
           </div>
-        )}
-
-        {/* Pinned user message — sits between the header and the messages
-          when no user_message is currently visible in the scroll viewport.
-          Click scrolls the conversation back to that message. */}
-        {pinnedMessage && (
           <div
-            onClick={scrollToPinnedMessage}
-            title={pinnedMessage.content}
             style={{
               display: "flex",
               alignItems: "center",
-              gap: 8,
-              padding: isMobile ? "6px 12px" : "6px 24px",
-              background: "var(--bg-subtle)",
-              borderBottom: "1px solid var(--border)",
-              cursor: "pointer",
-              color: "var(--text-muted)",
-              fontSize: 12,
               flexShrink: 0,
+              marginLeft: 12,
             }}
           >
-            <span
-              style={{
-                color: "var(--text-ghost)",
-                flexShrink: 0,
-                fontWeight: 600,
-              }}
-            >
-              ↑ you:
-            </span>
-            <span
-              style={{
-                flex: 1,
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                minWidth: 0,
-              }}
-            >
-              {pinnedMessage.content}
-            </span>
-            <span
-              style={{
-                color: "var(--text-ghost)",
-                flexShrink: 0,
-                fontSize: 11,
-                lineHeight: 1,
-              }}
-            >
-              ↑
-            </span>
+            <NavActions actions={desktopAgentActions} viewport="desktop" />
           </div>
-        )}
-
-        {/* Messages */}
+        </div>
+      )}
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "row",
+          flex: 1,
+          minHeight: 0,
+          position: "relative",
+        }}
+      >
         <div
-          ref={messagesRef}
-          onScroll={handleScroll}
+          className="log-view-column"
+          onDragOver={handleDragOver}
+          onDragEnter={handleDragEnter}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
           style={{
             flex: 1,
-            overflowY: "auto",
-            overflowX: "hidden",
-            padding: isMobile ? "12px 12px" : "16px 24px",
-            color: "var(--text-secondary)",
+            display: "flex",
+            flexDirection: "column",
+            minWidth: 0,
             position: "relative",
+            containerType: "inline-size",
           }}
         >
-          {/* Floating agent portrait — only mount when visible, so the
-            sticky+backdrop-filter element doesn't sit in the scroll
-            container's layer tree when hidden (suspected to deactivate
-            selections on layout commit). */}
-          {showAvatar && (
+          {/* Header */}
+          {isMobile && (
             <div
-              onClick={onEditAgent}
               style={{
-                position: "sticky",
-                top: isMobile ? 12 : 16,
-                float: "right",
-                marginRight: 0,
-                zIndex: 10,
-                width: 62,
-                height: 78,
                 display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                borderRadius: 8,
-                border: `2px solid ${modelStyle.border}`,
-                background: modelStyle.bg,
-                backdropFilter: "blur(8px)",
-                WebkitBackdropFilter: "blur(8px)",
-                cursor: "pointer",
-                transition: "opacity 0.2s",
-              }}
-              title="Edit agent"
-            >
-              <Character
-                key={agent.state}
-                state={agent.state}
-                outfit={agent.outfit}
-              />
-            </div>
-          )}
-          {logs.length === 0 && (
-            <div
-              style={{
-                color: "var(--text-ghost)",
-                textAlign: "center",
-                marginTop: 40,
-              }}
-            >
-              {connected
-                ? "Send a message to start a conversation."
-                : "Loading..."}
-            </div>
-          )}
-          {logs.map((entry) => {
-            const td = turnData.get(entry.id);
-            const canEditMsg =
-              entry.kind === "user_message" &&
-              agent.state === "waiting_for_response" &&
-              !editingLogEntryId &&
-              agent.capabilities.edit;
-            const isUserMsg = entry.kind === "user_message";
-            return (
-              <div
-                key={entry.id}
-                ref={isUserMsg ? getUserMsgRefCb(entry.id) : undefined}
-              >
-                <LogEntryCard
-                  entry={entry}
-                  isLastInTurn={td?.isLastInTurn}
-                  turnEntries={td?.turnEntries}
-                  isMobile={isMobile}
-                  canEdit={canEditMsg}
-                  isEditing={editingLogEntryId === entry.id}
-                  onStartEdit={setEditingLogEntryId}
-                  onCancelEdit={handleCancelEdit}
-                  onSubmitEdit={handleSubmitEdit}
-                  onOpenInEditor={features.editor ? openInEditor : undefined}
-                  onCopyToTerminal={
-                    features.terminal ? copyToTerminal : undefined
-                  }
-                />
-              </div>
-            );
-          })}
-          <ActivityIndicator
-            state={agent.state}
-            stateChangedAt={stateChangedAt.get(agent.id)}
-            agentId={agent.id}
-          />
-        </div>
-
-        {/* Input */}
-        <div
-          style={{
-            position: "relative",
-            flexShrink: 0,
-            padding: isMobile ? "10px 12px 10px 11px" : "10px 24px 10px 11px",
-            paddingBottom: isMobile
-              ? "calc(10px + env(safe-area-inset-bottom, 0px))"
-              : undefined,
-            borderTop: draggingOver
-              ? "2px solid var(--green)"
-              : "2px solid var(--border-strong)",
-            background: draggingOver ? "var(--bg-hover)" : "var(--bg-surface)",
-            transition: "background 0.15s, border-color 0.15s",
-          }}
-        >
-          {/* Scroll to bottom — anchored above the composer's top edge so it
-            can never overlap the input controls, no matter how tall the
-            composer grows (multiline draft, queue chips, attachments). */}
-          {!autoScroll && (
-            <button
-              onClick={() => {
-                if (scrollRef.current) {
-                  scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-                }
-                setAutoScroll(true);
-              }}
-              style={{
-                position: "absolute",
-                bottom: "calc(100% + 12px)",
-                right: 32,
-                width: 36,
-                height: 36,
-                borderRadius: "50%",
-                border: "1px solid var(--border-medium)",
+                flexDirection: "row",
+                alignItems: "stretch",
+                padding: "0 12px 0 0",
+                paddingTop: "env(safe-area-inset-top, 0px)",
                 background: "var(--bg-surface)",
-                color: "var(--text-muted)",
-                fontSize: 16,
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
-                zIndex: 5,
-                transition: "opacity 0.15s",
-              }}
-              title="Scroll to bottom"
-            >
-              ↓
-            </button>
-          )}
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            style={{ display: "none" }}
-            onChange={(e) => handleFileSelect(e.target.files)}
-          />
-          <SessionSwapIndicator swapping={agent.sessionSwapping ?? false} />
-          {showSendError && (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                marginBottom: 8,
-                padding: "6px 10px",
-                borderRadius: 6,
-                background: "var(--red-bg, rgba(192,57,43,0.12))",
-                border: "1px solid var(--red, #c0392b)",
-                color: "var(--red, #c0392b)",
-                fontSize: isMobile ? 12 : 11,
-                fontWeight: 600,
+                borderBottom: "1px solid var(--border-strong)",
+                flexShrink: 0,
               }}
             >
-              <span>⚠</span>
-              <span>
-                Couldn't send — reconnecting. Your message is still in the box;
-                try again once the banner clears.
-              </span>
-            </div>
-          )}
-          <QueueChips
-            queue={agent.queue ?? []}
-            agentId={agent.id}
-            isMobile={isMobile}
-          />
-          {stagedAttachments.length > 0 && (
-            <div
-              style={{
-                display: "flex",
-                flexWrap: "wrap",
-                gap: 6,
-                marginBottom: 8,
-              }}
-            >
-              {stagedAttachments.map((att) => (
-                <div
-                  key={att.id}
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 6,
-                    padding: "4px 8px",
-                    borderRadius: 6,
-                    background: att.error ? "var(--red-bg)" : "var(--bg-hover)",
-                    border: `1px solid ${att.error ? "var(--red)" : "var(--border)"}`,
-                    fontSize: isMobile ? 13 : 11,
-                    fontFamily: "'JetBrains Mono',monospace",
-                    color: att.error ? "var(--red)" : "var(--text-secondary)",
-                    maxWidth: "100%",
-                  }}
-                >
-                  {att.mediaType.startsWith("image/")
-                    ? "🖼️"
-                    : att.mediaType === "application/pdf"
-                      ? "📄"
-                      : "📎"}
+              <button
+                onClick={onBack}
+                style={{
+                  padding: "12px 14px",
+                  border: "none",
+                  borderRight: "1px solid var(--border-medium)",
+                  background: "var(--btn-surface)",
+                  color: "var(--text-dim)",
+                  fontSize: 20,
+                  cursor: "pointer",
+                  lineHeight: 1,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  flexShrink: 0,
+                }}
+              >
+                ←
+              </button>
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  flex: 1,
+                  overflow: "hidden",
+                  padding: "8px 10px",
+                  gap: 2,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <StatusLight state={agent.state} size={8} />
                   <span
+                    onClick={onEditAgent}
                     style={{
+                      fontWeight: 600,
+                      color: "var(--text-primary)",
+                      fontSize: 15,
+                      cursor: "pointer",
+                      flex: 1,
                       overflow: "hidden",
                       textOverflow: "ellipsis",
                       whiteSpace: "nowrap",
-                      maxWidth: 150,
                     }}
                   >
-                    {att.originalName}
+                    {agent.name}
                   </span>
-                  {att.uploading && (
-                    <span style={{ color: "var(--text-ghost)" }}>
-                      uploading…
-                    </span>
+                  {STATE_LABELS[agent.state] && (
+                    <HeaderTimer
+                      state={agent.state}
+                      stateChangedAt={stateChangedAt.get(agent.id)}
+                    />
                   )}
-                  {att.error && (
-                    <span style={{ fontSize: isMobile ? 11 : 9 }}>
-                      {att.error}
-                    </span>
-                  )}
-                  <button
-                    onClick={() => removeStaged(att.id)}
-                    style={{
-                      background: "none",
-                      border: "none",
-                      color: att.error ? "var(--red)" : "var(--text-ghost)",
-                      cursor: "pointer",
-                      padding: "0 2px",
-                      fontSize: 14,
-                      lineHeight: 1,
-                      flexShrink: 0,
-                    }}
-                  >
-                    ×
-                  </button>
+                  <ContextBattery usage={agent.contextUsage} isMobile />
+                  <NavActions actions={mobileAgentActions} viewport="mobile" />
                 </div>
-              ))}
-            </div>
-          )}
-          {skillsOpen && input.trim() === "" && (
-            <SkillsPopover
-              skills={agentCmds?.skills ?? []}
-              commands={agentCmds?.commands ?? []}
-              isMobile={isMobile}
-              onPick={handleSkillPick}
-              onClose={() => setSkillsOpen(false)}
-            />
-          )}
-          <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              style={{
-                background: "none",
-                border: "none",
-                padding: 0,
-                color: "var(--text-muted)",
-                cursor: "pointer",
-                lineHeight: "20px",
-                fontSize: 16,
-                flexShrink: 0,
-                opacity: 0.7,
-                transition: "opacity 0.15s",
-              }}
-              title="Attach files"
-            >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
-              </svg>
-            </button>
-            {(agentCmds?.skills.length ?? 0) +
-              (agentCmds?.commands.length ?? 0) >
-              0 &&
-              // Only offered on an empty draft: slash commands/skills are
-              // recognized only as the very first thing in a message
-              // (agent-manager isSlash checks startsWith), so mid-draft
-              // insertion would produce text that never expands.
-              input.trim() === "" && (
-                // Plain-text "Sk" on purpose: decorative Unicode glyphs get
-                // hijacked by iOS Safari's emoji renderer (see the ▶ note in
-                // TerminalPanel), and plain text needs no such gating.
-                <button
-                  data-skills-toggle
-                  onClick={() => setSkillsOpen((o) => !o)}
-                  style={{
-                    background: "none",
-                    border: "none",
-                    padding: 0,
-                    color: skillsOpen ? "var(--green)" : "var(--text-muted)",
-                    cursor: "pointer",
-                    // Flex-center the glyph in the same 20px box the paperclip
-                    // occupies, then nudge up to optically match the svg's
-                    // baseline-driven position (it sat visibly low before).
-                    display: "flex",
-                    alignItems: "center",
-                    height: 20,
-                    position: "relative",
-                    top: -2,
-                    fontSize: 12,
-                    fontWeight: 700,
-                    fontFamily: "'JetBrains Mono',monospace",
-                    flexShrink: 0,
-                    opacity: skillsOpen ? 1 : 0.7,
-                    transition: "opacity 0.15s, color 0.15s",
-                  }}
-                  title="Skills & commands"
-                >
-                  Sk
-                </button>
-              )}
-            <span
-              style={{
-                color: isBusy ? "var(--text-ghost)" : "var(--green)",
-                fontWeight: 600,
-                lineHeight: "20px",
-                position: "relative",
-                top: -2,
-              }}
-            >
-              &#10095;
-            </span>
-            <div style={{ flex: 1, position: "relative", top: -2 }}>
-              {showAutocomplete && filteredCommands.length > 0 && (
                 <div
                   style={{
-                    position: "absolute",
-                    bottom: "100%",
-                    left: 0,
-                    right: 0,
-                    marginBottom: 4,
-                    background: "var(--bg-surface)",
-                    border: "1px solid var(--border-medium)",
-                    borderRadius: 8,
-                    maxHeight: 200,
-                    overflowY: "auto",
-                    boxShadow: "0 -4px 16px rgba(0,0,0,0.3)",
-                    zIndex: 10,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    paddingLeft: 16,
                   }}
                 >
-                  {filteredCommands.map((cmd, i) => {
-                    const originLabel = skillOrigins.get(cmd);
-                    const desc = commandDescriptions.get(cmd);
-                    return (
-                      <div
-                        key={cmd}
-                        ref={
-                          i === selectedIdx
-                            ? (el) => el?.scrollIntoView({ block: "nearest" })
-                            : undefined
-                        }
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          setInput(`/${cmd} `);
-                          textareaRef.current?.focus();
-                        }}
-                        onMouseEnter={() => setSelectedIdx(i)}
-                        style={{
-                          padding: "6px 12px",
-                          cursor: "pointer",
-                          background:
-                            i === selectedIdx
-                              ? "var(--bg-subtle)"
-                              : "transparent",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 8,
-                        }}
-                      >
-                        <span
-                          style={{
-                            color: "var(--green)",
-                            fontFamily: "'JetBrains Mono',monospace",
-                            fontSize: 13,
-                            fontWeight: 600,
-                            flexShrink: 0,
-                          }}
-                        >
-                          /{cmd}
-                        </span>
-                        {originLabel && (
-                          <span
-                            style={{
-                              fontSize: 10,
-                              color: "var(--text-ghost)",
-                              background: "var(--bg-base)",
-                              padding: "1px 6px",
-                              borderRadius: 4,
-                              flexShrink: 0,
-                            }}
-                          >
-                            {originLabel}
-                          </span>
-                        )}
-                        {desc && (
-                          <span
-                            style={{
-                              fontSize: 11,
-                              color: "var(--text-ghost)",
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            {desc}
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })}
+                  <span
+                    style={{
+                      fontFamily: "'JetBrains Mono',monospace",
+                      color: "var(--text-muted)",
+                      fontSize: 12,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      flex: 1,
+                    }}
+                  >
+                    {agent.cwd}
+                  </span>
                 </div>
-              )}
-              <textarea
-                ref={textareaRef}
-                value={input}
-                onPaste={handlePaste}
-                onChange={(e) => {
-                  setInput(e.target.value);
-                  autoResize(e.target);
-                }}
-                onKeyDown={(e) => {
-                  // While the OS IME is composing (CJK / accent input), let
-                  // the composition consume Enter and other keys; we don't
-                  // want to send, autocomplete, or abort mid-composition.
-                  if (e.nativeEvent.isComposing) return;
-                  // Autocomplete navigation
-                  if (showAutocomplete && filteredCommands.length > 0) {
-                    if (e.key === "ArrowUp") {
-                      e.preventDefault();
-                      setSelectedIdx((prev) =>
-                        prev > 0 ? prev - 1 : filteredCommands.length - 1,
-                      );
-                      return;
-                    }
-                    if (e.key === "ArrowDown") {
-                      e.preventDefault();
-                      setSelectedIdx((prev) =>
-                        prev < filteredCommands.length - 1 ? prev + 1 : 0,
-                      );
-                      return;
-                    }
-                    if (e.key === "Tab") {
-                      e.preventDefault();
-                      const selected = filteredCommands[selectedIdx];
-                      if (selected) {
-                        setInput(`/${selected} `);
-                      }
-                      return;
-                    }
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      const selected = filteredCommands[selectedIdx];
-                      // If exact match, send it; otherwise autocomplete
-                      if (selected && partial === selected.toLowerCase()) {
-                        // Exact match — fall through to send
-                      } else if (selected) {
-                        e.preventDefault();
-                        setInput(`/${selected} `);
-                        return;
-                      }
-                    }
-                    if (e.key === "Escape") {
-                      e.preventDefault();
-                      setInput("");
-                      return;
-                    }
-                  }
-                  if (
-                    e.key === "Enter" &&
-                    (e.ctrlKey || e.metaKey) &&
-                    !isTouchPrimary
-                  ) {
-                    // Ctrl/Cmd+Enter: "deliver now". Identical to plain Enter
-                    // when the agent is idle; when it's busy, the server
-                    // interrupts the current turn and flushes the queue (same
-                    // machinery as the Send-now button). Must be checked
-                    // BEFORE the plain-Enter branch below, whose condition
-                    // also matches modifier+Enter.
-                    e.preventDefault();
-                    handleSend({ sendNow: true });
-                    return;
-                  }
-                  if (
-                    e.key === "Enter" &&
-                    !e.shiftKey &&
-                    !e.ctrlKey &&
-                    !e.metaKey &&
-                    !isTouchPrimary
-                  ) {
-                    e.preventDefault();
-                    handleSend();
-                  }
-                  if (e.key === "c" && (e.ctrlKey || e.metaKey) && isBusy) {
-                    // Don't intercept Ctrl/Cmd+C while the user has a real
-                    // selection — they're trying to copy. The textarea is no
-                    // longer disabled while busy (typing now queues), so this
-                    // path is more reachable than before.
-                    const sel = window.getSelection()?.toString() ?? "";
-                    if (!sel) {
-                      e.preventDefault();
-                      sendAbortDebounced(agent.id);
-                    }
-                  }
-                }}
-                placeholder={
-                  editingLogEntryId
-                    ? "Editing message above..."
-                    : isBusy
-                      ? isMobile
-                        ? "Type to queue..."
-                        : `Type to queue — sends when current turn ends · ${(navigator.platform || "").includes("Mac") ? "⌘" : "Ctrl+"}Enter to send now`
-                      : isMobile
-                        ? "Type a message..."
-                        : "Type a message or / for commands..."
-                }
-                autoFocus={!isMobile}
-                rows={1}
-                style={{
-                  width: "100%",
-                  background: "transparent",
-                  border: "none",
-                  outline: "none",
-                  color:
-                    isBusy || editingLogEntryId
-                      ? "var(--text-muted)"
-                      : "var(--text-secondary)",
-                  fontFamily: "'JetBrains Mono',monospace",
-                  fontSize: isMobile ? 16 : 13,
-                  caretColor: "var(--green)",
-                  resize: "none",
-                  padding: "0 0 4px",
-                  lineHeight: "20px",
-                  maxHeight: 200,
-                  overflowY: "auto",
-                }}
-              />
+              </div>
             </div>
-            {SpeechRecognition && window.isSecureContext ? (
-              <button
-                // Pointer capture keeps the hold gesture alive even if the
-                // button shifts under the pointer (composer resizing) or the
-                // pointer drifts off it — pointerup/pointercancel still fire
-                // on the capturing element, so recording reliably stops on
-                // release instead of the old mouseleave-stops-recording trap.
-                onPointerDown={(e) => {
-                  e.preventDefault();
-                  try {
-                    e.currentTarget.setPointerCapture(e.pointerId);
-                  } catch {
-                    // Capture is best-effort: without it we fall back to
-                    // release-over-button behavior (releasing elsewhere
-                    // won't stop recording until the next press).
-                  }
-                  startListening();
-                }}
-                onPointerUp={stopListening}
-                onPointerCancel={stopListening}
-                onContextMenu={(e) => e.preventDefault()}
+          )}
+
+          {/* Pinned user message — sits between the header and the messages
+          when no user_message is currently visible in the scroll viewport.
+          Click scrolls the conversation back to that message. */}
+          {pinnedMessage && (
+            <div
+              onClick={scrollToPinnedMessage}
+              title={pinnedMessage.content}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: isMobile ? "6px 12px" : "6px 24px",
+                background: "var(--bg-subtle)",
+                borderBottom: "1px solid var(--border)",
+                cursor: "pointer",
+                color: "var(--text-muted)",
+                fontSize: 12,
+                flexShrink: 0,
+              }}
+            >
+              <span
                 style={{
+                  color: "var(--text-ghost)",
                   flexShrink: 0,
-                  // Pin to the row's bottom edge (viewport-stable) so the
-                  // button doesn't ride up as dictation fills the textarea.
-                  // marginTop -9 keeps the single-line position unchanged.
-                  alignSelf: "flex-end",
+                  fontWeight: 600,
+                }}
+              >
+                ↑ you:
+              </span>
+              <span
+                style={{
+                  flex: 1,
+                  whiteSpace: "nowrap",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  minWidth: 0,
+                }}
+              >
+                {pinnedMessage.content}
+              </span>
+              <span
+                style={{
+                  color: "var(--text-ghost)",
+                  flexShrink: 0,
+                  fontSize: 11,
+                  lineHeight: 1,
+                }}
+              >
+                ↑
+              </span>
+            </div>
+          )}
+
+          {/* Messages */}
+          <div
+            ref={messagesRef}
+            onScroll={handleScroll}
+            style={{
+              flex: 1,
+              overflowY: "auto",
+              overflowX: "hidden",
+              padding: isMobile ? "12px 12px" : "16px 24px",
+              color: "var(--text-secondary)",
+              position: "relative",
+            }}
+          >
+            {/* Floating agent portrait — only mount when visible, so the
+            sticky+backdrop-filter element doesn't sit in the scroll
+            container's layer tree when hidden (suspected to deactivate
+            selections on layout commit). */}
+            {showAvatar && (
+              <div
+                onClick={onEditAgent}
+                style={{
+                  position: "sticky",
+                  top: isMobile ? 12 : 16,
+                  float: "right",
+                  marginRight: 0,
+                  zIndex: 10,
+                  width: 62,
+                  height: 78,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  borderRadius: 8,
+                  border: `2px solid ${modelStyle.border}`,
+                  background: modelStyle.bg,
+                  backdropFilter: "blur(8px)",
+                  WebkitBackdropFilter: "blur(8px)",
+                  cursor: "pointer",
+                  transition: "opacity 0.2s",
+                }}
+                title="Edit agent"
+              >
+                <Character
+                  key={agent.state}
+                  state={agent.state}
+                  outfit={agent.outfit}
+                />
+              </div>
+            )}
+            {logs.length === 0 && (
+              <div
+                style={{
+                  color: "var(--text-ghost)",
+                  textAlign: "center",
+                  marginTop: 40,
+                }}
+              >
+                {connected
+                  ? "Send a message to start a conversation."
+                  : "Loading..."}
+              </div>
+            )}
+            {logs.map((entry) => {
+              const td = turnData.get(entry.id);
+              const canEditMsg =
+                entry.kind === "user_message" &&
+                agent.state === "waiting_for_response" &&
+                !editingLogEntryId &&
+                agent.capabilities.edit;
+              const isUserMsg = entry.kind === "user_message";
+              return (
+                <div
+                  key={entry.id}
+                  ref={isUserMsg ? getUserMsgRefCb(entry.id) : undefined}
+                >
+                  <LogEntryCard
+                    entry={entry}
+                    isLastInTurn={td?.isLastInTurn}
+                    turnEntries={td?.turnEntries}
+                    isMobile={isMobile}
+                    canEdit={canEditMsg}
+                    isEditing={editingLogEntryId === entry.id}
+                    onStartEdit={setEditingLogEntryId}
+                    onCancelEdit={handleCancelEdit}
+                    onSubmitEdit={handleSubmitEdit}
+                    onOpenInEditor={features.editor ? openInEditor : undefined}
+                    onCopyToTerminal={
+                      features.terminal ? copyToTerminal : undefined
+                    }
+                  />
+                </div>
+              );
+            })}
+            <ActivityIndicator
+              state={agent.state}
+              stateChangedAt={stateChangedAt.get(agent.id)}
+              agentId={agent.id}
+            />
+          </div>
+
+          {/* Input */}
+          <div
+            style={{
+              position: "relative",
+              flexShrink: 0,
+              padding: isMobile ? "10px 12px 10px 11px" : "10px 24px 10px 11px",
+              paddingBottom: isMobile
+                ? "calc(10px + env(safe-area-inset-bottom, 0px))"
+                : undefined,
+              borderTop: draggingOver
+                ? "2px solid var(--green)"
+                : "2px solid var(--border-strong)",
+              background: draggingOver
+                ? "var(--bg-hover)"
+                : "var(--bg-surface)",
+              transition: "background 0.15s, border-color 0.15s",
+            }}
+          >
+            {/* Scroll to bottom — anchored above the composer's top edge so it
+            can never overlap the input controls, no matter how tall the
+            composer grows (multiline draft, queue chips, attachments). */}
+            {!autoScroll && (
+              <button
+                onClick={() => {
+                  if (scrollRef.current) {
+                    scrollRef.current.scrollTop =
+                      scrollRef.current.scrollHeight;
+                  }
+                  setAutoScroll(true);
+                }}
+                style={{
+                  position: "absolute",
+                  bottom: "calc(100% + 12px)",
+                  right: 32,
                   width: 36,
                   height: 36,
-                  marginTop: -9,
-                  touchAction: "none",
-                  borderRadius: 6,
-                  border: isListening
-                    ? "1px solid var(--red)"
-                    : "1px solid var(--border)",
-                  background: isListening
-                    ? "rgba(255,50,50,0.15)"
-                    : "transparent",
-                  color: isListening ? "var(--red)" : "var(--text-muted)",
+                  borderRadius: "50%",
+                  border: "1px solid var(--border-medium)",
+                  background: "var(--bg-surface)",
+                  color: "var(--text-muted)",
+                  fontSize: 16,
                   cursor: "pointer",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  padding: 0,
-                  transition: "all 0.15s",
-                  animation: isListening
-                    ? "mic-pulse 1.5s ease-in-out infinite"
-                    : "none",
-                  userSelect: "none",
-                  WebkitUserSelect: "none",
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+                  zIndex: 5,
+                  transition: "opacity 0.15s",
                 }}
-                title="Hold to talk (Ctrl+Space)"
+                title="Scroll to bottom"
+              >
+                ↓
+              </button>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              style={{ display: "none" }}
+              onChange={(e) => handleFileSelect(e.target.files)}
+            />
+            <SessionSwapIndicator swapping={agent.sessionSwapping ?? false} />
+            {showSendError && (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  marginBottom: 8,
+                  padding: "6px 10px",
+                  borderRadius: 6,
+                  background: "var(--red-bg, rgba(192,57,43,0.12))",
+                  border: "1px solid var(--red, #c0392b)",
+                  color: "var(--red, #c0392b)",
+                  fontSize: isMobile ? 12 : 11,
+                  fontWeight: 600,
+                }}
+              >
+                <span>⚠</span>
+                <span>
+                  Couldn't send — reconnecting. Your message is still in the
+                  box; try again once the banner clears.
+                </span>
+              </div>
+            )}
+            <QueueChips
+              queue={agent.queue ?? []}
+              agentId={agent.id}
+              isMobile={isMobile}
+            />
+            {stagedAttachments.length > 0 && (
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: 6,
+                  marginBottom: 8,
+                }}
+              >
+                {stagedAttachments.map((att) => (
+                  <div
+                    key={att.id}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 6,
+                      padding: "4px 8px",
+                      borderRadius: 6,
+                      background: att.error
+                        ? "var(--red-bg)"
+                        : "var(--bg-hover)",
+                      border: `1px solid ${att.error ? "var(--red)" : "var(--border)"}`,
+                      fontSize: isMobile ? 13 : 11,
+                      fontFamily: "'JetBrains Mono',monospace",
+                      color: att.error ? "var(--red)" : "var(--text-secondary)",
+                      maxWidth: "100%",
+                    }}
+                  >
+                    {att.mediaType.startsWith("image/")
+                      ? "🖼️"
+                      : att.mediaType === "application/pdf"
+                        ? "📄"
+                        : "📎"}
+                    <span
+                      style={{
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        maxWidth: 150,
+                      }}
+                    >
+                      {att.originalName}
+                    </span>
+                    {att.uploading && (
+                      <span style={{ color: "var(--text-ghost)" }}>
+                        uploading…
+                      </span>
+                    )}
+                    {att.error && (
+                      <span style={{ fontSize: isMobile ? 11 : 9 }}>
+                        {att.error}
+                      </span>
+                    )}
+                    <button
+                      onClick={() => removeStaged(att.id)}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: att.error ? "var(--red)" : "var(--text-ghost)",
+                        cursor: "pointer",
+                        padding: "0 2px",
+                        fontSize: 14,
+                        lineHeight: 1,
+                        flexShrink: 0,
+                      }}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {skillsOpen && input.trim() === "" && (
+              <SkillsPopover
+                skills={agentCmds?.skills ?? []}
+                commands={agentCmds?.commands ?? []}
+                isMobile={isMobile}
+                onPick={handleSkillPick}
+                onClose={() => setSkillsOpen(false)}
+              />
+            )}
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                style={{
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  color: "var(--text-muted)",
+                  cursor: "pointer",
+                  lineHeight: "20px",
+                  fontSize: 16,
+                  flexShrink: 0,
+                  opacity: 0.7,
+                  transition: "opacity 0.15s",
+                }}
+                title="Attach files"
               >
                 <svg
                   width="16"
@@ -2633,42 +2315,330 @@ export function LogView({
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
-                  strokeWidth="2.5"
+                  strokeWidth="2"
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 >
-                  <rect x="9" y="1" width="6" height="12" rx="3" />
-                  <path d="M5 10a7 7 0 0 0 14 0" />
-                  <line x1="12" y1="17" x2="12" y2="23" />
-                  <line x1="8" y1="23" x2="16" y2="23" />
+                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
                 </svg>
               </button>
-            ) : SpeechRecognition && !window.isSecureContext ? (
-              <div
+              {(agentCmds?.skills.length ?? 0) +
+                (agentCmds?.commands.length ?? 0) >
+                0 &&
+                // Only offered on an empty draft: slash commands/skills are
+                // recognized only as the very first thing in a message
+                // (agent-manager isSlash checks startsWith), so mid-draft
+                // insertion would produce text that never expands.
+                input.trim() === "" && (
+                  // Plain-text "Sk" on purpose: decorative Unicode glyphs get
+                  // hijacked by iOS Safari's emoji renderer (see the ▶ note in
+                  // TerminalPanel), and plain text needs no such gating.
+                  <button
+                    data-skills-toggle
+                    onClick={() => setSkillsOpen((o) => !o)}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      padding: 0,
+                      color: skillsOpen ? "var(--green)" : "var(--text-muted)",
+                      cursor: "pointer",
+                      // Flex-center the glyph in the same 20px box the paperclip
+                      // occupies, then nudge up to optically match the svg's
+                      // baseline-driven position (it sat visibly low before).
+                      display: "flex",
+                      alignItems: "center",
+                      height: 20,
+                      position: "relative",
+                      top: -2,
+                      fontSize: 12,
+                      fontWeight: 700,
+                      fontFamily: "'JetBrains Mono',monospace",
+                      flexShrink: 0,
+                      opacity: skillsOpen ? 1 : 0.7,
+                      transition: "opacity 0.15s, color 0.15s",
+                    }}
+                    title="Skills & commands"
+                  >
+                    Sk
+                  </button>
+                )}
+              <span
                 style={{
+                  color: isBusy ? "var(--text-ghost)" : "var(--green)",
+                  fontWeight: 600,
+                  lineHeight: "20px",
                   position: "relative",
-                  flexShrink: 0,
-                  alignSelf: "flex-end",
+                  top: -2,
                 }}
               >
-                <button
-                  onClick={() => setShowMicHint((v) => !v)}
+                &#10095;
+              </span>
+              <div style={{ flex: 1, position: "relative", top: -2 }}>
+                {showAutocomplete && filteredCommands.length > 0 && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      bottom: "100%",
+                      left: 0,
+                      right: 0,
+                      marginBottom: 4,
+                      background: "var(--bg-surface)",
+                      border: "1px solid var(--border-medium)",
+                      borderRadius: 8,
+                      maxHeight: 200,
+                      overflowY: "auto",
+                      boxShadow: "0 -4px 16px rgba(0,0,0,0.3)",
+                      zIndex: 10,
+                    }}
+                  >
+                    {filteredCommands.map((cmd, i) => {
+                      const originLabel = skillOrigins.get(cmd);
+                      const desc = commandDescriptions.get(cmd);
+                      return (
+                        <div
+                          key={cmd}
+                          ref={
+                            i === selectedIdx
+                              ? (el) => el?.scrollIntoView({ block: "nearest" })
+                              : undefined
+                          }
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            setInput(`/${cmd} `);
+                            textareaRef.current?.focus();
+                          }}
+                          onMouseEnter={() => setSelectedIdx(i)}
+                          style={{
+                            padding: "6px 12px",
+                            cursor: "pointer",
+                            background:
+                              i === selectedIdx
+                                ? "var(--bg-subtle)"
+                                : "transparent",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 8,
+                          }}
+                        >
+                          <span
+                            style={{
+                              color: "var(--green)",
+                              fontFamily: "'JetBrains Mono',monospace",
+                              fontSize: 13,
+                              fontWeight: 600,
+                              flexShrink: 0,
+                            }}
+                          >
+                            /{cmd}
+                          </span>
+                          {originLabel && (
+                            <span
+                              style={{
+                                fontSize: 10,
+                                color: "var(--text-ghost)",
+                                background: "var(--bg-base)",
+                                padding: "1px 6px",
+                                borderRadius: 4,
+                                flexShrink: 0,
+                              }}
+                            >
+                              {originLabel}
+                            </span>
+                          )}
+                          {desc && (
+                            <span
+                              style={{
+                                fontSize: 11,
+                                color: "var(--text-ghost)",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {desc}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                <textarea
+                  ref={textareaRef}
+                  value={input}
+                  onPaste={handlePaste}
+                  onChange={(e) => {
+                    setInput(e.target.value);
+                    autoResize(e.target);
+                  }}
+                  onKeyDown={(e) => {
+                    // While the OS IME is composing (CJK / accent input), let
+                    // the composition consume Enter and other keys; we don't
+                    // want to send, autocomplete, or abort mid-composition.
+                    if (e.nativeEvent.isComposing) return;
+                    // Autocomplete navigation
+                    if (showAutocomplete && filteredCommands.length > 0) {
+                      if (e.key === "ArrowUp") {
+                        e.preventDefault();
+                        setSelectedIdx((prev) =>
+                          prev > 0 ? prev - 1 : filteredCommands.length - 1,
+                        );
+                        return;
+                      }
+                      if (e.key === "ArrowDown") {
+                        e.preventDefault();
+                        setSelectedIdx((prev) =>
+                          prev < filteredCommands.length - 1 ? prev + 1 : 0,
+                        );
+                        return;
+                      }
+                      if (e.key === "Tab") {
+                        e.preventDefault();
+                        const selected = filteredCommands[selectedIdx];
+                        if (selected) {
+                          setInput(`/${selected} `);
+                        }
+                        return;
+                      }
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        const selected = filteredCommands[selectedIdx];
+                        // If exact match, send it; otherwise autocomplete
+                        if (selected && partial === selected.toLowerCase()) {
+                          // Exact match — fall through to send
+                        } else if (selected) {
+                          e.preventDefault();
+                          setInput(`/${selected} `);
+                          return;
+                        }
+                      }
+                      if (e.key === "Escape") {
+                        e.preventDefault();
+                        setInput("");
+                        return;
+                      }
+                    }
+                    if (
+                      e.key === "Enter" &&
+                      (e.ctrlKey || e.metaKey) &&
+                      !isTouchPrimary
+                    ) {
+                      // Ctrl/Cmd+Enter: "deliver now". Identical to plain Enter
+                      // when the agent is idle; when it's busy, the server
+                      // interrupts the current turn and flushes the queue (same
+                      // machinery as the Send-now button). Must be checked
+                      // BEFORE the plain-Enter branch below, whose condition
+                      // also matches modifier+Enter.
+                      e.preventDefault();
+                      handleSend({ sendNow: true });
+                      return;
+                    }
+                    if (
+                      e.key === "Enter" &&
+                      !e.shiftKey &&
+                      !e.ctrlKey &&
+                      !e.metaKey &&
+                      !isTouchPrimary
+                    ) {
+                      e.preventDefault();
+                      handleSend();
+                    }
+                    if (e.key === "c" && (e.ctrlKey || e.metaKey) && isBusy) {
+                      // Don't intercept Ctrl/Cmd+C while the user has a real
+                      // selection — they're trying to copy. The textarea is no
+                      // longer disabled while busy (typing now queues), so this
+                      // path is more reachable than before.
+                      const sel = window.getSelection()?.toString() ?? "";
+                      if (!sel) {
+                        e.preventDefault();
+                        sendAbortDebounced(agent.id);
+                      }
+                    }
+                  }}
+                  placeholder={
+                    editingLogEntryId
+                      ? "Editing message above..."
+                      : isBusy
+                        ? isMobile
+                          ? "Type to queue..."
+                          : `Type to queue — sends when current turn ends · ${(navigator.platform || "").includes("Mac") ? "⌘" : "Ctrl+"}Enter to send now`
+                        : isMobile
+                          ? "Type a message..."
+                          : "Type a message or / for commands..."
+                  }
+                  autoFocus={!isMobile}
+                  rows={1}
                   style={{
+                    width: "100%",
+                    background: "transparent",
+                    border: "none",
+                    outline: "none",
+                    color:
+                      isBusy || editingLogEntryId
+                        ? "var(--text-muted)"
+                        : "var(--text-secondary)",
+                    fontFamily: "'JetBrains Mono',monospace",
+                    fontSize: isMobile ? 16 : 13,
+                    caretColor: "var(--green)",
+                    resize: "none",
+                    padding: "0 0 4px",
+                    lineHeight: "20px",
+                    maxHeight: 200,
+                    overflowY: "auto",
+                  }}
+                />
+              </div>
+              {SpeechRecognition && window.isSecureContext ? (
+                <button
+                  // Pointer capture keeps the hold gesture alive even if the
+                  // button shifts under the pointer (composer resizing) or the
+                  // pointer drifts off it — pointerup/pointercancel still fire
+                  // on the capturing element, so recording reliably stops on
+                  // release instead of the old mouseleave-stops-recording trap.
+                  onPointerDown={(e) => {
+                    e.preventDefault();
+                    try {
+                      e.currentTarget.setPointerCapture(e.pointerId);
+                    } catch {
+                      // Capture is best-effort: without it we fall back to
+                      // release-over-button behavior (releasing elsewhere
+                      // won't stop recording until the next press).
+                    }
+                    startListening();
+                  }}
+                  onPointerUp={stopListening}
+                  onPointerCancel={stopListening}
+                  onContextMenu={(e) => e.preventDefault()}
+                  style={{
+                    flexShrink: 0,
+                    // Pin to the row's bottom edge (viewport-stable) so the
+                    // button doesn't ride up as dictation fills the textarea.
+                    // marginTop -9 keeps the single-line position unchanged.
+                    alignSelf: "flex-end",
                     width: 36,
                     height: 36,
                     marginTop: -9,
+                    touchAction: "none",
                     borderRadius: 6,
-                    border: "1px solid var(--border)",
-                    background: "transparent",
-                    color: "var(--text-muted)",
+                    border: isListening
+                      ? "1px solid var(--red)"
+                      : "1px solid var(--border)",
+                    background: isListening
+                      ? "rgba(255,50,50,0.15)"
+                      : "transparent",
+                    color: isListening ? "var(--red)" : "var(--text-muted)",
                     cursor: "pointer",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
                     padding: 0,
-                    opacity: 0.4,
+                    transition: "all 0.15s",
+                    animation: isListening
+                      ? "mic-pulse 1.5s ease-in-out infinite"
+                      : "none",
+                    userSelect: "none",
+                    WebkitUserSelect: "none",
                   }}
-                  title="Voice input requires HTTPS"
+                  title="Hold to talk (Ctrl+Space)"
                 >
                   <svg
                     width="16"
@@ -2686,214 +2656,262 @@ export function LogView({
                     <line x1="8" y1="23" x2="16" y2="23" />
                   </svg>
                 </button>
-                {showMicHint && (
-                  <div
+              ) : SpeechRecognition && !window.isSecureContext ? (
+                <div
+                  style={{
+                    position: "relative",
+                    flexShrink: 0,
+                    alignSelf: "flex-end",
+                  }}
+                >
+                  <button
+                    onClick={() => setShowMicHint((v) => !v)}
                     style={{
-                      position: "absolute",
-                      bottom: "calc(100% + 8px)",
-                      right: 0,
-                      width: 320,
-                      background: "var(--bg-surface)",
-                      border: "1px solid var(--border-medium)",
-                      borderRadius: 8,
-                      padding: "12px 14px",
-                      fontSize: 12,
-                      color: "var(--text-secondary)",
-                      boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
-                      zIndex: 20,
-                      animation: "fadeIn 0.1s ease-out",
+                      width: 36,
+                      height: 36,
+                      marginTop: -9,
+                      borderRadius: 6,
+                      border: "1px solid var(--border)",
+                      background: "transparent",
+                      color: "var(--text-muted)",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      padding: 0,
+                      opacity: 0.4,
                     }}
+                    title="Voice input requires HTTPS"
                   >
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <rect x="9" y="1" width="6" height="12" rx="3" />
+                      <path d="M5 10a7 7 0 0 0 14 0" />
+                      <line x1="12" y1="17" x2="12" y2="23" />
+                      <line x1="8" y1="23" x2="16" y2="23" />
+                    </svg>
+                  </button>
+                  {showMicHint && (
                     <div
-                      style={{
-                        fontWeight: 600,
-                        marginBottom: 8,
-                        color: "var(--text-primary)",
-                      }}
-                    >
-                      Voice input requires HTTPS
-                    </div>
-                    <div style={{ marginBottom: 8, lineHeight: 1.5 }}>
-                      Enable HTTPS in your{" "}
-                      <span style={{ color: "var(--text-primary)" }}>
-                        Tailscale admin console
-                      </span>{" "}
-                      (DNS page), then run these on the host (use the built-in
-                      terminal):
-                    </div>
-                    <code
-                      style={{
-                        display: "block",
-                        background: "var(--bg-base)",
-                        border: "1px solid var(--border)",
-                        borderRadius: 4,
-                        padding: "8px 10px",
-                        fontSize: 11,
-                        fontFamily: "'JetBrains Mono',monospace",
-                        color: "var(--text-secondary)",
-                        whiteSpace: "pre-wrap",
-                        wordBreak: "break-all",
-                        lineHeight: 1.6,
-                      }}
-                    >
-                      {`sudo tailscale set --operator=$USER\ntailscale serve --bg http://localhost:${window.location.port || "4000"}`}
-                    </code>
-                    <div
-                      style={{
-                        marginTop: 8,
-                        lineHeight: 1.5,
-                        color: "var(--text-muted)",
-                      }}
-                    >
-                      Visit the HTTPS URL Tailscale prints (e.g.{" "}
-                      <code
-                        style={{
-                          background: "var(--bg-base)",
-                          padding: "1px 5px",
-                          borderRadius: 3,
-                          fontFamily: "'JetBrains Mono',monospace",
-                          fontSize: 11,
-                        }}
-                      >
-                        https://my-mac-mini.&lt;tailnet&gt;.ts.net
-                      </code>
-                      ).
-                    </div>
-                    <button
-                      onClick={() => setShowMicHint(false)}
                       style={{
                         position: "absolute",
-                        top: 8,
-                        right: 10,
-                        background: "none",
-                        border: "none",
-                        color: "var(--text-ghost)",
-                        cursor: "pointer",
-                        fontSize: 14,
-                        padding: 0,
+                        bottom: "calc(100% + 8px)",
+                        right: 0,
+                        width: 320,
+                        background: "var(--bg-surface)",
+                        border: "1px solid var(--border-medium)",
+                        borderRadius: 8,
+                        padding: "12px 14px",
+                        fontSize: 12,
+                        color: "var(--text-secondary)",
+                        boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
+                        zIndex: 20,
+                        animation: "fadeIn 0.1s ease-out",
                       }}
                     >
-                      &times;
-                    </button>
-                  </div>
-                )}
-              </div>
-            ) : null}
-            {isMobile &&
-              (isBusy &&
-              (agent.queue ?? []).length === 0 &&
-              !input.trim() &&
-              validAttachments.length === 0 ? (
-                <button
-                  onClick={() => sendAbortDebounced(agent.id)}
-                  style={{
-                    flexShrink: 0,
-                    alignSelf: "flex-end",
-                    width: 36,
-                    height: 36,
-                    borderRadius: 8,
-                    border: "1px solid var(--red)",
-                    background: "transparent",
-                    color: "var(--red)",
-                    fontSize: 16,
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    lineHeight: 1,
-                  }}
-                  title="Abort"
-                >
-                  ■
-                </button>
-              ) : (
-                <button
-                  // Wrapped so the click's MouseEvent doesn't leak into
-                  // handleSend's opts parameter.
-                  onClick={() => handleSend()}
-                  disabled={
-                    (!input.trim() && validAttachments.length === 0) ||
-                    hasUploading ||
-                    !!editingLogEntryId
-                  }
-                  style={{
-                    flexShrink: 0,
-                    alignSelf: "flex-end",
-                    width: 36,
-                    height: 36,
-                    borderRadius: 8,
-                    border: "none",
-                    background:
-                      (input.trim() || validAttachments.length > 0) &&
-                      !hasUploading &&
-                      !editingLogEntryId
-                        ? "var(--green)"
-                        : "var(--bg-hover)",
-                    color:
-                      (input.trim() || validAttachments.length > 0) &&
-                      !hasUploading &&
-                      !editingLogEntryId
-                        ? "var(--bg-base)"
-                        : "var(--text-ghost)",
-                    fontSize: 16,
-                    cursor:
-                      (input.trim() || validAttachments.length > 0) &&
-                      !hasUploading &&
-                      !editingLogEntryId
-                        ? "pointer"
-                        : "default",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    lineHeight: 1,
-                    transition: "background 0.15s, color 0.15s",
-                  }}
-                  title={isBusy ? "Queue message" : "Send"}
-                >
-                  ▲
-                </button>
-              ))}
+                      <div
+                        style={{
+                          fontWeight: 600,
+                          marginBottom: 8,
+                          color: "var(--text-primary)",
+                        }}
+                      >
+                        Voice input requires HTTPS
+                      </div>
+                      <div style={{ marginBottom: 8, lineHeight: 1.5 }}>
+                        Enable HTTPS in your{" "}
+                        <span style={{ color: "var(--text-primary)" }}>
+                          Tailscale admin console
+                        </span>{" "}
+                        (DNS page), then run these on the host (use the built-in
+                        terminal):
+                      </div>
+                      <code
+                        style={{
+                          display: "block",
+                          background: "var(--bg-base)",
+                          border: "1px solid var(--border)",
+                          borderRadius: 4,
+                          padding: "8px 10px",
+                          fontSize: 11,
+                          fontFamily: "'JetBrains Mono',monospace",
+                          color: "var(--text-secondary)",
+                          whiteSpace: "pre-wrap",
+                          wordBreak: "break-all",
+                          lineHeight: 1.6,
+                        }}
+                      >
+                        {`sudo tailscale set --operator=$USER\ntailscale serve --bg http://localhost:${window.location.port || "4000"}`}
+                      </code>
+                      <div
+                        style={{
+                          marginTop: 8,
+                          lineHeight: 1.5,
+                          color: "var(--text-muted)",
+                        }}
+                      >
+                        Visit the HTTPS URL Tailscale prints (e.g.{" "}
+                        <code
+                          style={{
+                            background: "var(--bg-base)",
+                            padding: "1px 5px",
+                            borderRadius: 3,
+                            fontFamily: "'JetBrains Mono',monospace",
+                            fontSize: 11,
+                          }}
+                        >
+                          https://my-mac-mini.&lt;tailnet&gt;.ts.net
+                        </code>
+                        ).
+                      </div>
+                      <button
+                        onClick={() => setShowMicHint(false)}
+                        style={{
+                          position: "absolute",
+                          top: 8,
+                          right: 10,
+                          background: "none",
+                          border: "none",
+                          color: "var(--text-ghost)",
+                          cursor: "pointer",
+                          fontSize: 14,
+                          padding: 0,
+                        }}
+                      >
+                        &times;
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ) : null}
+              {isMobile &&
+                (isBusy &&
+                (agent.queue ?? []).length === 0 &&
+                !input.trim() &&
+                validAttachments.length === 0 ? (
+                  <button
+                    onClick={() => sendAbortDebounced(agent.id)}
+                    style={{
+                      flexShrink: 0,
+                      alignSelf: "flex-end",
+                      width: 36,
+                      height: 36,
+                      borderRadius: 8,
+                      border: "1px solid var(--red)",
+                      background: "transparent",
+                      color: "var(--red)",
+                      fontSize: 16,
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      lineHeight: 1,
+                    }}
+                    title="Abort"
+                  >
+                    ■
+                  </button>
+                ) : (
+                  <button
+                    // Wrapped so the click's MouseEvent doesn't leak into
+                    // handleSend's opts parameter.
+                    onClick={() => handleSend()}
+                    disabled={
+                      (!input.trim() && validAttachments.length === 0) ||
+                      hasUploading ||
+                      !!editingLogEntryId
+                    }
+                    style={{
+                      flexShrink: 0,
+                      alignSelf: "flex-end",
+                      width: 36,
+                      height: 36,
+                      borderRadius: 8,
+                      border: "none",
+                      background:
+                        (input.trim() || validAttachments.length > 0) &&
+                        !hasUploading &&
+                        !editingLogEntryId
+                          ? "var(--green)"
+                          : "var(--bg-hover)",
+                      color:
+                        (input.trim() || validAttachments.length > 0) &&
+                        !hasUploading &&
+                        !editingLogEntryId
+                          ? "var(--bg-base)"
+                          : "var(--text-ghost)",
+                      fontSize: 16,
+                      cursor:
+                        (input.trim() || validAttachments.length > 0) &&
+                        !hasUploading &&
+                        !editingLogEntryId
+                          ? "pointer"
+                          : "default",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      lineHeight: 1,
+                      transition: "background 0.15s, color 0.15s",
+                    }}
+                    title={isBusy ? "Queue message" : "Send"}
+                  >
+                    ▲
+                  </button>
+                ))}
+            </div>
           </div>
         </div>
+        {features.terminal && !isMobile && terminalOpen && (
+          <div
+            ref={terminalContainerRef}
+            style={{
+              width: terminalWidth,
+              flexShrink: 0,
+              position: "relative",
+            }}
+          >
+            <PanelResizer
+              panelRef={terminalContainerRef}
+              min={PANEL_MIN.terminal}
+              getMax={getTerminalMax}
+              onCommit={commitTerminalWidth}
+            />
+            <TerminalPanel
+              agentId={agent.id}
+              onClose={() => setTerminalOpen(false)}
+              autoFocus={terminalAutoFocus}
+              onSendToChat={handleTerminalSendToChat}
+            />
+          </div>
+        )}
+        {features.editor && !isMobile && editorOpen && (
+          <div
+            ref={editorContainerRef}
+            style={{ width: editorWidth, flexShrink: 0, position: "relative" }}
+          >
+            <PanelResizer
+              panelRef={editorContainerRef}
+              min={PANEL_MIN.editor}
+              getMax={getEditorMax}
+              onCommit={commitEditorWidth}
+            />
+            <EditorPanel
+              agentId={agent.id}
+              initialPath={editorInitialPath}
+              onClose={() => setEditorOpen(false)}
+              onPathOpened={() => setEditorInitialPath(null)}
+            />
+          </div>
+        )}
       </div>
-      {features.terminal && !isMobile && terminalOpen && (
-        <div
-          ref={terminalContainerRef}
-          style={{ width: terminalWidth, flexShrink: 0, position: "relative" }}
-        >
-          <PanelResizer
-            panelRef={terminalContainerRef}
-            min={PANEL_MIN.terminal}
-            getMax={getTerminalMax}
-            onCommit={commitTerminalWidth}
-          />
-          <TerminalPanel
-            agentId={agent.id}
-            onClose={() => setTerminalOpen(false)}
-            autoFocus={terminalAutoFocus}
-            onSendToChat={handleTerminalSendToChat}
-          />
-        </div>
-      )}
-      {features.editor && !isMobile && editorOpen && (
-        <div
-          ref={editorContainerRef}
-          style={{ width: editorWidth, flexShrink: 0, position: "relative" }}
-        >
-          <PanelResizer
-            panelRef={editorContainerRef}
-            min={PANEL_MIN.editor}
-            getMax={getEditorMax}
-            onCommit={commitEditorWidth}
-          />
-          <EditorPanel
-            agentId={agent.id}
-            initialPath={editorInitialPath}
-            onClose={() => setEditorOpen(false)}
-            onPathOpened={() => setEditorInitialPath(null)}
-          />
-        </div>
-      )}
       {/* Mobile side panel: full-screen overlay above the chat column. The
         outer LogView is position:fixed and sized to vpHeight on mobile, so
         this absolute child inherits the visible viewport via height: 100%
