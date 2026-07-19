@@ -39,11 +39,6 @@ export function MyDevicesPane() {
   return (
     <div style={{ marginTop: 24 }}>
       <h4 style={sectionHeader}>My devices</h4>
-      <p style={hint}>
-        Generate a single-use link to sign another of your devices into your
-        account. The link expires in 1 hour; generating a new one replaces the
-        previous.
-      </p>
 
       {blockedNote && (
         <BlockedNoteBanner
@@ -94,6 +89,11 @@ function GenerateDeviceLinkForm() {
   return (
     <div style={cardStyle}>
       <p style={{ ...hint, marginTop: 0 }}>
+        Generate a single-use link to sign another of your devices into your
+        account. The link expires in 1 hour; generating a new one replaces the
+        previous.
+      </p>
+      <p style={hint}>
         Anyone with the link can sign in as you until it expires or is used —
         treat it like a one-time password and only open it on your own device.
       </p>
