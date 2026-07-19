@@ -54,9 +54,10 @@ type ValidationStatus =
   | { kind: "ok"; keyCount?: number }
   | { kind: "error"; message: string };
 
-// Account-section entries in the sidebar. Owners get the three panes the old
-// "Access & invites" section was split into (task 07514e7f); members get the
-// single self-scoped "My devices" pane.
+// Account-section entries in the sidebar. Owners get the three admin panes
+// the old "Access & invites" section was split into (task 07514e7f) plus the
+// self-scoped "My devices" pane (task eb3354e6 revision: device links are
+// self-service for everyone); members get only "My devices".
 type AccountSection = "access" | "invites" | "sessions" | "devices";
 
 // What the detail pane shows: a user's editor, or one account section.
@@ -240,13 +241,16 @@ export function UserSettingsView({
     (sessionContext?.userId === u.id || isOwner) && isFullUserView(u);
 
   const accountAvailable = isOwner || !!sessionContext;
-  // Owner: the three panes the old "Access & invites" section was split
-  // into. Member: the single self-scoped devices pane.
+  // Owner: the three admin panes the old "Access & invites" section was split
+  // into, plus the personal My devices pane (task eb3354e6 revision: device
+  // links are self-service for EVERYONE — admin sections first, the personal
+  // one last). Member: the single self-scoped devices pane.
   const accountEntries: { section: AccountSection; label: string }[] = isOwner
     ? [
         { section: "access", label: "Access" },
         { section: "invites", label: "Invites" },
         { section: "sessions", label: "Sessions" },
+        { section: "devices", label: "My devices" },
       ]
     : [{ section: "devices", label: "My devices" }];
 
@@ -747,13 +751,48 @@ function UserEditPanel({
   const [allowedSetting, setAllowedSetting] = useState<string[]>(
     user.allowedRooms,
   );
+  // Per-user DISPLAY preference (task 9301d0f4): room ids the user has hidden
+  // from their own view. SELF-only, like notifications — an owner editing a
+  // member manages access, not their view. Saved as the complement (the
+  // "shown" list) via PUT /api/me/view/shown. The three room settings are
+  // hierarchical: ACCESS ⊇ DISPLAYED ⊇ NOTIFICATIONS.
+  const [hiddenSetting, setHiddenSetting] = useState<string[]>(user.hidden);
   // The room ids the TARGET can reach, for rendering their self prefs: an owner
-  // reaches every live room by rule; a member only their (editable) allowedSetting.
-  // Without this an owner self-editing sees disabled notification toggles (their
-  // allowedRooms is [] by rule).
+  // reaches every live room by rule; a member SELF-editing reads their LIVE
+  // record (user.allowedRooms — they have no Access column, and the record
+  // refreshes via user_self_updated if an owner grants mid-edit, Reviewer1
+  // P1); an owner editing a member uses the editable allowedSetting. Without
+  // the owner rule an owner self-editing sees disabled notification toggles
+  // (their allowedRooms is [] by rule).
   const accessibleForPrefs = targetIsOwner
     ? editorRooms.map((r) => r.id)
-    : allowedSetting;
+    : !isOwner && isMe
+      ? user.allowedRooms
+      : allowedSetting;
+  // A MEMBER's projected `rooms` exclude the rooms they've hidden, so the
+  // Displayed column could never offer re-showing one. GET /api/me/rooms
+  // returns id+name for every ACCESSIBLE room (hidden included) — fetched for
+  // member self-edit and REFETCHED whenever their access set changes (an
+  // owner granting/revoking a room while this panel is mounted lands as a
+  // user_self_updated refresh of user.allowedRooms), so the rows can't go
+  // permanently stale (Reviewer1 P1). Owners already hold the live allRooms.
+  const [meRooms, setMeRooms] = useState<{ id: string; name: string }[] | null>(
+    null,
+  );
+  const accessKey = [...user.allowedRooms].sort().join(",");
+  useEffect(() => {
+    if (isOwner || !isMe) return;
+    apiFetch<{ rooms: { id: string; name: string }[] }>("GET", "/api/me/rooms")
+      .then((r) => setMeRooms(r.rooms))
+      .catch(() => {});
+  }, [isOwner, isMe, accessKey]);
+  // Rows of the Rooms table — RENDERING only; the destructive shown-complement
+  // written on save is computed from a fresh /api/me/rooms read in handleSave,
+  // never from these rows. Owner viewers: the unfiltered global list (they
+  // manage access to every room). Member self-edit: the fetched accessible
+  // list, falling back to the projected rooms until it lands.
+  const rowsForPrefs: { id: string; name: string }[] =
+    !isOwner && isMe ? (meRooms ?? editorRooms) : editorRooms;
   const [envFile, setEnvFile] = useState<string>(user.envFile ?? "");
   const [memberPrompt, setMemberPrompt] = useState<string>(
     user.memberPrompt ?? "",
@@ -882,6 +921,21 @@ function UserEditPanel({
     );
   }
 
+  // Hiding a room prunes its notification (NOTIFICATIONS ⊆ DISPLAYED). The
+  // server applies the same clamp on save (clampViewFields); the client-side
+  // mirror keeps the form state consistent mid-edit.
+  function toggleRoomDisplayed(roomId: string) {
+    const wasHidden = hiddenSetting.includes(roomId);
+    setHiddenSetting(
+      wasHidden
+        ? hiddenSetting.filter((id) => id !== roomId)
+        : [...hiddenSetting, roomId],
+    );
+    if (!wasHidden) {
+      setNotifSetting(notifSetting.filter((id) => id !== roomId));
+    }
+  }
+
   // When a room is removed from access, prune notifSetting to fit. The server
   // applies the same prune on save, but the client-side mirror keeps the form
   // state consistent mid-edit.
@@ -906,6 +960,7 @@ function UserEditPanel({
     if (avatarVariant !== user.avatarVariant) return true;
     if (!sameRoomSet(notifSetting, user.notifRooms)) return true;
     if (!sameRoomSet(allowedSetting, user.allowedRooms)) return true;
+    if (isMe && !sameRoomSet(hiddenSetting, user.hidden)) return true;
     return false;
   }
 
@@ -1019,7 +1074,36 @@ function UserEditPanel({
           return;
         }
       }
-      // (3) View prefs are SELF-only (Option A: the fields render only for isMe).
+      // (3) View prefs are SELF-only (Option A: the fields render only for
+      // isMe). Shown FIRST: the server clamps notifRooms to the effective
+      // shown set on every shown write, so re-showing a room and enabling its
+      // notification in one save only works in this order. The shown list is
+      // the complement of hiddenSetting over the accessible set — and because
+      // any accessible room OMITTED from it becomes hidden, the complement is
+      // computed over a FRESH authoritative accessible list fetched at save
+      // time, never a possibly stale client snapshot (Reviewer1 P1: a room
+      // granted/created while this panel is mounted must default to shown,
+      // not get silently hidden). If the pre-write read fails, fail the save
+      // rather than risk a destructive stale complement.
+      if (isMe && !sameRoomSet(hiddenSetting, user.hidden)) {
+        let accessibleNow: { id: string }[];
+        try {
+          accessibleNow = (
+            await apiFetch<{ rooms: { id: string; name: string }[] }>(
+              "GET",
+              "/api/me/rooms",
+            )
+          ).rooms;
+        } catch {
+          setError("Could not confirm your room list; Displayed not saved.");
+          return;
+        }
+        await apiFetch("PUT", "/api/me/view/shown", {
+          shown: accessibleNow
+            .filter((r) => !hiddenSetting.includes(r.id))
+            .map((r) => r.id),
+        });
+      }
       // notif-rooms takes the full list.
       if (isMe && !sameRoomSet(notifSetting, user.notifRooms)) {
         await apiFetch("PUT", "/api/me/view/notif-rooms", {
@@ -1122,13 +1206,24 @@ function UserEditPanel({
           onVariantChange={setAvatarVariant}
         />
 
-        {isOwner && (!targetIsOwner || isMe) ? (
+        {/* Rooms (task 9301d0f4): ONE table for the three hierarchical
+            per-room settings — ACCESS ⊇ DISPLAYED ⊇ NOTIFICATIONS.
+            Access is owner-managed on member targets; Displayed and
+            Notifications are SELF-only view prefs (Option A), so at most two
+            columns ever render at once (owner-editing-member: Access only;
+            self-edit: Displayed + Notifications). A member viewer only ever
+            mounts this panel for themselves (canEdit), so !isOwner ⇒ isMe. */}
+        {(isOwner && (!targetIsOwner || isMe)) || (!isOwner && isMe) ? (
           <>
             <h5 style={sectionTitleStyle}>Rooms</h5>
             <p style={sectionHintStyle}>
-              {!targetIsOwner && "Access: rooms this user can see and act in. "}
+              {isOwner &&
+                !targetIsOwner &&
+                "Access: rooms this user can see and act in (owner-managed). "}
               {isMe &&
-                "Notifications: sound when an agent in that room finishes."}
+                "Displayed: which of your accessible rooms appear in your own view. " +
+                  "Notifications: sound when an agent in that room finishes. " +
+                  "A room must be displayed to notify."}
             </p>
             <div
               style={{
@@ -1151,8 +1246,13 @@ function UserEditPanel({
                 }}
               >
                 <span style={{ flex: 1, minWidth: 0 }}>Room</span>
-                {!targetIsOwner && (
-                  <span style={{ width: 90, textAlign: "center" }}>Access</span>
+                {isOwner && !targetIsOwner && (
+                  <span style={{ width: 80, textAlign: "center" }}>Access</span>
+                )}
+                {isMe && (
+                  <span style={{ width: 80, textAlign: "center" }}>
+                    Displayed
+                  </span>
                 )}
                 {isMe && (
                   <span style={{ width: 90, textAlign: "center" }}>
@@ -1160,7 +1260,7 @@ function UserEditPanel({
                   </span>
                 )}
               </div>
-              {editorRooms.length === 0 ? (
+              {rowsForPrefs.length === 0 ? (
                 <div
                   style={{
                     padding: "8px 12px",
@@ -1171,9 +1271,10 @@ function UserEditPanel({
                   No rooms yet.
                 </div>
               ) : (
-                editorRooms.map((r) => {
+                rowsForPrefs.map((r) => {
                   const hasAccess = accessibleForPrefs.includes(r.id);
-                  const wantsNotif = hasAccess && notifSetting.includes(r.id);
+                  const displayed = hasAccess && !hiddenSetting.includes(r.id);
+                  const wantsNotif = displayed && notifSetting.includes(r.id);
                   return (
                     <div
                       key={r.id}
@@ -1198,10 +1299,10 @@ function UserEditPanel({
                       >
                         {r.name}
                       </span>
-                      {!targetIsOwner && (
+                      {isOwner && !targetIsOwner && (
                         <span
                           style={{
-                            width: 90,
+                            width: 80,
                             display: "flex",
                             justifyContent: "center",
                           }}
@@ -1221,23 +1322,22 @@ function UserEditPanel({
                       {isMe && (
                         <span
                           style={{
-                            width: 90,
+                            width: 80,
                             display: "flex",
                             justifyContent: "center",
                           }}
                         >
                           <input
                             type="checkbox"
-                            checked={wantsNotif}
+                            checked={displayed}
                             disabled={!hasAccess}
                             onChange={() => {
-                              // Defensive: also gate at the handler, not just
-                              // via `disabled`, so a future refactor or stale
-                              // click can't add notif for an inaccessible room.
+                              // Defensive handler-level gate mirroring the
+                              // notif one below: DISPLAYED ⊆ ACCESS.
                               if (!hasAccess) return;
-                              toggleRoomNotif(r.id);
+                              toggleRoomDisplayed(r.id);
                             }}
-                            aria-label={`Notifications for ${r.name}`}
+                            aria-label={`Display ${r.name}`}
                             style={{
                               accentColor: "var(--accent)",
                               cursor: hasAccess ? "pointer" : "default",
@@ -1246,76 +1346,39 @@ function UserEditPanel({
                           />
                         </span>
                       )}
+                      {isMe && (
+                        <span
+                          style={{
+                            width: 90,
+                            display: "flex",
+                            justifyContent: "center",
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={wantsNotif}
+                            disabled={!displayed}
+                            onChange={() => {
+                              // Defensive: also gate at the handler, not just
+                              // via `disabled`, so a future refactor or stale
+                              // click can't add notif for a hidden or
+                              // inaccessible room (NOTIFICATIONS ⊆ DISPLAYED).
+                              if (!displayed) return;
+                              toggleRoomNotif(r.id);
+                            }}
+                            aria-label={`Notifications for ${r.name}`}
+                            style={{
+                              accentColor: "var(--accent)",
+                              cursor: displayed ? "pointer" : "default",
+                              opacity: displayed ? 1 : 0.35,
+                            }}
+                          />
+                        </span>
+                      )}
                     </div>
                   );
                 })
               )}
-            </div>
-          </>
-        ) : !isOwner ? (
-          <>
-            <h5 style={sectionTitleStyle}>Notifications</h5>
-            <p style={sectionHintStyle}>
-              Sound when an agent in these rooms finishes.
-            </p>
-            <div
-              style={{
-                border: "1px solid var(--border)",
-                borderRadius: 8,
-                background: "var(--bg-base)",
-                padding: "4px 0",
-                marginTop: 8,
-              }}
-            >
-              {(() => {
-                // Members only see rooms they can already reach. `editorRooms`
-                // is the projected `rooms` slice for non-owner WSes, so the
-                // filter is effectively a no-op but kept defensive.
-                const notifRoomsToShow = editorRooms.filter((r) =>
-                  accessibleForPrefs.includes(r.id),
-                );
-                if (notifRoomsToShow.length === 0) {
-                  return (
-                    <div
-                      style={{
-                        padding: "8px 12px",
-                        fontSize: 12,
-                        color: "var(--text-ghost)",
-                      }}
-                    >
-                      No rooms yet.
-                    </div>
-                  );
-                }
-                return notifRoomsToShow.map((r) => {
-                  const checked = notifSetting.includes(r.id);
-                  return (
-                    <label
-                      key={r.id}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 10,
-                        padding: "6px 12px",
-                        fontSize: 12,
-                        color: "var(--text-primary)",
-                        cursor: "pointer",
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={() => toggleRoomNotif(r.id)}
-                        style={{
-                          accentColor: "var(--accent)",
-                          cursor: "pointer",
-                        }}
-                      />
-                      <span>{r.name}</span>
-                    </label>
-                  );
-                });
-              })()}
             </div>
           </>
         ) : null}

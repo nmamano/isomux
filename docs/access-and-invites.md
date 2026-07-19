@@ -6,7 +6,7 @@ How Isomux gates who can use an office, and how the invite-link flow works end-t
 
 - Isomux agents can run shell commands, so authenticated users effectively have shell access to the host. Only invite people you trust.
 - The server gates every browser request (HTTP + WebSocket) by a session cookie.
-- Two roles: `owner` (can toggle external access and mint invites for new members) and `member` (can mint invites for their other devices). Both have full operational access.
+- Two roles: `owner` (can toggle external access and mint invites for new users) and `member`. Both have full operational access, and every user can mint device links for their own extra devices.
 - Sessions are created when someone opens an invite URL (issued by an owner, or by a member for one of their own devices).
 - The first owner claims the office at `http://localhost:4000` on the host machine. Until that claim happens the server is only reachable from the host (or via an SSH tunnel).
 
@@ -41,7 +41,7 @@ If you don't get to it on the first boot, the same form is served on every subse
 
 Once you're the owner, open `User Settings` → `Invites` section:
 
-- **Issue invite**: enter a display name, pick a role. For a new member, you can also check the rooms they should have access to, so they land in those rooms the moment they accept instead of an empty office (leave all unchecked to grant rooms later from their user settings). Click `Issue invite`. The URL appears once — copy it. The URL is one-time per device and expires 24 hours after issuing if unused.
+- **Issue invite**: enter the new user's name, pick a role. For a member invite, check the rooms they should have access to, so they land in those rooms the moment they accept instead of an empty office (leave all unchecked to grant rooms later from their user settings). Click `Issue invite`. The URL appears once — copy it. It is one-time and expires 24 hours after issuing if unused.
 - **Outstanding invites**: every unclaimed invite is listed with its token prefix; revoke any from this table.
 - **Active sessions**: every currently-signed-in device, listed in the separate `Sessions` section; revoke any to immediately disconnect them.
 
@@ -51,15 +51,15 @@ Owner-issued invite links expire 24h after issuing if unused; self-device links 
 
 ### 3. Multi-device users
 
-Inviting a user who already exists requires the `Issue an additional invite` confirmation in the modal. The framing is "additional invite for that identity" — it does not revoke their existing sessions, does not mutate their role. One user can have many simultaneous sessions (laptop + phone + tablet).
+Invites create new users only. Typing a name that already exists shows a pointer instead of a form mode: existing users add devices themselves, with a device link from `My devices` in their own settings (the server rejects owner-minted invites for existing names too). The exception is recovery: someone signed out of every device can't self-serve, so the owner picks them from the Recovery dropdown in the Invites section and mints a device link for them (24h window, one outstanding link per user). One user can have many simultaneous sessions (laptop + phone + tablet).
 
-### 4. Member self-invites
+### 4. Device links
 
-Members can add more of their own devices without involving the owner. In `User Settings`, the `My devices` pane (which replaces the owner-only `Access` / `Invites` / `Sessions` sections for non-owner roles) has a `Generate device link` button with no other knobs. Click it; the URL appears once. Copy it, open it on the other device, you're in as the same identity.
+Every user adds more of their own devices without involving anyone else. In `User Settings`, the `My devices` pane (the only account section for members; owners have it alongside `Access` / `Invites` / `Sessions`) has a `Generate device link` button with no other knobs. Click it; the URL appears once. Copy it, open it on the other device, you're in as the same identity.
 
 Self-device links are tighter than owner-issued invites by design: **1h TTL** and **at most one outstanding at a time** (generating a new one replaces the previous). The 1h window matches the legitimate flow ("both my devices are right here, click it now"). The role, target user, and TTL are all fixed server-side from the caller's session, so a tampered client can't extend the window, change the role, or mint for a different identity. The wire-level check rejects any such attempt.
 
-The `My devices` pane also lists the member's outstanding invites and active sessions, scoped to themselves — same tables as the owner's `Invites` and `Sessions` sections, filtered to one identity.
+The `My devices` pane also lists your own outstanding device links and active sessions — same tables as the owner's `Invites` and `Sessions` sections, filtered to one identity.
 
 ### 5. Sign out
 
@@ -222,5 +222,6 @@ That prints a one-time login URL valid for 15 minutes. The CLI talks to the runn
 
 - **Members lose access at server restart? No.** Sessions persist to disk; restarts pick up the in-memory map from `sessions.json`.
 - **Revoking a live session?** The Sessions pane revoke button: the corresponding WebSocket force-closes within ~1s (per-message session recheck catches it). HTTP requests with the revoked cookie return 401 immediately.
-- **Member tries to mint an invite for a new user?** Rejected at the wire level. Members can mint self-invites for their own additional devices (1h TTL, max 1 active) but can't invite new identities. The account panes are scoped per role; the server-side check is the actual gate.
+- **Member tries to mint an invite for a new user?** Rejected at the wire level. Members can mint device links for their own additional devices (1h TTL, max 1 active) but can't invite new identities. The account panes are scoped per role; the server-side check is the actual gate.
+- **Owner tries to mint an invite for an existing user?** Rejected too (409): invites create new users only, and device links are self-service. To get a locked-out user back in, use the Recovery card in the Invites section.
 - **CSRF / CSWSH?** Origin is checked on WS upgrade and on state-changing HTTP methods. Browsers always send Origin; non-browser callers (agents on the same host) don't. Agent affordances and inter-agent messaging are bearer-authenticated (each agent's injected `ISOMUX_AGENT_TOKEN`); the loopback bypass now covers only the shared task board, cronjob reads, and backup status.

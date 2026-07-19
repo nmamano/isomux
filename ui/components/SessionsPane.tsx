@@ -27,10 +27,14 @@ export function SessionsPane() {
   return (
     <div style={{ marginTop: 24 }}>
       <h4 style={sectionHeader}>Sessions</h4>
+      {/* Task eb3354e6: owners looking to ADD a device tend to land here
+          (it's where devices are listed) — point them at the two flows that
+          actually mint links. */}
       <p style={hint}>
         Devices signed into this office, across all users. Revoking a session
         signs that device out; it can come back only via a fresh invite or
-        device link.
+        device link. New people get an invite from the Invites section; existing
+        users add devices themselves from <i>My devices</i>.
       </p>
 
       {blockedNote && (

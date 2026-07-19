@@ -224,6 +224,7 @@ export function SessionsTable({
       <thead>
         <tr>
           <th style={th}>User</th>
+          <th style={th}>Device</th>
           <th style={th}>Last seen</th>
           <th style={th}>Created</th>
           <th style={th}>User-Agent</th>
@@ -237,6 +238,10 @@ export function SessionsTable({
           return (
             <tr key={s.sessionPrefix}>
               <td style={td}>{s.username}</td>
+              {/* Last-known device label, stamped server-side from the
+                  session's presence stream (task 557dc8ce). "—" until the
+                  device names itself in Device Settings. */}
+              <td style={td}>{s.device ?? "—"}</td>
               <td style={td}>{formatRelative(s.lastSeenAt)}</td>
               <td style={td}>{formatRelative(s.createdAt)}</td>
               <td style={tdEllipsis}>{s.userAgent ?? "—"}</td>

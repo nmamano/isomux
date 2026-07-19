@@ -85,6 +85,12 @@ interface StoredSession {
   expiresAt: number;
   absoluteExpiresAt: number;
   userAgent: string | null;
+  // Last-known device label (client-supplied via presence_update, already
+  // sanitized there: trimmed, capped, empty→null). LAST NON-NULL WINS: a tab
+  // that hasn't named its device never erases a previously learned label —
+  // one session is one device, so the label is expected to be stable.
+  // Optional on disk (absent on legacy rows → null on the wire).
+  device?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -373,17 +379,18 @@ export interface MintOptions {
   createdBy: string | null;
   allowExisting: boolean;
   bootstrap?: boolean;
-  // Member self-invite path: revoke any other outstanding (unconsumed,
-  // unexpired) invite bound to the same username in the same mutation, so
-  // each member only ever has one active self-invite. Atomic with the new
+  // Self-invite and owner-recovery paths: revoke any other outstanding
+  // (unconsumed, unexpired) invite bound to the same username in the same
+  // mutation, so each user only ever has one active device/recovery link. Atomic with the new
   // mint so a concurrent caller can't see both the old and new at once.
   replacePriorForUsername?: boolean;
-  // Override the default TTL. Used by the admin-socket recovery handler
-  // (shell access + immediate hand-off to a browser, so a 15min window is
-  // both tight enough to be safe and loose enough for the device switch).
-  // Not exposed on the WS wire; the WS paths stick to INVITE_TTL_MS /
-  // SELF_INVITE_TTL_MS so a misbehaving client can't shorten or lengthen
-  // tokens it issues to third parties.
+  // Override the default TTL. Two server-side callers: the admin-socket
+  // owner-login handler (15min — shell access + immediate hand-off to a
+  // browser) and the REST owner-recovery seam (invites.mintRecovery pins the
+  // standard 24h INVITE_TTL_MS, because replacePriorForUsername alone would
+  // imply the 1h self-invite TTL and recovery is owner send-and-wait
+  // delivery). Never exposed on any client wire, so a misbehaving client
+  // can't shorten or lengthen tokens it issues to third parties.
   ttlMsOverride?: number;
   // Room grants to attach to the invite. Only valid for member invites that
   // will CREATE the user (owners reach every room by rule; an existing
@@ -440,7 +447,7 @@ export async function mintInvite(
       if (existing && !opts.allowExisting)
         return {
           ok: false,
-          error: `User "${existing.name}" already exists. Use allowExisting to issue an additional invite for them.`,
+          error: `User "${existing.name}" already exists. Invites create new users; existing users mint device links from My devices in their own settings.`,
           code: "USER_EXISTS",
         };
       if (existing && existing.role !== opts.role)
@@ -516,11 +523,11 @@ export async function mintInvite(
       role: opts.role,
       createdBy: opts.createdBy,
       createdAt: now,
-      // TTL selection. ttlMsOverride wins (admin-socket recovery path
-      // uses this for a 15min window). Otherwise the self-invite marker
-      // (replacePriorForUsername — set only by mint_self_invite, which
-      // doesn't accept the override field on the wire) picks the
-      // tighter 1h TTL; everything else uses the standard 24h.
+      // TTL selection. ttlMsOverride wins (admin-socket owner-login: 15min;
+      // REST owner-recovery: pinned to the standard 24h). Otherwise
+      // replacePriorForUsername — self-invites, which don't pass the
+      // override — picks the tighter 1h TTL; everything else uses the
+      // standard 24h.
       expiresAt:
         now +
         (opts.ttlMsOverride !== undefined
@@ -1303,7 +1310,32 @@ function toSessionWire(v: StoredSession): SessionWire {
     expiresAt: v.expiresAt,
     absoluteExpiresAt: v.absoluteExpiresAt,
     userAgent: v.userAgent,
+    device: v.device ?? null,
   };
+}
+
+// Stamp the last-known device label onto a live session (task 557dc8ce).
+// Called from the presence_update path with an already-sanitized non-empty
+// label. Returns true only when the stored value actually changed, so the
+// caller can fan out sessions_active_list conditionally. Persist failures are
+// non-fatal (same posture as the rolling lastSeen persist): the in-memory
+// value is authoritative until restart, and the next successful sessions
+// write picks it up.
+export function noteSessionDeviceByHash(
+  sessionIdHash: string,
+  device: string,
+): boolean {
+  ensureLoaded();
+  const session = sessions!.get(sessionIdHash);
+  if (!session) return false;
+  if ((session.device ?? null) === device) return false;
+  session.device = device;
+  try {
+    persistSessions();
+  } catch (err) {
+    console.error("[auth] device-label sessions persist failed:", err);
+  }
+  return true;
 }
 
 export function listInvites(): InviteWire[] {

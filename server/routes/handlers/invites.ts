@@ -32,7 +32,10 @@ import {
 } from "../executor.ts";
 import type { Identity } from "../../identity/index.ts";
 import type { InviteWire, UserRole } from "../../../shared/types.ts";
-import type { InviteMintReq } from "../../../shared/contract-shapes.ts";
+import type {
+  InviteMintReq,
+  RecoveryMintReq,
+} from "../../../shared/contract-shapes.ts";
 
 // Mint outcome: the {url, invite} the caller renders, or a status-mapped failure
 // (the seam maps the auth MintErr code → 400 bad-input / 409 conflict).
@@ -48,20 +51,28 @@ type RevokeOutcome =
   | { ok: false; status: HandlerErrorStatus; code: string };
 
 export interface InvitesDeps {
-  // Owner mint (officeOwner guard already enforced). createdBy is token-derived
-  // in the seam; on ok the seam fans out emitInvitesList(). allowedRooms are
-  // optional room grants for member invites (validated in the auth core:
-  // member-role + new-user only, ids must be live rooms).
+  // Owner mint (officeOwner guard already enforced) — NEW users only (task
+  // eb3354e6 revision): an existing username is rejected by the auth core
+  // (USER_EXISTS → 409). Device links for existing accounts are self-service
+  // via mintSelf; owners deliberately cannot mint them for others. createdBy
+  // is token-derived in the seam; on ok the seam fans out emitInvitesList().
+  // allowedRooms are optional room grants for member invites (validated in
+  // the auth core: member-role + new-user only, ids must be live rooms).
   mint(input: {
     username: string;
     role: UserRole;
-    allowExisting: boolean;
     allowedRooms?: string[];
     identity: Identity;
   }): Promise<MintOutcome>;
   // Self mint — binds to the caller's OWN record (userId/role) with
   // replacePriorForUsername; on ok the seam fans out emitInvitesList().
   mintSelf(identity: Identity): Promise<MintOutcome>;
+  // Owner recovery mint (officeOwner guard already enforced) — a device link
+  // for an EXISTING user who is locked out of every device (task eb3354e6
+  // final revision). Target resolves by stable userId (404 when missing);
+  // the seam derives name/role from the record and fixes TTL/replacement;
+  // on ok it fans out emitInvitesList().
+  mintRecovery(userId: string, identity: Identity): Promise<MintOutcome>;
   // Scoped list for the caller (record role): owner → all; member → own. Direct
   // reply only — NO fan-out (a pure read must never emit to other users).
   listScoped(identity: Identity): InviteWire[];
@@ -102,7 +113,6 @@ export function invitesHandlers(
       const r = await deps.mint({
         username: body.username,
         role: body.role,
-        allowExisting: !!body.allowExisting,
         allowedRooms: body.allowedRooms,
         identity: ctx.identity,
       });
@@ -114,6 +124,17 @@ export function invitesHandlers(
 
     "invites.mintSelf": async (ctx) => {
       const r = await deps.mintSelf(ctx.identity);
+      return r.ok
+        ? ok({ url: r.url, invite: r.invite })
+        : fail(r.status, "mint_failed", r.error);
+    },
+
+    "invites.mintRecovery": async (ctx) => {
+      const body = (ctx.body ?? {}) as Partial<RecoveryMintReq>;
+      if (typeof body.userId !== "string" || body.userId.trim().length === 0) {
+        return fail(400, "invalid_request", "userId is required");
+      }
+      const r = await deps.mintRecovery(body.userId, ctx.identity);
       return r.ok
         ? ok({ url: r.url, invite: r.invite })
         : fail(r.status, "mint_failed", r.error);

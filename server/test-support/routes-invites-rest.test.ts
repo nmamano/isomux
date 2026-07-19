@@ -28,7 +28,7 @@ import {
 } from "./harness.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import { setUserRole, getUserByName } from "../users.ts";
-import { acceptInvite } from "../auth.ts";
+import { acceptInvite, INVITE_TTL_MS } from "../auth.ts";
 import type { AgentInfo, InviteWire } from "../../shared/types.ts";
 
 let server: TestServer | null = null;
@@ -105,19 +105,17 @@ async function spawnAgent(
   return info;
 }
 
-// Mint an outstanding invite bound to `username` as the owner; return its prefix.
-async function mintFor(
-  srv: TestServer,
-  ownerSession: string,
-  username: string,
-): Promise<string> {
-  const r = await api(srv, "/api/invites", {
+// Mint an outstanding invite bound to an EXISTING user via the self-invite
+// route, as that user; return its prefix. Post-eb3354e6 this is the ONLY way
+// to create an invite for an existing account (invites.mint is new-user only,
+// 409 on an existing name), so the scoping/revoke tests ride it.
+async function mintFor(srv: TestServer, session: string): Promise<string> {
+  const r = await api(srv, "/api/invites/self", {
     method: "POST",
-    rawSessionId: ownerSession,
-    body: { username, role: "member", allowExisting: true },
+    rawSessionId: session,
   });
   if (r.status !== 200) {
-    throw new Error(`mintFor(${username}) -> ${r.status}`);
+    throw new Error(`mintFor -> ${r.status}`);
   }
   return (r.body as { invite: InviteWire }).invite.tokenPrefix;
 }
@@ -147,8 +145,8 @@ describe("routes/invites REST: direct list scoping (no fan-out on reads)", () =>
     const owner = await srv.seedOwner("Boss");
     const alice = await srv.seedMember("Alice");
     const bob = await srv.seedMember("Bob");
-    const pa = await mintFor(srv, owner.rawSessionId, "Alice");
-    const pb = await mintFor(srv, owner.rawSessionId, "Bob");
+    const pa = await mintFor(srv, alice.rawSessionId);
+    const pb = await mintFor(srv, bob.rawSessionId);
 
     const ownerList = await api(srv, "/api/invites", {
       rawSessionId: owner.rawSessionId,
@@ -176,7 +174,7 @@ describe("routes/invites REST: direct list scoping (no fan-out on reads)", () =>
     server = srv;
     const owner = await srv.seedOwner("Boss");
     const bob = await srv.seedMember("Bob");
-    await mintFor(srv, owner.rawSessionId, "Bob");
+    await mintFor(srv, bob.rawSessionId);
 
     // bob connects AFTER the mint (so no fan-out is buffered), then the owner
     // performs a pure READ. bob must receive nothing.
@@ -204,10 +202,11 @@ describe("routes/invites REST: mutation fan-out (recipient-scoped)", () => {
     const aliceSock = await srv.connectWs(alice.rawSessionId);
     const bobSock = await srv.connectWs(bob.rawSessionId);
 
-    const r = await api(srv, "/api/invites", {
+    // Self-invite by Alice (owner-minted invites are new-user only now); the
+    // recipient-scoped fan-out contract under test is unchanged.
+    const r = await api(srv, "/api/invites/self", {
       method: "POST",
-      rawSessionId: owner.rawSessionId,
-      body: { username: "Alice", role: "member", allowExisting: true },
+      rawSessionId: alice.rawSessionId,
     });
     expect(r.status).toBe(200);
     const pa = (r.body as { invite: InviteWire }).invite.tokenPrefix;
@@ -230,6 +229,144 @@ describe("routes/invites REST: mutation fan-out (recipient-scoped)", () => {
     );
     expect(hasPrefix(lastInvitesList(bobSock), pa)).toBe(false);
   });
+
+  // Reviewer1 P2 (eb3354e6 revision): the owner-mint (invites.mint) and
+  // self-mint (invites.mintSelf) seams carry SEPARATE explicit emitInvitesList
+  // calls in server/index.ts — the self-mint test above no longer exercises
+  // the owner-mint one, so cover it with a genuinely NEW username.
+  it("owner mint (new user) fans out a scoped invites_list: owner gets the row, a member gets none", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const alice = await srv.seedMember("Alice");
+
+    const ownerSock = await srv.connectWs(owner.rawSessionId);
+    const aliceSock = await srv.connectWs(alice.rawSessionId);
+
+    const r = await api(srv, "/api/invites", {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      body: { username: "Zed", role: "member" },
+    });
+    expect(r.status).toBe(200);
+    const pz = (r.body as { invite: InviteWire }).invite.tokenPrefix;
+
+    await waitUntil(
+      () => hasPrefix(lastInvitesList(ownerSock), pz),
+      2000,
+      "owner sees the new-user invite",
+    );
+    // alice is emitted her OWN (empty) scoped list — never Zed's row.
+    await waitUntil(
+      () => lastInvitesList(aliceSock) !== null,
+      2000,
+      "alice receives a scoped invites_list",
+    );
+    expect(hasPrefix(lastInvitesList(aliceSock), pz)).toBe(false);
+  });
+});
+
+// invites.mintRecovery (task eb3354e6 final revision): owner-only device link
+// for an EXISTING user — the escape hatch for a user signed out of every
+// device (self-service device links require a live session). Targeted by
+// stable userId; name/role derive from the record server-side.
+describe("routes/invites REST: mintRecovery (owner recovery for existing users)", () => {
+  it("owner mints by userId: bound to the target's name/role, target sees own row, replaces prior link", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const alice = await srv.seedMember("Alice");
+    const aliceId = getUserByName("Alice")!.id;
+    const aliceSock = await srv.connectWs(alice.rawSessionId);
+
+    const r = await api(srv, "/api/invites/recovery", {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      body: { userId: aliceId },
+    });
+    expect(r.status).toBe(200);
+    const inv = (r.body as { invite: InviteWire }).invite;
+    expect(inv.username).toBe("Alice");
+    expect(inv.role).toBe("member");
+
+    // Recipient-scoped fan-out: Alice's socket receives her own row.
+    await waitUntil(
+      () => hasPrefix(lastInvitesList(aliceSock), inv.tokenPrefix),
+      2000,
+      "alice sees the recovery link",
+    );
+
+    // One outstanding link per user: a second recovery mint replaces the first.
+    const r2 = await api(srv, "/api/invites/recovery", {
+      method: "POST",
+      rawSessionId: owner.rawSessionId,
+      body: { userId: aliceId },
+    });
+    expect(r2.status).toBe(200);
+    const inv2 = (r2.body as { invite: InviteWire }).invite;
+    const listed = invitesOf(
+      await api(srv, "/api/invites", { rawSessionId: owner.rawSessionId }),
+    ).filter((i) => i.username === "Alice");
+    expect(listed.map((i) => i.tokenPrefix)).toEqual([inv2.tokenPrefix]);
+
+    // TTL POLICY LOCK (Reviewer1 third-pass P2): recovery links get the
+    // standard 24h owner-issued window — the seam's ttlMsOverride must keep
+    // defeating replacePriorForUsername's implicit 1h self-invite branch.
+    expect(inv2.expiresAt - inv2.createdAt).toBe(INVITE_TTL_MS);
+    expect(INVITE_TTL_MS).toBe(24 * 60 * 60 * 1000);
+
+    // Companion: a SELF-mint stays on the tighter 1h TTL (and replaces the
+    // recovery link — one outstanding link per user across both paths).
+    const selfR = await api(srv, "/api/invites/self", {
+      method: "POST",
+      rawSessionId: alice.rawSessionId,
+    });
+    expect(selfR.status).toBe(200);
+    const selfInv = (selfR.body as { invite: InviteWire }).invite;
+    expect(selfInv.expiresAt - selfInv.createdAt).toBe(60 * 60 * 1000);
+    const listedAfterSelf = invitesOf(
+      await api(srv, "/api/invites", { rawSessionId: owner.rawSessionId }),
+    ).filter((i) => i.username === "Alice");
+    expect(listedAfterSelf.map((i) => i.tokenPrefix)).toEqual([
+      selfInv.tokenPrefix,
+    ]);
+  });
+
+  it("member -> 403; unknown userId -> 404; missing userId -> 400", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const alice = await srv.seedMember("Alice");
+    const aliceId = getUserByName("Alice")!.id;
+
+    expect(
+      (
+        await api(srv, "/api/invites/recovery", {
+          method: "POST",
+          rawSessionId: alice.rawSessionId,
+          body: { userId: aliceId },
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await api(srv, "/api/invites/recovery", {
+          method: "POST",
+          rawSessionId: owner.rawSessionId,
+          body: { userId: "no-such-user" },
+        })
+      ).status,
+    ).toBe(404);
+    expect(
+      (
+        await api(srv, "/api/invites/recovery", {
+          method: "POST",
+          rawSessionId: owner.rawSessionId,
+          body: {},
+        })
+      ).status,
+    ).toBe(400);
+  });
 });
 
 describe("routes/invites REST: revoke authz + non-leak", () => {
@@ -238,8 +375,8 @@ describe("routes/invites REST: revoke authz + non-leak", () => {
     server = srv;
     const owner = await srv.seedOwner("Boss");
     const alice = await srv.seedMember("Alice");
-    await srv.seedMember("Bob");
-    const pb = await mintFor(srv, owner.rawSessionId, "Bob"); // Alice does NOT own this
+    const bob = await srv.seedMember("Bob");
+    const pb = await mintFor(srv, bob.rawSessionId); // Alice does NOT own this
 
     const foreign = await api(srv, `/api/invites/${pb}`, {
       method: "DELETE",
@@ -268,7 +405,7 @@ describe("routes/invites REST: revoke authz + non-leak", () => {
     const owner = await srv.seedOwner("Boss");
     const alice = await srv.seedMember("Alice");
     const bob = await srv.seedMember("Bob");
-    const pa = await mintFor(srv, owner.rawSessionId, "Alice");
+    const pa = await mintFor(srv, alice.rawSessionId);
 
     const ownerSock = await srv.connectWs(owner.rawSessionId);
     const aliceSock = await srv.connectWs(alice.rawSessionId);
@@ -309,8 +446,8 @@ describe("routes/invites REST: revoke authz + non-leak", () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
-    await srv.seedMember("Bob");
-    const pb = await mintFor(srv, owner.rawSessionId, "Bob");
+    const bob = await srv.seedMember("Bob");
+    const pb = await mintFor(srv, bob.rawSessionId);
 
     const ownerSock = await srv.connectWs(owner.rawSessionId);
     const ok = await api(srv, `/api/invites/${pb}`, {
@@ -342,8 +479,8 @@ describe("routes/invites REST: revoke authz + non-leak", () => {
     server = srv;
     const owner = await srv.seedOwner("Boss");
     const alice = await srv.seedMember("Alice");
-    await srv.seedMember("Bob");
-    const pb = await mintFor(srv, owner.rawSessionId, "Bob");
+    const bob = await srv.seedMember("Bob");
+    const pb = await mintFor(srv, bob.rawSessionId);
 
     // Promote Alice in the record, THEN connect — the socket caches an
     // owner-role session.
@@ -373,7 +510,7 @@ describe("routes/invites REST: revoke authz + non-leak", () => {
 });
 
 describe("routes/invites REST: mint validation + officeOwner + mintSelf", () => {
-  it("mint: missing username -> 400; bad role -> 400; existing user w/o allowExisting -> 409", async () => {
+  it("mint: missing username -> 400; bad role -> 400; existing user -> 409 (new-user only)", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
@@ -402,7 +539,18 @@ describe("routes/invites REST: mint validation + officeOwner + mintSelf", () => 
         await api(srv, "/api/invites", {
           method: "POST",
           rawSessionId: owner.rawSessionId,
-          body: { username: "Alice", role: "member" }, // exists, no allowExisting
+          body: { username: "Alice", role: "member" }, // exists
+        })
+      ).status,
+    ).toBe(409);
+    // eb3354e6 revision: invites.mint is NEW-USER only. The retired
+    // allowExisting escape hatch is ignored on the wire — still 409.
+    expect(
+      (
+        await api(srv, "/api/invites", {
+          method: "POST",
+          rawSessionId: owner.rawSessionId,
+          body: { username: "Alice", role: "member", allowExisting: true },
         })
       ).status,
     ).toBe(409);
@@ -462,8 +610,8 @@ describe("routes/invites REST: record-role projection (Option A) + scope/auth", 
     server = srv;
     const owner = await srv.seedOwner("Boss");
     const alice = await srv.seedMember("Alice");
-    await srv.seedMember("Bob");
-    const pb = await mintFor(srv, owner.rawSessionId, "Bob");
+    const bob = await srv.seedMember("Bob");
+    const pb = await mintFor(srv, bob.rawSessionId);
 
     // Promote Alice in the user record; her existing session.role stays "member".
     expect(setUserRole("Alice", "owner")).toBe(true);
@@ -587,29 +735,28 @@ describe("routes/invites REST: room grants (pre-assigned rooms on member invites
     });
     expect(ownerRole.status).toBe(400);
 
+    // eb3354e6 revision: an existing user is rejected up-front (USER_EXISTS
+    // -> 409) regardless of grants — the grants check is unreachable for
+    // existing names now that invites.mint is new-user only.
     const existing = await api(srv, "/api/invites", {
       method: "POST",
       rawSessionId: owner.rawSessionId,
       body: {
         username: "Alice",
         role: "member",
-        allowExisting: true,
         allowedRooms: [roomA],
       },
     });
-    expect(existing.status).toBe(400);
+    expect(existing.status).toBe(409);
 
-    // PRECEDENCE (locked with Reviewer2): a request broken both ways —
-    // existing user with a MISMATCHED role AND grants — reports the more
-    // fundamental invite conflict (ROLE_MISMATCH -> 409), not INVALID_ROOMS.
-    // The grants check only sees existing users with a matching role.
+    // Same with a mismatched role: USER_EXISTS wins (it precedes the role
+    // comparison in the core), still 409.
     const mismatchWithGrants = await api(srv, "/api/invites", {
       method: "POST",
       rawSessionId: owner.rawSessionId,
       body: {
         username: "Alice",
         role: "owner",
-        allowExisting: true,
         allowedRooms: [roomA],
       },
     });

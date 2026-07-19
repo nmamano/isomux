@@ -1,16 +1,19 @@
-// Member-scoped "My devices" pane: parallel to the owner-only account panes
-// (ExternalAccessPane / InvitesPane / SessionsPane) but every list is
-// filtered to the current user, and small enough to stay ONE sidebar entry.
-// The mint-invite form collapses to a single "Generate device link" button
-// (the server fixes role to member, TTL to 1 hour, target to the caller's
-// own username, and replaces any prior outstanding self-invite). Mounts on
-// the User Settings page (UserSettingsView) when the session role is not
-// "owner". List seeding happens in UserSettingsView (useAccessListsSeed).
+// Self-scoped "My devices" pane: device links + the caller's own outstanding
+// invites and sessions, small enough to stay ONE sidebar entry. Since the
+// eb3354e6 revision it mounts for EVERY role (device links are self-service;
+// owners cannot mint them for others), so the lists are filtered to the
+// current user CLIENT-side too: the server scopes them for members, but an
+// owner's store holds the office-wide rows. The generate button rides
+// POST /api/invites/self (the server fixes the role to the caller's own,
+// TTL to 1 hour, target to the caller's own username, and replaces any
+// prior outstanding self-invite). List seeding happens in UserSettingsView
+// (useAccessListsSeed).
 
 import { useState } from "react";
 import { useAppState } from "../store.tsx";
 import { apiFetch, ApiError } from "../api.ts";
 import type { InviteWire } from "../../shared/types.ts";
+import { lowercaseKey } from "../../shared/identity.ts";
 import { dialogSaveBtn } from "./dialog-styles.ts";
 import {
   InvitesTable,
@@ -26,8 +29,27 @@ import {
 } from "./access-shared.tsx";
 
 export function MyDevicesPane() {
-  const { invitesList, invitesLoaded, activeSessions, activeSessionsLoaded } =
-    useAppState();
+  const {
+    invitesList,
+    invitesLoaded,
+    activeSessions,
+    activeSessionsLoaded,
+    sessionContext,
+  } = useAppState();
+
+  // Self filters. Sessions key on the stable userId; invites are name-bound
+  // (userId isn't stored on invites), so match by the same lowercase key the
+  // server uses. For members both are no-ops (already server-scoped).
+  const myKey = sessionContext ? lowercaseKey(sessionContext.username) : null;
+  const myInvites = invitesList.filter(
+    (i) =>
+      i.username !== null &&
+      myKey !== null &&
+      lowercaseKey(i.username) === myKey,
+  );
+  const mySessions = activeSessions.filter(
+    (s) => s.userId === sessionContext?.userId,
+  );
 
   // Server-side lockout-prevention rejections (a 409 from sessions.revoke,
   // surfaced by SessionsTable's onBlocked) are owner-relevant in practice (a
@@ -49,13 +71,13 @@ export function MyDevicesPane() {
 
       <GenerateDeviceLinkForm />
 
-      <h5 style={subsectionHeader}>Outstanding invites</h5>
-      {renderListSection(invitesList, invitesLoaded, (rows) => (
+      <h5 style={subsectionHeader}>Outstanding device links</h5>
+      {renderListSection(myInvites, invitesLoaded, (rows) => (
         <InvitesTable invites={rows} />
       ))}
 
-      <h5 style={subsectionHeader}>Active sessions</h5>
-      {renderListSection(activeSessions, activeSessionsLoaded, (rows) => (
+      <h5 style={subsectionHeader}>My active sessions</h5>
+      {renderListSection(mySessions, activeSessionsLoaded, (rows) => (
         <SessionsTable sessions={rows} onBlocked={setBlockedNote} />
       ))}
     </div>

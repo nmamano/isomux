@@ -958,6 +958,12 @@ export interface SessionWire {
   expiresAt: number;
   absoluteExpiresAt: number;
   userAgent: string | null;
+  // Last-known device label for this session — the same client-supplied label
+  // (DeviceSettings localStorage) that presence name-tags show, e.g. "Phone".
+  // Stamped server-side from the session's own presence_update stream; null
+  // until the device names itself. Read-only exposure (task 557dc8ce): there
+  // is no API to set it directly.
+  device: string | null;
 }
 
 // Backend-reported effort option for a model. `level` is the backend-specific

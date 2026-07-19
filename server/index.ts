@@ -97,12 +97,14 @@ import {
   freezeBootState,
   isProcessBoundLoopback,
   isProcessPreClaim,
+  INVITE_TTL_MS,
   listActiveSessions,
   listActiveSessionsForUserId,
   listInvites,
   listInvitesForUsername,
   logoutBySessionHash,
   mintInvite,
+  noteSessionDeviceByHash,
   readSessionCookie,
   registerSocket,
   resolveSessionHashByPrefix,
@@ -1545,19 +1547,17 @@ function buildExecutorDeps(): ExecutorDeps {
   // pre-existing shared ownerSessions in liveEmitDeps.)
   register(
     invitesHandlers({
-      mint: async ({
-        username,
-        role,
-        allowExisting,
-        allowedRooms,
-        identity,
-      }) => {
+      mint: async ({ username, role, allowedRooms, identity }) => {
         const { createdBy } = attributionFor(identity);
+        // NEW users only (task eb3354e6 revision): the auth core rejects an
+        // existing username with USER_EXISTS (409). Device links for existing
+        // accounts are self-service (mintSelf below); owners deliberately
+        // cannot mint them for others.
         const r = await mintInvite({
           username,
           role,
           createdBy,
-          allowExisting,
+          allowExisting: false,
           allowedRooms,
         });
         if (!r.ok) {
@@ -1585,6 +1585,37 @@ function buildExecutorDeps(): ExecutorDeps {
           createdBy: me.name,
           allowExisting: true,
           replacePriorForUsername: true,
+        });
+        if (!r.ok) {
+          return { ok: false, status: mintErrStatus(r.code), error: r.error };
+        }
+        emitInvitesList();
+        return {
+          ok: true,
+          url: `${buildPublicOrigin().origin}/i/${r.rawToken}`,
+          invite: toInviteWire(r.invite),
+        };
+      },
+      // Owner recovery (task eb3354e6 final revision): a device link for an
+      // EXISTING user who can't self-serve (signed out everywhere). userId
+      // resolves against the live record; name/role derive from it. Policy:
+      // one outstanding link per username (replacePriorForUsername) and the
+      // standard 24h owner-issued delivery window (ttlMsOverride pins it —
+      // replacePriorForUsername alone would imply the 1h self-invite TTL,
+      // which fits "both devices right here", not owner send-and-wait).
+      mintRecovery: async (userId, identity) => {
+        const target = getUserById(userId);
+        if (!target) {
+          return { ok: false, status: 404, error: "User not found." };
+        }
+        const { createdBy } = attributionFor(identity);
+        const r = await mintInvite({
+          username: target.name,
+          role: target.role,
+          createdBy,
+          allowExisting: true,
+          replacePriorForUsername: true,
+          ttlMsOverride: INVITE_TTL_MS,
         });
         if (!r.ok) {
           return { ok: false, status: mintErrStatus(r.code), error: r.error };
@@ -2656,6 +2687,17 @@ function buildExecutorDeps(): ExecutorDeps {
   register(
     viewHandlers({
       applyView: (userId, change) => applyViewChange(userId, change),
+      // Accessible rooms (hidden included) in office order, id+name only —
+      // the re-show read for the hide-rooms UI (task 9301d0f4).
+      listAccessibleRooms: (userId) => {
+        const user = getUserById(userId);
+        if (!user) return null;
+        const accessible = accessibleRoomIdsFor(user);
+        return agentManager
+          .getRooms()
+          .filter((r) => accessible.has(r.id))
+          .map((r) => ({ id: r.id, name: r.name }));
+      },
     }),
   );
   register(
@@ -3100,14 +3142,20 @@ function applyViewChange(targetUserId: string, change: ViewChange): boolean {
 
   // Fanout, scoped to what actually changed. order/hidden change the PROJECTION
   // (which rooms the target sees and in what order) → projected full_state to the
-  // target's own sockets. notifRooms is a scalar record field not carried in
-  // full_state → emitUserUpdated (public wire to all, full record to
+  // target's own sockets. notifRooms and hidden are record fields not carried
+  // in full_state → emitUserUpdated (public wire to all, full record to
   // owners via the admin channel and to the subject via the self channel) +
-  // emitUsersList.
-  const projectionChanged =
-    next.order.join("\u0000") !== prevOrderKey ||
+  // emitUsersList. hidden joined the record fan-out with the hide-rooms UI
+  // (task 9301d0f4): the Users page edits it against the self record, so a
+  // shown write must refresh user.hidden on the editing client or its form
+  // would read dirty forever. `order` stays projection-only (no UI reads the
+  // record field; RoomTabBar is echo-authoritative).
+  const hiddenChanged =
     [...next.hidden].sort().join("\u0000") !== prevHiddenKey;
+  const projectionChanged =
+    next.order.join("\u0000") !== prevOrderKey || hiddenChanged;
   const recordChanged =
+    hiddenChanged ||
     [...next.notifRooms].sort().join("\u0000") !== prevNotifKey;
   if (projectionChanged) {
     pushProjectedFullStateForUserId(targetUserId);
@@ -3540,6 +3588,16 @@ async function handleInboundMessage(
           typeof cmd.device === "string" && cmd.device.trim()
             ? cmd.device.trim().slice(0, 24)
             : null;
+        // Stamp the label onto the auth SESSION too (task 557dc8ce) so the
+        // Sessions pane can show which device each session is. Last non-null
+        // wins (an unnamed tab never erases a learned label); on an actual
+        // change, fan out the scoped sessions list so open panes update live.
+        if (
+          device !== null &&
+          noteSessionDeviceByHash(session.sessionIdHash, device)
+        ) {
+          emitSessionsList();
+        }
         const changed = setPresence({
           connectionId: ws.data.connectionId,
           userId: session.userId,

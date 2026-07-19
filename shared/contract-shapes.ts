@@ -260,6 +260,28 @@ export interface ViewOrderReq {
   order: string[];
 }
 
+// view.setShown: the FULL list of accessible rooms the caller wants displayed;
+// hidden becomes accessible minus this (clamped server-side). Removed as
+// callerless in the Phase 4 close-out, restored by task 9301d0f4 alongside the
+// hide-rooms UI on the Users page.
+export interface ShownRoomsReq {
+  shown: string[];
+}
+
+// view.listRooms (GET /api/me/rooms) — task 9301d0f4. Minimal reference to a
+// room the CALLER can access, hidden ones included (the projected full_state
+// rooms exclude hidden, and members don't get the owner-only all_rooms_list,
+// so this read is what makes re-SHOW possible). id+name only — everything
+// else about a room rides the projection once the room is shown.
+export interface AccessibleRoomWire {
+  id: string;
+  name: string;
+}
+
+export interface MeRoomsRes {
+  rooms: AccessibleRoomWire[];
+}
+
 export interface NotifRoomsReq {
   notifRooms: string[];
 }
@@ -276,16 +298,28 @@ export interface SetAccessReq {
   allowedRooms: string[];
 }
 
+// Owner-minted invites create NEW users only (task eb3354e6 revision): an
+// existing username is rejected server-side (409). Device links for existing
+// accounts ride POST /api/invites/self — or, when the user is locked out of
+// every device, the owner recovery op below.
 export interface InviteMintReq {
   username: string;
   role: UserRecord["role"];
-  allowExisting?: boolean;
   // Optional room grants to attach to the invite (member invites for NEW
   // users only — owners reach every room by rule, and an existing user's
   // access is managed on their record). On accept, the created member
   // record's allowedRooms seeds from this list so the invitee doesn't land
   // in an empty office.
   allowedRooms?: string[];
+}
+
+// invites.mintRecovery (POST /api/invites/recovery) — owner-only recovery for
+// an EXISTING user (task eb3354e6 final revision): device links are normally
+// self-service, but a user signed out of every device can't mint one. Target
+// is the stable userId; the server derives name/role from the record and
+// fixes TTL/replacement policy — no other knobs on the wire.
+export interface RecoveryMintReq {
+  userId: string;
 }
 
 export interface AccessSettingsReq {

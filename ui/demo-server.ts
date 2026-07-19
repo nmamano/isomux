@@ -723,6 +723,7 @@ function seedUsers() {
       expiresAt: now + 30 * 86400000,
       absoluteExpiresAt: now + 365 * 86400000,
       userAgent: LAPTOP_UA,
+      device: "Laptop",
     },
     {
       sessionPrefix: "7e9f0a12",
@@ -733,6 +734,7 @@ function seedUsers() {
       expiresAt: now + 30 * 86400000,
       absoluteExpiresAt: now + 365 * 86400000,
       userAgent: PHONE_UA,
+      device: "Phone",
     },
     {
       sessionPrefix: "9f8e7d6c",
@@ -743,6 +745,8 @@ function seedUsers() {
       expiresAt: now + 30 * 86400000,
       absoluteExpiresAt: now + 365 * 86400000,
       userAgent: LAPTOP_UA,
+      // Deliberately unnamed: exercises the "—" fallback in the Device column.
+      device: null,
     },
   ];
   invitesListSeed = [];
@@ -860,6 +864,7 @@ export async function demoApi(
       return { sessions: [...activeSessionsList] };
     case "POST /api/invites":
     case "POST /api/invites/self":
+    case "POST /api/invites/recovery":
       throw new ApiError(
         403,
         "invites_disabled",
@@ -986,6 +991,15 @@ export async function demoApi(
     // migration close optimistically. (Default Room was removed.)
     case "PUT /api/me/view/notif-rooms":
       return undefined;
+    // view.setShown — hide/show rooms is likewise not modeled in the demo.
+    case "PUT /api/me/view/shown":
+      return undefined;
+    // view.listRooms — the demo user is an owner with no hidden rooms, so the
+    // accessible set is exactly the live rooms list.
+    case "GET /api/me/rooms":
+      return {
+        rooms: state.getState().rooms.map((r) => ({ id: r.id, name: r.name })),
+      };
     // agents.spawn — build a demo agent, broadcast agent_added + a system log,
     // RETURN { agent } (the dialog awaits the HTTP result; the old
     // agent_save_response emit is gone). username is server-derived in prod; the

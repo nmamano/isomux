@@ -80,7 +80,10 @@ import type {
   RoomSettingsReq,
   RoomSettingsRes,
   ViewOrderReq,
+  ShownRoomsReq,
   NotifRoomsReq,
+  MeRoomsRes,
+  RecoveryMintReq,
   UserUpdateReq,
   SetAccessReq,
   InviteMintReq,
@@ -585,12 +588,33 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("view:manage", authenticated),
     emits: ["full_state"],
   }),
+  defineRoute<ShownRoomsReq, NoContent>({
+    opId: "view.setShown",
+    method: "PUT",
+    path: "/api/me/view/shown",
+    auth: cap("view:manage", authenticated),
+    // full_state for the hidden change; user_updated when the notifRooms
+    // re-clamp (hiding a notified room) changes the record. Restored by task
+    // 9301d0f4 (removed as callerless in the Phase 4 close-out).
+    emits: ["full_state", "user_updated"],
+  }),
   defineRoute<NotifRoomsReq, NoContent>({
     opId: "view.setNotifRooms",
     method: "PUT",
     path: "/api/me/view/notif-rooms",
     auth: cap("view:manage", authenticated),
     emits: ["user_updated"],
+  }),
+  // Self-scoped accessible-rooms read (task 9301d0f4): id+name for every room
+  // the caller can ACCESS, hidden included — the read that makes re-show
+  // possible for members (projected full_state excludes hidden rooms and
+  // all_rooms_list is owner-only). Pure read, no emits.
+  defineRoute<void, MeRoomsRes>({
+    opId: "view.listRooms",
+    method: "GET",
+    path: "/api/me/rooms",
+    auth: cap("view:manage", authenticated),
+    emits: [],
   }),
 
   // --- Users ----------------------------------------------------------------
@@ -639,6 +663,18 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/invites/self",
     auth: cap("invite:manage", authenticated),
+    emits: ["invites_list"],
+  }),
+  // Owner recovery for an EXISTING user locked out of every device (task
+  // eb3354e6 final revision): a device link minted by the owner, targeted by
+  // stable userId. Kept as its OWN op — invites.mint stays new-user only, so
+  // the wire semantics read "invites create users; recovery links restore
+  // access". Ungated on current sessions (an owner may pre-empt a lockout).
+  defineRoute<RecoveryMintReq, { url: string; invite: InviteWire }>({
+    opId: "invites.mintRecovery",
+    method: "POST",
+    path: "/api/invites/recovery",
+    auth: cap("invite:manage", officeOwner),
     emits: ["invites_list"],
   }),
   defineRoute<void, { invites: InviteWire[] }>({

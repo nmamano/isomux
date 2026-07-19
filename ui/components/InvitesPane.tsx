@@ -1,5 +1,9 @@
-// Owner-only "Invites" section: mint invite URLs and manage the outstanding
-// ones. Mounts on the User Settings page (UserSettingsView) when the current
+// Owner-only "Invites" section: mint NEW-USER invite URLs and manage the
+// outstanding ones. Device links for existing accounts are self-service in
+// MyDevicesPane (task eb3354e6 revision) — an existing typed name gets an
+// inline hint and a disabled submit (the server also rejects it, 409). The
+// Recovery card is the one owner-side exception: a device link FOR an
+// existing user who is locked out of every device (invites.mintRecovery). Mounts on the User Settings page (UserSettingsView) when the current
 // session's role is "owner". One of the three panes the old all-in-one
 // "Access & invites" section was split into (task 07514e7f) — see also
 // ExternalAccessPane and SessionsPane.
@@ -27,14 +31,28 @@ export function InvitesPane() {
 
   return (
     <div style={{ marginTop: 24 }}>
+      {/* Task eb3354e6 (revised): invites mint NEW users only. Device links
+          for existing accounts are self-service from each user's own
+          My devices section — owners deliberately can't mint them for
+          others. An existing typed name gets an inline hint (below) instead
+          of a mode flip. */}
       <h4 style={sectionHeader}>Invites</h4>
       <p style={hint}>
-        Add owners and members by issuing invite URLs and sending them to the
-        recipient out-of-band. Signed-in devices are listed in the Sessions
-        section.
+        Add a new member or owner: issue an invite URL and send it to them
+        out-of-band. Opening it creates their account and signs that device in.
+        For extra devices on an existing account, each user generates their own
+        device link from <i>My devices</i>.
       </p>
 
       <IssueInviteForm />
+
+      {/* Owner recovery (task eb3354e6 final revision): device links are
+          self-service, but a user signed out of EVERY device can't mint one —
+          this is the owner's escape hatch. A card here (not its own sidebar
+          entry) keeps the account list un-crowded; it lives next to invites
+          because both mint sign-in URLs the owner hands out. */}
+      <h5 style={subsectionHeader}>Recovery</h5>
+      <RecoveryLinkForm />
 
       <h5 style={subsectionHeader}>Outstanding invites</h5>
       {renderListSection(invitesList, invitesLoaded, (rows) => (
@@ -48,7 +66,6 @@ function IssueInviteForm() {
   const { users, rooms, allRooms } = useAppState();
   const [name, setName] = useState("");
   const [role, setRole] = useState<UserRole>("member");
-  const [allowExisting, setAllowExisting] = useState(false);
   // Rooms pre-assigned to the invite: the invitee lands with access to these
   // instead of an empty office. Member invites for NEW users only (mirrors
   // the server-side rule).
@@ -70,18 +87,10 @@ function IssueInviteForm() {
   }, [users, name]);
   const existing = existingUser !== null;
 
-  // When the typed name matches an existing user, the role dropdown is
-  // hidden and the effective role is forced to the existing user's role.
-  // Issuing a mismatched role would be rejected at accept time anyway
-  // (server returns role_mismatch); surfacing the restriction up-front
-  // avoids the confusion the boss flagged.
-  const effectiveRole: UserRole = existingUser ? existingUser.role : role;
-
   // Room grants apply only when the invite will CREATE a member record:
-  // owners reach every room by rule, and an existing user's access is
-  // managed in their user settings. The picker hides in the other cases and
-  // the request omits the field so the server never sees a stale selection.
-  const showRoomPicker = !existing && effectiveRole === "member";
+  // owners reach every room by rule. The picker also hides while the typed
+  // name matches an existing user (the submit is disabled then anyway).
+  const showRoomPicker = !existing && role === "member";
 
   function toggleGrantRoom(roomId: string) {
     setGrantRooms((prev) =>
@@ -99,8 +108,7 @@ function IssueInviteForm() {
     setMintedUrl(null);
     apiFetch<{ url: string; invite: InviteWire }>("POST", "/api/invites", {
       username: trimmed,
-      role: effectiveRole,
-      allowExisting: existing ? allowExisting : false,
+      role,
       ...(showRoomPicker && grantRooms.length > 0
         ? { allowedRooms: grantRooms }
         : {}),
@@ -108,7 +116,6 @@ function IssueInviteForm() {
       .then((r) => {
         setMintedUrl(r.url);
         setName("");
-        setAllowExisting(false);
         setGrantRooms([]);
       })
       .catch((err) => {
@@ -128,40 +135,32 @@ function IssueInviteForm() {
           setName(e.target.value);
           setError(null);
         }}
-        placeholder="Username (e.g. Marc)"
+        placeholder="New username (e.g. Marc)"
         maxLength={64}
         style={dialogInput}
       />
+      {/* Existing-name hint (task eb3354e6 revised): no mode flip — invites
+          are new-user only (the server rejects existing names too), so point
+          at the self-service device-link flow instead. */}
+      {existing && (
+        <p style={{ ...hint, marginTop: 4, color: "var(--text-primary)" }}>
+          <b>{existingUser.name}</b> already exists, so no invite is needed: to
+          sign in another device, {existingUser.name} can generate a device link
+          from <i>My devices</i> in their own settings - or you can mint them a
+          recovery link below.
+        </p>
+      )}
       <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
         <label style={{ flex: 1 }}>
           <div style={subLabel}>Role</div>
-          {existingUser ? (
-            <div
-              style={{
-                ...dialogInput,
-                display: "flex",
-                alignItems: "center",
-                color: "var(--text-dim)",
-                background: "var(--bg-base)",
-                fontSize: 12,
-              }}
-              title={`Role is fixed to match the existing ${existingUser.name} record. Use the change-role flow to promote/demote.`}
-            >
-              {existingUser.role}
-              <span style={{ marginLeft: 6, color: "var(--text-hint)" }}>
-                (matches existing user)
-              </span>
-            </div>
-          ) : (
-            <select
-              value={role}
-              onChange={(e) => setRole(e.target.value as UserRole)}
-              style={dialogInput}
-            >
-              <option value="member">member</option>
-              <option value="owner">owner</option>
-            </select>
-          )}
+          <select
+            value={role}
+            onChange={(e) => setRole(e.target.value as UserRole)}
+            style={dialogInput}
+          >
+            <option value="member">member</option>
+            <option value="owner">owner</option>
+          </select>
         </label>
       </div>
       {showRoomPicker && (
@@ -230,20 +229,7 @@ function IssueInviteForm() {
         Invite link expires 24h after issuing if unused. Accepted sessions last
         up to 1 year (revocable from the Sessions section any time).
       </p>
-      {existing && (
-        <label style={{ display: "flex", gap: 6, marginTop: 8, fontSize: 12 }}>
-          <input
-            type="checkbox"
-            checked={allowExisting}
-            onChange={(e) => setAllowExisting(e.target.checked)}
-          />
-          <span>
-            User <b>{name}</b> already exists. Issue an additional invite for
-            this identity (e.g. another device). Won't affect existing sessions
-            or role.
-          </span>
-        </label>
-      )}
+
       {error && (
         <p style={{ fontSize: 11, color: "#ff6b6b", margin: "6px 0 0" }}>
           {error}
@@ -252,14 +238,99 @@ function IssueInviteForm() {
       <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
         <button
           onClick={submit}
-          disabled={pending || !name.trim() || (existing && !allowExisting)}
+          disabled={pending || !name.trim() || existing}
           style={{
             ...dialogSaveBtn,
-            opacity:
-              pending || !name.trim() || (existing && !allowExisting) ? 0.5 : 1,
+            opacity: pending || !name.trim() || existing ? 0.5 : 1,
           }}
         >
           {pending ? "Minting…" : "Issue invite"}
+        </button>
+      </div>
+      {mintedUrl && <MintedUrlBox url={mintedUrl} />}
+    </div>
+  );
+}
+
+// Owner-only recovery card: mint a device link FOR an existing user, picked
+// from a dropdown (POST /api/invites/recovery, target by stable userId; the
+// server derives name/role and replaces any prior outstanding link for them).
+// Deliberately ungated on whether the user currently has sessions — an owner
+// may pre-empt a lockout.
+function RecoveryLinkForm() {
+  const { users } = useAppState();
+  const [userId, setUserId] = useState("");
+  const [mintedUrl, setMintedUrl] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  const userList = useMemo(
+    () => [...users.values()].sort((a, b) => a.name.localeCompare(b.name)),
+    [users],
+  );
+
+  function submit() {
+    if (!userId) return;
+    setPending(true);
+    setError(null);
+    setMintedUrl(null);
+    apiFetch<{ url: string; invite: InviteWire }>(
+      "POST",
+      "/api/invites/recovery",
+      { userId },
+    )
+      .then((r) => {
+        setMintedUrl(r.url);
+        setUserId("");
+      })
+      .catch((err) => {
+        setError(
+          err instanceof ApiError
+            ? err.message
+            : "Failed to mint recovery link",
+        );
+      })
+      .finally(() => setPending(false));
+  }
+
+  return (
+    <div style={cardStyle}>
+      <p style={{ ...hint, marginTop: 0 }}>
+        Help an existing user get back in. Device links are self-service, but
+        someone signed out of every device can&apos;t mint their own - pick them
+        here and send the link out-of-band. It expires in 24h; minting a new one
+        replaces their previous link.
+      </p>
+      <label style={subLabel}>User</label>
+      <select
+        value={userId}
+        onChange={(e) => {
+          setUserId(e.target.value);
+          setError(null);
+        }}
+        style={dialogInput}
+      >
+        <option value="">Select a user…</option>
+        {userList.map((u) => (
+          <option key={u.id} value={u.id}>
+            {u.name}
+          </option>
+        ))}
+      </select>
+      {error && (
+        <p style={{ fontSize: 11, color: "#ff6b6b", margin: "6px 0 0" }}>
+          {error}
+        </p>
+      )}
+      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+        <button
+          onClick={submit}
+          disabled={pending || !userId}
+          style={{
+            ...dialogSaveBtn,
+            opacity: pending || !userId ? 0.5 : 1,
+          }}
+        >
+          {pending ? "Minting…" : "Mint recovery link"}
         </button>
       </div>
       {mintedUrl && <MintedUrlBox url={mintedUrl} />}

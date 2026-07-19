@@ -420,3 +420,64 @@ describe("routes/sessions REST: record-role projection (Option A) + scope/auth",
     ).toBe(401);
   });
 });
+
+// Task 557dc8ce — device label on the session wire. The client's
+// presence_update device label (the one name-tags show) is stamped onto the
+// backing auth session (last non-null wins) and surfaced read-only as
+// SessionWire.device, so the Sessions pane can say WHICH device a session is.
+describe("routes/sessions REST: device label stamp (task 557dc8ce)", () => {
+  it("presence_update stamps device onto the session; unnamed updates never erase it", async () => {
+    server = await startTestServer();
+    const owner = await server.seedOwner("Boss");
+    const sock = await server.connectWs(owner.rawSessionId);
+    await sock.waitFor("presence_list");
+
+    const listDevice = async (): Promise<string | null | undefined> => {
+      const r = await api(server!, "/api/sessions", {
+        rawSessionId: owner.rawSessionId,
+      });
+      return (r.body as { sessions: SessionWire[] }).sessions[0]?.device;
+    };
+    // Before any named presence_update: null (legacy/unnamed sessions).
+    expect(await listDevice()).toBe(null);
+
+    sock.send({
+      type: "presence_update",
+      currentRoomId: null,
+      focusedAgentId: null,
+      viewMode: "away",
+      device: "Phone",
+    });
+    {
+      // waitUntil takes a sync predicate; poll the async read explicitly.
+      const deadline = Date.now() + 2000;
+      while ((await listDevice()) !== "Phone") {
+        if (Date.now() > deadline) throw new Error("device stamp timed out");
+        await sleep(10);
+      }
+    }
+
+    // A later update WITHOUT a device label (tab that hasn't named itself)
+    // must not erase the learned label.
+    sock.send({
+      type: "presence_update",
+      currentRoomId: null,
+      focusedAgentId: null,
+      viewMode: "away",
+    });
+    await sleep(50);
+    expect(await listDevice()).toBe("Phone");
+
+    // The stamp fans out a fresh scoped sessions_active_list carrying it.
+    await waitUntil(
+      () =>
+        (sock.messages as Record<string, unknown>[]).some(
+          (m) =>
+            m.type === "sessions_active_list" &&
+            (m.sessions as SessionWire[]).some((s) => s.device === "Phone"),
+        ),
+      2000,
+      "sessions_active_list fanout",
+    );
+  });
+});

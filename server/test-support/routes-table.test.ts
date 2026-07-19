@@ -267,7 +267,12 @@ const SPEC_ROUTE_CONTRACT: Record<
   },
   // View preferences
   "view.setOrder": { caps: ["view:manage"], emits: ["full_state"] },
+  "view.setShown": {
+    caps: ["view:manage"],
+    emits: ["full_state", "user_updated"],
+  },
   "view.setNotifRooms": { caps: ["view:manage"], emits: ["user_updated"] },
+  "view.listRooms": { caps: ["view:manage"], emits: [] },
   // Users
   "users.update": {
     caps: ["user:self", "user:admin"],
@@ -284,6 +289,10 @@ const SPEC_ROUTE_CONTRACT: Record<
   // Sessions, invites, access
   "invites.mint": { caps: ["invite:manage"], emits: ["invites_list"] },
   "invites.mintSelf": { caps: ["invite:manage"], emits: ["invites_list"] },
+  "invites.mintRecovery": {
+    caps: ["invite:manage"],
+    emits: ["invites_list"],
+  },
   "invites.list": { caps: ["invite:manage"], emits: [] },
   "invites.revoke": {
     caps: ["invite:manage"],
