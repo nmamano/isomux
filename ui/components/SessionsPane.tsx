@@ -32,9 +32,8 @@ export function SessionsPane() {
           actually mint links. */}
       <p style={hint}>
         Devices signed into this office, across all users. Revoking a session
-        signs that device out; it can come back only via a fresh invite or
-        device link. New people get an invite from the Invites section; existing
-        users add devices themselves from <i>My devices</i>.
+        signs that device out. New people get an invite from the Invites
+        section; existing users add devices themselves from <i>My devices</i>.
       </p>
 
       {blockedNote && (

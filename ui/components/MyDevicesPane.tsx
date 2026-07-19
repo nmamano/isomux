@@ -122,7 +122,7 @@ function GenerateDeviceLinkForm() {
       <button
         onClick={generate}
         disabled={pending}
-        style={{ ...dialogSaveBtn, opacity: pending ? 0.5 : 1 }}
+        style={{ ...dialogSaveBtn, marginTop: 10, opacity: pending ? 0.5 : 1 }}
       >
         {pending ? "Generating…" : "Generate device link"}
       </button>
