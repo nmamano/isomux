@@ -336,6 +336,10 @@ export type TaskUpdateReq = Partial<{
   priority: TaskItem["priority"];
   status: TaskItem["status"];
   assignee: string;
+  // Re-room the task (mirrors TaskCreateReq.roomId). Absent === leave the room
+  // unchanged; an explicit empty string === clear to office-global; a non-empty
+  // id moves it to that room, subject to the caller's room access.
+  roomId: string;
 }>;
 
 // isomux-memory: APPEND a durable fact (the safe default). scope/scopeId select

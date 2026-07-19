@@ -440,7 +440,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     changes: Partial<
       Pick<
         TaskItem,
-        "title" | "description" | "priority" | "status" | "assignee"
+        "title" | "description" | "priority" | "status" | "assignee" | "roomId"
       >
     >,
   ): TaskItem | null {

@@ -610,13 +610,18 @@ export class OfficeState {
     changes: Partial<
       Pick<
         TaskItem,
-        "title" | "description" | "priority" | "status" | "assignee"
+        "title" | "description" | "priority" | "status" | "assignee" | "roomId"
       >
     >,
   ): OfficeEvent[] {
     const task = this._tasks.find((t) => t.id === id);
     if (!task) return [];
     Object.assign(task, changes);
+    // Canonical global shape is an ABSENT roomId (see addTask). A clear arrives
+    // as `roomId: undefined` in `changes` — Object.assign leaves the key present
+    // with an undefined value, so drop it to keep one canonical "global" and
+    // match the persisted/wire shape of a task that never had a room.
+    if ("roomId" in changes && !task.roomId) delete task.roomId;
     const events: OfficeEvent[] = [
       { type: "tasks_changed", tasks: [...this._tasks] },
     ];

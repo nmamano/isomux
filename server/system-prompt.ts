@@ -38,11 +38,11 @@ How to use the task board (localhost:${PORT}/api/tasks): the board is ROOM-SCOPE
   curl -s -X POST localhost:${PORT}/api/tasks -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' \\
     -d '{"title":"..."}'                                                  # create in your room; add "roomId":"" for a global task
   curl -s -X PATCH localhost:${PORT}/api/tasks/ID -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' \\
-    -d '{"status":"backlog"}'                                             # update (title/description/priority/status/assignee)
+    -d '{"status":"backlog"}'                                             # update (title/description/priority/status/assignee/roomId)
   curl -s -X POST localhost:${PORT}/api/tasks/ID/claim -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H 'Content-Type: application/json' \\
     -d '{"assignee":"${agentName}"}'                                      # claim
   curl -s -X POST localhost:${PORT}/api/tasks/ID/done -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -d '{}'  # mark done
-Optional fields on create/update: description, priority (P0-P3), assignee.
+Optional fields on create/update: description, priority (P0-P3), assignee. On create or update, roomId re-files a task: "roomId":"" makes it office-global, "roomId":"<id>" scopes it to a room your boss can access (an inaccessible or unknown id is a 404). On update, omitting roomId leaves the task's room unchanged.
 When you finish work that's tracked on the task board, mark the task done. When you start board-tracked work, claim it. If an assignee is already set and it's not the one giving you the task, still do the work but surface the discrepancy.
 
 How to show a file to the boss (images render inline; other files render as a clickable file chip): call POST localhost:${PORT}/api/agents/${agentId}/read-file with body {"path":"..."} and your bearer token. The path can be relative to your cwd, absolute, or \`~/...\`. Use this when you've produced or want to surface a file (a plot, screenshot, generated PDF, log snippet) to the boss.

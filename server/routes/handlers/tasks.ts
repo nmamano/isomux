@@ -35,7 +35,10 @@ import type {
 } from "../../../shared/contract-shapes.ts";
 
 type TaskChanges = Partial<
-  Pick<TaskItem, "title" | "description" | "priority" | "status" | "assignee">
+  Pick<
+    TaskItem,
+    "title" | "description" | "priority" | "status" | "assignee" | "roomId"
+  >
 >;
 
 export interface TasksDeps {
@@ -178,6 +181,15 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
       if (body.priority !== undefined && !isValidPriority(body.priority)) {
         return fail(400, "invalid_request", "invalid priority, must be P0-P3");
       }
+      // Re-room validation is SPLIT across the visibility gate (full behavior
+      // matrix at the assembly block below). Only the SHAPE check runs here: a
+      // non-string roomId is a caller-side 400, so it belongs with the other
+      // body-shape 400s ABOVE the gate. The accessibility check is a visibility
+      // question and lives AFTER the gate.
+      const reRooming = Object.prototype.hasOwnProperty.call(body, "roomId");
+      if (reRooming && typeof body.roomId !== "string") {
+        return fail(400, "invalid_request", "roomId must be a string");
+      }
       // Object-visibility gate AFTER body-shape validation (a malformed body is
       // the caller's own 400 regardless of the task; a well-formed write to a
       // task the caller can't see is the same 404 as an unknown id).
@@ -196,6 +208,23 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
       if (body.assignee !== undefined) {
         changes.assignee =
           typeof body.assignee === "string" ? body.assignee : undefined;
+      }
+      // Re-room (shape already checked above), mirroring tasks.create:
+      //   - "" (empty)         → clear to office-global (changes.roomId=undefined
+      //                          → mirrors the description/assignee clear path;
+      //                          an untouched update leaves the key out entirely)
+      //   - accessible room id → move there
+      //   - inaccessible/unknown id → uniform 404 (no unknown-vs-forbidden oracle;
+      //                          post-gate, target reachability is a visibility Q)
+      if (reRooming) {
+        const rid = body.roomId as string;
+        if (rid.length === 0) {
+          changes.roomId = undefined; // explicit clear → office-global
+        } else if (deps.accessibleRoomIds(ctx.identity).has(rid)) {
+          changes.roomId = rid;
+        } else {
+          return fail(404, "not_found");
+        }
       }
       const task = deps.updateTask(ctx.params.id, changes);
       return task ? ok(task) : fail(404, "not_found");

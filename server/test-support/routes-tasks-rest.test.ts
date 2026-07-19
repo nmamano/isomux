@@ -420,6 +420,141 @@ describe("routes/tasks REST: room scoping", () => {
     expect(glob.roomId).toBeUndefined();
   });
 
+  it("PATCH re-rooms: omit=unchanged, accessible id=move, ''=clear-to-global, non-string=400, unknown=404", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const roomA = srv.agentManager.getRooms()[0].id;
+    const roomB = srv.agentManager.createRoom("Room B");
+
+    const t = (await postTask(srv, owner.rawSessionId, "movable", roomA))
+      .body as TaskItem;
+    expect(t.roomId).toBe(roomA);
+
+    // (1) roomId key OMITTED → room unchanged (a title-only PATCH keeps roomA).
+    const untouched = await api(srv, `/api/tasks/${t.id}`, {
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: { title: "renamed" },
+    });
+    expect(untouched.status).toBe(200);
+    expect((untouched.body as TaskItem).title).toBe("renamed");
+    expect((untouched.body as TaskItem).roomId).toBe(roomA);
+
+    // (4) accessible room id → move to roomB.
+    const moved = await api(srv, `/api/tasks/${t.id}`, {
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: { roomId: roomB },
+    });
+    expect(moved.status).toBe(200);
+    expect((moved.body as TaskItem).roomId).toBe(roomB);
+
+    // (3) "" → clear to office-global. The response AND the stored record drop
+    // the key entirely (canonical global === absent roomId, not undefined).
+    const cleared = await api(srv, `/api/tasks/${t.id}`, {
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: { roomId: "" },
+    });
+    expect(cleared.status).toBe(200);
+    expect((cleared.body as TaskItem).roomId).toBeUndefined();
+    const stored = srv.agentManager.getTasks().find((x) => x.id === t.id)!;
+    expect("roomId" in stored).toBe(false);
+
+    // (1b) an untouched PATCH after a clear leaves it global — a change to some
+    // OTHER field must not resurrect a room.
+    const stillGlobal = await api(srv, `/api/tasks/${t.id}`, {
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: { status: "in_progress" },
+    });
+    expect(stillGlobal.status).toBe(200);
+    expect((stillGlobal.body as TaskItem).roomId).toBeUndefined();
+
+    // (2) non-string roomId → 400 shape error (before the visibility gate).
+    const badShape = await api(srv, `/api/tasks/${t.id}`, {
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: { roomId: 7 },
+    });
+    expect(badShape.status).toBe(400);
+
+    // (5) unknown room id → uniform 404 (the owner's all-rooms set lets a truly
+    // unknown id be told apart, and the answer is the same 404 as inaccessible).
+    const unknown = await api(srv, `/api/tasks/${t.id}`, {
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: { roomId: "deadbeef" },
+    });
+    expect(unknown.status).toBe(404);
+  });
+
+  it("PATCH into a room outside the caller's access is a uniform 404 (no room oracle)", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const member = await srv.seedMember("Mia");
+    const roomA = srv.agentManager.getRooms()[0].id; // Mia has NO grant
+    const roomB = srv.agentManager.createRoom("Room B");
+    updateUserById(getUserByName("Mia")!.id, { allowedRooms: [roomB] });
+
+    // A global task Mia can see and mutate.
+    const glob = (await postTask(srv, owner.rawSessionId, "g", ""))
+      .body as TaskItem;
+
+    // Mia CAN re-room into roomB (granted) ...
+    const okMove = await api(srv, `/api/tasks/${glob.id}`, {
+      method: "PATCH",
+      rawSessionId: member.rawSessionId,
+      body: { roomId: roomB },
+    });
+    expect(okMove.status).toBe(200);
+    expect((okMove.body as TaskItem).roomId).toBe(roomB);
+
+    // ... but NOT into roomA (no grant), nor an unknown id — both a uniform 404.
+    for (const target of [roomA, "nope1234"]) {
+      const r = await api(srv, `/api/tasks/${glob.id}`, {
+        method: "PATCH",
+        rawSessionId: member.rawSessionId,
+        body: { roomId: target },
+      });
+      expect(r.status).toBe(404);
+    }
+    // The rejected writes were pre-mutation: the task stayed in roomB.
+    expect(
+      srv.agentManager.getTasks().find((x) => x.id === glob.id)?.roomId,
+    ).toBe(roomB);
+  });
+
+  it("an agent bearer can re-room a task into its OWN room", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    await srv.seedOwner("Boss");
+    const ownerId = getUserByName("Boss")!.id;
+    const roomA = srv.agentManager.getRooms()[0].id;
+    const bot = await spawnAgent(srv, "RoomBot"); // spawns into roomA
+    const token = mintAgentToken(bot.id, ownerId);
+
+    // Start global, then the agent adopts it into its own room.
+    const glob = (
+      await api(srv, "/api/tasks", {
+        method: "POST",
+        bearer: token,
+        body: { title: "adopt me", roomId: "" },
+      })
+    ).body as TaskItem;
+    expect(glob.roomId).toBeUndefined();
+
+    const homed = await api(srv, `/api/tasks/${glob.id}`, {
+      method: "PATCH",
+      bearer: token,
+      body: { roomId: roomA },
+    });
+    expect(homed.status).toBe(200);
+    expect((homed.body as TaskItem).roomId).toBe(roomA);
+  });
+
   it("legacy loopback /tasks is GLOBALS-ONLY: hides room tasks and refuses to mutate them", async () => {
     const srv = await startTestServer();
     server = srv;
