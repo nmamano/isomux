@@ -1,6 +1,6 @@
 ---
-name: handoff
-alias: isomux-handoff
+name: isomux-handoff
+alias: handoff
 description: Continue an unfinished task on a fresh session. The agent writes a short forward-looking brief of what's left, the boss approves it, and the agent then hands off to a fresh copy of itself that resumes on just that brief.
 ---
 

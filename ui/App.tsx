@@ -301,10 +301,13 @@ export function App() {
     });
   }, [sessionContext, presenceRoomId, focusedAgentId, viewMode]);
 
-  // Browser back button: navigate to office view instead of leaving the page.
+  // Browser back button: navigate within the app instead of leaving the page.
   // Model: office = home, any other view = one level deep. Only one history
-  // entry is ever pushed. All "return to office" paths go through goHome(),
-  // which calls history.back() so the popstate handler does the actual cleanup.
+  // entry is ever pushed at a time, but Back can step through more than one
+  // UI level: tasks opened over a chat pops back to that chat first (the
+  // popstate handler re-pushes the entry), then to the office. All "return
+  // to office" paths go through goHome(), which calls history.back() so the
+  // popstate handler does the actual cleanup.
   const deepRef = useRef(false);
 
   const goHome = useCallback(() => {
@@ -317,6 +320,23 @@ export function App() {
       dispatch({ type: "focus", agentId: null });
     }
   }, [dispatch]);
+
+  // Tasks opened over a chat: the focused agent stays set while TaskView
+  // renders on top of it (render priority: tasks > log), so "return to the
+  // chat" is just dropping the tasks flag. Gate on the resolved agent, not
+  // the id, so a chat whose agent disappeared while tasks was open falls
+  // back to the office path instead of a stale focus.
+  const tasksOverChat = tasksOpen && !!focusedAgent;
+
+  // Closing the task view returns to the chat it was opened from, when there
+  // is one; otherwise to the office (goHome). Dropping only the tasks flag
+  // keeps us one level deep, so the history entry survives (deep→deep is a
+  // replaceState in the sync effect below) and a subsequent Back/Escape from
+  // the chat still lands on the office.
+  const closeTasks = useCallback(() => {
+    if (tasksOverChat) setTasksOpen(false);
+    else goHome();
+  }, [tasksOverChat, goHome]);
 
   // Keyboard shortcuts: Escape → office, 1-8 → jump to agent at desk
   useEffect(() => {
@@ -447,13 +467,21 @@ export function App() {
   useEffect(() => {
     function handlePopState() {
       deepRef.current = false;
+      if (tasksOverChat) {
+        // Back from tasks-over-a-chat steps back to the chat, not the
+        // office. We stay deep (focus is still set), so the sync effect
+        // re-pushes the entry the Back just consumed; a second Back then
+        // lands on the office as usual.
+        setTasksOpen(false);
+        return;
+      }
       setTasksOpen(false);
       setCronjobsOpen(false);
       dispatch({ type: "focus", agentId: null });
     }
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
-  }, [dispatch]);
+  }, [dispatch, tasksOverChat]);
 
   return (
     <>
@@ -474,7 +502,7 @@ export function App() {
       )}
       {tasksOpen ? (
         <TaskView
-          onClose={goHome}
+          onClose={closeTasks}
           onFocusAgent={(agentId) => {
             setTasksOpen(false);
             dispatch({ type: "focus", agentId });
