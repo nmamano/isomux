@@ -148,6 +148,14 @@ export interface ManagedAgent {
   // generation (resetContextUsage); restored on edit-fork rollback; preserved on
   // model change (the conversation continues, already-fired notices stay fired).
   firedAgentThresholds: Set<number>;
+  // Boss-facing fullness thresholds already fired THIS generation: the
+  // ephemeral chat system line ("Context is NN% full. ...") emitted by the
+  // sample-commit path (maybeEmitUiContextNotice in agent-manager). Deliberately
+  // SEPARATE from firedAgentThresholds — different audiences, and one firing
+  // must never suppress the other. Same lifecycle: reset with the generation
+  // (resetContextUsage); restored on edit-fork rollback; preserved on model
+  // change.
+  firedUiThresholds: Set<number>;
   // /resume two-step state
   pendingResume: boolean;
   pendingResumeSessions: {

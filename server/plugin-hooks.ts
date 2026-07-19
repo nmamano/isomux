@@ -407,10 +407,12 @@ export function stripOutboundEnvelope(text: string): string {
 // A notice delayed by one turn beats delaying every send.
 const CONTEXT_NOTICE_SAMPLE_WAIT_MS = 500;
 
-// Agent-facing fullness thresholds (raw percentage), ascending. Once each per
-// conversation generation. Kept in step with the UI color bands in the design
-// doc §3 (50 = orange/plan-around-it, 75 = red/wrap-up).
-const CONTEXT_NOTICE_THRESHOLDS = [50, 75] as const;
+// Fullness thresholds (raw percentage), ascending. Once each per conversation
+// generation, per audience: the agent-facing injected notice here, and the
+// boss-facing ephemeral chat line (agent-manager's maybeEmitUiContextNotice)
+// share the SAME bands but separate fired-sets. Kept in step with the UI color
+// bands in the design doc §3 (50 = orange/plan-around-it, 75 = red/wrap-up).
+export const CONTEXT_NOTICE_THRESHOLDS = [50, 75] as const;
 
 export function formatContextNotice(
   threshold: number,

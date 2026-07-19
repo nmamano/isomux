@@ -936,3 +936,197 @@ describe("context-fullness: auth (self:affordance + agentParamMustEqualTokenAgen
     expect((await getContext(srv, a.id)).status).toBe(401);
   });
 });
+
+// The boss-facing ephemeral chat notice (task 0b12423b, design doc §3): the
+// sample-commit path emits ONE ephemeral system line per threshold band per
+// generation ("Context is NN% full. ..."), tracked by firedUiThresholds — a
+// SEPARATE audience from the agent-facing injected notice, so one audience
+// firing never suppresses the other. Server-authoritative: emitted where the
+// sample commits, so reconnects/multiple clients cannot duplicate it.
+describe("context-fullness: boss-facing ephemeral chat notice (task 0b12423b)", () => {
+  function uiNotices(
+    mgr: ReturnType<typeof createAgentManager>,
+    agentId: string,
+  ) {
+    return mgr
+      .getAgentLogs(agentId)
+      .filter(
+        (e) =>
+          e.kind === "system" &&
+          e.ephemeral === true &&
+          e.content.startsWith("Context is"),
+      );
+  }
+
+  const NOTICE_SUFFIX =
+    " Consider starting to wrap up. You can use /clear (for a new session) or /handoff (to continue this one with fresh context).";
+
+  it("fires once per band as fullness rises, never re-fires, and stays out of the persisted log", async () => {
+    let pct = 30;
+    const fake = new FakeBackend({
+      session: {
+        contextUsage: () => Promise.resolve(usage(pct)),
+        onSend: (_t, _a, s) => s.completeTurn({ text: "ok" }),
+      },
+    });
+    const mgr = makeManager(fake);
+    const info = await diSpawn(mgr);
+    try {
+      // Below every band: sample commits, no chat line.
+      await diRunTurn(mgr, info.id, "one");
+      await waitUntil(
+        () => mgr.getAgent(info.id)?.contextUsage?.percentage === 30,
+        3000,
+        "30% committed",
+      );
+      expect(uiNotices(mgr, info.id)).toHaveLength(0);
+
+      // Crossing 50: exactly one line, informational copy (no /clear nudge).
+      pct = 52;
+      await diRunTurn(mgr, info.id, "two");
+      await waitUntil(
+        () => uiNotices(mgr, info.id).length === 1,
+        3000,
+        "50-band notice",
+      );
+      expect(uiNotices(mgr, info.id)[0].content).toBe(
+        "Context is 52% full." + NOTICE_SUFFIX,
+      );
+
+      // Same band again: no re-fire. Wait on sampledAtMs ADVANCING so the
+      // assertion is deterministic — it provably runs after the third turn's
+      // sample committed, not against the still-cached second sample.
+      const prevSampledAt = mgr.getAgent(info.id)!.contextUsage!.sampledAtMs;
+      await diRunTurn(mgr, info.id, "three");
+      await waitUntil(
+        () =>
+          (mgr.getAgent(info.id)?.contextUsage?.sampledAtMs ?? 0) >
+          prevSampledAt,
+        3000,
+        "third sample recommitted",
+      );
+      expect(uiNotices(mgr, info.id)).toHaveLength(1);
+
+      // Crossing 75: the wrap-up copy, once.
+      pct = 87;
+      await diRunTurn(mgr, info.id, "four");
+      await waitUntil(
+        () => uiNotices(mgr, info.id).length === 2,
+        3000,
+        "75-band notice",
+      );
+      expect(uiNotices(mgr, info.id)[1].content).toBe(
+        "Context is 87% full." + NOTICE_SUFFIX,
+      );
+      const sampledAtBeforeFive = mgr.getAgent(info.id)!.contextUsage!
+        .sampledAtMs;
+      await diRunTurn(mgr, info.id, "five");
+      await waitUntil(
+        () =>
+          (mgr.getAgent(info.id)?.contextUsage?.sampledAtMs ?? 0) >
+          sampledAtBeforeFive,
+        3000,
+        "fifth sample recommitted",
+      );
+      expect(uiNotices(mgr, info.id)).toHaveLength(2);
+
+      // Ephemeral: none of the notices reached the persisted JSONL.
+      const sessionId = mgr.getCurrentSessionId(info.id)!;
+      const persisted = loadLog(info.id, sessionId);
+      expect(
+        persisted.some(
+          (e) => e.kind === "system" && e.content.startsWith("Context is"),
+        ),
+      ).toBe(false);
+    } finally {
+      for (const s of fake.sessions) s.close();
+    }
+  });
+
+  it("a first sample already past both bands emits only the HIGHEST band's line", async () => {
+    const fake = backendWith(usage(87));
+    const mgr = makeManager(fake);
+    const info = await diSpawn(mgr);
+    try {
+      await diRunTurn(mgr, info.id, "one");
+      await waitUntil(
+        () => uiNotices(mgr, info.id).length >= 1,
+        3000,
+        "notice emitted",
+      );
+      const notices = uiNotices(mgr, info.id);
+      expect(notices).toHaveLength(1);
+      expect(notices[0].content).toContain("wrap up");
+      // Both bands consumed: another committed sample stays silent.
+      const prevSampledAt = mgr.getAgent(info.id)!.contextUsage!.sampledAtMs;
+      await diRunTurn(mgr, info.id, "two");
+      await waitUntil(
+        () =>
+          (mgr.getAgent(info.id)?.contextUsage?.sampledAtMs ?? 0) >
+          prevSampledAt,
+        3000,
+        "second sample recommitted",
+      );
+      expect(uiNotices(mgr, info.id)).toHaveLength(1);
+    } finally {
+      for (const s of fake.sessions) s.close();
+    }
+  });
+
+  it("is a separate audience from the agent-facing injected notice: both fire for the same crossing", async () => {
+    const fake = backendWith(usage(68));
+    const mgr = makeManager(fake);
+    const info = await diSpawn(mgr);
+    try {
+      // Turn 1 commits 68% -> the chat line fires immediately (commit path),
+      // while the agent-facing notice must wait for the NEXT outbound send.
+      await diRunTurn(mgr, info.id, "one");
+      await waitUntil(
+        () => uiNotices(mgr, info.id).length === 1,
+        3000,
+        "chat notice",
+      );
+      const sess = fake.sessionForAgent(info.id)!;
+      expect(sess.sent[0].text).not.toContain("context check");
+
+      // Turn 2: the agent-facing notice rides the send — the chat line having
+      // fired first did NOT consume it (separate fired-sets)...
+      await diRunTurn(mgr, info.id, "two");
+      expect(sess.sent[1].text).toContain("[context check: 68% full");
+      // ...and its firing did not duplicate the chat line either.
+      expect(uiNotices(mgr, info.id)).toHaveLength(1);
+    } finally {
+      for (const s of fake.sessions) s.close();
+    }
+  });
+
+  it("resets with the conversation generation: /clear lets the band fire again", async () => {
+    const fake = backendWith(usage(60));
+    const mgr = makeManager(fake);
+    const info = await diSpawn(mgr);
+    try {
+      await diRunTurn(mgr, info.id, "one");
+      await waitUntil(
+        () => uiNotices(mgr, info.id).length === 1,
+        3000,
+        "first notice",
+      );
+
+      await mgr.newConversation(info.id);
+      // /clear wipes the log cache, so the pre-clear notice line is gone too.
+      expect(uiNotices(mgr, info.id)).toHaveLength(0);
+      // The fresh conversation re-crosses 50% on its first committed sample.
+      await diRunTurn(mgr, info.id, "fresh");
+      await waitUntil(
+        () => uiNotices(mgr, info.id).length === 1,
+        3000,
+        "post-clear notice",
+      );
+      expect(uiNotices(mgr, info.id)[0].content).toBe(
+        "Context is 60% full." + NOTICE_SUFFIX,
+      );
+    } finally {
+      for (const s of fake.sessions) s.close();
+    }
+  });
+});

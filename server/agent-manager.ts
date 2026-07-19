@@ -151,6 +151,7 @@ import {
   configurePluginHooks,
   runAgentTurn,
   stripOutboundEnvelope,
+  CONTEXT_NOTICE_THRESHOLDS,
 } from "./plugin-hooks.ts";
 // --- Dependency injection (Phase 0.2) ---
 //
@@ -1301,6 +1302,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       contextUsageCommittedSeq: 0,
       contextSampleInFlight: null,
       firedAgentThresholds: new Set(),
+      firedUiThresholds: new Set(),
       pendingResume: false,
       pendingResumeSessions: [],
       pendingModelPick: false,
@@ -2125,7 +2127,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // replaceSession await resolves — safe because the new session is already
   // installed, so the session-identity check orphans every old in-flight
   // sample even before the gen bump lands. `restore` serves edit-fork rollback,
-  // which puts the stashed pre-fork measurement AND fired-notice set back
+  // which puts the stashed pre-fork measurement AND fired-notice sets back
   // instead of clearing them (the rolled-back conversation keeps its already-
   // fired notices so they don't re-fire).
   function resetContextUsage(
@@ -2133,11 +2135,13 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     restore: {
       snapshot: ContextUsageSnapshot | null;
       fired: Set<number>;
+      firedUi: Set<number>;
     } | null = null,
   ): void {
     managed.contextGen++;
     managed.contextUsage = restore ? restore.snapshot : null;
     managed.firedAgentThresholds = restore ? restore.fired : new Set();
+    managed.firedUiThresholds = restore ? restore.firedUi : new Set();
     // Null the slot so nothing ever waits on an orphaned old-conversation
     // request (it still self-discards at commit via the gen check).
     managed.contextSampleInFlight = null;
@@ -2235,7 +2239,39 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       displayedContextChanged(managed.info.contextUsage, snapshot);
     managed.contextUsage = snapshot;
     if (shouldBroadcast) broadcastContextUsage(managed);
+    // Commit side effects, per the design doc: store → broadcast → evaluate
+    // the BOSS-facing threshold notice. Independent of the broadcast throttle
+    // (uses the raw float, and the fired-set already dedups). The agent-facing
+    // fired-set is never touched here — runAgentTurn owns it.
+    maybeEmitUiContextNotice(managed);
     return true;
+  }
+
+  // Boss-facing fullness notice (design doc §3): the first time a conversation
+  // crosses each threshold band, surface ONE ephemeral system line in the
+  // chat. A distinct audience from the agent-facing injected notice — separate
+  // fired-set, so one audience firing never suppresses the other. Emitted from
+  // the sample-commit path because the server is the single authority: multiple
+  // connected clients or reconnects cannot duplicate it. Ephemeral (not
+  // persisted): gone after a server restart, matching the snapshot itself. If
+  // the first committed sample already clears both bands (e.g. lands at 87%),
+  // only the HIGHEST band emits a line; all bands ≤ it are consumed.
+  function maybeEmitUiContextNotice(managed: ManagedAgent): void {
+    const snap = managed.contextUsage;
+    if (!snap) return;
+    let chosen: number | null = null;
+    for (const t of CONTEXT_NOTICE_THRESHOLDS) {
+      if (snap.percentage >= t && !managed.firedUiThresholds.has(t)) chosen = t;
+    }
+    if (chosen === null) return;
+    for (const t of CONTEXT_NOTICE_THRESHOLDS) {
+      if (t <= chosen) managed.firedUiThresholds.add(t);
+    }
+    const pct = Math.round(snap.percentage);
+    // Same copy at every band (Nil's wording, 2026-07-18); the band machinery
+    // only controls WHEN it fires (once per threshold per generation).
+    const msg = `Context is ${pct}% full. Consider starting to wrap up. You can use /clear (for a new session) or /handoff (to continue this one with fresh context).`;
+    emitEphemeralLog(managed.info.id, "system", msg);
   }
 
   // Fire-and-forget refresh, initiated from the (synchronous) normalized-event
@@ -3703,6 +3739,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       contextUsageCommittedSeq: 0,
       contextSampleInFlight: null,
       firedAgentThresholds: new Set(),
+      firedUiThresholds: new Set(),
       pendingResume: false,
       pendingResumeSessions: [],
       pendingModelPick: false,
@@ -6005,10 +6042,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // conversation, so it gets its fullness measurement back too (snapshots
     // are immutable-by-replacement, so holding the reference is safe).
     const oldContextUsage = managed.contextUsage;
-    // Same for the fired-notice set. Clone it: the fork's resetContextUsage
-    // REPLACES the live set with a fresh one, but a defensive copy keeps this
+    // Same for the fired-notice sets. Clone them: the fork's resetContextUsage
+    // REPLACES the live sets with fresh ones, but a defensive copy keeps this
     // stash pristine regardless of aliasing.
     const oldFiredAgentThresholds = new Set(managed.firedAgentThresholds);
+    const oldFiredUiThresholds = new Set(managed.firedUiThresholds);
 
     // Find target up front so the ephemeral short-circuit and the not-found
     // error can return before the fork pipeline runs.
@@ -6396,7 +6434,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
           emit(event);
 
         // Fullness measurement: restore the parent's snapshot + fired-notice
-        // set ONLY when the parent session was actually reinstalled
+        // sets ONLY when the parent session was actually reinstalled
         // (managed.sessionId back to oldSessionId). If rollback failed, the
         // session still points at the fork (broken or not), so the parent
         // measurement would mislabel it — clear it instead. Either way the gen
@@ -6404,7 +6442,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         resetContextUsage(
           managed,
           rollbackRestored
-            ? { snapshot: oldContextUsage, fired: oldFiredAgentThresholds }
+            ? {
+                snapshot: oldContextUsage,
+                fired: oldFiredAgentThresholds,
+                firedUi: oldFiredUiThresholds,
+              }
             : null,
         );
       }
