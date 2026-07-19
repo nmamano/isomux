@@ -64,7 +64,7 @@ function defaultStorage(): StorageLike | null {
 
 // Which full-screen panel was open. null = office or agent chat (which of the
 // two is determined by `agentId`).
-export type SavedPanel = "tasks" | "cronjobs";
+export type SavedPanel = "tasks" | "cronjobs" | "users";
 
 export interface SavedView {
   user: string; // lowercased owner username; loads reject on mismatch
@@ -82,7 +82,7 @@ function readId(x: unknown): string | null | undefined {
 
 function readPanel(x: unknown): SavedPanel | null | undefined {
   if (x === null || x === undefined) return null;
-  return x === "tasks" || x === "cronjobs" ? x : undefined;
+  return x === "tasks" || x === "cronjobs" || x === "users" ? x : undefined;
 }
 
 /** Strict parser for the saved-view JSON: returns null for any malformed

@@ -1,6 +1,6 @@
 // Owner-only Access section: list outstanding invites + active sessions,
-// issue new invites, revoke either. Mounts inside UserManagementModal when
-// the current session's role is "owner".
+// issue new invites, revoke either. Mounts on the User Settings page
+// (UserSettingsView) when the current session's role is "owner".
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppState, useDispatch } from "../store.tsx";
@@ -17,7 +17,16 @@ import {
   dialogHint,
 } from "./dialog-styles.ts";
 
-export function AccessPane() {
+export function AccessPane({
+  closeRef,
+}: {
+  // Registered by the External access card (the one sub-form here with
+  // unsaved state). The parent page calls `closeRef.current(after?)` before
+  // navigating away; the card gates on its own "Discard unsaved changes?"
+  // prompt and runs `after` once the close is committed. Same contract as
+  // UserSettingsView's UserEditPanel.
+  closeRef?: React.MutableRefObject<((after?: () => void) => void) | null>;
+}) {
   const { invitesList, invitesLoaded, activeSessions, activeSessionsLoaded } =
     useAppState();
   const dispatch = useDispatch();
@@ -101,7 +110,7 @@ export function AccessPane() {
         </div>
       )}
 
-      <ExternalAccessSection />
+      <ExternalAccessSection closeRef={closeRef} />
 
       <IssueInviteForm />
 
@@ -142,7 +151,11 @@ export function renderListSection<T>(
 // changing the bind interface and cookie/origin policy mid-process is
 // brittle, and the toggle is rare enough that "save then restart" is the
 // right trade.
-function ExternalAccessSection() {
+function ExternalAccessSection({
+  closeRef,
+}: {
+  closeRef?: React.MutableRefObject<((after?: () => void) => void) | null>;
+}) {
   const [loaded, setLoaded] = useState(false);
   const [enabled, setEnabled] = useState(false);
   const [urlInput, setUrlInput] = useState("");
@@ -191,6 +204,10 @@ function ExternalAccessSection() {
     const nextEnabled = enabled;
     const nextUrl = nextEnabled ? urlInput.trim() : "";
     setPending(true);
+    // Save supersedes any in-flight discard prompt (the user picked Save
+    // over Discard) — drop the stashed navigation so it can't replay.
+    pendingDiscardActionRef.current = null;
+    setConfirmDiscard(false);
     setError(null);
     setSignInUrl(null);
     setRestartRequired(false);
@@ -217,6 +234,52 @@ function ExternalAccessSection() {
   const dirty =
     enabled !== savedSnapshot.enabled ||
     urlInput.trim() !== savedSnapshot.urlInput;
+
+  // Navigation-away dirty gate (see the closeRef prop docs). Dirty → show
+  // the inline discard prompt and stash the navigation to run on Discard;
+  // clean → navigate immediately. Cancel drops the stashed navigation so a
+  // later Discard can't replay it.
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const pendingDiscardActionRef = useRef<(() => void) | null>(null);
+  // The prompt sits mid-pane (no sticky footer here) — scroll it into view
+  // when it opens, so a header-back/ESC while scrolled elsewhere doesn't
+  // look like a dead click.
+  const discardPromptRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (confirmDiscard)
+      discardPromptRef.current?.scrollIntoView({ block: "nearest" });
+  }, [confirmDiscard]);
+  function requestClose(after?: () => void) {
+    if (loaded && dirty) {
+      pendingDiscardActionRef.current = after ?? null;
+      setConfirmDiscard(true);
+    } else {
+      after?.();
+    }
+  }
+  function commitDiscard() {
+    const next = pendingDiscardActionRef.current;
+    pendingDiscardActionRef.current = null;
+    setConfirmDiscard(false);
+    // Reset to the saved snapshot: if the navigation re-renders this pane
+    // (or is a no-op), the form shouldn't still show the discarded edits.
+    setEnabled(savedSnapshot.enabled);
+    setUrlInput(savedSnapshot.urlInput);
+    next?.();
+  }
+  function cancelDiscard() {
+    pendingDiscardActionRef.current = null;
+    setConfirmDiscard(false);
+  }
+  // Mirror requestClose into the parent's ref every render so the captured
+  // closure always sees fresh form state — same no-deps pattern as
+  // UserSettingsView's UserEditPanel.
+  useEffect(() => {
+    if (closeRef) closeRef.current = requestClose;
+    return () => {
+      if (closeRef) closeRef.current = null;
+    };
+  });
 
   // Apply the same normalization the server uses, so the env-conflict /
   // env-match notes don't flash a false warning when the operator types
@@ -310,6 +373,55 @@ function ExternalAccessSection() {
         <p style={{ fontSize: 11, color: "#ff6b6b", margin: "6px 0 0" }}>
           {error}
         </p>
+      )}
+      {confirmDiscard && (
+        <div
+          ref={discardPromptRef}
+          style={{
+            display: "flex",
+            gap: 8,
+            alignItems: "center",
+            marginTop: 10,
+            padding: "8px 10px",
+            border: "1px solid var(--border)",
+            borderRadius: 6,
+            background: "var(--bg-base)",
+          }}
+        >
+          <span style={{ fontSize: 11, color: "var(--text-muted)", flex: 1 }}>
+            Discard unsaved external-access changes?
+          </span>
+          <button
+            onClick={commitDiscard}
+            style={{
+              padding: "6px 12px",
+              borderRadius: 6,
+              border: "1px solid var(--red)",
+              background: "var(--red)",
+              color: "var(--bg-base)",
+              fontSize: 11,
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            Discard
+          </button>
+          <button
+            onClick={cancelDiscard}
+            style={{
+              padding: "6px 12px",
+              borderRadius: 6,
+              border: "1px solid var(--border)",
+              background: "transparent",
+              color: "var(--text-primary)",
+              fontSize: 11,
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            Cancel
+          </button>
+        </div>
       )}
       <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
         <button

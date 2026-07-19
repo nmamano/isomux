@@ -173,7 +173,7 @@ On first hub startup, if an existing `~/.isomux/` directory exists and `~/.isomu
 
 ## User and room layers: per-user env, per-room prompts (implemented)
 
-> Status: shipped. Code lives in `server/agent-manager.ts`, `server/env-loader.ts`, `server/users.ts`, `server/persistence.ts`, `server/index.ts`, `ui/components/UserManagementModal.tsx`, `ui/components/RoomSettingsModal.tsx`, `ui/components/OfficePromptModal.tsx`. State is `~/.isomux/agents.json` (per-room prompt fields), `~/.isomux/users.json` (per-user envFile), `~/.isomux/office-config.json` (office-level env and prompt).
+> Status: shipped. Code lives in `server/agent-manager.ts`, `server/env-loader.ts`, `server/users.ts`, `server/persistence.ts`, `server/index.ts`, `ui/components/UserSettingsView.tsx`, `ui/components/RoomSettingsModal.tsx`, `ui/components/OfficePromptModal.tsx`. State is `~/.isomux/agents.json` (per-room prompt fields), `~/.isomux/users.json` (per-user envFile), `~/.isomux/office-config.json` (office-level env and prompt).
 
 Multiple users share one isomux office (same Linux user). Each user claims a display name; their agents are stamped with `info.username` at spawn time. Identity-bearing config (env file, including Git/GitHub and provider-auth credentials) is keyed by username. Prompt customization is keyed by room.
 

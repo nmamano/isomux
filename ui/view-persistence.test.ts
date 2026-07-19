@@ -124,8 +124,8 @@ describe("parseSavedView (strict)", () => {
     ).toBeNull();
   });
 
-  it("accepts exactly the two known panel values", () => {
-    for (const panel of ["tasks", "cronjobs"] as const) {
+  it("accepts exactly the known panel values", () => {
+    for (const panel of ["tasks", "cronjobs", "users"] as const) {
       expect(parseSavedView(JSON.stringify({ user: "u", panel }))?.panel).toBe(
         panel,
       );

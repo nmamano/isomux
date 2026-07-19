@@ -3098,7 +3098,7 @@ function applyViewChange(targetUserId: string, change: ViewChange): boolean {
 
 // Push the unfiltered global rooms list to every owner WS. Used after
 // any change to the global rooms array so the owner-only admin view
-// (currently: the Allowed Rooms editor in UserManagementModal) keeps
+// (currently: the Allowed Rooms editor in UserSettingsView) keeps
 // in sync. Owners with an explicit allowedRooms still see only their
 // subset in the main UI; this channel is purely for the admin surface
 // where they grant/revoke other users' room access. Members never
@@ -3381,7 +3381,7 @@ function wireEventSinks(): void {
     // bridge in task 03382535 — carried roomId → room-ACL).
     emitAgentEvent(event);
     // Any mutation of the global rooms list also refreshes the owner-only
-    // admin view of all rooms (used by UserManagementModal). Done here
+    // admin view of all rooms (used by UserSettingsView). Done here
     // (rather than inside routeAgentEvent) so the all_rooms_list message
     // doesn't fan out per-event-type; one shot per mutation.
     if (
@@ -4315,7 +4315,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         // every current room get the identity projection).
         sendProjectedFullState(ws);
         // Owners also receive the unfiltered global rooms list so the
-        // admin surface (UserManagementModal's Allowed Rooms editor) can
+        // admin surface (UserSettingsView's Allowed Rooms editor) can
         // grant access to rooms the owner has hidden from their own view.
         if (ws.data.session.role === "owner") {
           ws.send(

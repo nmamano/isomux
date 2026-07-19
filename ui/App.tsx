@@ -16,7 +16,7 @@ import { EditAgentDialog } from "./components/EditAgentDialog.tsx";
 import { OfficePromptModal } from "./components/OfficePromptModal.tsx";
 import { RoomSettingsModal } from "./components/RoomSettingsModal.tsx";
 import { DeviceSettingsModal } from "./components/DeviceSettingsModal.tsx";
-import { UserManagementModal } from "./components/UserManagementModal.tsx";
+import { UserSettingsView } from "./components/UserSettingsView.tsx";
 import { TaskView } from "./components/TaskView.tsx";
 import { CronjobsView } from "./components/CronjobsView.tsx";
 import { UpdateModal } from "./components/UpdateModal.tsx";
@@ -102,8 +102,10 @@ export function App() {
   // no longer carry a username), so the value itself is no longer read in the UI.
   const [, setUsername] = useState<string | null>(() => getUsername());
   const [editingDeviceSettings, setEditingDeviceSettings] = useState(false);
-  const [editingUserSettings, setEditingUserSettings] = useState(false);
-  // Live-avatars: when a ghost is clicked, the user-settings modal opens
+  // Full-page User Settings (like tasks/cronjobs): part of the main view
+  // switch, closed via goHome/popstate.
+  const [usersOpen, setUsersOpen] = useState(false);
+  // Live-avatars: when a ghost is clicked, the user-settings page opens
   // preopened to that user. Null = generic open (no preselection),
   // string = open with that user selected. Reset to null on close so a
   // subsequent generic open (UserIcon button) lands on the current user
@@ -170,6 +172,7 @@ export function App() {
     }
     if (saved.panel === "tasks") setTasksOpen(true);
     else if (saved.panel === "cronjobs") setCronjobsOpen(true);
+    else if (saved.panel === "users") setUsersOpen(true);
   }, [
     persistEnabled,
     restored,
@@ -186,7 +189,13 @@ export function App() {
     saveView(persistUser, {
       roomId: currentRoomId,
       agentId: focusedAgentId,
-      panel: tasksOpen ? "tasks" : cronjobsOpen ? "cronjobs" : null,
+      panel: usersOpen
+        ? "users"
+        : tasksOpen
+          ? "tasks"
+          : cronjobsOpen
+            ? "cronjobs"
+            : null,
     });
   }, [
     persistEnabled,
@@ -196,6 +205,7 @@ export function App() {
     focusedAgentId,
     tasksOpen,
     cronjobsOpen,
+    usersOpen,
   ]);
 
   // Write drafts through to their per-composer keys (post-restore only) by
@@ -267,13 +277,12 @@ export function App() {
   // dedupes on its end so identical updates don't cascade into a
   // broadcast.
   const anyModalOpen =
-    editingUserSettings ||
     editingDeviceSettings ||
     editingOfficePrompt ||
     editingRoomSettings !== null ||
     updateOpen;
   const viewMode: "office" | "log" | "away" =
-    tasksOpen || cronjobsOpen || anyModalOpen
+    tasksOpen || cronjobsOpen || usersOpen || anyModalOpen
       ? "away"
       : focusedAgentId
         ? "log"
@@ -317,6 +326,8 @@ export function App() {
       // Safety fallback — shouldn't happen, but don't break if it does
       setTasksOpen(false);
       setCronjobsOpen(false);
+      setUsersOpen(false);
+      setEditingUserId(null);
       dispatch({ type: "focus", agentId: null });
     }
   }, [dispatch]);
@@ -354,8 +365,17 @@ export function App() {
         setEditAgent(null);
       }
       // "t": toggle the task board from anywhere (office view or while viewing an
-      // agent), as long as you're not typing into a field.
-      if (!isInput && e.key === "t" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      // agent), as long as you're not typing into a field. Disabled while the
+      // User Settings page is open — jumping away from it would bypass its
+      // unsaved-edits check.
+      if (
+        !isInput &&
+        e.key === "t" &&
+        !usersOpen &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey
+      ) {
         e.preventDefault();
         setTasksOpen((v) => !v);
       }
@@ -447,10 +467,12 @@ export function App() {
     rooms,
     currentRoomId,
     roomCount,
+    usersOpen,
   ]);
 
   // Sync history stack with view state
-  const isDeep = tasksOpen || cronjobsOpen || focusedAgentId !== null;
+  const isDeep =
+    tasksOpen || cronjobsOpen || usersOpen || focusedAgentId !== null;
   useEffect(() => {
     if (isDeep && !deepRef.current) {
       window.history.pushState({ isomux: true }, "");
@@ -462,7 +484,7 @@ export function App() {
       // Returned to office — entry was consumed by history.back()
       deepRef.current = false;
     }
-  }, [isDeep, focusedAgentId, tasksOpen, cronjobsOpen]);
+  }, [isDeep, focusedAgentId, tasksOpen, cronjobsOpen, usersOpen]);
 
   useEffect(() => {
     function handlePopState() {
@@ -477,6 +499,8 @@ export function App() {
       }
       setTasksOpen(false);
       setCronjobsOpen(false);
+      setUsersOpen(false);
+      setEditingUserId(null);
       dispatch({ type: "focus", agentId: null });
     }
     window.addEventListener("popstate", handlePopState);
@@ -487,20 +511,16 @@ export function App() {
     <>
       <style>{CSS}</style>
       <ConnectionBanner />
-      {editingUserSettings && (
-        <UserManagementModal
-          initialUserId={editingUserId}
-          onSwitchUser={(name) => setUsername(name)}
-          onClose={() => {
-            setEditingUserSettings(false);
-            setEditingUserId(null);
-          }}
-        />
-      )}
       {editingDeviceSettings && (
         <DeviceSettingsModal onClose={() => setEditingDeviceSettings(false)} />
       )}
-      {tasksOpen ? (
+      {usersOpen ? (
+        <UserSettingsView
+          initialUserId={editingUserId}
+          onSwitchUser={(name) => setUsername(name)}
+          onClose={goHome}
+        />
+      ) : tasksOpen ? (
         <TaskView
           onClose={closeTasks}
           onFocusAgent={(agentId) => {
@@ -526,7 +546,7 @@ export function App() {
           onFocus={(agentId) => dispatch({ type: "focus", agentId })}
           onSpawn={() => setSpawnPickerDesk(0)}
           onContextMenu={(x, y, agent) => setCtxMenu({ x, y, agent })}
-          onOpenUserSettings={() => setEditingUserSettings(true)}
+          onOpenUserSettings={() => setUsersOpen(true)}
           onOpenDeviceSettings={() => setEditingDeviceSettings(true)}
           onEditOfficePrompt={() => setEditingOfficePrompt(true)}
           onEditRoomSettings={() => {
@@ -544,10 +564,10 @@ export function App() {
         <OfficeView
           onSpawn={(desk) => setSpawnPickerDesk(desk)}
           onContextMenu={(x, y, agent) => setCtxMenu({ x, y, agent })}
-          onOpenUserSettings={() => setEditingUserSettings(true)}
+          onOpenUserSettings={() => setUsersOpen(true)}
           onOpenUserSettingsForUser={(userId) => {
             setEditingUserId(userId);
-            setEditingUserSettings(true);
+            setUsersOpen(true);
           }}
           onOpenDeviceSettings={() => setEditingDeviceSettings(true)}
           onEditOfficePrompt={() => setEditingOfficePrompt(true)}

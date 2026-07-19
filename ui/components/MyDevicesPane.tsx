@@ -2,8 +2,8 @@
 // list is filtered to the current user. The mint-invite form collapses
 // to a single "Generate device link" button (the server fixes role to
 // member, TTL to 1 hour, target to the caller's own username, and
-// replaces any prior outstanding self-invite). Mounts in
-// UserManagementModal when the session role is not "owner".
+// replaces any prior outstanding self-invite). Mounts on the User
+// Settings page (UserSettingsView) when the session role is not "owner".
 
 import { useEffect, useRef, useState } from "react";
 import { useAppState, useDispatch } from "../store.tsx";

@@ -105,7 +105,7 @@ export interface AppState {
   // owner UI is hidden) for members and unauthenticated states.
   sessionContext: SessionContext | null;
   // Owner-only: unfiltered global rooms list, used by the Allowed Rooms
-  // editor in UserManagementModal so an owner with a restricted
+  // editor in UserSettingsView so an owner with a restricted
   // allowedRooms can still grant other users access to rooms outside
   // their own subset. Empty (and the editor falls back to `rooms`)
   // for members and pre-auth states.

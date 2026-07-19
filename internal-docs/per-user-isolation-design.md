@@ -115,7 +115,7 @@ The slices land in this order:
 
 3. **`forbiddenRootsForAgent` abstraction + HTTP enforcement + per-agent Claude PreToolUse refactor.** First enforcement step. Introduces the per-agent deny-list and wires it into the Claude SDK hook surface and the HTTP file-affordance endpoints (read-file / diff / edit-file; skip terminal-command). Codex SDK stays gapped at the application layer (no PreToolUse equivalent). Existing global rules in `safety-hooks.ts` (~/.isomux/ writes, sensitive basenames) stay separate from the per-agent layer.
 
-4. **envFile-inside-personal-folder warning.** Non-blocking UI nudge in UserManagementModal if the user has set both fields and the envFile isn't inside the privateFolder. Meaningful only after enforcement (slice 3) lands.
+4. **envFile-inside-personal-folder warning.** Non-blocking UI nudge in UserSettingsView if the user has set both fields and the envFile isn't inside the privateFolder. Meaningful only after enforcement (slice 3) lands.
 
 5. **Bwrap mount profile (Phase B / Linux).** Kernel-level enforcement of the same deny-list via mount namespaces. Closes the Codex SDK and autonomous-agent gaps that the application layer can't. Linux only; macOS would need a parallel `sandbox-exec` / SBPL backend (residual macOS gap).
 
@@ -154,5 +154,5 @@ What this means in practice:
 - `server/safety-hooks.ts`: current static rules (`~/.isomux/` writes, sensitive basenames). The convergence task refactors this surface.
 - `server/index.ts`: HTTP file-affordance endpoints (`read-file`, `diff`, `edit-file`, `terminal-command`).
 - `server/backends/codex/adapter.ts`: `hooks: false` — the Codex gap.
-- `ui/components/UserManagementModal.tsx`: where the personal folder input will live.
+- `ui/components/UserSettingsView.tsx`: where the personal folder input will live.
 - `ui/components/EditAgentDialog.tsx`: where the Manager badge already lives (post `cb9fa3c`).
