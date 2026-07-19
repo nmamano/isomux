@@ -1708,129 +1708,145 @@ export function LogView({
                 stateChangedAt={stateChangedAt.get(agent.id)}
               />
             )}
-            {agent.topic && agent.topic !== "..." && !editingTopic && (
-              <>
-                <span style={{ color: "var(--text-ghost)" }}>&middot;</span>
-                <span
-                  onClick={() => {
-                    setEditingTopic(true);
-                    setTopicDraft(agent.topic ?? "");
-                    setTimeout(() => topicInputRef.current?.focus(), 0);
-                  }}
-                  style={{
-                    color: "var(--text-secondary)",
-                    fontSize: 13,
-                    cursor: "text",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                    minWidth: 0,
-                  }}
-                  title={agent.topic ?? "Click to edit topic"}
-                >
-                  {agent.topic}
-                </span>
-                <button
-                  onClick={() => {
-                    apiFetch("DELETE", `/api/agents/${agent.id}/topic`).catch(
-                      () => {},
-                    );
-                  }}
-                  disabled={!canRegenerateTopic}
-                  title={
-                    canRegenerateTopic
-                      ? "Regenerate topic from conversation"
-                      : "No conversation history to summarize"
-                  }
-                  style={{
-                    background: "none",
-                    border: "none",
-                    cursor: canRegenerateTopic ? "pointer" : "default",
-                    color: "var(--text-secondary)",
-                    fontSize: 15,
-                    padding: "0 4px",
-                    opacity: canRegenerateTopic ? 0.8 : 0.3,
-                    transition: "opacity 0.2s",
-                    lineHeight: 1,
-                  }}
-                >
-                  ↻
-                </button>
-              </>
-            )}
-            {agent.topic === "..." && (
-              <>
-                <span style={{ color: "var(--text-ghost)" }}>&middot;</span>
-                <span style={{ color: "var(--text-ghost)", fontSize: 13 }}>
-                  ...
-                </span>
-              </>
-            )}
-            {editingTopic && (
-              <input
-                ref={topicInputRef}
-                value={topicDraft}
-                onChange={(e) => setTopicDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    const trimmed = topicDraft.trim();
-                    if (trimmed && trimmed !== agent.topic) {
-                      apiFetch("PUT", `/api/agents/${agent.id}/topic`, {
-                        topic: trimmed,
-                      } satisfies TopicReq).catch(() => {});
-                    }
-                    topicSavedRef.current = true;
-                    setEditingTopic(false);
-                  }
-                  if (e.key === "Escape") {
-                    topicSavedRef.current = true;
-                    setEditingTopic(false);
-                  }
-                }}
-                onBlur={() => {
-                  if (topicSavedRef.current) {
-                    topicSavedRef.current = false;
-                    setEditingTopic(false);
-                    return;
-                  }
-                  const trimmed = topicDraft.trim();
-                  if (trimmed && trimmed !== agent.topic) {
-                    apiFetch("PUT", `/api/agents/${agent.id}/topic`, {
-                      topic: trimmed,
-                    } satisfies TopicReq).catch(() => {});
-                  }
-                  setEditingTopic(false);
-                }}
-                style={{
-                  background: "transparent",
-                  border: "1px solid var(--border-medium)",
-                  borderRadius: 4,
-                  color: "var(--text-muted)",
-                  fontSize: 12,
-                  padding: "1px 6px",
-                  outline: "none",
-                  width: 200,
-                }}
-              />
-            )}
-            <span style={{ color: "var(--text-ghost)", flexShrink: 0 }}>
-              &middot;
-            </span>
-            <span
-              title={agent.cwd}
+            {/* Topic (conversation summary) stacked over cwd (task efdabed3):
+            frees horizontal header space for the upcoming Slide Mode toggle. */}
+            <div
               style={{
-                fontFamily: "'JetBrains Mono',monospace",
-                color: "var(--text-muted)",
-                fontSize: 12,
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
+                display: "flex",
+                flexDirection: "column",
+                justifyContent: "center",
+                gap: 1,
                 minWidth: 0,
                 flexShrink: 1,
               }}
             >
-              {agent.cwd.replace(/^\/home\/[^/]+/, "~")}
-            </span>
+              <span
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                  minWidth: 0,
+                  lineHeight: 1.2,
+                }}
+              >
+                {agent.topic && agent.topic !== "..." && !editingTopic && (
+                  <>
+                    <span
+                      onClick={() => {
+                        setEditingTopic(true);
+                        setTopicDraft(agent.topic ?? "");
+                        setTimeout(() => topicInputRef.current?.focus(), 0);
+                      }}
+                      style={{
+                        color: "var(--text-secondary)",
+                        fontSize: 13,
+                        cursor: "text",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        minWidth: 0,
+                      }}
+                      title={agent.topic ?? "Click to edit topic"}
+                    >
+                      {agent.topic}
+                    </span>
+                    <button
+                      onClick={() => {
+                        apiFetch(
+                          "DELETE",
+                          `/api/agents/${agent.id}/topic`,
+                        ).catch(() => {});
+                      }}
+                      disabled={!canRegenerateTopic}
+                      title={
+                        canRegenerateTopic
+                          ? "Regenerate topic from conversation"
+                          : "No conversation history to summarize"
+                      }
+                      style={{
+                        background: "none",
+                        border: "none",
+                        cursor: canRegenerateTopic ? "pointer" : "default",
+                        color: "var(--text-secondary)",
+                        fontSize: 15,
+                        padding: "0 4px",
+                        opacity: canRegenerateTopic ? 0.8 : 0.3,
+                        transition: "opacity 0.2s",
+                        lineHeight: 1,
+                      }}
+                    >
+                      ↻
+                    </button>
+                  </>
+                )}
+                {agent.topic === "..." && (
+                  <span style={{ color: "var(--text-ghost)", fontSize: 13 }}>
+                    ...
+                  </span>
+                )}
+                {editingTopic && (
+                  <input
+                    ref={topicInputRef}
+                    value={topicDraft}
+                    onChange={(e) => setTopicDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        const trimmed = topicDraft.trim();
+                        if (trimmed && trimmed !== agent.topic) {
+                          apiFetch("PUT", `/api/agents/${agent.id}/topic`, {
+                            topic: trimmed,
+                          } satisfies TopicReq).catch(() => {});
+                        }
+                        topicSavedRef.current = true;
+                        setEditingTopic(false);
+                      }
+                      if (e.key === "Escape") {
+                        topicSavedRef.current = true;
+                        setEditingTopic(false);
+                      }
+                    }}
+                    onBlur={() => {
+                      if (topicSavedRef.current) {
+                        topicSavedRef.current = false;
+                        setEditingTopic(false);
+                        return;
+                      }
+                      const trimmed = topicDraft.trim();
+                      if (trimmed && trimmed !== agent.topic) {
+                        apiFetch("PUT", `/api/agents/${agent.id}/topic`, {
+                          topic: trimmed,
+                        } satisfies TopicReq).catch(() => {});
+                      }
+                      setEditingTopic(false);
+                    }}
+                    style={{
+                      background: "transparent",
+                      border: "1px solid var(--border-medium)",
+                      borderRadius: 4,
+                      color: "var(--text-muted)",
+                      fontSize: 12,
+                      padding: "1px 6px",
+                      outline: "none",
+                      width: 200,
+                    }}
+                  />
+                )}
+              </span>
+              <span
+                title={agent.cwd}
+                style={{
+                  fontFamily: "'JetBrains Mono',monospace",
+                  color: "var(--text-muted)",
+                  fontSize: 11,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  minWidth: 0,
+                }}
+              >
+                {agent.cwd.replace(/^\/home\/[^/]+/, "~")}
+              </span>
+            </div>
           </div>
           <div
             style={{
