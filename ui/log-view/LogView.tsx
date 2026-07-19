@@ -1831,12 +1831,6 @@ export function LogView({
             >
               {agent.cwd.replace(/^\/home\/[^/]+/, "~")}
             </span>
-            {agent.contextUsage && (
-              <span style={{ color: "var(--text-ghost)", flexShrink: 0 }}>
-                &middot;
-              </span>
-            )}
-            <ContextBattery usage={agent.contextUsage} />
           </div>
           <div
             style={{
@@ -1844,8 +1838,10 @@ export function LogView({
               alignItems: "center",
               flexShrink: 0,
               marginLeft: 12,
+              gap: 10,
             }}
           >
+            <ContextBattery usage={agent.contextUsage} />
             <NavActions actions={desktopAgentActions} viewport="desktop" />
           </div>
         </div>

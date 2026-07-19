@@ -22,7 +22,12 @@ export function ContextBattery({
   usage,
   isMobile,
 }: {
-  usage: ContextUsageWire | undefined;
+  // null = explicitly cleared over the wire (post-/clear); undefined = never
+  // measured (fresh conversation, pre-first-turn, post server restart). The
+  // pill ALWAYS renders (per Nil 2026-07-18): with no reading it shows the
+  // empty shell + "?" in a ghost color instead of disappearing, so the
+  // indicator's presence is stable and "unknown" is a visible state.
+  usage: ContextUsageWire | null | undefined;
   isMobile?: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -34,23 +39,10 @@ export function ContextBattery({
   const btnRef = useRef<HTMLButtonElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
 
-  // The popover is actually mounted only when open AND a live snapshot AND
-  // anchor coords exist. Deriving it (rather than trusting `open` alone) keeps
-  // the outside-click listeners in lockstep with what's on screen: if `usage`
-  // clears while open, popoverOpen flips false and the effect tears the
-  // listeners down instead of leaking them behind a null render.
-  const popoverOpen = open && !!usage && coords !== null;
-
-  // Reset the toggle when the snapshot disappears (/clear, model-change
-  // invalidation, resume) so a later repopulation can't silently reopen the
-  // popover at stale coordinates. Render-phase state adjustment (React's
-  // documented "reset state when a prop changes" pattern): it re-renders in
-  // place before commit, so there's no cascading render and no setState-in-
-  // effect. The condition self-terminates (open is false after the update).
-  if (!usage && open) {
-    setOpen(false);
-    setCoords(null);
-  }
+  // The pill (and its anchor button) is always mounted now, so the popover no
+  // longer needs a usage gate: if the snapshot clears while it's open, the
+  // content live-switches to the "not measured yet" copy at the same anchor.
+  const popoverOpen = open && coords !== null;
 
   // Dismiss on outside pointer / Escape. The popover is fixed-positioned (not a
   // DOM descendant of the button), so we ignore clicks inside either the button
@@ -74,9 +66,10 @@ export function ContextBattery({
     };
   }, [popoverOpen]);
 
-  if (!usage) return null;
-
-  const pct = usage.percentage;
+  // Unknown state: no reading. Ghost color, empty shell, "?" label — see the
+  // prop comment. All the derived display values fork on this.
+  const known = !!usage;
+  const pct = usage ? usage.percentage : 0;
   // Phone-battery metaphor: the battery shows REMAINING context, so it starts
   // full (100%) on a fresh session and drains DOWN as context fills. The
   // displayed number and the fill proportion are both the remaining fraction,
@@ -86,20 +79,28 @@ export function ContextBattery({
   // Clamp to [0,100] so a malformed/out-of-range snapshot can't show a negative
   // or >100 number; keeps the label in step with the clamped fill below.
   const remaining = Math.max(0, Math.min(100, Math.round(100 - pct)));
-  const color = bandColor(pct);
-  const fillFrac = Math.max(0, Math.min(1, (100 - pct) / 100));
+  const color = known ? bandColor(pct) : "var(--text-ghost)";
+  const fillFrac = known ? Math.max(0, Math.min(1, (100 - pct) / 100)) : 0;
   // Inner fill spans x:2..19 (17px wide) inside the 0.5..20.5 shell.
   const fillW = 17 * fillFrac;
+  // "?" is plain ASCII on purpose — no iOS auto-emoji risk (unlike ？/⍰).
+  const label = known ? `${remaining}%` : "?";
 
-  const tokens = usage.totalTokens.toLocaleString("en-US");
-  const maxTokens = usage.maxTokens.toLocaleString("en-US");
   // Plain spaced hyphen (not an em dash) per Nil's prose rule.
-  const detail = `Context: ${tokens} / ${maxTokens} tokens used (${remaining}% left).`;
-  const nudge =
-    pct >= 50
-      ? " Consider asking the agent to wrap up, or /clear for a fresh session."
-      : "";
-  const full = detail + nudge;
+  let full: string;
+  if (usage) {
+    const tokens = usage.totalTokens.toLocaleString("en-US");
+    const maxTokens = usage.maxTokens.toLocaleString("en-US");
+    const detail = `Context: ${tokens} / ${maxTokens} tokens used (${remaining}% left).`;
+    const nudge =
+      pct >= 50
+        ? " Consider asking the agent to wrap up, or /clear for a fresh session."
+        : "";
+    full = detail + nudge;
+  } else {
+    full =
+      "Context usage not measured yet. It updates when the agent finishes a turn.";
+  }
 
   const toggle = () => {
     const next = !open;
@@ -126,7 +127,11 @@ export function ContextBattery({
         ref={btnRef}
         onClick={toggle}
         title={isMobile ? undefined : full}
-        aria-label={`Context battery ${remaining}% remaining. Tap for details.`}
+        aria-label={
+          known
+            ? `Context battery ${remaining}% remaining. Tap for details.`
+            : "Context usage not measured yet. Tap for details."
+        }
         style={{
           display: "inline-flex",
           flexDirection: "column",
@@ -185,7 +190,7 @@ export function ContextBattery({
             lineHeight: 1,
           }}
         >
-          {remaining}%
+          {label}
         </span>
       </button>
       {popoverOpen && (

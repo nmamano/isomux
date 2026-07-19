@@ -399,12 +399,16 @@ export interface AgentInfo {
   // idles) stays silent.
   turnHadHumanInput: boolean;
   // Live context-window fullness of the CURRENT conversation, pushed over
-  // agent_updated (internal-docs/context-fullness-visibility.md). Absent while
-  // there's no committed measurement (fresh conversation, Codex pre-first-turn,
-  // right after a server restart) — the UI hides the battery indicator.
-  // In-memory server-side and NOT part of PersistedAgent, so a restart clears
-  // it until the next completed turn repopulates it.
-  contextUsage?: ContextUsageWire;
+  // agent_updated (internal-docs/context-fullness-visibility.md). Absent or
+  // null while there's no committed measurement (fresh conversation, Codex
+  // pre-first-turn, right after a server restart) — the UI battery indicator
+  // shows its unknown state ("?", always visible; per Nil 2026-07-18).
+  // Clears go over the wire as EXPLICIT null, never undefined:
+  // JSON.stringify drops undefined-valued keys, so an undefined clear would
+  // vanish in serialization and the client's spread-merge would keep the
+  // stale reading. In-memory server-side and NOT part of PersistedAgent, so
+  // a restart clears it until the next completed turn repopulates it.
+  contextUsage?: ContextUsageWire | null;
 }
 
 // File attachment metadata

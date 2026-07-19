@@ -2118,9 +2118,13 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // to usage ACCOUNTING (accumulateSessionUsage): fullness is window occupancy
   // of the current conversation, accounting is cumulative spend. Keep separate.
 
-  // Reset the conversation's fullness state. Must be called SYNCHRONOUSLY
-  // (never after an await) at semantic conversation boundaries — see the
-  // lifecycle matrix in the design doc. `restore` serves edit-fork rollback,
+  // Reset the conversation's fullness state at semantic conversation
+  // boundaries — see the lifecycle matrix in the design doc. Must be called
+  // SYNCHRONOUSLY with the identity change (never after an await), with one
+  // audited exception: the typed /clear handler calls it right after its
+  // replaceSession await resolves — safe because the new session is already
+  // installed, so the session-identity check orphans every old in-flight
+  // sample even before the gen bump lands. `restore` serves edit-fork rollback,
   // which puts the stashed pre-fork measurement AND fired-notice set back
   // instead of clearing them (the rolled-back conversation keeps its already-
   // fired notices so they don't re-fire).
@@ -2153,11 +2157,14 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     broadcastContextUsage(managed);
   }
 
-  // Snapshot -> wire shape (drops the internal `source`).
+  // Snapshot -> wire shape (drops the internal `source`). A missing snapshot
+  // maps to null, NOT undefined: the wire clear must survive JSON.stringify
+  // (which drops undefined-valued keys), or the client's spread-merge keeps
+  // the previous conversation's stale reading after /clear.
   function contextUsageWire(
     snap: ContextUsageSnapshot | null,
-  ): ContextUsageWire | undefined {
-    if (!snap) return undefined;
+  ): ContextUsageWire | null {
+    if (!snap) return null;
     return {
       model: snap.model,
       totalTokens: snap.totalTokens,
@@ -2172,7 +2179,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // shows). Used to throttle the Codex usage_update broadcast path; the raw
   // float still drives the stored snapshot and the threshold notices.
   function displayedContextChanged(
-    prev: ContextUsageWire | undefined,
+    prev: ContextUsageWire | null | undefined,
     next: ContextUsageSnapshot,
   ): boolean {
     if (!prev) return true;
@@ -2191,7 +2198,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // don't emit dead agent_updated events.
   function broadcastContextUsage(managed: ManagedAgent): void {
     const wire = contextUsageWire(managed.contextUsage);
-    if (!wire && managed.info.contextUsage === undefined) return;
+    if (wire === null && managed.info.contextUsage == null) return;
     for (const event of officeState.updateAgent(managed.info.id, {
       contextUsage: wire,
     }))
@@ -3804,6 +3811,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       }),
     createTurnDeferred,
     enqueueMessage,
+    resetContextUsage,
   });
 
   // === Message queue ===

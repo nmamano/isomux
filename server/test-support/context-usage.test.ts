@@ -833,7 +833,7 @@ describe("context-fullness: WS broadcast of AgentInfo.contextUsage (task 2709623
     expect(mgr.getAgent(info.id)?.contextUsage?.percentage).toBe(40);
   });
 
-  it("/clear (newConversation) broadcasts contextUsage: undefined to clear the indicator", async () => {
+  it("/clear (newConversation) broadcasts an explicit contextUsage: null that survives JSON serialization", async () => {
     const captured: AgentEvent[] = [];
     const mgr = makeManagerWithSink(backendWith(usage(60)), (e) =>
       captured.push(e),
@@ -850,10 +850,48 @@ describe("context-fullness: WS broadcast of AgentInfo.contextUsage (task 2709623
     await mgr.newConversation(info.id);
 
     const cleared = ctxBroadcasts(captured).find(
-      (e) => e.changes.contextUsage === undefined,
+      (e) => e.changes.contextUsage === null,
     );
     expect(cleared).toBeTruthy();
-    expect(mgr.getAgent(info.id)?.contextUsage).toBeUndefined();
+    // The clear must be an EXPLICIT null, not undefined: the WS path runs
+    // events through JSON.stringify, which drops undefined-valued keys — an
+    // undefined clear would arrive as changes:{} and the client's spread-merge
+    // would keep the previous conversation's stale reading.
+    expect(JSON.parse(JSON.stringify(cleared!)).changes).toEqual({
+      contextUsage: null,
+    });
+    expect(mgr.getAgent(info.id)?.contextUsage).toBeNull();
+  });
+
+  it("typed /clear (slash-command handler, distinct from newConversation) also broadcasts the null clear", async () => {
+    const captured: AgentEvent[] = [];
+    const mgr = makeManagerWithSink(backendWith(usage(60)), (e) =>
+      captured.push(e),
+    );
+    const info = await diSpawn(mgr);
+    await diRunTurn(mgr, info.id, "hello");
+    await waitUntil(
+      () => mgr.getAgent(info.id)?.contextUsage != null,
+      3000,
+      "snapshot present",
+    );
+
+    // The typed /clear (also /reset, /new) routes through the command-handlers
+    // `clear` — a replaceSession-based path SEPARATE from newConversation.
+    // Missing the reset there left the pill showing the previous
+    // conversation's reading after a typed /clear (bug fixed 2026-07-18).
+    // Deliver via sendMessage, the UI's live-typing path where the slash
+    // intercept lives (enqueueMessage/flushQueue coalesces raw text straight
+    // into an LLM prompt and never dispatches commands).
+    captured.length = 0;
+    await mgr.sendMessage(info.id, "/clear", "Boss");
+    await waitUntil(
+      () =>
+        ctxBroadcasts(captured).some((e) => e.changes.contextUsage === null),
+      3000,
+      "null clear broadcast from typed /clear",
+    );
+    expect(mgr.getAgent(info.id)?.contextUsage).toBeNull();
   });
 
   it("throttles the Codex usage_update path: a second identical displayed value does not re-broadcast", async () => {

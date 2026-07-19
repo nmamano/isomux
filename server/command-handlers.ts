@@ -177,6 +177,12 @@ interface HandlerDeps {
     device?: string,
   ) => boolean;
   createTurnDeferred: (managed: ManagedAgent) => Promise<void>;
+  // Context-fullness reset (see resetContextUsage in agent-manager): the typed
+  // /clear (also /reset, /new) is a semantic conversation boundary, so it must
+  // clear the fullness snapshot + fired context-notice thresholds and
+  // broadcast the explicit-null pill clear, like every other boundary
+  // (newConversation, resume-to-different-session, edit-fork).
+  resetContextUsage: (managed: ManagedAgent) => void;
   // Defer-to-queue path for slash commands that arrive while the agent is busy.
   enqueueMessage: (
     agentId: string,
@@ -225,6 +231,15 @@ export function createCommandHandling(deps: HandlerDeps) {
         return true;
       }
       managed.sessionId = null;
+      // Conversation boundary: reset context-fullness state and broadcast the
+      // pill clear. Runs AFTER the swap resolves (unlike newConversation's
+      // pre-await reset) — safe here because replaceSession already installed
+      // the new session, so every old-session in-flight sample is orphaned by
+      // the session-identity check regardless of gen. Missing this reset left
+      // the pill showing the PREVIOUS conversation's reading after a typed
+      // /clear, and carried its fired thresholds into the fresh conversation
+      // (fixed 2026-07-18; the API /clear path resets via newConversation).
+      deps.resetContextUsage(managed);
       managed.topicGenerating = false;
       managed.topicMessageCount = 0;
       managed.topicGenToken++;

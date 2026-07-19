@@ -157,7 +157,7 @@ User message:
 
 | event | snapshot + fired thresholds |
 |---|---|
-| `/clear` / new conversation | reset |
+| `/clear` / new conversation | reset — on BOTH implementations: `newConversation` (API route / menu action / engine switch) AND the typed `/clear`//`/reset`//`/new` slash-command handler in `command-handlers.ts`, a separate replaceSession-based path that originally missed the reset (fixed 2026-07-18) |
 | engine switch | reset |
 | explicit `/resume`, same session id | preserve |
 | explicit `/resume`, different session id | reset |
@@ -181,7 +181,7 @@ User message:
 
 ¹ **Measurement invalidation, not a transcript reset:** a model change alters `maxTokens`, so a snapshot measured against the old window is not actionable for the UI or for automatic notices even with an honest `model` label. On model change: set `contextUsage = null`, null `contextSampleInFlight`, and discard any in-flight sample — but preserve `contextGen` and both fired-sets (the conversation continues; already-fired notices stay fired). The next completed turn repopulates the measurement.
 
-**Unavailable signal:** Codex before its first turn, `modelContextWindow` null, session down — pill hidden, endpoint `available: false`, notices simply don't fire. Everything degrades to today's behavior.
+**Unavailable signal:** Codex before its first turn, `modelContextWindow` null, session down — pill shows its unknown state (always-visible shell + "?" in a ghost color; changed from pill-hidden per Nil 2026-07-18), endpoint `available: false`, notices simply don't fire.
 
 ## Doc surfaces (post-go, per internal-docs/documentation.md)
 
@@ -233,8 +233,8 @@ The one genuine call left for Nil is the A-vs-C tension: **always show the `%` (
 
 The snapshot already exists server-side (task 50392514 batch). What's missing for the UI:
 
-- **`AgentInfo.contextUsage?`** (`shared/types.ts`, the `AgentInfo` interface ~L293) — optional, snapshot shape **minus `source`**: `{ model: string; totalTokens: number; maxTokens: number; percentage: number; sampledAtMs: number }`. Absent/undefined ⇒ pill hidden.
-- **Broadcast from the sample-commit path** (`commitContextSample` in `server/agent-manager.ts`): emit `agent_updated` with `changes: { contextUsage }` whenever a committed sample changes displayed values. Per §1: broadcast every committed `turn_completed` / `on_demand` sample (turn-boundary cadence is already low); throttle ONLY the Codex `usage_update` path, and on *displayed* values (integer percentage / rounded token count / model / maxTokens change). Reset paths already null the snapshot; they should broadcast `contextUsage: undefined` so the pill clears.
+- **`AgentInfo.contextUsage?`** (`shared/types.ts`, the `AgentInfo` interface ~L293) — optional, snapshot shape **minus `source`**: `{ model: string; totalTokens: number; maxTokens: number; percentage: number; sampledAtMs: number }`. Absent/null ⇒ pill shows the unknown state ("?"), not hidden (changed 2026-07-18).
+- **Broadcast from the sample-commit path** (`commitContextSample` in `server/agent-manager.ts`): emit `agent_updated` with `changes: { contextUsage }` whenever a committed sample changes displayed values. Per §1: broadcast every committed `turn_completed` / `on_demand` sample (turn-boundary cadence is already low); throttle ONLY the Codex `usage_update` path, and on *displayed* values (integer percentage / rounded token count / model / maxTokens change). Reset paths already null the snapshot; they broadcast an **explicit `contextUsage: null`** so the pill clears — never `undefined`, which `JSON.stringify` drops from the WS event, leaving the client's spread-merge holding the previous conversation's stale reading (bug fixed 2026-07-18).
 - **Store:** none. `ui/store.tsx`'s `agent_updated` reducer (~L344) already merges partial `changes` via `{ ...a, ...action.changes }`, so a new field surfaces to components automatically.
 - **Optional server-authoritative UI notice** (§3): a one-shot ephemeral chat line at first ≥75% crossing per generation, tracked by a separate `firedUiThresholds` set (deliberately NOT added in the 50392514 batch — different audience from the agent-facing set). Independent of placement; can ship with or after the pill.
 
