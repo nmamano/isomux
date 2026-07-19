@@ -57,7 +57,6 @@ export interface SdkSessionOptions {
   canUseTool?: CanUseTool;
 }
 import type { ContentBlockParam } from "@anthropic-ai/sdk/resources/messages/messages.mjs";
-import { readFileSync, statSync } from "fs";
 
 import type { Attachment } from "../../shared/types.ts";
 import { errMessage } from "../../shared/errors.ts";
@@ -68,7 +67,11 @@ import {
   effortLevelsFor,
 } from "../../shared/types.ts";
 import type { ModelFamily, EffortLevel } from "../../shared/types.ts";
-import { getFilePath, saveFile } from "../persistence.ts";
+import { saveFile } from "../persistence.ts";
+import {
+  resolveAttachmentNotices,
+  formatAttachmentLines,
+} from "../attachment-prompt.ts";
 import { createSafetyHooks } from "../safety-hooks.ts";
 import { CLAUDE_NATIVE_BIN } from "../cwd-utils.ts";
 import {
@@ -151,44 +154,6 @@ const PERMISSION_MODES: PermissionModeOption[] = [
   { value: "bypassPermissions", label: "Bypass all permissions" },
   { value: "auto", label: "Auto — Isomux decides via /resolve" },
 ];
-
-const TEXT_FILE_EXTENSIONS = new Set([
-  "txt",
-  "md",
-  "json",
-  "csv",
-  "log",
-  "xml",
-  "yaml",
-  "yml",
-  "toml",
-  "ini",
-  "cfg",
-  "sh",
-  "bash",
-  "py",
-  "js",
-  "ts",
-  "go",
-  "rs",
-  "c",
-  "h",
-  "cpp",
-  "java",
-  "rb",
-  "html",
-  "css",
-  "sql",
-  "env",
-  "conf",
-]);
-
-const IMAGE_MEDIA_TYPES = new Set([
-  "image/jpeg",
-  "image/png",
-  "image/gif",
-  "image/webp",
-]);
 
 // ---------------------------------------------------------------------------
 // SDK boundary (SdkConversation / SdkClient)
@@ -1098,10 +1063,10 @@ function trimInsertionOrdered(
 // ---------------------------------------------------------------------------
 // User-message construction (text + attachments → SDKUserMessage)
 // ---------------------------------------------------------------------------
-// Moved here from user-message.ts: the construction is fully SDK-coupled
-// (ContentBlockParam shapes, image base64 inlining, document base64 inlining
-// for PDFs). The orchestrator hands the backend plain text + AttachmentSpec[]
-// and the backend builds whatever wire shape the engine wants.
+// Attachments are NEVER inlined — each becomes one path-notice text line via
+// the shared attachment convention (server/attachment-prompt.ts); the agent
+// opens files on demand (Read renders images and PDFs). This wrapper only
+// puts the shared lines into the SDK's ContentBlockParam shape.
 
 export function buildClaudeUserMessage(
   agentId: string,
@@ -1114,61 +1079,17 @@ export function buildClaudeUserMessage(
     content.push({ type: "text", text });
   }
 
-  for (const att of attachments) {
-    const filePath = getFilePath(agentId, att.filename);
-    if (!filePath) continue;
+  const lines = formatAttachmentLines(
+    resolveAttachmentNotices(agentId, attachments),
+  );
+  if (lines.length > 0) {
+    content.push({ type: "text", text: lines.join("\n") });
+  }
 
-    if (IMAGE_MEDIA_TYPES.has(att.mediaType)) {
-      const data = readFileSync(filePath).toString("base64");
-      content.push({
-        type: "image",
-        source: {
-          type: "base64",
-          media_type: att.mediaType as
-            | "image/jpeg"
-            | "image/png"
-            | "image/gif"
-            | "image/webp",
-          data,
-        },
-      });
-    } else if (att.mediaType === "application/pdf") {
-      // Claude API limits: 100 pages, ~32MB base64. Check file size as a proxy.
-      const stats = statSync(filePath);
-      if (stats.size > 10 * 1024 * 1024) {
-        // Too large to send inline — give the agent the file path instead
-        content.push({
-          type: "text",
-          text: `Attached PDF "${att.originalName}" (${(stats.size / 1024 / 1024).toFixed(1)}MB) is too large to display inline. The file is saved at: ${filePath}`,
-        });
-      } else {
-        const data = readFileSync(filePath).toString("base64");
-        content.push({
-          type: "document",
-          source: {
-            type: "base64",
-            media_type: "application/pdf",
-            data,
-          },
-        });
-      }
-    } else {
-      const ext = att.originalName.includes(".")
-        ? att.originalName.split(".").pop()!.toLowerCase()
-        : "";
-      if (TEXT_FILE_EXTENSIONS.has(ext)) {
-        const fileContent = readFileSync(filePath, "utf-8");
-        content.push({
-          type: "text",
-          text: `--- File: ${att.originalName} ---\n${fileContent}\n---`,
-        });
-      } else {
-        content.push({
-          type: "text",
-          text: `Attached file ${att.originalName} (unable to see content) [Reminder: do not pretend that you can see it or infer its content]`,
-        });
-      }
-    }
+  // Never emit an empty content array (shared contract with the Codex
+  // backend, whose protocol rejects empty input outright).
+  if (content.length === 0) {
+    content.push({ type: "text", text: "" });
   }
 
   return {

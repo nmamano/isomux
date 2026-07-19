@@ -25,9 +25,10 @@ export type BackendCapabilities = AgentCapabilities;
 // ---------------------------------------------------------------------------
 // Attachments
 // ---------------------------------------------------------------------------
-// Backends use `filename` (relative to the agent's attachments dir, resolved
-// via persistence.getFilePath) to read the bytes and embed them in whatever
-// shape the underlying transport wants.
+// `filename` (relative to the agent's attachments dir) is resolved to an
+// on-disk path via persistence.getFilePath; the shared attachment convention
+// (server/attachment-prompt.ts) turns each spec into a path-notice prompt
+// line — bytes are never read or embedded.
 
 import type { Attachment } from "../../shared/types.ts";
 export type AttachmentSpec = Attachment;
@@ -251,8 +252,10 @@ export interface BackendSession {
   // backend doesn't support it (Codex at v1) or the session isn't ready.
   getContextUsage(): Promise<ContextUsage | null>;
 
-  // Send a user turn. Attachments are inlined per backend's preferred shape
-  // (Claude: ContentBlockParam[]; Codex: per-Item input variants).
+  // Send a user turn. Attachments are never inlined: each becomes one
+  // path-notice text line (shared convention in server/attachment-prompt.ts)
+  // and the agent opens the file on demand. Backends only differ in the wire
+  // wrapper (Claude: ContentBlockParam[]; Codex: UserInput text items).
   send(text: string, attachments?: AttachmentSpec[]): Promise<void>;
 
   // Resolve a previously-yielded approval_request. Idempotent per approvalId.

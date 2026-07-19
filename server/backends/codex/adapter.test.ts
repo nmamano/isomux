@@ -15,12 +15,14 @@
 // production uses (transport.onNotification / onServerRequest / onStderr /
 // onExit -> handle* -> enqueue -> stream).
 import { afterAll, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 
+import { STATE_ROOT } from "../../config.ts";
 import { expectRejection } from "../../test-support/expect-rejection.ts";
 import {
+  buildCodexUserInput,
   CodexSession,
   type CodexSessionInitOpts,
   type CodexTransport,
@@ -887,5 +889,97 @@ describe("CodexSession image view", () => {
     fireItem(fake, { type: "imageView", path: "/no/such/file/nope.png" });
     const ev = expectKind(await nextEvent(it, "system_text"), "system_text");
     expect(ev.text).toContain("could not display");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildCodexUserInput — inbound attachments follow the shared path-notice
+// convention (server/attachment-prompt.ts): no localImage, no inlined
+// contents, one text item joining one line per resolved attachment. Fixture
+// files live under the preload-managed temp STATE_ROOT.
+// ---------------------------------------------------------------------------
+describe("buildCodexUserInput", () => {
+  const AGENT_ID = `test-codex-input-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2, 8)}`;
+  const FILES_DIR = join(STATE_ROOT, "logs", AGENT_ID, "files");
+
+  function fixture(filename: string, contents: Buffer | string) {
+    mkdirSync(FILES_DIR, { recursive: true });
+    writeFileSync(join(FILES_DIR, filename), contents);
+  }
+
+  function att(filename: string, mediaType: string, size = 1) {
+    return { filename, originalName: filename, mediaType, size };
+  }
+
+  afterAll(() => {
+    try {
+      rmSync(join(STATE_ROOT, "logs", AGENT_ID), {
+        recursive: true,
+        force: true,
+      });
+    } catch {}
+  });
+
+  it("text only -> single text input", () => {
+    expect(buildCodexUserInput("hi", undefined, AGENT_ID)).toEqual([
+      { type: "text", text: "hi", text_elements: [] },
+    ]);
+  });
+
+  it("image attachment -> path-notice text item, NOT localImage", () => {
+    fixture("shot.png", Buffer.from([0x89, 0x50]));
+    const inputs = buildCodexUserInput(
+      "look",
+      [att("shot.png", "image/png", 2)],
+      AGENT_ID,
+    );
+    expect(inputs).toHaveLength(2);
+    expect(inputs.every((i) => i.type === "text")).toBe(true);
+    const notice = inputs[1] as { type: "text"; text: string };
+    expect(notice.text).toContain('[Attachment: "shot.png" (image/png,');
+    expect(notice.text).toContain(join(FILES_DIR, "shot.png"));
+  });
+
+  it("text-file attachment is not inlined; contents stay out", () => {
+    fixture("notes.md", "SECRET CONTENTS\n");
+    const inputs = buildCodexUserInput(
+      "",
+      [att("notes.md", "text/markdown", 16)],
+      AGENT_ID,
+    );
+    expect(inputs).toHaveLength(1);
+    const notice = inputs[0] as { type: "text"; text: string };
+    expect(notice.text).toContain('"notes.md"');
+    expect(notice.text).not.toContain("SECRET CONTENTS");
+  });
+
+  it("mixed present/missing attachments -> one line each in order, no placeholders", () => {
+    fixture("a.pdf", Buffer.from("%PDF"));
+    fixture("b.bin", Buffer.from([0]));
+    const inputs = buildCodexUserInput(
+      "",
+      [
+        att("a.pdf", "application/pdf"),
+        att("missing.txt", "text/plain"),
+        att("b.bin", "application/octet-stream"),
+      ],
+      AGENT_ID,
+    );
+    expect(inputs).toHaveLength(1);
+    const lines = (inputs[0] as { text: string }).text.split("\n");
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain('"a.pdf"');
+    expect(lines[1]).toContain('"b.bin"');
+  });
+
+  it("empty text and no resolvable attachments -> single empty text input", () => {
+    const inputs = buildCodexUserInput(
+      "",
+      [att("gone.png", "image/png")],
+      AGENT_ID,
+    );
+    expect(inputs).toEqual([{ type: "text", text: "", text_elements: [] }]);
   });
 });

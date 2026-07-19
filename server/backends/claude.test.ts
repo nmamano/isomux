@@ -684,9 +684,9 @@ describe("buildClaudeUserMessage", () => {
     ]);
   });
 
-  it("empty text with no attachments yields no content blocks", () => {
+  it("empty text with no attachments yields a single empty text block", () => {
     const msg = buildClaudeUserMessage(TEST_AGENT_ID, "", []);
-    expect(msg.message.content).toEqual([]);
+    expect(msg.message.content).toEqual([{ type: "text", text: "" }]);
   });
 
   it("missing attachment file is silently skipped", () => {
@@ -701,7 +701,7 @@ describe("buildClaudeUserMessage", () => {
     expect(msg.message.content).toEqual([{ type: "text", text: "hi" }]);
   });
 
-  it("image attachment is inlined as base64 image block", () => {
+  it("image attachment becomes a path-notice text block, not an inline image", () => {
     const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
     fixtureFile("pic.png", bytes);
     const msg = buildClaudeUserMessage(TEST_AGENT_ID, "see:", [
@@ -712,20 +712,16 @@ describe("buildClaudeUserMessage", () => {
         size: bytes.length,
       },
     ]);
-    expect(msg.message.content).toEqual([
-      { type: "text", text: "see:" },
-      {
-        type: "image",
-        source: {
-          type: "base64",
-          media_type: "image/png",
-          data: bytes.toString("base64"),
-        },
-      },
-    ]);
+    const content = msg.message.content as { type?: string; text?: string }[];
+    expect(content).toHaveLength(2);
+    expect(content[0]).toEqual({ type: "text", text: "see:" });
+    expect(content[1].type).toBe("text");
+    expect(content[1].text).toContain('[Attachment: "pic.png" (image/png,');
+    expect(content[1].text).toContain(join(AGENT_FILES_DIR, "pic.png"));
+    expect(content.some((b) => b.type === "image")).toBe(false);
   });
 
-  it("small PDF attachment is inlined as base64 document block", () => {
+  it("PDF attachment becomes a path-notice text block, not a document block", () => {
     const bytes = Buffer.from("%PDF-1.4\nfake-pdf");
     fixtureFile("doc.pdf", bytes);
     const msg = buildClaudeUserMessage(TEST_AGENT_ID, "", [
@@ -736,53 +732,70 @@ describe("buildClaudeUserMessage", () => {
         size: bytes.length,
       },
     ]);
-    const content = msg.message.content as { type?: string }[];
-    const docBlock = content.find((b) => b.type === "document");
-    expect(docBlock).toBeDefined();
-    expect(docBlock).toMatchObject({
-      type: "document",
-      source: {
-        type: "base64",
-        media_type: "application/pdf",
-        data: bytes.toString("base64"),
-      },
-    });
+    const content = msg.message.content as { type?: string; text?: string }[];
+    expect(content).toHaveLength(1);
+    expect(content[0].type).toBe("text");
+    expect(content[0].text).toContain(
+      '[Attachment: "doc.pdf" (application/pdf,',
+    );
+    expect(content[0].text).toContain(join(AGENT_FILES_DIR, "doc.pdf"));
+    expect(content.some((b) => b.type === "document")).toBe(false);
   });
 
-  it("text-file attachment is inlined as a fenced text block", () => {
+  it("text-file attachment is not inlined; contents stay out of the prompt", () => {
     fixtureFile("hello.ts", "export const x = 1;\n");
     const msg = buildClaudeUserMessage(TEST_AGENT_ID, "look:", [
       {
         filename: "hello.ts",
         originalName: "hello.ts",
         mediaType: "text/plain",
-        size: 10,
+        size: 20,
       },
     ]);
-    const content = msg.message.content as { type?: string; text?: string }[];
-    const textBlocks = content.filter((b) => b.type === "text") as {
-      type: "text";
-      text: string;
-    }[];
-    expect(textBlocks).toHaveLength(2);
-    expect(textBlocks[1].text).toContain("--- File: hello.ts ---");
-    expect(textBlocks[1].text).toContain("export const x = 1;");
+    const content = msg.message.content as { type: "text"; text: string }[];
+    expect(content).toHaveLength(2);
+    expect(content[1].text).toContain('[Attachment: "hello.ts" (text/plain,');
+    expect(content[1].text).not.toContain("export const x = 1;");
   });
 
-  it("unknown-extension attachment emits placeholder text", () => {
-    fixtureFile("blob.xyz", Buffer.from([0, 1, 2]));
+  it("multiple attachments join as one text block, one line each, in order", () => {
+    fixtureFile("a.png", Buffer.from([1]));
+    fixtureFile("b.bin", Buffer.from([2]));
+    const spec = (name: string, mediaType: string) => ({
+      filename: name,
+      originalName: name,
+      mediaType,
+      size: 1,
+    });
+    const msg = buildClaudeUserMessage(TEST_AGENT_ID, "", [
+      spec("a.png", "image/png"),
+      spec("missing.txt", "text/plain"),
+      spec("b.bin", "application/octet-stream"),
+    ]);
+    const content = msg.message.content as { type: "text"; text: string }[];
+    expect(content).toHaveLength(1);
+    const lines = content[0].text.split("\n");
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toContain('"a.png"');
+    expect(lines[1]).toContain('"b.bin"');
+    expect(content[0].text).not.toContain("missing.txt");
+  });
+
+  it("empty text with all attachments missing yields a single empty text block", () => {
     const msg = buildClaudeUserMessage(TEST_AGENT_ID, "", [
       {
-        filename: "blob.xyz",
-        originalName: "blob.xyz",
-        mediaType: "application/octet-stream",
-        size: 3,
+        filename: "gone1.png",
+        originalName: "gone1.png",
+        mediaType: "image/png",
+        size: 1,
+      },
+      {
+        filename: "gone2.pdf",
+        originalName: "gone2.pdf",
+        mediaType: "application/pdf",
+        size: 1,
       },
     ]);
-    const content = msg.message.content as { type?: string; text?: string }[];
-    expect(content).toHaveLength(1);
-    const block = content[0] as { type: "text"; text: string };
-    expect(block.text).toContain("Attached file blob.xyz");
-    expect(block.text).toContain("unable to see content");
+    expect(msg.message.content).toEqual([{ type: "text", text: "" }]);
   });
 });

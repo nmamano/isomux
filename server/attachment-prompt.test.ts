@@ -1,0 +1,185 @@
+// Shared attachment convention (attachment-prompt.ts) — unit tier.
+//
+// Covers the resolver (missing-file skipping, order preservation, duplicates)
+// and the formatter (one-line invariant under hostile originalName input,
+// escaping, deterministic size formatting). Backend wrapper behavior is
+// frozen separately in claude.test.ts (buildClaudeUserMessage) and
+// codex/adapter.test.ts (buildCodexUserInput).
+import { describe, expect, it, afterAll } from "bun:test";
+import { join } from "path";
+import { mkdirSync, writeFileSync, rmSync } from "fs";
+import { STATE_ROOT } from "./config.ts";
+import {
+  resolveAttachmentNotices,
+  formatAttachmentLines,
+  formatSize,
+  quoteOneLine,
+} from "./attachment-prompt.ts";
+
+const TEST_AGENT_ID = `test-att-prompt-${Date.now()}-${Math.random()
+  .toString(36)
+  .slice(2, 8)}`;
+const AGENT_FILES_DIR = join(STATE_ROOT, "logs", TEST_AGENT_ID, "files");
+
+function fixtureFile(filename: string, contents: Buffer | string) {
+  mkdirSync(AGENT_FILES_DIR, { recursive: true });
+  writeFileSync(join(AGENT_FILES_DIR, filename), contents);
+}
+
+function spec(filename: string, mediaType = "text/plain", size = 1) {
+  return { filename, originalName: filename, mediaType, size };
+}
+
+afterAll(() => {
+  try {
+    rmSync(join(STATE_ROOT, "logs", TEST_AGENT_ID), {
+      recursive: true,
+      force: true,
+    });
+  } catch {}
+});
+
+describe("resolveAttachmentNotices", () => {
+  it("resolves specs to notices with the on-disk path", () => {
+    fixtureFile("a.txt", "hello");
+    const notices = resolveAttachmentNotices(TEST_AGENT_ID, [
+      {
+        filename: "a.txt",
+        originalName: "orig a.txt",
+        mediaType: "text/plain",
+        size: 5,
+      },
+    ]);
+    expect(notices).toEqual([
+      {
+        originalName: "orig a.txt",
+        mediaType: "text/plain",
+        size: 5,
+        path: join(AGENT_FILES_DIR, "a.txt"),
+      },
+    ]);
+  });
+
+  it("skips missing files without placeholders and preserves order", () => {
+    fixtureFile("one.png", Buffer.from([1]));
+    fixtureFile("three.pdf", Buffer.from([3]));
+    const notices = resolveAttachmentNotices(TEST_AGENT_ID, [
+      spec("one.png", "image/png"),
+      spec("two-missing.txt"),
+      spec("three.pdf", "application/pdf"),
+    ]);
+    expect(notices.map((n) => n.originalName)).toEqual([
+      "one.png",
+      "three.pdf",
+    ]);
+  });
+
+  it("duplicate specs yield duplicate notices (no dedup)", () => {
+    fixtureFile("dup.txt", "x");
+    const notices = resolveAttachmentNotices(TEST_AGENT_ID, [
+      spec("dup.txt"),
+      spec("dup.txt"),
+    ]);
+    expect(notices).toHaveLength(2);
+    expect(notices[0]).toEqual(notices[1]);
+  });
+
+  it("returns [] when nothing resolves", () => {
+    expect(resolveAttachmentNotices(TEST_AGENT_ID, [spec("nope.txt")])).toEqual(
+      [],
+    );
+  });
+});
+
+describe("formatAttachmentLines", () => {
+  const notice = (
+    over: Partial<Parameters<typeof formatAttachmentLines>[0][0]> = {},
+  ) => ({
+    originalName: "photo.png",
+    mediaType: "image/png",
+    size: 2048,
+    path: "/state/logs/agent-1/files/photo.png",
+    ...over,
+  });
+
+  it("formats one line per notice with quoted name and path", () => {
+    const lines = formatAttachmentLines([notice()]);
+    expect(lines).toEqual([
+      '[Attachment: "photo.png" (image/png, 2.0 KB) saved at "/state/logs/agent-1/files/photo.png". If your reply depends on it, open it before answering about its contents.]',
+    ]);
+  });
+
+  it("hostile originalName cannot break the one-line invariant", () => {
+    const hostile = 'evil"name\nwith \\ tricks\tand \u0007bell';
+    const [line] = formatAttachmentLines([notice({ originalName: hostile })]);
+    expect(line).not.toContain("\n");
+    expect(line).not.toContain("\t");
+    expect(line).not.toContain("\u0007");
+    // JSON-escaped forms present instead
+    expect(line).toContain('\\"name');
+    expect(line).toContain("\\n");
+    expect(line).toContain("\\\\");
+  });
+
+  it("unicode line separators in originalName are escaped", () => {
+    const [line] = formatAttachmentLines([
+      notice({ originalName: "a\u2028b\u2029c" }),
+    ]);
+    expect(line).not.toContain("\u2028");
+    expect(line).not.toContain("\u2029");
+    expect(line).toContain("\\u2028");
+    expect(line).toContain("\\u2029");
+  });
+
+  it("plain unicode in originalName passes through", () => {
+    const [line] = formatAttachmentLines([
+      notice({ originalName: "città 写真.png" }),
+    ]);
+    expect(line).toContain('"città 写真.png"');
+  });
+
+  it("malformed mediaType cannot inject newlines or fake delimiters", () => {
+    const [line] = formatAttachmentLines([
+      notice({ mediaType: 'image/png\n(fake) "quote"' }),
+    ]);
+    expect(line).not.toContain("\n");
+    expect(line).toContain("image/png__fake_ _quote_");
+  });
+
+  it("paths with spaces are unambiguous via JSON quoting", () => {
+    const [line] = formatAttachmentLines([
+      notice({ path: "/state/logs/a 1/files/my file.png" }),
+    ]);
+    expect(line).toContain('saved at "/state/logs/a 1/files/my file.png"');
+  });
+
+  it("empty input yields no lines", () => {
+    expect(formatAttachmentLines([])).toEqual([]);
+  });
+});
+
+describe("formatSize", () => {
+  it("is deterministic at unit boundaries", () => {
+    expect(formatSize(0)).toBe("0 B");
+    expect(formatSize(1)).toBe("1 B");
+    expect(formatSize(1023)).toBe("1023 B");
+    expect(formatSize(1024)).toBe("1.0 KB");
+    expect(formatSize(1536)).toBe("1.5 KB");
+    expect(formatSize(1024 * 1024 - 1)).toBe("1024.0 KB");
+    expect(formatSize(1024 * 1024)).toBe("1.0 MB");
+    expect(formatSize(10.4 * 1024 * 1024)).toBe("10.4 MB");
+    expect(formatSize(1024 * 1024 * 1024)).toBe("1.0 GB");
+  });
+
+  it("rejects garbage without breaking the line", () => {
+    expect(formatSize(-5)).toBe("unknown size");
+    expect(formatSize(Number.NaN)).toBe("unknown size");
+    expect(formatSize(Number.POSITIVE_INFINITY)).toBe("unknown size");
+  });
+});
+
+describe("quoteOneLine", () => {
+  it("round-trips as JSON for normal strings", () => {
+    expect(JSON.parse(quoteOneLine("hello world"))).toBe("hello world");
+  });
+});

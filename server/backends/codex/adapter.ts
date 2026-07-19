@@ -25,7 +25,11 @@
 import { readFileSync, statSync } from "fs";
 import { basename } from "path";
 
-import { getFilePath, saveFile } from "../../persistence.ts";
+import { saveFile } from "../../persistence.ts";
+import {
+  resolveAttachmentNotices,
+  formatAttachmentLines,
+} from "../../attachment-prompt.ts";
 import { mimeTypeForFilename } from "../../mime-types.ts";
 import { errMessage } from "../../../shared/errors.ts";
 import { BackendNotConfiguredError } from "../../internal-types.ts";
@@ -167,29 +171,6 @@ const DEFAULT_SANDBOX_MODE = "workspace-write";
 
 const CLIENT_INFO_NAME = "isomux";
 const CLIENT_INFO_VERSION = "1.0.0";
-
-// Cap for inlined text-ish attachments. Larger files get a stub pointer so the
-// model still knows the file is there without us blasting megabytes of stray
-// logs / build output into context.
-const MAX_INLINE_ATTACHMENT_BYTES = 64 * 1024;
-
-// Media-type allowlist for inlining attachment contents into the prompt.
-// Anything outside this list (binary blobs, unknown formats) gets a stub.
-const INLINE_TEXT_MEDIA_PREFIXES = [
-  "text/",
-  "application/json",
-  "application/xml",
-  "application/yaml",
-  "application/x-yaml",
-  "application/javascript",
-  "application/typescript",
-];
-
-function isInlinableTextMedia(mediaType: string): boolean {
-  return INLINE_TEXT_MEDIA_PREFIXES.some((prefix) =>
-    mediaType.startsWith(prefix),
-  );
-}
 
 function formatWebSearchAction(action: unknown): string {
   if (!action || typeof action !== "object") return "";
@@ -1608,11 +1589,13 @@ function extractApprovalInput(
 }
 
 // Build the UserInput[] for turn/start from plain text + Isomux attachments.
-// Codex's UserInput variants are: text, image, localImage, skill, mention. For
-// v1 we pass text + localImage paths for image attachments; non-image
-// attachments (PDFs, text files) get inlined as a text description. This is
-// a UX simplification — richer attachment support is a follow-up.
-function buildCodexUserInput(
+// Attachments are NEVER inlined (no localImage, no text-file contents) — each
+// becomes one path-notice line from the shared attachment convention
+// (server/attachment-prompt.ts), identical across backends; the agent opens
+// files on demand (view_image for images, shell tools otherwise). This
+// wrapper only puts the shared lines into Codex UserInput text items.
+// Exported for tests.
+export function buildCodexUserInput(
   text: string,
   attachments: AttachmentSpec[] | undefined,
   agentId: string,
@@ -1621,50 +1604,11 @@ function buildCodexUserInput(
   if (text) {
     inputs.push({ type: "text", text, text_elements: [] });
   }
-  if (attachments && attachments.length > 0) {
-    const textChunks: string[] = [];
-    for (const att of attachments) {
-      const filePath = getFilePath(agentId, att.filename);
-      if (!filePath) continue;
-      if (att.mediaType.startsWith("image/")) {
-        inputs.push({ type: "localImage", path: filePath });
-      } else if (att.mediaType === "application/pdf") {
-        textChunks.push(`Attached PDF "${att.originalName}" at ${filePath}`);
-      } else if (isInlinableTextMedia(att.mediaType)) {
-        // Text-ish file: inline up to MAX_INLINE_ATTACHMENT_BYTES. Stat first
-        // so we don't read the whole file when it would just get dropped.
-        try {
-          const size = statSync(filePath).size;
-          if (size > MAX_INLINE_ATTACHMENT_BYTES) {
-            textChunks.push(
-              `Attached file "${att.originalName}" (${size} bytes; exceeds ${MAX_INLINE_ATTACHMENT_BYTES}-byte inline cap). Path: ${filePath}`,
-            );
-          } else {
-            const content = readFileSync(filePath, "utf-8");
-            textChunks.push(
-              `--- File: ${att.originalName} ---\n${content}\n---`,
-            );
-          }
-        } catch {
-          textChunks.push(
-            `Attached file ${att.originalName} (could not read content) at ${filePath}`,
-          );
-        }
-      } else {
-        // Unknown / binary media: don't inline. Hand codex the path so it can
-        // open the file with a tool if it needs to.
-        textChunks.push(
-          `Attached file "${att.originalName}" (${att.mediaType}) at ${filePath}`,
-        );
-      }
-    }
-    if (textChunks.length > 0) {
-      inputs.push({
-        type: "text",
-        text: textChunks.join("\n\n"),
-        text_elements: [],
-      });
-    }
+  const lines = formatAttachmentLines(
+    resolveAttachmentNotices(agentId, attachments ?? []),
+  );
+  if (lines.length > 0) {
+    inputs.push({ type: "text", text: lines.join("\n"), text_elements: [] });
   }
   // turn/start with empty input is invalid; ensure at least an empty text.
   if (inputs.length === 0) {
