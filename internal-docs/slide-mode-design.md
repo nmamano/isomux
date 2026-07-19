@@ -64,6 +64,7 @@ Consequences, all deliberate:
 | 9 | Past conversations | Work via `/resume` in v0; data model supports future read-only browsing. |
 | 10 | Style continuity | The formatter receives the **previous turn's cached slide HTML** (when available) + the current turn's content, so it can match the established slide style. If the previous slide isn't cached (user jumped mid-deck), no style reference is passed — we do not force-generate a chain. **Known accepted quirk (Nil, 2026-07-19):** viewing a deck back-to-front (start at the end, scroll backward) yields no coherent style across the deck, since each slide generates without its predecessor. Noted, not acted on unless it becomes an issue in practice. |
 | 11 | Bad slides | Per-slide ↻ regenerate button in deck view, with an **optional feedback text field** ("what to change") passed to the formatter as an extra instruction. Overwrites the cached slide. Feedback is one-shot, not persisted. |
+| 12 | Mobile | Should ideally work on phone, but **not top priority** (Nil, 2026-07-19). Plugin experience: a fixed 1280×720 slide scaled to fit reads fine in phone landscape (~0.65×) but poorly in portrait (~0.3×, body text ≈6px physical). v0 ships the scaled approach; cheap lever now = formatter prompt enforcing larger minimum text; real fix later = portrait-variant slides and swipe navigation. |
 
 ## Data model
 
