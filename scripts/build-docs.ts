@@ -45,6 +45,7 @@ type DocPage = {
 const NAV_ORDER = [
   "features",
   "self-hosted",
+  "vps-install",
   "how-it-works",
   "access-and-invites",
   "security-audit",

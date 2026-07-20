@@ -37,6 +37,7 @@ Run ESLint during development. A good time to do it is right before human review
 
 - `site/` — Landing page and demo, deployed to isomux.com via Vercel. Demo is built from `ui/demo-entry.tsx` + `ui/demo.html` into `site/demo/` (see `vercel.json`).
 - `internal-docs/` — Design documents, plans, and reference material. `documentation.md` is the index of every user-facing copy surface to update when features change.
+- `deploy/` — Unattended VPS installer (`install.sh`), documented in `docs/vps-install.md`.
 - `skills/` — Skills bundled with the project, available to every isomux agent.
 - `shared/` — TypeScript types shared between server and UI.
 - `server/` — Bun HTTP + WebSocket server, agent lifecycle, provider backends.
