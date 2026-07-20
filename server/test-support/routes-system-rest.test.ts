@@ -114,7 +114,7 @@ describe("routes/system.backupStatus REST", () => {
 });
 
 describe("routes/system.version REST", () => {
-  it("user -> 200 {version, commit, release}; agent -> 403; no id -> 401", async () => {
+  it("user -> 200 {version, commit, release}; agent -> 200; no id -> 401", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
@@ -136,7 +136,7 @@ describe("routes/system.version REST", () => {
     if (b.release !== null) expect(b.release).toBe(b.version as string);
 
     expect((await api(srv, "/api/version", { bearer: token })).status).toBe(
-      403,
+      200,
     );
     expect((await api(srv, "/api/version")).status).toBe(401);
   });

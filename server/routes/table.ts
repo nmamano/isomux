@@ -1000,8 +1000,9 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("office:read", authenticated),
     emits: [],
   }),
-  // Deployment version identity (release-channel slice C1). Same auth posture
-  // as backupStatus: any human, plus privileged agents.
+  // Deployment version identity (release-channel slice C1). Any authenticated
+  // caller, agents included (Nil 2026-07-19): version identity is harmless
+  // metadata and agents legitimately reason about what's deployed.
   defineRoute<
     void,
     { version: string | null; commit: string | null; release: string | null }
@@ -1009,7 +1010,7 @@ export const API_ROUTES: readonly RouteDef[] = [
     opId: "system.version",
     method: "GET",
     path: "/api/version",
-    auth: cap("office:read", authenticated),
+    auth: authn(authenticated),
     emits: [],
   }),
 ];

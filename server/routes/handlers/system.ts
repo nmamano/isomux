@@ -1,8 +1,8 @@
 // System resource handlers — Phase 3a slice 3a.6 (backup health probe) plus
-// the deployment version identity (release-channel slice C1). Both
-// office:read + authenticated: any signed-in human may read them; a plain
-// AGENT scope lacks office:read and is rejected at stage 1 (a PRIVILEGED
-// agent holds it and passes).
+// the deployment version identity (release-channel slice C1). backupStatus is
+// office:read + authenticated (any human, plus privileged agents); version is
+// authenticated-only — every signed-in caller, agents included (Nil
+// 2026-07-19): version identity is harmless metadata.
 //
 // GET /api/backup/status returns the NORMALIZED wire shape
 // { lastRunAt, ok, error, retention, destDir } — a rename/projection of the
