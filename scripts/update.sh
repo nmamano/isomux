@@ -1,0 +1,422 @@
+#!/usr/bin/env bash
+# Update an installed isomux to a pinned release tag, rolling back on failure.
+# (Release-channel slice C1, internal-docs/release-design.md.)
+#
+# Usage:  isomux-update vYYYY.M.D[.N] [--allow-downgrade]
+#
+# CONTRACT
+# - Run the INSTALLED copy (deploy/install.sh puts one at
+#   /usr/local/sbin/isomux-update), not scripts/update.sh inside the repo:
+#   the checkout step replaces the script under a running in-repo shell,
+#   which reads it incrementally and can splice old and new updater logic.
+#   Defense-in-depth: an in-repo invocation re-execs a temp copy of itself.
+#   On success the installed copy is refreshed from the new checkout, so
+#   each release ships updater fixes that take effect on the NEXT update.
+# - Configuration comes only from the root-of-trust config file the
+#   installer wrote (default /etc/isomux/update.conf; ISOMUX_UPDATE_CONF
+#   overrides it for sandbox testing) — never from the caller beyond the
+#   target tag and flags. The file is parsed as literal key=value lines,
+#   never sourced: a hostile value is data, not code.
+# - TRUST BOUNDARY (system deployments): the service checkout ($REPO_DIR)
+#   and everything in it are writable by the unprivileged service user, and
+#   isomux agents intentionally run shell as that user. Nothing root
+#   executes or installs may come from there. Tag resolution and the
+#   installed-updater refresh therefore go through $STATUS_DIR/trust.git, a
+#   root-owned bare repo that fetches refs/tags/<target> straight from the
+#   configured REPO_URL: the remote is the only tag authority (a local tag
+#   in the service checkout is never consulted), the non-forced tag fetch
+#   refuses a moved tag (release tags are immutable), and the service
+#   checkout is then pinned to the trust-resolved commit hash.
+# - The target must be an exact CalVer tag. A downgrade (target is an
+#   ancestor of the current checkout) needs --allow-downgrade.
+# - A flock on $STATUS_DIR/lock makes concurrent invocations fail fast.
+#
+# SEQUENCE and per-phase recovery (the design doc has the rationale):
+#   fetch/validate     -> nothing to undo
+#   checkout+install+build     [fail: check out the old commit, reinstall its
+#                               deps, rebuild its UI — node_modules and the
+#                               live-served ui/dist are already dirty]
+#   stop service, wait inactive
+#   snapshot state root, verify tarball
+#                              [fail: old code (reinstall+rebuild) + start]
+#   start, poll /readyz        [fail: stop; move the broken state root
+#                               aside; restore the snapshot; old code
+#                               (reinstall+rebuild); start]
+#
+# Progress and the final result are written to $STATUS_DIR/status.json,
+# which lives OUTSIDE the state root because rollback replaces the state
+# root wholesale.
+#
+# update.conf keys (all required unless noted):
+#   REPO_DIR       the isomux git checkout the service runs from
+#   REPO_URL       upstream repo the trust fetches pull from (the tag
+#                  authority; never the service checkout's own remote config)
+#   SERVICE_NAME   systemd unit name (isomux)
+#   SERVICE_KIND   system | user — which systemctl manages the unit
+#   SERVICE_USER   system kind only: run git/bun as this user
+#   STATE_ROOT     the office state dir the service reads (~/.isomux shape)
+#   SNAPSHOT_DIR   where pre-update state tarballs go (outside STATE_ROOT)
+#   STATUS_DIR     lock + status.json (outside STATE_ROOT)
+#   BUN            bun binary the service uses
+#   BASE_URL       loopback base for the readiness poll
+#   UPDATER_PATH   (optional) installed copy to refresh on success
+#   READY_TIMEOUT_S (optional, default 90)
+
+set -Eeuo pipefail
+
+log() { printf '[isomux-update] %s\n' "$*"; }
+
+CONF="${ISOMUX_UPDATE_CONF:-/etc/isomux/update.conf}"
+PHASE=init
+TARGET_TAG=""
+ALLOW_DOWNGRADE=""
+OLD_COMMIT=""
+OLD_DESC=""
+SNAPSHOT=""
+CALVER_RE='^v[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}(\.[0-9]+)?$'
+SNAPSHOT_KEEP=3
+BROKEN_KEEP=1
+
+# --- Status file ------------------------------------------------------------
+
+# JSON without jq: every value is either a fixed identifier or sanitized to a
+# quote/backslash/control-free string, so plain printf cannot produce broken
+# JSON.
+json_sanitize() { printf '%s' "$1" | tr -d '"\\' | tr '\n\t' '  '; }
+
+write_status() {
+  local result=$1 message=$2
+  [[ -d ${STATUS_DIR:-} ]] || return 0
+  printf '{"phase":"%s","result":"%s","target":"%s","from":"%s","message":"%s","at":"%s"}\n' \
+    "$PHASE" "$result" "$(json_sanitize "$TARGET_TAG")" \
+    "$(json_sanitize "$OLD_DESC")" "$(json_sanitize "$message")" \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$STATUS_DIR/status.json.tmp" &&
+    mv -f "$STATUS_DIR/status.json.tmp" "$STATUS_DIR/status.json"
+}
+
+phase() {
+  PHASE=$1
+  log "--- $1"
+  write_status running ""
+}
+
+die() {
+  trap - ERR
+  log "ERROR: $*"
+  write_status failed "$*"
+  exit 1
+}
+
+# --- Config -----------------------------------------------------------------
+
+load_config() {
+  [[ -r $CONF ]] || die "config not readable: $CONF (is isomux installed with the updater?)"
+  # Literal key=value parser — the file is NEVER sourced. In system mode this
+  # runs as root and the config carries installer-parameter-derived values
+  # (REPO_URL), so a value must stay data under all circumstances: shell
+  # metacharacters are inert here, an embedded newline turns into an
+  # unknown-key refusal, and unknown keys fail closed.
+  local line key value
+  while IFS= read -r line || [[ -n $line ]]; do
+    [[ -z $line || $line == \#* ]] && continue
+    [[ $line == *=* ]] || die "malformed line in $CONF: $line"
+    key=${line%%=*}
+    value=${line#*=}
+    case $key in
+      REPO_DIR | REPO_URL | SERVICE_NAME | SERVICE_KIND | SERVICE_USER | STATE_ROOT | SNAPSHOT_DIR | STATUS_DIR | BUN | BASE_URL | UPDATER_PATH | READY_TIMEOUT_S)
+        printf -v "$key" '%s' "$value"
+        ;;
+      *) die "unknown key in $CONF: $key" ;;
+    esac
+  done <"$CONF"
+  local k
+  for k in REPO_DIR REPO_URL SERVICE_NAME SERVICE_KIND STATE_ROOT SNAPSHOT_DIR STATUS_DIR BUN BASE_URL; do
+    [[ -n ${!k:-} ]] || die "config is missing $k: $CONF"
+  done
+  # Defense in depth on the one externally-influenced value: a git URL or
+  # path from this conservative charset can be passed to git safely and
+  # cannot smuggle options (no leading dash) or shell syntax.
+  [[ $REPO_URL =~ ^[A-Za-z0-9@:/._+~][A-Za-z0-9@:/._+~-]*$ ]] ||
+    die "REPO_URL is not a plain git URL/path: $REPO_URL"
+  case $SERVICE_KIND in
+    system)
+      [[ $EUID -eq 0 ]] || die "SERVICE_KIND=system needs root (systemctl + runuser)"
+      [[ -n ${SERVICE_USER:-} ]] || die "config is missing SERVICE_USER"
+      SERVICE_USER_HOME=$(getent passwd "$SERVICE_USER" | cut -d: -f6)
+      [[ -n $SERVICE_USER_HOME ]] || die "no such user: $SERVICE_USER"
+      ;;
+    user) ;;
+    *) die "SERVICE_KIND must be system or user: $SERVICE_KIND" ;;
+  esac
+  READY_TIMEOUT_S=${READY_TIMEOUT_S:-90}
+  UPDATER_PATH=${UPDATER_PATH:-}
+  TRUST_REPO=$STATUS_DIR/trust.git
+}
+
+# git/bun act on the checkout as the service user in system mode (the repo is
+# owned by it), directly otherwise. Same HOME pinning as the installer.
+as_repo_user() {
+  if [[ $SERVICE_KIND == system ]]; then
+    runuser -u "$SERVICE_USER" -- env "HOME=$SERVICE_USER_HOME" "$@"
+  else
+    "$@"
+  fi
+}
+
+svc() {
+  if [[ $SERVICE_KIND == system ]]; then
+    systemctl "$@"
+  else
+    systemctl --user "$@"
+  fi
+}
+
+# systemctl stop already blocks, but "inactive before touching state" is the
+# safety property rollback rests on, so verify it rather than trust it.
+wait_inactive() {
+  local deadline=$((SECONDS + 60)) state
+  while :; do
+    state=$(svc is-active "$SERVICE_NAME" 2>/dev/null) || true
+    [[ $state != active && $state != deactivating ]] && return 0
+    ((SECONDS < deadline)) || die "service did not stop within 60s (state: $state)"
+    sleep 1
+  done
+}
+
+ready_poll() {
+  local timeout=$1 deadline=$((SECONDS + $1))
+  until curl -fsS -o /dev/null --max-time 5 "$BASE_URL/readyz" 2>/dev/null; do
+    ((SECONDS < deadline)) || return 1
+    sleep 2
+  done
+}
+
+# --- Recovery ladders -------------------------------------------------------
+
+# Re-point the checkout at the old commit and rebuild its world. Used by every
+# recovery path; node_modules and ui/dist are dirty from the moment the target
+# install/build started, so recovery must redo both for the OLD commit.
+restore_old_code() {
+  as_repo_user git -C "$REPO_DIR" checkout --detach "$OLD_COMMIT" &&
+    as_repo_user bash -c "cd '$REPO_DIR' && '$BUN' install --frozen-lockfile" &&
+    as_repo_user bash -c "cd '$REPO_DIR' && '$BUN' run build:ui"
+}
+
+fail_build() {
+  trap - ERR
+  log "install/build of $TARGET_TAG failed; restoring $OLD_DESC (service was never touched)"
+  if restore_old_code; then
+    die "update to $TARGET_TAG failed during install/build; old version restored, service untouched"
+  else
+    PHASE=recovery-failed
+    die "update to $TARGET_TAG failed during install/build AND restoring $OLD_DESC failed; the checkout at $REPO_DIR needs manual attention"
+  fi
+}
+
+fail_snapshot() {
+  trap - ERR
+  log "state snapshot failed; restoring $OLD_DESC and starting it (state untouched)"
+  if restore_old_code && svc start "$SERVICE_NAME" && ready_poll "$READY_TIMEOUT_S"; then
+    die "update to $TARGET_TAG failed at the state snapshot; old version restored and running"
+  else
+    PHASE=recovery-failed
+    die "update to $TARGET_TAG failed at the state snapshot AND restoring the old version failed; the service needs manual attention"
+  fi
+}
+
+fail_ready() {
+  trap - ERR
+  log "$TARGET_TAG did not become ready; rolling back code AND state"
+  svc stop "$SERVICE_NAME" || true
+  local state deadline=$((SECONDS + 60))
+  while :; do
+    state=$(svc is-active "$SERVICE_NAME" 2>/dev/null) || true
+    [[ $state != active && $state != deactivating ]] && break
+    if ((SECONDS >= deadline)); then
+      PHASE=recovery-failed
+      die "rollback: service would not stop; NOT touching the state root under a live process. Manual attention required."
+    fi
+    sleep 1
+  done
+  local parent broken
+  parent=$(dirname "$STATE_ROOT")
+  if [[ -d $STATE_ROOT ]]; then
+    broken="$SNAPSHOT_DIR/broken-$(date +%Y%m%d-%H%M%S)"
+    mv "$STATE_ROOT" "$broken" || {
+      PHASE=recovery-failed
+      die "rollback: could not move the broken state root aside; manual attention required"
+    }
+    prune_glob "$SNAPSHOT_DIR" 'broken-*' "$BROKEN_KEEP"
+  fi
+  if [[ -n $SNAPSHOT ]]; then
+    tar -xzf "$SNAPSHOT" -C "$parent" || {
+      PHASE=recovery-failed
+      die "rollback: restoring the state snapshot failed: $SNAPSHOT; manual attention required"
+    }
+  fi
+  if restore_old_code && svc start "$SERVICE_NAME" && ready_poll "$READY_TIMEOUT_S"; then
+    die "update to $TARGET_TAG failed readiness; rolled back to $OLD_DESC (code and state) and it is running"
+  else
+    PHASE=recovery-failed
+    die "update to $TARGET_TAG failed readiness AND the rollback did not come up; manual attention required"
+  fi
+}
+
+# Keep the newest $3 entries matching $2 (a glob) in dir $1, delete the rest.
+prune_glob() {
+  local dir=$1 pattern=$2 keep=$3
+  (
+    cd "$dir" 2>/dev/null || exit 0
+    # shellcheck disable=SC2012
+    ls -1dt -- $pattern 2>/dev/null | tail -n +$((keep + 1)) | while IFS= read -r f; do
+      rm -rf -- "$f"
+    done
+  )
+}
+
+on_error() {
+  local failed_phase=$PHASE
+  trap - ERR
+  case $failed_phase in
+    checkout | install | build) fail_build ;;
+    snapshot) fail_snapshot ;;
+    start | readiness) fail_ready ;;
+    *) die "unexpected failure during $failed_phase" ;;
+  esac
+}
+
+# --- Main -------------------------------------------------------------------
+
+main() {
+  local arg
+  for arg in "$@"; do
+    case $arg in
+      --allow-downgrade) ALLOW_DOWNGRADE=1 ;;
+      -*) die "unknown flag: $arg" ;;
+      *)
+        [[ -z $TARGET_TAG ]] || die "exactly one target tag expected"
+        TARGET_TAG=$arg
+        ;;
+    esac
+  done
+  [[ -n $TARGET_TAG ]] || die "usage: isomux-update vYYYY.M.D[.N] [--allow-downgrade]"
+  [[ $TARGET_TAG =~ $CALVER_RE ]] || die "not a CalVer release tag (vYYYY.M.D[.N]): $TARGET_TAG"
+
+  load_config
+
+  # Never run the copy inside the repo the update is about to rewrite.
+  local self
+  self=$(readlink -f "$0")
+  if [[ $self == "$REPO_DIR"/* && -z ${ISOMUX_UPDATE_REEXEC:-} ]]; then
+    local tmp
+    tmp=$(mktemp /tmp/isomux-update.XXXXXXXXXX)
+    cat "$self" >"$tmp"
+    chmod 700 "$tmp"
+    log "running from inside $REPO_DIR; re-executing a temp copy"
+    ISOMUX_UPDATE_REEXEC=1 exec bash "$tmp" "$@"
+  fi
+  # The re-exec temp copy deletes itself when done (bash holds it open).
+  [[ -n ${ISOMUX_UPDATE_REEXEC:-} && $self == /tmp/* ]] && trap 'rm -f "$self"' EXIT
+
+  install -d -m 700 "$STATUS_DIR" "$SNAPSHOT_DIR"
+  exec 9>"$STATUS_DIR/lock"
+  flock -n 9 || die "another update is already running (lock: $STATUS_DIR/lock)"
+
+  trap on_error ERR
+
+  phase validate
+  [[ -d $REPO_DIR/.git ]] || die "not a git checkout: $REPO_DIR"
+  [[ -z $(as_repo_user git -C "$REPO_DIR" status --porcelain) ]] ||
+    die "checkout is dirty: $REPO_DIR — refusing to update over local changes"
+  OLD_COMMIT=$(as_repo_user git -C "$REPO_DIR" rev-parse HEAD)
+  OLD_DESC=$(as_repo_user git -C "$REPO_DIR" describe --tags --always --match 'v*')
+
+  phase fetch
+  # Resolve the tag in root-owned space, against the configured upstream
+  # only. The non-forced refspec makes a moved tag an error, not an update.
+  [[ -d $TRUST_REPO ]] || git init -q --bare "$TRUST_REPO"
+  git -C "$TRUST_REPO" fetch -q --depth 1 "$REPO_URL" "refs/tags/$TARGET_TAG:refs/tags/$TARGET_TAG" ||
+    die "release tag $TARGET_TAG not found at $REPO_URL (or the tag moved upstream - release tags are immutable)"
+  local target_commit
+  target_commit=$(git -C "$TRUST_REPO" rev-parse -q --verify "refs/tags/$TARGET_TAG^{commit}") ||
+    die "could not resolve $TARGET_TAG to a commit in the trust repo"
+  # Bun-pin heads-up BEFORE any mutation, read from the trusted objects.
+  local pinned have
+  pinned=$(git -C "$TRUST_REPO" cat-file -p "$target_commit:package.json" 2>/dev/null |
+    sed -n 's/.*"packageManager": *"bun@\([^"]*\)".*/\1/p' | head -1)
+  have=$("$BUN" --version 2>/dev/null || true)
+  if [[ -n $pinned && $pinned != "$have" ]]; then
+    log "warning: $TARGET_TAG pins bun@$pinned but $BUN is $have; if the new version fails to start, that mismatch is the first suspect (rollback will still work)"
+  fi
+  # Bring the objects into the service checkout from the same upstream
+  # (bypassing its tamperable remote config) and hold it to the
+  # trust-resolved commit.
+  as_repo_user git -C "$REPO_DIR" fetch -q "$REPO_URL" "refs/tags/$TARGET_TAG"
+  local fetched
+  fetched=$(as_repo_user git -C "$REPO_DIR" rev-parse -q --verify 'FETCH_HEAD^{commit}') || fetched=""
+  [[ $fetched == "$target_commit" ]] ||
+    die "the service checkout fetched a different commit for $TARGET_TAG ($fetched) than the trusted upstream resolution ($target_commit)"
+
+  if [[ $target_commit == "$OLD_COMMIT" ]]; then
+    log "already on $TARGET_TAG; nothing to do"
+    write_status ok "already on $TARGET_TAG"
+    exit 0
+  fi
+  if as_repo_user git -C "$REPO_DIR" merge-base --is-ancestor "$target_commit" "$OLD_COMMIT"; then
+    [[ -n $ALLOW_DOWNGRADE ]] ||
+      die "$TARGET_TAG is older than the current $OLD_DESC; pass --allow-downgrade to do this anyway"
+    log "downgrading $OLD_DESC -> $TARGET_TAG (--allow-downgrade)"
+  fi
+
+  phase checkout
+  as_repo_user git -C "$REPO_DIR" checkout --detach "$target_commit"
+
+  phase install
+  as_repo_user bash -c "cd '$REPO_DIR' && '$BUN' install --frozen-lockfile"
+
+  phase build
+  as_repo_user bash -c "cd '$REPO_DIR' && '$BUN' run build:ui"
+
+  phase stop
+  svc stop "$SERVICE_NAME"
+  wait_inactive
+
+  phase snapshot
+  if [[ -d $STATE_ROOT ]]; then
+    SNAPSHOT="$SNAPSHOT_DIR/pre-update-$(json_sanitize "$OLD_DESC")-to-$TARGET_TAG-$(date +%Y%m%d-%H%M%S).tar.gz"
+    tar -C "$(dirname "$STATE_ROOT")" -czf "$SNAPSHOT" "$(basename "$STATE_ROOT")"
+    tar -tzf "$SNAPSHOT" >/dev/null
+    prune_glob "$SNAPSHOT_DIR" 'pre-update-*.tar.gz' "$SNAPSHOT_KEEP"
+    log "state snapshot: $SNAPSHOT"
+  else
+    log "no state root at $STATE_ROOT yet; skipping the snapshot (a rollback removes whatever the new version creates)"
+  fi
+
+  phase start
+  svc start "$SERVICE_NAME"
+
+  phase readiness
+  ready_poll "$READY_TIMEOUT_S" || fail_ready
+
+  phase finalize
+  trap - ERR
+  # Refresh the installed updater from the ROOT-OWNED trust objects. The
+  # service checkout must never be the source: the service user (which
+  # agents run as) could have replaced scripts/update.sh there while the
+  # new server was already running.
+  if [[ -n $UPDATER_PATH ]]; then
+    local newupd
+    newupd=$(mktemp /tmp/isomux-update-new.XXXXXXXXXX)
+    if git -C "$TRUST_REPO" cat-file -p "$target_commit:scripts/update.sh" >"$newupd" 2>/dev/null; then
+      install -m 755 "$newupd" "$UPDATER_PATH" 2>/dev/null ||
+        log "warning: could not refresh the installed updater at $UPDATER_PATH"
+    else
+      log "note: $TARGET_TAG carries no scripts/update.sh; leaving the installed updater as is"
+    fi
+    rm -f "$newupd"
+  fi
+  write_status ok "updated $OLD_DESC -> $TARGET_TAG"
+  log "updated $OLD_DESC -> $TARGET_TAG"
+}
+
+main "$@"

@@ -610,6 +610,8 @@ const ROUTE_LABELS: Array<[string, string, string]> = [
   ["GET", "/api/cronjobs", "List cronjobs"],
   // Per-user Sk-menu counters (reachable by privileged agent tokens).
   ["GET", "/api/skill-usage", "Read skill-use counts"],
+  // Deployment version identity (reachable by privileged agent tokens).
+  ["GET", "/api/version", "Check isomux version"],
 ];
 
 export function describeIsomuxRoute(

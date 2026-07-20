@@ -25,7 +25,9 @@ jobs:
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          # Pinned via package.json "packageManager" so CI tests the same
+          # runtime the installer puts on customer boxes.
+          bun-version-file: package.json
 
       - name: Install dependencies
         run: bun install --frozen-lockfile

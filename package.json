@@ -1,6 +1,7 @@
 {
   "name": "isomux",
   "type": "module",
+  "packageManager": "bun@1.3.11",
   "scripts": {
     "postinstall": "git config core.hooksPath .githooks 2>/dev/null || true",
     "dev": "bun run build:ui && bun run server/index.ts",

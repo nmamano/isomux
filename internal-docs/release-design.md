@@ -1,7 +1,8 @@
 # Isomux release channel
 
-> Status: design only (2026-07-19). Slice C1 of hosted isomux (task
-> c91af4a4), see `hosted-isomux-design.md`. Nothing here is implemented.
+> Status: designed 2026-07-19; the shell-drivable core is implemented (see
+> "Status" at the bottom for what shipped vs. what remains). Slice C1 of
+> hosted isomux (task c91af4a4), see `hosted-isomux-design.md`.
 
 ## What a release is
 
@@ -25,17 +26,26 @@ adds two manual conditions:
    the smoke test - it exercises real agents, restarts, and the UI in a way
    no scripted check would).
 2. Nil or a delegated agent runs a small `scripts/release.sh` that verifies
-   CI is green for the commit, refuses to reuse an existing tag, tags
-   (annotated), and pushes the tag.
+   the Build workflow itself is green for the commit (not merely "some
+   check"), refuses to reuse an existing tag, refuses a bun-pin change
+   since the previous release (see the invariant below), tags (annotated),
+   and pushes the tag.
+
+**Bun invariant.** Customer updaters warn - they do not switch runtimes -
+when a release pins a different bun than the box runs, and rollback runs on
+the installed bun. So until versioned side-by-side bun installs exist, a
+release must pin the same bun as the previous release; `release.sh`
+enforces this mechanically (`RELEASE_ALLOW_BUN_CHANGE=1` overrides, which
+means a deliberate fleet plan).
 
 Cadence: on demand, when hosted boxes need something.
 
 ## Installer contract
 
-`ISOMUX_REF` is a tag name; the installer runs
-`git clone --depth 1 --branch $ISOMUX_REF`. When unset, it resolves the
-default from `GET api.github.com/repos/nmamano/isomux/releases/latest`
-(public, unauthenticated) - no moving `stable` branch to maintain.
+`ISOMUX_REF` is a tag name (the installer also accepts branches/commits for
+dev use). When unset, it resolves the default from
+`GET api.github.com/repos/nmamano/isomux/releases/latest` (public,
+unauthenticated) - no moving `stable` branch to maintain.
 
 ## Update path on a customer box
 
@@ -49,36 +59,61 @@ installer, never from the caller. It accepts only an exact CalVer tag,
 resolves it to a commit, and refuses downgrades unless explicitly flagged.
 
 It must run **outside the server process** - it restarts the server, which
-would kill any in-server parent. The in-UI trigger spawns it as a transient
-systemd user *service* (`systemd-run --user`, its own unit, not ordered
-against `isomux.service`; user lingering is already an installer
-requirement), takes a `flock` so triggers cannot overlap, and returns the
-unit name to the UI immediately. Progress and result are written to a
-status file **outside** `$ISOMUX_HOME`, because rollback may replace that
-directory.
+would kill any in-server parent. Who runs it depends on the deployment, and
+the config's `SERVICE_KIND` reconciles the two shapes:
+
+- **VPS boxes (as installed by `deploy/install.sh`)**: a SYSTEM-level
+  `isomux.service` under user `isomux`. The updater runs as root
+  (`SERVICE_KIND=system`; git/bun steps drop to the service user, systemctl
+  stays root). This slice: the operator runs `isomux-update <tag>` over
+  SSH. Next slice: the in-UI trigger needs a narrow escalation, since the
+  server is unprivileged - a root-owned `isomux-update@.service` template
+  unit the `isomux` user may start (sudoers or polkit rule scoped to
+  exactly that), detached so the restart can't kill its parent.
+- **Dev-style boxes** (user-level service, like Nil's): `SERVICE_KIND=user`
+  runs everything as the user with `systemctl --user`.
+
+It takes a `flock` so invocations cannot overlap, and writes progress and
+result to a status file **outside** `$ISOMUX_HOME`, because rollback may
+replace that directory.
+
+**Trust boundary (system deployments).** The service checkout and everything
+in it are writable by the unprivileged service user, and agents run shell as
+that user - so nothing root executes or installs may come from there.
+Tag resolution and the installed-updater refresh go through a root-owned
+bare repo (`$STATUS_DIR/trust.git`) that fetches `refs/tags/<target>`
+straight from the configured `REPO_URL`: the remote is the only tag
+authority (a tag planted in the service checkout is never consulted), the
+non-forced tag fetch refuses a moved tag, and the service checkout is then
+pinned to the trust-resolved commit hash. The installer sources the initial
+updater copy the same way.
 
 1. Record the currently checked-out tag.
-2. `git fetch --tags && git checkout <target>`.
+2. Resolve the target through the trust repo (above), fetch the objects
+   into the service checkout, and check out the trust-resolved commit.
 3. `bun install --frozen-lockfile`, `bun run build:ui`. On failure, the
    running server process is untouched, but `node_modules` and the
    live-served `ui/dist` may already be dirty: recover by checking out the
    old tag, reinstalling its lockfile, and rebuilding its UI (and report if
    recovery itself fails).
-4. `systemctl --user stop isomux`, wait until inactive. The update
-   interrupts agents anyway; quiescing *before* the snapshot is what makes
-   it a coherent rollback image (a live tar can catch related state files
-   on opposite sides of a mutation - fine for disaster recovery, not for a
-   rollback promise).
+4. Stop the service, wait until inactive. The update interrupts agents
+   anyway; quiescing *before* the snapshot is what makes it a coherent
+   rollback image (a live tar can catch related state files on opposite
+   sides of a mutation - fine for disaster recovery, not for a rollback
+   promise).
 5. Snapshot the stopped state: tar `$ISOMUX_HOME` to a uniquely-named file
    outside it and verify the tarball. If this fails, check out the old tag,
    reinstall, rebuild the old UI, and start it - state is untouched, but
    the target's UI was already built in step 3.
-6. `systemctl --user start isomux`; poll a readiness endpoint (up *after*
-   migrations, since those rewrite state on boot) for ~60s.
+6. Start the service; poll `GET /readyz` (unauth; answered only once the
+   boot migrations have run, since the listener binds after them;
+   rate-limited with loopback exempt so the poll cannot manufacture a
+   rollback).
 7. On failed readiness, roll back fully: stop and wait inactive (never
-   restore under a live or crash-looping process), restore the entire state
-   root from the step-5 snapshot, check out the previous tag, reinstall,
-   build, start, report failure upstream.
+   restore under a live or crash-looping process), move the broken state
+   root aside for forensics, restore the entire state root from the step-5
+   snapshot, check out the previous tag, reinstall, build, start, report in
+   the status file.
 
 Rollback always restores the full snapshot - no "did a migration run?"
 detection. The codebase has no schema version or migration ledger to make
@@ -118,25 +153,41 @@ call the same `update.sh`; A and C are policy layers that can be added
 later without redesign. For the initial influencer-comped fleet, B is also
 the honest match for our support capacity.
 
-## Gaps in the current repo
+## Status
 
-- No version identity anywhere: `package.json` has no `version`, no
-  constant in code, no `GET /version` endpoint. Without it there is no
-  "update available" banner and no way for the control plane to audit the
-  fleet.
-- No readiness endpoint for the updater's post-restart check: unauth,
-  minimal response, up only after migrations complete, rate-limited if
-  exposed (with localhost polling exempt, so polling cannot manufacture a
-  rollback).
-- No snapshot primitive: `server/backup.ts` is private, timer-coupled, and
-  date-only-named. Extract a shared "snapshot now" function or have
-  `update.sh` tar directly.
-- No `update.sh` / `release.sh`, and none of the updater plumbing: the
-  owner-only authenticated trigger route, the singleton lock, status/result
-  persistence, target validation, or tests for the failure paths (failed
-  install, build, start, readiness, restore).
-- Bun unpinned in both CI and the docs' install instructions.
-- `backup.ts` references `internal-docs/backup-restore.md`, which does not
-  exist. The restore procedure the rollback story leans on is undocumented.
-- (Separate fix, main:) `hosted-isomux-design.md` says daily backups land
-  in `~/.isomux/backups/`; they land in `~/isomux-backups`.
+Shipped (the shell-drivable slice):
+
+- Version identity, derived from git so nothing can drift from the tag:
+  `server/version.ts` (exact tag / describe / commit) and authenticated
+  `GET /api/version`.
+- Unauth `GET /readyz` with the per-IP limiter (`server/ready-limiter.ts`),
+  loopback exempt.
+- `scripts/release.sh` (CI-green gate via check-runs, tag-reuse refusal,
+  annotated CalVer tag, push, GitHub Release) and `scripts/update.sh`
+  (everything above, snapshot via tar directly - no `backup.ts` coupling).
+  Failure paths are exercised in `scripts/update-sh.test.ts` /
+  `scripts/release-sh.test.ts` against sandboxed fixtures.
+- Installer integration: `deploy/install.sh` writes
+  `/etc/isomux/update.conf`, installs `isomux-update`, pins bun from
+  `package.json` `"packageManager"` (CI pins the same via setup-bun's
+  `bun-version-file`), and defaults `ISOMUX_REF` to the latest GitHub
+  release. The `main` fallback is bootstrap-only: the official repo falls
+  back solely on a genuine no-releases 404 and fails closed on
+  transport/parse errors (a GitHub hiccup must not silently install
+  un-gated main); forks stay lenient.
+
+Remaining:
+
+- The "update available" banner and the in-UI trigger route (owner-only,
+  detached execution, the escalation unit on VPS boxes). Note the UI
+  already shows a commit-level update indicator fed by
+  `server/update-checker.ts` (HEAD vs. GitHub main tip) - a fact the
+  original gap list missed; the banner slice should make it release-aware
+  (compare `release` from `/api/version` against `releases/latest`)
+  instead of adding a second checker.
+- `internal-docs/backup-restore.md` (referenced by `backup.ts`) still does
+  not exist; the daily-backup restore procedure is undocumented. The
+  updater no longer depends on it (it snapshots and restores on its own),
+  but operators do.
+- First real release: run `scripts/release.sh` once, then flip the
+  installer expectation that `releases/latest` 404s.

@@ -352,6 +352,7 @@ const SPEC_ROUTE_CONTRACT: Record<
   "cron.runDiff": { caps: ["self:affordance"], emits: ["cron_run_log_entry"] },
   // System
   "system.backupStatus": { caps: ["office:read"], emits: [] },
+  "system.version": { caps: ["office:read"], emits: [] },
   // Memory (isomux-memory)
   "memory.read": { caps: ["memory:read"], emits: [] },
   "memory.append": { caps: ["memory:write"], emits: [] },

@@ -41,19 +41,29 @@ After a few minutes it prints a single-use owner invite link, also saved on the 
 
 Environment variables, set before running:
 
-| Variable       | Default    | Meaning                                                                        |
-| -------------- | ---------- | ------------------------------------------------------------------------------ |
-| `DOMAIN`       | (required) | Public domain for the office.                                                  |
-| `OWNER_NAME`   | `Owner`    | Owner display name; changeable later in User Settings.                         |
-| `ISOMUX_REF`   | `main`     | Git branch, tag, or commit to install.                                         |
-| `ISOMUX_REPO`  | GitHub     | Git repo to install from (for forks).                                          |
-| `SSH_PORT`     | `22`       | SSH port to allow through the firewall; `none` keeps SSH closed.               |
-| `CALLBACK_URL` | (unset)    | HTTPS URL that receives a POST: `{inviteUrl, status}`, plus `step` on failure. |
-| `DRY_RUN`      | (unset)    | Set to `1` to print what would run instead of running it.                      |
+| Variable       | Default        | Meaning                                                                        |
+| -------------- | -------------- | ------------------------------------------------------------------------------ |
+| `DOMAIN`       | (required)     | Public domain for the office.                                                  |
+| `OWNER_NAME`   | `Owner`        | Owner display name; changeable later in User Settings.                         |
+| `ISOMUX_REF`   | latest release | Git branch, tag, or commit to install; `main` if no release exists yet.        |
+| `ISOMUX_REPO`  | GitHub         | Git repo to install from (for forks).                                          |
+| `SSH_PORT`     | `22`           | SSH port to allow through the firewall; `none` keeps SSH closed.               |
+| `CALLBACK_URL` | (unset)        | HTTPS URL that receives a POST: `{inviteUrl, status}`, plus `step` on failure. |
+| `DRY_RUN`      | (unset)        | Set to `1` to print what would run instead of running it.                      |
 
 ## Re-running
 
 Safe after a failure: completed steps are skipped or redone harmlessly, and a fresh invite link is minted each run. A re-run recovers its owner session automatically; if the office has several owners, set `OWNER_NAME` to one of them. Re-running restarts the isomux service, which interrupts running agents.
+
+## Updating
+
+As root, with a tag from the [releases page](https://github.com/nmamano/isomux/releases):
+
+```bash
+isomux-update v2026.7.19
+```
+
+It rebuilds at the new version, snapshots the office state, and restarts the service - interrupting running agents. If the new version fails to come up, it rolls code and state back to what you had. Downgrading to an older release needs `--allow-downgrade`.
 
 ## Notes
 

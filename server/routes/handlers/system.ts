@@ -1,7 +1,8 @@
-// System resource handler — Phase 3a slice 3a.6. The backup health probe on the
-// unified REST surface (opId system.backupStatus). office:read + authenticated:
-// any signed-in human may read it; AGENT scope lacks office:read and is rejected
-// at stage 1.
+// System resource handlers — Phase 3a slice 3a.6 (backup health probe) plus
+// the deployment version identity (release-channel slice C1). Both
+// office:read + authenticated: any signed-in human may read them; a plain
+// AGENT scope lacks office:read and is rejected at stage 1 (a PRIVILEGED
+// agent holds it and passes).
 //
 // GET /api/backup/status returns the NORMALIZED wire shape
 // { lastRunAt, ok, error, retention, destDir } — a rename/projection of the
@@ -24,12 +25,23 @@ export interface BackupStatusWire {
   destDir: string;
 }
 
+// GET /api/version — git-derived deployment identity. Same shape as
+// server/version.ts VersionInfo; redeclared so this leaf depends only on its
+// injected deps.
+export interface VersionWire {
+  version: string | null;
+  commit: string | null;
+  release: string | null;
+}
+
 export interface SystemDeps {
   getBackupStatus(): BackupStatusWire;
+  getVersion(): VersionWire;
 }
 
 export function systemHandlers(deps: SystemDeps): Record<string, RouteHandler> {
   return {
     "system.backupStatus": () => ok(deps.getBackupStatus()),
+    "system.version": () => ok(deps.getVersion()),
   };
 }

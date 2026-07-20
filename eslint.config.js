@@ -90,7 +90,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["**/*.cjs", "scripts/**/*", "eslint.config.js"],
+    files: ["**/*.cjs", "scripts/**/*", "deploy/**/*", "eslint.config.js"],
     languageOptions: {
       globals: {
         ...globals.node,
@@ -98,11 +98,11 @@ export default tseslint.config(
     },
   },
   {
-    files: ["**/*.cjs", "scripts/**/*", "eslint.config.js"],
+    files: ["**/*.cjs", "scripts/**/*", "deploy/**/*", "eslint.config.js"],
     ...tseslint.configs.disableTypeChecked,
   },
   {
-    files: ["**/*.cjs", "scripts/**/*", "eslint.config.js"],
+    files: ["**/*.cjs", "scripts/**/*", "deploy/**/*", "eslint.config.js"],
     rules: {
       "@typescript-eslint/no-require-imports": "off",
     },

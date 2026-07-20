@@ -1000,6 +1000,18 @@ export const API_ROUTES: readonly RouteDef[] = [
     auth: cap("office:read", authenticated),
     emits: [],
   }),
+  // Deployment version identity (release-channel slice C1). Same auth posture
+  // as backupStatus: any human, plus privileged agents.
+  defineRoute<
+    void,
+    { version: string | null; commit: string | null; release: string | null }
+  >({
+    opId: "system.version",
+    method: "GET",
+    path: "/api/version",
+    auth: cap("office:read", authenticated),
+    emits: [],
+  }),
 ];
 
 // ---------------------------------------------------------------------------
@@ -1048,6 +1060,18 @@ export const PUBLIC_ROUTES: readonly RouteDef[] = [
     opId: "auth.loginBg",
     method: "GET",
     path: "/auth/login-bg.png",
+    auth: pub,
+    emits: [],
+  }),
+  // Unauthenticated readiness probe (release-channel slice C1). Answered 200
+  // once the listener is up — which the boot sequence only reaches after the
+  // startup migrations (startServer: bootPrelude + migrateOwnersToRuleBased-
+  // Access run before buildServer binds). Minimal body, no deployment state;
+  // rate-limited for non-loopback callers (server/ready-limiter.ts).
+  defineRoute({
+    opId: "system.readyz",
+    method: "GET",
+    path: "/readyz",
     auth: pub,
     emits: [],
   }),

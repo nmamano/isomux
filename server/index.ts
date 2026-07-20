@@ -50,6 +50,8 @@ import {
   onUpdateChange,
 } from "./update-checker.ts";
 import { startBackupScheduler, getBackupStatus } from "./backup.ts";
+import { getVersionInfo } from "./version.ts";
+import { allowReadyRequest } from "./ready-limiter.ts";
 import { resolveCwd } from "./cwd-utils.ts";
 import { modelFamilyMismatchError } from "./agent-validators.ts";
 import type { TaskItem } from "../shared/types.ts";
@@ -87,6 +89,7 @@ import { join } from "path";
 import {
   authenticate,
   checkOrigin,
+  requestIsLoopback,
   securityHeaders,
   setOnOwnerCreated,
   tryHandleAuthRoute,
@@ -2734,6 +2737,7 @@ function buildExecutorDeps(): ExecutorDeps {
           destDir: s.backupDir,
         };
       },
+      getVersion: () => getVersionInfo(),
     }),
   );
 
@@ -3721,6 +3725,27 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
         });
         if (upgraded) return;
         return new Response("WebSocket upgrade failed", { status: 400 });
+      }
+
+      // GET /readyz — unauthenticated readiness probe (release-channel slice
+      // C1; PUBLIC_ROUTES carries the bypass metadata). Reaching this handler
+      // already proves readiness: startServer runs the startup migrations
+      // (bootPrelude, migrateOwnersToRuleBasedAccess) BEFORE buildServer
+      // binds, so a served request implies migrations completed. The body is
+      // deliberately state-free ("ok" only — no version, no office info).
+      // Non-loopback callers are rate-limited; loopback is exempt so the
+      // updater's post-restart poll can never trip the limit and manufacture
+      // a rollback.
+      if (url.pathname === "/readyz" && req.method === "GET") {
+        if (!requestIsLoopback(req, server)) {
+          const ip = server.requestIP(req)?.address ?? "unknown";
+          if (!allowReadyRequest(ip, Date.now())) {
+            return new Response("rate limited\n", { status: 429 });
+          }
+        }
+        return new Response("ok\n", {
+          headers: { "Content-Type": "text/plain; charset=utf-8" },
+        });
       }
 
       // /auth/* and /i/<token> routes. These must run before the gating check

@@ -826,6 +826,12 @@ describe("describeIsomuxRoute", () => {
       describeIsomuxRoute("GET", "/api/agents/agent-123/instructions"),
     ).toBe("Read agent instructions");
   });
+
+  test("version read is labeled", () => {
+    expect(describeIsomuxRoute("GET", "/api/version")).toBe(
+      "Check isomux version",
+    );
+  });
 });
 
 describe("humanizeIsomuxRequest", () => {

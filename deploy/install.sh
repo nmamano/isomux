@@ -23,7 +23,9 @@
 #                 point at this server for the HTTPS certificate to issue.
 #   OWNER_NAME    display name of the office owner (default "Owner";
 #                 changeable later in User Settings).
-#   ISOMUX_REF    git branch, tag, or commit to install (default main).
+#   ISOMUX_REF    git branch, tag, or commit to install. Default: the latest
+#                 GitHub release of the official repo; main when none exists
+#                 or the repo is a fork.
 #   ISOMUX_REPO   git repo to install from (default the official GitHub repo).
 #   SSH_PORT      SSH port to allow through the firewall (default 22; set to
 #                 "none" to keep SSH closed).
@@ -43,7 +45,7 @@ set -Eeuo pipefail
 
 DOMAIN="${DOMAIN:-}"
 OWNER_NAME="${OWNER_NAME:-Owner}"
-ISOMUX_REF="${ISOMUX_REF:-main}"
+ISOMUX_REF="${ISOMUX_REF:-}"
 ISOMUX_REPO="${ISOMUX_REPO:-https://github.com/nmamano/isomux.git}"
 SSH_PORT="${SSH_PORT:-22}"
 CALLBACK_URL="${CALLBACK_URL:-}"
@@ -55,6 +57,9 @@ INSTALL_DIR=/opt/isomux
 SERVICE_USER=isomux
 SERVICE_HOME=/home/isomux
 STATE_DIR=/var/lib/isomux-install
+UPDATER_PATH=/usr/local/sbin/isomux-update
+UPDATE_CONF=/etc/isomux/update.conf
+UPDATE_STATE_DIR=/var/lib/isomux-update
 COOKIE_JAR=$STATE_DIR/session.cookies
 INVITE_FILE=$STATE_DIR/invite-url
 BASE_URL=http://127.0.0.1:4000
@@ -219,6 +224,12 @@ preflight() {
   if [[ -n $CALLBACK_URL && ! $CALLBACK_URL =~ ^https:// ]] && ! callback_is_local_http "$CALLBACK_URL"; then
     die "CALLBACK_URL must be https:// (plain http is allowed only for localhost testing)"
   fi
+  # ISOMUX_REPO lands in /etc/isomux/update.conf, which the updater parses
+  # as literal key=value (never sourced) — but keep the value to a plain
+  # git-URL charset anyway so it can never smuggle options or shell syntax
+  # into anything that consumes it.
+  [[ $ISOMUX_REPO =~ ^[A-Za-z0-9@:/._+~][A-Za-z0-9@:/._+~-]*$ ]] ||
+    die "ISOMUX_REPO is not a plain git URL/path: $ISOMUX_REPO"
   command -v apt-get >/dev/null || die "apt-get not found; this installer supports Ubuntu (24.04)"
   local os_id="" os_ver=""
   if [[ -r /etc/os-release ]]; then
@@ -348,19 +359,37 @@ APT::Periodic::Unattended-Upgrade "1";
 EOF
 }
 
+# Runs AFTER fetch_isomux so the pin can come from the checkout: the release
+# declares its bun in package.json "packageManager", and installing that
+# exact version is what makes "a tag fully determines the deployment" true
+# (CI tests the same pin via setup-bun's bun-version-file).
 install_bun() {
   step install-bun
+  local pinned=""
+  if [[ -f $INSTALL_DIR/package.json ]]; then
+    pinned=$(sed -n 's/.*"packageManager": *"bun@\([^"]*\)".*/\1/p' "$INSTALL_DIR/package.json" | head -1)
+  fi
   # The systemd unit hardcodes /usr/local/bin/bun, so check that exact path;
   # a bun elsewhere on root's PATH does not help the service.
   if [[ -x /usr/local/bin/bun ]]; then
-    log "bun already installed: $(/usr/local/bin/bun --version)"
-    return 0
+    local have
+    have=$(/usr/local/bin/bun --version)
+    if [[ -z $pinned || $have == "$pinned" ]]; then
+      log "bun already installed: $have"
+      return 0
+    fi
+    log "bun $have installed but this ref pins bun@$pinned; installing the pinned version"
   fi
   if [[ -n $DRY_RUN ]]; then
-    log "DRY-RUN: would install bun to /usr/local/bin via bun.sh/install"
+    log "DRY-RUN: would install bun ${pinned:-latest} to /usr/local/bin via bun.sh/install"
     return 0
   fi
-  curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local bash
+  if [[ -n $pinned ]]; then
+    curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local bash -s "bun-v$pinned"
+  else
+    log "warning: no packageManager pin in package.json; installing latest bun"
+    curl -fsSL https://bun.sh/install | BUN_INSTALL=/usr/local bash
+  fi
   [[ -x /usr/local/bin/bun ]] || die "bun installation did not produce /usr/local/bin/bun"
 }
 
@@ -379,8 +408,69 @@ create_service_user() {
   fi
 }
 
+# Default ISOMUX_REF: the latest GitHub release of the target repo, so a
+# fresh box lands on a pinned, tested version. The main fallback exists for
+# exactly one case per repo class: the OFFICIAL repo falls back only on a
+# genuine has-no-releases 404 (pre-first-release bootstrap) and FAILS CLOSED
+# on transport/parse errors — a GitHub hiccup must not silently install
+# un-gated main; forks and non-GitHub repos stay lenient (their release
+# discipline is not ours to enforce).
+# Any canonical form of the official repo (https with or without .git, ssh)
+# counts as official for the fail-closed policy; a fork must not slip into
+# the lenient branch by URL spelling alone, and vice versa.
+is_official_repo() {
+  local u=${ISOMUX_REPO%.git}
+  [[ $u == https://github.com/nmamano/isomux || $u == git@github.com:nmamano/isomux ]]
+}
+
+resolve_default_ref() {
+  [[ -z $ISOMUX_REF ]] || return 0
+  local owner_repo=""
+  if [[ $ISOMUX_REPO =~ ^https://github\.com/([^/]+/[^/]+)$ ]] ||
+    [[ $ISOMUX_REPO =~ ^git@github\.com:([^/]+/[^/]+)$ ]]; then
+    owner_repo=${BASH_REMATCH[1]%.git}
+  fi
+  if [[ -z $owner_repo ]]; then
+    ISOMUX_REF=main
+    log "no ISOMUX_REF given and the repo is not on github.com; installing main"
+    return 0
+  fi
+  if ! command -v jq >/dev/null; then
+    [[ -n $DRY_RUN ]] || die "jq is missing while resolving the default ISOMUX_REF (install_packages should have installed it)"
+    ISOMUX_REF=main
+    log "DRY-RUN: jq not installed yet; would resolve the latest release, assuming main"
+    return 0
+  fi
+  local resp code body latest
+  resp=$(curl -sS --max-time 15 -w '\n%{http_code}' \
+    "https://api.github.com/repos/$owner_repo/releases/latest" 2>/dev/null) || resp=$'\n000'
+  code=${resp##*$'\n'}
+  body=${resp%$'\n'*}
+  if [[ $code == 200 ]]; then
+    latest=$(jq -r '.tag_name // empty' <<<"$body" 2>/dev/null) || latest=""
+    if [[ -z $latest ]]; then
+      is_official_repo &&
+        die "could not parse the latest release of $owner_repo; set ISOMUX_REF explicitly to proceed"
+      ISOMUX_REF=main
+      log "warning: could not parse the latest release of $owner_repo; installing main"
+      return 0
+    fi
+    ISOMUX_REF=$latest
+    log "no ISOMUX_REF given; installing the latest release: $ISOMUX_REF"
+  elif [[ $code == 404 ]]; then
+    ISOMUX_REF=main
+    log "no ISOMUX_REF given and $owner_repo has no releases yet; installing main"
+  else
+    is_official_repo &&
+      die "could not determine the latest release of $owner_repo (HTTP $code); set ISOMUX_REF explicitly to proceed"
+    ISOMUX_REF=main
+    log "warning: latest-release lookup for $owner_repo failed (HTTP $code); installing main"
+  fi
+}
+
 fetch_isomux() {
   step fetch-isomux
+  resolve_default_ref
   if [[ ! -d $INSTALL_DIR/.git ]]; then
     run install -d -o "$SERVICE_USER" -g "$SERVICE_USER" "$INSTALL_DIR"
     run_as_service_user git clone "$ISOMUX_REPO" "$INSTALL_DIR"
@@ -416,6 +506,52 @@ build_isomux() {
   step build-isomux
   run_as_service_user bash -c "cd $INSTALL_DIR && /usr/local/bin/bun install --frozen-lockfile"
   run_as_service_user bash -c "cd $INSTALL_DIR && /usr/local/bin/bun run build:ui"
+}
+
+# Root-of-trust config for the updater plus an installed copy of it. The
+# copy's bytes come from a ROOT-OWNED fetch of $ISOMUX_REPO — never from
+# $INSTALL_DIR: that checkout is writable by the service user (which agents
+# run shell as), and on a re-run an already-running service could have
+# replaced scripts/update.sh there; root promoting it to $UPDATER_PATH would
+# hand that user root. scripts/update.sh refreshes itself on updates through
+# the same trust repo. Older refs may predate the updater; skip with a note.
+install_updater() {
+  step install-updater
+  if [[ -n $DRY_RUN ]]; then
+    log "DRY-RUN: would write $UPDATE_CONF and install $UPDATER_PATH from a root-owned fetch of $ISOMUX_REPO @ $ISOMUX_REF"
+    return 0
+  fi
+  install -d -m 755 "$(dirname "$UPDATE_CONF")"
+  install -d -m 700 "$UPDATE_STATE_DIR" "$UPDATE_STATE_DIR/snapshots"
+  local trust=$UPDATE_STATE_DIR/trust.git
+  [[ -d $trust ]] || git init -q --bare "$trust"
+  # Branch and tag names fetch by ref; a raw commit sha also works against
+  # GitHub (sha-in-want is enabled there).
+  git -C "$trust" fetch -q --depth 1 "$ISOMUX_REPO" "$ISOMUX_REF" ||
+    die "could not fetch $ISOMUX_REF from $ISOMUX_REPO for the updater installation"
+  if ! git -C "$trust" cat-file -e FETCH_HEAD:scripts/update.sh 2>/dev/null; then
+    log "this ref has no scripts/update.sh; skipping updater installation"
+    return 0
+  fi
+  write_file "$UPDATE_CONF" 644 <<EOF
+# Written by the isomux installer; read by $UPDATER_PATH.
+REPO_DIR=$INSTALL_DIR
+REPO_URL=$ISOMUX_REPO
+SERVICE_NAME=isomux
+SERVICE_KIND=system
+SERVICE_USER=$SERVICE_USER
+STATE_ROOT=$SERVICE_HOME/.isomux
+SNAPSHOT_DIR=$UPDATE_STATE_DIR/snapshots
+STATUS_DIR=$UPDATE_STATE_DIR
+BUN=/usr/local/bin/bun
+BASE_URL=http://127.0.0.1:4000
+UPDATER_PATH=$UPDATER_PATH
+EOF
+  local tmp
+  tmp=$(mktemp /tmp/isomux-updater.XXXXXXXXXX)
+  git -C "$trust" cat-file -p FETCH_HEAD:scripts/update.sh >"$tmp"
+  install -m 755 "$tmp" "$UPDATER_PATH"
+  rm -f "$tmp"
 }
 
 install_service() {
@@ -654,10 +790,11 @@ main() {
   configure_firewall
   harden_ssh
   enable_auto_updates
-  install_bun
   create_service_user
   fetch_isomux
+  install_bun
   build_isomux
+  install_updater
   install_service
   wait_for_server
   claim_owner

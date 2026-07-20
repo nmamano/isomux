@@ -4,6 +4,11 @@
 // of the internal BackupStatus (lastBackupOk null->false). The legacy
 // GET /backup/status keeps its raw shape (a separate retained endpoint).
 //
+// Release-channel slice C1 adds system.version (GET /api/version, same auth
+// posture) and the unauthenticated GET /readyz probe (limiter behavior is
+// pinned separately in server/ready-limiter.test.ts; the harness connects
+// over loopback, which is exempt).
+//
 // Seam: startTestServer(). Zero LLM.
 
 import { describe, it, expect, afterEach } from "bun:test";
@@ -105,5 +110,51 @@ describe("routes/system.backupStatus REST", () => {
       (await api(srv, "/api/backup/status", { bearer: token })).status,
     ).toBe(403);
     expect((await api(srv, "/api/backup/status")).status).toBe(401);
+  });
+});
+
+describe("routes/system.version REST", () => {
+  it("user -> 200 {version, commit, release}; agent -> 403; no id -> 401", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const room = srv.agentManager.getRooms()[0];
+    const agent = await spawnAgent(srv, "Worker", room.id);
+    const token = getAgentTokenRaw(agent.id)!;
+
+    const r = await api(srv, "/api/version", {
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(r.status).toBe(200);
+    const b = r.body as Record<string, unknown>;
+    expect(Object.keys(b).sort()).toEqual(["commit", "release", "version"]);
+    // The test process runs from a real checkout, so git resolves; the dev
+    // checkout has no release tag at HEAD (and if one ever exists, release
+    // equals version — assert the invariant, not the tag).
+    expect(typeof b.commit).toBe("string");
+    expect(typeof b.version).toBe("string");
+    if (b.release !== null) expect(b.release).toBe(b.version as string);
+
+    expect((await api(srv, "/api/version", { bearer: token })).status).toBe(
+      403,
+    );
+    expect((await api(srv, "/api/version")).status).toBe(401);
+  });
+});
+
+describe("GET /readyz", () => {
+  it("answers 200 'ok' with no identity, before and after claim", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    // Pre-claim (no owner seeded yet): the probe must not be behind the
+    // cookie wall or the claim gate.
+    const pre = await srv.http("/readyz", { method: "GET" });
+    expect(pre.status).toBe(200);
+    expect(await pre.text()).toBe("ok\n");
+
+    await srv.seedOwner("Boss");
+    const post = await srv.http("/readyz", { method: "GET" });
+    expect(post.status).toBe(200);
+    expect(await post.text()).toBe("ok\n");
   });
 });
