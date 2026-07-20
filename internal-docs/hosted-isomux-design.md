@@ -86,7 +86,7 @@ The hostability foundation is better than expected:
   curl calls, then report the invite URL back to the control plane. No
   interactive step on the box.
 - **State is relocatable** (`ISOMUX_HOME`); daily backups already land in
-  `~/.isomux/backups/`; Codex is bundled as an npm dep (no separate
+  `~/isomux-backups/`; Codex is bundled as an npm dep (no separate
   install).
 - **BYOK fits natively**: per-user env files for API keys; subscription
   OAuth for Claude/Codex can be completed from isomux's own terminal panel.
@@ -103,7 +103,8 @@ Ubuntu VPS into a working, HTTPS-served isomux:
 2. Write and enable a systemd unit (system-level or a dedicated user with
    lingering; today's docs assume a user service).
 3. Install Caddy; reverse-proxy `:443 -> 127.0.0.1:4000` with automatic
-   Let's Encrypt; set `ISOMUX_PUBLIC_ORIGIN`.
+   Let's Encrypt; set the public origin via `PUT /api/office/access` (the
+   `ISOMUX_PUBLIC_ORIGIN` env var is deprecated).
 4. Harden: ufw (443 + optionally 22), SSH keys only, unattended-upgrades.
 5. Claim owner + mint invite via loopback; POST the resulting invite URL and
    a health status back to the control plane callback.
@@ -141,8 +142,8 @@ upstream with releases:
    headless box (subscription OAuth via `claude setup-token` / terminal
    panel, or API keys via the user env file). This is the fiddliest
    customer-facing step; today it is folklore.
-3. Small: welcome/system prompts mention `localhost:4000` (should derive
-   from `ISOMUX_PUBLIC_ORIGIN`); no restore-from-backup UI.
+3. Small: no restore-from-backup UI. (The other half of this item, prompts
+   deriving human-facing URLs from the public origin, shipped 2026-07-19.)
 
 ### D. Ops (ongoing; the real cost)
 
