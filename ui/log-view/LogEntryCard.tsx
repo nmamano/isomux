@@ -1109,6 +1109,7 @@ function ToolResult({
   isMobile?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [echoOpen, setEchoOpen] = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const content = entry.content;
   const isLong = content.length > 200;
@@ -1118,13 +1119,29 @@ function ToolResult({
   // the row has attachments, has no matching call, or is an error. In the
   // attachments-only-paired-success case the text is already in the tool_call
   // expander, so don't duplicate it here.
-  const hasMatchingToolCall =
-    entry.metadata?.toolUseId != null &&
-    !!turnEntries?.some(
-      (e) =>
-        e.kind === "tool_call" &&
-        e.metadata?.toolId === entry.metadata?.toolUseId,
-    );
+  const pairedToolCall =
+    entry.metadata?.toolUseId != null
+      ? turnEntries?.find(
+          (e) =>
+            e.kind === "tool_call" &&
+            e.metadata?.toolId === entry.metadata?.toolUseId,
+        )
+      : undefined;
+  const hasMatchingToolCall = !!pairedToolCall;
+  // Attachment echo: when the agent Reads an image out of its OWN attachment
+  // directory, that file arrived through this very chat (attachments are
+  // path-notices since task 353e2e66) and is already rendered above as the
+  // user's upload — a full re-render just mirrors it back. Collapse to a
+  // click-to-expand chip instead. Images read from anywhere else (agent
+  // screenshots, repo files) keep the full render: there the boss can't
+  // otherwise know what the agent is looking at.
+  const calledPathRaw = (
+    pairedToolCall?.metadata?.input as { file_path?: unknown } | undefined
+  )?.file_path;
+  const isAttachmentEcho =
+    typeof calledPathRaw === "string" &&
+    (calledPathRaw.includes(`/logs/${entry.agentId}/files/`) ||
+      calledPathRaw.includes(`/logs/${entry.agentId}/images/`));
   const showText = !hasMatchingToolCall || isError;
   const borderColor = isError ? "var(--red)" : "var(--green-border)";
   const textColor = isError ? "var(--red)" : "var(--text-dim)";
@@ -1172,16 +1189,40 @@ function ToolResult({
           {open ? "Show less" : "Show more"}
         </button>
       )}
-      {entry.attachments && entry.attachments.length > 0 && (
-        <AttachmentDisplay
-          attachments={entry.attachments}
-          agentId={entry.agentId}
-          isMobile={isMobile}
-          lightboxSrc={lightboxSrc}
-          setLightboxSrc={setLightboxSrc}
-          hasContent={showText && !!content}
-        />
-      )}
+      {entry.attachments &&
+        entry.attachments.length > 0 &&
+        (isAttachmentEcho && !echoOpen ? (
+          <button
+            onClick={() => setEchoOpen(true)}
+            title="The agent viewed a file attached earlier in this chat. Click to show it."
+            style={{
+              display: "block",
+              marginTop: showText && content ? 6 : 0,
+              padding: "2px 8px",
+              border: "1px solid var(--border-light)",
+              background: "var(--expand-btn)",
+              borderRadius: 4,
+              color: "var(--text-faint)",
+              fontSize: isMobile ? 12 : 10,
+              cursor: "pointer",
+            }}
+          >
+            Viewed{" "}
+            {entry.attachments.length === 1
+              ? entry.attachments[0].originalName
+              : `${entry.attachments.length} attached images`}{" "}
+            (click to show)
+          </button>
+        ) : (
+          <AttachmentDisplay
+            attachments={entry.attachments}
+            agentId={entry.agentId}
+            isMobile={isMobile}
+            lightboxSrc={lightboxSrc}
+            setLightboxSrc={setLightboxSrc}
+            hasContent={showText && !!content}
+          />
+        ))}
       {isLastInTurn && <TurnCopyButton turnEntries={turnEntries} />}
     </div>
   );
