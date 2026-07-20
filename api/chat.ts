@@ -157,6 +157,7 @@ Setup:
 - All conversations are persisted forever in append-only JSONL logs
 - Kill removes agent and frees desk
 - Context self-check: every agent can ask how full its own context window is (an API documented in its system prompt), so instructions like "start wrapping up past 80% of context" have something real to check against. A reading is the latest backend sample and may lag the in-flight turn (roughly the last turn boundary); humans get the same view with /context, plus a battery-style meter in the conversation header that fills and shifts from dim to orange to red as the window fills. The server also nudges the agent as its window fills — a one-line notice on its next message the first time the conversation passes roughly 50% and then 75% — so wrap-up suggestions fire even when the agent never thinks to check
+- Update notice: the office header shows when a new release is out. On a VPS install the owner can apply it from there; the confirm step shows how many busy agents the restart would interrupt, and a failed update rolls back on its own. On a source checkout the notice tracks the isomux repo instead, with steps to pull and restart
 
 ### Mobile Support
 - Open from your phone — same server URL (whether VPN-only or public via Funnel / reverse proxy), touch-optimized UI

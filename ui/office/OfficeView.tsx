@@ -162,6 +162,7 @@ export function OfficeView({
     rooms,
     isMobile,
     updateAvailable,
+    updateInfo,
     hasReceivedInitialState,
     presences,
     sessionContext,
@@ -408,7 +409,9 @@ export function OfficeView({
                     boxShadow: "0 0 8px var(--blue, #58a6ff)",
                   }}
                 />
-                update available
+                {updateInfo?.mode === "release"
+                  ? "new release"
+                  : "update available"}
               </span>
             )}
           </div>

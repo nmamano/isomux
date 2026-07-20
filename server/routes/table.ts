@@ -54,6 +54,7 @@ import type {
   Attachment,
   BackendModelWire,
   LogEntry,
+  UpdateStatusWire,
 } from "../../shared/types.ts";
 import type {
   SpawnReq,
@@ -736,6 +737,36 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/office/access",
     auth: cap("office:admin", officeOwner),
     emits: ["invites_list"],
+  }),
+  // In-UI update trigger (release channel). Owner-only like the rest of the
+  // office-admin surface: an update restarts the server and interrupts every
+  // agent. The POST launches the installed updater DETACHED (systemd unit, not
+  // a child process); progress is out-of-band (the restart itself). No emits —
+  // the update_status WS event is fed by the checker, not by these routes.
+  defineRoute<
+    void,
+    {
+      managed: boolean;
+      serviceKind: "system" | "user" | null;
+      busyAgents: number;
+      status: UpdateStatusWire;
+    }
+  >({
+    opId: "office.updateInfo",
+    method: "GET",
+    path: "/api/office/update",
+    auth: cap("office:admin", officeOwner),
+    emits: [],
+  }),
+  defineRoute<
+    { tag: string },
+    { ok: true; via: "system" | "user"; tag: string }
+  >({
+    opId: "office.triggerUpdate",
+    method: "POST",
+    path: "/api/office/update",
+    auth: cap("office:admin", officeOwner),
+    emits: [],
   }),
 
   // --- Office settings, validation, backends --------------------------------

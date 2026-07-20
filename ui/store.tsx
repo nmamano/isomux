@@ -29,6 +29,7 @@ import type {
   SessionContext,
   InviteWire,
   SessionWire,
+  UpdateStatusWire,
 } from "../shared/types.ts";
 import {
   type UserView,
@@ -93,8 +94,10 @@ export interface AppState {
   cronjobRunsLoaded: boolean;
   currentRoomId: string | null; // selected room id (view selection only; null when no rooms visible)
   updateAvailable: boolean;
-  updateCurrent: { sha: string; message: string; date: string };
-  updateLatest: { sha: string; message: string; date: string };
+  // Full mode-discriminated status behind the banner (null until the first
+  // update_status arrives). "commit" = dev-box drift, "release" = a new
+  // release on an updater-managed box.
+  updateInfo: UpdateStatusWire | null;
   // Server-stored boss profiles. `users` is keyed by lowercase(name). The
   // current device's user is identified by `sessionContext.username`, which
   // the server sends right after WS open from the session cookie. Pre-auth
@@ -235,12 +238,7 @@ type Action =
   | { type: "invite_revoked"; tokenPrefix: string }
   | { type: "session_revoked"; sessionPrefix: string }
   | { type: "session_expired" }
-  | {
-      type: "update_status";
-      updateAvailable: boolean;
-      current: { sha: string; message: string; date: string };
-      latest: { sha: string; message: string; date: string };
-    }
+  | ({ type: "update_status" } & UpdateStatusWire)
   | {
       type: "cronjobs_state";
       cronjobs: Cronjob[];
@@ -526,13 +524,28 @@ export function reducer(state: AppState, action: Action): AppState {
         rooms: [...state.rooms, action.room],
         currentRoomId: state.currentRoomId ?? action.room.id,
       };
-    case "update_status":
+    case "update_status": {
+      // Rebuild the wire union without the WS `type` tag.
+      const updateInfo: UpdateStatusWire =
+        action.mode === "commit"
+          ? {
+              mode: "commit",
+              updateAvailable: action.updateAvailable,
+              current: action.current,
+              latest: action.latest,
+            }
+          : {
+              mode: "release",
+              updateAvailable: action.updateAvailable,
+              current: action.current,
+              latest: action.latest,
+            };
       return {
         ...state,
         updateAvailable: action.updateAvailable,
-        updateCurrent: action.current,
-        updateLatest: action.latest,
+        updateInfo,
       };
+    }
     case "room_closed": {
       const result = applyRoomClose(
         state.rooms,
@@ -720,8 +733,7 @@ export const initialState: AppState = {
   cronjobRunsLoaded: false,
   currentRoomId: null,
   updateAvailable: false,
-  updateCurrent: { sha: "", message: "", date: "" },
-  updateLatest: { sha: "", message: "", date: "" },
+  updateInfo: null,
   users: new Map(),
   usersLoaded: false,
   sessionContext: null,

@@ -65,11 +65,14 @@ the config's `SERVICE_KIND` reconciles the two shapes:
 - **VPS boxes (as installed by `deploy/install.sh`)**: a SYSTEM-level
   `isomux.service` under user `isomux`. The updater runs as root
   (`SERVICE_KIND=system`; git/bun steps drop to the service user, systemctl
-  stays root). This slice: the operator runs `isomux-update <tag>` over
-  SSH. Next slice: the in-UI trigger needs a narrow escalation, since the
-  server is unprivileged - a root-owned `isomux-update@.service` template
-  unit the `isomux` user may start (sudoers or polkit rule scoped to
-  exactly that), detached so the restart can't kill its parent.
+  stays root). The operator runs `isomux-update <tag>` over SSH, or the
+  owner clicks the in-UI trigger, which needs a narrow escalation since the
+  server is unprivileged: a root-owned `isomux-update@.service` template
+  unit the `isomux` user may start, granted by a polkit rule scoped to
+  exactly that unit pattern and the start verb (polkit, not sudoers:
+  sudoers matches arguments with globs where `*` also matches spaces, so a
+  tag wildcard would additionally authorize arbitrary extra unit names on
+  the same systemctl call). Detached so the restart can't kill its parent.
 - **Dev-style boxes** (user-level service, like Nil's): `SERVICE_KIND=user`
   runs everything as the user with `systemctl --user`.
 
@@ -175,16 +178,23 @@ Shipped (the shell-drivable slice):
   back solely on a genuine no-releases 404 and fails closed on
   transport/parse errors (a GitHub hiccup must not silently install
   un-gated main); forks stay lenient.
+- The release-aware update surface (recommendation B). One checker,
+  `server/update-checker.ts`, with two modes keyed on the presence of
+  `/etc/isomux/update.conf`: absent (dev boxes) keeps the commit-drift
+  check vs. main; present (updater-managed boxes) compares the running
+  release (`server/version.ts`) against the repo's latest GitHub release
+  (owner/repo from the conf's `REPO_URL`), staying quiet while no release
+  exists (`releases/latest` 404). The banner and modal follow the mode
+  ("new release" instead of commit drift), and owners get the trigger:
+  `GET`/`POST /api/office/update` (owner-only, `office:admin`) with a
+  busy-agent confirm step, launching the installed updater DETACHED -
+  `systemctl start --no-block isomux-update@<tag>.service` on system boxes
+  (root-owned template unit + polkit rule, written by the installer as
+  described above), `systemd-run --user` running `UPDATER_PATH` on
+  user-kind boxes, a clean "not updater-managed" refusal without a conf.
 
 Remaining:
 
-- The "update available" banner and the in-UI trigger route (owner-only,
-  detached execution, the escalation unit on VPS boxes). Note the UI
-  already shows a commit-level update indicator fed by
-  `server/update-checker.ts` (HEAD vs. GitHub main tip) - a fact the
-  original gap list missed; the banner slice should make it release-aware
-  (compare `release` from `/api/version` against `releases/latest`)
-  instead of adding a second checker.
 - `internal-docs/backup-restore.md` (referenced by `backup.ts`) still does
   not exist; the daily-backup restore procedure is undocumented. The
   updater no longer depends on it (it snapshots and restores on its own),

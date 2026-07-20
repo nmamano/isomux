@@ -160,6 +160,9 @@ import { officeSettingsHandlers } from "./routes/handlers/office-settings.ts";
 import { validateHandlers } from "./routes/handlers/validate.ts";
 import { backendsHandlers } from "./routes/handlers/backends.ts";
 import { systemHandlers } from "./routes/handlers/system.ts";
+import { updateHandlers } from "./routes/handlers/update.ts";
+import { triggerUpdate } from "./update-trigger.ts";
+import { readUpdateConf } from "./update-conf.ts";
 import { viewHandlers } from "./routes/handlers/view.ts";
 import { roomsHandlers } from "./routes/handlers/rooms.ts";
 import { agentsHandlers } from "./routes/handlers/agents.ts";
@@ -2740,6 +2743,34 @@ function buildExecutorDeps(): ExecutorDeps {
       getVersion: () => getVersionInfo(),
     }),
   );
+  // In-UI update trigger (release channel). The conf is read per call so an
+  // updater installed after boot is seen without a restart; the launch is
+  // detached (systemd), never a child of this process.
+  register(
+    updateHandlers({
+      getUpdateInfo: () => {
+        // Managed keys on conf PRESENCE (a damaged conf is still an
+        // updater-managed box); serviceKind is null unless cleanly parsed.
+        const conf = readUpdateConf();
+        const kind =
+          conf.state === "parsed" ? conf.values.SERVICE_KIND : undefined;
+        return {
+          managed: conf.state !== "absent",
+          serviceKind: kind === "system" || kind === "user" ? kind : null,
+          // Office-wide, NOT the caller's room projection: the restart
+          // interrupts every agent, so the confirm count must include rooms
+          // hidden from a restricted owner.
+          busyAgents: agentManager
+            .getAllAgents()
+            .filter(
+              (a) => a.state === "thinking" || a.state === "tool_executing",
+            ).length,
+          status: getUpdateStatus(),
+        };
+      },
+      triggerUpdate: (tag) => triggerUpdate(tag),
+    }),
+  );
 
   // 3a.5 — validateEnvBodySelfSubject: the SOLE object-level policy for
   // validate.env (its guard is just `authenticated`). An owner may validate any
@@ -4451,18 +4482,12 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
             cronjobsPrompt: cronjobManager.getCronjobsPrompt(),
           }),
         );
-        // Send update status
-        const update = getUpdateStatus();
-        if (update.updateAvailable) {
-          ws.send(
-            JSON.stringify({
-              type: "update_status",
-              updateAvailable: true,
-              current: update.current,
-              latest: update.latest,
-            }),
-          );
-        }
+        // Send update status — always, not only when available: the client
+        // needs the mode (and current-version info) even while quiet, and a
+        // reconnect after a cleared banner must hydrate the false state.
+        ws.send(
+          JSON.stringify({ type: "update_status", ...getUpdateStatus() }),
+        );
         // Send cached log history and slash commands for each agent the
         // session can see. agentVisibleForSession short-circuits to true
         // for full-access sessions so the gate is free on the fast path.
@@ -4631,12 +4656,7 @@ function runBackgroundBoot(
   if (!startOpts.skipUpdateChecker) {
     // Start update checker
     onUpdateChange((status) => {
-      broadcast({
-        type: "update_status",
-        updateAvailable: status.updateAvailable,
-        current: status.current,
-        latest: status.latest,
-      });
+      broadcast({ type: "update_status", ...status });
     });
     startUpdateChecker();
   }

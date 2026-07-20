@@ -44,6 +44,7 @@ import type {
   InviteWire,
   SessionWire,
   SkillInfo,
+  UpdateStatusWire,
 } from "../../shared/types.ts";
 import type {
   UserPublicWire,
@@ -194,11 +195,7 @@ export interface EventPayloads {
   // TARGET: public office metadata only; `envFile` is owner-only via
   // office.getSettings and never rides this `all` event.
   office_settings_updated: { name: string | null; prompt: string | null };
-  update_status: {
-    updateAvailable: boolean;
-    current: { sha: string; message: string; date: string };
-    latest: { sha: string; message: string; date: string };
-  };
+  update_status: UpdateStatusWire;
 
   // Auth-sensitive
   session_revoked: { sessionPrefix: string };

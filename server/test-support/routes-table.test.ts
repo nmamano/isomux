@@ -306,6 +306,10 @@ const SPEC_ROUTE_CONTRACT: Record<
   "sessions.logout": { caps: [], emits: ["session_expired"] },
   "office.getAccess": { caps: ["office:admin"], emits: [] },
   "office.setAccess": { caps: ["office:admin"], emits: ["invites_list"] },
+  // In-UI update trigger (release channel): owner-only, no emits — the
+  // update_status event is fed by the checker, never by these routes.
+  "office.updateInfo": { caps: ["office:admin"], emits: [] },
+  "office.triggerUpdate": { caps: ["office:admin"], emits: [] },
   // Office settings, validation, backends
   "office.getSettings": { caps: ["office:admin"], emits: [] },
   "office.setSettings": {

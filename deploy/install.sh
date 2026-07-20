@@ -266,7 +266,9 @@ install_packages() {
     CADDY_MASKED=1
   fi
   run apt-get update -y
-  run apt-get install -y curl ca-certificates gnupg git jq unzip ufw unattended-upgrades
+  # polkitd: authorizes the in-UI update trigger (see install_updater); present
+  # on most Ubuntu images but not guaranteed on minimal ones.
+  run apt-get install -y curl ca-certificates gnupg git jq unzip ufw unattended-upgrades polkitd
   if [[ -n $DRY_RUN ]]; then
     log "DRY-RUN: would add the official Caddy apt repository and install caddy"
   else
@@ -518,7 +520,7 @@ build_isomux() {
 install_updater() {
   step install-updater
   if [[ -n $DRY_RUN ]]; then
-    log "DRY-RUN: would write $UPDATE_CONF and install $UPDATER_PATH from a root-owned fetch of $ISOMUX_REPO @ $ISOMUX_REF"
+    log "DRY-RUN: would write $UPDATE_CONF, install $UPDATER_PATH from a root-owned fetch of $ISOMUX_REPO @ $ISOMUX_REF, and set up the in-UI trigger (isomux-update@.service + polkit rule)"
     return 0
   fi
   install -d -m 755 "$(dirname "$UPDATE_CONF")"
@@ -552,6 +554,46 @@ EOF
   git -C "$trust" cat-file -p FETCH_HEAD:scripts/update.sh >"$tmp"
   install -m 755 "$tmp" "$UPDATER_PATH"
   rm -f "$tmp"
+  # In-UI update trigger escalation (release-design.md → "Update trigger"): the
+  # server runs unprivileged, so the owner's update button asks systemd to
+  # start this ROOT-owned template unit; the polkit rule grants the service
+  # user exactly that — verb start on isomux-update@<calver-tag>.service, no
+  # other unit, no other verb. This IS a new root-mediated capability for the
+  # service user (which agents shell as); its safety rests on the tightly
+  # constrained target, not on the HTTP layer's owner-only gate: everything
+  # root executes is root-owned ($UPDATER_PATH, this unit file), the updater
+  # resolves tags only through its root-owned trust repo against the
+  # configured upstream, and the one caller-controlled input, the instance
+  # name, is constrained by the regex below, by systemd's unit-name charset,
+  # and by the updater's own CalVer check. Polkit rather than sudoers because
+  # sudoers matches arguments with globs where * also matches spaces: a tag
+  # wildcard there would also authorize appending arbitrary extra unit names
+  # to the same systemctl call.
+  write_file /etc/systemd/system/isomux-update@.service 644 <<EOF
+[Unit]
+Description=Isomux update to release %i
+
+[Service]
+Type=oneshot
+ExecStart=$UPDATER_PATH %i
+EOF
+  install -d -m 755 /etc/polkit-1/rules.d
+  write_file /etc/polkit-1/rules.d/50-isomux-update.rules 644 <<EOF
+// Installed by the isomux installer. Lets the unprivileged service user start
+// the root-owned update unit (and nothing else). polkitd picks this up
+// automatically.
+polkit.addRule(function (action, subject) {
+  if (
+    action.id === "org.freedesktop.systemd1.manage-units" &&
+    subject.user === "$SERVICE_USER" &&
+    action.lookup("verb") === "start" &&
+    /^isomux-update@v[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}(\.[0-9]+)?\.service\$/.test(action.lookup("unit") || "")
+  ) {
+    return polkit.Result.YES;
+  }
+});
+EOF
+  systemctl daemon-reload
 }
 
 install_service() {

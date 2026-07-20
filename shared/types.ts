@@ -985,6 +985,39 @@ export interface BackendModelWire {
   defaultEffort?: string;
 }
 
+// Update-available status feeding the header banner (server/update-checker.ts).
+// Mode is decided by the box shape: "commit" on dev boxes (HEAD vs. the GitHub
+// main tip — the banner means "pull and restart"), "release" on updater-managed
+// boxes with an /etc/isomux/update.conf (running release vs. the repo's latest
+// GitHub release — the banner means "a new release exists", applied via the
+// owner-only update trigger). See internal-docs/release-design.md.
+export interface CommitDriftInfo {
+  sha: string;
+  message: string;
+  date: string; // ISO 8601
+}
+export type UpdateStatusWire =
+  | {
+      mode: "commit";
+      updateAvailable: boolean;
+      current: CommitDriftInfo;
+      latest: CommitDriftInfo;
+    }
+  | {
+      mode: "release";
+      updateAvailable: boolean;
+      // What this box runs: the exact release tag when pinned to one, else
+      // null with `version` (git describe) as the display fallback.
+      current: { release: string | null; version: string | null };
+      // The repo's latest release; null when none exist yet (pre-first-release
+      // boxes stay quiet).
+      latest: {
+        tag: string;
+        publishedAt: string | null;
+        url: string | null;
+      } | null;
+    };
+
 // Server → Browser messages
 export type ServerMessage =
   | {
@@ -1089,12 +1122,7 @@ export type ServerMessage =
   | { type: "session_revoked"; sessionPrefix: string }
   | { type: "invite_revoked"; tokenPrefix: string }
   | { type: "session_expired" }
-  | {
-      type: "update_status";
-      updateAvailable: boolean;
-      current: { sha: string; message: string; date: string };
-      latest: { sha: string; message: string; date: string };
-    }
+  | ({ type: "update_status" } & UpdateStatusWire)
   | {
       type: "cronjobs_state";
       cronjobs: Cronjob[];
