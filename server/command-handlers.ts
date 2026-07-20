@@ -49,6 +49,7 @@ import {
   type EnqueueResult,
 } from "./internal-types.ts";
 import { runAgentTurn } from "./plugin-hooks.ts";
+import { buildPublicOrigin } from "./auth.ts";
 
 type HandlerFn = (
   agentId: string,
@@ -401,12 +402,26 @@ export function createCommandHandling(deps: HandlerDeps) {
       lines.push(
         "  • Use voice-to-text for faster prompting. The shortcut is ctrl+space.",
       );
-      lines.push(
-        "  • Isomux works on your phone. The easiest way is to connect it to the same VPN (e.g., Tailscale - free) as the machine running it.",
-      );
-      lines.push(
-        "  • Once the office is reachable from outside your VPN (e.g. via Tailscale Funnel — see https://isomux.com/docs/access-and-invites), the owner can open User Settings → Access and mint one-time invite URLs. Recipients click and are signed in — no accounts, no passwords.",
-      );
+      // Reachability tips depend on whether this boot has a real public
+      // origin (env/config, non-loopback bind). Without one, the office is
+      // VPN/tunnel territory; with one, the phone tip is just the URL and
+      // the Funnel preamble to the invite tip is moot.
+      const publicOrigin = buildPublicOrigin();
+      if (publicOrigin.source === "localhost") {
+        lines.push(
+          "  • Isomux works on your phone. The easiest way is to connect it to the same VPN (e.g., Tailscale - free) as the machine running it.",
+        );
+        lines.push(
+          "  • Once the office is reachable from outside your VPN (e.g. via Tailscale Funnel — see https://isomux.com/docs/access-and-invites), the owner can open User Settings → Access and mint one-time invite URLs. Recipients click and are signed in — no accounts, no passwords.",
+        );
+      } else {
+        lines.push(
+          `  • Isomux works on your phone: open ${publicOrigin.origin}.`,
+        );
+        lines.push(
+          "  • The owner can open User Settings → Access and mint one-time invite URLs. Recipients click and are signed in — no accounts, no passwords.",
+        );
+      }
       lines.push(
         "  • The built-in side-panel terminal is useful for one-off situations where you need to run something manually, like auth flows.",
       );

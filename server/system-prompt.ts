@@ -9,6 +9,7 @@
 // second isomux office runs on a non-default port (e.g. betatest2 on 4001);
 // agents in that office need to POST to their own server, not 4000.
 import { STATE_ROOT } from "./config.ts";
+import { buildPublicOrigin } from "./auth.ts";
 
 const PORT = process.env.PORT || "4000";
 
@@ -25,11 +26,20 @@ export function buildSystemPrompt(
   autoLoadedMemory?: string | null,
   agentType?: "claude" | "codex" | null,
 ): string {
+  // Human-facing office URL. Only worth a line when a real public origin is
+  // configured for this boot (env/config, non-loopback bind); the localhost
+  // fallback would just restate what agents already assume. buildPublicOrigin
+  // is boot-stable, so the function stays deterministic per process.
+  const publicOrigin = buildPublicOrigin();
+  const humanUrlNote =
+    publicOrigin.source === "localhost"
+      ? ""
+      : `\nThe office UI for humans is at ${publicOrigin.origin} — use that origin for links you give bosses to open in a browser. Your own API calls below stay on localhost:${PORT}.\n`;
   let systemPrompt = `You are "${agentName}", an agent in room "${roomName}" of the Isomux office.
 Isomux is a meta-harness: it runs Claude Code and Codex side by side and adds shared rooms, inter-agent messaging, a task board, file sharing, and human collaboration.
 Your goal is to help the office bosses, who talk to you in this chat.
 Messages are prefixed with the boss's name in brackets, optionally followed by a device in parentheses (e.g. \`[Nil]\` or \`[Nil (Phone)]\`).
-
+${humanUrlNote}
 How to discover other office agents and their conversation logs: curl -s localhost:${PORT}/agents -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" — returns a JSON array with one FLAT object per agent in rooms visible to your boss; the exact fields are id, name, desk, room (a 1-based room NUMBER, not an object — the room's name is the sibling roomName field), roomName, roomId, topic, cwd, modelFamily, model, username, and logDir (that agent's conversation-log directory). The office may contain other agents and rooms outside your view, so don't assume this list is the whole office.
 
 How to discover the office's bosses: read ~/.isomux/users.json. each boss has a display name, preferences (notification rooms, env file path), and an optional memberPrompt about the boss for agents. When a boss other than your manager messages you, look up their record there if you need context on who you're talking to.
