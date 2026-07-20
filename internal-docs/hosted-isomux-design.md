@@ -126,7 +126,9 @@ first slice and test it against a real cheap VPS.
   3" recovery, idempotent re-runs).
 - Customer dashboard: provisioning progress, the invite link handoff,
   instance health, restart button, SSH toggle, metrics proxied from the
-  Webdock API, cancel/deprovision.
+  Webdock API, cancel/deprovision. (SSH decision, Nil 2026-07-20: customers
+  may get root access; pair enabling it with a clear warning about what not
+  to touch - the isomux service, updater config, Caddy, firewall.)
 
 ### C. Gaps in isomux itself (~1 week)
 
