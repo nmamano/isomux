@@ -34,22 +34,22 @@ After a few minutes it prints a single-use owner invite link, also saved on the 
 - Installs bun, git, and Caddy; fetches isomux and builds it.
 - Runs isomux as a systemd service under a dedicated `isomux` user, restarting on failure and on boot.
 - Serves your domain through Caddy with an automatic Let's Encrypt certificate.
-- Hardens the box: firewall allowing only web traffic and, unless disabled, SSH; key-only SSH auth; unattended security updates.
+- Hardens the box: firewall allowing only web traffic and, unless disabled, SSH; key-only SSH auth; unattended security updates (a standard Ubuntu feature — it patches system packages, never isomux itself).
 - Claims the office owner over loopback before the box is exposed, then mints your invite link.
 
 ## Parameters
 
 Environment variables, set before running:
 
-| Variable       | Default        | Meaning                                                                        |
-| -------------- | -------------- | ------------------------------------------------------------------------------ |
-| `DOMAIN`       | (required)     | Public domain for the office.                                                  |
-| `OWNER_NAME`   | `Owner`        | Owner display name; changeable later in User Settings.                         |
-| `ISOMUX_REF`   | latest release | Git branch, tag, or commit to install; `main` if no release exists yet.        |
-| `ISOMUX_REPO`  | GitHub         | Git repo to install from (for forks).                                          |
-| `SSH_PORT`     | `22`           | SSH port to allow through the firewall; `none` keeps SSH closed.               |
-| `CALLBACK_URL` | (unset)        | HTTPS URL that receives a POST: `{inviteUrl, status}`, plus `step` on failure. |
-| `DRY_RUN`      | (unset)        | Set to `1` to print what would run instead of running it.                      |
+| Variable               | Default        | Meaning                                                                        |
+| ---------------------- | -------------- | ------------------------------------------------------------------------------ |
+| `DOMAIN`               | (required)     | Public domain for the office.                                                  |
+| `OWNER_NAME`           | `Owner`        | Owner display name; changeable later in User Settings.                         |
+| `ISOMUX_REF`           | latest release | Git branch, tag, or commit to install; `main` if no release exists yet.        |
+| `ISOMUX_REPO`          | GitHub         | Git repo to install from (for forks).                                          |
+| `SSH_PORT`             | `22`           | SSH port to allow through the firewall; `none` keeps SSH closed.               |
+| `INSTALL_CALLBACK_URL` | (unset)        | HTTPS URL that receives a POST: `{inviteUrl, status}`, plus `step` on failure. |
+| `DRY_RUN`              | (unset)        | Set to `1` to print what would run instead of running it.                      |
 
 ## Re-running
 

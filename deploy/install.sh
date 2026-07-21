@@ -3,10 +3,11 @@
 #
 # Turns a fresh Ubuntu 24.04 server into an HTTPS-served isomux instance:
 # bun + isomux (systemd service) + Caddy with automatic Let's Encrypt +
-# firewall/SSH/auto-update hardening. Ends by claiming the office owner,
-# minting a single-use owner invite link, printing it, saving it to
-# /var/lib/isomux-install/invite-url, and optionally POSTing it to a
-# callback URL.
+# firewall/SSH hardening + unattended security updates (a standard Ubuntu
+# feature — it patches system packages, never isomux itself). Ends by
+# claiming the office owner, minting a single-use owner invite link,
+# printing it, saving it to /var/lib/isomux-install/invite-url, and
+# optionally POSTing it to a callback URL.
 #
 # Usage (as root):
 #
@@ -29,8 +30,8 @@
 #   ISOMUX_REPO   git repo to install from (default the official GitHub repo).
 #   SSH_PORT      SSH port to allow through the firewall (default 22; set to
 #                 "none" to keep SSH closed).
-#   CALLBACK_URL  if set, the installer POSTs JSON {inviteUrl, status[, step]}
-#                 here on success and on failure.
+#   INSTALL_CALLBACK_URL  if set, the installer POSTs JSON
+#                 {inviteUrl, status[, step]} here on success and on failure.
 #   DRY_RUN       set to 1 to print state-changing commands instead of
 #                 running them.
 #
@@ -48,7 +49,7 @@ OWNER_NAME="${OWNER_NAME:-Owner}"
 ISOMUX_REF="${ISOMUX_REF:-}"
 ISOMUX_REPO="${ISOMUX_REPO:-https://github.com/nmamano/isomux.git}"
 SSH_PORT="${SSH_PORT:-22}"
-CALLBACK_URL="${CALLBACK_URL:-}"
+INSTALL_CALLBACK_URL="${INSTALL_CALLBACK_URL:-}"
 DRY_RUN="${DRY_RUN:-}"
 
 # --- Constants --------------------------------------------------------------
@@ -112,10 +113,10 @@ report_failure() {
   if [[ -n $CADDY_MASKED && -z $DRY_RUN ]]; then
     systemctl unmask caddy >/dev/null 2>&1 || true
   fi
-  if [[ -n $CALLBACK_URL && -z $DRY_RUN ]]; then
+  if [[ -n $INSTALL_CALLBACK_URL && -z $DRY_RUN ]]; then
     printf '{"inviteUrl": null, "status": "failed", "step": "%s"}' "$CURRENT_STEP" |
-      curl -fsS -X POST "$CALLBACK_URL" -H 'Content-Type: application/json' --data @- \
-        >/dev/null 2>&1 || log "warning: failure callback to CALLBACK_URL did not go through"
+      curl -fsS -X POST "$INSTALL_CALLBACK_URL" -H 'Content-Type: application/json' --data @- \
+        >/dev/null 2>&1 || log "warning: failure callback to INSTALL_CALLBACK_URL did not go through"
   fi
 }
 
@@ -221,8 +222,8 @@ preflight() {
       die "SSH_PORT must be a port (1-65535) or \"none\": $SSH_PORT"
     fi
   fi
-  if [[ -n $CALLBACK_URL && ! $CALLBACK_URL =~ ^https:// ]] && ! callback_is_local_http "$CALLBACK_URL"; then
-    die "CALLBACK_URL must be https:// (plain http is allowed only for localhost testing)"
+  if [[ -n $INSTALL_CALLBACK_URL && ! $INSTALL_CALLBACK_URL =~ ^https:// ]] && ! callback_is_local_http "$INSTALL_CALLBACK_URL"; then
+    die "INSTALL_CALLBACK_URL must be https:// (plain http is allowed only for localhost testing)"
   fi
   # ISOMUX_REPO lands in /etc/isomux/update.conf, which the updater parses
   # as literal key=value (never sourced) — but keep the value to a plain
@@ -815,15 +816,20 @@ report() {
   log "also saved on this server at $INVITE_FILE, readable only by root."
   log "To mint a fresh one, re-run this installer."
   log ""
-  log "HTTPS needs the DNS A record for $DOMAIN to point at this server's IP;"
+  SERVER_IPV4=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i == "src") { print $(i + 1); exit }}' || true)
+  if [[ -n $SERVER_IPV4 ]]; then
+    log "HTTPS needs the A record for $DOMAIN to point at this server's IP ($SERVER_IPV4);"
+  else
+    log "HTTPS needs the A record for $DOMAIN to point at this server's IP;"
+  fi
   log "Caddy keeps retrying the certificate until it does."
   log "=============================================================="
-  if [[ -n $CALLBACK_URL && -z $DRY_RUN ]]; then
+  if [[ -n $INSTALL_CALLBACK_URL && -z $DRY_RUN ]]; then
     # The invite URL is a credential; keep it off the argv (visible in ps)
     # by feeding the JSON body through stdin.
     jq -n --arg url "$INVITE_URL" '{inviteUrl: $url, status: "ok"}' |
-      curl -fsS -X POST "$CALLBACK_URL" -H 'Content-Type: application/json' --data @- \
-        >/dev/null 2>&1 || log "warning: success callback to CALLBACK_URL did not go through"
+      curl -fsS -X POST "$INSTALL_CALLBACK_URL" -H 'Content-Type: application/json' --data @- \
+        >/dev/null 2>&1 || log "warning: success callback to INSTALL_CALLBACK_URL did not go through"
   fi
 }
 
