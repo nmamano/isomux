@@ -31,7 +31,7 @@ After a few minutes it prints a single-use owner invite link, also saved on the 
 
 ## What it does
 
-- Installs bun, git, and Caddy; fetches isomux and builds it.
+- Installs bun, Node.js, git, and Caddy; fetches isomux and builds it.
 - Runs isomux as a systemd service under a dedicated `isomux` user, restarting on failure and on boot.
 - Serves your domain through Caddy with an automatic Let's Encrypt certificate.
 - Hardens the box: firewall allowing only web traffic and, unless disabled, SSH; key-only SSH auth; unattended security updates (a standard Ubuntu feature — it patches system packages, never isomux itself).

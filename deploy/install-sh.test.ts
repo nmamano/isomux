@@ -111,4 +111,27 @@ describe("install.sh escalation: template unit + placement", () => {
   it("polkitd is in the apt package list (minimal images may lack it)", () => {
     expect(SRC).toMatch(/apt-get install -y[^\n]*\bpolkitd\b/);
   });
+
+  it("nodejs comes from NodeSource (the PTY sidecar needs current real Node)", () => {
+    // Not Ubuntu's apt nodejs: v18 breaks node-gyp@latest, which the
+    // node-pty rebuild runs under whatever real node is on PATH.
+    expect(SRC).toContain("deb.nodesource.com/node_24.x");
+    expect(SRC).toMatch(/apt-get install -y[^\n]*\bnodejs\b/);
+  });
+
+  it("build step rebuilds node-pty when its native binding is missing", () => {
+    // A resumed install can skip node-pty's build script; the guard must
+    // check for the compiled binding, remove the package AS THE SERVICE USER
+    // (not root), re-run the install, and die if the binding is still absent.
+    expect(SRC).toContain("node_modules/node-pty/build/Release/pty.node");
+    expect(SRC).toMatch(/! -f \$pty_binding/);
+    const rm = SRC.indexOf(
+      'run_as_service_user rm -rf "$INSTALL_DIR/node_modules/node-pty"',
+    );
+    expect(rm).toBeGreaterThan(-1);
+    const reinstall = SRC.indexOf("bun install --frozen-lockfile", rm);
+    const fatal = SRC.search(/-f \$pty_binding[^\n]*\|\|\n\s*die /);
+    expect(reinstall).toBeGreaterThan(rm);
+    expect(fatal).toBeGreaterThan(reinstall);
+  });
 });
