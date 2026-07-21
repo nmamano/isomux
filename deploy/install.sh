@@ -269,7 +269,9 @@ install_packages() {
   run apt-get update -y
   # polkitd: authorizes the in-UI update trigger (see install_updater); present
   # on most Ubuntu images but not guaranteed on minimal ones.
-  run apt-get install -y curl ca-certificates gnupg git jq unzip ufw unattended-upgrades polkitd
+  # build-essential + python3: node-gyp compiles native modules (node-pty)
+  # during bun install; fresh server images ship without a toolchain.
+  run apt-get install -y curl ca-certificates gnupg git jq unzip ufw unattended-upgrades polkitd build-essential python3
   if [[ -n $DRY_RUN ]]; then
     log "DRY-RUN: would add the official Caddy apt repository and install caddy"
   else
