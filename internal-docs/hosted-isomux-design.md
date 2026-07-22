@@ -69,6 +69,13 @@ The control plane owns signup/billing/provisioning/monitoring. Once the box
 is up, the customer's relationship is directly with their isomux instance;
 the control plane only health-checks it and pushes updates.
 
+Provider notes (Hetzner in practice, 2026-07-21): the cost-optimized CX
+line is effectively sold out fleet-wide, so tier pricing must assume
+CPX-class costs (~$13-42/box), not the €6-18 CX prices. Every customer box
+gets Hetzner's box-level backup option (+20% of box price, 7 off-box
+snapshots): it covers box loss, which isomux's own same-disk daily backups
+don't (decided with Nil).
+
 ## What isomux already has (audit, 2026-07-19)
 
 The hostability foundation is better than expected:
