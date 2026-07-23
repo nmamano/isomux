@@ -3,12 +3,12 @@ import { useAppState } from "../store.tsx";
 import { CopyButton } from "./CopyButton.tsx";
 import { apiFetch } from "../api.ts";
 import type { UpdateStatusWire } from "../../shared/types.ts";
+import {
+  buildCommitNotice,
+  type CommitNotice,
+} from "../../shared/update-notice.ts";
 
 const REPO = "nmamano/isomux";
-
-function shortSha(sha: string) {
-  return sha.slice(0, 7);
-}
 
 function formatDate(iso: string): string {
   if (!iso) return "";
@@ -23,15 +23,11 @@ function formatDate(iso: string): string {
 type CommitStatus = Extract<UpdateStatusWire, { mode: "commit" }>;
 type ReleaseStatus = Extract<UpdateStatusWire, { mode: "release" }>;
 
-function buildCommitPlainText(
-  current: { sha: string; message: string; date: string },
-  latest: { sha: string; message: string; date: string },
-): string {
+function buildCommitPlainText(notice: CommitNotice): string {
   return [
-    "Update Available",
+    notice.title,
     "",
-    `- You are on commit ${shortSha(current.sha)}: ${current.message} (${formatDate(current.date)})`,
-    `- GitHub is on commit ${shortSha(latest.sha)}: ${latest.message} (${formatDate(latest.date)})`,
+    notice.notice,
     "",
     "To update:",
     "",
@@ -87,29 +83,40 @@ const quietButtonStyle: React.CSSProperties = {
   border: "1px solid var(--border-light)",
 };
 
-// Commit-mode body: the dev-box drift notice with manual instructions.
-function CommitBody({ status }: { status: CommitStatus }) {
+// Commit-mode body: the source-checkout notice (running version, latest
+// release, main drift — copy composed in shared/update-notice.ts) with manual
+// update instructions.
+function CommitBody({
+  status,
+  notice,
+}: {
+  status: CommitStatus;
+  notice: CommitNotice;
+}) {
   return (
     <>
-      <ul style={{ ...textStyle, margin: "16px 0 0", paddingLeft: 20 }}>
-        <li>
-          You are on commit{" "}
-          <code style={code}>{shortSha(status.current.sha)}</code>:{" "}
-          {status.current.message} ({formatDate(status.current.date)})
-        </li>
-        <li style={{ marginTop: 4 }}>
+      <p style={{ ...textStyle, margin: "16px 0 0" }}>
+        {notice.notice}{" "}
+        {status.latest?.url ? (
+          <a
+            href={status.latest.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: "var(--blue, #58a6ff)", textDecoration: "none" }}
+          >
+            (release notes)
+          </a>
+        ) : (
           <a
             href={`https://github.com/${REPO}`}
             target="_blank"
             rel="noopener noreferrer"
             style={{ color: "var(--blue, #58a6ff)", textDecoration: "none" }}
           >
-            GitHub
-          </a>{" "}
-          is on commit <code style={code}>{shortSha(status.latest.sha)}</code>:{" "}
-          {status.latest.message} ({formatDate(status.latest.date)})
-        </li>
-      </ul>
+            (GitHub)
+          </a>
+        )}
+      </p>
 
       <p
         style={{
@@ -358,15 +365,18 @@ export function UpdateModal({ onClose }: { onClose: () => void }) {
 
   const release = updateInfo?.mode === "release" ? updateInfo : null;
   const commit = updateInfo?.mode === "commit" ? updateInfo : null;
+  // Null while quiet — the pill is hidden then, so the modal normally can't
+  // open; the guard below just keeps a stale-open modal from rendering blank.
+  const notice = commit ? buildCommitNotice(commit) : null;
 
   const getText = useCallback(
     () =>
       release
         ? buildReleasePlainText(release)
-        : commit
-          ? buildCommitPlainText(commit.current, commit.latest)
+        : notice
+          ? buildCommitPlainText(notice)
           : "",
-    [release, commit],
+    [release, notice],
   );
 
   return (
@@ -416,16 +426,18 @@ export function UpdateModal({ onClose }: { onClose: () => void }) {
               color: "var(--text-primary)",
             }}
           >
-            {release ? "New Release Available" : "Update Available"}
+            {release
+              ? "New Release Available"
+              : (notice?.title ?? "Update Available")}
           </h3>
           <CopyButton getText={getText} size={28} />
         </div>
 
         {release ? (
           <ReleaseBody status={release} onClose={onClose} />
-        ) : commit ? (
+        ) : commit && notice ? (
           <>
-            <CommitBody status={commit} />
+            <CommitBody status={commit} notice={notice} />
             <div
               style={{
                 display: "flex",
@@ -438,7 +450,20 @@ export function UpdateModal({ onClose }: { onClose: () => void }) {
               </button>
             </div>
           </>
-        ) : null}
+        ) : (
+          // Stale-open guard: the status went quiet while the modal was up.
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "flex-end",
+              marginTop: 20,
+            }}
+          >
+            <button onClick={onClose} style={buttonStyle}>
+              Got it
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

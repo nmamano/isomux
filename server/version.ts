@@ -71,11 +71,37 @@ export function resolveVersionInfo(root: string): VersionInfo {
   };
 }
 
+// The newest CalVer release tag reachable from HEAD — the lineage anchor an
+// untagged checkout's update notice compares against the latest release
+// ("which release is this commit past?"). A dedicated query rather than
+// parsing `git describe`: describe picks the NEAREST v* tag, so a stray
+// non-CalVer tag (a local "v1.0") between HEAD and the release would mask
+// the reachable release. Same numeric sort as the points-at resolution
+// above. Exported for tests.
+export function resolveReachableRelease(root: string): string | null {
+  return (
+    git(root, "tag --merged HEAD --list 'v*'")
+      ?.split("\n")
+      .map((t) => t.trim())
+      .filter((t) => CALVER_RELEASE_RE.test(t))
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+      .at(-1) ?? null
+  );
+}
+
 // The version never changes within a process lifetime (an update always
 // restarts the server), so resolve once on first use.
 let cached: VersionInfo | null = null;
+let cachedReachable: string | null | undefined;
 
 export function getVersionInfo(): VersionInfo {
   cached ??= resolveVersionInfo(PROJECT_ROOT);
   return cached;
+}
+
+export function getReachableRelease(): string | null {
+  if (cachedReachable === undefined) {
+    cachedReachable = resolveReachableRelease(PROJECT_ROOT);
+  }
+  return cachedReachable;
 }

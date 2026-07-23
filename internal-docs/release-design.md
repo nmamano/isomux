@@ -180,8 +180,11 @@ Shipped (the shell-drivable slice):
   un-gated main); forks stay lenient.
 - The release-aware update surface (recommendation B). One checker,
   `server/update-checker.ts`, with two modes keyed on the presence of
-  `/etc/isomux/update.conf`: absent (dev boxes) keeps the commit-drift
-  check vs. main; present (updater-managed boxes) compares the running
+  `/etc/isomux/update.conf`: absent (source checkouts) gives full context
+  across both dimensions — the running tag/commit, the latest release and
+  whether it's newer, and main's commit lead — staying quiet when the box
+  is ahead of main (copy matrix in `shared/update-notice.test.ts`); present
+  (updater-managed boxes) compares the running
   release (`server/version.ts`) against the repo's latest GitHub release
   (owner/repo from the conf's `REPO_URL`), staying quiet while no release
   exists (`releases/latest` 404). The banner and modal follow the mode

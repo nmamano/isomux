@@ -986,22 +986,34 @@ export interface BackendModelWire {
 }
 
 // Update-available status feeding the header banner (server/update-checker.ts).
-// Mode is decided by the box shape: "commit" on dev boxes (HEAD vs. the GitHub
-// main tip — the banner means "pull and restart"), "release" on updater-managed
-// boxes with an /etc/isomux/update.conf (running release vs. the repo's latest
-// GitHub release — the banner means "a new release exists", applied via the
-// owner-only update trigger). See internal-docs/release-design.md.
-export interface CommitDriftInfo {
-  sha: string;
-  message: string;
-  date: string; // ISO 8601
-}
+// Mode is decided by the box shape: "commit" on source checkouts (what HEAD
+// runs vs. the repo's latest release and the GitHub main tip — the notice
+// gives full context across both dimensions so pulling is an informed choice),
+// "release" on updater-managed boxes with an /etc/isomux/update.conf (running
+// release vs. the repo's latest GitHub release — the banner means "a new
+// release exists", applied via the owner-only update trigger). See
+// internal-docs/release-design.md. Commit-mode copy is composed from this
+// shape in shared/update-notice.ts.
 export type UpdateStatusWire =
   | {
       mode: "commit";
+      // False = quiet: fully current, ahead of main (local-only commits), or
+      // diverged. Ahead-of-main quiet is absolute, even with a newer release
+      // out.
       updateAvailable: boolean;
-      current: CommitDriftInfo;
-      latest: CommitDriftInfo;
+      // What this box runs: the exact CalVer tag when HEAD is at one, else
+      // null with the full HEAD sha as the display identity.
+      current: { release: string | null; sha: string };
+      // The repo's latest GitHub release; null when none exist yet.
+      latest: { tag: string; url: string | null } | null;
+      // This box vs. `latest`: "current" (on it), "behind" (latest is newer),
+      // "ahead" (past it), "unknown" (no CalVer release reachable from HEAD).
+      // Meaningless while `latest` is null.
+      releaseStanding: "current" | "behind" | "ahead" | "unknown";
+      // Commits the GitHub main tip has beyond this box's reference point:
+      // the newest of {HEAD's tag, latest release} when HEAD is tagged, else
+      // HEAD itself. 0 while quiet.
+      mainAhead: number;
     }
   | {
       mode: "release";

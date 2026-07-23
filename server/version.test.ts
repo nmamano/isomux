@@ -9,7 +9,7 @@ import { execSync } from "child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
-import { resolveVersionInfo } from "./version.ts";
+import { resolveVersionInfo, resolveReachableRelease } from "./version.ts";
 
 let repo: string;
 let emptyDir: string;
@@ -107,5 +107,52 @@ describe("resolveVersionInfo", () => {
   it("not a git repo: all fields null", () => {
     const info = resolveVersionInfo(emptyDir);
     expect(info).toEqual({ version: null, commit: null, release: null });
+  });
+});
+
+// The update notice's lineage anchor. Builds on the tag state left by the
+// resolveVersionInfo suite above: HEAD carries v1.0 + v2026.7.20 + same-day
+// .2/.10 tags, with v2026.7.19 one commit back.
+describe("resolveReachableRelease", () => {
+  it("newest reachable CalVer tag wins, numerically (same-day .10 beats .2)", () => {
+    expect(resolveReachableRelease(repo)).toBe("v2026.7.20.10");
+  });
+
+  it("a nearer non-CalVer v-tag does not mask the reachable release (the describe pitfall)", () => {
+    // A v-prefixed non-CalVer tag on a NEW commit sits between HEAD and every
+    // CalVer tag: `git describe` would report it, hiding the lineage. The
+    // dedicated query must still find the CalVer tag behind it.
+    writeFileSync(join(repo, "f.txt"), "five\n");
+    sh("git add . && git commit -qm five");
+    sh('git tag -a v2.0 -m "not a channel release"');
+    expect(resolveReachableRelease(repo)).toBe("v2026.7.20.10");
+  });
+
+  it("dirty worktree does not affect the answer", () => {
+    writeFileSync(join(repo, "f.txt"), "six\n");
+    try {
+      expect(resolveReachableRelease(repo)).toBe("v2026.7.20.10");
+    } finally {
+      sh("git checkout -q -- f.txt");
+    }
+  });
+
+  it("no reachable CalVer tag (only non-CalVer tags / not a repo): null", () => {
+    const bare = mkdtempSync(join(tmpdir(), "isomux-reach-test-"));
+    try {
+      execSync(
+        "git init -q && git config user.email t@t && git config user.name T",
+        { cwd: bare, stdio: ["ignore", "pipe", "pipe"] },
+      );
+      writeFileSync(join(bare, "f.txt"), "one\n");
+      execSync("git add . && git commit -qm one && git tag v1.0", {
+        cwd: bare,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      expect(resolveReachableRelease(bare)).toBeNull();
+      expect(resolveReachableRelease(emptyDir)).toBeNull();
+    } finally {
+      rmSync(bare, { recursive: true, force: true });
+    }
   });
 });

@@ -34,6 +34,7 @@ import { useSwipeLeftRight } from "../hooks/useSwipeLeftRight.ts";
 import { useViewport } from "./useViewport.ts";
 import { ZoomControls } from "./ZoomControls.tsx";
 import type { AgentInfo } from "../../shared/types.ts";
+import { buildCommitNotice } from "../../shared/update-notice.ts";
 
 // Pixel size of a single ghost (width). ~50% of the agent character
 // (52×68) so it reads as "small floating watcher" against the desks.
@@ -388,6 +389,11 @@ export function OfficeView({
             {updateAvailable && (
               <span
                 onClick={onOpenUpdate}
+                title={
+                  updateInfo?.mode === "commit"
+                    ? buildCommitNotice(updateInfo)?.notice
+                    : undefined
+                }
                 style={{
                   fontSize: 11,
                   fontWeight: 600,
@@ -409,9 +415,9 @@ export function OfficeView({
                     boxShadow: "0 0 8px var(--blue, #58a6ff)",
                   }}
                 />
-                {updateInfo?.mode === "release"
-                  ? "new release"
-                  : "update available"}
+                {updateInfo?.mode === "commit"
+                  ? (buildCommitNotice(updateInfo)?.pill ?? "update available")
+                  : "new release"}
               </span>
             )}
           </div>

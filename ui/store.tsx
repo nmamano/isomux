@@ -95,8 +95,8 @@ export interface AppState {
   currentRoomId: string | null; // selected room id (view selection only; null when no rooms visible)
   updateAvailable: boolean;
   // Full mode-discriminated status behind the banner (null until the first
-  // update_status arrives). "commit" = dev-box drift, "release" = a new
-  // release on an updater-managed box.
+  // update_status arrives). "commit" = source-checkout notice (release +
+  // main-drift context), "release" = a new release on an updater-managed box.
   updateInfo: UpdateStatusWire | null;
   // Server-stored boss profiles. `users` is keyed by lowercase(name). The
   // current device's user is identified by `sessionContext.username`, which
@@ -533,6 +533,8 @@ export function reducer(state: AppState, action: Action): AppState {
               updateAvailable: action.updateAvailable,
               current: action.current,
               latest: action.latest,
+              releaseStanding: action.releaseStanding,
+              mainAhead: action.mainAhead,
             }
           : {
               mode: "release",
