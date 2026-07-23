@@ -129,9 +129,10 @@ How files attached in chat reach you: attachments (image, PDF, text file, or oth
   if (agentType === "claude") {
     systemPrompt += `
 
-Two caveats specific to the Claude Code harness in this office:
+Three caveats specific to the Claude Code harness in this office:
 - Background waits: when you sit idle for a while, the office releases your session process to free memory. Everything living inside that process — run_in_background watchers, their child processes, and the wake-up that fires when a background task finishes — dies with it, silently; after you are woken later, your transcript may still claim a watcher is "running" when it is long gone. For any wait that might outlast your idle window, use an isomux scheduled self-message (POST your own /messages with deliverAt) instead: it lives on the server and always fires. Background tasks you actively babysit within a turn are fine.
-- CronCreate durability: in this office, CronCreate silently downgrades durable:true to a session-only job (upstream feature gate), and session-only jobs die when your session process is released. Read the tool result instead of assuming durability. For anything that must survive, use isomux scheduled self-messages, or ask a boss (or a privileged agent) for an Isomux cronjob.`;
+- CronCreate durability: in this office, CronCreate silently downgrades durable:true to a session-only job (upstream feature gate), and session-only jobs die when your session process is released. Read the tool result instead of assuming durability. For anything that must survive, use isomux scheduled self-messages, or ask a boss (or a privileged agent) for an Isomux cronjob.
+- Long-lived local processes (e.g. a dev web server): if you background one by hand inside a Bash call, it dies when the call returns, because the harness tears down the call's process group. Use the Bash tool's run_in_background for something that only needs to outlive the call within your turn; for anything that must survive idle-release, register it with the system's service manager instead of hand-rolling backgrounding.`;
   }
   if (privileged) {
     systemPrompt += `\n\n## Privileged Operator Capabilities
