@@ -1251,9 +1251,17 @@ export function LogView({
     recognition.start();
   }
 
-  function stopListening() {
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
+  function stopListening(discard?: boolean) {
+    const recognition = recognitionRef.current;
+    if (!recognition) return;
+    if (discard) {
+      // Send path: the composer was just cleared, so drop any pending final
+      // result. abort() discards it, and detaching onresult stops a trailing
+      // event from repopulating the box. onend still resets the listening flag.
+      recognition.onresult = null;
+      recognition.abort();
+    } else {
+      recognition.stop();
     }
   }
 
@@ -1564,7 +1572,7 @@ export function LogView({
     setSendError(false);
     setInput("");
     setStagedAttachments([]);
-    stopListening();
+    stopListening(true);
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
@@ -2601,25 +2609,11 @@ export function LogView({
               </div>
               {SpeechRecognition && window.isSecureContext ? (
                 <button
-                  // Pointer capture keeps the hold gesture alive even if the
-                  // button shifts under the pointer (composer resizing) or the
-                  // pointer drifts off it — pointerup/pointercancel still fire
-                  // on the capturing element, so recording reliably stops on
-                  // release instead of the old mouseleave-stops-recording trap.
-                  onPointerDown={(e) => {
-                    e.preventDefault();
-                    try {
-                      e.currentTarget.setPointerCapture(e.pointerId);
-                    } catch {
-                      // Capture is best-effort: without it we fall back to
-                      // release-over-button behavior (releasing elsewhere
-                      // won't stop recording until the next press).
-                    }
-                    startListening();
+                  // Toggle: click to start dictation, click again to stop.
+                  onClick={() => {
+                    if (isListeningRef.current) stopListening();
+                    else startListening();
                   }}
-                  onPointerUp={stopListening}
-                  onPointerCancel={stopListening}
-                  onContextMenu={(e) => e.preventDefault()}
                   style={{
                     flexShrink: 0,
                     // Pin to the row's bottom edge (viewport-stable) so the
@@ -2650,7 +2644,7 @@ export function LogView({
                     userSelect: "none",
                     WebkitUserSelect: "none",
                   }}
-                  title="Hold to talk (Ctrl+Space)"
+                  title="Click to talk (Ctrl+Space to hold)"
                 >
                   <svg
                     width="16"
