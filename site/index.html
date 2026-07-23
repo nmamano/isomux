@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Isomux - A meta-harness with a cute office</title>
+    <title>Isomux - Agents that act like coworkers</title>
     <meta
       name="description"
-      content="A meta-harness for multi-device, multi-user, multi-agent collaboration in a cute office."
+      content="A meta-harness for Claude Code and Codex, where agents act like coworkers, not throwaway sessions."
     />
 
     <!-- Favicon (same as app) -->
@@ -20,11 +20,11 @@
     <meta property="og:url" content="https://isomux.com/" />
     <meta
       property="og:title"
-      content="Isomux - A meta-harness with a cute office"
+      content="Isomux - Agents that act like coworkers"
     />
     <meta
       property="og:description"
-      content="A meta-harness for multi-device, multi-user, multi-agent collaboration in a cute office."
+      content="A meta-harness for Claude Code and Codex, where agents act like coworkers, not throwaway sessions."
     />
     <meta property="og:image" content="https://isomux.com/screenshot.png" />
     <meta property="og:site_name" content="Isomux" />
@@ -34,11 +34,11 @@
     <meta name="twitter:url" content="https://isomux.com/" />
     <meta
       name="twitter:title"
-      content="Isomux - A meta-harness with a cute office"
+      content="Isomux - Agents that act like coworkers"
     />
     <meta
       name="twitter:description"
-      content="A meta-harness for multi-device, multi-user, multi-agent collaboration in a cute office."
+      content="A meta-harness for Claude Code and Codex, where agents act like coworkers, not throwaway sessions."
     />
     <meta name="twitter:image" content="https://isomux.com/screenshot.png" />
 
@@ -684,6 +684,69 @@
           text-align: center;
         }
       }
+
+      .badge-row {
+        text-align: center;
+        margin-bottom: 20px;
+      }
+      .badge-row .free-badge {
+        display: inline-block;
+        white-space: normal;
+        max-width: 100%;
+        line-height: 1.5;
+        margin-bottom: 0;
+      }
+
+      /* ---- Coworker + office lists (metaphor sections) ---- */
+      .coworker-list {
+        list-style: none;
+        margin-bottom: 8px;
+      }
+      .coworker-list > li {
+        color: var(--text);
+        font-size: 1rem;
+        margin-bottom: 14px;
+      }
+      .cw-detail {
+        list-style: none;
+        margin-top: 5px;
+        padding-left: 18px;
+      }
+      .cw-detail li {
+        color: var(--text-dim);
+        font-size: 0.9rem;
+        position: relative;
+        padding-left: 16px;
+        margin-bottom: 3px;
+      }
+      .cw-detail li::before {
+        content: "\203A";
+        position: absolute;
+        left: 0;
+        color: var(--accent);
+        font-weight: bold;
+      }
+      .office-list {
+        list-style: none;
+      }
+      .office-list > li {
+        color: var(--text-dim);
+        font-size: 0.95rem;
+        position: relative;
+        padding-left: 18px;
+        margin-bottom: 8px;
+      }
+      .office-list > li::before {
+        content: "\b7";
+        position: absolute;
+        left: 0;
+        color: var(--accent);
+        font-weight: bold;
+      }
+      .office-list strong {
+        color: var(--text);
+        font-weight: 600;
+      }
     </style>
   </head>
   <body>
@@ -691,8 +754,8 @@
     <div class="hero">
       <h1>Isomux</h1>
       <p class="tagline">
-        <strong>A meta-harness</strong> for multi-device, multi-user,
-        multi-agent collaboration in a cute office.
+        Where agents act like <strong>coworkers</strong>, not throwaway
+        sessions.
       </p>
       <div class="hero-embed">
         <iframe
@@ -744,275 +807,112 @@
       </div>
     </div>
 
-    <!-- Feature Highlights -->
+    <!-- Coworkers -->
     <section id="features">
-      <h2>Feature Highlights</h2>
-      <div style="text-align: center; margin-bottom: 16px">
+      <div class="badge-row">
         <div class="free-badge">
-          free &middot; open source &middot; no account needed
+          free &middot; open source &middot; no account needed &middot; works
+          with your subscriptions
         </div>
       </div>
+      <h2>Coworkers&hellip;</h2>
+      <ul class="coworker-list">
+        <li>
+          &hellip;have a persistent identity: name, look, custom instructions,
+          and memories built over time
+          <ul class="cw-detail">
+            <li>and each agent even tracks its own usage</li>
+          </ul>
+        </li>
+        <li>
+          &hellip;talk to each other and collaborate
+          <ul class="cw-detail">
+            <li>
+              they can find other agents, read their current or past chats, and
+              message each other
+            </li>
+            <li>messages from humans or agents queue while someone's busy</li>
+            <li>they can schedule reminders for themselves or others</li>
+          </ul>
+        </li>
+        <li>
+          &hellip;can chat with multiple humans
+          <ul class="cw-detail">
+            <li>
+              anyone you invite into your office can chime in on conversations
+            </li>
+          </ul>
+        </li>
+        <li>
+          &hellip;can be reached from any device
+          <ul class="cw-detail">
+            <li>
+              same agents and conversations, updated instantly across your
+              laptop and phone
+            </li>
+          </ul>
+        </li>
+        <li>
+          &hellip;let you know when they need you
+          <ul class="cw-detail">
+            <li>see who's working, waiting, or idle at a glance</li>
+          </ul>
+        </li>
+        <li>
+          &hellip;keep being themselves when you switch their provider between
+          Claude and Codex
+        </li>
+        <li>&hellip;track work on a shared board</li>
+        <li>
+          &hellip;share what they learn with each other
+          <ul class="cw-detail">
+            <li>with memories scoped to a room or the whole office</li>
+          </ul>
+        </li>
+        <li>
+          &hellip;talk and listen
+          <ul class="cw-detail">
+            <li>speak your prompt, hear the reply read back</li>
+          </ul>
+        </li>
+      </ul>
+    </section>
 
-      <div class="feature-group">
-        <h3>Multi-provider</h3>
-        <ul>
-          <li>Mix Claude and Codex agents in the same office</li>
-          <li>
-            <strong>Works with your subscriptions</strong>: if
-            <code
-              style="
-                background: var(--bg);
-                padding: 1px 6px;
-                border-radius: 4px;
-                font-size: 0.85em;
-              "
-              >claude</code
-            >
-            or
-            <code
-              style="
-                background: var(--bg);
-                padding: 1px 6px;
-                border-radius: 4px;
-                font-size: 0.85em;
-              "
-              >codex</code
-            >
-            works in your terminal, isomux works in your browser
-          </li>
-        </ul>
-      </div>
-
-      <div class="feature-group">
-        <h3>Multi-agent</h3>
-        <ul>
-          <li>
-            Agents
-            <a
-              href="https://x.com/Nil053/status/2039494626265149778"
-              target="_blank"
-              rel="noopener"
-              ><strong>check on each other</strong></a
-            >
-            and
-            <a
-              href="https://x.com/Nil053/status/2053179885108232328"
-              target="_blank"
-              rel="noopener"
-              ><strong>message each other</strong></a
-            >: all messages (human and agent) get queued while agents are busy
-          </li>
-          <li>
-            <a
-              href="https://x.com/Nil053/status/2040871759529025617"
-              target="_blank"
-              rel="noopener"
-              ><strong>Room-scoped task board</strong></a
-            >: humans and agents can create, assign, claim, and close tasks,
-            scoped per room or shared office-wide
-          </li>
-          <li>
-            <a
-              href="https://x.com/Nil053/status/2050130563915534346"
-              target="_blank"
-              rel="noopener"
-              ><strong>Hierarchical system prompts</strong></a
-            >: office-wide, per-room, and per-agent prompts
-          </li>
-          <li>
-            <a
-              href="https://x.com/Nil053/status/2057153876332331507"
-              target="_blank"
-              rel="noopener"
-              ><strong>Custom commands</strong></a
-            >
-            in addition to your own:
-            <code
-              style="
-                background: var(--bg);
-                padding: 1px 6px;
-                border-radius: 4px;
-                font-size: 0.85em;
-              "
-              >/pair-programming</code
-            >,
-            <code
-              style="
-                background: var(--bg);
-                padding: 1px 6px;
-                border-radius: 4px;
-                font-size: 0.85em;
-              "
-              >/peer-review</code
-            >, etc.
-          </li>
-        </ul>
-      </div>
-
-      <div class="feature-group">
-        <h3>Multi-user</h3>
-        <ul>
-          <li>
-            <a
-              href="https://x.com/Nil053/status/2050141843741081928"
-              target="_blank"
-              rel="noopener"
-              ><strong>Collaborate in agent conversations</strong></a
-            >: anyone you've invited to your office can chime in
-          </li>
-          <li>
-            <a
-              href="https://x.com/Nil053/status/2056256446862704838"
-              target="_blank"
-              rel="noopener"
-              ><strong>Live user presence</strong></a
-            >: other users (and your other devices) appear as small ghosts next
-            to the agent they're talking to
-          </li>
-          <li>
-            <a href="/docs/access-and-invites"
-              ><strong>Invite-link access</strong></a
-            >: owner mints a URL per device, sends it out-of-band, the invitee
-            clicks and is signed in. No accounts, no passwords
-          </li>
-        </ul>
-      </div>
-
-      <div class="feature-group">
-        <h3>Multi-device</h3>
-        <ul>
-          <li>
-            Run on
-            <code
-              style="
-                background: var(--bg);
-                padding: 1px 6px;
-                border-radius: 4px;
-                font-size: 0.85em;
-              "
-              >localhost:4000</code
-            >
-            for local use, or as a
-            <strong>self-hosted persistent server</strong> reachable
-            <strong>from any device</strong> (see
-            <a href="/docs/self-hosted">how</a>)
-          </li>
-          <li>
-            <a
-              href="https://x.com/Nil053/status/2039996579965542516"
-              target="_blank"
-              rel="noopener"
-              ><strong>Mobile UI</strong></a
-            >: continue on your phone with a touch-optimized UI
-          </li>
-          <li>
-            <strong>Real-time updates</strong>: same conversations, same
-            filesystem, no syncing headaches between devices
-          </li>
-        </ul>
-      </div>
-
-      <div class="feature-group">
-        <h3>Cute in a useful way</h3>
-        <ul>
-          <li>Visual office: see what every agent is doing at a glance</li>
-          <li>
-            <strong>Animated characters</strong>: sleeping when idle, typing
-            when working, waving when waiting for you
-          </li>
-          <li>
-            <a
-              href="https://x.com/Nil053/status/2039027360117506399"
-              target="_blank"
-              rel="noopener"
-              ><strong>Skeuomorphic touches</strong></a
-            >: click the moon to toggle dark mode, click doors to switch rooms,
-            etc.
-          </li>
-          <li>
-            <a
-              href="https://x.com/Nil053/status/2054709610519638506"
-              target="_blank"
-              rel="noopener"
-              ><strong>6 color themes</strong></a
-            >
-          </li>
-          <li>
-            <strong>Auto-generated topic</strong> below each nametag, so you
-            remember what each agent is working on
-          </li>
-        </ul>
-      </div>
-
-      <div class="feature-group">
-        <h3>QoL</h3>
-        <ul>
-          <li>
-            Built-in
-            <a
-              href="https://x.com/Nil053/status/2039504957184090281"
-              target="_blank"
-              rel="noopener"
-              ><strong>terminal</strong></a
-            >,
-            <a href="/built-in-editor.jpeg" target="_blank" rel="noopener"
-              ><strong>editor</strong></a
-            >,
-            <a
-              href="https://x.com/Nil053/status/2047917731874557983"
-              target="_blank"
-              rel="noopener"
-              ><strong>diff tool</strong></a
-            >, and <strong>URL screenshotter</strong>
-          </li>
-          <li>
-            <strong>Voice-to-text</strong> prompting and
-            <strong>text-to-speech</strong> responses
-          </li>
-          <li>
-            <a
-              href="https://x.com/Nil053/status/2048308972072079753"
-              target="_blank"
-              rel="noopener"
-              ><strong>Cron jobs</strong></a
-            >: schedule recurring agent runs; each run is a fresh chat (that can
-            be resumed)
-          </li>
-          <li>
-            <strong>Image/PDF attachments</strong>: agents understand images and
-            PDFs and can show images inline
-          </li>
-          <li>
-            <strong>Conversation branching</strong>: edit any past message to
-            fork the conversation
-          </li>
-          <li>
-            <strong>Notifications</strong>: get pinged (and waved at) when an
-            agent finishes
-          </li>
-          <li>
-            <a
-              href="https://x.com/Nil053/status/2039497314826666469"
-              target="_blank"
-              rel="noopener"
-              ><strong>Pre-tool-call safety hooks</strong></a
-            >
-          </li>
-          <li>
-            <strong>Plugin system</strong>: add memory, audit, or other
-            turn-aware behavior. Reference
-            <a
-              href="https://github.com/nmamano/isomux-mem0"
-              target="_blank"
-              rel="noopener"
-              >mem0 plugin</a
-            >
-            gives agents long-term memory across sessions.
-          </li>
-        </ul>
-      </div>
-
-      <p style="color: var(--text-dim); font-size: 0.95rem">
+    <!-- The office -->
+    <section id="office" style="padding-top: 0">
+      <h2>An office made for humans and agents</h2>
+      <ul class="office-list">
+        <li>
+          <strong>Privileged agents can do anything you can do</strong>, like
+          spawning other agents and managing rooms
+        </li>
+        <li>
+          <strong>Fully multiplayer</strong>: invite people into the office, set
+          which rooms they have access to, and see which agents they are
+          currently talking to
+        </li>
+        <li>
+          <strong>Hierarchical</strong>: office-wide and per-room instructions
+          and memory, so you don't have to repeat context every time
+        </li>
+        <li>
+          <strong>Every desk comes stocked</strong>: built-in terminal, editor,
+          diff viewer, diagram viewer, and URL screenshotter
+        </li>
+        <li><strong>Recurring work</strong> can be scheduled with cron jobs</li>
+        <li>
+          <strong>Cute</strong>: six themes, plus everything is interactable
+          (click the moon for dark mode, the door to change rooms, the clock to
+          see scheduled tasks&hellip;)
+        </li>
+        <li><strong>Customizable</strong> with plugins</li>
+        <li>
+          <strong>Full of quality-of-life features</strong>: edit a past message
+          to branch the conversation, attach files, auto-generated conversation
+          topics, pre-tool-call safety hooks, and more
+        </li>
+      </ul>
+      <p style="color: var(--text-dim); font-size: 0.95rem; margin-top: 20px">
         See the <a href="/docs">full feature list</a>.
       </p>
     </section>
