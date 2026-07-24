@@ -1080,6 +1080,60 @@ function parseJqInvocation(
   };
 }
 
+// --- shell wrapper -----------------------------------------------------------
+
+/**
+ * Codex (and some other tool harnesses) run every shell command wrapped as
+ *   /bin/bash -lc '<script>'
+ * so the real curl sits one level down and the raw command never starts with
+ * `curl`/`jq`. Recognize a bare, single-statement wrapper and return the inner
+ * `<script>` so the caller can re-parse it under the SAME conservative rules.
+ * Unwrapping never widens what we card: the inner command must still fully
+ * parse as an isomux curl, so anything we don't understand still bails to null.
+ *
+ * Conservative on purpose — returns null (no unwrap) unless:
+ * - there is no heredoc (its body belongs to the inner command; tokenize can't
+ *   carry a heredoc across the wrapper, so we leave those to raw rendering);
+ * - the wrapper tokenizes cleanly with no outer pipe or file redirect;
+ * - the program is bash or sh;
+ * - there is exactly one `-c` script operand and no trailing positional args
+ *   ($0/$1/... would let the script interpolate values we can't see).
+ */
+function unwrapShellWrapper(command: string): string | null {
+  if (extractHeredoc(command)) return null;
+  const t = tokenize(command, false);
+  if (!t || t.pipeTail !== null || t.outputRedirect !== null) return null;
+  const toks = t.tokens;
+  if (toks.length < 3) return null;
+  const base = toks[0].split("/").pop() ?? "";
+  if (base !== "bash" && base !== "sh") return null;
+  // Walk option tokens up to the one bearing `-c`; the script is the next
+  // token. ONLY `-l` (login) and `-c` (command) are allowed in a cluster —
+  // any other flag bails rather than being assumed harmless. `-n` in
+  // particular means "syntax-check, do NOT execute" (`bash -nc '<curl>'`
+  // never runs the curl), so carding it would be a lie; value-taking and
+  // behavior-changing flags are equally unsafe to wave through.
+  let i = 1;
+  let sawC = false;
+  for (; i < toks.length; i++) {
+    const tok = toks[i];
+    if (!tok.startsWith("-") || tok.length < 2 || tok[1] === "-") return null;
+    const flags = tok.slice(1);
+    if (![...flags].every((ch) => ch === "l" || ch === "c")) return null;
+    if (flags.includes("c")) {
+      sawC = true;
+      i++;
+      break;
+    }
+  }
+  if (!sawC) return null;
+  const script = toks[i];
+  // Exactly the script and nothing after it.
+  if (script === undefined || i !== toks.length - 1) return null;
+  if (script === command) return null; // no-op guard against a re-parse loop
+  return script;
+}
+
 // --- main entry point --------------------------------------------------------
 
 /**
@@ -1087,14 +1141,17 @@ function parseJqInvocation(
  * curl invocation against the isomux server (optionally piped into a
  * filter), or a `jq ... | curl ... -d @-` producer pipeline where jq builds
  * the request body — from --arg templates, a positional input file, or a
- * heredoc (`jq -Rs '{text: .}' <<'EOF' | curl ... -d @-`). Null for
- * everything else. `ports` is the set of local ports the isomux server may
- * listen on (default: the documented 4000).
+ * heredoc (`jq -Rs '{text: .}' <<'EOF' | curl ... -d @-`). A single-statement
+ * `bash -lc '<script>'` wrapper (how Codex issues every command) is unwrapped
+ * and its script re-parsed. Null for everything else. `ports` is the set of
+ * local ports the isomux server may listen on (default: the documented 4000).
  */
 export function parseIsomuxCurl(
   command: string,
   ports: readonly string[] = ["4000"],
 ): IsomuxCurlRequest | null {
+  const inner = unwrapShellWrapper(command);
+  if (inner !== null) return parseIsomuxCurl(inner, ports);
   // A recognized heredoc is stripped off before tokenizing; its body is only
   // meaningful for a jq producer stage (checked below). When extractHeredoc
   // returns null, the untouched command's `<`/newline makes tokenize() bail.

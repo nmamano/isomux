@@ -12,6 +12,7 @@ import type {
   TaskUpdateReq,
 } from "../../shared/contract-shapes.ts";
 import { dialogLabel, dialogInput } from "./dialog-styles.ts";
+import { useClipboardCopy, COPY_ICON, CHECK_ICON } from "./CopyButton.tsx";
 
 type SortField =
   | "status"
@@ -109,12 +110,13 @@ function TaskDetailPanel({
   // opens this panel with the typed title already filled in. Ignored in edit
   // mode (the title comes from the task).
   initialTitle?: string;
-  // Rooms the caller can see, for the create-mode "Create in" selector and for
-  // labelling an existing task's room. Empty when no rooms are visible.
+  // Rooms the caller can see, for the create-mode "Create in" selector and the
+  // edit-mode "Room" selector that re-files a task. Empty when no rooms are
+  // visible.
   rooms?: RoomWire[];
   // Create-mode target room ("" === office-global), lifted to TaskView so the
-  // quick-add row and this panel share ONE create target. Ignored in edit mode
-  // (moving a task between rooms is out of scope).
+  // quick-add row and this panel share ONE create target. Ignored in edit mode,
+  // which re-files through its own Room selector (the `roomId` state below).
   createRoomId?: string;
   onCreateRoomChange?: (roomId: string) => void;
 }) {
@@ -143,9 +145,15 @@ function TaskDetailPanel({
   );
   const [status, setStatus] = useState<TaskStatus>(task?.status || "open");
   const [assignee, setAssignee] = useState(task?.assignee || "");
+  // Edit-mode room ("" === office-global). Re-files the task on save. Unused in
+  // create mode, which uses the lifted createRoomId instead.
+  const [roomId, setRoomId] = useState<string>(task?.roomId ?? "");
 
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // Copy-to-clipboard for the task id in the header — the shared hook gives the
+  // same modern-API + textarea fallback the rest of the app's copy controls use.
+  const { copied: idCopied, copy: copyId } = useClipboardCopy();
 
   // Sync form fields from the selected task prop. setState-in-effect is the
   // canonical pattern for prop→state sync.
@@ -157,12 +165,14 @@ function TaskDetailPanel({
       setPriority(task.priority || "");
       setStatus(task.status);
       setAssignee(task.assignee || "");
+      setRoomId(task.roomId ?? "");
     } else {
       setTitle(initialTitle || "");
       setDescription("");
       setPriority("");
       setStatus("open");
       setAssignee("");
+      setRoomId("");
     }
     setConfirmDelete(false);
     setConfirmDiscard(false);
@@ -185,7 +195,8 @@ function TaskDetailPanel({
       description !== (task.description || "") ||
       priority !== (task.priority || "") ||
       status !== task.status ||
-      assignee !== (task.assignee || "")
+      assignee !== (task.assignee || "") ||
+      roomId !== (task.roomId ?? "")
     );
   }
 
@@ -235,6 +246,12 @@ function TaskDetailPanel({
         status,
         assignee: assignee.trim() || undefined,
       };
+      // roomId re-files the task, so it carries meaning even when "" (= clear to
+      // office-global). Absent === leave the room untouched, so only send it
+      // when the selection actually changed — never on an unrelated field edit.
+      if (roomId !== (task.roomId ?? "")) {
+        body.roomId = roomId;
+      }
       apiFetch<TaskItem>("PATCH", `/api/tasks/${task.id}`, body).catch(
         () => {},
       );
@@ -308,15 +325,50 @@ function TaskDetailPanel({
           flexShrink: 0,
         }}
       >
-        <span
-          style={{
-            fontSize: 13,
-            fontWeight: 600,
-            color: "var(--text-primary)",
-          }}
-        >
-          {mode === "create" ? "New Task" : `#${task!.id}`}
-        </span>
+        {mode === "create" ? (
+          <span
+            style={{
+              fontSize: 13,
+              fontWeight: 600,
+              color: "var(--text-primary)",
+            }}
+          >
+            New Task
+          </span>
+        ) : (
+          // The whole `#<id>` is the copy control (big hit target). Uses the
+          // shared useClipboardCopy hook, so it gets the same modern-API +
+          // textarea/execCommand fallback as CopyButton and never reports a
+          // false "copied" in insecure/denied contexts.
+          <button
+            type="button"
+            onClick={() => void copyId(task!.id)}
+            title={idCopied ? "Copied!" : "Copy task ID"}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              background: "none",
+              border: "none",
+              padding: 0,
+              cursor: "pointer",
+              fontSize: 13,
+              fontWeight: 600,
+              fontFamily: "'JetBrains Mono',monospace",
+              color: idCopied ? "var(--green)" : "var(--text-primary)",
+            }}
+          >
+            #{task!.id}
+            <span
+              style={{
+                display: "inline-flex",
+                color: idCopied ? "var(--green)" : "var(--text-dim)",
+              }}
+            >
+              {idCopied ? CHECK_ICON : COPY_ICON}
+            </span>
+          </button>
+        )}
         <button
           onClick={requestClose}
           style={{
@@ -381,15 +433,25 @@ function TaskDetailPanel({
           task && (
             <div>
               <label style={labelStyle}>Room</label>
-              <div
-                style={{
-                  ...inputStyle,
-                  color: "var(--text-dim)",
-                  cursor: "default",
-                }}
+              <select
+                value={roomId}
+                onChange={(e) => setRoomId(e.target.value)}
+                title="Move this task to another room"
+                style={inputStyle}
               >
-                {task.roomId ? roomLabel(task.roomId) : "Global (office-wide)"}
-              </div>
+                <option value="">Global (office-wide)</option>
+                {/* The task's current room may not be in the visible `rooms`
+                    list (e.g. access changed); keep it selectable so a save
+                    doesn't silently re-file it. */}
+                {task.roomId && !rooms.some((r) => r.id === task.roomId) && (
+                  <option value={task.roomId}>{roomLabel(task.roomId)}</option>
+                )}
+                {rooms.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name}
+                  </option>
+                ))}
+              </select>
             </div>
           )
         )}

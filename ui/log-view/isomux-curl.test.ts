@@ -1015,3 +1015,105 @@ describe("parseIsomuxCurl output-to-file", () => {
     ).toBeNull();
   });
 });
+
+// Codex (and some tool harnesses) run every command wrapped as
+// `/bin/bash -lc '<script>'`, so the raw command never starts with curl/jq.
+// The parser unwraps a bare single-statement wrapper and re-parses the inner
+// script under the same conservative rules.
+describe("parseIsomuxCurl bash -lc wrapper (Codex)", () => {
+  test("unwraps /bin/bash -lc 'curl ...' and cards the inner request", () => {
+    const req = parseIsomuxCurl(`/bin/bash -lc 'curl -s localhost:4000/tasks'`);
+    expect(req).not.toBeNull();
+    expect(req!.method).toBe("GET");
+    expect(req!.path).toBe("/tasks");
+    expect(req!.action).toBe("List tasks");
+  });
+
+  test("unwraps a POST with headers and a JSON body", () => {
+    const req = parseIsomuxCurl(
+      `/bin/bash -lc 'curl -s -X POST localhost:4000/api/agents/agent-123-abc/messages -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" -H "Content-Type: application/json" -d "{\\"text\\":\\"hi\\"}"'`,
+    );
+    expect(req).not.toBeNull();
+    expect(req!.action).toBe("Send agent message");
+    expect(req!.hasAuth).toBe(true);
+    expect(req!.bodyFields).toEqual([{ key: "text", value: "hi" }]);
+  });
+
+  test("bare `bash -c` / `sh -c` / split `-l -c` forms all unwrap", () => {
+    expect(
+      parseIsomuxCurl(`bash -c 'curl -s localhost:4000/tasks'`),
+    ).not.toBeNull();
+    expect(
+      parseIsomuxCurl(`sh -c 'curl -s localhost:4000/tasks'`),
+    ).not.toBeNull();
+    expect(
+      parseIsomuxCurl(`/usr/bin/bash -lc 'curl -s localhost:4000/tasks'`),
+    ).not.toBeNull();
+    expect(
+      parseIsomuxCurl(`bash -l -c 'curl -s localhost:4000/tasks'`),
+    ).not.toBeNull();
+  });
+
+  test("unwraps a wrapped display-pipe tail", () => {
+    const req = parseIsomuxCurl(
+      `/bin/bash -lc "curl -s localhost:4000/tasks | jq '.tasks'"`,
+    );
+    expect(req).not.toBeNull();
+    expect(req!.pipeTail).toBe("| jq '.tasks'");
+  });
+
+  test("does NOT unwrap a non-isomux inner command", () => {
+    expect(parseIsomuxCurl(`/bin/bash -lc 'curl -s example.com'`)).toBeNull();
+    expect(parseIsomuxCurl(`/bin/bash -lc 'ls -la'`)).toBeNull();
+  });
+
+  test("does NOT unwrap compound inner scripts (stay raw)", () => {
+    // command substitution / assignment / extra statements are still compound
+    expect(
+      parseIsomuxCurl(
+        `/bin/bash -lc 'cd /tmp && curl -s localhost:4000/tasks'`,
+      ),
+    ).toBeNull();
+    expect(
+      parseIsomuxCurl(
+        `/bin/bash -lc 'payload=$(cat x); curl -s localhost:4000/tasks'`,
+      ),
+    ).toBeNull();
+  });
+
+  test("does NOT unwrap other shells or wrappers", () => {
+    expect(parseIsomuxCurl(`zsh -c 'curl -s localhost:4000/tasks'`)).toBeNull();
+    expect(
+      parseIsomuxCurl(`env bash -c 'curl -s localhost:4000/tasks'`),
+    ).toBeNull();
+    // extra positional args after the script ($0/$1) — bail
+    expect(
+      parseIsomuxCurl(`bash -c 'curl -s localhost:4000/tasks' name arg1`),
+    ).toBeNull();
+  });
+
+  test("does NOT unwrap `-n` noexec (syntax-check only, curl never runs)", () => {
+    // -n = read but do not execute; carding it would claim a request that
+    // never happened. Only -l and -c are whitelisted in the flag cluster.
+    expect(
+      parseIsomuxCurl(`bash -nc 'curl -s localhost:4000/tasks'`),
+    ).toBeNull();
+    expect(parseIsomuxCurl(`sh -nc 'curl -s localhost:4000/tasks'`)).toBeNull();
+    expect(
+      parseIsomuxCurl(`bash -n -c 'curl -s localhost:4000/tasks'`),
+    ).toBeNull();
+    // an unrecognized behavior flag also bails
+    expect(
+      parseIsomuxCurl(`bash -xc 'curl -s localhost:4000/tasks'`),
+    ).toBeNull();
+  });
+
+  test("a heredoc-fed curl inside the wrapper stays raw (unchanged limitation)", () => {
+    // The heredoc body would need to cross the wrapper; not modeled.
+    expect(
+      parseIsomuxCurl(
+        `/bin/bash -lc 'curl -s -X POST localhost:4000/api/agents/a/messages -d @- <<'EOF'\n{"text":"hi"}\nEOF'`,
+      ),
+    ).toBeNull();
+  });
+});

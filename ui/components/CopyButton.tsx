@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 
-const COPY_ICON = (
+export const COPY_ICON = (
   <svg
     width="14"
     height="14"
@@ -16,7 +16,7 @@ const COPY_ICON = (
   </svg>
 );
 
-const CHECK_ICON = (
+export const CHECK_ICON = (
   <svg
     width="14"
     height="14"
@@ -31,6 +31,37 @@ const CHECK_ICON = (
   </svg>
 );
 
+// Copy-to-clipboard with the modern API plus a textarea/execCommand fallback
+// for older / insecure contexts, and a transient "copied" flag. Shared by the
+// icon-only CopyButton and any labeled copy control (e.g. the task-id header),
+// so both get the same proven behavior. The write is ATTEMPTED before `copied`
+// flips — an unavailable modern API throws into the fallback rather than
+// reporting a false success.
+export function useClipboardCopy(resetMs = 1500) {
+  const [copied, setCopied] = useState(false);
+  const copy = useCallback(
+    async (text: string) => {
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        // Fallback for older browsers / insecure contexts.
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), resetMs);
+    },
+    [resetMs],
+  );
+  return { copied, copy };
+}
+
 export function CopyButton({
   getText,
   size = 24,
@@ -38,31 +69,11 @@ export function CopyButton({
   getText: () => string;
   size?: number;
 }) {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(getText());
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      // Fallback for older browsers
-      const ta = document.createElement("textarea");
-      ta.value = getText();
-      ta.style.position = "fixed";
-      ta.style.opacity = "0";
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      document.body.removeChild(ta);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    }
-  }, [getText]);
+  const { copied, copy } = useClipboardCopy();
 
   return (
     <button
-      onClick={() => void handleCopy()}
+      onClick={() => void copy(getText())}
       className="copy-btn"
       title={copied ? "Copied!" : "Copy"}
       style={{

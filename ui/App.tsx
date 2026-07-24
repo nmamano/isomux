@@ -72,15 +72,6 @@ export function App() {
     hasReceivedInitialState,
   } = useAppState();
   const features = useFeatures();
-  // Keep the tab title in sync with the office name. Server renders the
-  // correct title into index.html for cold loads; this effect only takes over
-  // once full_state has landed (connected=true) so we don't briefly overwrite
-  // the server-rendered title with "Isomux" while office.name is still null
-  // from the initial empty store.
-  useEffect(() => {
-    if (!connected) return;
-    document.title = office.name ? `${office.name} | Isomux` : "Isomux";
-  }, [office.name, connected]);
   const roomCount = rooms.length;
   const dispatch = useDispatch();
   // Spawn flow: clicking an empty slot opens the engine chooser. Picking an
@@ -233,6 +224,21 @@ export function App() {
   const focusedAgent = focusedAgentId
     ? agents.find((a) => a.id === focusedAgentId)
     : null;
+
+  // Keep the browser tab title in sync with what's open — the focused agent,
+  // else the current room, else the office name — so tabs on different agents
+  // or rooms are distinguishable. The server renders the office name into
+  // index.html for cold loads; this effect only takes over once full_state has
+  // landed (connected=true) so it doesn't briefly overwrite the server-rendered
+  // title while office.name is still null from the initial empty store.
+  const focusedAgentName = focusedAgent?.name ?? null;
+  const currentRoomName =
+    rooms.find((r) => r.id === currentRoomId)?.name ?? null;
+  useEffect(() => {
+    if (!connected) return;
+    const label = focusedAgentName ?? currentRoomName ?? office.name ?? null;
+    document.title = label ? `${label} | Isomux` : "Isomux";
+  }, [connected, office.name, focusedAgentName, currentRoomName]);
 
   const swipeRoomNext = useCallback(() => {
     if (roomCount <= 1) return;
