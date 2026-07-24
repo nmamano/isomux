@@ -623,6 +623,8 @@ const ROUTE_LABELS: Array<[string, string, string]> = [
   ["POST", "/api/agents/*/edit-file", "Offer file in editor"],
   ["POST", "/api/agents/*/terminal-command", "Suggest terminal command"],
   ["GET", "/api/agents/*/context", "Check context usage"],
+  ["GET", "/api/agents/*/slides", "Read slides"],
+  ["POST", "/api/agents/*/slides/*", "Generate slide"],
   ["GET", "/api/agents/*/instructions", "Read agent instructions"],
   ["GET", "/api/memory", "Read memory"],
   ["POST", "/api/memory", "Append memory"],
@@ -776,6 +778,7 @@ export function humanizeIsomuxRequest(
         if (sub === "resume" && m === "POST")
           return `Resume a session for ${who}`;
         if (sub === "sessions" && m === "GET") return `List ${who}'s sessions`;
+        if (sub === "slides" && m === "GET") return `Read ${who}'s slides`;
         if (sub === "move" && m === "POST") return `Move ${who}`;
         if (sub === "revive" && m === "POST") return `Revive ${who}`;
       }
@@ -786,6 +789,8 @@ export function humanizeIsomuxRequest(
           return `Cancel a queued message to ${who}`;
         if (sub === "messages" && m === "PATCH")
           return `Edit a message in ${who}'s chat`;
+        if (sub === "slides" && m === "POST")
+          return `Generate a slide for ${who}`;
       }
     }
   }

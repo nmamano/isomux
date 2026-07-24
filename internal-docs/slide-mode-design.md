@@ -1,8 +1,18 @@
 # Slide Mode (native)
 
-> Status: designed (v2 — revised after a full design interview with Nil,
-> 2026-07-19). Not yet implemented. Author: Isomux Brainstormer.
-> Prerequisite task: efdabed3 (move cwd out of the LogView header bar).
+> Status: implemented (2026-07-24, task 87b575d9). Design v2 after a full design
+> interview with Nil (2026-07-19). Author: Isomux Brainstormer.
+> Prerequisite task efdabed3 (free the header space) is done.
+>
+> Implementation notes (as built): sidecar store `server/slide-store.ts`
+> (`~/.isomux/state/slides/<agentId>/<rootSessionId>.json`); generation +
+> formatter prompt + per-agent queue in `server/slide-mode.ts`; turn splitting
+> shared by client and server in `shared/slide-turns.ts`; routes
+> `GET /api/agents/:id/slides` and `POST /api/agents/:id/slides/:entryId`
+> (opIds agents.getSlides / agents.ensureSlide, office:read) with the
+> `slide_ready` room-ACL WS event; deck UI in `ui/log-view/DeckView.tsx` behind a
+> header toggle (per-device-per-agent in `ui/device-settings.ts`). The staleness
+> guard reuses `topicGenToken` rather than a new counter.
 
 Per-agent "Slide view": a toggle in the agent header that replaces the chat
 view with a slide deck — one slide per assistant turn, ←/→ navigation, the

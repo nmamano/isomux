@@ -4,6 +4,7 @@ import type {
   LogEntry,
   QueuedMessage,
   SkillInfo,
+  SlideRecord,
 } from "../shared/types.ts";
 import type { BackendSession } from "./backends/types.ts";
 import type { OfficeEvent } from "../shared/office-state.ts";
@@ -232,6 +233,16 @@ export interface ManagedAgent {
 export type AgentEvent =
   | OfficeEvent
   | { type: "log_entry"; entry: LogEntry }
+  // Slide Mode: a turn's slide finished generating. Routed to the WS as the
+  // `slide_ready` wire event (room-ACL, like log_entry). sessionId is the
+  // conversation (root session) the slide belongs to.
+  | {
+      type: "slide_ready";
+      agentId: string;
+      sessionId: string;
+      entryId: string;
+      slide: SlideRecord;
+    }
   // `rollback: true` marks a clear that RESTORES a prior visible timeline
   // (failed edit-fork rollback) rather than establishing a new conversation
   // boundary — clients keep transient per-conversation cues (the unread dot)

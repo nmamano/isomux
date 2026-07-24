@@ -75,6 +75,9 @@ import type {
   AffordanceTerminalCmdReq,
   AffordancePreviewUrlReq,
   AgentContextUsageResp,
+  SlideDeckRes,
+  EnsureSlideReq,
+  EnsureSlideRes,
   EditorSaveReq,
   RoomCreateReq,
   RoomRenameReq,
@@ -483,6 +486,26 @@ export const API_ROUTES: readonly RouteDef[] = [
     path: "/api/agents/:id/context",
     auth: cap("self:affordance", agentParamMustEqualTokenAgent),
     emits: [],
+  }),
+
+  // --- Agents — Slide Mode (browser; design: internal-docs/slide-mode-design.md)
+  // Boss-session read surface: anyone who can see the chat (office:read + room
+  // access) can fetch its slides and drive on-demand generation. The ensure
+  // route's generation is fire-and-forget server-side; the slide arrives on the
+  // room-ACL `slide_ready` WS push.
+  defineRoute<void, SlideDeckRes>({
+    opId: "agents.getSlides",
+    method: "GET",
+    path: "/api/agents/:id/slides",
+    auth: cap("office:read", agentParam("id")),
+    emits: [],
+  }),
+  defineRoute<EnsureSlideReq, EnsureSlideRes>({
+    opId: "agents.ensureSlide",
+    method: "POST",
+    path: "/api/agents/:id/slides/:entryId",
+    auth: cap("office:read", agentParam("id")),
+    emits: ["slide_ready"], // async: fired when generation completes, not inline
   }),
 
   // --- Agents — editor (browser) --------------------------------------------

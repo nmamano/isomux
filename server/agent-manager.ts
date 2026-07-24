@@ -120,6 +120,14 @@ import {
   type EnqueueResult,
 } from "./internal-types.ts";
 import { getBackend as defaultResolveBackend } from "./backends/index.ts";
+import { createSlideMode, type SlideJobContext } from "./slide-mode.ts";
+import {
+  readDeck,
+  readSlide,
+  writeSlide,
+  type SlideDeck,
+} from "./slide-store.ts";
+import { buildDeckTurns } from "../shared/slide-turns.ts";
 import type {
   ApprovalDecision,
   Backend,
@@ -2095,6 +2103,103 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         managed.topicGenerating = false;
       }
     }
+  }
+
+  // --- Slide Mode (design: internal-docs/slide-mode-design.md) ---------------
+  // A slide is a nullable attribute of an assistant turn, generated on demand
+  // when a client views it in the deck. Storage keys by the conversation's ROOT
+  // session id so edit-forks of the same conversation share a deck. The staleness
+  // guard reuses topicGenToken (bumped on /clear, /resume, edit-fork) exactly as
+  // generateTopic does.
+
+  // Walk the fork chain from the current leaf session to its root. The root is
+  // the stable per-conversation id; a fork adds a new leaf but keeps the root.
+  function getRootSessionId(agentId: string): string | null {
+    const managed = agents.get(agentId);
+    if (!managed?.sessionId) return null;
+    const map = loadSessionsMap(agentId);
+    let cur = managed.sessionId;
+    const seen = new Set<string>();
+    while (!seen.has(cur)) {
+      seen.add(cur);
+      const parent = map[cur]?.forkedFrom;
+      if (!parent) break;
+      cur = parent;
+    }
+    return cur;
+  }
+
+  // Resolve everything a slide generation needs from live state (called by the
+  // SlideMode module per request), or null when the agent / session / turn is
+  // gone. Captures topicGenToken NOW so a result that lands after a conversation
+  // reset is dropped at commit.
+  function resolveSlideJob(
+    agentId: string,
+    entryId: string,
+  ): SlideJobContext | null {
+    const managed = agents.get(agentId);
+    if (!managed?.sessionId) return null;
+    const rootSessionId = getRootSessionId(agentId);
+    if (!rootSessionId) return null;
+    const turns = buildDeckTurns(logCache.get(agentId) ?? []);
+    const idx = turns.findIndex((t) => t.entryId === entryId);
+    if (idx < 0) return null;
+    // Topic-gen model rule: Claude → sonnet (cheap); Codex → its own family.
+    const modelFamily =
+      managed.info.agentType === "claude" ? "sonnet" : managed.info.modelFamily;
+    // Style reference: the previous turn's cached slide, when we have it.
+    const prevEntryId = idx > 0 ? turns[idx - 1].entryId : null;
+    const prevSlideHtml = prevEntryId
+      ? (readSlide(agentId, rootSessionId, prevEntryId)?.html ?? null)
+      : null;
+    return {
+      agentType: managed.info.agentType,
+      modelFamily,
+      cwd: managed.info.cwd,
+      rootSessionId,
+      token: managed.topicGenToken,
+      turn: turns[idx],
+      prevSlideHtml,
+    };
+  }
+
+  const slideMode = createSlideMode({
+    resolveBackend: (agentType) => getBackend(agentType as AgentBackendType),
+    resolveJob: resolveSlideJob,
+    isCurrent: (agentId, token) => {
+      const managed = agents.get(agentId);
+      return !!managed && managed.topicGenToken === token;
+    },
+    readSlide,
+    writeSlide,
+    onSlideReady: (agentId, sessionId, entryId, slide) => {
+      emit({ type: "slide_ready", agentId, sessionId, entryId, slide });
+    },
+  });
+
+  // GET the conversation's slide map for the initial deck render. Returns null
+  // when the agent has no live session. We do NOT prune: the root deck is shared
+  // across resumable fork branches, so keys the current leaf can't see may be
+  // another branch's live slides (see slide-store.ts).
+  function getSlideDeck(
+    agentId: string,
+  ): { sessionId: string; slides: SlideDeck } | null {
+    const rootSessionId = getRootSessionId(agentId);
+    if (!rootSessionId) return null;
+    return {
+      sessionId: rootSessionId,
+      slides: readDeck(agentId, rootSessionId),
+    };
+  }
+
+  // Ensure a slide exists for one turn: returns cached immediately, else starts
+  // generation and returns pending. `force`/`feedback` drive the per-slide ↻.
+  function ensureSlide(
+    agentId: string,
+    entryId: string,
+    opts?: { force?: boolean; feedback?: string | null },
+  ) {
+    return slideMode.ensureSlide(agentId, entryId, opts);
   }
 
   // Derive agent state from one normalized event.
@@ -6658,6 +6763,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     emitAgentDiff,
     emitAgentPreviewUrl,
     getAgentContextUsage,
+    getSlideDeck,
+    ensureSlide,
     spawn,
     enqueueMessage,
     addSystemNote,

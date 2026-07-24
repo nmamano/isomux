@@ -64,6 +64,35 @@ export function clearLegacyUserPrefs(): void {
   localStorage.removeItem(LEGACY_KEY_NOTIF_ROOMS);
 }
 
+// Slide Mode view toggle (design: internal-docs/slide-mode-design.md). Per
+// device, per agent — the server holds no slideMode setting; whether this
+// browser shows an agent as a deck vs chat is purely local. Stored as one
+// JSON object { [agentId]: true }; absent/false means chat view.
+const KEY_SLIDE_VIEW = "isomux-slide-view";
+
+function readSlideViewMap(): Record<string, boolean> {
+  if (typeof localStorage === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(KEY_SLIDE_VIEW);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export function getSlideView(agentId: string): boolean {
+  return readSlideViewMap()[agentId] === true;
+}
+
+export function setSlideView(agentId: string, on: boolean): void {
+  if (typeof localStorage === "undefined") return;
+  const map = readSlideViewMap();
+  if (on) map[agentId] = true;
+  else delete map[agentId];
+  localStorage.setItem(KEY_SLIDE_VIEW, JSON.stringify(map));
+}
+
 export function shouldNotifyRoom(
   roomId: string | null,
   setting: NotifRoomsSetting,

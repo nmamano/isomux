@@ -499,6 +499,29 @@ export interface LogEntry {
   ephemeral?: true;
 }
 
+// Slide Mode (design: internal-docs/slide-mode-design.md). One rendered slide
+// for one assistant turn, keyed server-side by the turn's user_message entry id.
+// Shared by the sidecar store, the ensure-slide API, and the slide_ready WS push
+// so all three agree on the shape.
+export interface SlideRecord {
+  // The self-contained inline-styled HTML fragment, or null for a
+  // placeholder-only record (an empty / interrupted / tool-only turn that has
+  // no text to format). Rendered ONLY inside a sandboxed iframe, never injected
+  // into the app DOM.
+  html: string | null;
+  // True when the turn produced no assistant text — the deck still shows a
+  // placeholder so it mirrors the conversation 1:1.
+  placeholder: boolean;
+  // The turn's error text (when it failed), shown on the placeholder. Null
+  // otherwise.
+  errorText: string | null;
+  // The frozen prompt that started the turn (shown beneath the slide).
+  promptText: string;
+  // The backend model family the formatter ran on (e.g. "sonnet").
+  model: string;
+  createdAt: number;
+}
+
 // Task item (replaces todos)
 export type TaskStatus = "open" | "in_progress" | "done" | "backlog";
 export type TaskPriority = "P0" | "P1" | "P2" | "P3";
@@ -1059,6 +1082,18 @@ export type ServerMessage =
   | { type: "killed_agent_added"; agent: KilledAgentSummary }
   | { type: "killed_agent_removed"; agentId: string; lastRoomId: string }
   | { type: "log_entry"; entry: LogEntry }
+  // Slide Mode: a slide finished generating (or regenerating) for one turn.
+  // Room-ACL scoped like log_entry — anyone who can see the chat gets it. The
+  // client matches it into the open deck by agentId + entryId; sessionId is the
+  // conversation the slide belongs to (informational for a future multi-
+  // conversation browser).
+  | {
+      type: "slide_ready";
+      agentId: string;
+      sessionId: string;
+      entryId: string;
+      slide: SlideRecord;
+    }
   | {
       type: "slash_commands";
       agentId: string;

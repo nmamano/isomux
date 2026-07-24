@@ -17,6 +17,7 @@ import type {
   SessionInfo,
   ServerMessage,
   SkillInfo,
+  SlideRecord,
   TaskItem,
   OfficeSettings,
   OfficeWire,
@@ -58,6 +59,10 @@ export interface AppState {
   agents: AgentInfo[];
   logs: Map<string, LogEntry[]>; // streamId → entries (streamId = agentId or cronrun-<runId>)
   logEntryIds: Map<string, Set<string>>; // streamId → set of seen entry ids (for O(1) dedupe)
+  // Slide Mode: agentId → (turn entryId → generated slide). Seeded by the
+  // slides GET on deck open, updated live by `slide_ready` pushes, cleared for
+  // an agent on a conversation-boundary clear_logs. See DeckView.
+  slides: Map<string, Map<string, SlideRecord>>;
   focusedAgentId: string | null;
   connected: boolean;
   isMobile: boolean;
@@ -176,6 +181,21 @@ type Action =
   // the per-stream id dedupe (logEntryIds), so it is equivalent to replaying
   // each entry as a `log_entry` — just one reducer pass instead of N.
   | { type: "log_entries_batch"; entries: LogEntry[] }
+  // Slide Mode: a single slide finished generating (WS push).
+  | {
+      type: "slide_ready";
+      agentId: string;
+      sessionId: string;
+      entryId: string;
+      slide: SlideRecord;
+    }
+  // CLIENT-LOCAL: DeckView dispatches this after the slides GET to seed the
+  // per-agent slide map from cached slides.
+  | {
+      type: "slides_loaded";
+      agentId: string;
+      slides: Record<string, SlideRecord>;
+    }
   | { type: "focus"; agentId: string | null }
   | { type: "connected" }
   | { type: "disconnected" }
@@ -432,6 +452,24 @@ export function reducer(state: AppState, action: Action): AppState {
       for (const [streamId, arr] of arrByStream) logs.set(streamId, arr);
       return { ...state, logs, logEntryIds };
     }
+    case "slide_ready": {
+      const slides = new Map(state.slides);
+      const forAgent = new Map(slides.get(action.agentId) ?? []);
+      forAgent.set(action.entryId, action.slide);
+      slides.set(action.agentId, forAgent);
+      return { ...state, slides };
+    }
+    case "slides_loaded": {
+      const slides = new Map(state.slides);
+      // Merge (not replace): a live slide_ready that raced ahead of the GET must
+      // not be clobbered by the older cached snapshot.
+      const forAgent = new Map(slides.get(action.agentId) ?? []);
+      for (const [entryId, rec] of Object.entries(action.slides)) {
+        if (!forAgent.has(entryId)) forAgent.set(entryId, rec);
+      }
+      slides.set(action.agentId, forAgent);
+      return { ...state, slides };
+    }
     case "focus": {
       const needsAttention = new Set(state.needsAttention);
       if (action.agentId) {
@@ -492,7 +530,11 @@ export function reducer(state: AppState, action: Action): AppState {
       if (action.rollback) return { ...state, logs, logEntryIds };
       const needsAttention = new Set(state.needsAttention);
       needsAttention.delete(action.agentId);
-      return { ...state, logs, logEntryIds, needsAttention };
+      // A new conversation replaces the deck: drop this agent's cached slides so
+      // stale slides can't bleed into the fresh turns' positions.
+      const slides = new Map(state.slides);
+      slides.delete(action.agentId);
+      return { ...state, logs, logEntryIds, needsAttention, slides };
     }
     case "set_mobile":
       return { ...state, isMobile: action.isMobile };
@@ -708,6 +750,7 @@ export const initialState: AppState = {
   agents: [],
   logs: new Map(),
   logEntryIds: new Map(),
+  slides: new Map(),
   focusedAgentId: null,
   connected: false,
   isMobile: typeof window !== "undefined" ? window.innerWidth < 768 : false,

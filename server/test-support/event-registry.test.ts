@@ -27,6 +27,7 @@ import type { ServerMessage } from "../../shared/types.ts";
 const SPEC_AUDIENCES: Record<string, AudienceStrategy> = {
   // Live agent / room stream — room-ACL
   log_entry: "room-ACL",
+  slide_ready: "room-ACL",
   clear_logs: "room-ACL",
   slash_commands: "room-ACL",
   agent_added: "room-ACL",

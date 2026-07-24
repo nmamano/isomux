@@ -44,6 +44,7 @@ import type {
   InviteWire,
   SessionWire,
   SkillInfo,
+  SlideRecord,
   UpdateStatusWire,
 } from "../../shared/types.ts";
 import type {
@@ -110,6 +111,14 @@ export interface RegistryEvent {
 export interface EventPayloads {
   // Live agent / room stream (room-ACL)
   log_entry: { entry: LogEntry };
+  // Slide Mode: a turn's slide finished generating. Room-ACL on the agent, like
+  // log_entry — anyone who can read the chat can receive its slides.
+  slide_ready: {
+    agentId: string;
+    sessionId: string;
+    entryId: string;
+    slide: SlideRecord;
+  };
   // rollback marks a restore-of-prior-timeline clear (failed edit-fork
   // rollback), not a conversation boundary; clients keep the unread dot.
   clear_logs: { agentId: string; rollback?: boolean };
@@ -214,6 +223,10 @@ export const EVENT_REGISTRY = {
   log_entry: {
     audience: "room-ACL",
     projectionKey: { kind: "agentLookup", path: ["entry", "agentId"] },
+  },
+  slide_ready: {
+    audience: "room-ACL",
+    projectionKey: { kind: "agentLookup", path: ["agentId"] },
   },
   clear_logs: {
     audience: "room-ACL",

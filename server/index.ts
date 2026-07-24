@@ -149,6 +149,7 @@ import { memoryHandlers } from "./routes/handlers/memory.ts";
 import { memoryStore, isSafeScopeId, versionOf } from "./memory-store.ts";
 import { cronHandlers } from "./routes/handlers/cron.ts";
 import { agentAffordanceHandlers } from "./routes/handlers/agent-affordances.ts";
+import { slidesHandlers } from "./routes/handlers/slides.ts";
 import { uploadsHandlers } from "./routes/handlers/uploads.ts";
 import { skillUsageHandlers } from "./routes/handlers/skill-usage.ts";
 import { getSkillUseCounts } from "./skill-usage.ts";
@@ -1517,6 +1518,18 @@ function buildExecutorDeps(): ExecutorDeps {
         agentManager.emitAgentPreviewUrl(agentId, body),
       getAgentContextUsage: (agentId) =>
         agentManager.getAgentContextUsage(agentId),
+    }),
+  );
+
+  // Slide Mode (design: internal-docs/slide-mode-design.md). Boss-session read
+  // surface: fetch a conversation's slide map + drive on-demand generation.
+  // Generation is fire-and-forget in the manager; the finished slide rides the
+  // room-ACL `slide_ready` WS push (wired in wireEventSinks).
+  register(
+    slidesHandlers({
+      getSlideDeck: (agentId) => agentManager.getSlideDeck(agentId),
+      ensureSlide: (agentId, entryId, opts) =>
+        agentManager.ensureSlide(agentId, entryId, opts),
     }),
   );
 
@@ -3486,6 +3499,18 @@ function wireEventSinks(): void {
         type: "office_settings_updated",
         prompt: event.prompt,
         name: event.name,
+      });
+      return;
+    }
+    // Slide Mode: route the room-ACL slide_ready push through the emit registry
+    // (audience audited there), same posture as log_entry. Only sessions that
+    // can see the agent's room receive it.
+    if (event.type === "slide_ready") {
+      liveEmit("slide_ready", {
+        agentId: event.agentId,
+        sessionId: event.sessionId,
+        entryId: event.entryId,
+        slide: event.slide,
       });
       return;
     }

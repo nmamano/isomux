@@ -19,6 +19,7 @@ import type {
   MemoryScope,
   MemoryItem,
   OfficeSettings,
+  SlideRecord,
 } from "./types.ts";
 
 // --- Wire projections (response / event shapes) -----------------------------
@@ -218,6 +219,31 @@ export type AgentContextUsageResp =
       sampledAtMs: number;
     }
   | { available: false; reason: "no_session" | "not_yet_measured" };
+
+/**
+ * GET /api/agents/:id/slides — the current conversation's slide map for the
+ * initial deck render. `sessionId` is the conversation's root session id (null
+ * when the agent has no live session); `slides` is keyed by turn entry id.
+ */
+export interface SlideDeckRes {
+  sessionId: string | null;
+  slides: Record<string, SlideRecord>;
+}
+
+/**
+ * POST /api/agents/:id/slides/:entryId — "ensure slide". Returns a cached slide
+ * immediately, else starts generation and returns pending. `force` regenerates
+ * even when cached; `feedback` is a one-shot instruction for that regeneration.
+ */
+export interface EnsureSlideReq {
+  force?: boolean;
+  feedback?: string;
+}
+
+export type EnsureSlideRes =
+  | { status: "ready"; slide: SlideRecord }
+  | { status: "pending" }
+  | { status: "unavailable" };
 
 export interface EditorSaveReq {
   path: string;
