@@ -12,6 +12,8 @@ import type { ContextUsageWire } from "../../shared/types.ts";
 // [context check] notices (thresholds 50/75, per Nil 2026-07-18): a nearly
 // drained battery goes red. bandColor: < 50 -> dim (--text-muted), 50-74 ->
 // --orange, >= 75 -> --red. Never feed the remaining value into bandColor.
+// When there is NO reading, the shell would be empty and unlabeled, so it shows
+// "CTX" inside instead (the only state that gets the label).
 export function bandColor(pct: number): string {
   if (pct >= 75) return "var(--red)";
   if (pct >= 50) return "var(--orange)";
@@ -66,8 +68,8 @@ export function ContextBattery({
     };
   }, [popoverOpen]);
 
-  // Unknown state: no reading. Ghost color, empty shell, "?" label — see the
-  // prop comment. All the derived display values fork on this.
+  // Unknown state: no reading. Ghost color, "CTX" inside the shell, "?" label —
+  // see the prop comment. All the derived display values fork on this.
   const known = !!usage;
   const pct = usage ? usage.percentage : 0;
   // Phone-battery metaphor: the battery shows REMAINING context, so it starts
@@ -177,6 +179,21 @@ export function ContextBattery({
               rx={1.2}
               fill="currentColor"
             />
+          )}
+          {/* No reading: the shell is empty, so label it "CTX" (ghost color)
+              instead of leaving a meaningless box. */}
+          {!known && (
+            <text
+              x={10.5}
+              y={8.5}
+              textAnchor="middle"
+              fontSize={7.4}
+              fontWeight={700}
+              fontFamily="'JetBrains Mono',monospace"
+              fill="currentColor"
+            >
+              CTX
+            </text>
           )}
         </svg>
         <span
