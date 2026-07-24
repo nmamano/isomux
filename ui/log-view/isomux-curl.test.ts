@@ -778,12 +778,8 @@ describe("parseIsomuxCurl heredoc / -Rs slurp producers", () => {
     expect(
       parseIsomuxCurl(`jq -n '{a: 1}' | ${CURL_TAIL} <<'EOF'\nbody\nEOF`),
     ).toBeNull();
-    // Heredoc feeding a bare curl (no jq producer).
-    expect(
-      parseIsomuxCurl(
-        `curl -s -X POST localhost:4000/tasks -d @- <<'EOF'\n{"title":"x"}\nEOF`,
-      ),
-    ).toBeNull();
+    // (A heredoc feeding curl directly IS now carded — see the "curl-fed
+    // heredoc body" suite below.)
     // A second heredoc on the same line.
     expect(
       parseIsomuxCurl(
@@ -799,6 +795,205 @@ describe("parseIsomuxCurl heredoc / -Rs slurp producers", () => {
     expect(
       humanizeIsomuxRequest(req!, (id) => (id === "agent-1" ? "Bob" : null)),
     ).toBe("Send a message to Bob");
+  });
+});
+
+describe("parseIsomuxCurl curl-fed heredoc body", () => {
+  // The standard Codex message-POST: curl reads its body straight from a
+  // heredoc on stdin (`-d @- <<'JSON'`), no jq producer in between.
+  const POST = (delim: string, body: string, flag = "-d") =>
+    `curl -s -X POST localhost:4000/api/agents/agent-1/messages -H "Authorization: Bearer $T" -H 'Content-Type: application/json' ${flag} @- <<${delim}\n${body}\n${delim.replace(/['"]/g, "")}`;
+
+  test("literal JSON object body resolves to card fields", () => {
+    const req = parseIsomuxCurl(POST("'JSON'", `{"text":"hello there"}`));
+    expect(req).not.toBeNull();
+    expect(req!.method).toBe("POST");
+    expect(req!.action).toBe("Send agent message");
+    expect(req!.bodyFields).toEqual([{ key: "text", value: "hello there" }]);
+    expect(req!.bodyNote).toBeNull();
+    expect(req!.bodyRaw).toBeNull();
+    expect(req!.hasAuth).toBe(true);
+  });
+
+  test("multi-line JSON body (whitespace collapsed in field values)", () => {
+    const req = parseIsomuxCurl(
+      POST("'EOF'", `{\n  "text": "line one\\nline two",\n  "urgent": true\n}`),
+    );
+    expect(req!.bodyFields).toEqual([
+      { key: "text", value: "line one line two" },
+      { key: "urgent", value: "true" },
+    ]);
+  });
+
+  test("nested JSON values stringify compactly, like the -d path", () => {
+    const req = parseIsomuxCurl(
+      POST("'EOF'", `{"scope":"room","meta":{"a":1,"b":[2,3]}}`),
+    );
+    expect(req!.bodyFields).toEqual([
+      { key: "scope", value: "room" },
+      { key: "meta", value: '{"a":1,"b":[2,3]}' },
+    ]);
+  });
+
+  test("all @-interpreting data flags read the heredoc as the body", () => {
+    for (const flag of ["-d", "--data", "--data-binary", "--data-ascii"]) {
+      const req = parseIsomuxCurl(POST("'JSON'", `{"text":"hi"}`, flag));
+      expect(req, flag).not.toBeNull();
+      expect(req!.bodyFields).toEqual([{ key: "text", value: "hi" }]);
+    }
+  });
+
+  test("double-quoted delimiter takes the body literally too", () => {
+    const req = parseIsomuxCurl(POST(`"END"`, `{"text":"hi"}`));
+    expect(req!.bodyFields).toEqual([{ key: "text", value: "hi" }]);
+  });
+
+  test("unquoted delimiter with an expansion-free body resolves to fields", () => {
+    const req = parseIsomuxCurl(POST("EOF", `{"text":"plain body"}`));
+    expect(req!.bodyFields).toEqual([{ key: "text", value: "plain body" }]);
+  });
+
+  test("unquoted delimiter with $VAR/backtick/backslash notes only, never resolves", () => {
+    // The shell would expand these before curl sees them; the card must not
+    // present pre-expansion text as the payload. Quoted-delimiter equivalents
+    // ARE resolved (next test), so this is specifically the expansion guard.
+    for (const body of [
+      `{"text":"costs $HOME"}`,
+      '{"text":"`whoami`"}',
+      `{"text":"a\\\\b"}`,
+    ]) {
+      const req = parseIsomuxCurl(POST("EOF", body));
+      expect(req, body).not.toBeNull();
+      expect(req!.bodyFields).toBeNull();
+      expect(req!.bodyNote).toBe("body from heredoc");
+    }
+    // Same body under a quoted delimiter is literal -> fields.
+    expect(
+      parseIsomuxCurl(POST("'EOF'", `{"text":"costs $HOME"}`))!.bodyFields,
+    ).toEqual([{ key: "text", value: "costs $HOME" }]);
+  });
+
+  test("literal but non-JSON body collapses to a note", () => {
+    const req = parseIsomuxCurl(POST("'EOF'", `just some prose, not json`));
+    expect(req).not.toBeNull();
+    expect(req!.bodyNote).toBe("body from heredoc");
+    expect(req!.bodyFields).toBeNull();
+    expect(req!.bodyRaw).toBeNull();
+  });
+
+  test("non-object JSON (array/scalar) and empty body note only", () => {
+    expect(parseIsomuxCurl(POST("'EOF'", `[1,2,3]`))!.bodyNote).toBe(
+      "body from heredoc",
+    );
+    expect(parseIsomuxCurl(POST("'EOF'", `"hi"`))!.bodyNote).toBe(
+      "body from heredoc",
+    );
+    // Empty heredoc body: JSON.parse("") throws -> note.
+    const empty = parseIsomuxCurl(
+      `curl -s -X POST localhost:4000/api/agents/agent-1/messages -d @- <<'EOF'\nEOF`,
+    );
+    expect(empty!.bodyNote).toBe("body from heredoc");
+  });
+
+  test("carries a display pipe tail after the heredoc curl", () => {
+    const req = parseIsomuxCurl(
+      `curl -s -X POST localhost:4000/api/agents/agent-1/messages -d @- <<'EOF' | jq '.ok'\n{"text":"hi"}\nEOF`,
+    );
+    expect(req).not.toBeNull();
+    expect(req!.bodyFields).toEqual([{ key: "text", value: "hi" }]);
+    expect(req!.pipeTail).toBe(`| jq '.ok'`);
+  });
+
+  test("surfaces an output redirect on the heredoc curl", () => {
+    const req = parseIsomuxCurl(
+      `curl -s -X POST localhost:4000/api/agents/agent-1/messages -d @- <<'EOF' > /tmp/ack.json\n{"text":"hi"}\nEOF`,
+    );
+    expect(req).not.toBeNull();
+    expect(req!.bodyFields).toEqual([{ key: "text", value: "hi" }]);
+    expect(req!.outputFile).toBe("/tmp/ack.json");
+  });
+
+  test("unknown isomux route still cards, just without an action label", () => {
+    // The real Codex shape often hits /agents/<id>/message (singular, no /api).
+    const req = parseIsomuxCurl(
+      `curl -s -X POST localhost:4000/agents/agent-1/message -d @- <<'JSON'\n{"text":"hi"}\nJSON`,
+    );
+    expect(req).not.toBeNull();
+    expect(req!.method).toBe("POST");
+    expect(req!.action).toBeNull();
+    expect(req!.bodyFields).toEqual([{ key: "text", value: "hi" }]);
+  });
+
+  test("humanize works through a heredoc-fed body", () => {
+    const req = parseIsomuxCurl(
+      POST("'JSON'", `{"text":"hi","deliverAt":"x"}`),
+    );
+    expect(
+      humanizeIsomuxRequest(req!, (id) => (id === "agent-1" ? "Bob" : null)),
+    ).toBe("Schedule a message to Bob");
+  });
+
+  // --- conservatism: shapes that must stay raw ---
+
+  test("a heredoc curl never reads (no @- data flag) stays raw", () => {
+    // Heredoc present but no `-d @-`: curl ignores stdin, so carding it as a
+    // plain request would hide the heredoc body. Bail.
+    expect(
+      parseIsomuxCurl(
+        `curl -s localhost:4000/api/agents/agent-1/messages <<'EOF'\n{"text":"hi"}\nEOF`,
+      ),
+    ).toBeNull();
+    // Inline -d content alongside the heredoc: stdin is unread.
+    expect(
+      parseIsomuxCurl(
+        `curl -s -X POST localhost:4000/tasks -d '{"title":"x"}' <<'EOF'\nignored\nEOF`,
+      ),
+    ).toBeNull();
+  });
+
+  test("--data-raw @- does not read stdin, so the heredoc shape stays raw", () => {
+    // curl treats @ literally under --data-raw; the heredoc is never the body.
+    expect(
+      parseIsomuxCurl(
+        `curl -s -X POST localhost:4000/tasks --data-raw @- <<'EOF'\n{"title":"x"}\nEOF`,
+      ),
+    ).toBeNull();
+  });
+
+  test("two @- body args stay raw", () => {
+    expect(
+      parseIsomuxCurl(
+        `curl -s -X POST localhost:4000/tasks -d @- -d @- <<'EOF'\n{"a":1}\nEOF`,
+      ),
+    ).toBeNull();
+  });
+
+  test("out-of-grammar heredocs feeding curl stay raw", () => {
+    const HC = `curl -s -X POST localhost:4000/tasks -d @-`;
+    // herestring
+    expect(parseIsomuxCurl(`${HC} <<<'{"a":1}'`)).toBeNull();
+    // tab-stripping
+    expect(parseIsomuxCurl(`${HC} <<-'EOF'\n{"a":1}\nEOF`)).toBeNull();
+    // unterminated
+    expect(parseIsomuxCurl(`${HC} <<'EOF'\n{"a":1}`)).toBeNull();
+    // trailing command after terminator
+    expect(
+      parseIsomuxCurl(`${HC} <<'EOF'\n{"a":1}\nEOF\nrm -rf /tmp/x`),
+    ).toBeNull();
+    // two heredocs
+    expect(parseIsomuxCurl(`${HC} <<'EOF' <<'EOG'\n{"a":1}\nEOF`)).toBeNull();
+    // an active (non-filter) pipe stage after the heredoc curl
+    expect(
+      parseIsomuxCurl(`${HC} <<'EOF' | curl example.com -d @-\n{"a":1}\nEOF`),
+    ).toBeNull();
+  });
+
+  test("heredoc feeding a non-isomux curl stays raw", () => {
+    expect(
+      parseIsomuxCurl(
+        `curl -s -X POST https://example.com/api -d @- <<'EOF'\n{"a":1}\nEOF`,
+      ),
+    ).toBeNull();
   });
 });
 
@@ -1108,12 +1303,90 @@ describe("parseIsomuxCurl bash -lc wrapper (Codex)", () => {
     ).toBeNull();
   });
 
-  test("a heredoc-fed curl inside the wrapper stays raw (unchanged limitation)", () => {
-    // The heredoc body would need to cross the wrapper; not modeled.
+  test("a heredoc-fed curl inside the wrapper is unwrapped and carded", () => {
+    // The wrapper is unwrapped and the inner `curl -d @- <<EOF` re-parsed, the
+    // same recursion that already handles a wrapped `jq ... <<EOF | curl -d @-`
+    // producer. (A single-quoted wrapper here — no outer-shell expansion — so
+    // the extracted body is exactly what curl sends.)
+    const req = parseIsomuxCurl(
+      `/bin/bash -lc 'curl -s -X POST localhost:4000/api/agents/a/messages -d @- <<'EOF'\n{"text":"hi"}\nEOF'`,
+    );
+    expect(req).not.toBeNull();
+    expect(req!.action).toBe("Send agent message");
+    expect(req!.bodyFields).toEqual([{ key: "text", value: "hi" }]);
+  });
+});
+
+// The outer shell of a double-quoted wrapper expands $VAR/backticks in the
+// heredoc body BEFORE the inner curl reads it. tokenize keeps the pre-expansion
+// spelling, so a naive card would show `$LEAKED` as an exact field even though
+// curl sends its value. outerExpandsBody catches exactly the expansion-active
+// case and marks the body non-literal; protected $ (single-quote breakout,
+// escaped \$) still cards its fields.
+describe("parseIsomuxCurl wrapped-heredoc outer-shell expansion", () => {
+  test("outer double-quoted wrapper expands a bare $VAR -> note, never a field", () => {
+    // {"text":"$LEAKED"} inside `bash -lc "..."`: the outer shell expands
+    // $LEAKED, so the literal spelling must NOT be shown as the body.
+    const req = parseIsomuxCurl(
+      `/bin/bash -lc "curl -s -X POST localhost:4000/api/agents/a/messages -d @- <<'EOF'\n{\\"text\\":\\"$LEAKED\\"}\nEOF"`,
+    );
+    expect(req).not.toBeNull();
+    expect(req!.action).toBe("Send agent message");
+    expect(req!.bodyFields).toBeNull();
+    expect(req!.bodyNote).toBe("body from heredoc");
+  });
+
+  test("outer double-quoted wrapper with special/positional params ($?, $$) -> note", () => {
+    // The outer shell expands $? and $$ too — a narrower "$ followed by a
+    // letter" match would wrongly present these as exact fields.
+    const req = parseIsomuxCurl(
+      `/bin/bash -lc "curl -s -X POST localhost:4000/api/agents/a/messages -d @- <<'EOF'\n{\\"text\\":\\"status $?, pid $$\\"}\nEOF"`,
+    );
+    expect(req).not.toBeNull();
+    expect(req!.action).toBe("Send agent message");
+    expect(req!.bodyFields).toBeNull();
+    expect(req!.bodyNote).toBe("body from heredoc");
+  });
+
+  test("same shape feeding a jq producer stays raw (jq path takes only literal bodies)", () => {
     expect(
       parseIsomuxCurl(
-        `/bin/bash -lc 'curl -s -X POST localhost:4000/api/agents/a/messages -d @- <<'EOF'\n{"text":"hi"}\nEOF'`,
+        `/bin/bash -lc "jq -Rs '{text: .}' <<'EOF' | curl -s -X POST localhost:4000/api/agents/a/messages -d @-\ncosts $LEAKED now\nEOF"`,
       ),
     ).toBeNull();
+  });
+
+  test("an escaped \\$ in a double-quoted wrapper is literal -> still cards fields", () => {
+    // The outer shell does not expand \$HOME; curl sends the literal text.
+    const req = parseIsomuxCurl(
+      `/bin/bash -lc "curl -s -X POST localhost:4000/api/agents/a/messages -d @- <<'EOF'\n{\\"text\\":\\"cost \\$HOME today\\"}\nEOF"`,
+    );
+    expect(req).not.toBeNull();
+    expect(req!.bodyFields).toEqual([
+      { key: "text", value: "cost $HOME today" },
+    ]);
+  });
+
+  test("a single-quote-protected $ in a double-quoted wrapper still cards fields", () => {
+    // The body's $HOME sits in a `"..."'...'"..."` single-quote breakout (the
+    // real Codex shape): the wrapper's double-quote is CLOSED with an unescaped
+    // `"`, $HOME is single-quoted, then the double-quote reopens. The outer
+    // shell leaves $HOME verbatim, so it is safe to resolve.
+    const req = parseIsomuxCurl(
+      `/bin/bash -lc "curl -s -X POST localhost:4000/api/agents/a/messages -d @- <<'EOF'\n{\\"text\\":\\"see "'$HOME'" now\\"}\nEOF"`,
+    );
+    expect(req).not.toBeNull();
+    expect(req!.bodyFields).toEqual([{ key: "text", value: "see $HOME now" }]);
+  });
+
+  test("outer-active $ in the auth header (not the body) does not block the card", () => {
+    // $ISOMUX_AGENT_TOKEN is on the header line (before the body); the body
+    // itself is clean, so it still resolves to fields.
+    const req = parseIsomuxCurl(
+      `/bin/bash -lc "curl -s -X POST localhost:4000/api/agents/a/messages -H \\"Authorization: Bearer $ISOMUX_AGENT_TOKEN\\" -d @- <<'EOF'\n{\\"text\\":\\"plain body\\"}\nEOF"`,
+    );
+    expect(req).not.toBeNull();
+    expect(req!.hasAuth).toBe(true);
+    expect(req!.bodyFields).toEqual([{ key: "text", value: "plain body" }]);
   });
 });

@@ -10,7 +10,7 @@
 // anything it can't FULLY understand (compound commands, command substitution,
 // unknown flags, non-isomux hosts), and the caller falls back to the plain
 // rendering. A false null costs nothing; a false parse would show a wrong
-// summary. Three deliberate tolerances on top of that:
+// summary. Four deliberate tolerances on top of that:
 // - side-effect-free redirections (`2>/dev/null`, `>/dev/null`, `2>&1`) are
 //   accepted and omitted from the card (see tokenize);
 // - saving output to a file (`> file`, `>> file`, `-o file`) is accepted for
@@ -24,6 +24,10 @@
 //   expansion-free bodies) or a single positional file
 //   (`jq -Rs '{text: .}' file`); see extractHeredoc and the -Rs handling in
 //   parseJqInvocation.
+// - a heredoc feeding curl's stdin directly (`curl -d @- <<'EOF' ... EOF` — the
+//   standard Codex message-POST shape) supplies the body: literal JSON becomes
+//   card fields, anything else a "body from heredoc" note (see
+//   resolveHeredocBody).
 
 export type CurlBodyField = { key: string; value: string };
 
@@ -251,33 +255,40 @@ function tokenize(
 
 // --- heredoc extraction ------------------------------------------------------
 
-type Heredoc = { line: string; body: string };
+// A heredoc feeding the command: `line` is the command with the `<<DELIM`
+// operator removed, `body` is the heredoc text, and `literal` is true when the
+// body is what the shell actually sends verbatim (a quoted delimiter, or an
+// unquoted one with no expansions). When `literal` is false the shown text
+// would differ from the sent bytes, so callers must note the body, not resolve
+// it into fields.
+type Heredoc = { line: string; body: string; literal: boolean };
 
 // Delimiter word for a heredoc: a plain identifier-ish token (EOF, END, MSG1).
 const HEREDOC_DELIM_RE = /^[A-Za-z0-9_]+/;
 
 /**
- * Recognize the one heredoc shape transcripts actually use — a producer
- * pipeline whose FIRST stage reads a heredoc, with the body immediately after
- * the pipeline line and nothing after the terminator:
+ * Recognize the two heredoc shapes transcripts actually use — a heredoc read
+ * by the FIRST stage of the command (a `jq` producer that pipes into curl, or
+ * curl itself reading its stdin body), with the body immediately after the
+ * command line and nothing after the terminator:
  *
- *   jq -Rs '{text: .}' <<'EOF' | curl ... -d @-
- *   <body lines...>
- *   EOF
+ *   jq -Rs '{text: .}' <<'EOF' | curl ... -d @-        curl ... -d @- <<'EOF'
+ *   <body lines...>                                    <body lines...>
+ *   EOF                                                EOF
  *
- * Returns the pipeline line with the `<<DELIM` operator removed, plus the
- * body text. Returns null for anything else — no heredoc, herestrings
- * (`<<<`), tab-stripping heredocs (`<<-`), two heredocs, a heredoc attached
- * past the first `|`, an unterminated body, or trailing commands after the
- * terminator. Callers then tokenize the untouched command, whose stray `<` /
- * newline makes tokenize() bail, so every rejected shape degrades to raw
- * rendering rather than a wrong card.
+ * Returns the command line with the `<<DELIM` operator removed, the body text,
+ * and whether the body is literal (see the Heredoc type). Returns null for
+ * anything else — no heredoc, herestrings (`<<<`), tab-stripping heredocs
+ * (`<<-`), two heredocs, a heredoc attached past the first `|`, an unterminated
+ * body, or trailing commands after the terminator. Callers then tokenize the
+ * untouched command, whose stray `<` / newline makes tokenize() bail, so every
+ * rejected shape degrades to raw rendering rather than a wrong card.
  *
  * Unquoted delimiters (`<<EOF`) expand `$VAR`/`$(...)`/backticks and process
  * backslashes inside the body; a card would show pre-expansion text as if it
- * were the payload. They are accepted only when the body contains none of
- * those characters (expansion is then the identity); quoted delimiters
- * (`<<'EOF'`, `<<"EOF"`) take the body literally and are always eligible.
+ * were the payload. Such bodies are returned with `literal: false` so callers
+ * only note them; quoted delimiters (`<<'EOF'`, `<<"EOF"`), and unquoted ones
+ * with no expansion characters, are literal.
  */
 function extractHeredoc(command: string): Heredoc | null {
   const nl = command.indexOf("\n");
@@ -367,8 +378,17 @@ function extractHeredoc(command: string): Heredoc | null {
     if (lines[k].trim() !== "") return null;
   }
   const body = lines.slice(0, di).join("\n");
-  if (!quoted && /[$`\\]/.test(body)) return null;
-  return { line: head.slice(0, opStart) + " " + head.slice(opEnd), body };
+  // A quoted delimiter takes the body verbatim; an unquoted one expands
+  // $VAR/$(...)/backticks and processes backslashes, so the shown text would
+  // differ from the bytes actually sent. Mark such a body non-literal rather
+  // than rejecting it — the curl-fed path can still note it (the jq-producer
+  // path, where the body would seed a field value, rejects non-literal).
+  const literal = quoted || !/[$`\\]/.test(body);
+  return {
+    line: head.slice(0, opStart) + " " + head.slice(opEnd),
+    body,
+    literal,
+  };
 }
 
 // Commands accepted as pipeline stages after the curl. A coarse gate that
@@ -820,10 +840,11 @@ function displayValue(v: unknown): string {
 
 // --- jq producer stage -------------------------------------------------------
 
-// A resolved leading `jq ... |` stage feeding `curl -d @-`: either concrete
-// body fields (the jq program was a literal object template we could
-// evaluate) or a short note for the card ("body built with jq").
-type JqBody =
+// A request body resolved from something other than an inline `-d` flag —
+// either a leading `jq ... |` producer stage or a heredoc feeding curl's
+// stdin. Either concrete body fields (the source resolved to a literal object)
+// or a short note for the card ("body built with jq", "body from heredoc").
+type ResolvedBody =
   | { kind: "fields"; fields: CurlBodyField[] }
   | { kind: "note"; note: string };
 
@@ -970,7 +991,7 @@ const JQ_NEUTRAL_SHORT = "crjSa";
 function parseJqInvocation(
   tokens: string[],
   heredocBody: string | null = null,
-): JqBody | null {
+): ResolvedBody | null {
   let nullInput = false;
   let rawInput = false;
   let slurp = false;
@@ -1080,6 +1101,44 @@ function parseJqInvocation(
   };
 }
 
+// --- heredoc body ------------------------------------------------------------
+
+/**
+ * Resolve a heredoc attached to curl's stdin (`curl -d @- <<'EOF' ... EOF`)
+ * into a displayable body. A literal body (see the Heredoc type) is parsed as
+ * JSON: a JSON object becomes card fields, mirroring the inline `-d '{...}'`
+ * path. Anything else — non-object JSON, non-JSON text, or a non-literal body
+ * whose shell expansions the card can't resolve — collapses to the note "body
+ * from heredoc", which discloses that a body is present without claiming to
+ * show its exact bytes. (A note is honest here because the whole heredoc IS the
+ * body; contrast the jq-producer path, where the body seeds a field value and a
+ * note would conceal which field it fills.)
+ */
+function resolveHeredocBody(heredoc: Heredoc): ResolvedBody {
+  if (heredoc.literal) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(heredoc.body);
+    } catch {
+      parsed = undefined;
+    }
+    if (
+      parsed !== undefined &&
+      typeof parsed === "object" &&
+      parsed !== null &&
+      !Array.isArray(parsed)
+    ) {
+      return {
+        kind: "fields",
+        fields: Object.entries(parsed as Record<string, unknown>).map(
+          ([key, value]) => ({ key, value: displayValue(value) }),
+        ),
+      };
+    }
+  }
+  return { kind: "note", note: "body from heredoc" };
+}
+
 // --- shell wrapper -----------------------------------------------------------
 
 /**
@@ -1092,12 +1151,19 @@ function parseJqInvocation(
  * parse as an isomux curl, so anything we don't understand still bails to null.
  *
  * Conservative on purpose — returns null (no unwrap) unless:
- * - there is no heredoc (its body belongs to the inner command; tokenize can't
- *   carry a heredoc across the wrapper, so we leave those to raw rendering);
+ * - the wrapper itself carries no top-level heredoc (a `<<EOF` at the OUTER
+ *   level, not one tucked inside the `-c` script string; those DO survive the
+ *   quoting and are re-parsed by the recursion, exactly as before);
  * - the wrapper tokenizes cleanly with no outer pipe or file redirect;
  * - the program is bash or sh;
  * - there is exactly one `-c` script operand and no trailing positional args
  *   ($0/$1/... would let the script interpolate values we can't see).
+ *
+ * A heredoc INSIDE the script (`bash -lc "curl -d @- <<'EOF' ... EOF"`) is left
+ * to the recursion. The outer-shell expansion hazard — a double-quoted wrapper
+ * expanding a bare `$VAR` in the body before curl reads it — is handled by
+ * parseIsomuxCurl via outerExpandsBody, which marks such a body non-literal
+ * (tokenize already bails on `$(...)`/backticks inside double quotes).
  */
 function unwrapShellWrapper(command: string): string | null {
   if (extractHeredoc(command)) return null;
@@ -1137,11 +1203,54 @@ function unwrapShellWrapper(command: string): string | null {
 // --- main entry point --------------------------------------------------------
 
 /**
+ * Does the OUTER shell of a wrapped command expand a `$VAR`/`${...}`/backtick
+ * inside the heredoc body before the inner curl/jq ever reads it? When it does,
+ * the body tokenize extracts is the PRE-expansion spelling — the card would
+ * show `$LEAKED` where curl actually sends its value — so the caller must treat
+ * the body as non-literal.
+ *
+ * The heredoc header is a single line, so the body is everything after the
+ * command's first newline. We scan the raw command's Level-0 quote state
+ * (single quotes protect verbatim; double-quoted and unquoted regions expand)
+ * and report ANY unescaped, expansion-active `$` or backtick in that body
+ * region. "Any `$`" is deliberate — shell expands not just `$VAR`/`${...}` but
+ * positional/special parameters (`$1`, `$?`, `$$`, `$@`, ...), so a narrower
+ * match would let those through as exact fields. A bare literal `$` (e.g. a
+ * price) also trips it; downgrading that to a note is a sound over-
+ * approximation, never a wrong card. A `$` in a single-quote breakout (the
+ * common Codex `"..."'$x'"..."` shape) or an escaped `\$` reads as inactive, so
+ * genuinely-safe bodies keep carding their fields. Only meaningful for a
+ * command we actually unwrapped; direct commands never call it.
+ */
+function outerExpandsBody(command: string): boolean {
+  const bodyStart = command.indexOf("\n");
+  if (bodyStart === -1) return false;
+  let state: "U" | "S" | "D" = "U";
+  for (let i = 0; i < command.length; i++) {
+    const c = command[i];
+    const active = state === "U" || state === "D";
+    if (i > bodyStart && active && (c === "$" || c === "`")) return true;
+    if (state === "U") {
+      if (c === "'") state = "S";
+      else if (c === '"') state = "D";
+      else if (c === "\\") i++;
+    } else if (state === "S") {
+      if (c === "'") state = "U";
+    } else {
+      if (c === '"') state = "U";
+      else if (c === "\\" && '"\\$`'.includes(command[i + 1] ?? "")) i++;
+    }
+  }
+  return false;
+}
+
+/**
  * Parse a Bash command string; return a structured request if it is a single
- * curl invocation against the isomux server (optionally piped into a
- * filter), or a `jq ... | curl ... -d @-` producer pipeline where jq builds
- * the request body — from --arg templates, a positional input file, or a
- * heredoc (`jq -Rs '{text: .}' <<'EOF' | curl ... -d @-`). A single-statement
+ * curl invocation against the isomux server (optionally piped into a filter),
+ * a `jq ... | curl ... -d @-` producer pipeline where jq builds the request
+ * body — from --arg templates, a positional input file, or a heredoc
+ * (`jq -Rs '{text: .}' <<'EOF' | curl ... -d @-`) — or a heredoc feeding curl
+ * directly as its body (`curl ... -d @- <<'EOF'`). A single-statement
  * `bash -lc '<script>'` wrapper (how Codex issues every command) is unwrapped
  * and its script re-parsed. Null for everything else. `ports` is the set of
  * local ports the isomux server may listen on (default: the documented 4000).
@@ -1150,25 +1259,59 @@ export function parseIsomuxCurl(
   command: string,
   ports: readonly string[] = ["4000"],
 ): IsomuxCurlRequest | null {
+  return parseIsomuxCurlInner(command, ports, false);
+}
+
+/**
+ * The recursive worker. `outerExpandedBody` is threaded through the wrapper
+ * recursion: true when an outer wrapper's shell may have expanded a
+ * `$`/backtick in the heredoc body (see outerExpandsBody). Kept unexported so
+ * the public entry point keeps its two-argument contract.
+ */
+function parseIsomuxCurlInner(
+  command: string,
+  ports: readonly string[],
+  outerExpandedBody: boolean,
+): IsomuxCurlRequest | null {
   const inner = unwrapShellWrapper(command);
-  if (inner !== null) return parseIsomuxCurl(inner, ports);
-  // A recognized heredoc is stripped off before tokenizing; its body is only
-  // meaningful for a jq producer stage (checked below). When extractHeredoc
-  // returns null, the untouched command's `<`/newline makes tokenize() bail.
+  if (inner !== null)
+    return parseIsomuxCurlInner(
+      inner,
+      ports,
+      outerExpandedBody || outerExpandsBody(command),
+    );
+  // A recognized heredoc is stripped off before tokenizing; its body feeds
+  // either a jq producer stage or curl's stdin (both checked below). When
+  // extractHeredoc returns null, the untouched command's `<`/newline makes
+  // tokenize() bail.
   const heredoc = extractHeredoc(command);
+  if (
+    heredoc &&
+    heredoc.literal &&
+    outerExpandedBody &&
+    /[$`]/.test(heredoc.body)
+  ) {
+    // An outer wrapper's shell already had a shot at this body, so the
+    // extracted text is pre-expansion and can't be trusted as the sent bytes:
+    // treat it as non-literal (curl-fed path notes it; jq-fed path stays raw).
+    heredoc.literal = false;
+  }
   const tokenized = tokenize(heredoc ? heredoc.line : command, true);
   if (!tokenized) return null;
   const { tokens, pipeTail } = tokenized;
   if (tokens.length === 0) return null;
   if (tokens[0] === "curl") {
-    // A heredoc feeding curl itself (`curl -d @- <<'EOF'`) is not a shape we
-    // card; only the jq-producer form below understands heredoc input.
-    if (heredoc) return null;
+    // A heredoc attached to curl feeds its stdin as the request body
+    // (`curl -d @- <<'EOF'`): resolve it to fields (literal JSON object) or a
+    // note. parseCurlStage then enforces the single `-d @-` stdin read, so a
+    // heredoc the curl never reads still bails to raw. No heredoc -> plain
+    // curl, exactly as before.
+    const stdinBody = heredoc ? resolveHeredocBody(heredoc) : null;
     return parseCurlStage(
       tokens,
       pipeTail,
       ports,
-      null,
+      stdinBody,
       tokenized.outputRedirect,
     );
   }
@@ -1177,6 +1320,10 @@ export function parseIsomuxCurl(
     // A redirect on the jq stage itself (`jq ... > f | curl`) would starve
     // the pipe — nonsense, bail.
     if (pipeTail === null || tokenized.outputRedirect !== null) return null;
+    // A non-literal heredoc would seed jq's `.` with pre-expansion text — the
+    // card would misrender the field value. The producer path takes only
+    // literal bodies; anything else stays raw.
+    if (heredoc && !heredoc.literal) return null;
     const body = parseJqInvocation(tokens, heredoc?.body ?? null);
     if (body === null) return null;
     const next = tokenize(pipeTail.slice(1), true);
@@ -1194,15 +1341,16 @@ export function parseIsomuxCurl(
 
 /**
  * Parse one tokenized curl invocation (plus its optional display pipe tail).
- * `producer` is the resolved leading jq stage for producer pipelines; when
- * present, the curl must read its body from stdin via an @-interpreting data
- * flag (`-d @-`) and the producer supplies bodyFields/bodyNote.
+ * `stdinBody` is a body resolved from curl's stdin — a leading jq producer
+ * stage or an attached heredoc; when present, the curl must read its body from
+ * stdin via an @-interpreting data flag (`-d @-`) and `stdinBody` supplies
+ * bodyFields/bodyNote.
  */
 function parseCurlStage(
   tokens: string[],
   pipeTail: string | null,
   ports: readonly string[],
-  producer: JqBody | null,
+  stdinBody: ResolvedBody | null,
   outputRedirect: OutputRedirect | null = null,
 ): IsomuxCurlRequest | null {
   if (
@@ -1315,11 +1463,11 @@ function parseCurlStage(
   const path = matchIsomuxUrl(url, new Set(ports));
   if (path === null) return null;
 
-  if (producer !== null) {
-    // The jq output must actually be the request body: exactly one body
+  if (stdinBody !== null) {
+    // The stdin body must actually be the request body: exactly one body
     // argument, `@-`, via an @-interpreting data flag, not diverted to the
-    // query string by -G. Anything else and the card would attribute the jq
-    // body to a request that doesn't carry it.
+    // query string by -G. Anything else and the card would attribute the
+    // producer/heredoc body to a request that doesn't carry it.
     if (
       stdinData !== 1 ||
       dataParts.length !== 1 ||
@@ -1335,9 +1483,9 @@ function parseCurlStage(
   let bodyFields: CurlBodyField[] | null = null;
   let bodyRaw: string | null = null;
   let bodyNote: string | null = null;
-  if (producer !== null) {
-    if (producer.kind === "fields") bodyFields = producer.fields;
-    else bodyNote = producer.note;
+  if (stdinBody !== null) {
+    if (stdinBody.kind === "fields") bodyFields = stdinBody.fields;
+    else bodyNote = stdinBody.note;
   } else if (hasBody) {
     if (formParts.length > 0) {
       bodyFields = formParts.map((part) => {
