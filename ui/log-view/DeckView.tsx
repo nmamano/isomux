@@ -57,6 +57,7 @@ export function DeckView({
 
   const [index, setIndex] = useState(0);
   const atEndRef = useRef(true);
+  const didInitRef = useRef(false);
   const active = isAgentActive(agent);
 
   // Track "was on the last slide" so a new turn auto-advances only then.
@@ -65,9 +66,16 @@ export function DeckView({
     atEndRef.current = wasAtEnd;
   }, [wasAtEnd]);
 
-  // Clamp / auto-advance when the deck grows or shrinks.
+  // Clamp / auto-advance when the deck grows or shrinks. On first load, land on
+  // the NEWEST slide: it's the one the viewer wants, and requesting it first
+  // means the slide they're looking at generates before the older ones.
   useEffect(() => {
     const last = Math.max(0, turns.length - 1);
+    if (!didInitRef.current && turns.length > 0) {
+      didInitRef.current = true;
+      setIndex(last);
+      return;
+    }
     setIndex((cur) => {
       if (cur > last) return last;
       if (atEndRef.current) return last;
@@ -88,6 +96,12 @@ export function DeckView({
       } else if (e.key === "ArrowRight") {
         e.preventDefault();
         setIndex((i) => Math.min(turns.length - 1, i + 1));
+      } else if (e.key === "Home") {
+        e.preventDefault();
+        setIndex(0);
+      } else if (e.key === "End") {
+        e.preventDefault();
+        setIndex(Math.max(0, turns.length - 1));
       }
     }
     window.addEventListener("keydown", onKey);
@@ -228,17 +242,42 @@ export function DeckView({
                 bottom: 10,
                 left: "50%",
                 transform: "translateX(-50%)",
-                fontFamily: "'JetBrains Mono',monospace",
-                fontSize: 12,
-                color: "var(--text-muted)",
-                background: "var(--bg-surface)",
-                border: "1px solid var(--border-light)",
-                borderRadius: 12,
-                padding: "2px 10px",
-                pointerEvents: "none",
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
               }}
             >
-              {index + 1} / {turns.length}
+              <span
+                style={{
+                  fontFamily: "'JetBrains Mono',monospace",
+                  fontSize: 12,
+                  color: "var(--text-muted)",
+                  background: "var(--bg-surface)",
+                  border: "1px solid var(--border-light)",
+                  borderRadius: 12,
+                  padding: "2px 10px",
+                }}
+              >
+                {index + 1} / {turns.length}
+              </span>
+              {index < turns.length - 1 && (
+                <button
+                  onClick={() => setIndex(turns.length - 1)}
+                  title="Jump to the latest slide (End)"
+                  style={{
+                    fontFamily: "'JetBrains Mono',monospace",
+                    fontSize: 12,
+                    color: "var(--text-secondary)",
+                    background: "var(--bg-surface)",
+                    border: "1px solid var(--border-light)",
+                    borderRadius: 12,
+                    padding: "2px 10px",
+                    cursor: "pointer",
+                  }}
+                >
+                  Latest
+                </button>
+              )}
             </div>
           </>
         )}
