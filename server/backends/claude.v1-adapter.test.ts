@@ -284,6 +284,25 @@ describe("wrapV1Query", () => {
     });
   });
 
+  it("getContextUsage corrects a stale window from the SDK", async () => {
+    // The adapter is the ingestion point for the authoritative-window
+    // correction (task c6085ddf): the pinned SDK doesn't recognize models
+    // newer than itself and reports a 200k default for them. The table and the
+    // correction are unit-tested in shared/context-window.test.ts; this
+    // freezes the wiring.
+    const q = new FakeQuery();
+    q.contextUsageResult = {
+      model: "claude-opus-5",
+      totalTokens: 260_854,
+      maxTokens: 200_000,
+      percentage: 130.427,
+    };
+    const conv = wrapV1Query(q, makePushableInput<SDKUserMessage>());
+    const ctx = (await conv.getContextUsage())!;
+    expect(ctx.maxTokens).toBe(1_000_000);
+    expect(ctx.percentage).toBeCloseTo(26.0854, 4);
+  });
+
   it("getContextUsage returns null when the query method throws", async () => {
     const q = new FakeQuery();
     q.contextUsageError = new Error("not ready");

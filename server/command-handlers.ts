@@ -270,7 +270,15 @@ export function createCommandHandling(deps: HandlerDeps) {
       }): string[] => {
         const pct = Math.round(u.percentage);
         const barLen = 30;
-        const filled = Math.round((barLen * u.percentage) / 100);
+        // Clamped into [0, barLen]: a reading outside 0-100% (a backend
+        // reporting a stale window, task c6085ddf) otherwise hands
+        // String.repeat a negative count and throws, taking /context down
+        // entirely. The percentage itself stays unclamped -- it sits next to
+        // the raw token counts, so capping it at 100% would contradict them.
+        const filled = Math.max(
+          0,
+          Math.min(barLen, Math.round((barLen * u.percentage) / 100)),
+        );
         const bar = "█".repeat(filled) + "░".repeat(barLen - filled);
         return [
           `**${u.model}** — ${u.totalTokens.toLocaleString()} / ${u.maxTokens.toLocaleString()} tokens (${pct}%)`,

@@ -322,6 +322,33 @@ describe("context-fullness: snapshot lifecycle through GET /api/agents/:id/conte
     expect(srv.agentManager.getAgent(agent.id)?.dormant).toBe(true);
   });
 
+  it("/context renders an over-100% reading instead of crashing", async () => {
+    // A backend reporting a stale (too small) window pushes percentage past
+    // 100, which used to hand String.repeat a negative count for the unfilled
+    // part of the bar and take the whole command down with
+    // "String.prototype.repeat argument must be greater than or equal to 0"
+    // (task c6085ddf). The bar saturates; the percentage stays honest so it
+    // can't contradict the token counts printed beside it.
+    const srv = await startTestServer({ fakeBackend: backendWith(usage(130)) });
+    server = srv;
+    await srv.seedOwner("Boss");
+    const room = srv.agentManager.getRooms()[0];
+    const agent = await spawnAgent(srv, "Worker", room.id);
+
+    await runTurn(srv, agent.id, "hi");
+    await srv.agentManager.sendMessage(agent.id, "/context", "Boss");
+
+    const reading = srv.agentManager
+      .getAgentLogs(agent.id)
+      .filter((e) => e.kind === "system")
+      .map((e) => e.content)
+      .find((c) => c.includes("fake-model"));
+    expect(reading).toBeDefined();
+    expect(reading!).toContain("130,000 / 100,000 tokens (130%)");
+    expect(reading!).toContain("█".repeat(30));
+    expect(reading!).not.toContain("░");
+  });
+
   it("live session reporting null (Codex-before-first-tokenUsage shape) -> not_yet_measured", async () => {
     const srv = await startTestServer({ fakeBackend: backendWith() });
     server = srv;
