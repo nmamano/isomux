@@ -4,6 +4,7 @@ import {
   buildDeckTurns,
   restoredDeckPos,
   settledDeckPos,
+  shouldRequestSlide,
   type DeckTurn,
 } from "../../shared/slide-turns.ts";
 import {
@@ -149,8 +150,10 @@ export function DeckView({
   // derived from state (pure to read in render) rather than Date.now().
   const [nowTs, setNowTs] = useState(0);
 
-  // Ensure the focused slide + its two neighbors. The newest position waits
-  // until the agent settles so we never format a half-streamed turn.
+  // Ensure the focused slide + its two neighbors. There is NO client-side
+  // "is the turn settled?" guess: the server authoritatively gates generation on
+  // the turn's terminal fact (an in-flight newest turn comes back `pending` and
+  // is filled by slide_ready when it completes). We just request what's visible.
   useEffect(() => {
     if (turns.length === 0) return;
     const wanted = [index, index + 1, index - 1].filter(
@@ -158,32 +161,80 @@ export function DeckView({
     );
     for (const i of wanted) {
       const turn = turns[i];
-      if (slidesForAgent?.get(turn.entryId)) continue;
-      if (requestedRef.current.has(turn.entryId)) continue;
-      const isLast = i === turns.length - 1;
-      if (isLast && active) continue;
+      const cached = slidesForAgent?.get(turn.entryId);
+      // A cached record carrying a digest is verified (written by the terminal
+      // gate for content immutable within the conversation), so it's skipped; a
+      // miss or a DIGESTLESS legacy record (a stale placeholder the turn outgrew,
+      // or a slide the old code rendered from a half-stream) is (re)validated by
+      // the server. Field-presence check, not a client digest compare, so lagging
+      // client logs can't thrash it. See shouldRequestSlide.
+      const reqAt = requestedRef.current.get(turn.entryId);
+      // A request older than the fallback window counts as no longer in flight,
+      // so a generation that FAILED silently (server logs it, no slide_ready)
+      // retries instead of orphaning the client forever; a slow-but-live
+      // generation just re-polls and the server dedupes. (An explicit failure
+      // event for an instant retry is the separate follow-up efb52559.)
+      const inFlight =
+        reqAt !== undefined && nowTs - reqAt <= PENDING_FALLBACK_MS;
+      if (!shouldRequestSlide(cached, inFlight)) continue;
       requestedRef.current.set(turn.entryId, Date.now());
       ensure(turn.entryId, {});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [index, turns, slidesForAgent, active, agent.id]);
+  }, [index, turns, slidesForAgent, agent.id, nowTs]);
 
-  // While anything is pending, tick so an expired request flips to the fallback.
+  // Clear the in-flight marker once a slide actually lands for that turn (via the
+  // slide_ready WS push, or the ready response). requestedRef is IN-FLIGHT state,
+  // not "ever requested": a request that reaches a terminal outcome must free the
+  // entry so a later content change can re-request. A pending request with no
+  // slide yet stays marked (so we don't spam re-requests before it resolves).
   useEffect(() => {
-    const anyPending = turns.some(
-      (t) =>
-        !slidesForAgent?.get(t.entryId) && requestedRef.current.has(t.entryId),
-    );
+    if (!slidesForAgent) return;
+    for (const entryId of requestedRef.current.keys()) {
+      if (slidesForAgent.get(entryId)) requestedRef.current.delete(entryId);
+    }
+  }, [slidesForAgent]);
+
+  // While a VISIBLE turn still lacks a VERIFIED slide, tick so an expired
+  // request flips to the fallback (and so the effect above can re-request a
+  // silently-failed generation once its window lapses).
+  //
+  // The predicate is `shouldRequestSlide(cached, false)` — literally the
+  // field-presence half of the request effect's own condition — so the two can
+  // never drift. Absence alone is NOT enough: a digestless legacy record is
+  // unverifiable and is being reconciled, but unlike a placeholder (which the
+  // invalidate path deletes) it stays in the store, so an absence-only test
+  // would leave the clock stopped and that record would never retry.
+  //
+  // Keyed on the same visible window as the request effect, `index` included:
+  // navigating to an unverified turn starts a request without changing `turns`
+  // or `slidesForAgent`, and requestedRef is a ref — so without `index` here the
+  // clock would never start for it, leaving a permanent spinner with no fallback
+  // and no retry.
+  useEffect(() => {
+    const anyPending = [index, index + 1, index - 1]
+      .filter((i) => i >= 0 && i < turns.length)
+      .some((i) =>
+        shouldRequestSlide(slidesForAgent?.get(turns[i].entryId), false),
+      );
     if (!anyPending) return;
-    setNowTs(Date.now());
+    // The interval alone drives the clock — no immediate set, which would be a
+    // render-in-effect. Until the first tick nowTs stays behind the request
+    // stamps, which reads as "in flight, not expired": the safe direction, and
+    // 2s against a 20s fallback window is not perceptible.
     const h = setInterval(() => setNowTs(Date.now()), 2000);
     return () => clearInterval(h);
-  }, [turns, slidesForAgent]);
+  }, [index, turns, slidesForAgent]);
 
   function ensure(
     entryId: string,
     opts: { force?: boolean; feedback?: string },
   ) {
+    // The exact record shown at request time. Only a stale PLACEHOLDER is worth
+    // replacing with a spinner (its "No answer" card is misleading); a rendered
+    // slide being reconciled stays on screen until its replacement lands, which
+    // is smoother. Captured now, not when the response returns.
+    const prevSlide = slidesForAgent?.get(entryId);
     apiFetch<EnsureSlideRes>(
       "POST",
       `/api/agents/${agent.id}/slides/${entryId}`,
@@ -191,6 +242,9 @@ export function DeckView({
     )
       .then((res) => {
         if (res.status === "ready") {
+          // Terminal: the slide is in hand. Clear the in-flight marker (a later
+          // content change may legitimately re-request) and hand it to the store.
+          requestedRef.current.delete(entryId);
           dispatch({
             type: "slide_ready",
             agentId: agent.id,
@@ -198,9 +252,23 @@ export function DeckView({
             entryId,
             slide: res.slide,
           });
+        } else if (res.status === "unavailable") {
+          // Terminal: nothing to render (no live turn). Clear so a later pass can
+          // retry once the turn resolves.
+          requestedRef.current.delete(entryId);
+        } else if (res.status === "pending" && prevSlide?.placeholder) {
+          // Still in flight (keep the marker): the server is regenerating a stale
+          // placeholder we currently show. Drop it — compare-and-delete, so a
+          // slide_ready that already replaced it wins — so the deck shows the
+          // Generating spinner meanwhile. The slide arrives via the slide_ready
+          // WS push, which clears the marker (see the effect below).
+          dispatch({
+            type: "slide_invalidate",
+            agentId: agent.id,
+            entryId,
+            prevSlide,
+          });
         }
-        // "pending" → the slide arrives via the slide_ready WS push.
-        // "unavailable" → nothing to render; the fallback timeout covers it.
       })
       .catch(() => {
         // Let it retry: drop the marker so a later pass can re-request.
@@ -218,11 +286,17 @@ export function DeckView({
   const curPendingSince = cur
     ? requestedRef.current.get(cur.entryId)
     : undefined;
+  const isNewest = index === turns.length - 1;
+  // The raw-answer fallback is a generation-timeout affordance. Suppress it while
+  // the newest turn is still being produced (agent active): there is no answer to
+  // fall back to yet, and its slide is legitimately gated server-side until the
+  // turn completes. This reads agent.state only to decide DISPLAY, never to gate
+  // generation (that is the server's terminal fact).
   const curExpired =
     !curSlide &&
     curPendingSince !== undefined &&
-    nowTs - curPendingSince > PENDING_FALLBACK_MS;
-  const isNewest = index === turns.length - 1;
+    nowTs - curPendingSince > PENDING_FALLBACK_MS &&
+    !(isNewest && active);
   // A thin activity/attention cue (design § deck view stays thin): the agent is
   // working or blocked on a tool approval (both surface as thinking/
   // tool_executing — you can't see the stream in deck view), or it errored. A
@@ -251,7 +325,7 @@ export function DeckView({
             key={cur?.entryId}
             slide={curSlide}
             expired={curExpired}
-            active={active && isNewest}
+            isNewest={isNewest}
             fallbackTurn={cur}
             onRegen={(feedback) => cur && regen(cur.entryId, feedback)}
           />
@@ -372,13 +446,13 @@ export function DeckView({
 function SlideStage({
   slide,
   expired,
-  active,
+  isNewest,
   fallbackTurn,
   onRegen,
 }: {
   slide: SlideRecord | undefined;
   expired: boolean;
-  active: boolean;
+  isNewest: boolean;
   fallbackTurn: DeckTurn | undefined;
   onRegen: (feedback?: string) => void;
 }) {
@@ -436,6 +510,7 @@ function SlideStage({
   let regenerable = false;
   if (slide && slide.placeholder) {
     body = frame(<PlaceholderInner slide={slide} />);
+    regenerable = true; // let the viewer force a refresh (Nil: missing refresh)
   } else if (slide && slide.html) {
     body = (
       <>
@@ -464,11 +539,9 @@ function SlideStage({
     body = frame(<FallbackInner turn={fallbackTurn} />);
     regenerable = true; // a failed generation must still offer retry
   } else {
-    body = (
-      <Spinner
-        label={active ? "Waiting for the turn to finish" : "Designing slide"}
-      />
-    );
+    // The newest position reads "Generating" (its turn is still producing an
+    // answer, or its slide is being designed); a past position just designs.
+    body = <Spinner label={isNewest ? "Generating" : "Designing slide"} />;
   }
 
   return (

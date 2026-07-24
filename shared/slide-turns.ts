@@ -130,6 +130,67 @@ export function restoredDeckPos(
   return { index, atEnd: index >= len - 1 };
 }
 
+// Digest fingerprinting EVERY input a slide is generated from — the frozen
+// prompt, the answer text, and any error. Two turns with identical content hash
+// equal; a placeholder (empty text) and the eventual answer differ, which is the
+// signal Slide Mode reconciles on: a stored slide is valid only while its digest
+// matches the live turn's. Fields are length-prefixed so no field boundary is
+// ambiguous (a delimiter inside a field can't forge a different framing).
+// FNV-1a/32 — not cryptographic, just a stable content fingerprint.
+export function slideContentDigest(turn: {
+  promptText: string;
+  assistantText: string;
+  errorText: string | null;
+}): string {
+  const fields = [turn.promptText, turn.assistantText, turn.errorText ?? ""];
+  const s = fields.map((f) => `${f.length}:${f}`).join(" ");
+  // Two FNV-1a lanes with distinct seeds/primes -> a 64-bit digest (16 hex).
+  // Wider than one 32-bit lane so the operational collision risk for a content
+  // change is negligible (~2^-64); a fixed-width hash always has collisions in
+  // principle, this just makes them vanishingly unlikely in practice.
+  let h1 = 0x811c9dc5;
+  let h2 = 0xc2b2ae35;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 0x01000193);
+    h2 = Math.imul(h2 ^ c, 0x85ebca77);
+  }
+  const hex = (h: number) => (h >>> 0).toString(16).padStart(8, "0");
+  return hex(h1) + hex(h2);
+}
+
+// Is a turn TERMINAL (settled), so its slide may be generated? A turn is
+// in-flight only while it is the anchor of the currently-running turn; every
+// other turn — including the whole transcript after a restart, when there is no
+// running turn at all — is terminal. `runningAnchorId` is the in-flight turn's
+// anchor entry id, or null when nothing is running (which is exactly the state a
+// fresh boot restores: pendingTurn=null, so a persisted partial tail reads
+// terminal and its slide reflects the persisted transcript). This is the whole
+// boot terminal boundary, isolated so it's provable without standing up a
+// manager: no running turn => every turn terminal.
+export function turnIsTerminal(
+  runningAnchorId: string | null | undefined,
+  entryId: string,
+): boolean {
+  return runningAnchorId !== entryId;
+}
+
+// Slide Mode client request gating (pure, so the deck's request lifecycle is
+// testable without a browser). Skip a turn whose cached slide is VERIFIED — it
+// carries a content digest, so it was written by the terminal gate for content
+// that is immutable within the conversation. Otherwise request it (a miss, or a
+// digestless legacy record that must be reconciled) unless a request is already
+// in flight. `inFlight` is the client's in-flight marker, which is cleared on
+// every terminal outcome (ready / unavailable / slide_ready / fetch reject) so a
+// turn CAN be re-requested later; while a request is pending it dedupes.
+export function shouldRequestSlide(
+  cached: { contentDigest?: string } | undefined,
+  inFlight: boolean,
+): boolean {
+  if (cached && cached.contentDigest !== undefined) return false;
+  return !inFlight;
+}
+
 // Find one turn by its anchor entry id (server generation path).
 export function findDeckTurn(
   logs: readonly LogEntry[],

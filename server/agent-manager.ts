@@ -120,14 +120,18 @@ import {
   type EnqueueResult,
 } from "./internal-types.ts";
 import { getBackend as defaultResolveBackend } from "./backends/index.ts";
-import { createSlideMode, type SlideJobContext } from "./slide-mode.ts";
+import {
+  createSlideMode,
+  drainOnSettle,
+  type SlideJobContext,
+} from "./slide-mode.ts";
 import {
   readDeck,
   readSlide,
   writeSlide,
   type SlideDeck,
 } from "./slide-store.ts";
-import { buildDeckTurns } from "../shared/slide-turns.ts";
+import { buildDeckTurns, turnIsTerminal } from "../shared/slide-turns.ts";
 import type {
   ApprovalDecision,
   Backend,
@@ -1920,6 +1924,16 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       managed.lastWrittenEntryId = entry.id;
     }
 
+    // Slide Mode: a user_message logged while a turn is in flight anchors that
+    // turn (the newest deck position). The last such message of a coalesced
+    // flush wins — the agent's response attaches to it. Stamping it lets
+    // ensureSlide gate generation until the turn is terminal (design:
+    // internal-docs/slide-mode-design.md). createTurnDeferred runs before the
+    // send that triggers this append, so pendingTurn is already installed.
+    if (kind === "user_message" && managed?.pendingTurn) {
+      managed.pendingTurn.anchorEntryId = entry.id;
+    }
+
     // Track topicStale: new text entries after topic was generated
     if (
       (kind === "text" || kind === "user_message") &&
@@ -2109,8 +2123,11 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // A slide is a nullable attribute of an assistant turn, generated on demand
   // when a client views it in the deck. Storage keys by the conversation's ROOT
   // session id so edit-forks of the same conversation share a deck. The staleness
-  // guard reuses topicGenToken (bumped on /clear, /resume, edit-fork) exactly as
-  // generateTopic does.
+  // guard keys on that same root session id (conversation identity): /clear and
+  // /resume change it, dropping in-flight slide work for the old conversation,
+  // while a benign setTopic (which bumps topicGenToken) does NOT — so a topic
+  // rename can't discard a slide that's generating. An edit-fork keeps the root
+  // but changes the turn's content, caught by the commit digest check.
 
   // Walk the fork chain from the current leaf session to its root. The root is
   // the stable per-conversation id; a fork adds a new leaf but keeps the root.
@@ -2131,8 +2148,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
 
   // Resolve everything a slide generation needs from live state (called by the
   // SlideMode module per request), or null when the agent / session / turn is
-  // gone. Captures topicGenToken NOW so a result that lands after a conversation
-  // reset is dropped at commit.
+  // gone. Captures the conversation's root session id NOW so a result that lands
+  // after a conversation reset is dropped at commit.
   function resolveSlideJob(
     agentId: string,
     entryId: string,
@@ -2157,19 +2174,37 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       agentType: managed.info.agentType,
       modelFamily,
       cwd: managed.info.cwd,
+      // Doubles as the conversation identity the commit guard re-checks; see the
+      // section comment above.
       rootSessionId,
-      token: managed.topicGenToken,
       turn: turns[idx],
       prevSlideHtml,
+      // Terminal iff this turn is NOT the anchor of the still-running turn (see
+      // turnIsTerminal). The in-flight newest turn's anchor is
+      // pendingTurn.anchorEntryId; once the turn completes pendingTurn is nulled,
+      // so every turn reads terminal. BOOT is an authoritative terminal boundary,
+      // not merely "absence happens to read terminal": a restart kills the backend
+      // process, lazy-restore rebuilds the agent with pendingTurn=null and state
+      // waiting_for_response, and the dead turn cannot emit more output — any
+      // later resume sends under a NEW user_message anchor rather than continuing
+      // the persisted tail. So a persisted partial last turn is genuinely terminal
+      // after boot, and its slide faithfully reflects the (possibly truncated)
+      // transcript. (If that ever stops holding — a turn resumes and appends to
+      // the SAME anchor across a restart — this needs an explicit boot watermark.)
+      terminal: turnIsTerminal(managed.pendingTurn?.anchorEntryId, entryId),
     };
   }
 
   const slideMode = createSlideMode({
     resolveBackend: (agentType) => getBackend(agentType as AgentBackendType),
     resolveJob: resolveSlideJob,
-    isCurrent: (agentId, token) => {
-      const managed = agents.get(agentId);
-      return !!managed && managed.topicGenToken === token;
+    isCurrent: (agentId, rootSessionId) => {
+      // The null check is redundant against a captured root (always non-null)
+      // but states the boundary outright: an agent with no current conversation
+      // at all — /clear nulls sessionId, so getRootSessionId returns null — is
+      // never "current", and its in-flight slide work is dropped.
+      const currentRoot = getRootSessionId(agentId);
+      return currentRoot !== null && currentRoot === rootSessionId;
     },
     readSlide,
     writeSlide,
@@ -2937,7 +2972,23 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // with a delegating wrapper — see the pendingTurn field comment in
     // internal-types.ts for why replacement is forbidden (lost-wakeup hole,
     // task da065287).
-    managed.pendingTurn = { promise, resolve, reject };
+    managed.pendingTurn = { promise, resolve, reject, anchorEntryId: null };
+    // Slide Mode: whatever SETTLES this turn — turn_completed, error, clean
+    // stream end, stream catch, session swap, kill, or the supersession reject
+    // above — settles this promise exactly once. Draining the parked slide
+    // request from the settle (not one specific site) guarantees a client that
+    // requested the turn while it was in flight always gets a terminal
+    // slide/placeholder, never an orphaned pending. `record` stays readable after
+    // pendingTurn is nulled; addLogEntry stamps its anchorEntryId before the send
+    // (a turn with no user_message anchor — never viewable in the deck — is a
+    // no-op).
+    const record = managed.pendingTurn;
+    const settleAgentId = managed.info.id;
+    drainOnSettle(
+      promise,
+      () => record.anchorEntryId,
+      (entryId) => slideMode.onTurnSettled(settleAgentId, entryId),
+    );
     return promise;
   }
 
@@ -6579,7 +6630,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     const managed = agents.get(agentId);
     if (!managed) return;
     // Invalidate any in-flight generateTopic so its delayed LLM result doesn't
-    // overwrite the user's manual choice.
+    // overwrite the user's manual choice. Slide Mode is unaffected: it keys on
+    // the root session id, which a topic rename doesn't touch.
     managed.topicGenToken++;
     for (const event of officeState.setTopic(agentId, topic)) emit(event);
     const textCount = (logCache.get(agentId) ?? []).filter(

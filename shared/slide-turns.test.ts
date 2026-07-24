@@ -5,6 +5,9 @@ import {
   nextDeckIndex,
   settledDeckPos,
   restoredDeckPos,
+  shouldRequestSlide,
+  slideContentDigest,
+  turnIsTerminal,
 } from "./slide-turns.ts";
 import type { LogEntry } from "./types.ts";
 
@@ -84,6 +87,119 @@ describe("buildDeckTurns", () => {
     ];
     expect(findDeckTurn(logs, "u2")?.assistantText).toBe("B");
     expect(findDeckTurn(logs, "nope")).toBeNull();
+  });
+});
+
+describe("turnIsTerminal (settled/boot terminal boundary)", () => {
+  it("the currently-running turn's anchor is NOT terminal", () => {
+    expect(turnIsTerminal("u5", "u5")).toBe(false);
+  });
+
+  it("any other turn IS terminal while one is running", () => {
+    expect(turnIsTerminal("u5", "u3")).toBe(true);
+  });
+
+  it("with NO running turn (post-boot pendingTurn=null), every turn is terminal", () => {
+    // The boot terminal boundary: a restart restores pendingTurn=null, so a
+    // persisted partial tail reads terminal and its slide is generated from the
+    // persisted transcript rather than gated forever.
+    expect(turnIsTerminal(null, "u9")).toBe(true);
+    expect(turnIsTerminal(undefined, "u9")).toBe(true);
+  });
+});
+
+describe("shouldRequestSlide (client request gating)", () => {
+  const digested = { contentDigest: "abcd" };
+  const digestless = { contentDigest: undefined };
+
+  it("skips a verified (digested) cached slide", () => {
+    expect(shouldRequestSlide(digested, false)).toBe(false);
+    expect(shouldRequestSlide(digested, true)).toBe(false);
+  });
+
+  it("requests a miss or a digestless legacy record when nothing is in flight", () => {
+    expect(shouldRequestSlide(undefined, false)).toBe(true); // gated newest / miss
+    expect(shouldRequestSlide(digestless, false)).toBe(true); // legacy -> reconcile
+  });
+
+  it("dedupes while a request is in flight (pending)", () => {
+    expect(shouldRequestSlide(undefined, true)).toBe(false);
+    expect(shouldRequestSlide(digestless, true)).toBe(false);
+  });
+
+  it("doubles as the pending-CLOCK predicate: unverified means keep ticking", () => {
+    // DeckView's clock effect runs while any VISIBLE turn lacks a verified
+    // slide, expressed as shouldRequestSlide(cached, false) so the two
+    // predicates can't drift. Absence alone would be wrong: a digestless
+    // RENDERED record stays in the store while it is reconciled (only
+    // placeholders are invalidated out of it), so if the clock ignored it,
+    // nowTs would never advance, its in-flight marker would never expire, and
+    // a silently-failed regeneration would never retry.
+    expect(shouldRequestSlide(digestless, false)).toBe(true);
+    expect(shouldRequestSlide(undefined, false)).toBe(true);
+    expect(shouldRequestSlide(digested, false)).toBe(false);
+  });
+
+  it("can be re-requested after a terminal outcome clears the in-flight marker", () => {
+    // unavailable / fetch-reject clears the marker with no cache -> requestable
+    // again; a ready/slide_ready that landed a digested slide -> skipped.
+    expect(shouldRequestSlide(undefined, false)).toBe(true);
+    expect(shouldRequestSlide(digested, false)).toBe(false);
+  });
+});
+
+describe("slideContentDigest (cache-validity fingerprint)", () => {
+  it("changes when a placeholder turn gains assistant text", () => {
+    // The reconciliation signal: a slide recorded while the turn was empty no
+    // longer matches once the answer arrives.
+    const empty = slideContentDigest({
+      promptText: "q",
+      assistantText: "",
+      errorText: null,
+    });
+    const full = slideContentDigest({
+      promptText: "q",
+      assistantText: "the answer",
+      errorText: null,
+    });
+    expect(empty).not.toBe(full);
+  });
+
+  it("is stable for identical content", () => {
+    const t = { promptText: "q", assistantText: "hi", errorText: null };
+    expect(slideContentDigest(t)).toBe(slideContentDigest({ ...t }));
+  });
+
+  it("distinguishes error text from assistant text", () => {
+    expect(
+      slideContentDigest({ promptText: "q", assistantText: "x", errorText: null }),
+    ).not.toBe(
+      slideContentDigest({ promptText: "q", assistantText: "", errorText: "x" }),
+    );
+  });
+
+  it("changes when the frozen prompt changes (every slide input covered)", () => {
+    expect(
+      slideContentDigest({ promptText: "a", assistantText: "same", errorText: null }),
+    ).not.toBe(
+      slideContentDigest({ promptText: "b", assistantText: "same", errorText: null }),
+    );
+  });
+
+  it("length-prefix framing avoids field-boundary collisions", () => {
+    // A naive `${prompt} ${answer}` join renders both of these as "a b c" and
+    // collides; length-prefixing keeps the boundary unambiguous.
+    expect(
+      slideContentDigest({ promptText: "a b", assistantText: "c", errorText: null }),
+    ).not.toBe(
+      slideContentDigest({ promptText: "a", assistantText: "b c", errorText: null }),
+    );
+  });
+
+  it("returns a 16-char (64-bit) hex string", () => {
+    expect(
+      slideContentDigest({ promptText: "q", assistantText: "abc", errorText: null }),
+    ).toMatch(/^[0-9a-f]{16}$/);
   });
 });
 

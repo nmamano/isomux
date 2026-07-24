@@ -10,13 +10,13 @@
 //
 // This module owns: the system prompt, the per-turn user prompt, output
 // sanitizing, and the per-agent generation queue (max 2 concurrent, in-flight
-// dedupe, conversation-token stale guard). It stays ignorant of AgentManager
+// dedupe, conversation-identity stale guard). It stays ignorant of AgentManager
 // internals — everything it needs to reach live state arrives through
 // SlideModeDeps.
 
 import { errMessage } from "../shared/errors.ts";
 import type { SlideRecord } from "../shared/types.ts";
-import type { DeckTurn } from "../shared/slide-turns.ts";
+import { slideContentDigest, type DeckTurn } from "../shared/slide-turns.ts";
 
 // ---------------------------------------------------------------------------
 // The formatter system prompt — the centerpiece. Signed off by Nil.
@@ -226,15 +226,39 @@ export interface SlideJobContext {
   // own family for Codex (same rule as topic generation).
   modelFamily: string;
   cwd: string;
+  // The conversation's ROOT session id: both the deck's storage key and the
+  // conversation identity captured at request time. Re-checked after the async
+  // generation so a result that lands once the conversation moved on is dropped.
+  // /clear leaves the agent with no root at all and a /resume into a different
+  // thread changes it, while a benign setTopic leaves it alone — a topic rename
+  // must not discard in-flight slide work. An edit-fork KEEPS the root and
+  // changes the turn's content instead, which the commit digest check catches:
+  // conversation identity is the cheap early-out, the digest is the guarantee.
   rootSessionId: string;
-  // Conversation-identity token captured at request time (managed.topicGenToken).
-  // Re-checked after the async generation so a result that lands after a
-  // /clear, /resume, or edit-fork is dropped instead of written/broadcast.
-  token: number;
   turn: DeckTurn;
   // The previous turn's cached slide HTML, for style continuity (null when the
   // viewer jumped mid-deck and it isn't cached — we do not force a chain).
   prevSlideHtml: string | null;
+  // Is this turn TERMINAL — i.e. is it NOT the anchor of the still-running turn?
+  // The core invariant: a slide is generated (or placeholdered) only for a
+  // terminal turn. The newest turn while the agent is mid-response is
+  // non-terminal; ensureSlide gates it (registers a deferred waiter, returns
+  // pending) instead of formatting a half-streamed answer or recording a
+  // placeholder that the arriving answer would immediately make stale.
+  terminal: boolean;
+}
+
+// Is a cached slide still valid for the live terminal turn? The reconciliation
+// predicate, independent of event timing: the stored content digest must equal
+// the turn's current digest. A slide recorded as a placeholder for a turn that
+// has since gained text (the send-from-slide-mode race) no longer matches and is
+// regenerated. A record with NO digest predates this field and is unverifiable —
+// it could be a placeholder the turn outgrew, or a slide the old code rendered
+// from a half-streamed answer — so it is treated as stale and regenerated once
+// (a placeholder regen is a no-LLM re-commit; a rendered slide regenerates and
+// gains a digest, after which it validates and is served from cache).
+export function slideMatchesTurn(cached: SlideRecord, turn: DeckTurn): boolean {
+  return cached.contentDigest === slideContentDigest(turn);
 }
 
 interface SlideBackend {
@@ -249,8 +273,11 @@ export interface SlideModeDeps {
   // Resolve everything a generation needs from LIVE state, or null when the
   // agent / session / turn is gone. Called once per ensureSlide.
   resolveJob: (agentId: string, entryId: string) => SlideJobContext | null;
-  // Is `token` still the agent's current conversation token?
-  isCurrent: (agentId: string, token: number) => boolean;
+  // Is `rootSessionId` still the agent's current conversation root? A captured
+  // root is always non-null (resolveJob returns null when there is none), so an
+  // agent left rootless by /clear never matches and its in-flight work is
+  // dropped.
+  isCurrent: (agentId: string, rootSessionId: string) => boolean;
   readSlide: (
     agentId: string,
     rootSessionId: string,
@@ -286,16 +313,27 @@ export function createSlideMode(deps: SlideModeDeps) {
   // unchanged) rather than decremented, so the cap holds.
   const active = new Map<string, number>();
   const waiters = new Map<string, Array<() => void>>();
-  // In-flight dedupe. Keyed by `${agentId}::${token}::${entryId}` — the token
-  // (conversation identity) is part of the key so a re-request after a
-  // /clear|/resume|fork (which bumps the token) starts a FRESH job instead of
-  // deduping against a stale-token job that the commit guard will drop, which
-  // would otherwise leave the turn with no live generation. Each entry carries a
-  // coalesced rerun request so rapid force-regens don't race competing writers:
-  // the latest feedback wins and runs once the current pass finishes.
+  // In-flight dedupe. Keyed by `${agentId}::${rootSessionId}::${entryId}` — the
+  // root is part of the key so a re-request after a /clear or a /resume into
+  // another thread starts a FRESH job instead of deduping against a
+  // stale-conversation job that the commit guard will drop, which would leave the
+  // turn with no live generation. Each entry carries a coalesced rerun request so
+  // rapid force-regens don't race competing writers: the latest feedback wins and
+  // runs once the current pass finishes.
   const inFlight = new Map<
     string,
     { rerun: boolean; feedback: string | null }
+  >();
+  // Turns whose slide a client requested WHILE they were still in flight
+  // (non-terminal). ensureSlide can't generate a settled slide yet, so it parks
+  // the request here (keeping the latest feedback/force intent) and returns
+  // pending; onTurnSettled drains it once the turn settles by ANY path,
+  // guaranteeing the promised slide_ready. Keyed `${agentId}::${entryId}` (the
+  // current-conversation turn is re-resolved at drain time; the commit guard drops
+  // anything a reset stranded).
+  const deferred = new Map<
+    string,
+    { force: boolean; feedback: string | null }
   >();
 
   function acquire(agentId: string): Promise<void> {
@@ -335,7 +373,20 @@ export function createSlideMode(deps: SlideModeDeps) {
       errorText: string | null;
     },
   ): void {
-    if (!deps.isCurrent(agentId, job.token)) return;
+    if (!deps.isCurrent(agentId, job.rootSessionId)) return;
+    // Re-resolve the authoritative turn at the write boundary and persist only
+    // if it is still TERMINAL and still matches the content we generated from —
+    // asserting the core invariant (no write for a non-terminal turn) and
+    // guarding the window where content changed while generation ran (a fork).
+    // A mismatch is discarded; the next view reconciles via the digest.
+    const live = deps.resolveJob(agentId, entryId);
+    if (
+      !live ||
+      !live.terminal ||
+      slideContentDigest(live.turn) !== slideContentDigest(job.turn)
+    ) {
+      return;
+    }
     const rec: SlideRecord = {
       html: partial.html,
       placeholder: partial.placeholder,
@@ -343,6 +394,9 @@ export function createSlideMode(deps: SlideModeDeps) {
       promptText: job.turn.promptText,
       model: job.modelFamily,
       createdAt: now(),
+      // Stamp the content this slide was generated from so a later view can tell
+      // whether it still matches the turn (see slideMatchesTurn).
+      contentDigest: slideContentDigest(job.turn),
     };
     deps.writeSlide(agentId, job.rootSessionId, entryId, rec);
     deps.onSlideReady(agentId, job.rootSessionId, entryId, rec);
@@ -397,7 +451,7 @@ export function createSlideMode(deps: SlideModeDeps) {
 
   // Drive one turn's generation, then honor any force-regen that arrived while
   // it ran (latest feedback wins). Serial per key, so there is never more than
-  // one writer for a (agent, token, turn) at a time.
+  // one writer for a (agent, conversation, turn) at a time.
   async function drive(
     job: SlideJobContext,
     agentId: string,
@@ -417,10 +471,39 @@ export function createSlideMode(deps: SlideModeDeps) {
     }
   }
 
-  // Return a cached slide immediately, else kick off generation (fire-and-
-  // forget) and return pending. `force` regenerates even when cached (per-slide
-  // ↻), optionally with a one-shot `feedback` instruction. A force that arrives
-  // mid-generation is coalesced into a single rerun (latest feedback wins).
+  // Start (or coalesce into) a generation for one turn, fire-and-forget. `force`
+  // only matters when a generation is already in flight: a plain duplicate
+  // request dedupes silently, while a force queues a single rerun (latest
+  // feedback wins) so a regenerate isn't lost.
+  function launch(
+    agentId: string,
+    entryId: string,
+    job: SlideJobContext,
+    force: boolean,
+    feedback: string | null,
+  ): void {
+    const key = `${agentId}::${job.rootSessionId}::${entryId}`;
+    const existing = inFlight.get(key);
+    if (existing) {
+      if (force) {
+        existing.rerun = true;
+        existing.feedback = feedback;
+      }
+      return;
+    }
+    const entry = { rerun: false, feedback: null as string | null };
+    inFlight.set(key, entry);
+    void drive(job, agentId, entryId, key, feedback, entry);
+  }
+
+  // Ensure a slide for one turn (design: internal-docs/slide-mode-design.md).
+  // The invariant: a slide is generated only for a TERMINAL turn, and a cached
+  // slide is served only while it still matches that turn's content.
+  //   - non-terminal (the still-running newest turn) -> park a waiter, pending;
+  //   - terminal + cache matches -> ready (unless force);
+  //   - terminal + miss/stale/force -> (re)generate, pending.
+  // `force` regenerates even a matching cache (per-slide ↻), optionally with a
+  // one-shot `feedback` instruction.
   function ensureSlide(
     agentId: string,
     entryId: string,
@@ -428,24 +511,72 @@ export function createSlideMode(deps: SlideModeDeps) {
   ): EnsureResult {
     const job = deps.resolveJob(agentId, entryId);
     if (!job) return { status: "unavailable" };
-    const cached = deps.readSlide(agentId, job.rootSessionId, entryId);
-    if (cached && !opts?.force) return { status: "ready", slide: cached };
-    const key = `${agentId}::${job.token}::${entryId}`;
-    const existing = inFlight.get(key);
-    if (existing) {
-      if (opts?.force) {
-        existing.rerun = true;
-        existing.feedback = opts.feedback ?? null;
-      }
+    if (!job.terminal) {
+      // Not settled yet: never format a half-streamed answer or record a
+      // placeholder that the arriving answer would make stale. Park the request;
+      // onTurnSettled generates + broadcasts when this turn settles. Coalesce
+      // intent: force is sticky (a ↻ during the turn must not be lost to a later
+      // plain prefetch), and the latest FORCE's feedback wins.
+      const prev = deferred.get(`${agentId}::${entryId}`);
+      deferred.set(`${agentId}::${entryId}`, {
+        force: (prev?.force ?? false) || !!opts?.force,
+        feedback: opts?.force ? (opts?.feedback ?? null) : (prev?.feedback ?? null),
+      });
       return { status: "pending" };
     }
-    const entry = { rerun: false, feedback: null as string | null };
-    inFlight.set(key, entry);
-    void drive(job, agentId, entryId, key, opts?.feedback ?? null, entry);
+    const cached = deps.readSlide(agentId, job.rootSessionId, entryId);
+    const stale = cached ? !slideMatchesTurn(cached, job.turn) : false;
+    if (cached && !stale && !opts?.force) {
+      return { status: "ready", slide: cached };
+    }
+    // Miss, forced, or a stale cache (e.g. a placeholder whose turn has since
+    // gained text) -> regenerate; force so a stale record is overwritten.
+    launch(agentId, entryId, job, !!opts?.force || stale, opts?.feedback ?? null);
     return { status: "pending" };
   }
 
-  return { ensureSlide };
+  // A turn SETTLED (by any path: turn_completed, error, stream end, session
+  // swap, kill, supersession — every one settles the pendingTurn promise). Fulfil
+  // any request a client parked while the turn was in flight: generate the
+  // settled slide (real content -> slide, empty/interrupted -> placeholder) and
+  // broadcast slide_ready, so the client's pending never orphans. Re-reads the
+  // turn from live state, so it sees the complete answer; if the turn is gone
+  // (a /clear removed it) there is nothing to show and the drained request is
+  // simply dropped (its deck position is gone too). No parked request -> nothing
+  // generated (the view-driven cost model holds).
+  function onTurnSettled(agentId: string, entryId: string): void {
+    const key = `${agentId}::${entryId}`;
+    const req = deferred.get(key);
+    if (!req) return;
+    deferred.delete(key);
+    const job = deps.resolveJob(agentId, entryId);
+    if (!job || !job.terminal) return;
+    launch(agentId, entryId, job, req.force, req.feedback);
+  }
+
+  return { ensureSlide, onTurnSettled };
 }
 
 export type SlideMode = ReturnType<typeof createSlideMode>;
+
+// Drive the Slide Mode "turn settled" drain off a turn's completion promise.
+// Whatever settles that promise — turn_completed, normalized error, clean stream
+// end, stream catch, session swap, kill, or supersession — settles it exactly
+// once, resolve OR reject, and each is a terminal fact for the turn. So onSettled
+// fires exactly once with the turn's anchor entry id (read AT settle time, after
+// pendingTurn may have been nulled; a null anchor -> no-op). Kept as a pure
+// helper (used by agent-manager's createTurnDeferred) so the resolve- and
+// reject-path wiring is unit-testable without standing up the whole manager. The
+// trailing .catch keeps a rejected turn from surfacing as an unhandled rejection.
+export function drainOnSettle(
+  promise: Promise<void>,
+  getAnchorEntryId: () => string | null,
+  onSettled: (entryId: string) => void,
+): void {
+  void promise
+    .finally(() => {
+      const anchor = getAnchorEntryId();
+      if (anchor) onSettled(anchor);
+    })
+    .catch(() => {});
+}

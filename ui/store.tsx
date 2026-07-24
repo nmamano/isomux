@@ -196,6 +196,18 @@ type Action =
       agentId: string;
       slides: Record<string, SlideRecord>;
     }
+  // CLIENT-LOCAL: DeckView drops a cached slide the server reported it is
+  // regenerating (a stale placeholder whose turn gained text), so the deck shows
+  // the Generating spinner until the fresh slide_ready arrives. Compare-and-
+  // delete: `prevSlide` is the record seen at request time; the reducer removes
+  // it ONLY if it is still the current record, so a slide_ready that raced in
+  // first (WS/HTTP ordering isn't guaranteed) is never clobbered.
+  | {
+      type: "slide_invalidate";
+      agentId: string;
+      entryId: string;
+      prevSlide: SlideRecord;
+    }
   | { type: "focus"; agentId: string | null }
   | { type: "connected" }
   | { type: "disconnected" }
@@ -468,6 +480,18 @@ export function reducer(state: AppState, action: Action): AppState {
         if (!forAgent.has(entryId)) forAgent.set(entryId, rec);
       }
       slides.set(action.agentId, forAgent);
+      return { ...state, slides };
+    }
+    case "slide_invalidate": {
+      const forAgent = state.slides.get(action.agentId);
+      // Compare-and-delete by reference: only drop the exact record the client
+      // saw at request time. If a fresher slide_ready already replaced it, keep
+      // the new one — never delete a record we didn't request the drop of.
+      if (forAgent?.get(action.entryId) !== action.prevSlide) return state;
+      const slides = new Map(state.slides);
+      const next = new Map(forAgent);
+      next.delete(action.entryId);
+      slides.set(action.agentId, next);
       return { ...state, slides };
     }
     case "focus": {

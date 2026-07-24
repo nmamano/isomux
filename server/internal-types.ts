@@ -55,6 +55,13 @@ export interface ManagedAgent {
     promise: Promise<void>;
     resolve: () => void;
     reject: (err: unknown) => void;
+    // The user_message entry id anchoring this in-flight turn (the newest deck
+    // turn), or null until the send's user_message is logged. Slide Mode reads
+    // it to gate slide generation: a turn is "terminal" once it is no longer
+    // this anchor (pendingTurn cleared, or superseded by a newer turn). Set when
+    // the anchor user_message is appended; goes away when pendingTurn is nulled
+    // at turn_completed. See server/slide-mode.ts + slide-mode-design.md.
+    anchorEntryId: string | null;
   } | null;
   // The aggregate `afterTurn` promise for the most recent turn — all plugins'
   // afterTurn hooks raced against their per-plugin timeout, joined here.

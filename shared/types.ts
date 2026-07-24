@@ -523,6 +523,13 @@ export interface SlideRecord {
   // The backend model family the formatter ran on (e.g. "sonnet").
   model: string;
   createdAt: number;
+  // Digest of the turn CONTENT this slide was generated from (prompt + answer +
+  // error, via slideContentDigest). The cache-validity signal: a stored slide is
+  // served only while this equals the live turn's digest — a turn that gained
+  // text after a placeholder was recorded no longer matches and is regenerated.
+  // Optional so slide files written before this field (self-hosters) still load;
+  // a record with no digest is unverifiable and is regenerated once on next view.
+  contentDigest?: string;
 }
 
 // Task item (replaces todos)

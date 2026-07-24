@@ -10,7 +10,7 @@
 
 import { describe, it, expect } from "bun:test";
 import { reducer, initialState } from "./store.tsx";
-import type { LogEntry } from "../shared/types.ts";
+import type { LogEntry, SlideRecord } from "../shared/types.ts";
 
 function entry(id: string, agentId: string, timestamp: number): LogEntry {
   return { id, agentId, timestamp, kind: "text", content: `content-${id}` };
@@ -113,5 +113,65 @@ describe("reducer: clear_logs", () => {
     expect(after.logs.get("agent-1")).toEqual([]);
     // …but the unseen-result dot survives: nothing was semantically retired.
     expect(after.needsAttention.has("agent-1")).toBe(true);
+  });
+});
+
+describe("reducer: slide_invalidate (compare-and-delete)", () => {
+  const A = "agent-1";
+  const rec = (html: string): SlideRecord => ({
+    html,
+    placeholder: false,
+    errorText: null,
+    promptText: "q",
+    model: "sonnet",
+    createdAt: 1,
+    contentDigest: "abcd",
+  });
+
+  it("deletes the record when it is STILL the one seen at request time", () => {
+    const old = rec("<div>old</div>");
+    const seeded = reducer(initialState, {
+      type: "slide_ready",
+      agentId: A,
+      sessionId: "",
+      entryId: "u1",
+      slide: old,
+    });
+    const after = reducer(seeded, {
+      type: "slide_invalidate",
+      agentId: A,
+      entryId: "u1",
+      prevSlide: old,
+    });
+    expect(after.slides.get(A)?.has("u1")).toBe(false);
+  });
+
+  it("KEEPS a fresher record a slide_ready installed before the invalidate landed", () => {
+    // The WS-before-HTTP ordering race: a slide_ready replaced the stale record
+    // before the (stale) pending-response invalidate arrives. Compare-and-delete
+    // by reference must not clobber the newer slide.
+    const old = rec("<div>old</div>");
+    const fresh = rec("<div>fresh</div>");
+    let s = reducer(initialState, {
+      type: "slide_ready",
+      agentId: A,
+      sessionId: "",
+      entryId: "u1",
+      slide: old,
+    });
+    s = reducer(s, {
+      type: "slide_ready",
+      agentId: A,
+      sessionId: "",
+      entryId: "u1",
+      slide: fresh,
+    });
+    const after = reducer(s, {
+      type: "slide_invalidate",
+      agentId: A,
+      entryId: "u1",
+      prevSlide: old,
+    });
+    expect(after.slides.get(A)?.get("u1")).toBe(fresh); // fresh survives
   });
 });

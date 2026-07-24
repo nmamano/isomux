@@ -12,7 +12,9 @@
 > (opIds agents.getSlides / agents.ensureSlide, office:read) with the
 > `slide_ready` room-ACL WS event; deck UI in `ui/log-view/DeckView.tsx` behind a
 > header toggle (per-device-per-agent in `ui/device-settings.ts`). The staleness
-> guard reuses `topicGenToken` rather than a new counter.
+> guard keys on the conversation's root session id — see the terminal-gate note
+> below; it originally reused `topicGenToken`, which was wrong because a benign
+> `setTopic` also bumps that.
 
 > Polish v2 (2026-07-24): (1) the deck↔chat toggle now persists the last-viewed
 > slide index per-device-per-agent (`getSlidePos`/`setSlidePos` in
@@ -25,6 +27,43 @@
 > iframe carrying the same `SLIDE_CSP` (so scripts and network stay blocked; the
 > display iframe stays `sandbox=""`), then the whole card is laid out at that
 > height and scaled to fit — never clipped, never scrolled.
+
+> Terminal-gate + reconciliation (2026-07-24): a slide is generated for a turn
+> ONLY after that turn is terminal, and a stored slide is served only while its
+> content digest matches the live turn — otherwise it is regenerated. This
+> replaced a client-side "is the turn settled?" guess that recorded a stale
+> placeholder when a message was sent from slide view (the newest turn existed
+> before the agent went active). The turn's authoritative terminal fact
+> (`turn_completed`) lives only on the server, so gating is server-authoritative:
+> - The in-flight turn is stamped with its anchor `user_message` entry id
+>   (`pendingTurn.anchorEntryId`, set in `addLogEntry` in the same synchronous
+>   append — no interleaving, so `buildDeckTurns` never sees the turn with the
+>   anchor unset); `resolveSlideJob` reports `terminal = anchorEntryId !== entryId`.
+> - `ensureSlide` on a non-terminal turn parks a waiter (keeping the latest
+>   feedback) and returns `pending` — never formats a half-streamed answer, never
+>   writes a placeholder. `onTurnSettled` runs off the `pendingTurn` promise's
+>   settle, so EVERY terminal path (turn_completed, error, stream end/catch,
+>   session swap, kill, supersession) drains the waiter: it generates the settled
+>   slide and pushes `slide_ready`, so a parked request never orphans (a turn that
+>   a `/clear` removed is simply dropped — its deck position is gone too).
+> - `SlideRecord.contentDigest` (`slideContentDigest`, a 64-bit hash
+>   length-prefixed over prompt + answer + error) is the cache-validity key: a
+>   stored slide is served only while its digest equals the live turn's, so a
+>   stale placeholder whose turn later gained text no longer matches and is
+>   regenerated. `commit` re-checks token AND digest before writing, so a mutation
+>   mid-generation is discarded, not broadcast (a terminal turn's content is in
+>   fact immutable within its token — every edit forks and bumps the token — so
+>   this is defence in depth over the token guard). A record with NO digest
+>   predates the field and is unverifiable, so it is regenerated once (a
+>   placeholder re-commits with no LLM call; a rendered slide regenerates and
+>   gains a digest, then validates from cache). The client mirrors this: it skips
+>   a cached record only when it carries a digest (a field-presence check, immune
+>   to lagging client logs), and requests missing/digestless ones. Note: this
+>   discards any pre-digest ↻-tuned slide once, on first view after the upgrade.
+> - Client: no timing predicate. It requests visible turns (re-requesting cached
+>   placeholders so the server can reconcile them); the newest in-flight turn
+>   shows a "Generating" spinner; a `pending` response for a slide already shown
+>   drops it (`slide_invalidate`) so the spinner covers the regeneration.
 
 Per-agent "Slide view": a toggle in the agent header that replaces the chat
 view with a slide deck — one slide per assistant turn, ←/→ navigation, the
@@ -119,10 +158,28 @@ Notes:
 - Edit-forks: the log rollback machinery already discards the abandoned
   branch; slide records keyed by discarded entry ids become unreachable
   (harmless orphans; a cleanup sweep can prune keys absent from the log).
-- Stale-append guard: generation is fire-and-forget, so a result can land
-  after a `/clear`, `/resume`, or edit-fork. Use the `topicGenToken`
-  pattern (`agent-manager.ts` ~2058): capture a token before generating,
-  verify before writing/broadcasting.
+- Stale-append guard: generation is fire-and-forget, so a result can land after
+  the conversation moved on. Conversation identity is the ROOT SESSION ID —
+  captured in `SlideJobContext.rootSessionId` before generating and re-checked
+  via `SlideModeDeps.isCurrent` before writing/broadcasting, and part of the
+  in-flight key so a re-request after a reset starts a fresh job. `/clear` leaves
+  the agent with no root at all and a `/resume` into another thread changes it,
+  so both drop; a benign `setTopic` doesn't touch it, so in-flight slide work
+  survives a topic rename (which is why `topicGenToken` was wrong).
+
+  Deliberately NOT a separate counter. The root id already exists as the deck's
+  storage key, is derived from the sessions map rather than hand-maintained at
+  every reset call site, and never recycles — a per-agent counter resets to 0
+  when `ManagedAgent` is rebuilt (boot, kill/revive) while the in-flight map
+  lives on in the `createSlideMode` closure, so counter values could collide
+  across a revive.
+
+  An edit-fork keeps the root and is still safe: `editMessage` replays the
+  entries BEFORE the edited one and appends the new text under a NEW entry id,
+  so the forked turn's own id stops resolving and its in-flight commit discards;
+  earlier turns are replayed unchanged and keep matching digests. Identity is
+  only the cheap early-out here — the content digest is what guarantees a stored
+  slide is never served for content it wasn't generated from.
 
 ## Server
 
@@ -173,9 +230,10 @@ either way.
   on the newest position (wired to the normal send path).
 - Entering the view / navigating: for each visible position, call "ensure
   slide" (focused + 2 neighbors). Pending positions show a spinner;
-  `slide_ready` fills them live.
-- New turn while viewing: new position appears (pending → slide).
-  Auto-advance only if the user was already on the last slide.
+  `slide_ready` fills them live. The server gates the still-running newest turn
+  (returns `pending` until it is terminal — see the terminal-gate note above).
+- New turn while viewing: new position appears (spinner → slide when the turn
+  completes). Auto-advance only if the user was already on the last slide.
 - Attention badge: permission prompts, questions, errors → badge on the
   header; tap flips to chat view.
 - Per-slide ↻ button → optional feedback input → force-regen.
