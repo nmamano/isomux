@@ -343,7 +343,9 @@ function ExternalAccessSection({
       {restartRequired && (
         <div style={restartBoxStyle}>
           <p style={{ ...hint, marginTop: 0 }}>
-            Saved. Restart isomux so the new bind takes effect:
+            Saved. Restart isomux for the new bind to take effect. User service:{" "}
+            <code>systemctl --user restart isomux</code>. System service:{" "}
+            <code>sudo systemctl restart isomux</code>.
           </p>
           <code style={codeBlockStyle}>systemctl --user restart isomux</code>
           {signInUrl && (

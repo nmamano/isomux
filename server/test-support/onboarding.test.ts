@@ -177,7 +177,7 @@ function requireAgentByName(srv: TestServer, name: string): AgentInfo {
 }
 
 describe("onboarding / fresh install (Phase 1.1)", () => {
-  it("seeds one Claude (Fable) + one Codex welcome agent on the first-owner claim", async () => {
+  it("seeds one Claude (Opus) + one Codex welcome agent on the first-owner claim", async () => {
     // Default harness backend; the seed never sends, so its onSend is irrelevant.
     server = await startTestServer();
     await claimOwner(server, "Boss");
@@ -192,7 +192,7 @@ describe("onboarding / fresh install (Phase 1.1)", () => {
 
     // Backend + model + permission identity each welcome agent ships with.
     expect(claude!.agentType).toBe("claude");
-    expect(claude!.modelFamily).toBe("fable");
+    expect(claude!.modelFamily).toBe("opus");
     expect(claude!.permissionMode).toBe("auto");
     expect(codex!.agentType).toBe("codex");
     expect(codex!.modelFamily).toBe("gpt-5.6-sol");

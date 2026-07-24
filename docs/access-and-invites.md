@@ -119,7 +119,8 @@ Steps:
      "Funnel is up at <URL>. To finish, in your isomux office
       open User Settings → Access → External access, enable the
       toggle, paste this URL into the Public URL field, click
-      Save, then restart isomux:
+      Save, then restart isomux for the bind to take effect (on a
+      system service, run sudo systemctl restart isomux instead):
         systemctl --user restart isomux
       Sign in on the public URL using the link the Access pane
       shows you after Save."
@@ -152,7 +153,7 @@ Post-claim, the **Access pane** in User Settings has an _External access_ sectio
 - **Enable external access** toggle. Off by default; the server keeps binding `127.0.0.1` only and the office is reachable from the host machine (or via an SSH tunnel) but not from your LAN/VPN.
 - **Public URL** text field. Where browsers on other machines will reach this office (e.g. `https://auntie.<your-tailnet>.ts.net`).
 
-Saving persists both fields to `~/.isomux/office-config.json` and mints an owner self-invite bound to the new URL so you can sign in on the new origin immediately. The toggle takes effect on the next isomux restart (the pane spells out the exact `systemctl --user restart isomux` command). Restart is intentional: changing the bind interface and cookie/origin policy mid-process is brittle, and the toggle is rare enough that "save then restart" is the right trade.
+Saving persists both fields to `~/.isomux/office-config.json` and mints an owner self-invite bound to the new URL so you can sign in on the new origin immediately. The toggle takes effect on the next isomux restart (the pane spells out the restart command: `systemctl --user restart isomux` for a user service, `sudo systemctl restart isomux` for a system one). Restart is intentional: changing the bind interface and cookie/origin policy mid-process is brittle, and the toggle is rare enough that "save then restart" is the right trade.
 
 The tunnel-setup agent prompts above end at "report the public URL." The final step — telling the running office about that URL — is a paste into the Access pane, so the office's auth-state mutation goes through the same in-process mutex as every other settings change.
 

@@ -17,9 +17,9 @@ describe("fable model family", () => {
     expect(FAMILY_TO_MODEL.fable).toBe("claude-fable-5");
   });
 
-  it("is the default Claude family (MODEL_FAMILIES[0])", () => {
-    expect(MODEL_FAMILIES[0].family).toBe("fable");
-    expect(MODEL_FAMILIES.some((m) => m.family === "opus")).toBe(true);
+  it("is a selectable Claude family (opus is the MODEL_FAMILIES[0] default)", () => {
+    expect(MODEL_FAMILIES[0].family).toBe("opus");
+    expect(MODEL_FAMILIES.some((m) => m.family === "fable")).toBe(true);
   });
 
   it("is recognized as a Claude family", () => {

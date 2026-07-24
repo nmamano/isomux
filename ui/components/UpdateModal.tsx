@@ -33,7 +33,7 @@ function buildCommitPlainText(notice: CommitNotice): string {
     "",
     "1. Pull the latest changes",
     "2. Run `bun install`",
-    `3. Restart the server: run \`bun run dev\`, or something like \`systemctl --user restart isomux\` if using a persistent systemd service.`,
+    `3. Restart isomux for the update to take effect. Dev: \`bun run dev\`. User service: \`systemctl --user restart isomux\`. System service: \`sudo systemctl restart isomux\`.`,
   ].join("\n");
 }
 
@@ -134,10 +134,10 @@ function CommitBody({
           Run <code style={code}>bun install</code>
         </li>
         <li style={{ marginTop: 4 }}>
-          Restart the server: run <code style={code}>bun run dev</code>, or
-          something like{" "}
-          <code style={code}>systemctl --user restart isomux</code> if using a
-          persistent systemd service.
+          Restart isomux for the update to take effect. Dev:{" "}
+          <code style={code}>bun run dev</code>. User service:{" "}
+          <code style={code}>systemctl --user restart isomux</code>. System
+          service: <code style={code}>sudo systemctl restart isomux</code>.
         </li>
       </ol>
 

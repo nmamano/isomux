@@ -104,12 +104,12 @@ export const FAMILY_TO_MODEL: Record<ModelFamily, ClaudeModel> = {
   haiku: "claude-haiku-4-5-20251001",
 };
 
-// Default first (MODEL_FAMILIES[0]): fable. New-agent defaults, the welcome
+// Default first (MODEL_FAMILIES[0]): opus. New-agent defaults, the welcome
 // agent, and the validator fallback all key off MODEL_FAMILIES[0], mirroring
 // CODEX_MODELS below.
 export const MODEL_FAMILIES: { family: ModelFamily; label: string }[] = [
-  { family: "fable", label: "Fable" },
   { family: "opus", label: "Opus" },
+  { family: "fable", label: "Fable" },
   { family: "sonnet", label: "Sonnet" },
   { family: "haiku", label: "Haiku" },
 ];
