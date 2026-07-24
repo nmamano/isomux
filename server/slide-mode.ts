@@ -41,15 +41,17 @@ TYPOGRAPHY (the hierarchy is the design)
 - Body text must be at least 22px. Incidental captions/labels may use 20px, and nothing may be smaller than 20px. Body line-height ~1.4.
 - Commit to 2-3 type sizes total (title, body, maybe one big number) and reuse them. Consistent sizing reads as designed; many sizes read as noise.
 
-COLOR (restraint over decoration)
-- Deep, calm dark background (around #0f1117 to #14161c). Primary text a soft off-white (around #e8eaf0), never pure white.
-- Choose ONE accent color for the whole slide and use it with intent — the title, one key number, a thin rule, or a single highlighted term. Pick an accent that fits the content (a blue like #6ea8fe, or a teal, amber, or violet). Add ONE muted tone (around #9aa3b2) for secondary text. That palette — background, off-white, one accent, one muted — is the whole slide. Do NOT color every element differently; a rainbow looks amateur.
+COLOR (use it — a deck with one lone highlight looks unfinished)
+- Follow 60-30-10: about 60% calm dark ground (#0f1117 to #14161c), about 30% carried by structure — panels, tinted blocks, rules, section labels — and about 10% true accent for the few things that must be seen first. Primary text a soft off-white (around #e8eaf0), never pure white; a muted tone (around #9aa3b2) for secondary text.
+- Build a real palette of 3-4 hues and use it consistently across the slide, not a single highlighted word. Draw from rich, non-neon tones: blue #6ea8fe, teal #4dd0c4, amber #e0a458, violet #b39ddb, green #7bd88f, rose #f2789f. Pick a primary accent that fits the content plus one or two supporting hues.
+- Make color MEAN something. Give distinct categories, columns, states, or steps their own consistent hue; use green for good/positive, red or rose for bad/negative, amber for caution, and muted gray for context. Reuse the same hue for the same idea everywhere it appears — a reader should be able to infer the grouping from color alone.
+- The failure modes are both directions: monochrome-with-one-blue-highlight is too timid, and a different color on every element is a rainbow. Aim between — deliberate, repeated, meaningful.
 
 LAYOUT (fit the structure to the content)
 - Pick the layout the content wants: title + a few bullets; two or three columns; one big number/stat with a caption; a compact comparison table; a label/value list; a short pulled quote. Use flexbox or grid (display:flex/grid with gap) for clean alignment — never a stack of <br> tags.
 - Favor a few strong elements over a dense wall: prefer at most six short bullets, roughly 8-12 words each, parallel in structure. Give groups real whitespace (gaps and margins around 18-28px) and align to shared edges.
 - For code or identifiers, use <code> or <pre> with font-family:ui-monospace,'SF Mono',Menlo,monospace on a subtly lighter panel (around #1e2230, padding, border-radius:6-8px). Show only the decisive excerpt; if code can't stay legible at the size floor, show fewer lines rather than shrink it.
-- No text below 20px, no overflow, no more than one accent color, no piled-on gradients or drop shadows.
+- No text below 20px, no overflow, no piled-on gradients or drop shadows. Consistency is what makes it read as designed: the same spacing rhythm, the same alignment edges, and the same hue for the same kind of thing throughout.
 
 CONTENT
 - Preserve factual meaning exactly. Never invent or alter facts, numbers, names, code, commands, negation, uncertainty, or consequential caveats. Remove conversational filler, but keep qualifications that affect correctness.
@@ -520,7 +522,9 @@ export function createSlideMode(deps: SlideModeDeps) {
       const prev = deferred.get(`${agentId}::${entryId}`);
       deferred.set(`${agentId}::${entryId}`, {
         force: (prev?.force ?? false) || !!opts?.force,
-        feedback: opts?.force ? (opts?.feedback ?? null) : (prev?.feedback ?? null),
+        feedback: opts?.force
+          ? (opts?.feedback ?? null)
+          : (prev?.feedback ?? null),
       });
       return { status: "pending" };
     }
@@ -531,7 +535,13 @@ export function createSlideMode(deps: SlideModeDeps) {
     }
     // Miss, forced, or a stale cache (e.g. a placeholder whose turn has since
     // gained text) -> regenerate; force so a stale record is overwritten.
-    launch(agentId, entryId, job, !!opts?.force || stale, opts?.feedback ?? null);
+    launch(
+      agentId,
+      entryId,
+      job,
+      !!opts?.force || stale,
+      opts?.feedback ?? null,
+    );
     return { status: "pending" };
   }
 
