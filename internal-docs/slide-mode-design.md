@@ -14,6 +14,18 @@
 > header toggle (per-device-per-agent in `ui/device-settings.ts`). The staleness
 > guard reuses `topicGenToken` rather than a new counter.
 
+> Polish v2 (2026-07-24): (1) the deck↔chat toggle now persists the last-viewed
+> slide index per-device-per-agent (`getSlidePos`/`setSlidePos` in
+> `device-settings.ts`) and restores it on re-entry — following the newest only
+> when the viewer was already on the last slide; returning to chat restores the
+> prior chat scroll position (or re-pins to the bottom when the viewer was
+> following it) instead of jumping to the top. (2) An overfull slide (model
+> emits content taller than 720) is no longer clipped: `DeckView`'s `MeasureFrame`
+> measures the HTML's natural height in an offscreen `sandbox="allow-same-origin"`
+> iframe carrying the same `SLIDE_CSP` (so scripts and network stay blocked; the
+> display iframe stays `sandbox=""`), then the whole card is laid out at that
+> height and scaled to fit — never clipped, never scrolled.
+
 Per-agent "Slide view": a toggle in the agent header that replaces the chat
 view with a slide deck — one slide per assistant turn, ←/→ navigation, the
 turn's prompt frozen beneath each slide, and the real input box on the newest

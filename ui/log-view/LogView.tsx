@@ -2,6 +2,7 @@ import {
   useState,
   useRef,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useCallback,
   type RefCallback,
@@ -591,7 +592,13 @@ export function LogView({
     setSlideViewAgentId(agent.id);
     setSlideView(readSlideViewPref(agent.id));
   }
+  // Chat scroll position captured when entering the deck, restored on return so
+  // the deck→chat toggle doesn't dump the viewer at scrollTop 0 (the messages
+  // container remounts). Only consulted when the viewer was NOT following the
+  // bottom; when they were, the autoScroll path re-pins to the newest below.
+  const savedChatScrollRef = useRef<number | null>(null);
   const applySlideView = (on: boolean) => {
+    if (on) savedChatScrollRef.current = scrollRef.current?.scrollTop ?? null;
     setSlideView(on);
     writeSlideViewPref(agent.id, on);
   };
@@ -929,7 +936,25 @@ export function LogView({
         el.scrollTop = el.scrollHeight;
       });
     });
-  }, [logs, autoScroll, agent.state]);
+    // `slideView` is a dep so returning from the deck re-pins to the bottom via
+    // this same path when the viewer was following it (scrollRef is null while
+    // the deck is shown, so the guard makes entering the deck a no-op).
+  }, [logs, autoScroll, agent.state, slideView]);
+
+  // Returning from the deck to chat: restore the exact scroll position the
+  // viewer left from. Only when NOT following the bottom — the autoScroll effect
+  // above owns the bottom-follow case. useLayoutEffect so the restored position
+  // paints without a scrollTop-0 flash. Runs only on the deck→chat edge (guarded
+  // by `savedChatScrollRef` being set, which applySlideView does on entry).
+  useLayoutEffect(() => {
+    if (slideView) return;
+    const el = scrollRef.current;
+    const saved = savedChatScrollRef.current;
+    savedChatScrollRef.current = null;
+    if (!el || saved == null || autoScroll) return;
+    el.scrollTop = saved;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slideView]);
 
   // Auto-resize textarea and place cursor at end when draft is restored
   useEffect(() => {

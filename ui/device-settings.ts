@@ -93,6 +93,43 @@ export function setSlideView(agentId: string, on: boolean): void {
   localStorage.setItem(KEY_SLIDE_VIEW, JSON.stringify(map));
 }
 
+// Last-viewed deck position, per device per agent (design:
+// internal-docs/slide-mode-design.md). Persisted so the deck↔chat toggle
+// restores where the viewer was instead of always jumping to the newest slide.
+// `atEnd` records whether they were on the last slide at save time: if so, a
+// re-entry follows the newest (picking up turns that arrived meanwhile); if
+// not, the exact index is restored (clamped to range). Stored as one JSON
+// object { [agentId]: { index, atEnd } }.
+const KEY_SLIDE_POS = "isomux-slide-pos";
+
+export type SlidePos = { index: number; atEnd: boolean };
+
+function readSlidePosMap(): Record<string, SlidePos> {
+  if (typeof localStorage === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(KEY_SLIDE_POS);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export function getSlidePos(agentId: string): SlidePos | null {
+  const v = readSlidePosMap()[agentId];
+  if (!v || typeof v.index !== "number") return null;
+  return { index: v.index, atEnd: v.atEnd === true };
+}
+
+export function setSlidePos(agentId: string, pos: SlidePos): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    const map = readSlidePosMap();
+    map[agentId] = { index: pos.index, atEnd: pos.atEnd };
+    localStorage.setItem(KEY_SLIDE_POS, JSON.stringify(map));
+  } catch {}
+}
+
 export function shouldNotifyRoom(
   roomId: string | null,
   setting: NotifRoomsSetting,

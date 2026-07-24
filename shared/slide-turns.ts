@@ -77,6 +77,59 @@ export function buildDeckTurns(logs: readonly LogEntry[]): DeckTurn[] {
   return turns;
 }
 
+// Deck navigation: given the viewer's current position, the deck length BEFORE
+// a change, and the length AFTER, return the position to show. Clamps into range
+// and follows the newest slide only when the viewer was on the last slide of the
+// deck as it was BEFORE it grew. Comparing against `prevLen` (not the already-
+// grown `newLen`) is the crux: a new turn arriving while the deck is open bumps
+// the length in the same render the index still points at the old last slide, so
+// testing at-end against `newLen` would read false for the very growth being
+// reacted to and silently drop the follow.
+export function nextDeckIndex(
+  cur: number,
+  prevLen: number,
+  newLen: number,
+): number {
+  const last = Math.max(0, newLen - 1);
+  if (cur > last) return last; // deck shrank past the cursor → clamp
+  if (cur >= prevLen - 1) return last; // was on the last slide → follow newest
+  return cur;
+}
+
+// The SETTLED deck position after a length change: the index to show (via
+// nextDeckIndex) paired with whether that index is now the last slide.
+// Persisting THIS — rather than the pre-advance render's stale index/atEnd — is
+// what keeps "follow newest" correct across the chat<->deck toggle. Note it
+// captures the case a plain index-change save misses: a shrink (edit/fork,
+// /clear) that leaves the cursor numerically unchanged but makes it the new last
+// slide, so atEnd flips false→true without index moving.
+export function settledDeckPos(
+  cur: number,
+  prevLen: number,
+  newLen: number,
+): { index: number; atEnd: boolean } {
+  const index = nextDeckIndex(cur, prevLen, newLen);
+  return { index, atEnd: index >= newLen - 1 };
+}
+
+// The position to show on FIRST opening a deck, given the saved position (or
+// null) and the current deck length. Restores the saved slide when the viewer
+// had deliberately left NOT on the last slide (clamped into range); otherwise —
+// no saved position, or they were following the newest — lands on the newest.
+// Returns the settled {index, atEnd} so first-load can persist it DIRECTLY: a
+// saved "behind" index that clamps onto the (now shorter) last slide, or that
+// equals 0 and can't trigger a state-change save, must still be recorded as
+// atEnd — otherwise re-entry wrongly treats the viewer as intentionally behind.
+export function restoredDeckPos(
+  saved: { index: number; atEnd: boolean } | null,
+  len: number,
+): { index: number; atEnd: boolean } {
+  const last = Math.max(0, len - 1);
+  const index =
+    saved && !saved.atEnd ? Math.min(Math.max(0, saved.index), last) : last;
+  return { index, atEnd: index >= len - 1 };
+}
+
 // Find one turn by its anchor entry id (server generation path).
 export function findDeckTurn(
   logs: readonly LogEntry[],

@@ -1,13 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentInfo, LogEntry, SlideRecord } from "../../shared/types.ts";
-import { buildDeckTurns, type DeckTurn } from "../../shared/slide-turns.ts";
+import {
+  buildDeckTurns,
+  restoredDeckPos,
+  settledDeckPos,
+  type DeckTurn,
+} from "../../shared/slide-turns.ts";
 import {
   SLIDE_W,
   SLIDE_H,
   buildSlideSrcDoc,
+  buildSlideMeasureSrcDoc,
+  slideDisplayHeight,
 } from "../../shared/slide-frame.ts";
 import type { EnsureSlideRes } from "../../shared/contract-shapes.ts";
 import { apiFetch } from "../api.ts";
+import { getSlidePos, setSlidePos } from "../device-settings.ts";
 import { useAppState, useDispatch } from "../store.tsx";
 
 // Slide Mode deck view (design: internal-docs/slide-mode-design.md).
@@ -56,32 +64,58 @@ export function DeckView({
   }, [logs]);
 
   const [index, setIndex] = useState(0);
-  const atEndRef = useRef(true);
   const didInitRef = useRef(false);
+  // Gates the position-save effect so the stale index=0 present on the mount
+  // commit (before the restore below is applied) never clobbers the saved
+  // position. Flipped true on the first save-effect run after init.
+  const hasRestoredRef = useRef(false);
+  // Deck length at the previous render, so "follow newest" can test whether the
+  // viewer was on the last slide BEFORE a new turn grew the deck — see
+  // settledDeckPos/nextDeckIndex. Recomputing at-end against the already-grown
+  // list reads false for the very growth being reacted to and drops the follow.
+  const prevLenRef = useRef(0);
   const active = isAgentActive(agent);
 
-  // Track "was on the last slide" so a new turn auto-advances only then.
-  const wasAtEnd = index >= turns.length - 1;
+  // First load: RESTORE the last-viewed position (per-device-per-agent) — land
+  // back on the saved slide if the viewer had left NOT on the last slide,
+  // otherwise on the newest (also the slide they want generated first). Later
+  // renders: settle the index as the deck grows/shrinks (clamp, or follow newest
+  // if they were on the last slide before it grew). BOTH branches persist the
+  // settled position directly, not via a state-change effect: a restored index
+  // that clamps to the new last slide (or to 0, where setIndex can't trigger a
+  // save) must record atEnd, and a length change that flips atEnd without moving
+  // index (e.g. a shrink making the unchanged cursor the last slide) must too.
+  // This effect's `index` closure is the committed value for the render that
+  // carried this length change (true even if React batched a navigation update
+  // in), so `pos` is the single source for both what we show and what we save.
   useEffect(() => {
-    atEndRef.current = wasAtEnd;
-  }, [wasAtEnd]);
+    const prevLen = prevLenRef.current;
+    prevLenRef.current = turns.length;
+    if (turns.length === 0) return;
+    const pos = didInitRef.current
+      ? settledDeckPos(index, prevLen, turns.length)
+      : restoredDeckPos(getSlidePos(agent.id), turns.length);
+    didInitRef.current = true;
+    setIndex(pos.index);
+    setSlidePos(agent.id, pos);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [turns.length]);
 
-  // Clamp / auto-advance when the deck grows or shrinks. On first load, land on
-  // the NEWEST slide: it's the one the viewer wants, and requesting it first
-  // means the slide they're looking at generates before the older ones.
+  // Persist navigation (an index change with no length change — arrows, buttons,
+  // Home/End/Latest). Length-driven index changes are already persisted above;
+  // this re-save of an identical value is harmless. Keyed on index ONLY;
+  // turns.length is read (current at run time) but omitted so this never fires on
+  // the pre-advance render. Skips exactly one run after init: on the mount commit
+  // index is still the pre-restore 0, which must not clobber the restored value.
   useEffect(() => {
-    const last = Math.max(0, turns.length - 1);
-    if (!didInitRef.current && turns.length > 0) {
-      didInitRef.current = true;
-      setIndex(last);
+    if (!didInitRef.current || turns.length === 0) return;
+    if (!hasRestoredRef.current) {
+      hasRestoredRef.current = true;
       return;
     }
-    setIndex((cur) => {
-      if (cur > last) return last;
-      if (atEndRef.current) return last;
-      return cur;
-    });
-  }, [turns.length]);
+    setSlidePos(agent.id, { index, atEnd: index >= turns.length - 1 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [index, agent.id]);
 
   // ←/→ arrow-key navigation, scoped to ignore text-editing targets so the
   // feedback field / composer aren't hijacked.
@@ -350,7 +384,20 @@ function SlideStage({
 }) {
   const stageRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0.5);
+  // Natural content height of the current slide's HTML, measured offscreen at
+  // width 1280 (see MeasureFrame). null until measured. Only used for the
+  // model-HTML branch; placeholder/fallback are app-rendered and always fit.
+  const [measuredH, setMeasuredH] = useState<number | null>(null);
 
+  // The height the slide is laid out at. Model HTML taller than the 720 canvas
+  // is rendered at its natural height (see slideDisplayHeight) and scaled down
+  // whole, so it is never clipped and never scrolls; shorter content keeps the
+  // 720 card. Placeholder/fallback are app-rendered and always use 720.
+  const isHtml = !!(slide && slide.html);
+  const contentH = isHtml ? slideDisplayHeight(measuredH) : SLIDE_H;
+
+  // Re-fit whenever the pane resizes OR the measured height arrives/changes, so
+  // an overfull slide reflows from the provisional 720 to its true height.
   useEffect(() => {
     const el = stageRef.current;
     if (!el) return;
@@ -359,7 +406,7 @@ function SlideStage({
       const pad = 24;
       const s = Math.min(
         (r.width - pad * 2) / SLIDE_W,
-        (r.height - pad * 2) / SLIDE_H,
+        (r.height - pad * 2) / contentH,
       );
       setScale(s > 0 ? s : 0.1);
     };
@@ -367,15 +414,15 @@ function SlideStage({
     const ro = new ResizeObserver(recompute);
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [contentH]);
 
-  // Wrap a natural-size (1280x720) node in the scaled, centered frame.
-  const frame = (inner: React.ReactNode) => (
-    <div style={{ width: SLIDE_W * scale, height: SLIDE_H * scale }}>
+  // Wrap a natural-size (1280 × h) node in the scaled, centered frame.
+  const frame = (inner: React.ReactNode, h: number = SLIDE_H) => (
+    <div style={{ width: SLIDE_W * scale, height: h * scale }}>
       <div
         style={{
           width: SLIDE_W,
-          height: SLIDE_H,
+          height: h,
           transform: `scale(${scale})`,
           transformOrigin: "top left",
         }}
@@ -390,20 +437,27 @@ function SlideStage({
   if (slide && slide.placeholder) {
     body = frame(<PlaceholderInner slide={slide} />);
   } else if (slide && slide.html) {
-    body = frame(
-      <iframe
-        title="slide"
-        sandbox=""
-        srcDoc={buildSlideSrcDoc(slide.html)}
-        width={SLIDE_W}
-        height={SLIDE_H}
-        style={{
-          border: 0,
-          borderRadius: 8,
-          boxShadow: "0 8px 40px rgba(0,0,0,0.45)",
-          background: "#0f1117",
-        }}
-      />,
+    body = (
+      <>
+        {/* Offscreen sizing pass — reads natural height, renders nothing. */}
+        <MeasureFrame html={slide.html} onMeasured={setMeasuredH} />
+        {frame(
+          <iframe
+            title="slide"
+            sandbox=""
+            srcDoc={buildSlideSrcDoc(slide.html, contentH)}
+            width={SLIDE_W}
+            height={contentH}
+            style={{
+              border: 0,
+              borderRadius: 8,
+              boxShadow: "0 8px 40px rgba(0,0,0,0.45)",
+              background: "#0f1117",
+            }}
+          />,
+          contentH,
+        )}
+      </>
     );
     regenerable = true;
   } else if (expired && fallbackTurn) {
@@ -434,6 +488,65 @@ function SlideStage({
       {body}
       {regenerable && <RegenControl onRegen={onRegen} />}
     </div>
+  );
+}
+
+// Offscreen iframe that measures a slide's natural content height at width 1280
+// so the display frame can be sized to never clip (design: item 2 in the Slide
+// Mode polish; internal-docs/slide-mode-design.md).
+//
+// SECURITY: the DISPLAY iframe stays sandbox="" (opaque origin, fully isolated).
+// Only THIS measurement copy adds sandbox="allow-same-origin", purely so the
+// parent can read contentDocument.scrollHeight. That does NOT weaken the model-
+// HTML boundary:
+//   - No script can run: allow-scripts is absent AND the CSP is script-src
+//     'none' (defense in depth) — even a prompt-injected <script> is inert.
+//   - No network: the CSP's default-src 'none' (img/font/connect/... 'none')
+//     blocks every subresource and fetch, identical to the display frame.
+//   - allow-same-origin only grants the PARENT read access to a script-dead,
+//     network-dead document. With no script, the framed HTML cannot touch the
+//     parent's origin, storage, or cookies. The parent merely reads a number.
+// The frame is inert and offscreen (hidden, non-interactive) and is destroyed
+// when the slide changes (SlideStage is keyed by entryId).
+function MeasureFrame({
+  html,
+  onMeasured,
+}: {
+  html: string;
+  onMeasured: (h: number) => void;
+}) {
+  return (
+    <iframe
+      aria-hidden="true"
+      tabIndex={-1}
+      title="slide measurement"
+      sandbox="allow-same-origin"
+      srcDoc={buildSlideMeasureSrcDoc(html)}
+      width={SLIDE_W}
+      height={SLIDE_H}
+      style={{
+        position: "absolute",
+        left: -99999,
+        top: 0,
+        width: SLIDE_W,
+        height: SLIDE_H,
+        border: 0,
+        visibility: "hidden",
+        pointerEvents: "none",
+      }}
+      onLoad={(e) => {
+        // Same-origin (allow-same-origin) → contentDocument is readable. If it
+        // is somehow null, we leave the default 720 in place (graceful: the
+        // slide renders as before, no crash).
+        const doc = e.currentTarget.contentDocument;
+        if (!doc) return;
+        const h = Math.max(
+          doc.documentElement?.scrollHeight ?? 0,
+          doc.body?.scrollHeight ?? 0,
+        );
+        if (h > 0) onMeasured(h);
+      }}
+    />
   );
 }
 
