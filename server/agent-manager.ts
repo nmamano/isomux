@@ -2144,9 +2144,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     const turns = buildDeckTurns(logCache.get(agentId) ?? []);
     const idx = turns.findIndex((t) => t.entryId === entryId);
     if (idx < 0) return null;
-    // Topic-gen model rule: Claude → sonnet (cheap); Codex → its own family.
+    // Formatter uses a fixed cheap tier per backend, NOT the agent's own family
+    // (which may be a pricey frontier model): Claude → sonnet, Codex → terra.
     const modelFamily =
-      managed.info.agentType === "claude" ? "sonnet" : managed.info.modelFamily;
+      managed.info.agentType === "claude" ? "sonnet" : "gpt-5.6-terra";
     // Style reference: the previous turn's cached slide, when we have it.
     const prevEntryId = idx > 0 ? turns[idx - 1].entryId : null;
     const prevSlideHtml = prevEntryId
