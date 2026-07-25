@@ -227,6 +227,20 @@ describe("reducer: slide failure marks", () => {
     expect(after.slideFailed.get(A)?.has("u2")).toBe(true);
   });
 
+  it("IGNORES a failure for a turn that already has a slide", () => {
+    // A regenerate that failed: the standing slide beats the raw answer.
+    const seeded = reducer(initialState, {
+      type: "slide_ready",
+      agentId: A,
+      sessionId: "",
+      entryId: "u1",
+      slide: rec("<div>standing</div>"),
+    });
+    const after = fail(seeded);
+    expect(after).toBe(seeded);
+    expect(after.slideFailed.get(A)?.has("u1")).toBeFalsy();
+  });
+
   it("clears the mark on an explicit retry", () => {
     const after = reducer(fail(), {
       type: "slide_retry",

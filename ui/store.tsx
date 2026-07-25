@@ -517,6 +517,10 @@ export function reducer(state: AppState, action: Action): AppState {
       };
     }
     case "slide_failed": {
+      // A turn that already HAS a slide keeps it: this is a regenerate that
+      // failed, and the standing slide is a better answer than the raw text.
+      // Keeps the invariant the deck reads — a marked turn has nothing to show.
+      if (state.slides.get(action.agentId)?.has(action.entryId)) return state;
       const slideFailed = new Map(state.slideFailed);
       const forAgent = new Set(slideFailed.get(action.agentId) ?? []);
       forAgent.add(action.entryId);
