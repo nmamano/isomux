@@ -6,10 +6,7 @@ import {
   extractSlideHtml,
   type SlideJobContext,
 } from "../slide-mode.ts";
-import {
-  slideContentDigest,
-  type DeckTurn,
-} from "../../shared/slide-turns.ts";
+import { slideContentDigest, type DeckTurn } from "../../shared/slide-turns.ts";
 import type { SlideRecord } from "../../shared/types.ts";
 
 // A deferred we resolve by hand to hold a generation open.
@@ -506,7 +503,11 @@ describe("createSlideMode.ensureSlide", () => {
 
   it("serves a genuine placeholder whose digest matches (no regeneration)", async () => {
     const h = harness();
-    const emptyTurn = turn({ placeholder: true, assistantText: "", errorText: null });
+    const emptyTurn = turn({
+      placeholder: true,
+      assistantText: "",
+      errorText: null,
+    });
     h.setJob("u1", {
       agentType: "claude",
       modelFamily: "sonnet",

@@ -106,7 +106,9 @@ async function setup(
       .map((e) => e.entry.id);
   const slideReadyFor = (entryId: string) =>
     events.find(
-      (e) => e.type === "slide_ready" && (e as { entryId: string }).entryId === entryId,
+      (e) =>
+        e.type === "slide_ready" &&
+        (e as { entryId: string }).entryId === entryId,
     ) as
       | {
           sessionId: string;
@@ -149,7 +151,9 @@ describe("Slide Mode lifecycle (DI integration)", () => {
     // Wait for the turn to settle (the text answer landed).
     await waitUntil(() =>
       h.events.some(
-        (e) => e.type === "log_entry" && (e as { entry: { kind: string } }).entry.kind === "text",
+        (e) =>
+          e.type === "log_entry" &&
+          (e as { entry: { kind: string } }).entry.kind === "text",
       ),
     );
 
@@ -159,7 +163,9 @@ describe("Slide Mode lifecycle (DI integration)", () => {
     expect(res.status).toBe("pending");
     await waitUntil(() => !!h.slideReadyFor(anchor));
     expect(h.slideReadyFor(anchor)?.slide.html).toBe(SLIDE_HTML);
-    expect(h.prompts.some((p) => p.includes("The persisted tail answer."))).toBe(true);
+    expect(
+      h.prompts.some((p) => p.includes("The persisted tail answer.")),
+    ).toBe(true);
 
     // A subsequent send opens a NEW turn under a distinct user_message anchor —
     // it does not continue the persisted tail.

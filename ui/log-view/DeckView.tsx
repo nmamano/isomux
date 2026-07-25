@@ -192,7 +192,9 @@ export function DeckView({
       const inFlight = reqAt !== undefined && nowTs - reqAt <= ORPHAN_RETRY_MS;
       // A reported failure is terminal (shouldRequestSlide gates it): leave that
       // turn alone until the viewer retries.
-      if (!shouldRequestSlide(cached, inFlight, failedForAgent?.has(turn.entryId)))
+      if (
+        !shouldRequestSlide(cached, inFlight, failedForAgent?.has(turn.entryId))
+      )
         continue;
       requestedRef.current.set(turn.entryId, Date.now());
       ensure(turn.entryId, {});

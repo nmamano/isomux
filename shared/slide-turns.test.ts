@@ -193,17 +193,33 @@ describe("slideContentDigest (cache-validity fingerprint)", () => {
 
   it("distinguishes error text from assistant text", () => {
     expect(
-      slideContentDigest({ promptText: "q", assistantText: "x", errorText: null }),
+      slideContentDigest({
+        promptText: "q",
+        assistantText: "x",
+        errorText: null,
+      }),
     ).not.toBe(
-      slideContentDigest({ promptText: "q", assistantText: "", errorText: "x" }),
+      slideContentDigest({
+        promptText: "q",
+        assistantText: "",
+        errorText: "x",
+      }),
     );
   });
 
   it("changes when the frozen prompt changes (every slide input covered)", () => {
     expect(
-      slideContentDigest({ promptText: "a", assistantText: "same", errorText: null }),
+      slideContentDigest({
+        promptText: "a",
+        assistantText: "same",
+        errorText: null,
+      }),
     ).not.toBe(
-      slideContentDigest({ promptText: "b", assistantText: "same", errorText: null }),
+      slideContentDigest({
+        promptText: "b",
+        assistantText: "same",
+        errorText: null,
+      }),
     );
   });
 
@@ -211,15 +227,27 @@ describe("slideContentDigest (cache-validity fingerprint)", () => {
     // A naive `${prompt} ${answer}` join renders both of these as "a b c" and
     // collides; length-prefixing keeps the boundary unambiguous.
     expect(
-      slideContentDigest({ promptText: "a b", assistantText: "c", errorText: null }),
+      slideContentDigest({
+        promptText: "a b",
+        assistantText: "c",
+        errorText: null,
+      }),
     ).not.toBe(
-      slideContentDigest({ promptText: "a", assistantText: "b c", errorText: null }),
+      slideContentDigest({
+        promptText: "a",
+        assistantText: "b c",
+        errorText: null,
+      }),
     );
   });
 
   it("returns a 16-char (64-bit) hex string", () => {
     expect(
-      slideContentDigest({ promptText: "q", assistantText: "abc", errorText: null }),
+      slideContentDigest({
+        promptText: "q",
+        assistantText: "abc",
+        errorText: null,
+      }),
     ).toMatch(/^[0-9a-f]{16}$/);
   });
 });
