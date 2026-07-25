@@ -913,7 +913,12 @@ function PromptBar({
           color: "var(--text-secondary)",
           fontSize: 14,
           lineHeight: 1.4,
-          maxHeight: 120,
+          // FIXED height, not maxHeight: the stage above is flex:1, so a bar
+          // that grew with the prompt's length would resize the stage and move
+          // the vertically-centred nav arrows on every slide. A constant height
+          // keeps them in one place; longer prompts scroll within the bar.
+          height: 92,
+          boxSizing: "border-box",
           overflowY: "auto",
         }}
         title="The prompt that produced this slide"
@@ -936,6 +941,14 @@ function PromptBar({
         flexShrink: 0,
         borderTop: "1px solid var(--border-light)",
         background: "var(--bg-surface)",
+        // Match the frozen prompt bar's height at rest so the stage — and the
+        // nav arrows centred in it — don't shift when you reach the newest
+        // slide. It still grows as the draft wraps, which is user-driven.
+        minHeight: 92,
+        boxSizing: "border-box",
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
       }}
     >
       {!connected && (
