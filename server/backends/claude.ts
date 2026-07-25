@@ -73,7 +73,6 @@ import {
   effortLevelsFor,
 } from "../../shared/types.ts";
 import type { ModelFamily, EffortLevel } from "../../shared/types.ts";
-import { correctContextWindow } from "../../shared/context-window.ts";
 import { saveFile } from "../persistence.ts";
 import {
   resolveAttachmentNotices,
@@ -341,12 +340,11 @@ export function wrapV1Query(
     },
     async getContextUsage(): Promise<ContextUsage | null> {
       try {
-        const ctx = await q.getContextUsage();
         // The single ingestion point for Claude fullness readings: the per-turn
         // sampler, GET .../context, and /context all reach the SDK through
-        // here, so correcting the window once covers every consumer. See
-        // shared/context-window.ts for why the SDK's number isn't trusted.
-        return correctContextWindow(ctx as ContextUsage);
+        // here. The bundled CLI's numbers pass through untouched -- it reports
+        // the window the session actually gets, which isomux can't derive.
+        return (await q.getContextUsage()) as ContextUsage;
       } catch {
         return null;
       }

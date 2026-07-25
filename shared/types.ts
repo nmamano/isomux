@@ -97,9 +97,10 @@ export type ModelFamily = "opus" | "fable" | "sonnet" | "haiku";
 
 export type ClaudeModel = string;
 
-// Repointing a family at a newer model? Add that id to MODEL_CONTEXT_WINDOW in
-// ./context-window.ts too -- the backend SDK doesn't know models newer than its
-// pin and reports a stale window for them (task c6085ddf). A test enforces it.
+// Repointing a family at a newer model the bundled CLI doesn't know yet? Bump
+// @anthropic-ai/claude-agent-sdk in the same commit, the way c2f0946 and
+// 136fc53 did -- the CLI reports the model's context window, and an
+// unrecognized id makes it fall back to a 200k default (task 89925a7c).
 export const FAMILY_TO_MODEL: Record<ModelFamily, ClaudeModel> = {
   opus: "claude-opus-5",
   fable: "claude-fable-5",
