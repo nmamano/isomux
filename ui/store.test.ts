@@ -195,7 +195,7 @@ describe("reducer: slide failure marks", () => {
       agentId: A,
       sessionId: "",
       entryId,
-      reason: "boom",
+      reason: "generation_failed",
     });
 
   it("records a reported failure per agent + turn", () => {

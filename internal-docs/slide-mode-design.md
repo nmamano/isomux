@@ -119,7 +119,7 @@ Consequences, all deliberate:
 | 3 | Agent needs attention while in deck view | Deck view stays thin: activity indicator + badge; one tap flips to chat view. Deck never re-implements chat machinery. |
 | 4 | Generation trigger | On-demand, view-driven (the core model above). Proactive per-turn generation rejected. |
 | 5 | Storage | Server-side per-conversation sidecar, keyed by turn anchor (see Data model). "Slides are log entries" rejected — on-demand backfill arrives out of order. |
-| 6 | Scrollback eagerness | Generate the focused turn + prefetch its two neighbors; max 3 concurrent generations per agent (the width of that window, so a prefetch never delays the focused slide); dedupe in-flight. No batch "generate whole deck" in v0. |
+| 6 | Scrollback eagerness | Generate the focused turn + prefetch its two neighbors; max 2 concurrent generations per agent; dedupe in-flight. No batch "generate whole deck" in v0. Raising the cap to the window's width was considered and rejected (Reviewer1, 2026-07-25): the server gets no focus/prefetch priority metadata, so a wider cap does not actually keep a prefetch from queueing ahead of the focused slide — it just spends another process per viewed agent. If queue latency proves material, the fix is explicit priority or a narrower prefetch window, backed by queue-wait measurements. |
 | 7 | Toggle scope | Per-device per-agent in `device-settings`. Header-bar button next to the context-fullness battery (27096236). Prerequisite: task efdabed3 frees the header space (Nil does that task first). |
 | 8 | Empty turns (interrupted / failed / tool-only) | 1:1 mapping preserved: they get a **placeholder slide** (showing the error text when the turn failed), with the frozen prompt below. The deck preserves the whole conversation chain. Skipping rejected. |
 | 9 | Past conversations | Work via `/resume` in v0; data model supports future read-only browsing. |
@@ -193,8 +193,9 @@ Notes:
 - WS push: `{type:"slide_ready", agentId, sessionId, entryId, slide}` on
   completion, or `{type:"slide_failed", agentId, sessionId, entryId, reason}`
   when the generation failed (both in the ServerMessage union in
-  `shared/types.ts`). Every request the server accepts resolves with one of
-  these, so the client never has to infer an outcome from elapsed time.
+  `shared/types.ts`; `reason` is a `SlideFailureReason` code). Every request the
+  server accepts resolves with one of these, so the client never has to infer an
+  outcome from elapsed time.
 
 Auth: same boss-session auth as the rest of the agent API; anyone who can
 read the chat can request its slides.
@@ -212,15 +213,18 @@ Follow the topic-gen precedent, not a hardcoded Claude call:
 - User prompt: current turn's `originalText` + full `assistantText` +
   (when cached) the previous turn's slide HTML as a style reference +
   (on regen) the user's feedback line.
-- Concurrency: per-agent queue, max 3 in flight, in-flight dedupe by
-  (sessionId, entryId). The cap matches the deck's prefetch window (focused +
-  2 neighbors) so a prefetch can never queue ahead of the focused slide.
+- Concurrency: per-agent queue, max 2 in flight, in-flight dedupe by
+  (sessionId, entryId).
 - Failure: journal log (`[slide-mode]`), record stays null, and `slide_failed`
   goes out — the client shows its fallback (the response text on a plain
   template) with regenerate available. Reported only when the turn we generated
   from is still the live one and no rerun is queued behind the failed pass: a
   result discarded because the conversation reset or the content forked is not a
   failure, and a request already being retried isn't terminal yet.
+  The wire `reason` is a closed set of codes (`generation_failed`,
+  `invalid_output`) — the underlying error is backend/provider exception text or
+  raw model output, which is neither a stable contract nor something to
+  broadcast to every session in the room. Full detail stays in the journal.
 - Timing (measured 2026-07-25, real turns): 17-30s end to end, ~1s of it process
   startup and the rest the model writing 3-6KB of HTML. Anything the deck shows
   while waiting has to be sized for that, which is why the wait is not timed.

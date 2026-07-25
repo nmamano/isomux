@@ -505,6 +505,18 @@ export interface LogEntry {
 
 // Slide Mode (design: internal-docs/slide-mode-design.md). One rendered slide
 // for one assistant turn, keyed server-side by the turn's user_message entry id.
+// Why a turn has no slide to show. A CLOSED set of codes, deliberately: the
+// underlying errors are backend/provider exception text and raw model output,
+// which are neither a stable contract nor something to broadcast to every
+// session that can see the room. Full detail stays in the server journal.
+//   generation_failed — the formatter call itself failed.
+//   invalid_output    — it answered, but broke the slide contract.
+//   unavailable       — client-local: there is no live turn to render.
+export type SlideFailureReason =
+  | "generation_failed"
+  | "invalid_output"
+  | "unavailable";
+
 // Shared by the sidecar store, the ensure-slide API, and the slide_ready WS push
 // so all three agree on the shape.
 export interface SlideRecord {
@@ -1105,18 +1117,17 @@ export type ServerMessage =
       entryId: string;
       slide: SlideRecord;
     }
-  // Slide Mode: a slide generation FAILED terminally for one turn (the formatter
-  // errored, or returned markup that violates the slide contract). The client's
+  // Slide Mode: a slide generation FAILED terminally for one turn. The client's
   // only authoritative "stop waiting" signal: without it a failure is
   // indistinguishable from a slow generation, and the deck can only guess with a
   // timeout. Same room-ACL scope and matching (agentId + entryId) as
-  // slide_ready. `reason` is a short diagnostic, not viewer-facing copy.
+  // slide_ready.
   | {
       type: "slide_failed";
       agentId: string;
       sessionId: string;
       entryId: string;
-      reason: string;
+      reason: SlideFailureReason;
     }
   | {
       type: "slash_commands";

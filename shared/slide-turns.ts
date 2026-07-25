@@ -176,17 +176,25 @@ export function turnIsTerminal(
 }
 
 // Slide Mode client request gating (pure, so the deck's request lifecycle is
-// testable without a browser). Skip a turn whose cached slide is VERIFIED — it
-// carries a content digest, so it was written by the terminal gate for content
-// that is immutable within the conversation. Otherwise request it (a miss, or a
-// digestless legacy record that must be reconciled) unless a request is already
-// in flight. `inFlight` is the client's in-flight marker, which is cleared on
-// every terminal outcome (ready / unavailable / slide_ready / fetch reject) so a
-// turn CAN be re-requested later; while a request is pending it dedupes.
+// testable without a browser). Skip a turn whose generation the server already
+// reported as FAILED: that outcome is terminal, and re-asking would spend a
+// model call every watchdog window on a turn the formatter just choked on. Skip
+// a turn whose cached slide is VERIFIED — it carries a content digest, so it was
+// written by the terminal gate for content that is immutable within the
+// conversation. Otherwise request it (a miss, or a digestless legacy record that
+// must be reconciled) unless a request is already in flight. `inFlight` is the
+// client's in-flight marker, which is cleared on every terminal outcome (ready /
+// unavailable / slide_ready / fetch reject) so a turn CAN be re-requested later;
+// while a request is pending it dedupes.
+//
+// A failed turn comes back only through an explicit regenerate, which retires
+// the failure mark before it asks.
 export function shouldRequestSlide(
   cached: { contentDigest?: string } | undefined,
   inFlight: boolean,
+  failed = false,
 ): boolean {
+  if (failed) return false;
   if (cached && cached.contentDigest !== undefined) return false;
   return !inFlight;
 }

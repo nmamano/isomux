@@ -559,40 +559,41 @@ describe("createSlideMode.ensureSlide", () => {
     expect(h.deck.get("u1")?.placeholder).toBe(true);
   });
 
-  // The cap is at least the deck's prefetch window (focused + 2 neighbors), so a
-  // prefetch can never sit ahead of the slide the viewer is looking at.
-  it("caps concurrency at 3 per agent", async () => {
+  it("caps concurrency at 2 per agent", async () => {
     const h = harness();
     h.ensureSlide("a1", "u1");
     h.ensureSlide("a1", "u2");
     h.ensureSlide("a1", "u3");
     h.ensureSlide("a1", "u4");
     await flush();
-    expect(h.concurrentPeak()).toBe(3);
-    expect(h.calls).toHaveLength(3); // only 3 running; the rest queued
+    expect(h.concurrentPeak()).toBe(2);
+    expect(h.calls).toHaveLength(2); // only 2 running; others queued
     h.resolveNext("<div>1</div>");
     await flush();
-    expect(h.calls).toHaveLength(4); // a slot freed → the next starts
+    expect(h.calls).toHaveLength(3); // a slot freed → the next starts
   });
 });
 
 // The client cannot tell a failed generation from a slow one, so the server has
 // to say so — that is the whole reason this event exists (task 01a7327a).
 describe("createSlideMode failure reporting", () => {
-  it("reports a formatter error as a failure, with no slide written", async () => {
+  // The reason crossing the wire is a CLOSED code, never the underlying error:
+  // slide_failed reaches every session that can see the room, and backend
+  // exception text / raw model output is neither stable nor ours to broadcast.
+  it("reports a formatter error as generation_failed, with no slide written", async () => {
     const h = harness();
     h.ensureSlide("a1", "u1");
     await flush();
-    h.rejectNext("backend exploded");
+    h.rejectNext("backend exploded: /home/someone/.creds not readable");
     await flush();
     expect(h.deck.get("u1")).toBeUndefined();
     expect(h.ready).toHaveLength(0);
     expect(h.failed).toHaveLength(1);
     expect(h.failed[0].entryId).toBe("u1");
-    expect(h.failed[0].reason).toContain("backend exploded");
+    expect(h.failed[0].reason).toBe("generation_failed");
   });
 
-  it("reports output that violates the slide contract as a failure", async () => {
+  it("reports output that violates the slide contract as invalid_output", async () => {
     const h = harness();
     h.ensureSlide("a1", "u1");
     await flush();
@@ -600,7 +601,8 @@ describe("createSlideMode failure reporting", () => {
     await flush();
     expect(h.deck.get("u1")).toBeUndefined();
     expect(h.failed).toHaveLength(1);
-    expect(h.failed[0].reason).toContain("script");
+    // Not the validator's message, which quotes the model's raw output.
+    expect(h.failed[0].reason).toBe("invalid_output");
   });
 
   it("stays SILENT when the result was discarded, not failed", async () => {
@@ -618,9 +620,10 @@ describe("createSlideMode failure reporting", () => {
   });
 
   it("stays SILENT for a failed pass that has a rerun queued behind it", async () => {
-    // A ↻ arriving mid-generation queues a rerun. Reporting the first pass's
-    // failure would flash the fallback on a slide already being retried; only
-    // the LAST pass's outcome is terminal.
+    // The race Reviewer1 flagged: a ↻ arrives mid-generation and coalesces into
+    // a rerun; then pass A fails and pass B succeeds. Reporting A would flash the
+    // fallback on a slide already being retried — only the LAST pass's outcome is
+    // terminal. Expect: no failure at all, and exactly one slide_ready.
     const h = harness();
     h.ensureSlide("a1", "u1");
     await flush();
@@ -632,7 +635,21 @@ describe("createSlideMode failure reporting", () => {
     h.resolveNext("<div>retry worked</div>");
     await flush();
     expect(h.failed).toHaveLength(0);
+    expect(h.ready).toHaveLength(1);
     expect(h.deck.get("u1")?.html).toBe("<div>retry worked</div>");
+  });
+
+  it("reports the LAST pass's failure when the rerun fails too", async () => {
+    const h = harness();
+    h.ensureSlide("a1", "u1");
+    await flush();
+    h.ensureSlide("a1", "u1", { force: true });
+    h.rejectNext("first pass exploded");
+    await flush();
+    h.rejectNext("rerun exploded too");
+    await flush();
+    expect(h.failed).toHaveLength(1); // once, not once per pass
+    expect(h.failed[0].reason).toBe("generation_failed");
   });
 });
 

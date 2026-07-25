@@ -177,10 +177,6 @@ export function DeckView({
     );
     for (const i of wanted) {
       const turn = turns[i];
-      // A reported failure is terminal: leave it alone until the viewer retries,
-      // so a turn the formatter can't handle doesn't burn a model call every
-      // orphan window forever.
-      if (failedForAgent?.has(turn.entryId)) continue;
       const cached = slidesForAgent?.get(turn.entryId);
       // A cached record carrying a digest is verified (written by the terminal
       // gate for content immutable within the conversation), so it's skipped; a
@@ -194,7 +190,10 @@ export function DeckView({
       // of orphaning the deck forever. A slow-but-live generation just re-asks
       // and the server dedupes into the running one.
       const inFlight = reqAt !== undefined && nowTs - reqAt <= ORPHAN_RETRY_MS;
-      if (!shouldRequestSlide(cached, inFlight)) continue;
+      // A reported failure is terminal (shouldRequestSlide gates it): leave that
+      // turn alone until the viewer retries.
+      if (!shouldRequestSlide(cached, inFlight, failedForAgent?.has(turn.entryId)))
+        continue;
       requestedRef.current.set(turn.entryId, Date.now());
       ensure(turn.entryId, {});
     }
@@ -218,9 +217,9 @@ export function DeckView({
   // lapses. Nothing on screen depends on this clock any more — it only paces
   // retries.
   //
-  // The predicate mirrors the request effect's own condition (a failure mark,
-  // then `shouldRequestSlide(cached, false)` — the field-presence half) so the
-  // two can never drift. Absence alone is NOT enough: a digestless legacy record
+  // The predicate IS the request effect's own condition minus the in-flight
+  // marker (`shouldRequestSlide(cached, false, failed)`), so the two can never
+  // drift. Absence alone is NOT enough: a digestless legacy record
   // is unverifiable and is being reconciled, but unlike a placeholder (which the
   // invalidate path deletes) it stays in the store, so an absence-only test
   // would leave the clock stopped and that record would never retry.
@@ -232,10 +231,12 @@ export function DeckView({
   useEffect(() => {
     const anyPending = [index, index + 1, index - 1]
       .filter((i) => i >= 0 && i < turns.length)
-      .some(
-        (i) =>
-          !failedForAgent?.has(turns[i].entryId) &&
-          shouldRequestSlide(slidesForAgent?.get(turns[i].entryId), false),
+      .some((i) =>
+        shouldRequestSlide(
+          slidesForAgent?.get(turns[i].entryId),
+          false,
+          failedForAgent?.has(turns[i].entryId),
+        ),
       );
     if (!anyPending) return;
     // The interval alone drives the clock — no immediate set, which would be a

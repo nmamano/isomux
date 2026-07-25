@@ -4,6 +4,7 @@ import type {
   LogEntry,
   QueuedMessage,
   SkillInfo,
+  SlideFailureReason,
   SlideRecord,
 } from "../shared/types.ts";
 import type { BackendSession } from "./backends/types.ts";
@@ -257,7 +258,7 @@ export type AgentEvent =
       agentId: string;
       sessionId: string;
       entryId: string;
-      reason: string;
+      reason: SlideFailureReason;
     }
   // `rollback: true` marks a clear that RESTORES a prior visible timeline
   // (failed edit-fork rollback) rather than establishing a new conversation

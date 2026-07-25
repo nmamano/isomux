@@ -44,6 +44,7 @@ import type {
   InviteWire,
   SessionWire,
   SkillInfo,
+  SlideFailureReason,
   SlideRecord,
   UpdateStatusWire,
 } from "../../shared/types.ts";
@@ -125,7 +126,7 @@ export interface EventPayloads {
     agentId: string;
     sessionId: string;
     entryId: string;
-    reason: string;
+    reason: SlideFailureReason;
   };
   // rollback marks a restore-of-prior-timeline clear (failed edit-fork
   // rollback), not a conversation boundary; clients keep the unread dot.

@@ -17,6 +17,7 @@ import type {
   SessionInfo,
   ServerMessage,
   SkillInfo,
+  SlideFailureReason,
   SlideRecord,
   TaskItem,
   OfficeSettings,
@@ -201,7 +202,7 @@ type Action =
       agentId: string;
       sessionId: string;
       entryId: string;
-      reason: string;
+      reason: SlideFailureReason;
     }
   // CLIENT-LOCAL: DeckView dispatches this when it (re)requests a slide, to drop
   // an earlier failure mark so the retry shows the spinner instead of the stale

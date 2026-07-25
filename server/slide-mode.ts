@@ -15,7 +15,7 @@
 // SlideModeDeps.
 
 import { errMessage } from "../shared/errors.ts";
-import type { SlideRecord } from "../shared/types.ts";
+import type { SlideFailureReason, SlideRecord } from "../shared/types.ts";
 import { slideContentDigest, type DeckTurn } from "../shared/slide-turns.ts";
 
 // ---------------------------------------------------------------------------
@@ -308,7 +308,7 @@ export interface SlideModeDeps {
     agentId: string,
     rootSessionId: string,
     entryId: string,
-    reason: string,
+    reason: SlideFailureReason,
   ) => void;
   // Injectable clock (Date.now in production) so tests stay deterministic.
   now?: () => number;
@@ -319,13 +319,7 @@ export type EnsureResult =
   | { status: "pending" }
   | { status: "unavailable" };
 
-// Per-agent generation slots. At least as wide as the deck's prefetch window
-// (the focused slide plus its two neighbors): with a narrower cap, a neighbor
-// prefetch started earlier can hold both slots and delay the slide the viewer is
-// actually looking at by a whole generation (~20s), which is the one wait we
-// control. Generations are short-lived one-shot processes, and the cost model is
-// view-driven — in practice one deck is open at a time.
-const MAX_CONCURRENT = 3;
+const MAX_CONCURRENT = 2;
 
 export function createSlideMode(deps: SlideModeDeps) {
   const now = deps.now ?? (() => Date.now());
@@ -432,7 +426,7 @@ export function createSlideMode(deps: SlideModeDeps) {
     deps.onSlideReady(agentId, job.rootSessionId, entryId, rec);
   }
 
-  // Run one generation pass. Returns null on success, or the failure reason when
+  // Run one generation pass. Returns null on success, or the failure code when
   // the pass ended terminally badly (the formatter threw, or its output violated
   // the slide contract). The CALLER decides whether to report it — see drive.
   async function runGeneration(
@@ -440,7 +434,7 @@ export function createSlideMode(deps: SlideModeDeps) {
     agentId: string,
     entryId: string,
     feedback: string | null,
-  ): Promise<string | null> {
+  ): Promise<SlideFailureReason | null> {
     // Empty / interrupted / tool-only turns get a placeholder record with no
     // LLM call — the deck still shows a position, mirroring the chat 1:1.
     if (job.turn.placeholder) {
@@ -452,6 +446,10 @@ export function createSlideMode(deps: SlideModeDeps) {
       return null;
     }
     await acquire(agentId);
+    // Which half of the pass we are in, so the catch can classify without
+    // inspecting the error: everything up to and including the backend call is
+    // the generation, everything after is the contract check.
+    let stage: SlideFailureReason = "generation_failed";
     try {
       const backend = deps.resolveBackend(job.agentType);
       const prompt = buildFormatterPrompt(
@@ -464,6 +462,7 @@ export function createSlideMode(deps: SlideModeDeps) {
         modelFamily: job.modelFamily,
         systemPrompt: SLIDE_SYSTEM_PROMPT,
       });
+      stage = "invalid_output";
       const html = extractSlideHtml(raw);
       commit(agentId, entryId, job, {
         html,
@@ -472,15 +471,16 @@ export function createSlideMode(deps: SlideModeDeps) {
       });
       return null;
     } catch (err) {
-      // Journal it and hand the reason back. No record is written; the client
-      // learns about it from the slide_failed push and shows the raw-answer
-      // fallback with regenerate (design § Failure).
-      const reason = errMessage(err);
+      // The DETAIL is journalled and goes no further: it is backend/provider
+      // exception text, or an excerpt of raw model output, and slide_failed
+      // reaches every session that can see the room. What crosses the wire is
+      // the classification only. No record is written; the client learns from
+      // the push and shows the raw-answer fallback (design § Failure).
       console.error(
-        `[slide-mode] formatter failed for ${agentId} turn ${entryId}:`,
-        reason,
+        `[slide-mode] formatter failed (${stage}) for ${agentId} turn ${entryId}:`,
+        errMessage(err),
       );
-      return reason;
+      return stage;
     } finally {
       release(agentId);
     }

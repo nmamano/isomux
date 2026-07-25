@@ -141,10 +141,31 @@ describe("shouldRequestSlide (client request gating)", () => {
   });
 
   it("can be re-requested after a terminal outcome clears the in-flight marker", () => {
-    // unavailable / fetch-reject clears the marker with no cache -> requestable
-    // again; a ready/slide_ready that landed a digested slide -> skipped.
+    // A fetch rejection clears the marker with no cache -> requestable again (a
+    // transport blip is not a verdict on the slide); a ready/slide_ready that
+    // landed a digested slide -> skipped.
     expect(shouldRequestSlide(undefined, false)).toBe(true);
     expect(shouldRequestSlide(digested, false)).toBe(false);
+  });
+
+  // A REPORTED failure is terminal — the one outcome that stops the watchdog
+  // (task 01a7327a). Without this, the 120s orphan retry would spend a model
+  // call every two minutes on a turn the formatter just choked on.
+  it("never re-requests a turn whose generation was reported failed", () => {
+    expect(shouldRequestSlide(undefined, false, true)).toBe(false);
+    expect(shouldRequestSlide(digestless, false, true)).toBe(false);
+  });
+
+  it("requests again once an explicit retry retires the failure mark", () => {
+    // regen dispatches slide_retry before it POSTs, so by the time the request
+    // effect runs the mark is gone and the turn is eligible again.
+    expect(shouldRequestSlide(undefined, false, false)).toBe(true);
+  });
+
+  it("keeps the clock stopped for a failed turn (same predicate, no drift)", () => {
+    // DeckView's tick effect is this predicate with inFlight=false. A failed
+    // turn has nothing left to wait for, so the interval must not run for it.
+    expect(shouldRequestSlide(undefined, false, true)).toBe(false);
   });
 });
 

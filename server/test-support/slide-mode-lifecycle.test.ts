@@ -60,15 +60,21 @@ function wireClaudeHome(): string {
 
 // Build a manager wired to a FakeBackend, spawn one agent, and capture events +
 // the prompts the slide formatter (oneShotPrompt) was called with.
-async function setup(session: FakeSessionConfig) {
+async function setup(
+  session: FakeSessionConfig,
+  // What the FORMATTER returns (or throws). Topic generation, which shares
+  // oneShotPrompt, always gets the plain fake reply.
+  formatter: () => string = () => SLIDE_HTML,
+) {
   // Record ONLY slide-formatter calls. Topic generation shares oneShotPrompt on
   // the same backend, so counting its prompt here would make "generated exactly
   // once" assertions meaningless; the system prompt tells the two apart.
   const prompts: string[] = [];
   const fake = new FakeBackend({
     oneShot: (prompt: string, opts: { systemPrompt?: string }) => {
-      if (opts.systemPrompt === SLIDE_SYSTEM_PROMPT) prompts.push(prompt);
-      return SLIDE_HTML;
+      if (opts.systemPrompt !== SLIDE_SYSTEM_PROMPT) return SLIDE_HTML;
+      prompts.push(prompt);
+      return formatter();
     },
     session,
   });
@@ -107,7 +113,22 @@ async function setup(session: FakeSessionConfig) {
           slide: { html: string | null; placeholder: boolean };
         }
       | undefined;
-  return { mgr, fake, events, prompts, agentId, userMsgIds, slideReadyFor };
+  const slideFailedFor = (entryId: string) =>
+    events.find(
+      (e) =>
+        e.type === "slide_failed" &&
+        (e as { entryId: string }).entryId === entryId,
+    ) as { sessionId: string; reason: string } | undefined;
+  return {
+    mgr,
+    fake,
+    events,
+    prompts,
+    agentId,
+    userMsgIds,
+    slideReadyFor,
+    slideFailedFor,
+  };
 }
 
 describe("Slide Mode lifecycle (DI integration)", () => {
@@ -149,6 +170,38 @@ describe("Slide Mode lifecycle (DI integration)", () => {
     await waitUntil(() => h.userMsgIds().length >= 2);
     const anchors = h.userMsgIds();
     expect(anchors[1]).not.toBe(anchors[0]);
+  });
+
+  it("FAILURE: a formatter that throws reaches the wire as slide_failed, not silence", async () => {
+    // The deck cannot tell a failed generation from a slow one, so this event is
+    // the whole contract (task 01a7327a). Proves it survives the manager wiring,
+    // and that the room-visible reason is the stable code rather than the
+    // backend's exception text.
+    const h = await setup(
+      { onSend: (_t, _a, s) => s.completeTurn({ text: "An answer." }) },
+      () => {
+        throw new Error("backend exploded: /home/someone/.creds not readable");
+      },
+    );
+    h.mgr.enqueueMessage(h.agentId, {
+      sender: { kind: "user", username: "tester" },
+      text: "hello",
+    });
+    await waitUntil(() => h.userMsgIds().length >= 1);
+    const anchor = h.userMsgIds()[0];
+    await waitUntil(() =>
+      h.events.some(
+        (e) =>
+          e.type === "log_entry" &&
+          (e as { entry: { kind: string } }).entry.kind === "text",
+      ),
+    );
+
+    expect(h.mgr.ensureSlide(h.agentId, anchor).status).toBe("pending");
+    await waitUntil(() => !!h.slideFailedFor(anchor));
+    expect(h.slideFailedFor(anchor)?.reason).toBe("generation_failed");
+    expect(h.slideFailedFor(anchor)?.reason).not.toContain("creds");
+    expect(h.slideReadyFor(anchor)).toBeUndefined(); // no record written
   });
 
   it("MODEL SWAP: a conversation-continuing model change keeps the same slide identity", async () => {
