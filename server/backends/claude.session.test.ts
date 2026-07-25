@@ -200,6 +200,10 @@ function fakeCallOpts(
 ): Parameters<CanUseTool>[2] {
   return {
     toolUseID,
+    // Required since SDK 0.3.219: the control_request envelope's request_id.
+    // Derived from toolUseID so the fixture stays deterministic and each
+    // approval in a test gets a distinct value.
+    requestId: `req-${toolUseID}`,
     signal: extras.signal ?? new AbortController().signal,
     suggestions: extras.suggestions,
     title: extras.title,

@@ -282,7 +282,11 @@ export function makePushableInput<T>(): PushableInput<T> {
 // Anything that satisfies our use of V1's `Query` interface. Lets tests stub
 // `query()` without depending on the full SDK shape.
 export interface V1QueryLike extends AsyncIterable<SDKMessage> {
-  interrupt(): Promise<void>;
+  // Return type deliberately loose, like getContextUsage below: SDK 0.3.219
+  // widened this to resolve with an interrupt receipt (`still_queued` message
+  // uuids) instead of void. We ignore the value, so decoupling from the SDK's
+  // exact shape keeps the next widening from breaking the build.
+  interrupt(): Promise<unknown>;
   getContextUsage(): Promise<unknown>;
 }
 
