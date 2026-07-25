@@ -189,6 +189,15 @@ describe("reducer: slide failure marks", () => {
     createdAt: 1,
     contentDigest: "abcd",
   });
+  // A stale record being reconciled — the invalidate path deletes these.
+  const placeholderRec: SlideRecord = {
+    html: null,
+    placeholder: true,
+    errorText: null,
+    promptText: "q",
+    model: "sonnet",
+    createdAt: 1,
+  };
   const fail = (state = initialState, entryId = "u1") =>
     reducer(state, {
       type: "slide_failed",
@@ -227,7 +236,7 @@ describe("reducer: slide failure marks", () => {
     expect(after.slideFailed.get(A)?.has("u2")).toBe(true);
   });
 
-  it("IGNORES a failure for a turn that already has a slide", () => {
+  it("IGNORES a failure for a turn that already has a RENDERED slide", () => {
     // A regenerate that failed: the standing slide beats the raw answer.
     const seeded = reducer(initialState, {
       type: "slide_ready",
@@ -239,6 +248,34 @@ describe("reducer: slide failure marks", () => {
     const after = fail(seeded);
     expect(after).toBe(seeded);
     expect(after.slideFailed.get(A)?.has("u1")).toBeFalsy();
+  });
+
+  it("RECORDS a failure that arrives while a placeholder is still in state", () => {
+    // WS-before-HTTP (the ordering slide_invalidate already guards against): the
+    // generation fails fast, so slide_failed lands while the stale placeholder is
+    // still there, and only then does the pending ensure response invalidate it.
+    // Treating a placeholder like a standing slide would drop the failure on the
+    // floor, and the turn would spin and re-fail every watchdog window.
+    const seeded = reducer(initialState, {
+      type: "slide_ready",
+      agentId: A,
+      sessionId: "",
+      entryId: "u1",
+      slide: placeholderRec,
+    });
+    const failedFirst = fail(seeded);
+    expect(failedFirst.slideFailed.get(A)?.has("u1")).toBe(true);
+    // The placeholder still owns the screen while it is there…
+    expect(failedFirst.slides.get(A)?.get("u1")).toBe(placeholderRec);
+    // …and once the pending response drops it, the mark is what's left.
+    const after = reducer(failedFirst, {
+      type: "slide_invalidate",
+      agentId: A,
+      entryId: "u1",
+      prevSlide: placeholderRec,
+    });
+    expect(after.slides.get(A)?.has("u1")).toBe(false);
+    expect(after.slideFailed.get(A)?.has("u1")).toBe(true);
   });
 
   it("clears the mark on an explicit retry", () => {

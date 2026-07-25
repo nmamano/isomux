@@ -518,10 +518,17 @@ export function reducer(state: AppState, action: Action): AppState {
       };
     }
     case "slide_failed": {
-      // A turn that already HAS a slide keeps it: this is a regenerate that
-      // failed, and the standing slide is a better answer than the raw text.
-      // Keeps the invariant the deck reads — a marked turn has nothing to show.
-      if (state.slides.get(action.agentId)?.has(action.entryId)) return state;
+      // A turn that already has a RENDERED slide keeps it: this is a regenerate
+      // that failed, and the standing slide is a better answer than the raw text.
+      //
+      // A PLACEHOLDER record is not that. It is a stale record being reconciled,
+      // and the pending ensure response deletes it (slide_invalidate) — so
+      // dropping the failure here would lose it: WS can beat HTTP, and then the
+      // invalidate leaves the turn with neither a slide nor a mark, spinning and
+      // re-failing every watchdog window. Record it; the placeholder still wins
+      // on screen while it is there, and the mark takes over when it goes.
+      const existing = state.slides.get(action.agentId)?.get(action.entryId);
+      if (existing && !existing.placeholder) return state;
       const slideFailed = new Map(state.slideFailed);
       const forAgent = new Set(slideFailed.get(action.agentId) ?? []);
       forAgent.add(action.entryId);
