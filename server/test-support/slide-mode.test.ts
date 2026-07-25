@@ -41,8 +41,10 @@ interface Harness {
   onTurnSettled: ReturnType<typeof createSlideMode>["onTurnSettled"];
   deck: Map<string, SlideRecord>;
   ready: Array<{ entryId: string; slide: SlideRecord }>;
+  failed: Array<{ entryId: string; reason: string }>;
   calls: string[]; // prompts passed to the backend, in order
   resolveNext: (html: string) => void;
+  rejectNext: (message: string) => void;
   concurrentPeak: () => number;
   // null models an agent with NO current conversation (post-/clear), where
   // getRootSessionId returns null.
@@ -54,11 +56,15 @@ interface Harness {
 function harness(): Harness {
   const deck = new Map<string, SlideRecord>();
   const ready: Array<{ entryId: string; slide: SlideRecord }> = [];
+  const failed: Array<{ entryId: string; reason: string }> = [];
   const calls: string[] = [];
   let currentRoot: string | null = "root1";
   let concurrent = 0;
   let peak = 0;
-  const pending: Array<{ resolve: (v: string) => void }> = [];
+  const pending: Array<{
+    resolve: (v: string) => void;
+    reject: (e: unknown) => void;
+  }> = [];
   const jobs = new Map<string, SlideJobContext | null>();
   // Per-turn terminal flag (default true — most tests deal with settled turns).
   const terminalById = new Map<string, boolean>();
@@ -89,6 +95,10 @@ function harness(): Harness {
             concurrent -= 1;
             d.resolve(html);
           },
+          reject: (e: unknown) => {
+            concurrent -= 1;
+            d.reject(e);
+          },
         });
         return d.promise;
       },
@@ -108,6 +118,8 @@ function harness(): Harness {
     writeSlide: (_a, _root, entryId, rec) => deck.set(entryId, rec),
     onSlideReady: (_a, _root, entryId, rec) =>
       ready.push({ entryId, slide: rec }),
+    onSlideFailed: (_a, _root, entryId, reason) =>
+      failed.push({ entryId, reason }),
     now: () => 1000,
   });
 
@@ -116,8 +128,10 @@ function harness(): Harness {
     onTurnSettled: slideMode.onTurnSettled,
     deck,
     ready,
+    failed,
     calls,
     resolveNext: (html) => pending.shift()?.resolve(html),
+    rejectNext: (message) => pending.shift()?.reject(new Error(message)),
     concurrentPeak: () => peak,
     setRoot: (root) => {
       currentRoot = root;
@@ -545,18 +559,80 @@ describe("createSlideMode.ensureSlide", () => {
     expect(h.deck.get("u1")?.placeholder).toBe(true);
   });
 
-  it("caps concurrency at 2 per agent", async () => {
+  // The cap is at least the deck's prefetch window (focused + 2 neighbors), so a
+  // prefetch can never sit ahead of the slide the viewer is looking at.
+  it("caps concurrency at 3 per agent", async () => {
     const h = harness();
     h.ensureSlide("a1", "u1");
     h.ensureSlide("a1", "u2");
     h.ensureSlide("a1", "u3");
     h.ensureSlide("a1", "u4");
     await flush();
-    expect(h.concurrentPeak()).toBe(2);
-    expect(h.calls).toHaveLength(2); // only 2 running; others queued
+    expect(h.concurrentPeak()).toBe(3);
+    expect(h.calls).toHaveLength(3); // only 3 running; the rest queued
     h.resolveNext("<div>1</div>");
     await flush();
-    expect(h.calls).toHaveLength(3); // a slot freed → the next starts
+    expect(h.calls).toHaveLength(4); // a slot freed → the next starts
+  });
+});
+
+// The client cannot tell a failed generation from a slow one, so the server has
+// to say so — that is the whole reason this event exists (task 01a7327a).
+describe("createSlideMode failure reporting", () => {
+  it("reports a formatter error as a failure, with no slide written", async () => {
+    const h = harness();
+    h.ensureSlide("a1", "u1");
+    await flush();
+    h.rejectNext("backend exploded");
+    await flush();
+    expect(h.deck.get("u1")).toBeUndefined();
+    expect(h.ready).toHaveLength(0);
+    expect(h.failed).toHaveLength(1);
+    expect(h.failed[0].entryId).toBe("u1");
+    expect(h.failed[0].reason).toContain("backend exploded");
+  });
+
+  it("reports output that violates the slide contract as a failure", async () => {
+    const h = harness();
+    h.ensureSlide("a1", "u1");
+    await flush();
+    h.resolveNext("<div><script>alert(1)</script></div>");
+    await flush();
+    expect(h.deck.get("u1")).toBeUndefined();
+    expect(h.failed).toHaveLength(1);
+    expect(h.failed[0].reason).toContain("script");
+  });
+
+  it("stays SILENT when the result was discarded, not failed", async () => {
+    // /clear during generation: the write is dropped by the identity guard, and
+    // the turn's deck position is gone too — so there is nothing to report a
+    // failure about. Announcing one would show a fallback for a turn that no
+    // longer exists.
+    const h = harness();
+    h.ensureSlide("a1", "u1");
+    await flush();
+    h.setRoot(null);
+    h.rejectNext("backend exploded");
+    await flush();
+    expect(h.failed).toHaveLength(0);
+  });
+
+  it("stays SILENT for a failed pass that has a rerun queued behind it", async () => {
+    // A ↻ arriving mid-generation queues a rerun. Reporting the first pass's
+    // failure would flash the fallback on a slide already being retried; only
+    // the LAST pass's outcome is terminal.
+    const h = harness();
+    h.ensureSlide("a1", "u1");
+    await flush();
+    h.ensureSlide("a1", "u1", { force: true }); // coalesced rerun
+    h.rejectNext("first pass exploded");
+    await flush();
+    expect(h.failed).toHaveLength(0);
+    expect(h.calls).toHaveLength(2); // the rerun ran
+    h.resolveNext("<div>retry worked</div>");
+    await flush();
+    expect(h.failed).toHaveLength(0);
+    expect(h.deck.get("u1")?.html).toBe("<div>retry worked</div>");
   });
 });
 

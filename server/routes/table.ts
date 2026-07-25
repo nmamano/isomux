@@ -505,7 +505,9 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "POST",
     path: "/api/agents/:id/slides/:entryId",
     auth: cap("office:read", agentParam("id")),
-    emits: ["slide_ready"], // async: fired when generation completes, not inline
+    // async: fired when generation resolves, not inline — ready on success,
+    // failed when the formatter errors or breaks the slide contract.
+    emits: ["slide_ready", "slide_failed"],
   }),
 
   // --- Agents — editor (browser) --------------------------------------------

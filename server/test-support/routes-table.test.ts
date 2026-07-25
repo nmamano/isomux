@@ -243,10 +243,13 @@ const SPEC_ROUTE_CONTRACT: Record<
   "agents.terminalCommand": { caps: ["self:affordance"], emits: ["log_entry"] },
   "agents.previewUrl": { caps: ["self:affordance"], emits: ["log_entry"] },
   "agents.contextUsage": { caps: ["self:affordance"], emits: [] },
-  // Agents — Slide Mode (boss-session read surface; generation fires slide_ready
-  // asynchronously on completion, not inline).
+  // Agents — Slide Mode (boss-session read surface; generation fires
+  // slide_ready / slide_failed asynchronously on completion, not inline).
   "agents.getSlides": { caps: ["office:read"], emits: [] },
-  "agents.ensureSlide": { caps: ["office:read"], emits: ["slide_ready"] },
+  "agents.ensureSlide": {
+    caps: ["office:read"],
+    emits: ["slide_ready", "slide_failed"],
+  },
   // Agents — editor
   "agents.openFile": {
     caps: ["editor:use"],

@@ -175,3 +175,90 @@ describe("reducer: slide_invalidate (compare-and-delete)", () => {
     expect(after.slides.get(A)?.get("u1")).toBe(fresh); // fresh survives
   });
 });
+
+// The failure set is what the deck renders its raw-answer fallback from, so what
+// puts an entry in and what takes it out is the whole contract (task 01a7327a).
+describe("reducer: slide failure marks", () => {
+  const A = "agent-1";
+  const rec = (html: string): SlideRecord => ({
+    html,
+    placeholder: false,
+    errorText: null,
+    promptText: "q",
+    model: "sonnet",
+    createdAt: 1,
+    contentDigest: "abcd",
+  });
+  const fail = (state = initialState, entryId = "u1") =>
+    reducer(state, {
+      type: "slide_failed",
+      agentId: A,
+      sessionId: "",
+      entryId,
+      reason: "boom",
+    });
+
+  it("records a reported failure per agent + turn", () => {
+    const after = fail();
+    expect(after.slideFailed.get(A)?.has("u1")).toBe(true);
+    expect(after.slideFailed.get("agent-2")).toBeUndefined();
+  });
+
+  it("clears the mark when a slide finally lands for that turn", () => {
+    const after = reducer(fail(), {
+      type: "slide_ready",
+      agentId: A,
+      sessionId: "",
+      entryId: "u1",
+      slide: rec("<div>ok</div>"),
+    });
+    expect(after.slideFailed.get(A)?.has("u1")).toBe(false);
+    expect(after.slides.get(A)?.get("u1")?.html).toBe("<div>ok</div>");
+  });
+
+  it("leaves OTHER turns' marks alone when one slide lands", () => {
+    const after = reducer(fail(fail(), "u2"), {
+      type: "slide_ready",
+      agentId: A,
+      sessionId: "",
+      entryId: "u1",
+      slide: rec("<div>ok</div>"),
+    });
+    expect(after.slideFailed.get(A)?.has("u2")).toBe(true);
+  });
+
+  it("clears the mark on an explicit retry", () => {
+    const after = reducer(fail(), {
+      type: "slide_retry",
+      agentId: A,
+      entryId: "u1",
+    });
+    expect(after.slideFailed.get(A)?.has("u1")).toBe(false);
+  });
+
+  it("returns the SAME map when there is nothing to clear", () => {
+    // A slide_ready for an unrelated turn must not hand every deck consumer a
+    // new map to re-render on.
+    const seeded = fail();
+    const after = reducer(seeded, {
+      type: "slide_retry",
+      agentId: A,
+      entryId: "u9",
+    });
+    expect(after.slideFailed).toBe(seeded.slideFailed);
+  });
+
+  it("drops the agent's marks on a conversation boundary", () => {
+    const after = reducer(fail(), { type: "clear_logs", agentId: A });
+    expect(after.slideFailed.get(A)).toBeUndefined();
+  });
+
+  it("KEEPS the marks on a rollback clear (not a new conversation)", () => {
+    const after = reducer(fail(), {
+      type: "clear_logs",
+      agentId: A,
+      rollback: true,
+    });
+    expect(after.slideFailed.get(A)?.has("u1")).toBe(true);
+  });
+});

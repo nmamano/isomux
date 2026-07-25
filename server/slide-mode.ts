@@ -297,6 +297,19 @@ export interface SlideModeDeps {
     entryId: string,
     rec: SlideRecord,
   ) => void;
+  // A generation ended in a TERMINAL failure for a turn that is still the live
+  // one: the formatter threw, or its output violated the slide contract. The
+  // client can't infer this — a failure and a slow generation look identical on
+  // the wire — so this is what lets the deck stop waiting without a timeout.
+  // Not called when the result was merely DISCARDED (the conversation reset, or
+  // the turn's content moved on): that isn't a failure, and a fresh request will
+  // follow.
+  onSlideFailed: (
+    agentId: string,
+    rootSessionId: string,
+    entryId: string,
+    reason: string,
+  ) => void;
   // Injectable clock (Date.now in production) so tests stay deterministic.
   now?: () => number;
 }
@@ -306,7 +319,13 @@ export type EnsureResult =
   | { status: "pending" }
   | { status: "unavailable" };
 
-const MAX_CONCURRENT = 2;
+// Per-agent generation slots. At least as wide as the deck's prefetch window
+// (the focused slide plus its two neighbors): with a narrower cap, a neighbor
+// prefetch started earlier can hold both slots and delay the slide the viewer is
+// actually looking at by a whole generation (~20s), which is the one wait we
+// control. Generations are short-lived one-shot processes, and the cost model is
+// view-driven — in practice one deck is open at a time.
+const MAX_CONCURRENT = 3;
 
 export function createSlideMode(deps: SlideModeDeps) {
   const now = deps.now ?? (() => Date.now());
@@ -364,6 +383,28 @@ export function createSlideMode(deps: SlideModeDeps) {
     else active.set(agentId, n - 1);
   }
 
+  // Is the turn we generated from STILL the live one? Re-resolves the
+  // authoritative turn at the outcome boundary: the conversation must not have
+  // moved on, and the turn must still be TERMINAL and still carry the content we
+  // generated from — asserting the core invariant (no write for a non-terminal
+  // turn) and guarding the window where content changed while generation ran (a
+  // fork). Both outcomes hang off this: a mismatched SUCCESS is discarded (the
+  // next view reconciles via the digest), and a mismatched FAILURE is not
+  // reported to the client, because a discarded result isn't a failed slide.
+  function stillTheLiveTurn(
+    agentId: string,
+    entryId: string,
+    job: SlideJobContext,
+  ): boolean {
+    if (!deps.isCurrent(agentId, job.rootSessionId)) return false;
+    const live = deps.resolveJob(agentId, entryId);
+    return (
+      !!live &&
+      live.terminal &&
+      slideContentDigest(live.turn) === slideContentDigest(job.turn)
+    );
+  }
+
   // Write + broadcast, but only if the conversation hasn't moved on.
   function commit(
     agentId: string,
@@ -375,20 +416,7 @@ export function createSlideMode(deps: SlideModeDeps) {
       errorText: string | null;
     },
   ): void {
-    if (!deps.isCurrent(agentId, job.rootSessionId)) return;
-    // Re-resolve the authoritative turn at the write boundary and persist only
-    // if it is still TERMINAL and still matches the content we generated from —
-    // asserting the core invariant (no write for a non-terminal turn) and
-    // guarding the window where content changed while generation ran (a fork).
-    // A mismatch is discarded; the next view reconciles via the digest.
-    const live = deps.resolveJob(agentId, entryId);
-    if (
-      !live ||
-      !live.terminal ||
-      slideContentDigest(live.turn) !== slideContentDigest(job.turn)
-    ) {
-      return;
-    }
+    if (!stillTheLiveTurn(agentId, entryId, job)) return;
     const rec: SlideRecord = {
       html: partial.html,
       placeholder: partial.placeholder,
@@ -404,12 +432,15 @@ export function createSlideMode(deps: SlideModeDeps) {
     deps.onSlideReady(agentId, job.rootSessionId, entryId, rec);
   }
 
+  // Run one generation pass. Returns null on success, or the failure reason when
+  // the pass ended terminally badly (the formatter threw, or its output violated
+  // the slide contract). The CALLER decides whether to report it — see drive.
   async function runGeneration(
     job: SlideJobContext,
     agentId: string,
     entryId: string,
     feedback: string | null,
-  ): Promise<void> {
+  ): Promise<string | null> {
     // Empty / interrupted / tool-only turns get a placeholder record with no
     // LLM call — the deck still shows a position, mirroring the chat 1:1.
     if (job.turn.placeholder) {
@@ -418,7 +449,7 @@ export function createSlideMode(deps: SlideModeDeps) {
         placeholder: true,
         errorText: job.turn.errorText,
       });
-      return;
+      return null;
     }
     await acquire(agentId);
     try {
@@ -439,13 +470,17 @@ export function createSlideMode(deps: SlideModeDeps) {
         placeholder: false,
         errorText: null,
       });
+      return null;
     } catch (err) {
-      // Journal only; the record stays null and the client renders its own
-      // fallback after a timeout, with regenerate available (design § Failure).
+      // Journal it and hand the reason back. No record is written; the client
+      // learns about it from the slide_failed push and shows the raw-answer
+      // fallback with regenerate (design § Failure).
+      const reason = errMessage(err);
       console.error(
         `[slide-mode] formatter failed for ${agentId} turn ${entryId}:`,
-        errMessage(err),
+        reason,
       );
+      return reason;
     } finally {
       release(agentId);
     }
@@ -454,6 +489,10 @@ export function createSlideMode(deps: SlideModeDeps) {
   // Drive one turn's generation, then honor any force-regen that arrived while
   // it ran (latest feedback wins). Serial per key, so there is never more than
   // one writer for a (agent, conversation, turn) at a time.
+  //
+  // Failure is reported once, for the LAST pass only: a failed pass with a
+  // rerun already queued behind it isn't terminal — announcing it would flash
+  // the fallback on a slide that is about to be retried anyway.
   async function drive(
     job: SlideJobContext,
     agentId: string,
@@ -463,10 +502,15 @@ export function createSlideMode(deps: SlideModeDeps) {
     entry: { rerun: boolean; feedback: string | null },
   ): Promise<void> {
     try {
-      await runGeneration(job, agentId, entryId, firstFeedback);
+      let reason = await runGeneration(job, agentId, entryId, firstFeedback);
       while (entry.rerun) {
         entry.rerun = false;
-        await runGeneration(job, agentId, entryId, entry.feedback);
+        reason = await runGeneration(job, agentId, entryId, entry.feedback);
+      }
+      // Only for a turn that is still the live one — a result discarded because
+      // the conversation reset or the content forked is not a failed slide.
+      if (reason !== null && stillTheLiveTurn(agentId, entryId, job)) {
+        deps.onSlideFailed(agentId, job.rootSessionId, entryId, reason);
       }
     } finally {
       inFlight.delete(key);

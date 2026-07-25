@@ -63,6 +63,11 @@ export interface AppState {
   // slides GET on deck open, updated live by `slide_ready` pushes, cleared for
   // an agent on a conversation-boundary clear_logs. See DeckView.
   slides: Map<string, Map<string, SlideRecord>>;
+  // Slide Mode: agentId → turn entryIds whose generation FAILED terminally. The
+  // deck renders its raw-answer fallback for exactly these, so what the viewer
+  // sees is a reported server outcome rather than a guess from elapsed time. An
+  // entry leaves the set when a slide lands for it or the viewer retries.
+  slideFailed: Map<string, Set<string>>;
   focusedAgentId: string | null;
   connected: boolean;
   isMobile: boolean;
@@ -189,6 +194,19 @@ type Action =
       entryId: string;
       slide: SlideRecord;
     }
+  // Slide Mode: a slide generation failed terminally (WS push). The deck stops
+  // waiting on it — this is the signal that a pending slide is never coming.
+  | {
+      type: "slide_failed";
+      agentId: string;
+      sessionId: string;
+      entryId: string;
+      reason: string;
+    }
+  // CLIENT-LOCAL: DeckView dispatches this when it (re)requests a slide, to drop
+  // an earlier failure mark so the retry shows the spinner instead of the stale
+  // fallback. Also covers the ↻ control.
+  | { type: "slide_retry"; agentId: string; entryId: string }
   // CLIENT-LOCAL: DeckView dispatches this after the slides GET to seed the
   // per-agent slide map from cached slides.
   | {
@@ -293,6 +311,23 @@ type Action =
 
 // States that warrant attention
 const ATTENTION_STATES = new Set(["idle", "error", "waiting_for_response"]);
+
+// Slide Mode: drop one turn's failure mark, returning the map unchanged when
+// there was nothing to clear (so an unrelated slide_ready doesn't rerender every
+// deck consumer).
+function withoutFailure(
+  slideFailed: Map<string, Set<string>>,
+  agentId: string,
+  entryId: string,
+): Map<string, Set<string>> {
+  const forAgent = slideFailed.get(agentId);
+  if (!forAgent?.has(entryId)) return slideFailed;
+  const next = new Map(slideFailed);
+  const updated = new Set(forAgent);
+  updated.delete(entryId);
+  next.set(agentId, updated);
+  return next;
+}
 
 export function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
@@ -469,7 +504,34 @@ export function reducer(state: AppState, action: Action): AppState {
       const forAgent = new Map(slides.get(action.agentId) ?? []);
       forAgent.set(action.entryId, action.slide);
       slides.set(action.agentId, forAgent);
-      return { ...state, slides };
+      // A slide landing supersedes any earlier failure for that turn (a retry
+      // succeeded), so the deck stops showing the fallback.
+      return {
+        ...state,
+        slides,
+        slideFailed: withoutFailure(
+          state.slideFailed,
+          action.agentId,
+          action.entryId,
+        ),
+      };
+    }
+    case "slide_failed": {
+      const slideFailed = new Map(state.slideFailed);
+      const forAgent = new Set(slideFailed.get(action.agentId) ?? []);
+      forAgent.add(action.entryId);
+      slideFailed.set(action.agentId, forAgent);
+      return { ...state, slideFailed };
+    }
+    case "slide_retry": {
+      return {
+        ...state,
+        slideFailed: withoutFailure(
+          state.slideFailed,
+          action.agentId,
+          action.entryId,
+        ),
+      };
     }
     case "slides_loaded": {
       const slides = new Map(state.slides);
@@ -554,11 +616,21 @@ export function reducer(state: AppState, action: Action): AppState {
       if (action.rollback) return { ...state, logs, logEntryIds };
       const needsAttention = new Set(state.needsAttention);
       needsAttention.delete(action.agentId);
-      // A new conversation replaces the deck: drop this agent's cached slides so
-      // stale slides can't bleed into the fresh turns' positions.
+      // A new conversation replaces the deck: drop this agent's cached slides
+      // (and any failure marks) so stale state can't bleed into the fresh turns'
+      // positions.
       const slides = new Map(state.slides);
       slides.delete(action.agentId);
-      return { ...state, logs, logEntryIds, needsAttention, slides };
+      const slideFailed = new Map(state.slideFailed);
+      slideFailed.delete(action.agentId);
+      return {
+        ...state,
+        logs,
+        logEntryIds,
+        needsAttention,
+        slides,
+        slideFailed,
+      };
     }
     case "set_mobile":
       return { ...state, isMobile: action.isMobile };
@@ -775,6 +847,7 @@ export const initialState: AppState = {
   logs: new Map(),
   logEntryIds: new Map(),
   slides: new Map(),
+  slideFailed: new Map(),
   focusedAgentId: null,
   connected: false,
   isMobile: typeof window !== "undefined" ? window.innerWidth < 768 : false,

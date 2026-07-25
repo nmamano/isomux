@@ -1105,6 +1105,19 @@ export type ServerMessage =
       entryId: string;
       slide: SlideRecord;
     }
+  // Slide Mode: a slide generation FAILED terminally for one turn (the formatter
+  // errored, or returned markup that violates the slide contract). The client's
+  // only authoritative "stop waiting" signal: without it a failure is
+  // indistinguishable from a slow generation, and the deck can only guess with a
+  // timeout. Same room-ACL scope and matching (agentId + entryId) as
+  // slide_ready. `reason` is a short diagnostic, not viewer-facing copy.
+  | {
+      type: "slide_failed";
+      agentId: string;
+      sessionId: string;
+      entryId: string;
+      reason: string;
+    }
   | {
       type: "slash_commands";
       agentId: string;

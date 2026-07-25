@@ -28,6 +28,7 @@ const SPEC_AUDIENCES: Record<string, AudienceStrategy> = {
   // Live agent / room stream — room-ACL
   log_entry: "room-ACL",
   slide_ready: "room-ACL",
+  slide_failed: "room-ACL",
   clear_logs: "room-ACL",
   slash_commands: "room-ACL",
   agent_added: "room-ACL",

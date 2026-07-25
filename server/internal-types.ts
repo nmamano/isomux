@@ -250,6 +250,15 @@ export type AgentEvent =
       entryId: string;
       slide: SlideRecord;
     }
+  // Slide Mode: that turn's generation failed terminally — routed to the WS as
+  // `slide_failed` (same room-ACL scope as slide_ready).
+  | {
+      type: "slide_failed";
+      agentId: string;
+      sessionId: string;
+      entryId: string;
+      reason: string;
+    }
   // `rollback: true` marks a clear that RESTORES a prior visible timeline
   // (failed edit-fork rollback) rather than establishing a new conversation
   // boundary — clients keep transient per-conversation cues (the unread dot)

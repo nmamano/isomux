@@ -119,6 +119,14 @@ export interface EventPayloads {
     entryId: string;
     slide: SlideRecord;
   };
+  // Slide Mode: that turn's generation failed terminally. Same audience as
+  // slide_ready — it resolves the same pending state, in the other direction.
+  slide_failed: {
+    agentId: string;
+    sessionId: string;
+    entryId: string;
+    reason: string;
+  };
   // rollback marks a restore-of-prior-timeline clear (failed edit-fork
   // rollback), not a conversation boundary; clients keep the unread dot.
   clear_logs: { agentId: string; rollback?: boolean };
@@ -225,6 +233,10 @@ export const EVENT_REGISTRY = {
     projectionKey: { kind: "agentLookup", path: ["entry", "agentId"] },
   },
   slide_ready: {
+    audience: "room-ACL",
+    projectionKey: { kind: "agentLookup", path: ["agentId"] },
+  },
+  slide_failed: {
     audience: "room-ACL",
     projectionKey: { kind: "agentLookup", path: ["agentId"] },
   },

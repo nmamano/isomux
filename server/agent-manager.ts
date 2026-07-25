@@ -2211,6 +2211,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     onSlideReady: (agentId, sessionId, entryId, slide) => {
       emit({ type: "slide_ready", agentId, sessionId, entryId, slide });
     },
+    onSlideFailed: (agentId, sessionId, entryId, reason) => {
+      emit({ type: "slide_failed", agentId, sessionId, entryId, reason });
+    },
   });
 
   // GET the conversation's slide map for the initial deck render. Returns null

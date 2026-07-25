@@ -3502,15 +3502,24 @@ function wireEventSinks(): void {
       });
       return;
     }
-    // Slide Mode: route the room-ACL slide_ready push through the emit registry
-    // (audience audited there), same posture as log_entry. Only sessions that
-    // can see the agent's room receive it.
+    // Slide Mode: route the room-ACL slide_ready / slide_failed pushes through
+    // the emit registry (audience audited there), same posture as log_entry.
+    // Only sessions that can see the agent's room receive them.
     if (event.type === "slide_ready") {
       liveEmit("slide_ready", {
         agentId: event.agentId,
         sessionId: event.sessionId,
         entryId: event.entryId,
         slide: event.slide,
+      });
+      return;
+    }
+    if (event.type === "slide_failed") {
+      liveEmit("slide_failed", {
+        agentId: event.agentId,
+        sessionId: event.sessionId,
+        entryId: event.entryId,
+        reason: event.reason,
       });
       return;
     }
