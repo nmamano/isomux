@@ -1290,6 +1290,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       sessionId: resumeSessionId,
       consumerPromise: null,
       pendingTurn: null,
+      nextTurnAnchorEntryId: null,
       afterTurnPromise: null,
       turnCancelToken: 0,
       abortCancelToken: -1,
@@ -1924,14 +1925,18 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       managed.lastWrittenEntryId = entry.id;
     }
 
-    // Slide Mode: a user_message logged while a turn is in flight anchors that
-    // turn (the newest deck position). The last such message of a coalesced
-    // flush wins — the agent's response attaches to it. Stamping it lets
-    // ensureSlide gate generation until the turn is terminal (design:
-    // internal-docs/slide-mode-design.md). createTurnDeferred runs before the
-    // send that triggers this append, so pendingTurn is already installed.
-    if (kind === "user_message" && managed?.pendingTurn) {
-      managed.pendingTurn.anchorEntryId = entry.id;
+    // Slide Mode: a user_message anchors the turn it starts (the newest deck
+    // position). Stamping it lets ensureSlide gate generation until that turn is
+    // terminal (design: internal-docs/slide-mode-design.md). The message lands on
+    // either side of createTurnDeferred depending on the path, so both are
+    // covered: a turn already in flight is stamped here (the queued flush logs
+    // its messages from onSendAccepted — the last of a coalesced flush wins,
+    // since the agent's response attaches to it), and a message logged BEFORE the
+    // deferred exists (sendMessage / executeSkill / editMessage all log, then
+    // send) is parked for createTurnDeferred to claim.
+    if (kind === "user_message" && managed) {
+      if (managed.pendingTurn) managed.pendingTurn.anchorEntryId = entry.id;
+      else managed.nextTurnAnchorEntryId = entry.id;
     }
 
     // Track topicStale: new text entries after topic was generated
@@ -2181,8 +2186,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       prevSlideHtml,
       // Terminal iff this turn is NOT the anchor of the still-running turn (see
       // turnIsTerminal). The in-flight newest turn's anchor is
-      // pendingTurn.anchorEntryId; once the turn completes pendingTurn is nulled,
-      // so every turn reads terminal. BOOT is an authoritative terminal boundary,
+      // pendingTurn.anchorEntryId, or — before the deferred exists — the anchor
+      // parked by addLogEntry (see liveTurnAnchor). Once the turn completes
+      // pendingTurn is nulled, so every turn reads terminal. BOOT is an
+      // authoritative terminal boundary,
       // not merely "absence happens to read terminal": a restart kills the backend
       // process, lazy-restore rebuilds the agent with pendingTurn=null and state
       // waiting_for_response, and the dead turn cannot emit more output — any
@@ -2191,8 +2198,34 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // after boot, and its slide faithfully reflects the (possibly truncated)
       // transcript. (If that ever stops holding — a turn resumes and appends to
       // the SAME anchor across a restart — this needs an explicit boot watermark.)
-      terminal: turnIsTerminal(managed.pendingTurn?.anchorEntryId, entryId),
+      terminal: turnIsTerminal(liveTurnAnchor(managed), entryId),
     };
+  }
+
+  // The anchor of the turn the agent is producing RIGHT NOW, or null when it is
+  // producing nothing. Two sources, because a turn is claimed by the agent well
+  // before its deferred exists: sendMessage / executeSkill / editMessage log the
+  // user_message and flip the agent busy in one synchronous block, but only reach
+  // createTurnDeferred after the plugin phase (an afterTurn gate, beforeTurn
+  // hooks, the context sample) — hundreds of ms in which the deck client, which
+  // saw the message the instant it was logged, asks for its slide. Reading the
+  // parked anchor while the agent is BUSY covers that window; without it the live
+  // turn read terminal and got an empty-turn placeholder written over it (task
+  // e9429ef3).
+  //
+  // Two things keep the park honest. The busy gate: a user_message that never
+  // starts a turn (a control command's echo — /model, /agents and friends log one
+  // and answer with a system entry) leaves a park behind that must NOT make that
+  // position look in-flight, and an idle agent by definition has no live turn.
+  // And the deferred taking precedence: once a turn owns a deferred, that is the
+  // whole answer, so a queued flush — which logs its own anchor after the send —
+  // reads anchorless rather than inheriting a leftover park.
+  function liveTurnAnchor(managed: ManagedAgent): string | null {
+    if (managed.pendingTurn) return managed.pendingTurn.anchorEntryId;
+    const busy =
+      managed.info.state === "thinking" ||
+      managed.info.state === "tool_executing";
+    return busy ? managed.nextTurnAnchorEntryId : null;
   }
 
   const slideMode = createSlideMode({
@@ -2975,16 +3008,27 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // with a delegating wrapper — see the pendingTurn field comment in
     // internal-types.ts for why replacement is forbidden (lost-wakeup hole,
     // task da065287).
-    managed.pendingTurn = { promise, resolve, reject, anchorEntryId: null };
+    // Claim the anchor the caller already logged for this turn, if any (see
+    // nextTurnAnchorEntryId). Claimed ONCE: clearing it here means a later turn
+    // whose own anchor is logged after the send (the queued flush) starts
+    // anchorless rather than inheriting someone else's message, and gets stamped
+    // by addLogEntry when its own lands.
+    managed.pendingTurn = {
+      promise,
+      resolve,
+      reject,
+      anchorEntryId: managed.nextTurnAnchorEntryId,
+    };
+    managed.nextTurnAnchorEntryId = null;
     // Slide Mode: whatever SETTLES this turn — turn_completed, error, clean
     // stream end, stream catch, session swap, kill, or the supersession reject
     // above — settles this promise exactly once. Draining the parked slide
     // request from the settle (not one specific site) guarantees a client that
     // requested the turn while it was in flight always gets a terminal
     // slide/placeholder, never an orphaned pending. `record` stays readable after
-    // pendingTurn is nulled; addLogEntry stamps its anchorEntryId before the send
-    // (a turn with no user_message anchor — never viewable in the deck — is a
-    // no-op).
+    // pendingTurn is nulled, and its anchor is read at settle time — so it sees
+    // an anchor the claim above missed and addLogEntry stamped later (a turn with
+    // no user_message anchor at all — never viewable in the deck — is a no-op).
     const record = managed.pendingTurn;
     const settleAgentId = managed.info.id;
     drainOnSettle(
@@ -3875,6 +3919,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       sessionId: null,
       consumerPromise: null,
       pendingTurn: null,
+      nextTurnAnchorEntryId: null,
       afterTurnPromise: null,
       turnCancelToken: 0,
       abortCancelToken: -1,

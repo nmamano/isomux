@@ -11,6 +11,11 @@
 //     createTurnDeferred's drainOnSettle -> onTurnSettled -> generate. The pure
 //     drainOnSettle resolve/reject branches are covered in slide-mode.test.ts;
 //     this proves the actual manager settle reaches the drain.
+//   - DIRECT SEND (sendMessage, not the queue): the anchor is logged before the
+//     turn's deferred exists, and the turn must still read in-flight — both once
+//     the deferred holds it and during the window before that, where the deck's
+//     request actually lands. Task e9429ef3: while those two paths went
+//     unanchored, the live turn was recorded as an empty-turn placeholder.
 
 import { describe, it, expect, afterEach } from "bun:test";
 import { mkdirSync, writeFileSync } from "fs";
@@ -30,6 +35,14 @@ function rooms(id: string): RoomWire[] {
 }
 
 const SLIDE_HTML = '<div style="width:100%;height:100%">Slide</div>';
+
+// Let anything a request kicked off run to completion. A generation only LOOKS
+// gated if you assert in the same tick: the write path is async (queue slot ->
+// formatter -> commit), so a "nothing was generated" assertion has to give it
+// room first, or it passes against code that is generating right then.
+async function settle(): Promise<void> {
+  await new Promise((r) => setTimeout(r, 50));
+}
 
 async function waitUntil(pred: () => boolean, ms = 3000): Promise<void> {
   const deadline = Date.now() + ms;
@@ -290,5 +303,104 @@ describe("Slide Mode lifecycle (DI integration)", () => {
     expect(h.slideReadyFor(anchor)?.slide.html).toBe(SLIDE_HTML);
     expect(h.prompts).toHaveLength(1); // the parked request generated exactly once
     expect(h.prompts[0]).toContain("Working on the answer.");
+  });
+
+  it("DIRECT SEND: the in-flight turn is anchored, so no placeholder is written while it streams", async () => {
+    // Regression for task e9429ef3. The DRAIN test above sends through the
+    // QUEUE, which logs its user_message from onSendAccepted — i.e. AFTER
+    // createTurnDeferred — so addLogEntry found a pendingTurn and stamped the
+    // anchor. A direct send is the other order: sendMessage logs the
+    // user_message first and only then reaches runAgentTurn, so the anchor has
+    // to be claimed BY the deferred. While it wasn't, the newest turn read
+    // terminal for its entire duration and the very first request wrote an
+    // empty-turn placeholder over the live turn — which then stuck, since the
+    // client skips any record carrying a digest.
+    // onSend produces nothing: the turn is in flight and still EMPTY, which is
+    // the state that used to be recorded as "this turn produced no text".
+    const h = await setup({ onSend: () => {} });
+    // Not awaited: sendMessage resolves only when the turn ends, and this turn
+    // deliberately never completes on its own.
+    void h.mgr.sendMessage(h.agentId, "hello", "tester");
+    await waitUntil(() => h.userMsgIds().length >= 1);
+    const anchor = h.userMsgIds()[0];
+    // A direct send to a session-less agent logs the user_message before the
+    // backend reports its session id; the deck is keyed on that id, so wait for
+    // it or the request resolves to `unavailable` for want of a conversation.
+    await waitUntil(() => !!h.mgr.getCurrentSessionId(h.agentId));
+
+    // Empty and in flight: gated, and no placeholder recorded (the reported bug
+    // — the deck showed "No answer to show" the moment the message was sent).
+    expect(h.mgr.ensureSlide(h.agentId, anchor).status).toBe("pending");
+    await settle();
+    expect(h.slideReadyFor(anchor)).toBeUndefined();
+
+    // Text arrives but the turn still hasn't ended: still gated, so the
+    // formatter never sees a half-streamed answer.
+    h.fake
+      .sessionForAgent(h.agentId)!
+      .push({ kind: "assistant_text", text: "Half an answer." });
+    expect(h.mgr.ensureSlide(h.agentId, anchor).status).toBe("pending");
+    await settle();
+    expect(h.slideReadyFor(anchor)).toBeUndefined();
+    expect(h.prompts).toHaveLength(0);
+
+    // Settling it fulfils the parked request from the turn's real content.
+    h.fake.sessionForAgent(h.agentId)!.completeTurn({ status: "completed" });
+    await waitUntil(() => !!h.slideReadyFor(anchor));
+    expect(h.slideReadyFor(anchor)?.slide.placeholder).toBe(false);
+    expect(h.slideReadyFor(anchor)?.slide.html).toBe(SLIDE_HTML);
+    expect(h.prompts).toHaveLength(1);
+    expect(h.prompts[0]).toContain("Half an answer.");
+  });
+
+  it("PRE-DEFERRED WINDOW: a turn claimed by the agent but not yet holding its deferred is still in flight", async () => {
+    // The window the deck actually lands in (task e9429ef3). A direct send logs
+    // the user_message and flips the agent busy in one synchronous block, but
+    // reaches createTurnDeferred only after runAgentTurn's plugin phase — here
+    // held open by the context sample it waits on. The client sees the message
+    // the moment it is logged, so its request arrives INSIDE that gap: with the
+    // anchor read from the deferred alone, the live turn read terminal and got a
+    // placeholder written over it. Anchoring alone doesn't cover this — the
+    // deferred doesn't exist yet — which is why the anchor is parked at append
+    // time and read while the agent is busy.
+    let releaseSample!: () => void;
+    const h = await setup({
+      // Parks the post-turn context sample; runAgentTurn awaits it (bounded)
+      // before installing the deferred, which is the gap under test.
+      contextUsage: () =>
+        new Promise((res) => {
+          releaseSample = () => res(null);
+        }),
+      onSend: (_t, _a, s) => s.push({ kind: "assistant_text", text: "Words." }),
+    });
+    // Turn one, completed by hand so a sample is left in flight behind it.
+    void h.mgr.sendMessage(h.agentId, "first", "tester");
+    await waitUntil(() => h.userMsgIds().length >= 1);
+    await waitUntil(() => !!h.mgr.getCurrentSessionId(h.agentId));
+    h.fake.sessionForAgent(h.agentId)!.completeTurn({ status: "completed" });
+    await waitUntil(() => h.mgr.getAgent(h.agentId)?.state !== "thinking");
+
+    // Turn two: parked in the plugin phase, deferred not installed yet.
+    void h.mgr.sendMessage(h.agentId, "second", "tester");
+    await waitUntil(() => h.userMsgIds().length >= 2);
+    const anchor = h.userMsgIds()[1];
+    expect(h.mgr.ensureSlide(h.agentId, anchor).status).toBe("pending");
+    await settle();
+    expect(h.slideReadyFor(anchor)).toBeUndefined();
+
+    // Let the turn proceed and finish; the parked request is fulfilled normally.
+    releaseSample();
+    // The SECOND "Words." — one per send, and turn one already logged its own.
+    await waitUntil(
+      () =>
+        h.events.filter(
+          (e) =>
+            e.type === "log_entry" &&
+            (e as { entry: { content: string } }).entry.content === "Words.",
+        ).length >= 2,
+    );
+    h.fake.sessionForAgent(h.agentId)!.completeTurn({ status: "completed" });
+    await waitUntil(() => !!h.slideReadyFor(anchor));
+    expect(h.slideReadyFor(anchor)?.slide.placeholder).toBe(false);
   });
 });

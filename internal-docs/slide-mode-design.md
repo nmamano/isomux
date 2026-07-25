@@ -36,9 +36,22 @@
 > before the agent went active). The turn's authoritative terminal fact
 > (`turn_completed`) lives only on the server, so gating is server-authoritative:
 > - The in-flight turn is stamped with its anchor `user_message` entry id
->   (`pendingTurn.anchorEntryId`, set in `addLogEntry` in the same synchronous
->   append — no interleaving, so `buildDeckTurns` never sees the turn with the
->   anchor unset); `resolveSlideJob` reports `terminal = anchorEntryId !== entryId`.
+>   (`pendingTurn.anchorEntryId`); `resolveSlideJob` reports
+>   `terminal = anchorEntryId !== entryId`. The anchor is logged on EITHER side of
+>   `createTurnDeferred` depending on the path, so it is filled from both
+>   directions: `sendMessage` / `executeSkill` / `editMessage` log the
+>   `user_message` and only then reach `runAgentTurn`, so `addLogEntry` parks the
+>   id in `nextTurnAnchorEntryId` and the deferred CLAIMS it (clearing it, so it
+>   is claimed at most once); the queued flush logs its messages from
+>   `onSendAccepted`, i.e. after the deferred exists, so `addLogEntry` stamps
+>   `pendingTurn.anchorEntryId` directly (last message of a coalesced flush wins).
+>   Both stamps are synchronous with the append, so `buildDeckTurns` never sees
+>   the turn with the anchor unset. `resolveSlideJob` reads the parked anchor too
+>   (`liveTurnAnchor`), gated on the agent being busy: the deferred is installed
+>   only after `runAgentTurn`'s plugin phase, and the deck asks for the new turn's
+>   slide well inside that gap — but a `user_message` that never starts a turn (a
+>   control command's echo) parks an anchor too, and only the busy state tells the
+>   two apart.
 > - `ensureSlide` on a non-terminal turn parks a waiter (keeping the latest
 >   feedback) and returns `pending` — never formats a half-streamed answer, never
 >   writes a placeholder. `onTurnSettled` runs off the `pendingTurn` promise's
@@ -57,13 +70,28 @@
 >   predates the field and is unverifiable, so it is regenerated once (a
 >   placeholder re-commits with no LLM call; a rendered slide regenerates and
 >   gains a digest, then validates from cache). The client mirrors this: it skips
->   a cached record only when it carries a digest (a field-presence check, immune
->   to lagging client logs), and requests missing/digestless ones. Note: this
->   discards any pre-digest ↻-tuned slide once, on first view after the upgrade.
+>   a cached record only when it carries a digest, and requests missing/digestless
+>   ones. The one exception is a stored PLACEHOLDER whose digest disagrees with
+>   the live turn — it claims the turn produced no answer when it has one, and
+>   nothing else brings the deck back from that card. Kept to placeholders rather
+>   than any mismatch on purpose: the regenerated record is no longer a
+>   placeholder, so a client log that disagrees with the server's re-asks once
+>   instead of every watchdog window. Note: this discards any pre-digest ↻-tuned
+>   slide once, on first view after the upgrade.
 > - Client: no timing predicate. It requests visible turns (re-requesting cached
 >   placeholders so the server can reconcile them); the newest in-flight turn
 >   shows a "Generating" spinner; a `pending` response for a slide already shown
 >   drops it (`slide_invalidate`) so the spinner covers the regeneration.
+
+> Anchor claim (2026-07-25, task e9429ef3): the gate above shipped anchoring only
+> the queued-flush path. A direct send logs its `user_message` BEFORE the deferred
+> exists, so `anchorEntryId` stayed null, every turn read terminal while it
+> streamed, and the first request wrote an empty-turn placeholder over the live
+> turn — which then stuck, since the client skipped any digest-bearing record.
+> Fixed by the parked anchor (claimed by the deferred, read busy-gated until then)
+> and the stale-placeholder exception described above. The lifecycle suite now
+> drives `sendMessage` as well as `enqueueMessage`; every test previously used the
+> queue, which is why the hole was invisible.
 
 Per-agent "Slide view": a toggle in the agent header that replaces the chat
 view with a slide deck — one slide per assistant turn, ←/→ navigation, the

@@ -5,6 +5,7 @@ import {
   restoredDeckPos,
   settledDeckPos,
   shouldRequestSlide,
+  slideContentDigest,
   type DeckTurn,
 } from "../../shared/slide-turns.ts";
 import {
@@ -182,8 +183,9 @@ export function DeckView({
       // gate for content immutable within the conversation), so it's skipped; a
       // miss or a DIGESTLESS legacy record (a stale placeholder the turn outgrew,
       // or a slide the old code rendered from a half-stream) is (re)validated by
-      // the server. Field-presence check, not a client digest compare, so lagging
-      // client logs can't thrash it. See shouldRequestSlide.
+      // the server. The digest is compared only to catch a stored PLACEHOLDER for
+      // a turn that has since gained an answer — the one stale state the deck
+      // can't otherwise leave. See shouldRequestSlide.
       const reqAt = requestedRef.current.get(turn.entryId);
       // A request past the orphan window counts as no longer in flight, so one
       // the server dropped without reporting an outcome is asked again instead
@@ -193,7 +195,12 @@ export function DeckView({
       // A reported failure is terminal (shouldRequestSlide gates it): leave that
       // turn alone until the viewer retries.
       if (
-        !shouldRequestSlide(cached, inFlight, failedForAgent?.has(turn.entryId))
+        !shouldRequestSlide(
+          cached,
+          inFlight,
+          failedForAgent?.has(turn.entryId),
+          slideContentDigest(turn),
+        )
       )
         continue;
       requestedRef.current.set(turn.entryId, Date.now());
@@ -220,8 +227,8 @@ export function DeckView({
   // retries.
   //
   // The predicate IS the request effect's own condition minus the in-flight
-  // marker (`shouldRequestSlide(cached, false, failed)`), so the two can never
-  // drift. Absence alone is NOT enough: a digestless legacy record
+  // marker (`shouldRequestSlide(cached, false, failed, digest)`), so the two can
+  // never drift. Absence alone is NOT enough: a digestless legacy record
   // is unverifiable and is being reconciled, but unlike a placeholder (which the
   // invalidate path deletes) it stays in the store, so an absence-only test
   // would leave the clock stopped and that record would never retry.
@@ -238,6 +245,7 @@ export function DeckView({
           slidesForAgent?.get(turns[i].entryId),
           false,
           failedForAgent?.has(turns[i].entryId),
+          slideContentDigest(turns[i]),
         ),
       );
     if (!anyPending) return;

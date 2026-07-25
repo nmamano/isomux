@@ -57,13 +57,26 @@ export interface ManagedAgent {
     resolve: () => void;
     reject: (err: unknown) => void;
     // The user_message entry id anchoring this in-flight turn (the newest deck
-    // turn), or null until the send's user_message is logged. Slide Mode reads
-    // it to gate slide generation: a turn is "terminal" once it is no longer
-    // this anchor (pendingTurn cleared, or superseded by a newer turn). Set when
-    // the anchor user_message is appended; goes away when pendingTurn is nulled
-    // at turn_completed. See server/slide-mode.ts + slide-mode-design.md.
+    // turn), or null when the turn has no anchor at all. Slide Mode reads it to
+    // gate slide generation: a turn is "terminal" once it is no longer this
+    // anchor (pendingTurn cleared, or superseded by a newer turn). Filled from
+    // two directions, because the anchor is logged on either side of the deferred
+    // depending on the path: createTurnDeferred CLAIMS nextTurnAnchorEntryId
+    // (every path that logs the user_message before the send), and addLogEntry
+    // stamps it directly when the message is logged while the turn already runs
+    // (the queued flush, which logs from onSendAccepted). Goes away when
+    // pendingTurn is nulled at turn_completed. See server/slide-mode.ts +
+    // slide-mode-design.md.
     anchorEntryId: string | null;
   } | null;
+  // The user_message entry id logged for a turn whose deferred is not installed
+  // yet — sendMessage / executeSkill / editMessage all log the anchor and only
+  // then reach runAgentTurn. createTurnDeferred claims it (and clears it, so it
+  // is claimed at most once) as the turn's anchorEntryId. Without this the
+  // direct-send paths ran with a null anchor, every turn read TERMINAL while it
+  // was still streaming, and Slide Mode wrote an empty-turn placeholder for the
+  // live turn (task e9429ef3).
+  nextTurnAnchorEntryId: string | null;
   // The aggregate `afterTurn` promise for the most recent turn — all plugins'
   // afterTurn hooks raced against their per-plugin timeout, joined here.
   // runAgentTurn awaits this before starting the next turn so memory writes

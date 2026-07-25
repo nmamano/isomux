@@ -167,6 +167,80 @@ describe("shouldRequestSlide (client request gating)", () => {
     // turn has nothing left to wait for, so the interval must not run for it.
     expect(shouldRequestSlide(undefined, false, true)).toBe(false);
   });
+
+  // Task e9429ef3: a placeholder recorded for a turn that has since produced an
+  // answer is provably stale, and the deck has no other way back from it — a
+  // digest-bearing record was skipped unconditionally, so the "No answer to
+  // show" card stuck until the viewer hit regenerate by hand.
+  describe("stale placeholder", () => {
+    const emptyTurn = { promptText: "q", assistantText: "", errorText: null };
+    const answered = { ...emptyTurn, assistantText: "the answer" };
+    const stalePlaceholder = {
+      contentDigest: slideContentDigest(emptyTurn),
+      placeholder: true,
+    };
+
+    it("re-requests a placeholder whose turn has since gained text", () => {
+      expect(
+        shouldRequestSlide(
+          stalePlaceholder,
+          false,
+          false,
+          slideContentDigest(answered),
+        ),
+      ).toBe(true);
+    });
+
+    it("keeps serving a placeholder that still matches its turn", () => {
+      // A genuinely empty turn (interrupted / tool-only) is not stale.
+      expect(
+        shouldRequestSlide(
+          stalePlaceholder,
+          false,
+          false,
+          slideContentDigest(emptyTurn),
+        ),
+      ).toBe(false);
+    });
+
+    it("does not re-request a stale RENDERED slide (loop safety)", () => {
+      // Deliberately narrow. A rendered slide is left alone even when the
+      // digests disagree: were the client's log ever to differ from the
+      // server's for a settled turn, a blanket mismatch rule would re-ask every
+      // watchdog window forever. Restricted to placeholders, the re-ask happens
+      // at most once — the regenerated record is no longer a placeholder.
+      expect(
+        shouldRequestSlide(
+          { contentDigest: slideContentDigest(emptyTurn), placeholder: false },
+          false,
+          false,
+          slideContentDigest(answered),
+        ),
+      ).toBe(false);
+    });
+
+    it("still dedupes while the re-request is in flight", () => {
+      expect(
+        shouldRequestSlide(
+          stalePlaceholder,
+          true,
+          false,
+          slideContentDigest(answered),
+        ),
+      ).toBe(false);
+    });
+
+    it("stops at a reported failure, stale or not", () => {
+      expect(
+        shouldRequestSlide(
+          stalePlaceholder,
+          false,
+          true,
+          slideContentDigest(answered),
+        ),
+      ).toBe(false);
+    });
+  });
 });
 
 describe("slideContentDigest (cache-validity fingerprint)", () => {

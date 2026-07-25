@@ -191,13 +191,30 @@ export function turnIsTerminal(
 // reported failure does, so it stops rather than retries. Either way a failed
 // turn comes back only through an explicit regenerate, which retires the mark
 // before it asks.
+//
+// The ONE exception to "verified means skip": a stored PLACEHOLDER whose digest
+// disagrees with the live turn's. That record says "this turn produced no
+// answer" about a turn that now has one, so it is provably stale and the client
+// must re-ask — nothing else brings the deck back from it (task e9429ef3). It
+// stays narrow — placeholder only, not any digest mismatch — so it cannot loop:
+// the regenerated record is no longer a placeholder, so even if a client's log
+// disagreed with the server's for that turn, the re-ask happens once rather than
+// every watchdog window. `liveDigest` omitted (the caller hasn't computed one)
+// keeps the old field-presence behavior.
 export function shouldRequestSlide(
-  cached: { contentDigest?: string } | undefined,
+  cached: { contentDigest?: string; placeholder?: boolean } | undefined,
   inFlight: boolean,
   failed = false,
+  liveDigest?: string,
 ): boolean {
   if (failed) return false;
-  if (cached && cached.contentDigest !== undefined) return false;
+  if (cached && cached.contentDigest !== undefined) {
+    const stalePlaceholder =
+      cached.placeholder === true &&
+      liveDigest !== undefined &&
+      cached.contentDigest !== liveDigest;
+    if (!stalePlaceholder) return false;
+  }
   return !inFlight;
 }
 
