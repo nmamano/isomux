@@ -285,6 +285,47 @@ Rough total: ~700 lines. Prereq task efdabed3 is separate and Nil is taking
 it. The plugin's formatter/system prompt and viewer are working references
 for the two riskiest parts (prompt quality, deck state machine).
 
+## Latency: measured, and settled (task 6eec740d, 2026-07-25)
+
+Nil, after dogfooding: "an extra latency of 30s in my mind kind of kills the
+feature ... it no longer feels like an alternative for any kind of interactive
+work." So we measured instead of guessing: 3 reps x 4 cells x the same 6 real
+turns (72 timed runs plus a floor probe). Raw data and every rendered slide are
+kept at `/home/nil/nil/slide-bench/` (`rows.jsonl`, `sheets/turnN.png`).
+
+| cell | median | bytes | out tokens |
+|---|---|---|---|
+| Sonnet + inline (shipped) | 23.1s | 4599 | 1677 |
+| Haiku + inline | 9.6s | 2276 | 824 |
+| Sonnet + `<style>` block | 21.8s | 3786 | 1405 |
+| Haiku + `<style>` block | 9.9s | 2443 | 859 |
+| Haiku + hard brevity cap | 8.0s | 1723 | 635 |
+
+**DECISION (Nil, 2026-07-25): keep Sonnet + inline styles, unchanged.** He
+judged the slides side by side and chose composition over speed: "sonnet +
+inline is the best. no question about it."
+
+Three findings worth not re-deriving:
+
+- **The `<style>`-block idea is REFUTED, don't re-propose it.** Compliance was
+  total (6/6) but the win was only 6% on Sonnet and negative on Haiku, because
+  styling does not shrink, it RELOCATES — these slides carry ~40 individually
+  styled elements, so there is nothing to factor out. It also introduced a new
+  failure mode: on 2/6 Sonnet slides the model declared a `.root` class and then
+  emitted the root `<div>` without it, silently losing the dark background, the
+  edge padding and the font. Inline styling makes that class of bug impossible.
+- **Model tier is the only real lever** (23.1s -> 9.6s): Haiku decodes ~20%
+  faster AND writes half as many tokens. The quality cost is compositional —
+  Haiku fills the 1280x720 canvas less deliberately (empty bottom thirds; one
+  genuinely bad layout in 6) and overflows harder when it does overflow. Note
+  the prompt was written against Sonnet, so Haiku's ceiling here is untested.
+- **The floor is ~7-8s** for this architecture: ~2.1s fixed overhead (process
+  spawn + round trip + teardown) plus ~600 output tokens minimum for a real
+  slide. A hard brevity cap bought only 1.6s and cost visible richness. Under
+  5s is NOT reachable by model or prompt tuning — it needs an architecture
+  change (stream the slide as it is written, or generate speculatively while
+  the agent's turn is still running instead of after it settles).
+
 ## Resolved-question archive
 
 All four open questions from v1 were resolved in the interview: inline cards
