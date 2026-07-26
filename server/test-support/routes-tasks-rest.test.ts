@@ -204,6 +204,71 @@ describe("routes/tasks REST: cookie (user) CRUD + attribution", () => {
     expect(missing.status).toBe(404);
   });
 
+  // Task dc642af2: `priority: null` clears the priority. Before the fix the
+  // validator ran first and rejected null with a 400, so a priority could be
+  // set and changed but never taken back off.
+  it("PATCH priority: null clears it, '' is still a 400, absent leaves it alone", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const created = (
+      await api(srv, "/api/tasks", {
+        method: "POST",
+        rawSessionId: owner.rawSessionId,
+        body: { title: "T", priority: "P1" },
+      })
+    ).body as TaskItem;
+
+    // A PATCH that doesn't mention priority leaves it untouched.
+    const other = await api(srv, `/api/tasks/${created.id}`, {
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: { title: "T2" },
+    });
+    expect(other.status).toBe(200);
+    expect((other.body as TaskItem).priority).toBe("P1");
+
+    // An empty string is a malformed level, not a clear.
+    const empty = await api(srv, `/api/tasks/${created.id}`, {
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: { priority: "" },
+    });
+    expect(empty.status).toBe(400);
+    expect(
+      srv.agentManager.getTasks().find((t) => t.id === created.id)?.priority,
+    ).toBe("P1");
+
+    // ...and so is a bogus level.
+    const bogus = await api(srv, `/api/tasks/${created.id}`, {
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: { priority: "P9" },
+    });
+    expect(bogus.status).toBe(400);
+
+    const cleared = await api(srv, `/api/tasks/${created.id}`, {
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: { priority: null },
+    });
+    expect(cleared.status).toBe(200);
+    expect((cleared.body as TaskItem).priority).toBeUndefined();
+    // Cleared means the KEY is gone, so the task is shaped exactly like one
+    // that never had a priority (same rule as the roomId clear).
+    const stored = srv.agentManager.getTasks().find((t) => t.id === created.id);
+    expect(stored && "priority" in stored).toBe(false);
+
+    // Clearing an already-clear priority is a no-op, not an error.
+    const again = await api(srv, `/api/tasks/${created.id}`, {
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: { priority: null },
+    });
+    expect(again.status).toBe(200);
+    expect((again.body as TaskItem).priority).toBeUndefined();
+  });
+
   it("legacy HTTP DELETE /tasks/:id stays a 405 wall (unchanged)", async () => {
     const srv = await startTestServer();
     server = srv;

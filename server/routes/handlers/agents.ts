@@ -37,6 +37,13 @@ import {
 } from "../executor.ts";
 import type { Identity } from "../../identity/index.ts";
 import type { AgentInfo } from "../../../shared/types.ts";
+import { DESK_COUNT, isValidDesk } from "../../../shared/desks.ts";
+
+// A desk outside the room's grid names no slot to draw the agent at, so both
+// spawn and revive reject it here rather than letting it reach the core (task
+// e87d9c7d: spawn used to create a real but unrenderable agent that broke the
+// office view for the whole room; revive reported it as an occupied desk).
+const DESK_RANGE_MESSAGE = `desk must be a whole number from 0 to ${DESK_COUNT - 1}`;
 import type {
   SpawnReq,
   EditAgentReq,
@@ -283,6 +290,9 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
       if (typeof b.desk !== "number") {
         return fail(422, "invalid_desk", "desk is required");
       }
+      if (!isValidDesk(b.desk)) {
+        return fail(422, "invalid_desk", DESK_RANGE_MESSAGE);
+      }
       if (malformedAgentFields(b)) {
         return fail(422, "invalid_request", "malformed agent field");
       }
@@ -322,6 +332,12 @@ export function agentsHandlers(deps: AgentsDeps): Record<string, RouteHandler> {
       const b = (ctx.body ?? {}) as Partial<ReviveReq>;
       if (typeof b.roomId !== "string" || typeof b.desk !== "number") {
         return fail(422, "invalid_request", "roomId and desk are required");
+      }
+      // Same range check as spawn: without it an off-grid desk reached the core
+      // and came back as 409 desk_taken, telling the boss a desk was occupied
+      // when it doesn't exist.
+      if (!isValidDesk(b.desk)) {
+        return fail(422, "invalid_desk", DESK_RANGE_MESSAGE);
       }
       const r = await deps.revive(ctx.params.id, b.roomId, b.desk);
       if (r.ok) return ok({ agent: r.agent });

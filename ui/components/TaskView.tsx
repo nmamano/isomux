@@ -235,14 +235,15 @@ function TaskDetailPanel({
       };
       apiFetch<TaskItem>("POST", "/api/tasks", body).catch(() => {});
     } else if (task) {
-      // FLAT body (TaskUpdateReq), NOT { changes }. Blank fields are sent as
-      // explicit `undefined` properties exactly as the WS arm did; JSON.stringify
-      // drops them, so the server leaves those fields untouched (unchanged
-      // semantics — a blank does not clear an existing value).
+      // FLAT body (TaskUpdateReq), NOT { changes }. Blank text fields are sent
+      // as explicit `undefined` properties exactly as the WS arm did;
+      // JSON.stringify drops them, so the server leaves those fields untouched.
+      // priority is the exception: the API accepts null to clear it, so a blank
+      // selection clears an existing priority rather than silently keeping it.
       const body: TaskUpdateReq = {
         title: title.trim(),
         description: description.trim() || undefined,
-        priority: priority || undefined,
+        priority: priority === "" ? null : priority,
         status,
         assignee: assignee.trim() || undefined,
       };

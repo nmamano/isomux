@@ -402,7 +402,9 @@ export interface TaskCreateReq {
 export type TaskUpdateReq = Partial<{
   title: string;
   description: string;
-  priority: TaskItem["priority"];
+  // Absent === leave the priority unchanged; an explicit null clears it back to
+  // no-priority. Any other value must be a real level (P0-P3).
+  priority: TaskItem["priority"] | null;
   status: TaskItem["status"];
   assignee: string;
   // Re-room the task (mirrors TaskCreateReq.roomId). Absent === leave the room

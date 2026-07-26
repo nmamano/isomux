@@ -3,7 +3,8 @@ import type { AgentInfo } from "../../shared/types.ts";
 import { DeskSprite } from "./DeskSprite.tsx";
 import { Character } from "./Character.tsx";
 import { StatusLight } from "./StatusLight.tsx";
-import { deskPixelPos, DESK_SLOTS } from "./grid.ts";
+import { DESK_SLOTS } from "../../shared/desks.ts";
+import { deskPixelPos } from "./grid.ts";
 import { styleForModel } from "../model-styles.ts";
 
 export function DeskUnit({
@@ -95,6 +96,11 @@ export function DeskUnit({
   const elapsedMs =
     isWorking && stateChangedAt ? now - stateChangedAt : undefined;
   const pos = DESK_SLOTS[agent.desk];
+  // An agent whose desk names no slot has nowhere to be drawn. OfficeState
+  // rejects such a desk at spawn (task e87d9c7d), so this only fires for a
+  // record that predates that check or was hand-edited on disk: skip the one
+  // desk instead of throwing and taking the whole room view down with it.
+  if (!pos) return null;
   const { left: pxLeft, top: pxTop } = deskPixelPos(pos.row, pos.col);
   const z = (pos.row * 2 + pos.col + 1) * 10;
 

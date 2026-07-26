@@ -16,6 +16,7 @@ import {
   claudeFamilySupportsMaxEffort,
   claudeFamilySupportsAutoPermission,
 } from "../../shared/types.ts";
+import { DESK_COUNT } from "../../shared/desks.ts";
 import {
   SHIRT_COLORS,
   HAIR_COLORS,
@@ -1355,7 +1356,7 @@ export function EditAgentDialog(props: EditAgentDialogProps) {
                   const roomAgentCount = agents.filter(
                     (a) => a.roomId === rooms[i]?.id,
                   ).length;
-                  const isFull = roomAgentCount >= 8;
+                  const isFull = roomAgentCount >= DESK_COUNT;
                   return (
                     <button
                       key={i}

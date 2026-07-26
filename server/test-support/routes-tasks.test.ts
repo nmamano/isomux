@@ -290,7 +290,7 @@ describe("routes/tasks: update / claim / done (Phase 1.4b)", () => {
     expect(miss.status).toBe(404);
   });
 
-  it("PATCH clears description via non-string, but priority CANNOT be cleared (validation rejects null/empty)", async () => {
+  it("PATCH clears description via non-string and priority via null; '' is still rejected", async () => {
     const srv = await boot();
     const t = (
       await taskHttp(srv, "/tasks", {
@@ -306,23 +306,31 @@ describe("routes/tasks: update / claim / done (Phase 1.4b)", () => {
     });
     expect(cleared.status).toBe(200);
     expect((cleared.body as TaskItem).description).toBeUndefined();
-    // priority IS validated first, so the "falsy clears" assignment branch is
-    // unreachable through HTTP: both null and "" are rejected as invalid, never
-    // cleared. Frozen: priority cannot be unset via PATCH today.
-    for (const bad of [null, ""]) {
+    // priority IS validated, so only an explicit null clears it (task
+    // dc642af2); "" stays a malformed level, like "P9".
+    for (const bad of ["", "P9"]) {
       const r = await taskHttp(srv, `/tasks/${t.id}`, {
         method: "PATCH",
         body: { priority: bad },
       });
       expect(r.status).toBe(400);
       expect((r.body as { error: string }).error).toBe(
-        "invalid priority, must be P0-P3",
+        "invalid priority, must be P0-P3 or null to clear",
       );
     }
-    // priority survived the rejected clears.
+    // priority survived the rejected writes.
     expect(
       srv.agentManager.getTasks().find((x) => x.id === t.id)?.priority,
     ).toBe("P2");
+
+    const unset = await taskHttp(srv, `/tasks/${t.id}`, {
+      method: "PATCH",
+      body: { priority: null },
+    });
+    expect(unset.status).toBe(200);
+    expect((unset.body as TaskItem).priority).toBeUndefined();
+    const stored = srv.agentManager.getTasks().find((x) => x.id === t.id);
+    expect(stored && "priority" in stored).toBe(false);
   });
 
   it("POST /tasks/:id/claim sets in_progress + assignee from body; 404 on unknown", async () => {

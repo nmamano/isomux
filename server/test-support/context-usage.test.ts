@@ -20,7 +20,7 @@
 //   - AGENT-bearer auth: own token 200; cross-agent token 403; USER cookie
 //     403 (no self:affordance); no identity 401.
 
-import { describe, it, expect, afterEach } from "bun:test";
+import { describe, it, expect, afterEach, setDefaultTimeout } from "bun:test";
 import { mkdirSync, writeFileSync } from "fs";
 import { join } from "path";
 import { startTestServer, type TestServer } from "./harness.ts";
@@ -45,10 +45,18 @@ afterEach(async () => {
   setOfficeEnvFileProvider(() => null);
 });
 
+// Every wait below is an "expect this to happen" poll, so its deadline only
+// bounds a genuine failure — a tight one buys nothing and costs flakes. A 3s
+// wait expired at 3032ms on a loaded GitHub runner (task f51ddb17), so the
+// budget is generous, and the per-test timeout is raised past it (bun's
+// default is 5s, which would otherwise cap the wait first).
+const WAIT_MS = 20_000;
+setDefaultTimeout(60_000);
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function waitUntil(
   pred: () => boolean,
-  timeoutMs = 2000,
+  timeoutMs = WAIT_MS,
   label = "cond",
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -169,7 +177,7 @@ async function diRunTurn(
       const s = mgr.getAgent(id)?.state;
       return s !== undefined && s !== "thinking" && s !== "tool_executing";
     },
-    3000,
+    WAIT_MS,
     `turn processed: ${text}`,
   );
 }
@@ -223,7 +231,7 @@ async function runTurn(
       const s = srv.agentManager.getAgent(agentId)?.state;
       return s !== undefined && s !== "thinking" && s !== "tool_executing";
     },
-    3000,
+    WAIT_MS,
     `turn processed: ${text}`,
   );
 }
@@ -234,7 +242,7 @@ async function releaseSession(srv: TestServer, agentId: string): Promise<void> {
   srv.fakeBackend.sessionForAgent(agentId)!.endStream();
   await waitUntil(
     () => srv.agentManager.getAgent(agentId)?.dormant === true,
-    3000,
+    WAIT_MS,
     "session released",
   );
 }
@@ -378,7 +386,7 @@ describe("context-fullness: snapshot lifecycle through GET /api/agents/:id/conte
 
     await runTurn(srv, agent.id, "hi");
     // The turn_completed refresh is parked on the gate.
-    await waitUntil(() => releases.length >= 1, 2000, "refresh parked");
+    await waitUntil(() => releases.length >= 1, WAIT_MS, "refresh parked");
 
     // /clear while the sample is still in flight, then let it resolve late.
     await srv.agentManager.newConversation(agent.id);
@@ -405,9 +413,9 @@ describe("context-fullness: snapshot lifecycle through GET /api/agents/:id/conte
     const token = getAgentTokenRaw(agent.id)!;
 
     await runTurn(srv, agent.id, "one");
-    await waitUntil(() => releases.length >= 1, 2000, "sample A parked");
+    await waitUntil(() => releases.length >= 1, WAIT_MS, "sample A parked");
     await runTurn(srv, agent.id, "two");
-    await waitUntil(() => releases.length >= 2, 2000, "sample B parked");
+    await waitUntil(() => releases.length >= 2, WAIT_MS, "sample B parked");
 
     // Resolve the NEWER sample first (commits), then the older one (must be
     // discarded by the seq guard, not clobber the fresher reading).
@@ -472,7 +480,7 @@ describe("context-fullness: snapshot lifecycle through GET /api/agents/:id/conte
           const s = mgr.getAgent(info.id)?.state;
           return s !== undefined && s !== "thinking" && s !== "tool_executing";
         },
-        3000,
+        WAIT_MS,
         "turn processed",
       );
 
@@ -529,7 +537,11 @@ describe("context-fullness: snapshot lifecycle through GET /api/agents/:id/conte
       // Park the NEXT sample so it's still in flight when we resume.
       park = true;
       await diRunTurn(mgr, info.id, "two"); // S1 turn-two refresh -> parked
-      await waitUntil(() => parked.length >= 1, 2000, "turn-two sample parked");
+      await waitUntil(
+        () => parked.length >= 1,
+        WAIT_MS,
+        "turn-two sample parked",
+      );
 
       // Same-id resume: installs a fresh BackendSession object (S2). Snapshot
       // preserved (no gen bump), and the parked S1 sample is now orphaned.
@@ -545,7 +557,7 @@ describe("context-fullness: snapshot lifecycle through GET /api/agents/:id/conte
       fake.sessionForAgent(info.id)!.endStream();
       await waitUntil(
         () => mgr.getAgent(info.id)?.dormant === true,
-        3000,
+        WAIT_MS,
         "session released",
       );
       r = await mgr.getAgentContextUsage(info.id);
@@ -626,7 +638,7 @@ describe("context-fullness: snapshot lifecycle through GET /api/agents/:id/conte
       expect(mgr.getCurrentSessionId(info.id)).toBe(PARENT_SID);
       await waitUntil(
         () => mgr.getAgent(info.id)?.state === "waiting_for_response",
-        3000,
+        WAIT_MS,
         "idle after first turn",
       );
       let r = await mgr.getAgentContextUsage(info.id);
@@ -646,7 +658,7 @@ describe("context-fullness: snapshot lifecycle through GET /api/agents/:id/conte
       await mgr.editMessage(info.id, firstMsgId, "edited first");
       await waitUntil(
         () => mgr.getAgent(info.id)?.state === "error",
-        3000,
+        WAIT_MS,
         "edit fork failed to error state",
       );
 
@@ -785,10 +797,10 @@ describe("context-fullness: agent-facing threshold notices (task 50392514)", () 
 
     // Turn 1: park -> release -> complete, seeding the 70% sample.
     send("one");
-    await waitUntil(() => curSess().sent.length === 1, 3000, "turn1 parked");
+    await waitUntil(() => curSess().sent.length === 1, WAIT_MS, "turn1 parked");
     curSess().releaseSends();
     curSess().completeTurn();
-    await waitUntil(settled, 3000, "turn1 done");
+    await waitUntil(settled, WAIT_MS, "turn1 done");
     let r = await getContext(srv, agent.id, { bearer: token });
     expect(r.body).toMatchObject({ available: true, percentage: 70 });
 
@@ -796,7 +808,7 @@ describe("context-fullness: agent-facing threshold notices (task 50392514)", () 
     // window (do NOT release).
     const s1 = curSess();
     send("two");
-    await waitUntil(() => s1.sent.length === 2, 3000, "turn2 parked");
+    await waitUntil(() => s1.sent.length === 2, WAIT_MS, "turn2 parked");
     expect(s1.sent[1].text).toContain("[context check: 70% full");
 
     // Swap the conversation WHILE turn 2's send is parked (bumps the
@@ -809,13 +821,13 @@ describe("context-fullness: agent-facing threshold notices (task 50392514)", () 
     // Fresh conversation is dormant; turn 3 wakes a new session and re-seeds
     // 70%. Its first turn has no sample yet -> no notice.
     send("three");
-    await waitUntil(() => curSess() !== s1, 3000, "turn3 session woke");
+    await waitUntil(() => curSess() !== s1, WAIT_MS, "turn3 session woke");
     const s2 = curSess();
-    await waitUntil(() => s2.sent.length === 1, 3000, "turn3 parked");
+    await waitUntil(() => s2.sent.length === 1, WAIT_MS, "turn3 parked");
     expect(s2.sent[0].text).not.toContain("context check");
     s2.releaseSends();
     s2.completeTurn();
-    await waitUntil(settled, 3000, "turn3 done");
+    await waitUntil(settled, WAIT_MS, "turn3 done");
     r = await getContext(srv, agent.id, { bearer: token });
     expect(r.body).toMatchObject({ available: true, percentage: 70 });
 
@@ -823,7 +835,7 @@ describe("context-fullness: agent-facing threshold notices (task 50392514)", () 
     // NOT consume the fresh generation's fired-set. (With the bug, turn 2's
     // late send would have marked 60 on the new gen and this would be absent.)
     send("four");
-    await waitUntil(() => s2.sent.length === 2, 3000, "turn4 parked");
+    await waitUntil(() => s2.sent.length === 2, WAIT_MS, "turn4 parked");
     expect(s2.sent[1].text).toContain("[context check: 70% full");
     s2.releaseSends();
   });
@@ -874,7 +886,7 @@ describe("context-fullness: WS broadcast of AgentInfo.contextUsage (task 2709623
     await diRunTurn(mgr, info.id, "hello");
     await waitUntil(
       () => ctxBroadcasts(captured).length >= 1,
-      3000,
+      WAIT_MS,
       "contextUsage broadcast",
     );
 
@@ -901,7 +913,7 @@ describe("context-fullness: WS broadcast of AgentInfo.contextUsage (task 2709623
     await diRunTurn(mgr, info.id, "hello");
     await waitUntil(
       () => mgr.getAgent(info.id)?.contextUsage != null,
-      3000,
+      WAIT_MS,
       "snapshot present",
     );
 
@@ -931,7 +943,7 @@ describe("context-fullness: WS broadcast of AgentInfo.contextUsage (task 2709623
     await diRunTurn(mgr, info.id, "hello");
     await waitUntil(
       () => mgr.getAgent(info.id)?.contextUsage != null,
-      3000,
+      WAIT_MS,
       "snapshot present",
     );
 
@@ -947,7 +959,7 @@ describe("context-fullness: WS broadcast of AgentInfo.contextUsage (task 2709623
     await waitUntil(
       () =>
         ctxBroadcasts(captured).some((e) => e.changes.contextUsage === null),
-      3000,
+      WAIT_MS,
       "null clear broadcast from typed /clear",
     );
     expect(mgr.getAgent(info.id)?.contextUsage).toBeNull();
@@ -961,7 +973,7 @@ describe("context-fullness: WS broadcast of AgentInfo.contextUsage (task 2709623
     await diRunTurn(mgr, info.id, "hello");
     await waitUntil(
       () => mgr.getAgent(info.id)?.contextUsage != null,
-      3000,
+      WAIT_MS,
       "initial snapshot",
     );
 
@@ -1035,7 +1047,7 @@ describe("context-fullness: boss-facing ephemeral chat notice (task 0b12423b)", 
       await diRunTurn(mgr, info.id, "one");
       await waitUntil(
         () => mgr.getAgent(info.id)?.contextUsage?.percentage === 30,
-        3000,
+        WAIT_MS,
         "30% committed",
       );
       expect(uiNotices(mgr, info.id)).toHaveLength(0);
@@ -1045,7 +1057,7 @@ describe("context-fullness: boss-facing ephemeral chat notice (task 0b12423b)", 
       await diRunTurn(mgr, info.id, "two");
       await waitUntil(
         () => uiNotices(mgr, info.id).length === 1,
-        3000,
+        WAIT_MS,
         "50-band notice",
       );
       expect(uiNotices(mgr, info.id)[0].content).toBe(
@@ -1061,7 +1073,7 @@ describe("context-fullness: boss-facing ephemeral chat notice (task 0b12423b)", 
         () =>
           (mgr.getAgent(info.id)?.contextUsage?.sampledAtMs ?? 0) >
           prevSampledAt,
-        3000,
+        WAIT_MS,
         "third sample recommitted",
       );
       expect(uiNotices(mgr, info.id)).toHaveLength(1);
@@ -1071,7 +1083,7 @@ describe("context-fullness: boss-facing ephemeral chat notice (task 0b12423b)", 
       await diRunTurn(mgr, info.id, "four");
       await waitUntil(
         () => uiNotices(mgr, info.id).length === 2,
-        3000,
+        WAIT_MS,
         "75-band notice",
       );
       expect(uiNotices(mgr, info.id)[1].content).toBe(
@@ -1084,7 +1096,7 @@ describe("context-fullness: boss-facing ephemeral chat notice (task 0b12423b)", 
         () =>
           (mgr.getAgent(info.id)?.contextUsage?.sampledAtMs ?? 0) >
           sampledAtBeforeFive,
-        3000,
+        WAIT_MS,
         "fifth sample recommitted",
       );
       expect(uiNotices(mgr, info.id)).toHaveLength(2);
@@ -1110,7 +1122,7 @@ describe("context-fullness: boss-facing ephemeral chat notice (task 0b12423b)", 
       await diRunTurn(mgr, info.id, "one");
       await waitUntil(
         () => uiNotices(mgr, info.id).length >= 1,
-        3000,
+        WAIT_MS,
         "notice emitted",
       );
       const notices = uiNotices(mgr, info.id);
@@ -1123,7 +1135,7 @@ describe("context-fullness: boss-facing ephemeral chat notice (task 0b12423b)", 
         () =>
           (mgr.getAgent(info.id)?.contextUsage?.sampledAtMs ?? 0) >
           prevSampledAt,
-        3000,
+        WAIT_MS,
         "second sample recommitted",
       );
       expect(uiNotices(mgr, info.id)).toHaveLength(1);
@@ -1142,7 +1154,7 @@ describe("context-fullness: boss-facing ephemeral chat notice (task 0b12423b)", 
       await diRunTurn(mgr, info.id, "one");
       await waitUntil(
         () => uiNotices(mgr, info.id).length === 1,
-        3000,
+        WAIT_MS,
         "chat notice",
       );
       const sess = fake.sessionForAgent(info.id)!;
@@ -1167,7 +1179,7 @@ describe("context-fullness: boss-facing ephemeral chat notice (task 0b12423b)", 
       await diRunTurn(mgr, info.id, "one");
       await waitUntil(
         () => uiNotices(mgr, info.id).length === 1,
-        3000,
+        WAIT_MS,
         "first notice",
       );
 
@@ -1178,7 +1190,7 @@ describe("context-fullness: boss-facing ephemeral chat notice (task 0b12423b)", 
       await diRunTurn(mgr, info.id, "fresh");
       await waitUntil(
         () => uiNotices(mgr, info.id).length === 1,
-        3000,
+        WAIT_MS,
         "post-clear notice",
       );
       expect(uiNotices(mgr, info.id)[0].content).toBe(

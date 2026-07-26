@@ -178,8 +178,19 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
           "invalid status, must be open|in_progress|backlog|done",
         );
       }
-      if (body.priority !== undefined && !isValidPriority(body.priority)) {
-        return fail(400, "invalid_request", "invalid priority, must be P0-P3");
+      // `priority: null` CLEARS the priority (task dc642af2); anything else
+      // non-null must name a real level. An empty string is not a clear — it is
+      // a malformed level, same as "P9".
+      if (
+        body.priority !== undefined &&
+        body.priority !== null &&
+        !isValidPriority(body.priority)
+      ) {
+        return fail(
+          400,
+          "invalid_request",
+          "invalid priority, must be P0-P3 or null to clear",
+        );
       }
       // Re-room validation is SPLIT across the visibility gate (full behavior
       // matrix at the assembly block below). Only the SHAPE check runs here: a
@@ -203,7 +214,9 @@ export function tasksHandlers(deps: TasksDeps): Record<string, RouteHandler> {
       }
       if (body.status !== undefined) changes.status = body.status;
       if (body.priority !== undefined) {
-        changes.priority = body.priority ? body.priority : undefined;
+        // Validated above: either a real level or the null clear (which reaches
+        // the core as `undefined`, like the description/assignee clears).
+        changes.priority = body.priority ?? undefined;
       }
       if (body.assignee !== undefined) {
         changes.assignee =

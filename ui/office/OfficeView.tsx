@@ -34,6 +34,7 @@ import { useSwipeLeftRight } from "../hooks/useSwipeLeftRight.ts";
 import { useViewport } from "./useViewport.ts";
 import { ZoomControls } from "./ZoomControls.tsx";
 import type { AgentInfo } from "../../shared/types.ts";
+import { DESK_COUNT } from "../../shared/desks.ts";
 import { buildCommitNotice } from "../../shared/update-notice.ts";
 
 // Pixel size of a single ghost (width). ~50% of the agent character
@@ -592,7 +593,8 @@ export function OfficeView({
                   const targetRoomId = rooms[currentRoomIndex - 1]?.id;
                   if (
                     !targetRoomId ||
-                    agents.filter((x) => x.roomId === targetRoomId).length >= 8
+                    agents.filter((x) => x.roomId === targetRoomId).length >=
+                      DESK_COUNT
                   ) {
                     setLeftDoorReject(true);
                     setTimeout(() => setLeftDoorReject(false), 400);
@@ -627,7 +629,8 @@ export function OfficeView({
                   const targetRoomId = rooms[currentRoomIndex + 1]?.id;
                   if (
                     !targetRoomId ||
-                    agents.filter((x) => x.roomId === targetRoomId).length >= 8
+                    agents.filter((x) => x.roomId === targetRoomId).length >=
+                      DESK_COUNT
                   ) {
                     setRightDoorReject(true);
                     setTimeout(() => setRightDoorReject(false), 400);
@@ -641,7 +644,7 @@ export function OfficeView({
               />
             )}
             {/* eslint-disable react-hooks/refs -- viewport.wrapClick is a stable callback */}
-            {Array.from({ length: 8 }, (_, i) => {
+            {Array.from({ length: DESK_COUNT }, (_, i) => {
               const agent = roomAgents.find((a) => a.desk === i);
               if (agent) {
                 return (

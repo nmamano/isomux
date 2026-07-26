@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentInfo, PresenceInfo, RoomWire } from "../../shared/types.ts";
-import { DESK_SLOTS, deskPixelPos } from "./grid.ts";
+import { DESK_SLOTS } from "../../shared/desks.ts";
+import { deskPixelPos } from "./grid.ts";
 
 // "Outside SE wall" lobby coordinates. Until the desk repositioning in
 // task 11384153 lands, idle ghosts can't fit anywhere on the floor;

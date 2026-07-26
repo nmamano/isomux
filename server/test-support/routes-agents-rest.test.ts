@@ -22,6 +22,7 @@ import { FakeBackend } from "./fake-backend.ts";
 import { loadRecentCwds } from "../persistence.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import { getUserByName } from "../users.ts";
+import { DESK_COUNT } from "../../shared/desks.ts";
 
 let server: TestServer | null = null;
 
@@ -381,6 +382,70 @@ describe("agents.spawn REST (Phase 3d slice 7b)", () => {
     });
     expect(res.status).toBe(409);
     expect(errCode(res.body)).toBe("no_free_desk");
+  });
+
+  // Task e87d9c7d: an explicit desk used to be accepted whenever the slot was
+  // merely un-taken, never checked against the grid. The agent was real (it
+  // showed up in /agents and took messages) but had no slot to be drawn at, so
+  // rendering the room threw and the whole office view for that room went down.
+  it("desk past the last slot -> 422 invalid_desk, and no agent is created", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const res = await req(srv, "POST", "/api/agents", {
+      body: spawnBody(srv, "OffGrid", r1, DESK_COUNT),
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(422);
+    expect(errCode(res.body)).toBe("invalid_desk");
+    expect(srv.agentManager.getAllAgents()).toHaveLength(0);
+  });
+
+  it("negative desk -> 422 invalid_desk (-1 is also the room-full sentinel)", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const res = await req(srv, "POST", "/api/agents", {
+      body: spawnBody(srv, "Negative", r1, -1),
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(422);
+    expect(errCode(res.body)).toBe("invalid_desk");
+    expect(srv.agentManager.getAllAgents()).toHaveLength(0);
+  });
+
+  it("an out-of-range desk cannot smuggle an agent into a FULL room", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    for (let d = 0; d < DESK_COUNT; d++) await spawnAt(srv, `Fill${d}`, r1, d);
+    const res = await req(srv, "POST", "/api/agents", {
+      body: spawnBody(srv, "Ninth", r1, DESK_COUNT),
+      rawSessionId: owner.rawSessionId,
+    });
+    expect(res.status).toBe(422);
+    expect(srv.agentManager.getAllAgents()).toHaveLength(DESK_COUNT);
+  });
+
+  // The core holds the same line for callers that don't come through REST
+  // (boot/restore, the welcome seed, plugins).
+  it("core: agentManager.spawn with an out-of-range desk returns null", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const created = await srv.agentManager.spawn(
+      "CoreOffGrid",
+      srv.stateRoot,
+      "default",
+      DESK_COUNT,
+      undefined,
+      r1,
+    );
+    expect(created).toBeNull();
+    expect(srv.agentManager.getAllAgents()).toHaveLength(0);
   });
 
   it("invalid cwd -> 400 invalid_cwd", async () => {
@@ -898,6 +963,29 @@ describe("agents.revive REST (Phase 3d slice 7b)", () => {
     expect(res.status).toBe(200);
     expect((res.body as { agent?: { id?: string } }).agent?.id).toBe(x.id);
     expect(srv.agentManager.getAgent(x.id)).toBeDefined();
+  });
+
+  // Task e87d9c7d: revive shape-checks the desk range like spawn. The core
+  // rejected an off-grid desk too, but as "That desk is no longer free." —
+  // telling the boss a desk was occupied when it doesn't exist at all.
+  it("out-of-range desk -> 422 invalid_desk, and the agent stays dead", async () => {
+    const srv = await startTestServer({
+      fakeBackend: new FakeBackend({ session: { autoSystemInit: false } }),
+    });
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const x = await spawnAt(srv, "K", r1, 0);
+    await srv.agentManager.kill(x.id);
+    for (const desk of [DESK_COUNT, -1]) {
+      const res = await req(srv, "POST", `/api/agents/${x.id}/revive`, {
+        body: { roomId: r1, desk },
+        rawSessionId: owner.rawSessionId,
+      });
+      expect(res.status).toBe(422);
+      expect(errCode(res.body)).toBe("invalid_desk");
+    }
+    expect(srv.agentManager.getAgent(x.id)).toBeUndefined();
   });
 
   it("no identity -> 401", async () => {

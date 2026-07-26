@@ -24,6 +24,7 @@ import { ConnectionBanner } from "./components/ConnectionBanner.tsx";
 import { CSS } from "./styles.ts";
 import { getUsername, getDevice } from "./device-settings.ts";
 import type { AgentBackendType, AgentInfo } from "../shared/types.ts";
+import { isValidDesk } from "../shared/desks.ts";
 import { EngineChooserDialog } from "./components/EngineChooserDialog.tsx";
 
 /** Cycle to the next/previous agent in the current room, matching Tab/Shift+Tab logic. */
@@ -408,20 +409,22 @@ export function App() {
           vp.zoomOut();
         }
       }
-      // Number keys 1-8: focus agent at that desk in current room (only from office view)
+      // Number keys: focus the agent at that desk in the current room (only
+      // from office view). The keys are 1-based while desks are 0-based
+      // everywhere else (state, API, drag-and-drop), so "1" is desk 0.
       if (
         !isInput &&
         !focusedAgentId &&
-        e.key >= "1" &&
-        e.key <= "8" &&
         !e.metaKey &&
         !e.ctrlKey &&
         !e.altKey
       ) {
-        const deskIndex = parseInt(e.key) - 1;
-        const agent = agents.find(
-          (a) => a.desk === deskIndex && a.roomId === currentRoomId,
-        );
+        const deskIndex = Number(e.key) - 1;
+        const agent = isValidDesk(deskIndex)
+          ? agents.find(
+              (a) => a.desk === deskIndex && a.roomId === currentRoomId,
+            )
+          : undefined;
         if (agent) {
           e.preventDefault();
           dispatch({ type: "focus", agentId: agent.id });

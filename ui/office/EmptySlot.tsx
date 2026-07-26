@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { deskPixelPos, DESK_SLOTS } from "./grid.ts";
+import { DESK_SLOTS } from "../../shared/desks.ts";
+import { deskPixelPos } from "./grid.ts";
 
 export function EmptySlot({
   deskIndex,

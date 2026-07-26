@@ -4193,9 +4193,16 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
               { status: 400, headers: corsHeaders },
             );
           }
-          if (body.priority !== undefined && !isValidPriority(body.priority)) {
+          // `priority: null` clears it, matching /api/tasks (task dc642af2).
+          if (
+            body.priority !== undefined &&
+            body.priority !== null &&
+            !isValidPriority(body.priority)
+          ) {
             return new Response(
-              JSON.stringify({ error: "invalid priority, must be P0-P3" }),
+              JSON.stringify({
+                error: "invalid priority, must be P0-P3 or null to clear",
+              }),
               { status: 400, headers: corsHeaders },
             );
           }
@@ -4213,7 +4220,7 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
                 : undefined;
           if (body.status !== undefined) changes.status = body.status;
           if (body.priority !== undefined)
-            changes.priority = body.priority ? body.priority : undefined;
+            changes.priority = body.priority ?? undefined;
           if (body.assignee !== undefined)
             changes.assignee =
               typeof body.assignee === "string" ? body.assignee : undefined;

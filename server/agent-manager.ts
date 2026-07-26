@@ -25,6 +25,7 @@ import {
 } from "../shared/types.ts";
 import { formatPrefix, formatAgentSenderPrefix } from "../shared/identity.ts";
 import { errMessage } from "../shared/errors.ts";
+import { isValidDesk } from "../shared/desks.ts";
 import {
   appendLog,
   loadLog,
@@ -5726,7 +5727,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         .filter((a) => a.roomId === roomId)
         .map((a) => a.desk),
     );
-    if (desk < 0 || desk >= 8 || taken.has(desk)) {
+    if (!isValidDesk(desk) || taken.has(desk)) {
       return {
         ok: false,
         error: "That desk is no longer free.",

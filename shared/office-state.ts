@@ -9,6 +9,7 @@ import type {
 import { DEFAULT_AGENT_CAPABILITIES, DEFAULT_EFFORT } from "./types.ts";
 import { generateTaskId, generateRoomId } from "./types.ts";
 import { versionOf } from "./blob-version.ts";
+import { DESK_COUNT, isValidDesk } from "./desks.ts";
 import {
   SHIRT_COLORS,
   HAIR_COLORS,
@@ -215,12 +216,21 @@ export class OfficeState {
     );
     const taken = new Set(roomAgents.map((a) => a.desk));
 
+    // An explicit desk that names no real slot is REJECTED, not quietly
+    // reassigned: it is a caller bug, and before task e87d9c7d it produced an
+    // agent that existed everywhere except the office view (DeskUnit's slot
+    // lookup threw and took the whole room's render down). A desk of -1 is
+    // doubly invalid — it is also the "no free desk" sentinel below.
+    // An explicit desk that is merely TAKEN still falls through to
+    // auto-assign, which is the long-standing behavior.
+    if (opts.desk !== undefined && !isValidDesk(opts.desk)) return null;
+
     let desk: number;
     if (opts.desk !== undefined && !taken.has(opts.desk)) {
       desk = opts.desk;
     } else {
       desk = -1;
-      for (let i = 0; i < 8; i++) {
+      for (let i = 0; i < DESK_COUNT; i++) {
         if (!taken.has(i)) {
           desk = i;
           break;
@@ -377,7 +387,7 @@ export class OfficeState {
   }
 
   swapDesks(deskA: number, deskB: number, roomId: string): OfficeEvent[] {
-    if (deskA === deskB || deskA < 0 || deskA > 7 || deskB < 0 || deskB > 7)
+    if (deskA === deskB || !isValidDesk(deskA) || !isValidDesk(deskB))
       return [];
     if (!this._rooms.some((r) => r.id === roomId)) return [];
 
@@ -471,10 +481,10 @@ export class OfficeState {
     const targetAgents = [...this.agents.values()].filter(
       (a) => a.roomId === targetRoomId,
     );
-    if (targetAgents.length >= 8) return [];
+    if (targetAgents.length >= DESK_COUNT) return [];
     const taken = new Set(targetAgents.map((a) => a.desk));
     let newDesk = -1;
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < DESK_COUNT; i++) {
       if (!taken.has(i)) {
         newDesk = i;
         break;
@@ -622,6 +632,9 @@ export class OfficeState {
     // with an undefined value, so drop it to keep one canonical "global" and
     // match the persisted/wire shape of a task that never had a room.
     if ("roomId" in changes && !task.roomId) delete task.roomId;
+    // Same for a cleared priority (task dc642af2): `priority: undefined` in
+    // `changes` must leave a task shaped like one that never had a priority.
+    if ("priority" in changes && !task.priority) delete task.priority;
     const events: OfficeEvent[] = [
       { type: "tasks_changed", tasks: [...this._tasks] },
     ];
