@@ -31,7 +31,7 @@ After a few minutes it prints a single-use owner invite link, also saved on the 
 
 ## What it does
 
-- Installs bun, Node.js, git, and Caddy; fetches isomux and builds it.
+- Installs bun, Node.js, git, Caddy, and Chrome (headless, for the agents' page-preview cards); fetches isomux and builds it.
 - Runs isomux as a systemd service under a dedicated `isomux` user, restarting on failure and on boot.
 - Serves your domain through Caddy with an automatic Let's Encrypt certificate.
 - Hardens the box: firewall allowing only web traffic and, unless disabled, SSH; key-only SSH auth; unattended security updates (a standard Ubuntu feature — it patches system packages, never isomux itself).
@@ -70,4 +70,5 @@ Either way, it rebuilds at the new version, snapshots the office state, and rest
 - The invite link is a credential until it's used or expires. It appears in the install output, so it also lands in logs that capture it (cloud-init writes stdout to `/var/log/cloud-init-output.log`).
 - The service is system-level: restart with `systemctl restart isomux` as root (the [self-hosted page](self-hosted.md) describes a user-level service instead, so its `systemctl --user` commands don't apply here).
 - SSH hardening is skipped, with a warning, if the box has no `authorized_keys` yet; add a key and re-run to apply it.
+- Chrome backs only the page-preview cards. If it can't be installed - no amd64 build for the box, a failed download, or a test capture that comes back empty - the installer warns and carries on without it.
 - Authenticated users effectively have shell access to the server (agents run commands as the `isomux` user). Only invite people you trust; see [access and invites](access-and-invites.md).

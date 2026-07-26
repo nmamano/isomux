@@ -3,6 +3,7 @@
 #
 # Turns a fresh Ubuntu 24.04 server into an HTTPS-served isomux instance:
 # bun + isomux (systemd service) + Caddy with automatic Let's Encrypt +
+# a headless browser for the agents' page-preview cards +
 # firewall/SSH hardening + unattended security updates (a standard Ubuntu
 # feature — it patches system packages, never isomux itself). Ends by
 # claiming the office owner, minting a single-use owner invite link,
@@ -63,6 +64,8 @@ UPDATE_CONF=/etc/isomux/update.conf
 UPDATE_STATE_DIR=/var/lib/isomux-update
 COOKIE_JAR=$STATE_DIR/session.cookies
 INVITE_FILE=$STATE_DIR/invite-url
+CHROME_PATH=/usr/bin/google-chrome
+CHROME_DEB_URL=https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
 BASE_URL=http://127.0.0.1:4000
 ADMIN_SOCK=$SERVICE_HOME/.isomux/admin.sock
 HEALTH_TIMEOUT_S=180
@@ -420,6 +423,88 @@ create_service_user() {
     log "user $SERVICE_USER already exists"
   else
     run useradd --create-home --shell /bin/bash "$SERVICE_USER"
+  fi
+}
+
+# A Chrome-family browser is what backs the agents' page-preview cards
+# (POST /api/agents/:id/preview-url). Without one the server answers
+# `no_browser` while the agent system prompt advertises the capability, so
+# agents offer a feature that always fails.
+#
+# Google Chrome's own .deb, deliberately NOT snap chromium: on Ubuntu 24.04
+# `snap install chromium` succeeds and still cannot screenshot (snap
+# confinement + no desktop session makes captures die on D-Bus), and /snap/bin
+# is not on the service's PATH either. The .deb lands at $CHROME_PATH, the
+# first candidate the server probes.
+#
+# Non-fatal throughout: a box without a browser is fully functional except for
+# page previews, so a download hiccup must not abandon an otherwise good
+# install. Every failure path warns and continues.
+install_browser() {
+  step install-browser
+  if [[ -n $DRY_RUN ]]; then
+    log "DRY-RUN: would install Google Chrome from $CHROME_DEB_URL and verify a real headless capture"
+    return 0
+  fi
+  local arch
+  arch=$(dpkg --print-architecture 2>/dev/null || echo unknown)
+  if [[ -x $CHROME_PATH ]]; then
+    log "browser already installed: $("$CHROME_PATH" --version 2>/dev/null || echo "$CHROME_PATH")"
+  elif [[ $arch != amd64 ]]; then
+    log "warning: Google Chrome ships no $arch Linux build, so page previews (the preview-url card) will be unavailable. Install a Chrome-family browser yourself to enable them (ask your agent for help); nothing else is affected."
+    return 0
+  else
+    local deb
+    deb=$(mktemp /tmp/isomux-chrome.XXXXXXXXXX.deb)
+    if ! curl -fsSL -o "$deb" "$CHROME_DEB_URL"; then
+      rm -f "$deb"
+      log "warning: could not download Google Chrome from $CHROME_DEB_URL, so page previews (the preview-url card) will be unavailable. Re-run this installer to retry; nothing else is affected."
+      return 0
+    fi
+    if ! apt-get install -y "$deb"; then
+      rm -f "$deb"
+      log "warning: installing the Google Chrome package failed, so page previews (the preview-url card) will be unavailable. Re-run this installer to retry; nothing else is affected."
+      return 0
+    fi
+    rm -f "$deb"
+  fi
+  verify_browser
+}
+
+# Prove the installed browser can actually produce a screenshot, as the service
+# user and with the flags that decide the outcome on a headless server (the
+# keyring/D-Bus pair, a private profile dir) — not a replica of every flag the
+# server passes. A present binary is not the same as a working one (snap
+# chromium is the standing counter-example), and without this check the failure
+# surfaces much later, to an agent. Non-empty PNG rather than the server's
+# full completeness check: this only has to tell a working browser from a
+# confined one.
+verify_browser() {
+  [[ -x $CHROME_PATH ]] || {
+    log "warning: $CHROME_PATH is missing after the browser install, so page previews (the preview-url card) will be unavailable."
+    return 0
+  }
+  local probe
+  probe=$(mktemp -d /tmp/isomux-browser-check.XXXXXXXXXX)
+  chown "$SERVICE_USER:$SERVICE_USER" "$probe" || true
+  # Both halves stay in the `if` CONDITION: under `set -e` a failing command in
+  # an if BODY aborts the script, and a browser that cannot capture must warn,
+  # not abort the install.
+  local ok=""
+  if as_service_user timeout 60 "$CHROME_PATH" \
+    --headless=new "--screenshot=$probe/probe.png" --window-size=320,320 \
+    --disable-gpu --hide-scrollbars --no-first-run --no-default-browser-check \
+    --disable-background-networking --disable-component-update \
+    --password-store=basic --use-mock-keychain "--user-data-dir=$probe/profile" \
+    'data:text/html,<title>isomux</title>' >/dev/null 2>&1 &&
+    [[ -s $probe/probe.png ]]; then
+    ok=1
+  fi
+  rm -rf "$probe"
+  if [[ -n $ok ]]; then
+    log "browser ready for page previews: $("$CHROME_PATH" --version 2>/dev/null || echo "$CHROME_PATH")"
+  else
+    log "warning: $CHROME_PATH is installed but produced no screenshot in a headless test run, so page previews (the preview-url card) will not work. Nothing else is affected; see: $CHROME_PATH --headless=new --screenshot=/tmp/probe.png about:blank"
   fi
 }
 
@@ -865,6 +950,7 @@ main() {
   harden_ssh
   enable_auto_updates
   create_service_user
+  install_browser
   fetch_isomux
   install_bun
   build_isomux

@@ -19,6 +19,8 @@ import { tmpdir } from "os";
 import { join } from "path";
 import {
   capturePreview,
+  BROWSER_CANDIDATES,
+  BROWSER_ABSOLUTE_PATHS,
   type PreviewCaptureDeps,
   type PreviewResult,
 } from "../preview-capture.ts";
@@ -177,12 +179,22 @@ describe("preview-capture: any host passes validation (policy dropped, fb02f521)
 });
 
 describe("preview-capture: engine, pre-flight, and capture failures", () => {
-  it("no browser found -> 500 no_browser", async () => {
+  it("no browser found -> 500 no_browser, naming every place probed", async () => {
     const r = await capturePreview(
       { url: "http://127.0.0.1:3000/" },
       deps({ findBrowser: () => null }),
     );
     expectFail(r, 500, "no_browser");
+    // The absolute-path fallbacks exist because a systemd unit's PATH is
+    // minimal (/snap/bin, where Ubuntu 24.04 puts chromium, is never on it),
+    // so an installed browser could otherwise read as "not installed". The
+    // message has to name them, or an operator can't tell what was tried.
+    for (const name of [...BROWSER_CANDIDATES, ...BROWSER_ABSOLUTE_PATHS]) {
+      expect(r.error).toContain(name);
+    }
+    expect(BROWSER_ABSOLUTE_PATHS).toContain("/usr/bin/google-chrome");
+    expect(BROWSER_ABSOLUTE_PATHS).toContain("/snap/bin/chromium");
+    expect(BROWSER_ABSOLUTE_PATHS.every((p) => p.startsWith("/"))).toBe(true);
   });
 
   it("pre-flight network failure -> 500 unreachable, no temp dir left", async () => {

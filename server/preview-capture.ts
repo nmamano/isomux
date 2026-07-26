@@ -33,6 +33,7 @@
 // kill, and temp-dir cleanup paths run deterministically without Chrome).
 
 import { mkdtemp, readFile, rm } from "fs/promises";
+import { accessSync, constants } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { spawn } from "child_process";
@@ -64,7 +65,8 @@ export interface PreviewSuccess {
 export type PreviewResult = PreviewSuccess | PreviewFailure;
 
 export interface PreviewCaptureDeps {
-  /** Resolve the browser executable. Default: env override, then PATH probe. */
+  /** Resolve the browser executable. Default: env override, PATH probe, then
+   * the known absolute install paths. */
   findBrowser?: () => string | null;
   /** Pre-flight reachability fetch. Default: global fetch. */
   fetchFn?: typeof fetch;
@@ -102,6 +104,18 @@ export const BROWSER_CANDIDATES = [
   "google-chrome",
   "chromium",
   "chromium-browser",
+];
+// Absolute fallbacks, tried after the PATH names above. A systemd unit runs
+// with a minimal PATH, so a browser can be installed and still be invisible to
+// the name probe — /snap/bin (where Ubuntu 24.04 puts chromium) is never on it.
+// Last resort on purpose: snap-confined chromium usually installs fine and then
+// fails the capture itself, which at least surfaces the browser's own stderr
+// instead of a flat "no browser found".
+export const BROWSER_ABSOLUTE_PATHS = [
+  "/usr/bin/google-chrome",
+  "/usr/bin/chromium",
+  "/usr/bin/chromium-browser",
+  "/snap/bin/chromium",
 ];
 
 // Each Chrome is briefly ~150MB RSS; no queueing so the deadline never hides
@@ -203,6 +217,14 @@ function defaultFindBrowser(): string | null {
   for (const candidate of BROWSER_CANDIDATES) {
     const resolved = Bun.which(candidate);
     if (resolved) return resolved;
+  }
+  for (const path of BROWSER_ABSOLUTE_PATHS) {
+    try {
+      accessSync(path, constants.X_OK);
+      return path;
+    } catch {
+      // not installed here, or not executable by the service user
+    }
   }
   return null;
 }
@@ -408,7 +430,8 @@ export async function capturePreview(
     return fail(
       500,
       "no_browser",
-      `no Chrome-family browser found on PATH (tried ${BROWSER_CANDIDATES.join(", ")}); ` +
+      `no Chrome-family browser found (tried ${BROWSER_CANDIDATES.join(", ")} on PATH, ` +
+        `then ${BROWSER_ABSOLUTE_PATHS.join(", ")}); ` +
         "install one or point ISOMUX_PREVIEW_BROWSER at an executable",
     );
   }

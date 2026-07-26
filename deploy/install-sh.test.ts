@@ -119,6 +119,50 @@ describe("install.sh escalation: template unit + placement", () => {
     expect(SRC).toMatch(/apt-get install -y[^\n]*\bnodejs\b/);
   });
 
+  it("installs a browser from Chrome's .deb, never snap, and verifies a capture", () => {
+    // snap chromium installs cleanly and then cannot screenshot on a headless
+    // server, so an installer that reaches for it would look successful and
+    // still ship preview-url dead. Pin the .deb source, the verification, and
+    // the never-snap rule.
+    expect(SRC).toContain(
+      "CHROME_DEB_URL=https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb",
+    );
+    expect(SRC).toContain("CHROME_PATH=/usr/bin/google-chrome");
+    expect(SRC).not.toMatch(/^\s*(run )?snap\b/m); // never invoked, only warned about
+    // The verification runs a real capture as the SERVICE USER (Chrome refuses
+    // to run as root without --no-sandbox, and the service user is who will
+    // actually launch it), and checks a PNG landed.
+    expect(SRC).toMatch(/as_service_user timeout 60 "\$CHROME_PATH"/);
+    expect(SRC).toContain('[[ -s $probe/probe.png ]]');
+    // Ordered after create_service_user (the probe needs that account) and
+    // before the build, so the warning is visible early in the output.
+    const createUser = SRC.indexOf("  create_service_user\n");
+    const browser = SRC.indexOf("  install_browser\n");
+    const fetch = SRC.indexOf("  fetch_isomux\n");
+    expect(createUser).toBeGreaterThan(-1);
+    expect(browser).toBeGreaterThan(createUser);
+    expect(fetch).toBeGreaterThan(browser);
+  });
+
+  it("a missing or broken browser warns instead of failing the install", () => {
+    // Page previews are the only thing a browser gates; losing them must not
+    // abandon an otherwise complete install.
+    const fn = SRC.slice(
+      SRC.indexOf("install_browser() {"),
+      SRC.indexOf("# Default ISOMUX_REF:"),
+    );
+    expect(fn.length).toBeGreaterThan(0);
+    expect(fn).not.toContain("die ");
+    for (const warning of [
+      "could not download Google Chrome",
+      "installing the Google Chrome package failed",
+      "produced no screenshot in a headless test run",
+      "ships no $arch Linux build",
+    ]) {
+      expect(fn).toContain(warning);
+    }
+  });
+
   it("build step rebuilds node-pty when its native binding is missing", () => {
     // A resumed install can skip node-pty's build script; the guard must
     // check for the compiled binding, remove the package AS THE SERVICE USER

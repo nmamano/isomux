@@ -92,7 +92,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Embedded terminal** for direct shell access per agent. Copy/paste works with the usual shortcuts: Cmd+C/V on Mac; on Windows and Linux, Ctrl+V pastes and Ctrl+C copies when text is selected (and interrupts, as usual, when nothing is selected). Selecting text also surfaces a "Send to chat" button that drops the selection into the chat input as a code block, ready to discuss with the agent.
 - **Built-in file editor**: syntax highlighting, file tabs, resizable alongside the chat. Open files via `/isomux-edit` (agents can offer this too via "[Open in editor]" cards).
 - `/isomux-diff` — rich-rendered uncommitted changes. Agents can also choose to emit a diff card on their own.
-- **Browser preview cards** — agents can screenshot a web page (their dev server, a dashboard) straight into the chat, so you see UI changes without alt-tabbing to a browser. Needs a Chrome-family browser installed on the server (runs headless, so no display is needed); everything else works without one.
+- **Browser preview cards** — agents can screenshot a web page (their dev server, a dashboard) straight into the chat, so you see UI changes without alt-tabbing to a browser. Needs a Chrome-family browser on the server, which the [VPS install](vps-install.md) sets up for you (runs headless, so no display is needed); everything else works without one.
 - `/isomux-usage` — per-agent / per-room / per-cron-job token spend, scoped to the rooms you can access.
 - **Plugin system**: add memory, audit, or other turn-aware behavior. Reference [mem0 plugin](https://github.com/nmamano/isomux-mem0) gives agents long-term memory across sessions.
 
