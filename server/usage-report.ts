@@ -11,7 +11,7 @@ import {
   loadCronjobHistory,
 } from "./cronjob-persistence.ts";
 import type { ManagedAgent } from "./internal-types.ts";
-import type { RoomWire } from "../shared/types.ts";
+import type { RoomWire, UserRecord } from "../shared/types.ts";
 
 // `cacheRead` is discounted cache hits; `cacheCreation` is the 1.25x write
 // tier. Raw `input_tokens` (uncached) is usually ~10 — just the new user
@@ -200,15 +200,49 @@ export function findUsageAtFork(
   };
 }
 
+// Who the report is rendered for. Spend is room-scoped data, so the report
+// follows the same ACCESS gate as every other read surface (roomAllowedForSession
+// / visibleRoomProjection): owners see the whole office by rule, members see
+// only the rooms they can access. Cron jobs carry no room, so a member could not
+// attribute them to a visible room — they are owner-only, and so is their spend.
+export type UsageAudience =
+  | { kind: "owner" }
+  | { kind: "member"; roomIds: ReadonlySet<string> };
+
+// Resolve the invoking user to an audience. Mirrors canAccess() in index.ts:
+// owners access every room by RULE (their `allowedRooms` is empty post-migration
+// and must NOT be read), members access exactly their grants. Fails closed on an
+// unresolved user — slash commands only arrive on the authenticated user path,
+// so this is a defensive branch, not a real caller.
+export function usageAudienceForUser(
+  user: UserRecord | undefined,
+): UsageAudience {
+  if (user?.role === "owner") return { kind: "owner" };
+  return { kind: "member", roomIds: new Set(user?.allowedRooms ?? []) };
+}
+
 export function renderUsageReport(
   agents: Map<string, ManagedAgent>,
   rooms: RoomWire[],
+  audience: UsageAudience,
 ): string {
   const lines: string[] = [];
+  const isOwner = audience.kind === "owner";
+  const canSeeRoom = (roomId: string): boolean =>
+    audience.kind === "owner" || audience.roomIds.has(roomId);
+  // Every table below is built from this list, so a room the caller can't
+  // access can't leak through any of them.
+  const visibleRooms = isOwner ? rooms : rooms.filter((r) => canSeeRoom(r.id));
 
   lines.push(
     `_Subscription plan limits aren't shown here. Open the embedded terminal and run \`claude\` + \`/usage\` or \`codex\` + \`/status\`._`,
   );
+  if (!isOwner) {
+    lines.push("");
+    lines.push(
+      `_Scoped to the rooms you can access; cron job spend isn't included._`,
+    );
+  }
   lines.push("");
 
   // Office-wide table: per-agent session and lifetime usage. "In" is all
@@ -226,18 +260,20 @@ export function renderUsageReport(
   // room reference — the dense AgentInfo.room index has been removed). Local map
   // mirrors the id-keyed bucket pass below, so no AgentManager helper needs
   // threading in here.
-  const roomByIdMap = new Map(rooms.map((r) => [r.id, r] as const));
-  const rows = [...agents.values()].map((a) => {
-    const usage = readAgentUsage(a.info.id, a.sessionId);
-    const roomName = roomByIdMap.get(a.info.roomId)?.name ?? "?";
-    return {
-      id: a.info.id,
-      name: a.info.name,
-      room: roomName,
-      sess: usage.session,
-      life: usage.lifetime,
-    };
-  });
+  const roomByIdMap = new Map(visibleRooms.map((r) => [r.id, r] as const));
+  const rows = [...agents.values()]
+    .filter((a) => canSeeRoom(a.info.roomId))
+    .map((a) => {
+      const usage = readAgentUsage(a.info.id, a.sessionId);
+      const roomName = roomByIdMap.get(a.info.roomId)?.name ?? "?";
+      return {
+        id: a.info.id,
+        name: a.info.name,
+        room: roomName,
+        sess: usage.session,
+        life: usage.lifetime,
+      };
+    });
   rows.sort((a, b) => b.life.costUSD - a.life.costUSD);
   for (const r of rows) {
     lines.push(
@@ -274,7 +310,7 @@ export function renderUsageReport(
     return b;
   };
   // Seed with all current rooms so they show even when empty.
-  for (const r of rooms) getBucket(r.id, r.name, false);
+  for (const r of visibleRooms) getBucket(r.id, r.name, false);
 
   for (const a of agents.values()) {
     const room = roomByIdMap.get(a.info.roomId);
@@ -290,7 +326,11 @@ export function renderUsageReport(
     // Killed agents without a history entry predate this feature; drop into a
     // synthetic bucket so their spend is still counted toward the grand total.
     const roomId = h?.lastRoomId ?? "__unknown__";
-    const currentRoom = rooms.find((r) => r.id === roomId);
+    const currentRoom = visibleRooms.find((r) => r.id === roomId);
+    // A member can only be shown spend they can attribute to a room they
+    // access, so deleted and unknown rooms (no live room behind them) stay
+    // owner-only — as does the non-visible-room spend the filter drops.
+    if (!isOwner && !currentRoom) continue;
     const name = currentRoom?.name ?? h?.lastRoomName ?? "(unknown room)";
     const deleted = !currentRoom;
     const usage = readAgentUsage(id, null);
@@ -327,7 +367,28 @@ export function renderUsageReport(
   }
 
   // Per-cronjob lifetime usage. Mirrors the per-room shape: live cronjobs +
-  // any disk-only cronjobs (deleted) so historical spend isn't lost.
+  // any disk-only cronjobs (deleted) so historical spend isn't lost. Cron jobs
+  // are not room-scoped, so this whole section — table AND its contribution to
+  // the total below — is owner-only.
+  if (isOwner) renderCronjobSection(lines, total.life);
+
+  lines.push("");
+  lines.push(isOwner ? `## Office total` : `## Total`);
+  lines.push("");
+  lines.push(
+    `| | In (sess) | Out (sess) | $ (sess) | In (life) | Out (life) | $ (life) |`,
+  );
+  lines.push(`| --- | ---: | ---: | ---: | ---: | ---: | ---: |`);
+  lines.push(
+    `| **Total** | ${formatInCell(total.sess)} | ${formatTokenCount(total.sess.totalOut)} | ${formatUsd(total.sess.costUSD)} | ${formatInCell(total.life)} | ${formatTokenCount(total.life.totalOut)} | ${formatUsd(total.life.costUSD)} |`,
+  );
+
+  return lines.join("\n");
+}
+
+// Owner-only section: per-cron job lifetime spend, plus the roll-up of that
+// spend into the report's lifetime total. Mutates both `lines` and `totalLife`.
+function renderCronjobSection(lines: string[], totalLife: UsageBucket): void {
   const liveCronjobs = listCronjobs();
   const liveCronjobIds = new Set(liveCronjobs.map((c) => c.id));
   const cronjobHistory = loadCronjobHistory();
@@ -374,7 +435,7 @@ export function renderUsageReport(
   // Roll cronjob spend into the office total so the bottom line is honest.
   const cronjobLifeTotal = emptyBucket();
   for (const b of cronjobBuckets) addBucket(cronjobLifeTotal, b.life);
-  addBucket(total.life, cronjobLifeTotal);
+  addBucket(totalLife, cronjobLifeTotal);
 
   if (cronjobBuckets.length > 0) {
     cronjobBuckets.sort((a, b) => b.life.costUSD - a.life.costUSD);
@@ -390,17 +451,4 @@ export function renderUsageReport(
       );
     }
   }
-
-  lines.push("");
-  lines.push(`## Office total`);
-  lines.push("");
-  lines.push(
-    `| | In (sess) | Out (sess) | $ (sess) | In (life) | Out (life) | $ (life) |`,
-  );
-  lines.push(`| --- | ---: | ---: | ---: | ---: | ---: | ---: |`);
-  lines.push(
-    `| **Total** | ${formatInCell(total.sess)} | ${formatTokenCount(total.sess.totalOut)} | ${formatUsd(total.sess.costUSD)} | ${formatInCell(total.life)} | ${formatTokenCount(total.life.totalOut)} | ${formatUsd(total.life.costUSD)} |`,
-  );
-
-  return lines.join("\n");
 }

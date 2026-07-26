@@ -142,18 +142,41 @@ export interface ConversationDeps {
   };
 }
 
+// One attachment spec, element-validated. The container check below is not
+// enough on its own: the fields flow straight into resolveAttachmentNotices ->
+// getFilePath(agentId, filename) (path.join throws on a non-string) and into the
+// notice line's formatSize(size), so a hand-crafted element would throw or
+// render garbage mid-turn, long after the request was acked. `size` must be a
+// nonnegative safe integer — a byte count that is negative, fractional, or past
+// 2^53 is not a real upload.
+function malformedAttachmentSpec(a: unknown): boolean {
+  if (typeof a !== "object" || a === null || Array.isArray(a)) return true;
+  const spec = a as Record<string, unknown>;
+  if (typeof spec.filename !== "string" || spec.filename.length === 0)
+    return true;
+  if (typeof spec.originalName !== "string") return true;
+  if (typeof spec.mediaType !== "string") return true;
+  if (!Number.isSafeInteger(spec.size) || (spec.size as number) < 0)
+    return true;
+  return false;
+}
+
 // Reject a present-but-wrong-typed optional field at the boundary. A direct REST
 // caller can POST {text:"x", attachments:{}} — truthy but non-iterable — which the
 // USER path would queue and flushQueue would later spread
 // (allAttachments.push(...m.attachments)), throwing mid-turn; a non-string device
 // / clientMessageId would corrupt log metadata / the dedupe key. Mirrors slice
-// 7b's malformedAgentFields: strict on the container TYPE, parity-loose on element
-// shape (the WS command never element-validated either).
+// 7b's malformedAgentFields on the container TYPE, and additionally validates
+// each attachment ELEMENT (the WS command never element-validated; the REST
+// surface is the one a hand-crafted body reaches).
 function malformedSendFields(b: Record<string, unknown>): boolean {
   if (b.device !== undefined && typeof b.device !== "string") return true;
   if (b.clientMessageId !== undefined && typeof b.clientMessageId !== "string")
     return true;
-  if (b.attachments !== undefined && !Array.isArray(b.attachments)) return true;
+  if (b.attachments !== undefined) {
+    if (!Array.isArray(b.attachments)) return true;
+    if (b.attachments.some(malformedAttachmentSpec)) return true;
+  }
   // deliverAt must be a STRING (RFC3339): a bare epoch number is rejected here
   // rather than parsed, so a seconds-vs-ms confusion can never silently
   // schedule for 1970 (which would fire immediately and mask the bug).
@@ -179,7 +202,7 @@ export function conversationHandlers(
         return fail(
           422,
           "invalid_request",
-          "device, clientMessageId, and deliverAt must be strings; attachments must be an array; sendNow must be a boolean",
+          "device, clientMessageId, and deliverAt must be strings; attachments must be an array of {filename, originalName, mediaType} strings plus a nonnegative integer size; sendNow must be a boolean",
         );
       }
       // sendNow is USER-branch only (the composer's Ctrl/Cmd+Enter). Rejected

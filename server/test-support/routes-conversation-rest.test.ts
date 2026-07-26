@@ -130,6 +130,84 @@ describe("agents.sendMessage REST — USER branch (Phase 3d slice 6a)", () => {
     expect(srv.fakeBackend.sessionForAgent(x.id)?.sent.length ?? 0).toBe(0);
   });
 
+  it("malformed attachment ELEMENTS -> 422; the agent is untouched", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const x = await spawnAt(srv, "X", r1);
+    // The container being an array isn't enough: these fields flow into
+    // getFilePath(agentId, filename) (path.join throws on a non-string) and the
+    // notice line's size formatter, so a bad element would blow up mid-turn.
+    // One server, many bodies — each must be rejected at the boundary.
+    const good = {
+      filename: "a1b2c3.png",
+      originalName: "photo.png",
+      mediaType: "image/png",
+      size: 1024,
+    };
+    const badSpecs: unknown[] = [
+      "not-an-object",
+      null,
+      [],
+      {},
+      { ...good, filename: 42 },
+      { ...good, filename: "" },
+      { ...good, originalName: null },
+      { ...good, mediaType: { a: 1 } },
+      { ...good, size: -1 },
+      { ...good, size: 1.5 },
+      { ...good, size: "1024" },
+      { ...good, size: Number.MAX_SAFE_INTEGER + 1 },
+      { filename: "a1b2c3.png" }, // missing the rest
+    ];
+    for (const spec of badSpecs) {
+      const res = await req(srv, "POST", `/api/agents/${x.id}/messages`, {
+        rawSessionId: owner.rawSessionId,
+        body: { text: "x", attachments: [spec] },
+      });
+      expect({ spec, status: res.status, code: errCode(res.body) }).toEqual({
+        spec,
+        status: 422,
+        code: "invalid_request",
+      });
+    }
+    // One bad element poisons an otherwise-valid batch.
+    const mixed = await req(srv, "POST", `/api/agents/${x.id}/messages`, {
+      rawSessionId: owner.rawSessionId,
+      body: { text: "x", attachments: [good, { ...good, size: -1 }] },
+    });
+    expect(mixed.status).toBe(422);
+    // Nothing reached the backend / queue.
+    expect(srv.fakeBackend.sessionForAgent(x.id)?.sent.length ?? 0).toBe(0);
+  });
+
+  it("well-formed attachment specs pass the validator", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const x = await spawnAt(srv, "X", r1);
+    // size 0 is legal (an empty upload), and a spec whose file is missing on
+    // disk is a resolve-time skip, not a boundary rejection — the validator
+    // must not tighten either.
+    const res = await req(srv, "POST", `/api/agents/${x.id}/messages`, {
+      rawSessionId: owner.rawSessionId,
+      body: {
+        text: "x",
+        attachments: [
+          {
+            filename: "gone.png",
+            originalName: "photo.png",
+            mediaType: "image/png",
+            size: 0,
+          },
+        ],
+      },
+    });
+    expect(res.status).toBe(200);
+  });
+
   it("non-string device -> 422 invalid_request", async () => {
     const srv = await startTestServer();
     server = srv;

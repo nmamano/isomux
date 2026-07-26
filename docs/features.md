@@ -92,7 +92,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Built-in file editor**: syntax highlighting, file tabs, resizable alongside the chat. Open files via `/isomux-edit` (agents can offer this too via "[Open in editor]" cards).
 - `/isomux-diff` — rich-rendered uncommitted changes. Agents can also choose to emit a diff card on their own.
 - **Browser preview cards** — agents can screenshot a web page (their dev server, a dashboard) straight into the chat, so you see UI changes without alt-tabbing to a browser. Needs a Chrome-family browser installed on the server (runs headless, so no display is needed); everything else works without one.
-- `/isomux-usage` — per-agent / per-room / per-cron-job token spend.
+- `/isomux-usage` — per-agent / per-room / per-cron-job token spend, scoped to the rooms you can access.
 - **Plugin system**: add memory, audit, or other turn-aware behavior. Reference [mem0 plugin](https://github.com/nmamano/isomux-mem0) gives agents long-term memory across sessions.
 
 ### Navigation and shortcuts
@@ -113,7 +113,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - **Browsable run history**: every run is preserved as a transcript.
 - **Resume or fork** any past run, turning a daily summary into an interactive follow-up.
 - **Manual "Run now"** for any cron job, independent of the schedule.
-- Per cron job token usage rolled into `/isomux-usage`.
+- Per cron job token usage rolled into `/isomux-usage` (for owners).
 
 ### Lifecycle and safety
 

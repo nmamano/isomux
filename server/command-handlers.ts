@@ -35,7 +35,7 @@ import {
   ensureCodexWrapperScript,
   codexWrapperCommandForShell,
 } from "./backends/codex/native-bin.ts";
-import { renderUsageReport } from "./usage-report.ts";
+import { renderUsageReport, usageAudienceForUser } from "./usage-report.ts";
 import { computeIsomuxDiff, resolveDiffCwd } from "./isomux-diff.ts";
 import {
   resolveEditorPath,
@@ -986,7 +986,13 @@ export function createCommandHandling(deps: HandlerDeps) {
       deps.addLogEntry(
         agentId,
         "system",
-        renderUsageReport(deps.agents, deps.getRooms()),
+        renderUsageReport(
+          deps.agents,
+          deps.getRooms(),
+          // Spend is room-scoped: the report shows the caller only what their
+          // room access already lets them see (owners: the whole office).
+          usageAudienceForUser(getUserByName(username)),
+        ),
       );
       deps.updateState(agentId, "waiting_for_response");
       return true;

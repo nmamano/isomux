@@ -134,7 +134,7 @@ Setup:
 
 ### Slash Commands & Autocomplete
 - Built-in commands: /clear, /help, /context, /resume, /model, /effort (per-agent thinking effort), /usage (points to where subscription plan limits and office token spend are shown)
-- Isomux additions: /isomux-all-hands (shows what everyone is up to), /isomux-system-prompt (dumps the full assembled system prompt), /isomux-cronjob-system-prompt (same for cron jobs), /isomux-diff (rich-rendered uncommitted changes in the agent's cwd — agents can also choose to show a diff card on their own), /isomux-edit (open a file in the side-panel editor; agents can offer this on their own too), /isomux-usage (per-agent / per-room / per-cron-job token spend)
+- Isomux additions: /isomux-all-hands (shows what everyone is up to), /isomux-system-prompt (dumps the full assembled system prompt), /isomux-cronjob-system-prompt (same for cron jobs), /isomux-diff (rich-rendered uncommitted changes in the agent's cwd — agents can also choose to show a diff card on their own), /isomux-edit (open a file in the side-panel editor; agents can offer this on their own too), /isomux-usage (per-agent / per-room / per-cron-job token spend, scoped to the rooms you can access)
 - User skills from ~/.claude/skills/ and project commands
 - Isomux-bundled skills like /peer-review (one agent reviews another's ongoing work and messages feedback directly to them), /pair-programming (drive a feature end-to-end with another agent reviewing design and code), /soft-handoff (hand your current task off to another agent and stay around to answer their questions), /second-opinion (ask another agent for a take on one specific question without handing off the work), /grill-me (stress-tests a feature design; based on the original by Matt Pocock), /subagent-review (spawn a subagent to review uncommitted diff before commit), /handoff (an agent nearing its context limit continues its unfinished task on a fresh session: it writes a brief of what's left, the boss approves, and it restarts clean on just that brief), /isomux-report-bug
 - Autocomplete dropdown with keyboard navigation
@@ -194,7 +194,7 @@ Setup:
 - Each run is browsable, resumable, and forkable from the UI: a daily report can become an interactive follow-up.
 - Same configurability as a desk agent: model, thinking effort, cwd, permission mode (bypassPermissions or auto)
 - Manual "Run now" for any cron job, independent of the schedule
-- Per cron job token usage rolled into the /isomux-usage report alongside per-agent and per-room totals
+- Per cron job token usage rolled into the /isomux-usage report alongside per-agent and per-room totals (for owners)
 - Accessed via the cron jobs entry in the office nav bar, or by clicking the decorative wall clock
 
 ### Other
