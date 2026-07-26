@@ -44,6 +44,20 @@ import { useAppState, useDispatch } from "../store.tsx";
 // so it can afford to be well clear of the slowest real generation.
 const ORPHAN_RETRY_MS = 120_000;
 
+// Height of the mobile prompt bar, in both its states (frozen prompt and
+// composer). On a phone the bar is the deck's biggest vertical expense after the
+// stage itself, and in landscape — where a 16:9 slide nearly matches the screen
+// — every pixel it takes comes straight off the slide. So mobile gets one lean
+// strip instead of the desktop 92px block. Both states share the constant for
+// the same reason the desktop ones share 92: a bar that changed height between a
+// past slide and the newest one would resize the stage and move the vertically
+// centred nav arrows as you navigate.
+const MOBILE_BAR_H = 44;
+// The composer's textarea at rest, sized so it plus the row's gutters comes to
+// exactly MOBILE_BAR_H (everything is border-box — see the reset in ui/styles.ts
+// — so this is a plain subtraction, not a line-height calculation).
+const MOBILE_FIELD_H = MOBILE_BAR_H - 8;
+
 function isAgentActive(agent: AgentInfo): boolean {
   return agent.state === "thinking" || agent.state === "tool_executing";
 }
@@ -359,6 +373,7 @@ export function DeckView({
             slide={curSlide}
             failed={curFailed}
             isNewest={isNewest}
+            isMobile={isMobile}
             fallbackTurn={cur}
             onRegen={(feedback) => cur && regen(cur.entryId, feedback)}
           />
@@ -370,17 +385,19 @@ export function DeckView({
             <NavArrow
               dir="prev"
               disabled={index <= 0}
+              isMobile={isMobile}
               onClick={() => setIndex((i) => Math.max(0, i - 1))}
             />
             <NavArrow
               dir="next"
               disabled={index >= turns.length - 1}
+              isMobile={isMobile}
               onClick={() => setIndex((i) => Math.min(turns.length - 1, i + 1))}
             />
             <div
               style={{
                 position: "absolute",
-                bottom: 10,
+                bottom: isMobile ? 4 : 10,
                 left: "50%",
                 transform: "translateX(-50%)",
                 display: "flex",
@@ -462,6 +479,10 @@ export function DeckView({
       {/* Prompt bar: the composer on the newest position, the frozen prompt on
           past ones. */}
       <PromptBar
+        // Keyed so the mobile frozen prompt's expand/collapse state resets when
+        // you navigate to another slide. The composer keeps one identity across
+        // the whole newest position, so reaching it never remounts the textarea.
+        key={isNewest || turns.length === 0 ? "composer" : cur?.entryId}
         isNewest={isNewest || turns.length === 0}
         promptText={cur?.promptText ?? ""}
         isMobile={isMobile}
@@ -480,12 +501,14 @@ function SlideStage({
   slide,
   failed,
   isNewest,
+  isMobile,
   fallbackTurn,
   onRegen,
 }: {
   slide: SlideRecord | undefined;
   failed: boolean;
   isNewest: boolean;
+  isMobile?: boolean;
   fallbackTurn: DeckTurn | undefined;
   onRegen: (feedback?: string) => void;
 }) {
@@ -510,7 +533,10 @@ function SlideStage({
     if (!el) return;
     const recompute = () => {
       const r = el.getBoundingClientRect();
-      const pad = 24;
+      // Mobile renders edge to edge (Nil, 2026-07-26): a phone has no screen
+      // real estate to spend on a margin, so the slide's scale is limited only
+      // by the viewport. Desktop keeps the breathing room around the card.
+      const pad = isMobile ? 0 : 24;
       const s = Math.min(
         (r.width - pad * 2) / SLIDE_W,
         (r.height - pad * 2) / contentH,
@@ -521,7 +547,7 @@ function SlideStage({
     const ro = new ResizeObserver(recompute);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [contentH]);
+  }, [contentH, isMobile]);
 
   // Wrap a natural-size (1280 × h) node in the scaled, centered frame.
   const frame = (inner: React.ReactNode, h: number = SLIDE_H) => (
@@ -558,8 +584,10 @@ function SlideStage({
             height={contentH}
             style={{
               border: 0,
-              borderRadius: 8,
-              boxShadow: "0 8px 40px rgba(0,0,0,0.45)",
+              // At full bleed the card framing has nothing to sit against, so
+              // the rounding and shadow just eat pixels at the edges.
+              borderRadius: isMobile ? 0 : 8,
+              boxShadow: isMobile ? "none" : "0 8px 40px rgba(0,0,0,0.45)",
               background: "#0f1117",
             }}
           />,
@@ -855,12 +883,18 @@ function EmptyStage() {
 function NavArrow({
   dir,
   disabled,
+  isMobile,
   onClick,
 }: {
   dir: "prev" | "next";
   disabled: boolean;
+  isMobile?: boolean;
   onClick: () => void;
 }) {
+  // The arrows never reserved layout width — they float over the stage — but at
+  // full bleed they float over the SLIDE, so on mobile they shrink and tuck into
+  // the corner-most position that still leaves a comfortable tap target.
+  const size = isMobile ? 30 : 40;
   return (
     <button
       onClick={onClick}
@@ -870,17 +904,17 @@ function NavArrow({
         position: "absolute",
         top: "50%",
         transform: "translateY(-50%)",
-        [dir === "prev" ? "left" : "right"]: 10,
-        width: 40,
-        height: 40,
+        [dir === "prev" ? "left" : "right"]: isMobile ? 4 : 10,
+        width: size,
+        height: size,
         borderRadius: "50%",
         border: "1px solid var(--border-light)",
         background: "var(--bg-surface)",
         color: disabled ? "var(--text-ghost)" : "var(--text-secondary)",
-        fontSize: 18,
+        fontSize: isMobile ? 15 : 18,
         lineHeight: 1,
         cursor: disabled ? "default" : "pointer",
-        opacity: disabled ? 0.4 : 1,
+        opacity: disabled ? 0.4 : isMobile ? 0.75 : 1,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -909,14 +943,88 @@ function PromptBar({
   onDraftChange: (text: string) => void;
   onSend: () => void;
 }) {
+  // Mobile only: the one-line frozen prompt expands on tap. See below.
+  const [expanded, setExpanded] = useState(false);
+
   if (!isNewest) {
     // Frozen prompt for a past slide.
+    if (isMobile) {
+      // One line, tap to read the rest. The outer div is the fixed strip the
+      // layout reserves; the inner one is pinned to its bottom, so expanding
+      // grows UPWARD over the slide instead of resizing the stage (which would
+      // rescale the slide and move the nav arrows mid-read).
+      return (
+        <div
+          style={{
+            flexShrink: 0,
+            height: MOBILE_BAR_H,
+            boxSizing: "border-box",
+            position: "relative",
+            zIndex: 2,
+          }}
+        >
+          {/* A real button, not a clickable div: this is the only way to read a
+              long prompt, so it has to be reachable by keyboard, switch control
+              and VoiceOver, not just by tap. */}
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            aria-expanded={expanded}
+            title="The prompt that produced this slide"
+            style={{
+              position: "absolute",
+              left: 0,
+              right: 0,
+              bottom: 0,
+              width: "100%",
+              height: expanded ? "auto" : MOBILE_BAR_H,
+              maxHeight: "40vh",
+              overflowY: expanded ? "auto" : "hidden",
+              // The UA button border/background/font would all fight the bar's
+              // styling, so they are reset before the bar's own top border.
+              border: "none",
+              fontFamily: "inherit",
+              textAlign: "left",
+              borderTop: "1px solid var(--border-light)",
+              // Solid, not the translucent surface: expanded, this sits OVER
+              // the slide and the counter, which would otherwise show through.
+              background: "var(--bg-surface-solid)",
+              color: "var(--text-secondary)",
+              fontSize: 13,
+              lineHeight: 1.4,
+              padding: expanded ? "8px 12px" : "0 12px",
+              boxSizing: "border-box",
+              display: "flex",
+              alignItems: expanded ? "flex-start" : "center",
+              gap: 8,
+              whiteSpace: expanded ? "pre-wrap" : "nowrap",
+              overflowX: "hidden",
+              textOverflow: "ellipsis",
+              cursor: "pointer",
+            }}
+          >
+            <span style={{ color: "var(--text-dim)", flexShrink: 0 }}>
+              Prompt:
+            </span>
+            <span
+              style={{
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "inherit",
+              }}
+            >
+              {promptText}
+            </span>
+          </button>
+        </div>
+      );
+    }
     return (
       <div
         style={{
           flexShrink: 0,
           borderTop: "1px solid var(--border-light)",
-          padding: isMobile ? "10px 12px" : "12px 24px",
+          padding: "12px 24px",
           background: "var(--bg-surface)",
           color: "var(--text-secondary)",
           fontSize: 14,
@@ -952,7 +1060,7 @@ function PromptBar({
         // Match the frozen prompt bar's height at rest so the stage — and the
         // nav arrows centred in it — don't shift when you reach the newest
         // slide. It still grows as the draft wraps, which is user-driven.
-        minHeight: 92,
+        minHeight: isMobile ? MOBILE_BAR_H : 92,
         boxSizing: "border-box",
         display: "flex",
         flexDirection: "column",
@@ -973,7 +1081,10 @@ function PromptBar({
       )}
       <div
         style={{
-          padding: isMobile ? "8px 10px" : "10px 16px",
+          // 3px, not 4: the bar's own 1px top border is inside its border-box
+          // minHeight, so a 4px gutter would push the row 1px past
+          // MOBILE_BAR_H and the two bar states would no longer match.
+          padding: isMobile ? "3px 8px" : "10px 16px",
           display: "flex",
           gap: 8,
           alignItems: "flex-end",
@@ -993,7 +1104,7 @@ function PromptBar({
           style={{
             flex: 1,
             resize: "none",
-            minHeight: 38,
+            minHeight: isMobile ? MOBILE_FIELD_H : 38,
             maxHeight: 120,
             background: "var(--bg-input, var(--bg-surface-solid))",
             border: "1px solid var(--border-medium)",
@@ -1001,7 +1112,7 @@ function PromptBar({
             color: "var(--text-primary)",
             fontSize: 14,
             lineHeight: 1.4,
-            padding: "9px 12px",
+            padding: isMobile ? "7px 10px" : "9px 12px",
             outline: "none",
             fontFamily: "inherit",
           }}
@@ -1014,7 +1125,7 @@ function PromptBar({
             color: canSend ? "#fff" : "var(--text-ghost)",
             border: "1px solid var(--border-medium)",
             borderRadius: 8,
-            padding: "9px 16px",
+            padding: isMobile ? "6px 12px" : "9px 16px",
             fontSize: 14,
             cursor: canSend ? "pointer" : "default",
             flexShrink: 0,
