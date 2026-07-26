@@ -191,9 +191,9 @@ export interface ManagerDeps {
   // officeState rooms from this same array, so boot reads it exactly once and
   // the auth snapshot sees what restore uses.
   initialRooms: Room[];
-  // Event sink. Optional at construction (default noop); index.ts registers the
+  // Event sink. Optional at construction (default noop); isomux-office.ts registers the
   // real WS-broadcast sink via onEvent() AFTER construction, because that
-  // closure references broadcast helpers defined later in index.ts.
+  // closure references broadcast helpers defined later in isomux-office.ts.
   eventSink?: EventHandler;
 }
 
@@ -209,7 +209,7 @@ export function createAgentManager(deps: ManagerDeps) {
 
   // Wire the plugin-hooks module to agent-manager's module-private pieces
   // (beginTurn / createTurnDeferred / logCache / room lookup). Called once at
-  // boot from server/index.ts. Lives here rather than in plugin-hooks.ts so
+  // boot from server/isomux-office.ts. Lives here rather than in plugin-hooks.ts so
   // that file stays decoupled from this one — runAgentTurn is the only
   // reverse import.
   function configurePluginHooksDeps(): void {
@@ -374,7 +374,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // id + stale logCache bound to the already-committed new cwd. The system_init
   // handler consumes this marker to clear that state on the empty-init path.
   const pendingCodexCwdReset = new Set<string>(); // agentId
-  // Event sink (instance-scoped). index.ts overrides this via onEvent() after
+  // Event sink (instance-scoped). isomux-office.ts overrides this via onEvent() after
   // construction; deps.eventSink lets tests capture emitted events.
   let eventHandler: EventHandler = deps.eventSink ?? (() => {});
   let officeStatePersistenceEnabled = false;
@@ -657,7 +657,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
 
     // Backend-specific validation. OfficeState can't reach the backend layer,
     // so we validate here and pass already-canonicalized values to it. NOTE:
-    // the REST edit dep (index.ts) already rejected a mismatched modelFamily
+    // the REST edit dep (isomux-office.ts) already rejected a mismatched modelFamily
     // with 422 invalid_model_family — the coercion below is canonicalization
     // for internal callers, not input laundering for the API surface.
     const validated: Parameters<typeof officeState.editAgent>[1] = {};
@@ -1533,7 +1533,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // Boot replay kick: resume delivery exactly where the restart cut it off.
     // Fire-and-forget — each flush wakes its (dormant) agent via the !session
     // resume branch. Plugin hooks are configured before restoreAgents runs
-    // (see index.ts boot ordering), so runAgentTurn is safe to enter. The
+    // (see isomux-office.ts boot ordering), so runAgentTurn is safe to enter. The
     // queue watchdog is the backstop if any kick is lost.
     for (const [agentId, m] of agents) {
       if (m.messageQueue.length > 0) {
@@ -3535,7 +3535,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   // --- Queue delivery watchdog (task da065287, layer 3) ----------------------
   // Self-heal sweep for the invariant "a queued message cannot sit
   // indefinitely while the agent is idle". Driven by a 30s interval in
-  // index.ts's import.meta.main block (tests call it directly, like
+  // isomux-office.ts's runOfficeMain() (tests call it directly, like
   // sweepIdleAgents). It only ever acts on the stuck SIGNATURE — idle-state
   // agent, non-empty queue, no multi-step flow — which excludes every
   // legitimate wait: a running turn holds thinking/tool_executing (busy states
@@ -3862,7 +3862,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // Server-side validation. Anything outside the backend's allowlist falls
     // back to a safe default; the wire shapes are permissive (union types over
     // both backends), so a stale UI or hand-crafted client can't pin us to an
-    // invalid mode/model/effort. NOTE: the REST spawn dep (index.ts) rejects a
+    // invalid mode/model/effort. NOTE: the REST spawn dep (isomux-office.ts) rejects a
     // mismatched modelFamily with 422 invalid_model_family BEFORE this runs —
     // the coercion here is a last-resort default for internal callers (welcome
     // seed, tests), not input laundering for the API surface.
@@ -6804,7 +6804,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   //
   // The editor is per-WS state (watchers, dirty buffers, tabs); these wrappers
   // just resolve paths against the agent's cwd and run the disk ops. Watch
-  // lifecycle lives in server/index.ts where the WS connection is in scope.
+  // lifecycle lives in server/isomux-office.ts where the WS connection is in scope.
 
   function openEditorFile(
     agentId: string,
@@ -6846,7 +6846,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
   }
 
   // Explicitly assembled public surface (see AgentManager type above). Mirrors
-  // exactly the symbols server/index.ts consumed off the old namespace import.
+  // exactly the symbols server/isomux-office.ts consumed off the old namespace import.
   return {
     configurePluginHooksDeps,
     getRooms,
@@ -6923,7 +6923,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
 // Production factory: wires today's defaults. Loads the persisted office/agents
 // snapshot ONCE, seeds OfficeState rooms from it (synchronous, so getRooms() is
 // valid before the async restoreAgents()), injects the real getBackend
-// resolver, and registers the office-env-file provider for env-loader. index.ts
+// resolver, and registers the office-env-file provider for env-loader. isomux-office.ts
 // calls this at boot; tests construct createAgentManager(...) with fakes.
 export function createProductionAgentManager(overrides?: {
   resolveBackend?: typeof defaultResolveBackend;

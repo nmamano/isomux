@@ -752,7 +752,7 @@ export function saveAgents(rooms: Room[]) {
 }
 
 // Agent manifest for discovery by other agents. The same manifest is served
-// over HTTP as GET /agents (see server/index.ts); buildManifest is the single
+// over HTTP as GET /agents (see server/isomux-office.ts); buildManifest is the single
 // source of the entry shape so the file and the endpoint can't drift.
 const MANIFEST_FILE = join(ISOMUX_DIR, "agents-summary.json");
 

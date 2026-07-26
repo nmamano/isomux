@@ -31,7 +31,7 @@ import {
   updateUserById,
 } from "./users.ts";
 
-// Injected by server/index.ts at boot. New owners need a snapshot of
+// Injected by server/isomux-office.ts at boot. New owners need a snapshot of
 // every current room id as their initial allowedRooms (the strict
 // string[] model has no "all" sentinel, so "owners see every room" has
 // to be materialized at creation time). auth.ts is intentionally kept
@@ -242,10 +242,10 @@ function ensureLoaded() {
 
 // ---------------------------------------------------------------------------
 // Hooks for the dispatcher to be notified of acceptance events. Used so
-// index.ts can broadcast updated invite/session lists to owner WSes when
+// isomux-office.ts can broadcast updated invite/session lists to owner WSes when
 // an invite is consumed via HTTP (which never touches the WS dispatch
 // path and therefore wouldn't otherwise trigger a fan-out). Defaults to
-// no-op so auth.ts stays standalone; index.ts overrides at boot.
+// no-op so auth.ts stays standalone; isomux-office.ts overrides at boot.
 
 let onInviteConsumedHook: () => void = () => {};
 
@@ -686,7 +686,7 @@ function commitBootstrapOwnerUser(chosenName: string): {
           deleteUserById(createdId);
         } catch (err) {
           console.error(
-            `[auth] catastrophic: bootstrap rollback could not delete just-created user ${createdId}; the office is now stranded with an owner record but no session. Once the underlying disk issue is fixed, try the owner-login recovery CLI ('bun run server/index.ts owner-login --name <chosen-name>') against the running server; if the partial record is malformed (e.g. missing fields after a half-write), remove ${createdId} from users.json by hand and re-open the claim form.`,
+            `[auth] catastrophic: bootstrap rollback could not delete just-created user ${createdId}; the office is now stranded with an owner record but no session. Once the underlying disk issue is fixed, try the owner-login recovery CLI ('bun run server/isomux-office.ts owner-login --name <chosen-name>') against the running server; if the partial record is malformed (e.g. missing fields after a half-write), remove ${createdId} from users.json by hand and re-open the claim form.`,
             err,
           );
         }
@@ -945,7 +945,7 @@ export async function acceptInvite(
       throw err;
     }
 
-    // Fire the post-accept hook so the dispatcher in index.ts can fan an
+    // Fire the post-accept hook so the dispatcher in isomux-office.ts can fan an
     // updated invite/session list out to owner WSes. Without this, a
     // browser that minted the invite while a *separate* browser opens
     // /auth/accept would never see its Access pane refresh — that flow
@@ -1279,7 +1279,7 @@ function validateByHash(hash: string): SessionLookup | null {
 // Wire shapes for owner UI.
 
 // Pure shape helper: StoredInvite → the InviteWire the owner/member UIs render.
-// Exported (3a.4a) so the index.ts invites seam builds the mint-response wire
+// Exported (3a.4a) so the isomux-office.ts invites seam builds the mint-response wire
 // from ONE source of truth (the same helper listInvites/listInvitesForUsername
 // use) instead of duplicating the field list. Read-only — never widens mutation.
 export function toInviteWire(v: StoredInvite): InviteWire {
@@ -1578,7 +1578,7 @@ export function resolveSessionHashByPrefix(prefix: string): string | null {
 }
 
 // Note: countOwners() and wouldDeleteLeaveNoOwner() live in users.ts.
-// index.ts imports them directly from there; we don't re-export through
+// isomux-office.ts imports them directly from there; we don't re-export through
 // auth.ts to keep the user-record predicates close to the data.
 
 // ---------------------------------------------------------------------------

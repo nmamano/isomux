@@ -3,8 +3,8 @@
 // TODAY's live predicates. See internal-docs/generic-runtime-refactor.md →
 // Guard catalog + "Rule-based access".
 //
-// Does NOT import server/index.ts (no cycle, no boot side-effects): the live
-// readers are INJECTED by the index.ts seam, which already holds them in scope.
+// Does NOT import server/isomux-office.ts (no cycle, no boot side-effects): the live
+// readers are INJECTED by the isomux-office.ts seam, which already holds them in scope.
 // This keeps the adapter a small, unit-testable translation layer — the bit
 // worth testing (agentId → GLOBAL room id resolution, unknown-agent → null,
 // username/cronjob lookups) is exercised with tiny fakes, and an integration T1
@@ -25,7 +25,7 @@ export interface GuardDepsLiveReaders {
   // The live RULE-BASED access predicate for a user, keyed by userId:
   // sessionHasFullRoomAccess(session) || roomAllowedForSession(session, roomId)
   // (both now route through canAccess: owners by rule, members by grants), with
-  // session reduced to { userId }. The index.ts seam supplies this closure.
+  // session reduced to { userId }. The isomux-office.ts seam supplies this closure.
   hasRoomAccessForUser(userId: string, roomId: string): boolean;
   // The live agent roster. Phase 3c: guards read each agent's authoritative
   // roomId — the dense AgentInfo.room index has been removed from the wire.

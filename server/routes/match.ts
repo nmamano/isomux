@@ -1,6 +1,6 @@
 // Route matcher — Phase 3a. Resolves an incoming (method, pathname) to a route
 // in the typed table (server/routes/table.ts) plus its extracted path params.
-// The HTTP dispatcher (server/routes/executor.ts, wired in server/index.ts) uses
+// The HTTP dispatcher (server/routes/executor.ts, wired in server/isomux-office.ts) uses
 // this to turn a raw Request into a RouteDef + params before the
 // identity -> authorize -> precondition -> handler pipeline runs.
 //

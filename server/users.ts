@@ -359,7 +359,7 @@ export function claimUser(
 }
 
 // Fired after a role actually changes (promote or demote) via
-// setUserRoleById — the single role mutator. index.ts wires this at boot to
+// setUserRoleById — the single role mutator. isomux-office.ts wires this at boot to
 // refresh the cached `ws.data.session` on the user's connected sockets, so
 // role-keyed audience selection (e.g. the owners-audience fan-out in
 // liveEmitDeps) reflects the change immediately instead of after the next

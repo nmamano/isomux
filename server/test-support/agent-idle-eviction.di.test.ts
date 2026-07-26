@@ -79,7 +79,7 @@ function makeManager(fake: FakeBackend) {
     initialRooms: [],
   });
   // Waking an agent runs runAgentTurn, which throws unless plugin-hooks are
-  // configured. Production wires this at boot (index.ts); the bare DI manager
+  // configured. Production wires this at boot (isomux-office.ts); the bare DI manager
   // must do it itself. The module-global is re-pointed per test (makeManager
   // runs per test) and harness tests reconfigure it to their own manager, so
   // this stays deterministic within the file.

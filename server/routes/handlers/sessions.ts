@@ -2,7 +2,7 @@
 // surface on the unified REST surface (opIds sessions.{list,revoke,logout}).
 //
 // Mirrors the 3a.4a invites slice: leaf REST mappers over a slim SessionsDeps;
-// the index.ts seam owns mutate→emit (there is no auth event sink). Owner/member
+// the isomux-office.ts seam owns mutate→emit (there is no auth event sink). Owner/member
 // resolves from the user RECORD (Option A), uniformly across the scoped list,
 // the sessionOwnerOrSelf precondition, and the revoke branch.
 //

@@ -217,7 +217,7 @@ function runAuthorize(
 }
 
 // Execute a matched route for a resolved (non-null) identity. The caller
-// (server/index.ts fetch handler) is responsible for resolving identity and for
+// (server/isomux-office.ts fetch handler) is responsible for resolving identity and for
 // only dispatching routes that have a registered handler.
 export async function executeRoute(
   match: RouteMatch,

@@ -2,10 +2,10 @@
 // per active WS CONNECTION whose ghost is renderable — not per auth
 // session: a single auth session (cookie) can back many concurrent tabs
 // and each tab is its own ghost, so the key is the per-WS connectionId
-// generated in server/index.ts at upgrade time. Off-scene sessions
+// generated in server/isomux-office.ts at upgrade time. Off-scene sessions
 // (viewMode "away" with no currentRoomId) are kept here for cleanup
 // bookkeeping but excluded from the wire by the per-WS broadcast helper
-// in server/index.ts.
+// in server/isomux-office.ts.
 //
 // Lifecycle:
 //   - WS open: nothing yet — wait for the client to send presence_update.
@@ -79,7 +79,7 @@ export function getPresence(connectionId: string): PresenceState | undefined {
 }
 
 // Snapshot of all current presence rows. Per-recipient VISIBILITY filtering
-// happens in the broadcast helper (server/index.ts) — entries carry the stable
+// happens in the broadcast helper (server/isomux-office.ts) — entries carry the stable
 // currentRoomId unchanged (no remap) — so this module stays free of
 // room-projection dependencies.
 export function listAllPresence(): PresenceState[] {

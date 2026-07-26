@@ -4,10 +4,10 @@
   "packageManager": "bun@1.3.11",
   "scripts": {
     "postinstall": "git config core.hooksPath .githooks 2>/dev/null || true",
-    "dev": "bun run build:ui && bun run server/index.ts",
+    "dev": "bun run build:ui && bun run server/isomux-office.ts",
     "build:ui": "bash scripts/build.sh",
     "build:docs": "bun run scripts/build-docs.ts",
-    "server": "bun run server/index.ts",
+    "server": "bun run server/isomux-office.ts",
     "gen:codex-schemas": "bun run scripts/gen-codex-schemas.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

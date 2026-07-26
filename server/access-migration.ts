@@ -6,7 +6,7 @@
 // is the pure decision: given the current users and the live room ids, it
 // returns the per-owner mutation to apply. It has NO module globals and NO I/O
 // so the full case matrix is unit-testable without booting a server.
-// migrateOwnersToRuleBasedAccess() in index.ts is the thin boot wrapper that
+// migrateOwnersToRuleBasedAccess() in isomux-office.ts is the thin boot wrapper that
 // feeds it listUsers() + getRooms() and applies the result via updateUserById.
 
 import type { UserRecord } from "../shared/types.ts";

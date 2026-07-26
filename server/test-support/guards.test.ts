@@ -20,7 +20,7 @@
 //   - 1:1 strangle targets the Phase-3 strangler will replace with these guards:
 //     the reorder_rooms `sessionHasFullRoomAccess` gate, the officeOwner/
 //     selfOrOwner user-edit checks, and the allowedRooms field-gate in
-//     server/index.ts dispatchCommand.
+//     server/isomux-office.ts dispatchCommand.
 //   - cron mutate/run/delete/prompt currently have NO authz (any authenticated
 //     session). cronjobOwnerOrOfficeOwner + cron.setPrompt→officeOwner are
 //     deliberate Phase-3 TIGHTENINGS, already captured as [behavior-change] rows

@@ -214,7 +214,7 @@ The mitigation is operator discipline: **claim first, expose later**. The Access
 If you somehow lose your only owner session (cleared cookies, hit the 1-year absolute cap, etc.), recover with the owner-login CLI from a shell on the box:
 
 ```
-bun run server/index.ts owner-login --name "<your-display-name>"
+bun run server/isomux-office.ts owner-login --name "<your-display-name>"
 ```
 
 That prints a one-time login URL valid for 15 minutes. The CLI talks to the running server over a Unix-domain socket at `~/.isomux/admin.sock` (mode 0600 — only the Isomux service user can connect), so on a multi-user box only the UID running isomux can mint recovery URLs. The server has to be running for the CLI to work.

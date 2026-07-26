@@ -1,6 +1,6 @@
 // CLI client for the admin Unix socket. Invoked via
-//   bun run server/index.ts owner-login --name "Nil"
-// The early branch at the top of server/index.ts dynamically imports this
+//   bun run server/isomux-office.ts owner-login --name "Nil"
+// The early branch at the top of server/isomux-office.ts dynamically imports this
 // module only on a CLI invocation, so the rest of the server's heavy
 // boot machinery doesn't load. We deliberately keep imports here minimal
 // — node:http with socketPath is the simplest portable way to do
@@ -72,7 +72,7 @@ function printUsageAndExit(errorMsg: string | null): void {
     process.stderr.write(`error: ${errorMsg}\n\n`);
   }
   process.stderr.write(
-    `usage: bun run server/index.ts owner-login --name <owner>\n` +
+    `usage: bun run server/isomux-office.ts owner-login --name <owner>\n` +
       `  Mints a one-time login URL for an existing owner. The URL points\n` +
       `  at the running server's configured public origin and is valid for\n` +
       `  15 minutes. Run this from a shell on the box hosting isomux; the\n` +

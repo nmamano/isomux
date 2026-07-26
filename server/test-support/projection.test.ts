@@ -1,7 +1,7 @@
 // Phase 1.2 — Projection / ACL characterization.
 //
 // Per-recipient projection / ACL net. Began as a Phase 1.2 characterization of
-// the implicit per-WebSocket fanout in server/index.ts (sendProjectedFullState +
+// the implicit per-WebSocket fanout in server/isomux-office.ts (sendProjectedFullState +
 // routeAgentEventToWs + the per-WS push helpers); the Phase 3 rewrites then
 // FLIPPED these tests in place as they landed, so the file now pins the CURRENT
 // (post-3b/3c/3d) model, through the wire only (WS messages + REST responses),
@@ -15,7 +15,7 @@
 //     the WS command bus onto REST; these tests drive them over authenticated
 //     HTTP now (the cores + broadcasts are unchanged, so the ACL assertions hold).
 //
-// Current model frozen here (verified against index.ts / shared/office-state.ts
+// Current model frozen here (verified against isomux-office.ts / shared/office-state.ts
 // / auth.ts):
 //   - Access == UserRecord.allowedRooms for MEMBERS (literal string[]; no "all"
 //     sentinel); OWNERS access every room by RULE (canAccess), carrying no

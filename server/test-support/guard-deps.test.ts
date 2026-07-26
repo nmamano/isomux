@@ -2,7 +2,7 @@
 //
 // Unit (T0, fakes): the translation logic — agentId → GLOBAL room id (not a
 // dense projection), unknown agent → null, username/cronjob lookups, null-user
-// access. Integration (T1, harness): the adapter built at the index.ts seam over
+// access. Integration (T1, harness): the adapter built at the isomux-office.ts seam over
 // the LIVE predicates agrees with today's materialized-allowedRooms ACL for an
 // owner-all and a restricted member — the deferred-from-2.2 proof.
 

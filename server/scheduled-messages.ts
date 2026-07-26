@@ -62,7 +62,7 @@ export function parseDeliverAt(value: string): number | null {
 // The one message shape this module hands to the queue: a scheduled agent
 // sender plus the scheduledFor/scheduledSenderGone markers the flush prefix
 // renders. Kept structural (not imported from agent-manager) so this module
-// stays a leaf below agent-manager; index.ts's closure is where the two meet.
+// stays a leaf below agent-manager; isomux-office.ts's closure is where the two meet.
 export interface ScheduledDelivery {
   sender: Extract<QueuedMessage["sender"], { kind: "agent" }>;
   text: string;

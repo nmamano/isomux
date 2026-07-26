@@ -17,7 +17,7 @@
 // deliberate capability removal Nil chose over preserving it via a wider
 // SetAccessReq). claim_user's first-login pref migration becomes view.* PUTs.
 //
-// LEAF over the executor + shared types. The seam (index.ts) owns mutate→emit:
+// LEAF over the executor + shared types. The seam (isomux-office.ts) owns mutate→emit:
 // the deps run updateUserById/deleteUser + emitUserUpdated/emitUsersList/
 // pushProjectedFullStateForUserId/presence, mirroring the retired WS arms; these
 // handlers stay pure REST mappers. The auth policy (selfOrOwner / officeOwner

@@ -1,5 +1,5 @@
 // In-process server test harness (Phase 0.3). Boots the REAL server
-// (startServer from server/index.ts) against the temp STATE_ROOT the test
+// (startServer from server/isomux-office.ts) against the temp STATE_ROOT the test
 // preload set up, with a FakeBackend injected so no LLM/provider call happens.
 // Gives a test multiple authenticated users + sockets and lets it assert on the
 // persisted files under STATE_ROOT.
@@ -15,7 +15,7 @@ import {
   startServer,
   type ServerHandle,
   type StartServerOpts,
-} from "../index.ts";
+} from "../isomux-office.ts";
 import { STATE_ROOT } from "../config.ts";
 import { FakeBackend } from "./fake-backend.ts";
 import { assertSafeToDelete, removeStateDir } from "./temp-state.ts";

@@ -3,7 +3,7 @@
 // been used", and the owner's open tab showed the new session but not the new
 // user). Two fixes frozen here:
 //
-//   1. setOnInviteConsumed (index.ts registerBootHooks) also fans out
+//   1. setOnInviteConsumed (isomux-office.ts registerBootHooks) also fans out
 //      emitUsersList(): invite acceptance is the ONE path that creates a user
 //      record outside the users.* handlers, so without it an already-open
 //      owner socket saw sessions refresh while the user roster stayed stale

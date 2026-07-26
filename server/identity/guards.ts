@@ -12,7 +12,7 @@
 // traffic through it.
 //
 // LEAF MODULE: imports only ./index.ts (Identity/Capability). It must NOT import
-// server/index.ts, the managers, or users.ts — mutable office state reaches
+// server/isomux-office.ts, the managers, or users.ts — mutable office state reaches
 // guards ONLY through the injected `GuardDeps` seam. That keeps the catalog pure
 // and unit-testable, and let Phase 3b swap the access model (materialized
 // `allowedRooms` → rule-based) by replacing the GuardDeps implementation, never
@@ -53,7 +53,7 @@ export const FORBIDDEN: AuthzOutcome = Object.freeze({
 
 // --- Injected office-state seam ---------------------------------------------
 // The ONLY channel through which guards read mutable office state. Narrow and
-// synchronous by contract. Production wiring (built at the server/index.ts seam
+// synchronous by contract. Production wiring (built at the server/isomux-office.ts seam
 // in Phase 2.3/3) supplies the live lookups; tests supply fakes.
 export interface GuardDeps {
   // Does this identity have access to `roomId`? Wraps the live RULE-BASED

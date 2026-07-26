@@ -1,0 +1,398 @@
+// Enforcement probes for the PreToolUse safety hooks. Everything runs through
+// createSafetyHooks(), the public interface, rather than the private callbacks.
+//
+// The write-protection root is STATE_ROOT, which the bun test preload has
+// already pointed at a throwaway temp dir (bunfig.toml -> test-support/preload.ts).
+// The guard at the top of this file re-asserts that, so a denial test can never
+// be aimed at the real ~/.isomux.
+import { describe, it, expect } from "bun:test";
+import type {
+  HookCallback,
+  HookJSONOutput,
+} from "@anthropic-ai/claude-agent-sdk";
+import { homedir } from "os";
+import { join, sep } from "path";
+import { STATE_ROOT } from "./config.ts";
+import { createSafetyHooks } from "./safety-hooks.ts";
+
+const realStateRoot = join(homedir(), ".isomux");
+if (
+  STATE_ROOT === realStateRoot ||
+  STATE_ROOT.startsWith(realStateRoot + sep)
+) {
+  throw new Error(
+    `safety-hooks.test.ts refuses to run against the real state root (${STATE_ROOT}).`,
+  );
+}
+
+const PROTECTED_FILE = join(STATE_ROOT, "agents.json");
+
+function hooksFor(toolName: string): HookCallback[] {
+  const matchers = createSafetyHooks().PreToolUse ?? [];
+  return matchers.filter((m) => m.matcher === toolName).flatMap((m) => m.hooks);
+}
+
+/** Run every hook registered for a tool; the first one that objects wins. */
+async function decide(
+  toolName: string,
+  toolInput: Record<string, unknown>,
+): Promise<{ denied: boolean; reason: string }> {
+  const input = {
+    hook_event_name: "PreToolUse",
+    tool_name: toolName,
+    tool_input: toolInput,
+  } as unknown as Parameters<HookCallback>[0];
+
+  for (const hook of hooksFor(toolName)) {
+    const out: HookJSONOutput = await hook(input, undefined, {
+      signal: new AbortController().signal,
+    });
+    const specific = (out as { hookSpecificOutput?: Record<string, unknown> })
+      .hookSpecificOutput;
+    if (specific?.permissionDecision === "deny") {
+      return {
+        denied: true,
+        reason: String(specific.permissionDecisionReason),
+      };
+    }
+  }
+  return { denied: false, reason: "" };
+}
+
+const bash = (command: string) => decide("Bash", { command });
+
+describe("process-kill guard", () => {
+  describe("denies name-pattern kills", () => {
+    const denied = [
+      // The incident that motivated this rule: the office server runs as
+      // `bun run server/index.ts`, so a pattern aimed at any other project's
+      // dev server takes the office with it.
+      [
+        'pkill -f "server/index.ts"',
+        "quoted pattern (survives quote stripping)",
+      ],
+      ["pkill -f server/index.ts", "unquoted pattern"],
+      ["pkill -f 'bun run server'", "single-quoted pattern"],
+      ["pkill bun", "bare name match"],
+      ["pkill -9 node", "signal plus name match"],
+      ["killall node", "killall"],
+      ["killall -9 claude", "killall with a signal"],
+      ["killall5", "killall5"],
+      ["sudo pkill -f claude", "behind sudo"],
+      ["/usr/bin/pkill -f bun", "absolute path"],
+      ["xargs pkill -f bun", "behind xargs"],
+      ["pkill -u nil", "user-scoped is still every process of that user"],
+      ["pkill -P 123 node", "parent-scoped but still name-matching"],
+    ] as const;
+
+    for (const [command, why] of denied) {
+      it(`${command} — ${why}`, async () => {
+        const { denied: isDenied } = await bash(command);
+        expect(isDenied).toBe(true);
+      });
+    }
+  });
+
+  describe("denies a name lookup laundered into a kill", () => {
+    const denied = [
+      'pgrep -f "server/index.ts" | xargs kill',
+      "pgrep -f bun | xargs -r kill -9",
+      "kill $(pgrep -f server/index.ts)",
+      "kill -9 $(pidof bun)",
+      "kill `pgrep -f bun`",
+      "ps aux | grep vite | awk '{print $2}' | xargs kill -9",
+    ];
+
+    for (const command of denied) {
+      it(command, async () => {
+        expect((await bash(command)).denied).toBe(true);
+      });
+    }
+  });
+
+  describe("denies the spellings that get past a naive command-word match", () => {
+    const denied = [
+      ["bash -c 'pkill -f bun'", "command word hidden inside a quoted payload"],
+      ['sh -c "kill $(pgrep -f bun)"', "quoted payload with a substitution"],
+      ["sudo -u nil pkill -f bun", "a wrapper flag that eats its own value"],
+      ["\\pkill -f bun", "backslash-escaped to skip alias expansion"],
+      [
+        "for i in 1; do pkill -f bun; done",
+        "command position inside a loop body",
+      ],
+      [
+        "if true; then killall bun; fi",
+        "command position inside a conditional",
+      ],
+      ["{ pkill -f bun; }", "command position inside a group"],
+      ["(pkill -f bun)", "command position inside a subshell"],
+      [
+        "pgrep -f bun | while read p; do kill $p; done",
+        "lookup and kill split across a read loop",
+      ],
+      ["  pkill   -f   bun  ", "extra whitespace"],
+      ["pkill --full bun", "long-form pattern flag"],
+      // Reviewer1 regressions.
+      [
+        'pkill -P "$(pgrep -f bun)"',
+        "a lookup smuggled through the -P carve-out",
+      ],
+      ["sudo --user nil pkill -f bun", "long-form wrapper flag with a value"],
+      ['"pkill" -f bun', "quoted command word"],
+      ['/usr/bin/"pkill" -f bun', "quoted command word inside a path"],
+      ["p\\kill -f bun", "backslash inside the command word"],
+      ["pgrep -f bun 2>&1 | xargs kill", "a redirection inside the pipeline"],
+      [
+        "ps aux 2>&1 | grep vite | awk '{print $2}' | xargs kill",
+        "a redirection inside the ps/grep pipeline",
+      ],
+      ["xargs -I {} pkill -f bun", "xargs replace-string flag"],
+      // Reviewer1 round 2: clustered shell flags, and wrapper options whose
+      // value would otherwise be read as the command.
+      ['bash -lc "pkill -f bun"', "clustered shell flag"],
+      ['sh -ec "killall bun"', "clustered shell flag, other order"],
+      ['env bash -lc "pkill -f bun"', "clustered shell flag behind a wrapper"],
+      ["time -o /tmp/t pkill -f bun", "a wrapper option that takes a value"],
+      ["sudo -D /tmp pkill -f bun", "a sudo option that takes a value"],
+      // The same standalone flags, now in front of a real kill.
+      ["sudo -n pkill -f bun", "behind a standalone sudo flag"],
+      ["xargs -r pkill -f bun", "behind a standalone xargs flag"],
+      ["time -v pkill -f bun", "behind a standalone time flag"],
+    ] as const;
+
+    for (const [command, why] of denied) {
+      it(`${command} — ${why}`, async () => {
+        expect((await bash(command)).denied).toBe(true);
+      });
+    }
+  });
+
+  describe("allows kills that name a PID or a port", () => {
+    const allowed = [
+      ["kill 12345", "a PID the agent has in hand"],
+      ["kill -9 12345", "a PID with a signal"],
+      ["kill $(lsof -ti:5173)", "by port via lsof"],
+      ["fuser -k 5173/tcp", "by port via fuser"],
+      ["kill -s TERM 12345", "a named signal"],
+      ["pkill -P 12345", "children of one known process"],
+      ["pkill -P12345", "the same, flag and value joined"],
+      ["xargs -P 4 kill < pids", "PIDs read from a file, not matched by name"],
+      ["pgrep -f 'server/index.ts'", "a lookup on its own is read-only"],
+      ["ps aux | grep bun", "inspecting processes is read-only"],
+      ["ps aux | head -20", "inspecting processes is read-only"],
+      // `ps` only counts as a name lookup next to `grep`, the step that turns
+      // it into name matching. Listing processes then killing a known PID is
+      // the ordinary thing an agent does.
+      ["ps aux | head; kill 12345", "listing then killing a known PID"],
+      // A kill that names literal PIDs is not a name match, however the rest of
+      // the line reads (Reviewer1 regression).
+      ["ps aux | kill 12345", "a literal PID beside an unrelated lookup"],
+      ["pgrep -f bun | head; kill 12345", "a literal PID after a lookup"],
+      ["kill -9 111 222", "several literal PIDs"],
+      ["kill $$", "the shell's own PID"],
+      ["pgrep -af bun; kill 12345", "a lookup then a literal-PID kill"],
+      // The pattern argument lives inside quotes, so the guard has to key off
+      // the command word rather than the text — and must not fire on prose.
+      [
+        'git commit -m "pkill the stray dev server"',
+        "the word inside a message",
+      ],
+      ['echo "run killall node to clean up"', "the word inside an echo"],
+    ] as const;
+
+    for (const [command, why] of allowed) {
+      it(`${command} — ${why}`, async () => {
+        const { denied, reason } = await bash(command);
+        expect({ command, denied, reason }).toEqual({
+          command,
+          denied: false,
+          reason: "",
+        });
+      });
+    }
+  });
+
+  describe("tells quoted data apart from an executed payload", () => {
+    // A separator inside quotes is data. Deleting quote characters would
+    // promote it to command structure and deny ordinary prose (Reviewer1).
+    const allowed = [
+      'echo "safe prose; pkill -f bun"',
+      "echo 'safe prose; pkill -f bun'",
+      'git commit -m "document this; killall node is unsafe"',
+      'git commit -m "fix: pkill -f && killall cleanup"',
+      'echo "a | pkill -f bun | b"',
+      "echo 'kill $(pgrep -f bun)'",
+      'grep -rn "killall" server/',
+      'sed -i "s/pkill/x/" f.ts',
+      // An ordinary command's arguments are never candidates, even behind a
+      // wrapper — the extra-candidate rule only fires right after an unknown
+      // flag, so this must not read `killall` as a command.
+      "find . -name '*.ts' | xargs grep -l killall",
+      "sudo -D /tmp grep -rn killall src/",
+      // A wrapper flag that stands alone must not turn the command's own
+      // arguments into candidates (Reviewer1 round 3).
+      "sudo -n grep -rn killall src/",
+      "xargs -r grep -l killall < files",
+      "time -v grep -n pkill README.md",
+      "xargs -rt grep -l killall",
+      "sudo --non-interactive grep -rn pkill .",
+      "cat <<'EOF'\npkill -f bun\nEOF",
+      "kill 123 > /dev/null 2>&1",
+    ];
+    for (const command of allowed) {
+      it(`allows ${JSON.stringify(command)}`, async () => {
+        expect((await bash(command)).denied).toBe(false);
+      });
+    }
+
+    // `bash -c` really does execute its argument, so that one quoted word is
+    // structure. Same for a substitution, which runs even inside double quotes.
+    const denied = [
+      'bash -c "pkill -f bun"',
+      "bash -c 'pkill -f bun'",
+      'sh -c "kill $(pgrep -f bun)"',
+      'kill "$(pgrep -f bun)"',
+      "bash -c \"bash -c 'pkill -f bun'\"",
+    ];
+    for (const command of denied) {
+      it(`denies ${JSON.stringify(command)}`, async () => {
+        expect((await bash(command)).denied).toBe(true);
+      });
+    }
+  });
+
+  it("teaches the port and PID alternatives in the denial", async () => {
+    const { reason } = await bash('pkill -f "server/index.ts"');
+    expect(reason).toContain("processes you don't own");
+    expect(reason).toContain("by port or PID");
+  });
+
+  it("echoes the original command, quotes intact, so the agent can see what was blocked", async () => {
+    const { reason } = await bash('pkill -f "server/index.ts"');
+    expect(reason).toContain('pkill -f "server/index.ts"');
+  });
+});
+
+describe("NotebookEdit coverage", () => {
+  it("registers a matcher for NotebookEdit", () => {
+    expect(hooksFor("NotebookEdit").length).toBeGreaterThan(0);
+  });
+
+  it("denies a notebook_path write into the protected state root", async () => {
+    const { denied, reason } = await decide("NotebookEdit", {
+      notebook_path: join(STATE_ROOT, "notes.ipynb"),
+      new_source: "print(1)",
+    });
+    expect(denied).toBe(true);
+    expect(reason).toContain("Writing to ~/.isomux/ is not allowed");
+  });
+
+  it("denies a notebook_path pointing at a sensitive file", async () => {
+    const { denied, reason } = await decide("NotebookEdit", {
+      notebook_path: "/tmp/isomux-safety-probe/.env",
+      new_source: "print(1)",
+    });
+    expect(denied).toBe(true);
+    expect(reason).toContain("may contain secrets");
+  });
+
+  it("denies a NotebookRead of a sensitive file", async () => {
+    const { denied, reason } = await decide("NotebookRead", {
+      notebook_path: "/tmp/isomux-safety-probe/id_rsa",
+    });
+    expect(denied).toBe(true);
+    expect(reason).toContain("may contain secrets");
+  });
+
+  it("allows an ordinary notebook edit", async () => {
+    expect(
+      await decide("NotebookEdit", {
+        notebook_path: "/tmp/isomux-safety-probe/analysis.ipynb",
+        new_source: "print(1)",
+      }),
+    ).toEqual({ denied: false, reason: "" });
+  });
+});
+
+describe("path extraction fails closed", () => {
+  it("denies a guarded write whose input names no path at all", async () => {
+    const { denied, reason } = await decide("Write", { content: "hello" });
+    expect(denied).toBe(true);
+    expect(reason).toContain("could not tell which file");
+  });
+
+  it("denies a guarded read whose input names no path at all", async () => {
+    expect((await decide("Read", { offset: 3 })).denied).toBe(true);
+  });
+
+  it("names the rule each guard could not apply, not the other guard's rule", async () => {
+    // Reads of ~/.isomux/ are allowed, so the read guard must not claim it was
+    // checking for them.
+    const write = await decide("Write", { content: "x" });
+    expect(write.reason).toContain("the protected ~/.isomux/ directory");
+
+    const read = await decide("Read", { offset: 3 });
+    expect(read.reason).toContain("sensitive-file rules");
+    expect(read.reason).not.toContain("~/.isomux/");
+  });
+
+  it("denies an empty input object", async () => {
+    expect((await decide("Write", {})).denied).toBe(true);
+  });
+
+  it("still checks a novel path key rather than waving it through", async () => {
+    const { denied, reason } = await decide("Write", {
+      output_path: PROTECTED_FILE,
+      content: "x",
+    });
+    expect(denied).toBe(true);
+    expect(reason).toContain("Writing to ~/.isomux/ is not allowed");
+  });
+
+  it("does not mine the content field for paths", async () => {
+    // Documentation that merely mentions the protected directory is a normal
+    // write; only path-bearing fields decide.
+    expect(
+      await decide("Write", {
+        file_path: "/tmp/isomux-safety-probe/README.md",
+        content: `State lives in ${PROTECTED_FILE}.`,
+      }),
+    ).toEqual({ denied: false, reason: "" });
+  });
+});
+
+describe("existing guards still hold", () => {
+  it("denies a Write into the protected state root", async () => {
+    expect((await decide("Write", { file_path: PROTECTED_FILE })).denied).toBe(
+      true,
+    );
+  });
+
+  it("denies a Read of a .env file", async () => {
+    const { denied, reason } = await decide("Read", {
+      file_path: "/tmp/isomux-safety-probe/.env",
+    });
+    expect(denied).toBe(true);
+    expect(reason).toContain("may contain secrets");
+  });
+
+  it("allows a Read of .env.example", async () => {
+    expect(
+      await decide("Read", {
+        file_path: "/tmp/isomux-safety-probe/.env.example",
+      }),
+    ).toEqual({ denied: false, reason: "" });
+  });
+
+  it("denies rm -rf", async () => {
+    expect((await bash("rm -rf /home/nil/nil")).denied).toBe(true);
+  });
+
+  it("denies git reset --hard", async () => {
+    expect((await bash("git reset --hard HEAD~1")).denied).toBe(true);
+  });
+
+  it("allows an ordinary command", async () => {
+    expect(await bash("ls -la /tmp")).toEqual({ denied: false, reason: "" });
+  });
+});

@@ -9,7 +9,7 @@
 // both transports — the strangler leaves no WS-path divergence.
 //
 // EMIT-IN-DEP (unlike tasks/cron, which emit via a manager event-sink): there is
-// NO auth-manager event sink, so the index.ts seam owns mutate→emit. The
+// NO auth-manager event sink, so the isomux-office.ts seam owns mutate→emit. The
 // InvitesDeps mutation methods (mint / mintSelf / revoke) do mutate+emit and hand
 // back a status-mapped outcome; these handlers are PURE REST mappers that never
 // receive liveEmit and never emit directly.

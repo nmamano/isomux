@@ -7,7 +7,7 @@
 // the file get false negatives and draw wrong conclusions ("this isn't wired"),
 // while the build and server stay green. A silent navigation hazard.
 //
-// Regression guard for the collision-proof composite keys in server/index.ts
+// Regression guard for the collision-proof composite keys in server/isomux-office.ts
 // and server/transport/idempotency.ts: the NUL delimiter MUST be written as a
 // JS escape (the six characters backslash u 0 0 0 0), never as a raw 0x00 byte.
 //

@@ -64,7 +64,7 @@ export function validateModelFamily(
 }
 
 // Strict counterpart to validateModelFamily for INTERACTIVE spawn/edit input
-// (the REST dep closures in index.ts). Where validateModelFamily silently
+// (the REST dep closures in isomux-office.ts). Where validateModelFamily silently
 // coerces a mismatched value to the backend default — right for persisted-state
 // canonicalization at boot/revive, wrong for a live caller whose typo would
 // vanish — this returns a human-readable error string for a modelFamily that

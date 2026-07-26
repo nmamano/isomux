@@ -232,7 +232,7 @@ describe("routes/invites REST: mutation fan-out (recipient-scoped)", () => {
 
   // Reviewer1 P2 (eb3354e6 revision): the owner-mint (invites.mint) and
   // self-mint (invites.mintSelf) seams carry SEPARATE explicit emitInvitesList
-  // calls in server/index.ts — the self-mint test above no longer exercises
+  // calls in server/isomux-office.ts — the self-mint test above no longer exercises
   // the owner-mint one, so cover it with a genuinely NEW username.
   it("owner mint (new user) fans out a scoped invites_list: owner gets the row, a member gets none", async () => {
     const srv = await startTestServer();

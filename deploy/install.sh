@@ -719,7 +719,7 @@ Wants=network-online.target
 User=$SERVICE_USER
 Environment=HOME=$SERVICE_HOME
 WorkingDirectory=$INSTALL_DIR
-ExecStart=/usr/local/bin/bun run server/index.ts
+ExecStart=/usr/local/bin/bun run server/isomux-office.ts
 Restart=always
 RestartSec=2
 Environment=PORT=4000

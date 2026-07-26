@@ -48,3 +48,4 @@ Run ESLint during development. A good time to do it is right before human review
 
 - `~/.isomux/` — all persisted state: agent configs, conversation logs, cronjobs, tasks, office prompt, user profiles.
 - `ui/dist/` — UI build output (gitignored).
+- `server/isomux-office.ts` — the server entry point, named so the office's command line is recognizable. `server/index.ts` remains as a shim for systemd units written before the rename — don't delete it.

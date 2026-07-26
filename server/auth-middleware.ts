@@ -121,7 +121,7 @@ export function securityHeaders(opts?: {
 }
 
 // ---------------------------------------------------------------------------
-// Auth-result type that the index.ts dispatcher consumes.
+// Auth-result type that the isomux-office.ts dispatcher consumes.
 
 export interface AuthOk {
   kind: "ok";
@@ -171,7 +171,7 @@ function unauthorized(req: Request, officeName: string | null): Response {
 }
 
 // Browser-tab title for /auth/* and /i/<token> pages. Mirrors the format
-// used by the SPA shell (see serveIndexHtml in server/index.ts) so the tab
+// used by the SPA shell (see serveIndexHtml in server/isomux-office.ts) so the tab
 // title stays consistent across authenticated and pre-auth surfaces.
 function authPageTitle(officeName: string | null, suffix: string): string {
   return officeName
@@ -442,7 +442,7 @@ function originValidForAuthPost(req: Request): boolean {
   return checkOrigin(req);
 }
 
-// Top-level router used by index.ts: returns null when the path isn't an
+// Top-level router used by isomux-office.ts: returns null when the path isn't an
 // /auth/* path, so the caller falls through to its normal dispatch.
 export async function tryHandleAuthRoute<T>(
   req: Request,

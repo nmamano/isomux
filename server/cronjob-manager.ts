@@ -117,7 +117,7 @@ interface ActiveRun {
 }
 
 // ---------------------------------------------------------------------------
-// Event bus (server/index.ts wires this to the WebSocket broadcast)
+// Event bus (server/isomux-office.ts wires this to the WebSocket broadcast)
 // ---------------------------------------------------------------------------
 
 export type CronjobEvent =
@@ -169,7 +169,7 @@ export interface CronjobManagerDeps {
   // Time + scheduling seams so schedule-firing tests are deterministic.
   clock: CronClock;
   scheduler: CronScheduler;
-  // Event sink. Optional at construction (default noop); index.ts registers the
+  // Event sink. Optional at construction (default noop); isomux-office.ts registers the
   // real WS-broadcast sink via onCronjobEvent() after construction.
   eventSink?: (e: CronjobEvent) => void;
   // Memory render seam for the cron system prompt (production:
@@ -234,7 +234,7 @@ export function createCronjobManager(deps: CronjobManagerDeps) {
   const TICK_INTERVAL_MS = 60 * 1000;
   const MIN_INTERVAL_MINUTES = 5;
 
-  // Event sink (instance-scoped). index.ts overrides via onCronjobEvent() after
+  // Event sink (instance-scoped). isomux-office.ts overrides via onCronjobEvent() after
   // construction; deps.eventSink lets tests capture emitted events.
   let eventHandler: (e: CronjobEvent) => void = deps.eventSink ?? (() => {});
 
@@ -2093,7 +2093,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
     return totals;
   }
 
-  // Explicitly assembled public surface. The 16 symbols index.ts consumed off
+  // Explicitly assembled public surface. The 16 symbols isomux-office.ts consumed off
   // the old namespace import, plus buildCronjobSystemPrompt + readCronjobLifetimeUsage
   // which the module-read bridge below forwards to for command-handlers/usage-report.
   return {
@@ -2125,7 +2125,7 @@ How to answer questions about Isomux itself: the source lives at https://github.
 
 // Production factory: wires today's defaults (real backend resolver, env/user
 // resolution, the cronjob-persistence module, the system clock, and global
-// timers). No global side effects. index.ts calls this at boot; tests build
+// timers). No global side effects. isomux-office.ts calls this at boot; tests build
 // createCronjobManager(...) with fakes (FakeBackend, fake clock/scheduler,
 // in-memory persistence) instead.
 export function createProductionCronjobManager(overrides?: {
@@ -2156,7 +2156,7 @@ export function createProductionCronjobManager(overrides?: {
 // listCronjobs / readCronjobLifetimeUsage / buildCronjobSystemPrompt are read
 // by command-handlers.ts and usage-report.ts, which don't hold the manager
 // instance. Rather than thread the instance through their signatures (deferred
-// until handler/module ownership is clearer), index.ts registers the production
+// until handler/module ownership is clearer), isomux-office.ts registers the production
 // instance once at boot and these module-level functions forward to it. This
 // mirrors the existing provider-registration idiom (setRoomsSnapshotProvider,
 // setOfficeEnvFileProvider). Registration-only: no lazy construction, and it
@@ -2164,7 +2164,7 @@ export function createProductionCronjobManager(overrides?: {
 
 let productionForModuleReads: CronjobManager | null = null;
 
-// index.ts passes the production instance at boot. Tests may pass null to clear
+// isomux-office.ts passes the production instance at boot. Tests may pass null to clear
 // the registration so a fake instance doesn't leak into a shared test process.
 export function registerProductionCronjobManagerForModuleReads(
   manager: CronjobManager | null,
@@ -2176,7 +2176,7 @@ function requireProductionForModuleReads(): CronjobManager {
   if (!productionForModuleReads) {
     throw new Error(
       "CronjobManager production instance not registered for module reads. " +
-        "index.ts must call registerProductionCronjobManagerForModuleReads() at boot.",
+        "isomux-office.ts must call registerProductionCronjobManagerForModuleReads() at boot.",
     );
   }
   return productionForModuleReads;
