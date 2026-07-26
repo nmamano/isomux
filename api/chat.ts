@@ -182,6 +182,7 @@ Setup:
   - Git safety: blocks destructive git commands (\`git reset --hard\`, force push, etc.)
   - Filesystem safety: blocks \`rm -rf\` on root/home paths (allows it on temp directories)
   - Config protection: blocks writes to ~/.isomux/ (managed by the server)
+  - Secrets protection: blocks reads of .env files, private keys, and credentials
   - Process safety: blocks killing processes created by others
 - The embedded terminal is handy when you need to run a blocked command manually
 

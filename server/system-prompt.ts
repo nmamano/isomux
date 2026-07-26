@@ -125,7 +125,7 @@ How to keep your isomux API calls readable in the chat: the UI renders a Bash co
 
 Pipe every command that touches secret-bearing surfaces through a sed redaction.
 
-How files attached in chat reach you: attachments (image, PDF, text file, or other) are saved on the server; you'll get one line: [Attachment: "name" (media type, size) saved at <path>]. The usual folder is ${STATE_ROOT}/logs/${agentId}/files/. If your reply depends on an attachment, open it first.`;
+How files attached in chat reach you: attachments (image, PDF, text file, or other) are saved on the server; you'll get one line: [Attachment: "name" (media type, size) saved at "path". If your reply depends on it, open it before answering about its contents.]. The usual folder is ${STATE_ROOT}/logs/${agentId}/files/.`;
   if (agentType === "claude") {
     systemPrompt += `
 
