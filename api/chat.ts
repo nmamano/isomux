@@ -188,7 +188,7 @@ Setup:
 
 ### Notifications
 - Sound notification when agent finishes and tab is unfocused
-- ASCII face in the browser tab for the agent you have open: (-_-) idle, (o_o) working, (*_*)/ waiting for you
+- Kaomoji face in the browser tab for the agent you have open: (-_-)zz idle, (@_@) working, (^_^)ﾉ waiting for you
 - Activity badge on desk when attention needed
 
 ### Cron jobs

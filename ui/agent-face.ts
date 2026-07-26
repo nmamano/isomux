@@ -1,13 +1,15 @@
-// Agent state -> ASCII face for the browser tab title (task 4a8eff79).
+// Agent state -> kaomoji face for the browser tab title (task 4a8eff79).
 //
 // The tab strip is the one place you see an agent while looking at something
 // else, so the face carries its state: dozing, working, done and waiting on
 // you. Rendered in App.tsx's document.title effect, nowhere else.
 //
-// Plain ASCII only, deliberately. iOS Safari force-emoji-renders a handful of
-// Unicode glyphs and overrides their color, so a Unicode face would show up as
-// a colored pictograph on iPhone (same gotcha that made the Slide Mode toggle
-// an SVG instead of a glyph).
+// Glyph rules (tested in agent-face.test.ts): nothing with an emoji
+// presentation or variation selector — iOS Safari force-emoji-renders those
+// (same gotcha that made the Slide Mode toggle an SVG instead of a glyph) —
+// and no combining marks, which clip unpredictably in tab strips where we
+// can't control the font. Kaomoji ingredients like ｡ ﹏ ﾉ are plain text
+// everywhere and pass both rules.
 //
 // The table covers AgentState exactly. Orthogonal flags (dormant,
 // sessionSwapping) stay out: crossing them with state would square the table
@@ -20,13 +22,13 @@ import type { AgentState } from "../shared/types.ts";
 // "working") or stopped from idle, so the tab face doesn't either (Nil's rule:
 // faces match animations one to one).
 const STATE_FACES: Record<AgentState, string> = {
-  idle: "(-_-)",
-  thinking: "(o_o)",
-  tool_executing: "(o_o)",
+  idle: "(-_-)zz",
+  thinking: "(@_@)",
+  tool_executing: "(@_@)",
   // The agent has finished and wants you: it's waving.
-  waiting_for_response: "(*_*)/",
-  error: "(x_x)",
-  stopped: "(-_-)",
+  waiting_for_response: "(^_^)ﾉ",
+  error: "(｡>﹏<｡)",
+  stopped: "(-_-)zz",
 };
 
 /** Face for an agent state; empty string for anything off the union (a state

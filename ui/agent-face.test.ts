@@ -16,12 +16,12 @@ const ALL_STATES: AgentState[] = [
 
 describe("faceForState", () => {
   it("maps every state to its signed-off face", () => {
-    expect(faceForState("idle")).toBe("(-_-)");
-    expect(faceForState("thinking")).toBe("(o_o)");
-    expect(faceForState("tool_executing")).toBe("(o_o)");
-    expect(faceForState("waiting_for_response")).toBe("(*_*)/");
-    expect(faceForState("error")).toBe("(x_x)");
-    expect(faceForState("stopped")).toBe("(-_-)");
+    expect(faceForState("idle")).toBe("(-_-)zz");
+    expect(faceForState("thinking")).toBe("(@_@)");
+    expect(faceForState("tool_executing")).toBe("(@_@)");
+    expect(faceForState("waiting_for_response")).toBe("(^_^)ﾉ");
+    expect(faceForState("error")).toBe("(｡>﹏<｡)");
+    expect(faceForState("stopped")).toBe("(-_-)zz");
   });
 
   it("matches the avatar poses one to one (Nil's rule)", () => {
@@ -36,9 +36,28 @@ describe("faceForState", () => {
     }
   });
 
-  it("is plain ASCII — no glyph iOS could emoji-render", () => {
+  it("has no glyph iOS could emoji-render, and no variation selectors", () => {
+    // Every non-ASCII char must be outside the Unicode Emoji property (which
+    // is what iOS force-renders), and FE0E/FE0F must not appear at all.
     for (const state of ALL_STATES) {
-      expect(faceForState(state)).toMatch(/^[\x20-\x7e]+$/);
+      const face = faceForState(state);
+      expect(face).not.toMatch(/[\uFE0E\uFE0F]/);
+      for (const ch of face) {
+        if ((ch.codePointAt(0) ?? 0) < 128) continue;
+        expect(ch).not.toMatch(/\p{Emoji}/u);
+      }
+    }
+  });
+
+  it("has no combining marks — they clip unpredictably in tab strips", () => {
+    for (const state of ALL_STATES) {
+      expect(faceForState(state)).not.toMatch(/\p{M}/u);
+    }
+  });
+
+  it("stays narrow enough for a tab strip", () => {
+    for (const state of ALL_STATES) {
+      expect(faceForState(state).length).toBeLessThanOrEqual(7);
     }
   });
 
@@ -49,9 +68,9 @@ describe("faceForState", () => {
 
 describe("agentTabLabel", () => {
   it("leads with the face so a truncated tab still shows state", () => {
-    expect(agentTabLabel("Isomuxer5", "idle")).toBe("(-_-) Isomuxer5");
+    expect(agentTabLabel("Isomuxer5", "idle")).toBe("(-_-)zz Isomuxer5");
     expect(agentTabLabel("Isomuxer5", "waiting_for_response")).toBe(
-      "(*_*)/ Isomuxer5",
+      "(^_^)ﾉ Isomuxer5",
     );
   });
 
