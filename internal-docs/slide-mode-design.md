@@ -16,6 +16,13 @@
 > below; it originally reused `topicGenToken`, which was wrong because a benign
 > `setTopic` also bumps that.
 
+> Gated off (2026-07-26, task efc4288f): Slide Mode is experimental and ships
+> disabled. A device-local gate (`getSlideModeEnabled` in `device-settings.ts`,
+> toggled from Device Settings) sits above the per-agent pref: while it is off
+> the header toggle is hidden and every agent renders as chat. Slides are only
+> generated on demand, so nothing runs server-side either. The per-agent prefs
+> are left untouched, so re-enabling restores the decks that were open.
+
 > Polish v2 (2026-07-24): (1) the deck↔chat toggle now persists the last-viewed
 > slide index per-device-per-agent (`getSlidePos`/`setSlidePos` in
 > `device-settings.ts`) and restores it on re-entry — following the newest only

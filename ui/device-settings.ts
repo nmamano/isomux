@@ -64,6 +64,50 @@ export function clearLegacyUserPrefs(): void {
   localStorage.removeItem(LEGACY_KEY_NOTIF_ROOMS);
 }
 
+// Global Slide Mode gate (experimental feature, default OFF). Sits ABOVE the
+// per-agent view toggle below: while off, the deck entry point is hidden and
+// every agent renders as chat, whatever their per-agent pref says. The gate
+// never writes the per-agent prefs, so turning it back on restores them.
+const KEY_SLIDE_MODE = "isomux-slide-mode";
+
+const slideModeListeners = new Set<() => void>();
+
+export function getSlideModeEnabled(): boolean {
+  if (typeof localStorage === "undefined") return false;
+  return localStorage.getItem(KEY_SLIDE_MODE) === "1";
+}
+
+export function setSlideModeEnabled(on: boolean): void {
+  if (typeof localStorage === "undefined") return;
+  // Compare BEFORE the write (it also normalizes a hand-edited value), and
+  // notify only on a real change — a Save that left the box untouched must not
+  // wake every subscriber.
+  const changed = getSlideModeEnabled() !== on;
+  if (on) localStorage.setItem(KEY_SLIDE_MODE, "1");
+  else localStorage.removeItem(KEY_SLIDE_MODE);
+  if (!changed) return;
+  for (const cb of slideModeListeners) cb();
+}
+
+// The settings surface that writes the gate renders OVER a live LogView, which
+// therefore never remounts to re-read it — so subscribers get notified instead.
+// The storage event covers the same browser's other tabs.
+export function subscribeSlideModeEnabled(cb: () => void): () => void {
+  slideModeListeners.add(cb);
+  const onStorage = (e: StorageEvent) => {
+    if (e.key === null || e.key === KEY_SLIDE_MODE) cb();
+  };
+  if (typeof window !== "undefined") {
+    window.addEventListener("storage", onStorage);
+  }
+  return () => {
+    slideModeListeners.delete(cb);
+    if (typeof window !== "undefined") {
+      window.removeEventListener("storage", onStorage);
+    }
+  };
+}
+
 // Slide Mode view toggle (design: internal-docs/slide-mode-design.md). Per
 // device, per agent — the server holds no slideMode setting; whether this
 // browser shows an agent as a deck vs chat is purely local. Stored as one

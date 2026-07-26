@@ -45,6 +45,7 @@ import { TerminalPanel } from "./TerminalPanel.tsx";
 import { EditorPanel } from "./EditorPanel.tsx";
 import { PanelResizer } from "./PanelResizer.tsx";
 import { useSwipeLeftRight } from "../hooks/useSwipeLeftRight.ts";
+import { useSlideModeEnabled } from "../hooks/useSlideMode.ts";
 import {
   getDevice,
   getSlideView as readSlideViewPref,
@@ -585,13 +586,20 @@ export function LogView({
   // Slide Mode view toggle — per device, per agent. LogView can stay mounted
   // across an agent switch, so re-read the pref when agent.id changes using the
   // render-time "reset state on prop change" pattern (no effect / cascading
-  // render).
-  const [slideView, setSlideView] = useState(() => readSlideViewPref(agent.id));
+  // render). The per-agent pref only takes effect while the device-local Slide
+  // Mode gate is on (Device Settings); with the gate off the deck entry point
+  // is hidden and an agent left on the deck falls back to chat, without the
+  // pref being cleared.
+  const slideModeEnabled = useSlideModeEnabled();
+  const [slideViewPref, setSlideViewPref] = useState(() =>
+    readSlideViewPref(agent.id),
+  );
   const [slideViewAgentId, setSlideViewAgentId] = useState(agent.id);
   if (slideViewAgentId !== agent.id) {
     setSlideViewAgentId(agent.id);
-    setSlideView(readSlideViewPref(agent.id));
+    setSlideViewPref(readSlideViewPref(agent.id));
   }
+  const slideView = slideModeEnabled && slideViewPref;
   // Chat scroll position captured when entering the deck, restored on return so
   // the deck→chat toggle doesn't dump the viewer at scrollTop 0 (the messages
   // container remounts). Only consulted when the viewer was NOT following the
@@ -599,7 +607,7 @@ export function LogView({
   const savedChatScrollRef = useRef<number | null>(null);
   const applySlideView = (on: boolean) => {
     if (on) savedChatScrollRef.current = scrollRef.current?.scrollTop ?? null;
-    setSlideView(on);
+    setSlideViewPref(on);
     writeSlideViewPref(agent.id, on);
   };
   // Seed the deck from cached slides whenever the view is (re)opened for an
@@ -1990,10 +1998,16 @@ export function LogView({
             }}
           >
             <ContextBattery usage={agent.contextUsage} />
-            <SlideToggleButton
-              active={slideView}
-              onClick={() => applySlideView(!slideView)}
-            />
+            {/* Reads and flips the PREF, not the gated `slideView`: inside this
+                branch the gate is on so the two agree, but a toggle driven by
+                the derived value would write a gate-forced false back over the
+                saved pref if it ever rendered ungated. */}
+            {slideModeEnabled && (
+              <SlideToggleButton
+                active={slideViewPref}
+                onClick={() => applySlideView(!slideViewPref)}
+              />
+            )}
             <NavActions actions={desktopAgentActions} viewport="desktop" />
           </div>
         </div>
@@ -2089,10 +2103,12 @@ export function LogView({
                     />
                   )}
                   <ContextBattery usage={agent.contextUsage} isMobile />
-                  <SlideToggleButton
-                    active={slideView}
-                    onClick={() => applySlideView(!slideView)}
-                  />
+                  {slideModeEnabled && (
+                    <SlideToggleButton
+                      active={slideViewPref}
+                      onClick={() => applySlideView(!slideViewPref)}
+                    />
+                  )}
                   <NavActions actions={mobileAgentActions} viewport="mobile" />
                 </div>
                 <div
