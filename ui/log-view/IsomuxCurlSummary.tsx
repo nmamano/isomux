@@ -1,5 +1,5 @@
 import type { IsomuxCurlRequest } from "./isomux-curl.ts";
-import { humanizeIsomuxRequest } from "./isomux-curl.ts";
+import { humanizeIsomuxRequest, pipeTailForDisplay } from "./isomux-curl.ts";
 import { useAppState } from "../store.tsx";
 
 // Ports the isomux server may be reachable on from the agent's shell. 4000 is
@@ -86,10 +86,10 @@ export function IsomuxCurlHeader({
         </span>
       )}
       {req.pipeTail && (
-        // Always verbatim and untruncated: the parser does not semantically
-        // validate the tail, so concealing any of it here would let the card
-        // hide a side effect that the raw rendering would have shown. Long
-        // tails are already rejected at parse time (MAX_PIPE_TAIL).
+        // Elided only by pipeTailForDisplay, which is bounded so the card
+        // always shows more of the tail than the raw collapsed row it replaces
+        // — the parser does not semantically validate tails, so a card that
+        // showed less could hide a side effect (a `sed w` script).
         <span
           style={{
             color: "var(--text-ghost)",
@@ -97,7 +97,7 @@ export function IsomuxCurlHeader({
             overflowWrap: "anywhere",
           }}
         >
-          {req.pipeTail}
+          {pipeTailForDisplay(req.pipeTail)}
         </span>
       )}
     </>

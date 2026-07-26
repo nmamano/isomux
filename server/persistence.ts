@@ -769,6 +769,7 @@ export interface ManifestAgentInput {
   cwd: string;
   modelFamily: string;
   model: string;
+  effort: EffortLevel;
   username: string | null;
 }
 
@@ -784,6 +785,7 @@ export function buildManifest(agents: ManifestAgentInput[]) {
     cwd: a.cwd,
     modelFamily: a.modelFamily,
     model: a.model,
+    effort: a.effort,
     username: a.username,
     logDir: join(LOGS_DIR, a.id),
   }));

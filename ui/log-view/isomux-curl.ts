@@ -54,11 +54,13 @@ export type IsomuxCurlRequest = {
    * Accepted tails are shell-checked (each stage must tokenize under the same
    * conservative rules as the curl itself — no compound commands, no file
    * redirections or substitutions; safe stream redirections like
-   * `2>/dev/null` are tolerated), command-gated (see FILTER_COMMANDS), and
-   * length-capped (MAX_PIPE_TAIL). They are NOT semantically validated — a
-   * `sed w` script can still write a file — so the UI MUST render this string
-   * verbatim and untruncated. That is the safety property: the collapsed card
-   * never shows less of the tail than the raw rendering would.
+   * `2>/dev/null` are tolerated) and command-gated (see FILTER_COMMANDS).
+   * They are NOT semantically validated — a `sed w` script can still write a
+   * file — so the collapsed card must never show less of the tail than the raw
+   * collapsed rendering would; run it through pipeTailForDisplay(), which is
+   * what guarantees that. Length does not gate the parse (task c9f35c77):
+   * dropping the card over a long jq program left the reader with the raw
+   * summary, which shows even less.
    */
   pipeTail: string | null;
   /**
@@ -397,11 +399,10 @@ function extractHeredoc(command: string): Heredoc | null {
 // can have side effects through their arguments (sed `w`, sort -o, ...), and
 // validating each command's option grammar and mini-language would be brittle
 // across implementations. Instead, the card's safety property is display, not
-// validation: accepted tails are short (MAX_PIPE_TAIL) and rendered verbatim
-// and untruncated, so the collapsed card can never conceal part of the
-// command that the raw rendering would have shown. awk is excluded because
-// its program text is arbitrary code (system()) with no redeeming common use
-// in these transcripts.
+// validation: the collapsed card can never conceal part of the command that
+// the raw collapsed rendering would have shown (see pipeTailForDisplay). awk
+// is excluded because its program text is arbitrary code (system()) with no
+// redeeming common use in these transcripts.
 const FILTER_COMMANDS = new Set([
   "jq",
   "sed",
@@ -417,9 +418,33 @@ const FILTER_COMMANDS = new Set([
   "column",
 ]);
 
-// Longest pipe tail we accept. Longer tails fall back to raw rendering; this
-// keeps the card tidy and guarantees the verbatim tail fits in the summary.
-const MAX_PIPE_TAIL = 80;
+// Characters of the raw command an UNCARDED Bash row shows in its collapsed
+// summary (extractToolSummary in LogEntryCard.tsx, which imports this).
+// It lives here, not there, because MAX_TAIL_DISPLAY below is derived from it
+// and the dependency only points this way — LogEntryCard already imports this
+// module, so the reverse would be a cycle.
+export const BASH_RAW_SUMMARY_CHARS = 80;
+
+// Characters of pipe tail the collapsed card shows before eliding the rest.
+//
+// The floor is set by what the card replaces. Everything before the tail eats
+// into BASH_RAW_SUMMARY_CHARS, and the shortest curl that parses at all —
+// "curl localhost:4000" plus the space before the "|" — spends 20 of it, so
+// raw rendering can never reveal more than 60 characters of tail. A card that
+// shows 64 therefore always shows more, for every parseable command: the same
+// non-concealment property the parse-time length cap used to provide, which is
+// why lifting that cap was safe. The bound is enforced by the "displayed tail
+// never shows less than the raw collapsed row would" test, not by this
+// comment. Anything past this is one click away in the expanded view, exactly
+// as it is for a long raw command.
+const MAX_TAIL_DISPLAY = 64;
+
+/** A pipe tail as the collapsed card renders it. See MAX_TAIL_DISPLAY. */
+export function pipeTailForDisplay(tail: string): string {
+  return tail.length > MAX_TAIL_DISPLAY
+    ? tail.slice(0, MAX_TAIL_DISPLAY) + "…"
+    : tail;
+}
 
 /**
  * Validate a captured pipe tail (starting with "|"). Every stage must
@@ -1358,11 +1383,7 @@ function parseCurlStage(
   stdinBody: ResolvedBody | null,
   outputRedirect: OutputRedirect | null = null,
 ): IsomuxCurlRequest | null {
-  if (
-    pipeTail !== null &&
-    (pipeTail.length > MAX_PIPE_TAIL || !isSafePipeTail(pipeTail))
-  )
-    return null;
+  if (pipeTail !== null && !isSafePipeTail(pipeTail)) return null;
 
   let method: string | null = null;
   let url: string | null = null;

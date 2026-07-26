@@ -33,6 +33,7 @@ import { join } from "path";
 import { startTestServer, type TestServer } from "./harness.ts";
 import { getAgentTokenRaw } from "../identity/tokens.ts";
 import { getUserByName } from "../users.ts";
+import { DEFAULT_EFFORT, type EffortLevel } from "../../shared/types.ts";
 
 let server: TestServer | null = null;
 
@@ -68,6 +69,7 @@ async function spawnOwnedBy(
   roomId: string,
   desk: number,
   username: string,
+  effort?: EffortLevel,
 ) {
   const user = getUserByName(username);
   if (!user) throw new Error(`unknown user: ${username}`);
@@ -80,7 +82,7 @@ async function spawnOwnedBy(
     roomId,
     undefined,
     undefined,
-    undefined,
+    effort,
     username,
     "claude",
     undefined,
@@ -168,6 +170,7 @@ describe("GET /agents (discovery manifest)", () => {
       cwd: srv.stateRoot,
       modelFamily: alpha.modelFamily,
       model: alpha.model,
+      effort: DEFAULT_EFFORT,
       username: owner.username,
       logDir: join(srv.stateRoot, "logs", a.id),
     });
@@ -178,6 +181,27 @@ describe("GET /agents (discovery manifest)", () => {
 
     // Parity on the full-access view: the endpoint and the still-written file
     // must not drift (both come from persistence.buildManifest).
+    expect(body).toEqual(manifestOnDisk(srv) as typeof body);
+  });
+
+  // Task cf666d6d: effort is settable over PATCH /api/agents/<id> but used to
+  // be write-only — no way to read the current value back, so a manager could
+  // only blind-write. Pinned with a non-default value so a hardcoded constant
+  // can't pass.
+  it("reports each agent's own effort", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const r1 = srv.agentManager.getRooms()[0].id;
+    const a = await spawnOwnedBy(srv, "Alpha", r1, 0, owner.username, "low");
+    const b = await spawnOwnedBy(srv, "Beta", r1, 1, owner.username);
+
+    const res = await fetch(`${srv.baseUrl}/agents`, {
+      headers: { Authorization: `Bearer ${bearerFor(a.id)}` },
+    });
+    const body = (await res.json()) as Array<Record<string, unknown>>;
+    expect(body.find((e) => e.id === a.id)?.effort).toBe("low");
+    expect(body.find((e) => e.id === b.id)?.effort).toBe(DEFAULT_EFFORT);
     expect(body).toEqual(manifestOnDisk(srv) as typeof body);
   });
 

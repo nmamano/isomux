@@ -8,7 +8,7 @@ import { DiffCard } from "./DiffCard.tsx";
 import { EditRequestCard } from "./EditRequestCard.tsx";
 import { FileViewCard } from "./FileViewCard.tsx";
 import { TerminalCommandCard } from "./TerminalCommandCard.tsx";
-import { parseIsomuxCurl } from "./isomux-curl.ts";
+import { parseIsomuxCurl, BASH_RAW_SUMMARY_CHARS } from "./isomux-curl.ts";
 import {
   IsomuxCurlHeader,
   IsomuxCurlFields,
@@ -1396,7 +1396,12 @@ function extractToolSummary(toolName: string, input: unknown): string {
   const obj = input as Record<string, unknown>;
   switch (toolName) {
     case "Bash":
-      return typeof obj.command === "string" ? obj.command.slice(0, 80) : "";
+      // Isomux curl cards are bounded against this budget so a card never
+      // conceals more of a command than this row would — see MAX_TAIL_DISPLAY
+      // in isomux-curl.ts before changing it.
+      return typeof obj.command === "string"
+        ? obj.command.slice(0, BASH_RAW_SUMMARY_CHARS)
+        : "";
     case "Read":
       return typeof obj.file_path === "string" ? obj.file_path : "";
     case "Write":
