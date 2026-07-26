@@ -62,6 +62,7 @@ _The UI makes agent state spatial and glanceable, so you remember who is doing w
 - Status light with **escalating hung-agent warnings**: amber at 2 min, red at 5 min.
 - **Activity badge** on desk when an agent needs attention.
 - **Sound notification** when an agent finishes and the browser tab is unfocused.
+- **ASCII face in the browser tab** for the agent you have open: `(-_-)` idle, `(o_o)` working, `(*_*)/` waiting for you.
 - Auto-generated **conversation topic** below nametag.
 - **Drag agents between desks or rooms** to rearrange.
 - **Skeuomorphic touches**: click the moon through the window to toggle dark mode, click doors to switch rooms, etc.

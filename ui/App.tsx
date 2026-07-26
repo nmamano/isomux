@@ -23,6 +23,7 @@ import { UpdateModal } from "./components/UpdateModal.tsx";
 import { ConnectionBanner } from "./components/ConnectionBanner.tsx";
 import { CSS } from "./styles.ts";
 import { getUsername, getDevice } from "./device-settings.ts";
+import { agentTabLabel } from "./agent-face.ts";
 import type { AgentBackendType, AgentInfo } from "../shared/types.ts";
 import { isValidDesk } from "../shared/desks.ts";
 import { EngineChooserDialog } from "./components/EngineChooserDialog.tsx";
@@ -232,14 +233,21 @@ export function App() {
   // index.html for cold loads; this effect only takes over once full_state has
   // landed (connected=true) so it doesn't briefly overwrite the server-rendered
   // title while office.name is still null from the initial empty store.
+  //
+  // A focused agent also gets an ASCII face for its state (agent-face.ts), so
+  // a background tab shows whether it's still working or waiting on you.
   const focusedAgentName = focusedAgent?.name ?? null;
+  const focusedAgentState = focusedAgent?.state ?? null;
   const currentRoomName =
     rooms.find((r) => r.id === currentRoomId)?.name ?? null;
+  const tabLabel =
+    focusedAgentName !== null
+      ? agentTabLabel(focusedAgentName, focusedAgentState ?? "idle")
+      : (currentRoomName ?? office.name ?? null);
   useEffect(() => {
     if (!connected) return;
-    const label = focusedAgentName ?? currentRoomName ?? office.name ?? null;
-    document.title = label ? `${label} | Isomux` : "Isomux";
-  }, [connected, office.name, focusedAgentName, currentRoomName]);
+    document.title = tabLabel ? `${tabLabel} | Isomux` : "Isomux";
+  }, [connected, tabLabel]);
 
   const swipeRoomNext = useCallback(() => {
     if (roomCount <= 1) return;

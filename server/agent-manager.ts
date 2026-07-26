@@ -166,6 +166,7 @@ import {
   stripOutboundEnvelope,
   CONTEXT_NOTICE_THRESHOLDS,
 } from "./plugin-hooks.ts";
+import { stripAttachmentNotices } from "./attachment-prompt.ts";
 // --- Dependency injection (Phase 0.2) ---
 //
 // AgentManager was a singleton function-module (module-level officeState /
@@ -6378,12 +6379,24 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // `${blocks}\n\nUser message:\n${sdkText}` form, but log entries only carry
       // `sdkText`. Without the strip, every edit on a turn that carried an
       // envelope block would fall through to the "could not locate" branch below.
+      //
+      // stripAttachmentNotices does the same for the other end of the message:
+      // a turn that carried attachments records their notice block as a second
+      // content block, which the backends flatten onto the user text with no
+      // separator (task 1a3a0820). Applied to EVERY candidate, not just when the
+      // target entry has attachments, so that both sides of the occurrence count
+      // below key off the same plain user text — the log-side loop ignores
+      // attachments entirely, so a plain message and an attachment-bearing one
+      // sharing the same text must normalize identically here.
       let matchCount = 0;
       let targetIdx = -1;
       for (let i = 0; i < backendMessages.length; i++) {
         const m = backendMessages[i];
         if (m.role !== "user") continue;
-        if (stripOutboundEnvelope(m.text) === prefixedContent) {
+        if (
+          stripAttachmentNotices(stripOutboundEnvelope(m.text)) ===
+          prefixedContent
+        ) {
           if (matchCount === occurrenceIndex) {
             targetIdx = i;
             break;
@@ -6575,11 +6588,18 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       // runAgentTurn so it's part of the visible timeline; runAgentTurn's
       // newLogEntries snapshot is taken AFTER, so the user_message is
       // excluded from the slice plugins observe.
+      //
+      // The edit UI rewrites text only, so the original message's attachments
+      // ride along to the replacement turn (task 1a3a0820) — dropping them
+      // would silently strip the files the edited text is usually talking
+      // about. Specs that no longer resolve on disk are skipped downstream by
+      // resolveAttachmentNotices, same as on a fresh send.
       addLogEntry(
         agentId,
         "user_message",
         newText,
         buildUserMeta(username, device),
+        targetEntry.attachments,
       );
 
       const editPrefix = formatPrefix({ username, device });
@@ -6591,6 +6611,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         // see; sender prefix is isomux routing applied below.
         originalText: newText,
         sdkText: prefixedNew,
+        attachments: targetEntry.attachments,
         origin: "edit-fork",
         humanInput: true,
       });

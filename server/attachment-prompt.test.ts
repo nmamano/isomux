@@ -9,11 +9,13 @@ import { describe, expect, it, afterAll } from "bun:test";
 import { join } from "path";
 import { mkdirSync, writeFileSync, rmSync } from "fs";
 import { STATE_ROOT } from "./config.ts";
+import { stripOutboundEnvelope } from "./plugin-hooks.ts";
 import {
   resolveAttachmentNotices,
   formatAttachmentLines,
   formatSize,
   quoteOneLine,
+  stripAttachmentNotices,
 } from "./attachment-prompt.ts";
 
 const TEST_AGENT_ID = `test-att-prompt-${Date.now()}-${Math.random()
@@ -181,5 +183,132 @@ describe("formatSize", () => {
 describe("quoteOneLine", () => {
   it("round-trips as JSON for normal strings", () => {
     expect(JSON.parse(quoteOneLine("hello world"))).toBe("hello world");
+  });
+});
+
+// Regression for task 1a3a0820: editing a message that carried attachments
+// failed with "Cannot edit: could not locate message in backend session."
+// Attachments ride as a second content block, and both backends'
+// getSessionMessages flatten content blocks by concatenation with no
+// separator, so the transcript text is `<user text><notice block>` while the
+// isomux log entry only holds `<user text>`. agent-manager's editMessage
+// matcher compares the two by equality; without this strip it never matched.
+// The fixture below is the real recorded shape (agent-1782317790021-xp9e,
+// session 931f6215), not a synthesized one.
+describe("stripAttachmentNotices", () => {
+  const NOTICE =
+    '[Attachment: "image.png" (image/png, 527.0 KB) saved at ' +
+    '"/home/nil/.isomux/logs/agent-1782317790021-xp9e/files/image_7.png". ' +
+    "If your reply depends on it, open it before answering about its contents.]";
+
+  it("leaves text without a notice block untouched", () => {
+    expect(stripAttachmentNotices("[Nil] hello world")).toBe(
+      "[Nil] hello world",
+    );
+    expect(stripAttachmentNotices("")).toBe("");
+  });
+
+  it("strips a notice glued straight onto the user text", () => {
+    const userText =
+      "[Nil (Windows)] Here is the screenshot of the cutoff slide.";
+    expect(stripAttachmentNotices(userText + NOTICE)).toBe(userText);
+  });
+
+  it("strips a multi-attachment block joined by newlines", () => {
+    const second =
+      '[Attachment: "notes.md" (text/plain, 2.0 KB) saved at "/tmp/notes.md". ' +
+      "If your reply depends on it, open it before answering about its contents.]";
+    expect(
+      stripAttachmentNotices("[Nil] two files" + NOTICE + "\n" + second),
+    ).toBe("[Nil] two files");
+  });
+
+  it("matches the block the formatter actually produces", () => {
+    fixtureFile("strip-me.txt", "x");
+    const lines = formatAttachmentLines(
+      resolveAttachmentNotices(TEST_AGENT_ID, [spec("strip-me.txt")]),
+    );
+    expect(stripAttachmentNotices("[Nil] here" + lines.join("\n"))).toBe(
+      "[Nil] here",
+    );
+  });
+
+  it("preserves the user's own trailing newline", () => {
+    expect(stripAttachmentNotices("[Nil] trailing\n" + NOTICE)).toBe(
+      "[Nil] trailing\n",
+    );
+  });
+
+  it("handles an empty user message (notice block only)", () => {
+    expect(stripAttachmentNotices(NOTICE)).toBe("");
+    expect(stripAttachmentNotices("[Nil] " + NOTICE)).toBe("[Nil] ");
+  });
+
+  it("survives a name or path containing escaped quotes", () => {
+    const tricky =
+      '[Attachment: "sa\\"y \\"hi\\".png" (image/png, 1.0 KB) saved at ' +
+      '"/tmp/we\\"ird.png". If your reply depends on it, open it before ' +
+      "answering about its contents.]";
+    expect(stripAttachmentNotices("[Nil] look" + tricky)).toBe("[Nil] look");
+  });
+
+  it("tolerates a changed advisory tail (old transcripts keep matching)", () => {
+    const legacy =
+      '[Attachment: "image.png" (image/png, 1.0 KB) saved at "/tmp/image.png"]';
+    expect(stripAttachmentNotices("[Nil] older wording" + legacy)).toBe(
+      "[Nil] older wording",
+    );
+  });
+
+  it("only strips at the end, never mid-message", () => {
+    const text = "[Nil] see " + NOTICE + " and then some more words";
+    expect(stripAttachmentNotices(text)).toBe(text);
+  });
+
+  it("keeps quoted names and paths that contain spaces and punctuation", () => {
+    const spaced =
+      '[Attachment: "Screen Shot 2026-07-24 at 3.15 PM (1).png" ' +
+      '(image/png, 1.2 MB) saved at "/home/nil/.isomux/logs/agent-1/files/' +
+      'Screen Shot 2026-07-24 at 3.15 PM (1).png". If your reply depends on ' +
+      "it, open it before answering about its contents.]";
+    expect(stripAttachmentNotices("[Nil] the shot" + spaced)).toBe(
+      "[Nil] the shot",
+    );
+  });
+
+  it("leaves near misses alone", () => {
+    const cases = [
+      // no quoting around the name
+      "[Nil] a[Attachment: image.png (image/png, 1.0 KB) saved at /tmp/x.png]",
+      // missing the "saved at" anchor
+      '[Nil] b[Attachment: "image.png" (image/png, 1.0 KB)]',
+      // unterminated
+      '[Nil] c[Attachment: "image.png" (image/png, 1.0 KB) saved at "/tmp/x.png"',
+      // a bracketed word that merely resembles one
+      "[Nil] d[Attachment]",
+    ];
+    for (const text of cases) expect(stripAttachmentNotices(text)).toBe(text);
+  });
+
+  it("leaves ordinary text that just happens to end in a bracket", () => {
+    const text = "[Nil] the regex is /\\[Attachment: .*\\]/ [see above]";
+    expect(stripAttachmentNotices(text)).toBe(text);
+  });
+
+  // The two strips compose in the order editMessage applies them: a turn can
+  // carry BOTH a beforeTurn/context-notice envelope (prefix) and attachments
+  // (suffix), and the log entry holds neither.
+  it("composes with stripOutboundEnvelope to recover the bare sdkText", () => {
+    const sdkText = "[Nil] both at once";
+    const recorded =
+      "--- begin isomux: context-check ---\n" +
+      "Your context is 75% full.\n" +
+      "--- end isomux: context-check ---\n\n" +
+      "User message:\n" +
+      sdkText +
+      NOTICE;
+    expect(stripAttachmentNotices(stripOutboundEnvelope(recorded))).toBe(
+      sdkText,
+    );
   });
 });

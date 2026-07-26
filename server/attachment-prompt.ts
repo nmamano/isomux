@@ -66,6 +66,54 @@ export function formatAttachmentLines(notices: AttachmentNotice[]): string[] {
   );
 }
 
+// ---------------------------------------------------------------------------
+// stripAttachmentNotices — inverse of the notice block, for edit matching
+// ---------------------------------------------------------------------------
+
+// One notice line, anchored on its structure rather than its prose: quoted
+// name, parenthesized metadata, quoted path, then whatever advisory tail the
+// current format appends. Keeping the tail loose means a future wording change
+// to formatAttachmentLines doesn't strand transcripts written under the old
+// wording. The `[^\n...]` classes hold each notice to a single line, which
+// quoteOneLine guarantees for the name and path.
+const NOTICE_LINE =
+  '\\[Attachment: "(?:[^"\\\\\\n]|\\\\.)*" \\([^\\n()]*\\) saved at "(?:[^"\\\\\\n]|\\\\.)*"[^\\n\\]]*\\]';
+
+// The block as backends record it: notices joined by "\n", the whole run
+// sitting at the very end of the flattened message text.
+const TRAILING_NOTICE_BLOCK = new RegExp(
+  `${NOTICE_LINE}(?:\\n${NOTICE_LINE})*$`,
+);
+
+/** Recover the user's own text from a backend-recorded user message that
+ *  carried attachments.
+ *
+ *  Attachments ride as their own text block after the user's text block (see
+ *  buildClaudeUserMessage / buildCodexUserInput), and both backends'
+ *  getSessionMessages flatten content blocks by concatenation with NO
+ *  separator. So a transcript entry reads
+ *  `[Nil] here's the screenshot[Attachment: "image.png" (image/png, 527.0 KB)
+ *  saved at "/…/image_7.png". …]` while the isomux log entry only carries
+ *  `here's the screenshot`. Edit-message matching compares the two by
+ *  equality, so the notice block has to come back off first — the same role
+ *  stripOutboundEnvelope plays for `beforeTurn` prefix blocks.
+ *
+ *  Returns the input unchanged when the text doesn't end in a notice block.
+ *  The match is deliberately end-anchored and consumes no separator before the
+ *  block, so a user message that ended in a newline keeps that newline.
+ *
+ *  The ambiguity is accepted, not solved: a user whose message genuinely ends
+ *  with a line shaped like a notice gets over-stripped. Nothing in the recorded
+ *  text distinguishes the two, and the alternative — reconstructing the
+ *  expected block from the log entry's attachment list — is worse, because it
+ *  breaks the moment a file is deleted from disk (the resolver skips missing
+ *  files) or the notice wording changes. This is internal recovery for edit
+ *  matching, never shown to anyone; the cost of a miss is one edit that
+ *  reports the message as unlocatable, which is the pre-fix behavior. */
+export function stripAttachmentNotices(text: string): string {
+  return text.replace(TRAILING_NOTICE_BLOCK, "");
+}
+
 // JSON-quote a string for embedding in a notice line. originalName is
 // preserved user input (only the on-disk filename is sanitized), so embedded
 // quotes/backslashes/newlines/control chars must not break the one-line
