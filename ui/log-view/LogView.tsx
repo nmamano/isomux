@@ -600,13 +600,20 @@ export function LogView({
     setSlideViewPref(readSlideViewPref(agent.id));
   }
   const slideView = slideModeEnabled && slideViewPref;
-  // Chat scroll position captured when entering the deck, restored on return so
-  // the deck→chat toggle doesn't dump the viewer at scrollTop 0 (the messages
+  // Chat scroll position, restored when the deck hands the view back so the
+  // deck→chat edge doesn't dump the viewer at scrollTop 0 (the messages
   // container remounts). Only consulted when the viewer was NOT following the
   // bottom; when they were, the autoScroll path re-pins to the newest below.
-  const savedChatScrollRef = useRef<number | null>(null);
+  // Recorded on every scroll rather than on deck ENTRY, because entry isn't
+  // always a click: enabling the Slide Mode gate opens the deck for an agent
+  // whose pref was already on, and by the time an effect sees that transition
+  // the chat element is gone. Tagged with the agent it belongs to — LogView can
+  // outlive an agent switch, and one agent's position must not be applied to
+  // another's chat.
+  const savedChatScrollRef = useRef<{ agentId: string; top: number } | null>(
+    null,
+  );
   const applySlideView = (on: boolean) => {
-    if (on) savedChatScrollRef.current = scrollRef.current?.scrollTop ?? null;
     setSlideViewPref(on);
     writeSlideViewPref(agent.id, on);
   };
@@ -950,17 +957,18 @@ export function LogView({
   }, [logs, autoScroll, agent.state, slideView]);
 
   // Returning from the deck to chat: restore the exact scroll position the
-  // viewer left from. Only when NOT following the bottom — the autoScroll effect
-  // above owns the bottom-follow case. useLayoutEffect so the restored position
-  // paints without a scrollTop-0 flash. Runs only on the deck→chat edge (guarded
-  // by `savedChatScrollRef` being set, which applySlideView does on entry).
+  // viewer left from, whichever way the deck was entered or left (the header
+  // toggle, or the Slide Mode gate flipping in Device Settings). Only when NOT
+  // following the bottom — the autoScroll effect above owns the bottom-follow
+  // case. useLayoutEffect so the restored position paints without a scrollTop-0
+  // flash. The restore itself fires a scroll event, which just re-records the
+  // same position.
   useLayoutEffect(() => {
     if (slideView) return;
     const el = scrollRef.current;
     const saved = savedChatScrollRef.current;
-    savedChatScrollRef.current = null;
-    if (!el || saved == null || autoScroll) return;
-    el.scrollTop = saved;
+    if (!el || !saved || saved.agentId !== agent.id || autoScroll) return;
+    el.scrollTop = saved.top;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [slideView]);
 
@@ -1028,6 +1036,7 @@ export function LogView({
   function handleScroll() {
     if (!scrollRef.current) return;
     const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
+    savedChatScrollRef.current = { agentId: agent.id, top: scrollTop };
     setAutoScroll(scrollHeight - scrollTop - clientHeight < 50);
     recomputePinned();
     // Hide cite pill when the chat scrolls — its cached viewport rect goes
