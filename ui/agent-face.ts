@@ -23,8 +23,8 @@ import type { AgentState } from "../shared/types.ts";
 // faces match animations one to one).
 const STATE_FACES: Record<AgentState, string> = {
   idle: "(-_-)zz",
-  thinking: "(@_@)",
-  tool_executing: "(@_@)",
+  thinking: "~(o_o)~",
+  tool_executing: "~(o_o)~",
   // The agent has finished and wants you: it's waving.
   waiting_for_response: "(^_^)ﾉ",
   error: "(｡>﹏<｡)",

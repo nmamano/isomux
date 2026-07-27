@@ -17,8 +17,8 @@ const ALL_STATES: AgentState[] = [
 describe("faceForState", () => {
   it("maps every state to its signed-off face", () => {
     expect(faceForState("idle")).toBe("(-_-)zz");
-    expect(faceForState("thinking")).toBe("(@_@)");
-    expect(faceForState("tool_executing")).toBe("(@_@)");
+    expect(faceForState("thinking")).toBe("~(o_o)~");
+    expect(faceForState("tool_executing")).toBe("~(o_o)~");
     expect(faceForState("waiting_for_response")).toBe("(^_^)ﾉ");
     expect(faceForState("error")).toBe("(｡>﹏<｡)");
     expect(faceForState("stopped")).toBe("(-_-)zz");
