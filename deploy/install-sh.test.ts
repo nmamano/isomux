@@ -133,7 +133,7 @@ describe("install.sh escalation: template unit + placement", () => {
     // to run as root without --no-sandbox, and the service user is who will
     // actually launch it), and checks a PNG landed.
     expect(SRC).toMatch(/as_service_user timeout 60 "\$CHROME_PATH"/);
-    expect(SRC).toContain('[[ -s $probe/probe.png ]]');
+    expect(SRC).toContain("[[ -s $probe/probe.png ]]");
     // Ordered after create_service_user (the probe needs that account) and
     // before the build, so the warning is visible early in the output.
     const createUser = SRC.indexOf("  create_service_user\n");
