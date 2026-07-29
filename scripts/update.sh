@@ -33,6 +33,8 @@
 #
 # SEQUENCE and per-phase recovery (the design doc has the rationale):
 #   fetch/validate     -> nothing to undo
+#   deps               -> nothing of isomux's to undo; installed system
+#                         packages stay (see sync_system_deps)
 #   checkout+install+build     [fail: check out the old commit, reinstall its
 #                               deps, rebuild its UI — node_modules and the
 #                               live-served ui/dist are already dirty]
@@ -76,6 +78,7 @@ SNAPSHOT=""
 CALVER_RE='^v[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}(\.[0-9]+)?$'
 SNAPSHOT_KEEP=3
 BROKEN_KEEP=1
+DEPS_WARNING=""
 
 # --- Status file ------------------------------------------------------------
 
@@ -183,6 +186,75 @@ wait_inactive() {
   done
 }
 
+# Install the system dependencies the TARGET release needs (apt packages,
+# Node.js, the headless browser) by running THAT release's own installer in its
+# deps-only mode. The release's installer is the single declaration of what the
+# release requires, so nothing here keeps a second copy of the list. Without
+# this the updater only ever moves the checkout, and a box installed before a
+# new dependency landed stays broken through every update.
+#
+# Trust: the bytes come from the ROOT-OWNED trust repo at the resolved commit,
+# exactly like the installed-updater refresh — never from $REPO_DIR, which the
+# service user (the one agents run shell as) can write.
+#
+# Runs BEFORE the checkout, so a failure leaves nothing of isomux's to undo:
+# the service is still up on the old code, and node_modules and ui/dist are
+# untouched. (Host packages are a different matter — a failed apt run can leave
+# them partly changed, and that is not rolled back.) It also means the
+# dependencies node-gyp needs are in place before `bun install`.
+#
+# Skipped with a note where the box cannot or should not do this: a user-kind
+# (dev) box has no root, a box without apt manages its own packages, and a
+# target release from before this mode existed has no deps-only entry point.
+#
+# Dependencies are NOT undone by a later rollback. They are additive, and the
+# old version runs fine with newer packages installed.
+sync_system_deps() {
+  local target=$1
+  if [[ $SERVICE_KIND != system ]]; then
+    log "SERVICE_KIND=$SERVICE_KIND: skipping the system-dependency sync (it needs root)"
+    return 0
+  fi
+  if ! command -v apt-get >/dev/null; then
+    # A system-kind box is expected to have apt (the installer requires it), so
+    # this skip can leave the office degraded in ways /readyz cannot see. The
+    # update still succeeds, but the success is qualified: the warning is
+    # carried into the final status.json so it stays visible, not a log line
+    # that scrolls away.
+    DEPS_WARNING="system dependencies were not synced (no apt-get on this box); if $TARGET_TAG needs new system packages, install them yourself"
+    log "warning: $DEPS_WARNING"
+    return 0
+  fi
+  local installer rc=0
+  installer=$(mktemp /tmp/isomux-deps.XXXXXXXXXX)
+  chmod 700 "$installer"
+  if ! git -C "$TRUST_REPO" cat-file -p "$target:deploy/install.sh" >"$installer" 2>/dev/null; then
+    rm -f "$installer"
+    log "note: $TARGET_TAG carries no deploy/install.sh; skipping the system-dependency sync"
+    return 0
+  fi
+  # Capability probe. The exact protocol assignment, anchored — not a mention
+  # of the flag: header docs mention it, and running an installer that only
+  # TALKS about the mode would run a FULL install, as root, on a live box.
+  if ! grep -qx 'ISOMUX_INSTALL_DEPS_MODE_VERSION=1' "$installer"; then
+    rm -f "$installer"
+    log "note: $TARGET_TAG's installer has no deps-only mode; skipping the system-dependency sync"
+    return 0
+  fi
+  log "installing $TARGET_TAG's system dependencies"
+  # Fixed environment, deliberately: this script's contract is that
+  # configuration comes from the root-of-trust conf and nothing else, and the
+  # installer reads env vars that would quietly change what it does — an
+  # inherited DRY_RUN would turn the sync into a no-op that reports success,
+  # and an inherited INSTALL_CALLBACK_URL would post about an install nobody
+  # ran. Constants rather than "$PATH"/"$HOME": this runs as root, so nothing
+  # caller-controlled should reach it at all.
+  env -i PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    HOME=/root ISOMUX_DEPS_ONLY=1 /bin/bash "$installer" || rc=$?
+  rm -f "$installer"
+  return "$rc"
+}
+
 ready_poll() {
   local timeout=$1 deadline=$((SECONDS + $1))
   until curl -fsS -o /dev/null --max-time 5 "$BASE_URL/readyz" 2>/dev/null; do
@@ -278,6 +350,7 @@ on_error() {
   local failed_phase=$PHASE
   trap - ERR
   case $failed_phase in
+    deps) die "could not install $TARGET_TAG's system dependencies; the checkout, its dependencies, the built UI and the office state are unchanged and the service is still running $OLD_DESC, but system package changes may be partial" ;;
     checkout | install | build) fail_build ;;
     snapshot) fail_snapshot ;;
     start | readiness) fail_ready ;;
@@ -356,6 +429,15 @@ main() {
   fetched=$(as_repo_user git -C "$REPO_DIR" rev-parse -q --verify 'FETCH_HEAD^{commit}') || fetched=""
   [[ $fetched == "$target_commit" ]] ||
     die "the service checkout fetched a different commit for $TARGET_TAG ($fetched) than the trusted upstream resolution ($target_commit)"
+  # Record the tag in the checkout too. A bare `git fetch <url> refs/tags/<tag>`
+  # only moves FETCH_HEAD, and server/version.ts identifies the running release
+  # with `git tag --points-at HEAD` — so without this the box reports a bare
+  # sha with release: null after every update, and the release banner keeps
+  # offering the release it is already running. Written from the TRUST-resolved
+  # commit verified just above, never from whatever the fetch left behind. Ahead
+  # of the already-on-target exit on purpose: re-running the updater with the
+  # tag a box is already on then repairs a checkout updated before this fix.
+  as_repo_user git -C "$REPO_DIR" update-ref "refs/tags/$TARGET_TAG" "$target_commit"
 
   if [[ $target_commit == "$OLD_COMMIT" ]]; then
     log "already on $TARGET_TAG; nothing to do"
@@ -367,6 +449,9 @@ main() {
       die "$TARGET_TAG is older than the current $OLD_DESC; pass --allow-downgrade to do this anyway"
     log "downgrading $OLD_DESC -> $TARGET_TAG (--allow-downgrade)"
   fi
+
+  phase deps
+  sync_system_deps "$target_commit"
 
   phase checkout
   as_repo_user git -C "$REPO_DIR" checkout --detach "$target_commit"
@@ -415,7 +500,11 @@ main() {
     fi
     rm -f "$newupd"
   fi
-  write_status ok "updated $OLD_DESC -> $TARGET_TAG"
+  if [[ -n $DEPS_WARNING ]]; then
+    write_status ok "updated $OLD_DESC -> $TARGET_TAG; warning: $DEPS_WARNING"
+  else
+    write_status ok "updated $OLD_DESC -> $TARGET_TAG"
+  fi
   log "updated $OLD_DESC -> $TARGET_TAG"
 }
 

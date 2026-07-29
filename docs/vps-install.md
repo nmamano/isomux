@@ -41,15 +41,16 @@ After a few minutes it prints a single-use owner invite link, also saved on the 
 
 Environment variables, set before running:
 
-| Variable               | Default        | Meaning                                                                        |
-| ---------------------- | -------------- | ------------------------------------------------------------------------------ |
-| `DOMAIN`               | (required)     | Public domain for the office.                                                  |
-| `OWNER_NAME`           | `Owner`        | Owner display name; changeable later in User Settings.                         |
-| `ISOMUX_REF`           | latest release | Git branch, tag, or commit to install; `main` if no release exists yet.        |
-| `ISOMUX_REPO`          | GitHub         | Git repo to install from (for forks).                                          |
-| `SSH_PORT`             | `22`           | SSH port to allow through the firewall; `none` keeps SSH closed.               |
-| `INSTALL_CALLBACK_URL` | (unset)        | HTTPS URL that receives a POST: `{inviteUrl, status}`, plus `step` on failure. |
-| `DRY_RUN`              | (unset)        | Set to `1` to print what would run instead of running it.                      |
+| Variable               | Default        | Meaning                                                                                                                                                                                      |
+| ---------------------- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DOMAIN`               | (required)     | Public domain for the office.                                                                                                                                                                |
+| `OWNER_NAME`           | `Owner`        | Owner display name; changeable later in User Settings.                                                                                                                                       |
+| `ISOMUX_REF`           | latest release | Git branch, tag, or commit to install; `main` if no release exists yet.                                                                                                                      |
+| `ISOMUX_REPO`          | GitHub         | Git repo to install from (for forks).                                                                                                                                                        |
+| `SSH_PORT`             | `22`           | SSH port to allow through the firewall; `none` keeps SSH closed.                                                                                                                             |
+| `INSTALL_CALLBACK_URL` | (unset)        | HTTPS URL that receives a POST: `{inviteUrl, status}`, plus `step` on failure.                                                                                                               |
+| `DRY_RUN`              | (unset)        | Set to `1` to print what would run instead of running it.                                                                                                                                    |
+| `ISOMUX_DEPS_ONLY`     | (unset)        | Leave unset for a normal full install. Set to `1` to only install the system packages and exit (`DOMAIN` not needed); `isomux-update` uses this to deliver dependencies a new release needs. |
 
 ## Re-running
 
@@ -63,7 +64,7 @@ When a new release is out, the office header shows a "new release" notice. The o
 isomux-update v2026.7.19
 ```
 
-Either way, it rebuilds at the new version, snapshots the office state, and restarts the service - interrupting running agents. If the new version fails to come up, it rolls code and state back to what you had. Downgrading to an older release needs `--allow-downgrade`.
+Either way, it installs any system dependencies the new release needs, rebuilds at the new version, snapshots the office state, and restarts the service - interrupting running agents. If the new version fails to come up, it rolls code and state back to what you had. Downgrading to an older release needs `--allow-downgrade`.
 
 ## Notes
 

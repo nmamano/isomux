@@ -92,9 +92,63 @@ pinned to the trust-resolved commit hash. The installer sources the initial
 updater copy the same way.
 
 1. Record the currently checked-out tag.
-2. Resolve the target through the trust repo (above), fetch the objects
-   into the service checkout, and check out the trust-resolved commit.
-3. `bun install --frozen-lockfile`, `bun run build:ui`. On failure, the
+2. Resolve the target through the trust repo (above) and fetch the objects
+   into the service checkout. Record the tag there too
+   (`update-ref refs/tags/<tag>` at the trust-resolved commit): a bare
+   `git fetch <url> refs/tags/<tag>` only moves `FETCH_HEAD`, and
+   `server/version.ts` identifies the running release with
+   `git tag --points-at HEAD`, so without it an updated box reports a bare sha
+   and the banner keeps offering the release it already runs. Written before
+   the already-on-target exit, so re-running the updater with the tag a box is
+   on repairs a checkout updated before this existed.
+2b. Then, still before the checkout, install the system dependencies the
+   target needs by
+   running THAT release's `deploy/install.sh` with `ISOMUX_DEPS_ONLY=1`
+   (`install_packages` + `install_browser` only - not the firewall, SSH
+   hardening, unattended upgrades, bun, or anything that decides the box's
+   identity). A checkout-only updater cannot deliver a dependency a release
+   starts requiring: boxes installed before the Node.js step kept a dead
+   terminal panel through every update. The release's own installer is the
+   single declaration of what it needs, and the bytes come from the
+   root-owned trust repo, like the updater refresh.
+
+   **This widens the trust boundary**, and deliberately: the target commit's
+   installer now runs as ROOT before the checkout, where previously only the
+   updater did. `trust.git` stops the service user from substituting it, but
+   nothing attests the release itself - whoever controls `REPO_URL` and its
+   release tags already controls the code the box runs, and now also controls
+   root code. Two mitigations: the target must carry the exact
+   `ISOMUX_INSTALL_DEPS_MODE_VERSION=1` line (a release that merely mentions
+   the flag is skipped, so an older installer can never be run as a full
+   install on a live box), and it is invoked under `env -i` with a fixed PATH,
+   HOME and the mode flag, so the updater's own environment cannot change what
+   it does - an inherited `DRY_RUN` would otherwise make a sync report success
+   without installing anything.
+
+   The authority itself is not new, only its timing: `finalize` already
+   installs the target's `scripts/update.sh` as root, so the next update runs
+   target-tag code as root either way. This brings that forward to the current
+   update and to before readiness, where a bad release has not yet had to
+   prove it boots.
+
+   It runs before the checkout so a failure leaves nothing of isomux's to
+   undo, and skips (with a note) on user-kind boxes, boxes without apt, and
+   targets whose installer predates the mode. The no-apt skip is a deliberate
+   portability choice with a real cost: the update proceeds without the
+   target's system requirements, and readiness cannot detect the resulting
+   degradation (a dead terminal panel answers `/readyz` perfectly well). The
+   alternative is failing closed there and requiring an explicit override.
+
+   Deps mode restores Caddy's exact active AND enabled state on both the
+   success and failure paths, and fails the sync if it cannot: on an
+   unverifiable office `install_packages` stops and masks the proxy with no
+   `configure_caddy` to follow, and on a verified one apt is free to upgrade
+   Caddy and start a proxy the operator had deliberately turned off.
+
+   Installed packages are additive and are NOT undone by a later rollback; a
+   failed dependency step can leave host packages partly changed.
+3. Check out the trust-resolved commit, then `bun install --frozen-lockfile`
+   and `bun run build:ui`. On failure, the
    running server process is untouched, but `node_modules` and the
    live-served `ui/dist` may already be dirty: recover by checking out the
    old tag, reinstalling its lockfile, and rebuilding its UI (and report if
@@ -204,3 +258,6 @@ Remaining:
   but operators do.
 - First real release: run `scripts/release.sh` once, then flip the
   installer expectation that `releases/latest` 404s.
+- The in-UI trigger's busy-agent confirm has never been exercised with an
+  agent genuinely mid-turn: the count comes from live agent state, and the
+  test box has no model credentials, so it is always 0 there.

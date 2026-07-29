@@ -35,6 +35,13 @@
 #                 {inviteUrl, status[, step]} here on success and on failure.
 #   DRY_RUN       set to 1 to print state-changing commands instead of
 #                 running them.
+#   ISOMUX_DEPS_ONLY  set to 1 to install only the system dependencies (apt
+#                 packages, Node.js, the headless browser) and exit, leaving
+#                 the office, the service and the box's configuration alone.
+#                 DOMAIN is not needed. scripts/update.sh runs the TARGET
+#                 release's installer this way, so an update can deliver
+#                 system dependencies the release newly requires (see
+#                 deps_only below).
 #
 # Re-running after a failure is safe: every step is idempotent, and the
 # owner-claim step recovers its session from disk or from the isomux admin
@@ -52,6 +59,15 @@ ISOMUX_REPO="${ISOMUX_REPO:-https://github.com/nmamano/isomux.git}"
 SSH_PORT="${SSH_PORT:-22}"
 INSTALL_CALLBACK_URL="${INSTALL_CALLBACK_URL:-}"
 DRY_RUN="${DRY_RUN:-}"
+ISOMUX_DEPS_ONLY="${ISOMUX_DEPS_ONLY:-}"
+
+# Protocol marker for scripts/update.sh: the exact assignment below is what the
+# updater greps for before it runs this file as root with ISOMUX_DEPS_ONLY=1.
+# A release that lacks it gets its dependency sync skipped, which is the safe
+# outcome — running an older installer that ignores the flag would run a FULL
+# install on a live box. Bump only if the mode's contract changes.
+# shellcheck disable=SC2034 # declared for scripts/update.sh to find, not used here
+ISOMUX_INSTALL_DEPS_MODE_VERSION=1
 
 # --- Constants --------------------------------------------------------------
 
@@ -103,6 +119,74 @@ step() {
 # identifiers, safe to interpolate into JSON).
 FAILURE_SENTINEL=$(mktemp /tmp/isomux-install-failure.XXXXXXXXXX) || FAILURE_SENTINEL=""
 
+# Caddy's active/enabled state as deps_only found it, and the restore that puts
+# it back. THE INVARIANT: a dependency sync leaves the proxy exactly as it found
+# it. Both halves of that matter, and in both directions:
+#   - install_packages stops, disables and masks caddy whenever it cannot verify
+#     a claimed office, and only a FULL install has a configure_caddy afterwards
+#     to bring it back. Without a restore here, an update could take a live
+#     office off its public URL for good.
+#   - on a box where the claim check passes, install_packages leaves caddy alone
+#     and apt is free to install or upgrade it; a maintainer script may then
+#     start or enable a proxy the operator had deliberately turned off. So the
+#     restore has to stop/disable as readily as it starts/enables.
+# Restoring exactly what was there can only leave the box as exposed as it
+# already was, so it cannot reopen the unclaimed-office window the masking
+# closes. Callers own the message: this returns nonzero and says nothing.
+CADDY_PRIOR_UNIT=""
+CADDY_PRIOR_ACTIVE=""
+CADDY_PRIOR_ENABLED=""
+CADDY_SNAPSHOT_ARMED=""
+
+caddy_unit_present() { systemctl cat caddy >/dev/null 2>&1; }
+
+# Unit presence is part of the snapshot, not a reason to skip it: the
+# dependency step INSTALLS caddy, so a box whose package was purged (while the
+# managed Caddyfile and a claimed office remain, which is what keeps
+# install_packages from masking) would otherwise come out of a sync with a
+# started, enabled proxy it did not have before.
+snapshot_caddy_state() {
+  CADDY_PRIOR_UNIT=""
+  CADDY_PRIOR_ACTIVE=""
+  CADDY_PRIOR_ENABLED=""
+  CADDY_SNAPSHOT_ARMED=""
+  [[ -z $DRY_RUN ]] || return 0
+  if caddy_unit_present; then
+    CADDY_PRIOR_UNIT=1
+    if systemctl is-active -q caddy 2>/dev/null; then CADDY_PRIOR_ACTIVE=1; fi
+    if systemctl is-enabled -q caddy 2>/dev/null; then CADDY_PRIOR_ENABLED=1; fi
+  fi
+  CADDY_SNAPSHOT_ARMED=1
+}
+
+restore_caddy_state() {
+  [[ -n $CADDY_SNAPSHOT_ARMED ]] || return 0
+  local rc=0
+  if ! caddy_unit_present; then
+    # No unit before and none now: nothing to put back. A unit that WAS there
+    # and is gone cannot be restored, and the caller has to hear about it.
+    [[ -z $CADDY_PRIOR_UNIT ]] || return 1
+    CADDY_SNAPSHOT_ARMED=""
+    return 0
+  fi
+  # A unit that only exists because this step installed it falls through to the
+  # transitions below with both booleans false, so it ends up stopped and
+  # disabled. The package stays: it is a declared dependency of the release.
+  if [[ -n $CADDY_PRIOR_ENABLED ]]; then
+    systemctl enable caddy >/dev/null 2>&1 || rc=1
+  else
+    systemctl disable caddy >/dev/null 2>&1 || rc=1
+  fi
+  if [[ -n $CADDY_PRIOR_ACTIVE ]]; then
+    systemctl start caddy >/dev/null 2>&1 || rc=1
+  else
+    systemctl stop caddy >/dev/null 2>&1 || rc=1
+  fi
+  # Disarm only on success, so the failure path gets one more attempt.
+  ((rc == 0)) && CADDY_SNAPSHOT_ARMED=""
+  return "$rc"
+}
+
 report_failure() {
   if [[ -n $FAILURE_SENTINEL ]]; then
     [[ -s $FAILURE_SENTINEL ]] && return 0
@@ -116,6 +200,12 @@ report_failure() {
   if [[ -n $CADDY_MASKED && -z $DRY_RUN ]]; then
     systemctl unmask caddy >/dev/null 2>&1 || true
   fi
+  # A full install continues into configure_caddy on the next run, which puts
+  # the proxy back. A dependency sync has no such step, so it restores the
+  # proxy itself — on this path too, or a failed apt would take an office off
+  # its public URL. Best effort here: this path is already reporting a failure.
+  restore_caddy_state ||
+    log "warning: caddy could not be restored to its previous state; the office's public URL may be down. Check: systemctl status caddy"
   if [[ -n $INSTALL_CALLBACK_URL && -z $DRY_RUN ]]; then
     printf '{"inviteUrl": null, "status": "failed", "step": "%s"}' "$CURRENT_STEP" |
       curl -fsS -X POST "$INSTALL_CALLBACK_URL" -H 'Content-Type: application/json' --data @- \
@@ -707,6 +797,11 @@ EOF
   systemctl daemon-reload
 }
 
+# ExecStart runs server/index.ts, NOT server/isomux-office.ts: this installer
+# is fetched from main but installs a RELEASE, so the entry point it names must
+# exist in every release. index.ts is the back-compat shim kept for exactly
+# that (see the DO-NOT-DELETE note at its top); pointing the unit at the newer
+# name made a fresh install of v2026.7.23 crash-loop.
 install_service() {
   step install-service
   write_file /etc/systemd/system/isomux.service 644 <<EOF
@@ -719,7 +814,7 @@ Wants=network-online.target
 User=$SERVICE_USER
 Environment=HOME=$SERVICE_HOME
 WorkingDirectory=$INSTALL_DIR
-ExecStart=/usr/local/bin/bun run server/isomux-office.ts
+ExecStart=/usr/local/bin/bun run server/index.ts
 Restart=always
 RestartSec=2
 Environment=PORT=4000
@@ -943,7 +1038,51 @@ report() {
   fi
 }
 
+# System dependencies only (ISOMUX_DEPS_ONLY=1). This is what scripts/update.sh
+# runs from the TARGET release, so an update delivers the system dependencies
+# that release needs — the checkout-only updater cannot (a box installed before
+# the Node.js step, for example, keeps a dead terminal panel through every
+# update until someone re-runs the whole installer).
+#
+# Deliberately narrow, because it runs on a live, configured box:
+#   - install_packages and install_browser are the steps that install system
+#     dependencies, and both are additive and idempotent.
+#   - NOT the firewall, SSH hardening, or unattended upgrades: that is box
+#     policy the operator may have adjusted since the install, and an update
+#     must not silently reimpose ours.
+#   - NOT install_bun: a release never switches the runtime under a running
+#     box (release-design.md, "Bun invariant" — the updater warns about a pin
+#     change instead, and its rollback has to run on the installed bun).
+#   - NOT the service, Caddy, the owner claim, or the invite: nothing about
+#     this box's identity changes during an update.
+deps_only() {
+  step preflight-deps
+  [[ $EUID -eq 0 ]] || die "ISOMUX_DEPS_ONLY needs root (it installs system packages)"
+  command -v apt-get >/dev/null || die "apt-get not found; this installer supports Ubuntu (24.04)"
+  # install_browser verifies a real capture AS the service user, so a box
+  # missing that account would fail deep inside the browser step instead of
+  # here. It exists on every box the updater runs on (the installer created it).
+  id -u "$SERVICE_USER" >/dev/null 2>&1 ||
+    die "no $SERVICE_USER account on this box; it does not look like an isomux install"
+  snapshot_caddy_state
+  install_packages
+  # A sync that cannot put the proxy back has failed, whatever apt reported:
+  # the office would be unreachable and the update would carry on regardless.
+  restore_caddy_state ||
+    die "installed the system dependencies but could not restore caddy to active=${CADDY_PRIOR_ACTIVE:-no} enabled=${CADDY_PRIOR_ENABLED:-no}; the office's public URL may be down. Check: systemctl status caddy"
+  install_browser
+  step report
+  [[ -z $FAILURE_SENTINEL ]] || rm -f "$FAILURE_SENTINEL"
+  log "system dependencies are up to date"
+}
+
 main() {
+  # Taken before preflight: a dependency sync has no DOMAIN and no business
+  # validating full-install parameters.
+  if [[ $ISOMUX_DEPS_ONLY == 1 ]]; then
+    deps_only
+    return
+  fi
   preflight
   install_packages
   configure_firewall

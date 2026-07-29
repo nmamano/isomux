@@ -135,10 +135,12 @@ describe("install.sh escalation: template unit + placement", () => {
     expect(SRC).toMatch(/as_service_user timeout 60 "\$CHROME_PATH"/);
     expect(SRC).toContain("[[ -s $probe/probe.png ]]");
     // Ordered after create_service_user (the probe needs that account) and
-    // before the build, so the warning is visible early in the output.
-    const createUser = SRC.indexOf("  create_service_user\n");
-    const browser = SRC.indexOf("  install_browser\n");
-    const fetch = SRC.indexOf("  fetch_isomux\n");
+    // before the build, so the warning is visible early in the output. Scoped
+    // to main's body: deps_only calls install_browser too.
+    const body = SRC.slice(SRC.indexOf("\nmain() {"));
+    const createUser = body.indexOf("  create_service_user\n");
+    const browser = body.indexOf("  install_browser\n");
+    const fetch = body.indexOf("  fetch_isomux\n");
     expect(createUser).toBeGreaterThan(-1);
     expect(browser).toBeGreaterThan(createUser);
     expect(fetch).toBeGreaterThan(browser);
@@ -161,6 +163,73 @@ describe("install.sh escalation: template unit + placement", () => {
     ]) {
       expect(fn).toContain(warning);
     }
+  });
+
+  it("the service unit names an entry point every release has", () => {
+    // This installer is fetched from main but installs a RELEASE, so the unit
+    // may only name a path that exists in older releases too. server/index.ts
+    // is the back-compat shim kept for exactly this; naming the newer
+    // server/isomux-office.ts made a fresh install of v2026.7.23 crash-loop
+    // with "Module not found".
+    expect(SRC).toContain("ExecStart=/usr/local/bin/bun run server/index.ts");
+    expect(SRC).not.toContain("bun run server/isomux-office.ts");
+  });
+
+  it("deps-only mode installs dependencies and nothing else", () => {
+    // scripts/update.sh runs the target release's installer with
+    // ISOMUX_DEPS_ONLY=1 on a LIVE box, so this mode must stay narrow: box
+    // policy (firewall, SSH, unattended upgrades), the runtime (bun), and
+    // everything that decides the box's identity stay out of it.
+    const fn = SRC.slice(
+      SRC.indexOf("deps_only() {"),
+      SRC.indexOf("\nmain() {"),
+    );
+    expect(fn.length).toBeGreaterThan(0);
+    expect(fn).toContain("install_packages");
+    expect(fn).toContain("install_browser");
+    // Calls only: the comments name steps they explain.
+    const calls = fn
+      .split("\n")
+      .filter((l) => !l.trim().startsWith("#"))
+      .join("\n");
+    for (const excluded of [
+      "install_bun",
+      "configure_firewall",
+      "harden_ssh",
+      "enable_auto_updates",
+      "fetch_isomux",
+      "build_isomux",
+      "install_service",
+      "claim_owner",
+      "configure_caddy",
+      "mint_invite",
+    ]) {
+      expect(calls).not.toContain(excluded);
+    }
+    // Root only: it installs system packages.
+    expect(fn).toMatch(/\$EUID -eq 0 \]\] \|\| die/);
+    // install_packages can take caddy down (unverifiable office) or let apt
+    // bring it up (verified one); either way deps mode puts it back, and a
+    // sync that cannot is a failed sync. Behavior lives in
+    // install-deps-mode.test.ts; this only pins that the wiring is present.
+    expect(calls).toContain("snapshot_caddy_state");
+    expect(calls).toMatch(/restore_caddy_state \|\|\n\s*die /);
+    // The failure path restores too: report_failure only unmasked before.
+    const onFailure = SRC.slice(
+      SRC.indexOf("report_failure() {"),
+      SRC.indexOf("die() {"),
+    );
+    expect(onFailure).toContain("restore_caddy_state");
+    // Only the documented value activates the mode.
+    expect(SRC).toContain("if [[ $ISOMUX_DEPS_ONLY == 1 ]]; then");
+    // The protocol marker scripts/update.sh probes for, as an exact
+    // assignment on its own line.
+    expect(SRC).toMatch(/^ISOMUX_INSTALL_DEPS_MODE_VERSION=1$/m);
+    // Taken before anything else, so DOMAIN and the rest of preflight are
+    // never required for a dependency sync.
+    const branch = SRC.indexOf("if [[ $ISOMUX_DEPS_ONLY == 1 ]]; then");
+    expect(branch).toBeGreaterThan(SRC.indexOf("\nmain() {"));
+    expect(branch).toBeLessThan(SRC.indexOf("  preflight\n"));
   });
 
   it("build step rebuilds node-pty when its native binding is missing", () => {

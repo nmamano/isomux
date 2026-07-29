@@ -294,6 +294,15 @@ describe("update.sh happy path", () => {
     expect(bunOps.some((l) => l.includes("run build:ui"))).toBe(true);
 
     expect(status().result).toBe("ok");
+    // The tag lands in the checkout, not just in FETCH_HEAD: server/version.ts
+    // identifies the running release with `git tag --points-at HEAD`, so
+    // without it the updated box reports a bare sha and the release banner
+    // never stops offering the release it is already running.
+    expect(sh(fx.repo, "git tag --points-at HEAD")).toBe("v2026.7.20");
+    // The fixture is a user-kind box, so the system-dependency sync stays out
+    // of the way (it needs root); sync_system_deps itself is covered in
+    // update-deps-sync.test.ts.
+    expect(r.out).toContain("SERVICE_KIND=user: skipping");
     // The installed updater copy was refreshed from the NEW checkout.
     expect(readFileSync(join(fx.base, "installed-updater"), "utf8")).toContain(
       "v-new",
@@ -306,6 +315,20 @@ describe("update.sh happy path", () => {
     const r = await runUpdate(["v2026.7.20"]);
     expect(r.code).toBe(0);
     expect(r.out).toContain("already on");
+    expect(stubCalls().filter((l) => / stop /.test(l))).toEqual([]);
+  });
+
+  it("re-running on the target repairs a checkout with no local tag", async () => {
+    // The repair path for boxes updated before the tag was recorded: they sit
+    // on the right commit with no tag, so they report a bare sha and keep
+    // being offered the release they run. Writing the tag ahead of the
+    // already-on-target exit is what makes a plain re-run fix them.
+    sh(fx.repo, `git checkout -q --detach ${fx.newCommit}`);
+    expect(sh(fx.repo, "git tag --points-at HEAD")).toBe("");
+    const r = await runUpdate(["v2026.7.20"]);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("already on");
+    expect(sh(fx.repo, "git tag --points-at HEAD")).toBe("v2026.7.20");
     expect(stubCalls().filter((l) => / stop /.test(l))).toEqual([]);
   });
 });

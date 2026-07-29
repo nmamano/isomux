@@ -64,13 +64,15 @@ See the [full feature list](docs/features.md).
 
 ### 1. Prerequisites
 
-You need [Bun](https://bun.sh/) (v1.2+) and a subscription for at least one provider.
+You need [Bun](https://bun.sh/) (v1.2+), [Node.js](https://nodejs.org/) 20+, and a subscription for at least one provider.
 
 ```sh
 curl -fsSL https://bun.sh/install | bash
 ```
 
 Open a new shell (or `source ~/.bashrc`) after this so `bun` lands on `PATH`.
+
+The embedded terminal runs on Node.js; Bun can't replace it.
 
 ### 2. Install & Run
 
