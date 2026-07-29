@@ -238,12 +238,12 @@ describe("routes/storage.prune REST", () => {
         body,
       });
 
-    expect((await bad({ target: "codex-home", olderThanDays: 30 })).status).toBe(
-      400,
-    );
-    expect((await bad({ target: "transcripts", olderThanDays: 0 })).status).toBe(
-      400,
-    );
+    expect(
+      (await bad({ target: "codex-home", olderThanDays: 30 })).status,
+    ).toBe(400);
+    expect(
+      (await bad({ target: "transcripts", olderThanDays: 0 })).status,
+    ).toBe(400);
     expect(
       (await bad({ target: "transcripts", olderThanDays: 1.5 })).status,
     ).toBe(400);
