@@ -93,3 +93,5 @@ To claim the office as the first owner, open `http://localhost:4000` on the host
 For the full flow — invite TTLs, multi-device users, sign-out, owner recovery, threat model — see [access and invites](access-and-invites.md).
 
 > **Note:** Isomux agents can run shell commands, so authenticated users effectively have shell access to the host. Only invite people you trust.
+
+> **Don't store an SSH key on the host that root accepts** - agents can read the host's files and would become root with it. See [root access](vps-install.md#root-access) for the check and the fix.

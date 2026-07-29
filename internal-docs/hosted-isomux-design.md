@@ -136,6 +136,13 @@ first slice and test it against a real cheap VPS.
   Webdock API, cancel/deprovision. (SSH decision, Nil 2026-07-20: customers
   may get root access; pair enabling it with a clear warning about what not
   to touch - the isomux service, updater config, Caddy, firewall.)
+  - The SSH toggle must install the customer's key AND apply the hardening in
+    one action, and re-run the root check afterwards. The installer skips
+    hardening on a box with no key yet and leaves an `isomux-harden-ssh`
+    command behind for the operator (task 15d8bb6e), which is the right answer
+    for a self-hoster and the wrong one for a hosted customer: nobody who
+    pastes a key into a web form is going to SSH in to finish the job. The
+    control plane owns that step.
 
 ### C. Gaps in isomux itself (~1 week)
 

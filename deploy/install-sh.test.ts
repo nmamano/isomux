@@ -8,8 +8,18 @@
 
 import { describe, it, expect } from "bun:test";
 import { readFileSync } from "fs";
+import { EMBEDDED, embed } from "../scripts/embed-deploy-scripts.ts";
 
 const SRC = readFileSync(new URL("./install.sh", import.meta.url), "utf8");
+const repoFile = (p: string) =>
+  readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
+
+/** Position of a step's call inside main(), for ordering assertions. */
+function stepIndex(name: string): number {
+  const idx = SRC.indexOf(`\n  ${name}\n`, SRC.lastIndexOf("\nmain() {"));
+  expect(idx).toBeGreaterThan(-1);
+  return idx;
+}
 
 // The polkit unit-name pattern as written in the heredoc. Bash expands `\$`
 // to `$` when writing the file (unquoted heredoc), so unescape exactly that
@@ -137,7 +147,7 @@ describe("install.sh escalation: template unit + placement", () => {
     // Ordered after create_service_user (the probe needs that account) and
     // before the build, so the warning is visible early in the output. Scoped
     // to main's body: deps_only calls install_browser too.
-    const body = SRC.slice(SRC.indexOf("\nmain() {"));
+    const body = SRC.slice(SRC.lastIndexOf("\nmain() {"));
     const createUser = body.indexOf("  create_service_user\n");
     const browser = body.indexOf("  install_browser\n");
     const fetch = body.indexOf("  fetch_isomux\n");
@@ -182,7 +192,7 @@ describe("install.sh escalation: template unit + placement", () => {
     // everything that decides the box's identity stay out of it.
     const fn = SRC.slice(
       SRC.indexOf("deps_only() {"),
-      SRC.indexOf("\nmain() {"),
+      SRC.lastIndexOf("\nmain() {"),
     );
     expect(fn.length).toBeGreaterThan(0);
     expect(fn).toContain("install_packages");
@@ -228,8 +238,19 @@ describe("install.sh escalation: template unit + placement", () => {
     // Taken before anything else, so DOMAIN and the rest of preflight are
     // never required for a dependency sync.
     const branch = SRC.indexOf("if [[ $ISOMUX_DEPS_ONLY == 1 ]]; then");
-    expect(branch).toBeGreaterThan(SRC.indexOf("\nmain() {"));
+    expect(branch).toBeGreaterThan(SRC.lastIndexOf("\nmain() {"));
     expect(branch).toBeLessThan(SRC.indexOf("  preflight\n"));
+  });
+
+  it("ships the helper scripts byte-for-byte, not a drifted copy", () => {
+    // install.sh is fetched on its own by curl | bash, so what it installs on
+    // the box has to be inside it. A copy that drifts from the repo file is
+    // worse than no copy: reviewers read the file, boxes run the copy.
+    expect(embed(SRC, repoFile)).toBe(SRC);
+    for (const { path, delimiter } of EMBEDDED) {
+      expect(SRC).toContain(`<<'${delimiter}'`);
+      expect(SRC).toContain(repoFile(path).trimEnd());
+    }
   });
 
   it("build step rebuilds node-pty when its native binding is missing", () => {
@@ -246,5 +267,94 @@ describe("install.sh escalation: template unit + placement", () => {
     const fatal = SRC.search(/-f \$pty_binding[^\n]*\|\|\n\s*die /);
     expect(reinstall).toBeGreaterThan(rm);
     expect(fatal).toBeGreaterThan(reinstall);
+  });
+});
+
+describe("install.sh: the box cannot ship with agents able to reach root", () => {
+  it("gates the install twice, before the build and before the owner exists", () => {
+    // First gate right after the account exists, so a doomed box fails in
+    // seconds. Second gate on the finished box BEFORE claim_owner, so a box
+    // that fails leaves no owner, no invite link and no success callback.
+    expect(stepIndex("create_service_user")).toBeLessThan(
+      stepIndex("check_root_reachability"),
+    );
+    expect(stepIndex("check_root_reachability")).toBeLessThan(
+      stepIndex("fetch_isomux"),
+    );
+    expect(stepIndex("wait_for_server")).toBeLessThan(
+      stepIndex("assert_hardening"),
+    );
+    expect(stepIndex("assert_hardening")).toBeLessThan(
+      stepIndex("claim_owner"),
+    );
+  });
+
+  it("both gates stop on a failed check AND on one that could not decide", () => {
+    // "Could not tell" is not a pass: a box is not hardened just because the
+    // check did not run.
+    for (const gate of ["check_root_reachability", "assert_hardening"]) {
+      const body = SRC.slice(
+        SRC.indexOf(`${gate}() {`),
+        SRC.indexOf("\n}\n", SRC.indexOf(`${gate}() {`)),
+      );
+      expect(body).toContain('"$HARDEN_TOOL" --check || rc=$?');
+      expect(body).toMatch(/1\) die /);
+      expect(body).toMatch(/\*\) die /);
+    }
+  });
+
+  it("has no escape hatch for either gate", () => {
+    // The installer's whole environment surface is its parameter block; an
+    // opt-out would have to live there. It deliberately does not: the installs
+    // that would set it are the ones that most need the check.
+    const params = SRC.match(/^[A-Z_]+="\$\{[A-Z_]+:-[^}]*\}"$/gm) ?? [];
+    expect(params.length).toBeGreaterThan(4);
+    expect(params.join("\n")).not.toMatch(
+      /SKIP|FORCE|ALLOW|IGNORE|OVERRIDE|UNSAFE/,
+    );
+  });
+
+  it("installs the ssh client the check needs", () => {
+    expect(SRC).toMatch(/apt-get install -y[^\n]*\bopenssh-client\b/);
+  });
+
+  it("leaves the operator a command to re-run, and points at it", () => {
+    // The hardening is skipped on a box with no SSH key yet, and whoever adds
+    // a key later will not re-run a whole installer.
+    expect(SRC).toContain("HARDEN_TOOL=/usr/local/sbin/isomux-harden-ssh");
+    expect(SRC).toContain('write_file "$HARDEN_TOOL" 755');
+    expect(SRC).toContain("sudo isomux-harden-ssh");
+    const report = SRC.slice(SRC.indexOf("report() {"));
+    expect(report).toContain("SSH_HARDENING_SKIPPED");
+  });
+});
+
+describe("install.sh: out-of-memory protection", () => {
+  it("installs and runs the protection script, without failing the install", () => {
+    expect(SRC).toContain("OOM_TOOL=/usr/local/sbin/isomux-oom-protect");
+    expect(SRC).toContain('write_file "$OOM_TOOL" 755');
+    // Slice from the end of the embedded script: the heredoc body is full of
+    // function bodies that would end the slice early.
+    const afterHeredoc = SRC.lastIndexOf("\nISOMUX_OOM_PROTECT_SH\n");
+    const fn = SRC.slice(afterHeredoc, SRC.indexOf("\n}\n", afterHeredoc));
+    expect(fn).not.toContain("die ");
+    expect(fn).toContain("warning: out-of-memory protection");
+  });
+
+  it("runs before the build, which is the memory-hungry part", () => {
+    expect(stepIndex("configure_oom_protection")).toBeLessThan(
+      stepIndex("build_isomux"),
+    );
+  });
+
+  it("puts the office server in the kill-last tier", () => {
+    const unit = SRC.slice(
+      SRC.indexOf("write_file /etc/systemd/system/isomux.service 644"),
+      SRC.indexOf(
+        "run systemctl daemon-reload",
+        SRC.indexOf("install_service"),
+      ),
+    );
+    expect(unit).toContain("OOMScoreAdjust=-500");
   });
 });

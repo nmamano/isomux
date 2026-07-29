@@ -37,8 +37,8 @@ Run ESLint during development. A good time to do it is right before human review
 
 - `site/` — Landing page and demo, deployed to isomux.com via Vercel. Demo is built from `ui/demo-entry.tsx` + `ui/demo.html` into `site/demo/` (see `vercel.json`).
 - `internal-docs/` — Design documents, plans, and reference material. `documentation.md` is the index of every user-facing copy surface to update when features change.
-- `deploy/` — Unattended VPS installer (`install.sh`), documented in `docs/vps-install.md`.
-- `scripts/` — Build and release tooling: `build.sh` (UI bundle), `release.sh` (tag a CalVer release), `update.sh` (customer-box updater; installed as `isomux-update`). Release process: `internal-docs/release-design.md`.
+- `deploy/` — Unattended VPS installer (`install.sh`), documented in `docs/vps-install.md`. Its helper scripts (`harden-ssh.sh`, `oom-protect.sh`, installed on the box as `isomux-harden-ssh` / `isomux-oom-protect`) are also **embedded verbatim inside `install.sh`**, which is fetched on its own by `curl | bash` and cannot read repo files. Edit the helper, then run `bun run scripts/embed-deploy-scripts.ts`; `deploy/install-sh.test.ts` fails if the copies drift.
+- `scripts/` — Build and release tooling: `build.sh` (UI bundle), `release.sh` (tag a CalVer release), `update.sh` (customer-box updater; installed as `isomux-update`), `embed-deploy-scripts.ts` (sync the copies above). Release process: `internal-docs/release-design.md`.
 - `skills/` — Skills bundled with the project, available to every isomux agent.
 - `shared/` — TypeScript types shared between server and UI.
 - `server/` — Bun HTTP + WebSocket server, agent lifecycle, provider backends.
