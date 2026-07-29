@@ -1177,13 +1177,13 @@ report_pass() {
   report_coverage
   if [[ -n $KEY_UNPROVEN ]]; then
     log ""
-    log "One limit worth knowing: this checked the keys that work on their"
-    log "own. The $SERVICE_USER account can read these key files, but their"
-    log "contents are protected by a password (a passphrase), so whether root"
-    log "accepts them could not be tested:"
+    log "One limit worth knowing: the $SERVICE_USER account can read these key"
+    log "files, but they are locked with a password, so the check could not"
+    log "try them against root:"
     printf '%s' "$KEY_UNPROVEN" | while IFS= read -r file; do log "$file"; done
-    log "If the passphrase is written down anywhere on this box, move the key"
-    log "file off the box instead."
+    log "A locked key only stays harmless while its password is nowhere on"
+    log "this box (not in a script, a note, or shell history). If it is, or"
+    log "if you are unsure, move the key file off the box."
   fi
   log "Checked now, on this box. Adding a key later can undo it - re-run this"
   log "command whenever root's key list changes."
