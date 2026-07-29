@@ -723,13 +723,12 @@ report_pass() {
   report_coverage
   if [[ -n $KEY_UNPROVEN ]]; then
     log ""
-    log "Found key files that could not be tested: the $SERVICE_USER account"
-    log "can read them, but they are locked with a password:"
+    log "Found key files that the $SERVICE_USER account can read but are"
+    log "locked with a password:"
     printf '%s' "$KEY_UNPROVEN" | while IFS= read -r file; do log "$file"; done
-    log "Why this matters: if root accepts one of these keys AND its password"
-    log "can also be found somewhere on this box, an agent has a way in. This"
-    log "check cannot rule that out. To be safe, move these key files off the"
-    log "box."
+    log "If root accepts one of these keys AND an agent gets the password"
+    log "somehow, it'll have a way in. The safest option is to move these key"
+    log "files off the box."
   fi
   log "Checked now, on this box. Adding a key later can undo it - re-run this"
   log "command whenever root's key list changes."
