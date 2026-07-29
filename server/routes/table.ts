@@ -112,6 +112,9 @@ import type {
   CronPromptReq,
   UserSelfWire,
   UserAdminWire,
+  StorageUsageWire,
+  StoragePruneReq,
+  StoragePruneRes,
 } from "../../shared/contract-shapes.ts";
 
 export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
@@ -1067,6 +1070,29 @@ export const API_ROUTES: readonly RouteDef[] = [
     method: "GET",
     path: "/api/version",
     auth: authn(authenticated),
+    emits: [],
+  }),
+
+  // --- Storage (task 2366ccb0) ----------------------------------------------
+  // Disk-usage breakdown of the office footprint. Same posture as
+  // backupStatus — office:read + authenticated: every human, plus PRIVILEGED
+  // agents (a plain agent token lacks office:read and gets 403). The handler
+  // strips the per-agent detail AND every filesystem path for non-owners, since
+  // the detail enumerates log dirs for agents in rooms the caller may not see.
+  defineRoute<void, StorageUsageWire>({
+    opId: "storage.usage",
+    method: "GET",
+    path: "/api/storage/usage",
+    auth: cap("office:read", authenticated),
+    emits: [],
+  }),
+  // Manual prune. Owner-only and DRY RUN unless the body says apply:true; no
+  // scheduler ever calls it (server/storage-prune.ts).
+  defineRoute<StoragePruneReq, StoragePruneRes>({
+    opId: "storage.prune",
+    method: "POST",
+    path: "/api/storage/prune",
+    auth: cap("office:admin", officeOwner),
     emits: [],
   }),
 ];

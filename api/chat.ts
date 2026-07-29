@@ -208,6 +208,7 @@ Setup:
 - Env files for secrets and config: point Isomux at an env file on the server, office-wide (shared by every agent) or per-user (in your user settings), and its variables are loaded into each agent's environment at spawn time, with per-user values overriding office-wide ones. This is the right home for API tokens and other secrets: they're injected into the agent's environment without embedding their values in prompts or conversation logs. The file applies to newly spawned agents; existing agents keep their current environment.
 - Sender + device labels: every message in chat is tagged with the username and device (e.g. \`[Nil (Phone)]\`) so agents and other humans can tell who's saying what from where
 - Daily local backup: your office (agents, conversations, settings) is snapshotted once a day, so you can restore from a recent snapshot if anything goes wrong
+- Storage breakdown: see what the office is using on disk (conversation history, attachments, backups, update snapshots), and prune old history when you need the space — it shows you what it would delete before deleting anything, and never removes a file a conversation still shows
 - The entire frontend uses a Redux-like store where server WebSocket messages are dispatched directly as actions
 
 ### Plugins

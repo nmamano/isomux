@@ -364,6 +364,10 @@ const SPEC_ROUTE_CONTRACT: Record<
   // System
   "system.backupStatus": { caps: ["office:read"], emits: [] },
   "system.version": { caps: [], emits: [] },
+  // Storage (task 2366ccb0). usage reads like backupStatus (office:read, agents
+  // included — it is a size report); prune deletes, so office:admin + owner.
+  "storage.usage": { caps: ["office:read"], emits: [] },
+  "storage.prune": { caps: ["office:admin"], emits: [] },
   // Memory (isomux-memory)
   "memory.read": { caps: ["memory:read"], emits: [] },
   "memory.append": { caps: ["memory:write"], emits: [] },

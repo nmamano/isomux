@@ -39,6 +39,8 @@ import {
   loadServerConfig,
   saveServerConfig,
   loadEnabledPlugins,
+  loadSessionsMap,
+  peekMessageQueuesRaw,
 } from "./persistence.ts";
 import { loadPlugins } from "./plugins.ts";
 import { normalizePublicOrigin } from "../shared/public-origin.ts";
@@ -161,6 +163,10 @@ import { officeSettingsHandlers } from "./routes/handlers/office-settings.ts";
 import { validateHandlers } from "./routes/handlers/validate.ts";
 import { backendsHandlers } from "./routes/handlers/backends.ts";
 import { systemHandlers } from "./routes/handlers/system.ts";
+import { storageHandlers } from "./routes/handlers/storage.ts";
+import { STATE_ROOT } from "./config.ts";
+import { measureStorageCached } from "./storage-usage.ts";
+import { planPrune, applyPrune, type PruneDeps } from "./storage-prune.ts";
 import { updateHandlers } from "./routes/handlers/update.ts";
 import { triggerUpdate } from "./update-trigger.ts";
 import { readUpdateConf } from "./update-conf.ts";
@@ -2755,6 +2761,89 @@ function buildExecutorDeps(): ExecutorDeps {
         };
       },
       getVersion: () => getVersionInfo(),
+    }),
+  );
+  // Storage visibility + the MANUAL pruner (task 2366ccb0). Nothing here is
+  // scheduled: the only way anything gets deleted is an owner POSTing
+  // apply:true. The three locations are resolved fresh per call — the backup
+  // dir from the backup module, the snapshot dir from the updater conf (absent
+  // on boxes that are not updater-managed).
+  const updateSnapshotDir = (): string | null => {
+    const conf = readUpdateConf();
+    return conf.state === "parsed" ? (conf.values.SNAPSHOT_DIR ?? null) : null;
+  };
+  // Rebuilt per call so the active-session set is never a stale snapshot: a
+  // plan computed a minute ago must not authorize deleting a session an agent
+  // has since resumed (applyPrune re-plans against these same live deps).
+  // Attachment filenames still owed to undelivered messages, per agent. They
+  // are NOT in any transcript yet, so the pruner's reachability scan cannot see
+  // them; without this an attachment on a message queued for a stuck agent
+  // could be deleted before it is ever delivered.
+  //
+  // Both sources, unioned: getAllAgents() splices in the live in-memory queue,
+  // and message-queues.json is the durable mirror. The durable read matters
+  // because Bun.serve binds the listener BEFORE restoreAgents repopulates the
+  // in-memory queues, so during that window the live side is empty. peek-, not
+  // load-, so a read-only prune plan can never quarantine the file.
+  //
+  // Returns null when the durable file could not be read or parsed: that is
+  // UNKNOWN, not empty, and the pruner fails closed on it. Collapsing the two
+  // would let an unreadable queue read as "nothing is owed" during exactly the
+  // boot window where the live queue is also empty.
+  const queuedAttachmentsByAgent = (): Map<string, Set<string>> | null => {
+    const durable = peekMessageQueuesRaw();
+    if (!durable.ok) return null;
+    const byAgent = new Map<string, Set<string>>();
+    const add = (agentId: string, filename: unknown) => {
+      if (typeof filename !== "string" || filename === "") return;
+      const set = byAgent.get(agentId) ?? new Set<string>();
+      set.add(filename);
+      byAgent.set(agentId, set);
+    };
+    for (const agent of agentManager.getAllAgents()) {
+      for (const queued of agent.queue ?? []) {
+        for (const att of queued.attachments ?? []) add(agent.id, att.filename);
+      }
+    }
+    for (const [agentId, record] of Object.entries(durable.records)) {
+      const queue = (record as { queue?: unknown })?.queue;
+      if (!Array.isArray(queue)) continue;
+      for (const entry of queue) {
+        const atts = (entry as { attachments?: unknown })?.attachments;
+        if (!Array.isArray(atts)) continue;
+        for (const att of atts) {
+          add(agentId, (att as { filename?: unknown })?.filename);
+        }
+      }
+    }
+    return byAgent;
+  };
+  const pruneDeps = (): PruneDeps => {
+    const queued = queuedAttachmentsByAgent();
+    return {
+      logsDir: join(STATE_ROOT, "logs"),
+      now: Date.now(),
+      activeSessionIds: new Set(
+        agentManager
+          .getAllAgents()
+          .map((a) => agentManager.getCurrentSessionId(a.id))
+          .filter((id): id is string => id !== null),
+      ),
+      loadSessionsMap: (agentId) => loadSessionsMap(agentId),
+      queuedAttachments: (agentId) =>
+        queued === null ? null : (queued.get(agentId) ?? new Set<string>()),
+    };
+  };
+  register(
+    storageHandlers({
+      getUsage: () =>
+        measureStorageCached({
+          stateRoot: STATE_ROOT,
+          backupDir: getBackupStatus().backupDir,
+          snapshotDir: updateSnapshotDir(),
+        }),
+      planPrune: (target, policy) => planPrune(target, policy, pruneDeps()),
+      applyPrune: (plan) => applyPrune(plan, pruneDeps()),
     }),
   );
   // In-UI update trigger (release channel). The conf is read per call so an

@@ -492,3 +492,132 @@ export interface CronRunMessageReq {
 export interface CronPromptReq {
   value: string | null;
 }
+
+// --- Storage retention (task 2366ccb0) --------------------------------------
+// The wire contract for the disk-usage breakdown and the manual pruner. Defined
+// here rather than in the server modules so the route table and the
+// implementation cannot drift: server/storage-usage.ts and
+// server/storage-prune.ts import these as their own domain types.
+
+// Stable kebab-case ids — a response key, not an index.
+export type StorageCategoryId =
+  | "transcripts"
+  | "attachments"
+  | "session-metadata"
+  | "codex-home"
+  | "cronjobs"
+  | "memory"
+  | "other-state"
+  | "backups"
+  | "update-snapshots";
+
+export interface StorageCategoryWire {
+  id: StorageCategoryId;
+  // Where the category lives. null when the location is not configured on this
+  // box (e.g. update snapshots off an updater-managed box) AND for every caller
+  // who is not the office owner — a member gets sizes, not filesystem layout.
+  path: string | null;
+  // False when the location does not exist or could not be read. Distinguishes
+  // "no backups have run yet" from "the backup dir holds zero bytes", which
+  // `bytes: 0` alone cannot.
+  available: boolean;
+  bytes: number;
+  files: number;
+}
+
+export interface AgentStorageWire {
+  agentId: string;
+  transcriptBytes: number;
+  attachmentBytes: number;
+  sessions: number;
+  lastActivityAt: number | null;
+}
+
+export interface StorageUsageWire {
+  // null for every caller who is not the office owner (see StorageCategoryWire
+  // .path — non-owners get sizes only, no filesystem layout).
+  stateRoot: string | null;
+  measuredAt: number;
+  // The in-root categories sum to exactly this; backups and update-snapshots
+  // live outside the state root and are extra.
+  stateRootBytes: number;
+  categories: StorageCategoryWire[];
+  // Owner-only; empty for members and agents (it enumerates log dirs for
+  // agents in rooms the caller may not see).
+  agents: AgentStorageWire[];
+}
+
+export type PruneTarget = "transcripts" | "attachments";
+
+export interface PrunePolicy {
+  olderThanDays: number;
+  keepPerAgent: number;
+}
+
+export interface PruneCandidateWire {
+  // RELATIVE to the logs dir, always ("<agentId>/<session>.jsonl",
+  // "<agentId>/files/<name>"). Never absolute: the apply pass joins it onto the
+  // server's own logs root and rejects anything that escapes, so a candidate
+  // cannot name a path outside the fence in the first place.
+  path: string;
+  bytes: number;
+  agentId: string;
+  sessionId?: string;
+  ageDays: number;
+  mtimeMs: number;
+}
+
+export type PruneSkipReason =
+  | "too-recent"
+  | "keep-newest"
+  | "active-session"
+  | "fork-ancestor"
+  // Attachments only: still referenced by a surviving transcript, or still
+  // owed to an undelivered queued message. Deleting it would leave a broken
+  // file chip in a conversation you can still read, or destroy an attachment
+  // before it is ever delivered.
+  | "referenced"
+  // Attachments only, FAIL-CLOSED: the durable message queue could not be read,
+  // so whether these files are still owed is UNKNOWN. Unknown is not empty —
+  // everything is spared and an apply is refused.
+  | "queue-state-unknown";
+
+export interface PruneSkipWire {
+  reason: PruneSkipReason;
+  count: number;
+  bytes: number;
+}
+
+export interface PrunePlanWire {
+  target: PruneTarget;
+  policy: PrunePolicy;
+  candidates: PruneCandidateWire[];
+  bytes: number;
+  skipped: PruneSkipWire[];
+}
+
+export interface PruneResultWire {
+  deleted: number;
+  bytes: number;
+  refused: { path: string; reason: string }[];
+  // Set when the apply was ABANDONED before deleting anything (a candidate
+  // escaped the logs root, or the target directory could not be re-read). A
+  // malformed plan aborts the whole run rather than deleting the well-formed
+  // part of it.
+  aborted?: string;
+}
+
+export interface StoragePruneReq {
+  target: PruneTarget;
+  olderThanDays: number;
+  keepPerAgent?: number;
+  // Absent or false = dry run. The plan comes back either way.
+  apply?: boolean;
+}
+
+export interface StoragePruneRes {
+  plan: PrunePlanWire;
+  // null on a dry run — never an empty result, which would read like a prune
+  // that found nothing to do.
+  applied: PruneResultWire | null;
+}

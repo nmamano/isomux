@@ -659,6 +659,10 @@ const ROUTE_LABELS: Array<[string, string, string]> = [
   ["GET", "/api/skill-usage", "Read skill-use counts"],
   // Deployment version identity (reachable by privileged agent tokens).
   ["GET", "/api/version", "Check isomux version"],
+  // Storage breakdown (reachable by privileged agent tokens); the prune is
+  // owner-only but still worth a label if an owner runs it from a terminal.
+  ["GET", "/api/storage/usage", "Check office disk usage"],
+  ["POST", "/api/storage/prune", "Prune stored history"],
 ];
 
 export function describeIsomuxRoute(

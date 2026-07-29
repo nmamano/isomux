@@ -1354,6 +1354,36 @@ export function loadMessageQueuesRaw(): Record<string, unknown> {
   }
 }
 
+// Side-effect-free read of the same file, for callers that must NOT quarantine.
+// loadMessageQueuesRaw renames a corrupt file aside; that is right for the boot
+// path and wrong for anything read-only (the storage pruner reads the durable
+// queue to learn which attachments are still owed to an undelivered message —
+// see server/storage-prune.ts — and a dry run must never move a user's file).
+//
+// EMPTY and UNKNOWN are separate results, deliberately. A caller that is about
+// to DELETE files based on "nothing is queued" must not be handed the same
+// answer for "the queue is genuinely empty" and "the queue file could not be
+// read or parsed". An absent file is a real, valid empty (a fresh box); an
+// unreadable or malformed one is `ok: false` and the caller has to decide —
+// the pruner treats it as fail-closed.
+export type MessageQueuesPeek =
+  | { ok: true; records: Record<string, unknown> }
+  | { ok: false };
+
+export function peekMessageQueuesRaw(): MessageQueuesPeek {
+  if (!existsSync(MESSAGE_QUEUES_FILE)) return { ok: true, records: {} };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(MESSAGE_QUEUES_FILE, "utf-8"));
+  } catch {
+    return { ok: false };
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return { ok: false };
+  }
+  return { ok: true, records: parsed as Record<string, unknown> };
+}
+
 // THROWS on failure. The ACCEPTANCE path (enqueueMessage) needs the throw to
 // roll back and fail the request — an acked-but-unpersisted message would be
 // silent loss on restart (review-pinned, mirrors saveScheduledMessages).
