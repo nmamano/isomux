@@ -3838,7 +3838,18 @@ function escapeHtml(s: string): string {
 // has `<title>__OFFICE_TITLE__</title>`; we replace that placeholder per-request
 // so the tab title is correct before the WS connects (and on the auth page).
 async function serveIndexHtml(): Promise<Response> {
-  const raw = await Bun.file(join(UI_DIST, "index.html")).text();
+  // A missing bundle (ui/dist not built yet) must be a clean 503, not an
+  // unhandled ENOENT that resets the socket mid-response - that crash shape
+  // surfaced as CI-only ECONNRESET failures when tests ran before the UI
+  // build step (task 837d6411).
+  const file = Bun.file(join(UI_DIST, "index.html"));
+  if (!(await file.exists())) {
+    return new Response("UI not built (run: bun run build:ui)", {
+      status: 503,
+      headers: { "Content-Type": "text/plain" },
+    });
+  }
+  const raw = await file.text();
   const officeName = agentManager.getOfficeSettings().name;
   const title = officeName ? `${escapeHtml(officeName)} | Isomux` : "Isomux";
   const html = raw.replace("__OFFICE_TITLE__", title);
