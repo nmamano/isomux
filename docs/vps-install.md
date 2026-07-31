@@ -101,6 +101,16 @@ isomux-update v2026.7.19
 
 Either way, it installs any system dependencies the new release needs, rebuilds at the new version, snapshots the office state, and restarts the service - interrupting running agents. If the new version fails to come up, it rolls code and state back to what you had. Downgrading to an older release needs `--allow-downgrade`.
 
+## Opening an agent's dev server
+
+An app an agent is running on the box - say on port 5173 - isn't exposed to the internet. If SSH is open (the default), forward the port from your own machine:
+
+```bash
+ssh -L 5173:localhost:5173 root@office.example.com
+```
+
+Then open `http://localhost:5173`.
+
 ## Notes
 
 - The invite link is a credential until it's used or expires. It appears in the install output, so it also lands in logs that capture it (cloud-init writes stdout to `/var/log/cloud-init-output.log`).
