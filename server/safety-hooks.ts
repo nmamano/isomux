@@ -185,17 +185,199 @@ function normalizeAbsolutePaths(cmd: string): string {
   return result;
 }
 
+// ---------------------------------------------------------------------------
+// Heredoc bodies
+//
+// A heredoc body is data on a command's stdin, not command text, so nothing in
+// it should ever be matched as a command. Getting that wrong is not theoretical:
+// an agent sending a report with `jq -Rs '{text: .}' <<'EOF' … EOF | curl …`
+// had it blocked as a write to ~/.isomux/, because the report's prose was read
+// as commands.
+//
+// The shape that got through is the ordinary one: bash starts the body on the
+// line AFTER the operator's line, so the operator can be followed by the rest
+// of the pipeline. A regex that expects a newline right after the delimiter
+// misses exactly that. Bodies are therefore found the way bash finds them —
+// per line, with the delimiter matched on a line of its own.
+// ---------------------------------------------------------------------------
+
+/**
+ * A heredoc opened on a line: `<<EOF`, `<<-EOF`, `<<'EOF'`, `<<"EOF"`, `<<\EOF`.
+ * `expand` follows bash's rule — quoting any part of the delimiter makes the
+ * body literal; an unquoted delimiter leaves substitutions in it live.
+ */
+type Heredoc = { delimiter: string; stripTabs: boolean; expand: boolean };
+
+/**
+ * The heredocs opened on one line, in the order their bodies follow it.
+ *
+ * Everything here exists to avoid a phantom: a `<<` read as an operator when
+ * it is not one takes the lines below it out of view as though they were data.
+ * So quotes are tracked (`echo "see <<EOF"`), a comment ends the scan, `<<<`
+ * is a here-string with no body, and an arithmetic span is skipped whole
+ * because `<<` inside it is a bit shift.
+ */
+function heredocsOpenedOn(line: string): Heredoc[] {
+  const found: Heredoc[] = [];
+  let quote: string | null = null;
+  let i = 0;
+  while (i < line.length) {
+    const ch = line[i];
+    if (quote) {
+      if (ch === "\\" && quote === '"') i += 2;
+      else {
+        if (ch === quote) quote = null;
+        i++;
+      }
+      continue;
+    }
+    if (ch === "\\") {
+      i += 2;
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      quote = ch;
+      i++;
+      continue;
+    }
+    if (ch === "#" && (i === 0 || /[\s;&|()]/.test(line[i - 1]))) {
+      break; // a comment: `# heredocs are written <<EOF` opens nothing
+    }
+    if (ch === "(" && line[i + 1] === "(") {
+      // Arithmetic, where `<<` is a bit shift, in both spellings: `$((1 << 20))`
+      // and the bare `(( x << 2 ))`. Skipping the span keeps either from
+      // opening a heredoc named `20`.
+      i = matchParen(line, i) + 1;
+      continue;
+    }
+    if (ch !== "<" || line[i + 1] !== "<") {
+      i++;
+      continue;
+    }
+    if (line[i + 2] === "<") {
+      i += 3; // here-string: its word is data on the same line, not a body
+      continue;
+    }
+    i += 2;
+    let stripTabs = false;
+    if (line[i] === "-") {
+      stripTabs = true;
+      i++;
+    }
+    while (line[i] === " " || line[i] === "\t") i++;
+    // The delimiter word, which may be quoted in whole or in part.
+    let delimiter = "";
+    let expand = true;
+    let inner: string | null = null;
+    while (i < line.length) {
+      const c = line[i];
+      if (inner) {
+        if (c === inner) inner = null;
+        else delimiter += c;
+        i++;
+        continue;
+      }
+      if (c === "'" || c === '"') {
+        inner = c;
+        expand = false;
+        i++;
+        continue;
+      }
+      if (c === "\\") {
+        expand = false;
+        if (i + 1 < line.length) delimiter += line[i + 1];
+        i += 2;
+        continue;
+      }
+      if (/[\s;&|<>()]/.test(c)) break;
+      delimiter += c;
+      i++;
+    }
+    if (delimiter) found.push({ delimiter, stripTabs, expand });
+  }
+  return found;
+}
+
+/**
+ * The command substitutions inside a string — the only part of an unquoted
+ * heredoc body that still runs. `matchParen` lives with the command parser
+ * below; the two share the same idea of where a `$( … )` ends.
+ *
+ * A backslash escapes `$`, a backtick, and itself in an unquoted body, so
+ * `\$(pkill …)` is text an agent is quoting, not a command (Reviewer1). `\\`
+ * consumes itself and leaves the substitution after it live.
+ */
+function extractSubstitutions(text: string): string {
+  const parts: string[] = [];
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === "\\") {
+      i++; // whatever follows is literal
+      continue;
+    }
+    if (text[i] === "$" && text[i + 1] === "(") {
+      const end = matchParen(text, i + 1);
+      parts.push(text.slice(i, end + 1));
+      i = end;
+    } else if (text[i] === "`") {
+      const end = text.indexOf("`", i + 1);
+      const stop = end === -1 ? text.length - 1 : end;
+      parts.push(text.slice(i, stop + 1));
+      i = stop;
+    }
+  }
+  return parts.join("\n");
+}
+
+/**
+ * Drop every heredoc body, keeping the command lines around it.
+ *
+ * A quoted delimiter (`<<'EOF'`) makes the body wholly literal, so it goes.
+ * An unquoted one (`<<EOF`) still expands the body, so `$(pkill …)` inside it
+ * really does run — those substitutions are kept and only the prose around
+ * them is dropped.
+ *
+ * A body with no terminator ends at the end of the input, which is what bash
+ * does: it warns, closes the heredoc there, and runs the command anyway. The
+ * lines below an unterminated `<<` are body, never commands, so keeping them
+ * would only invent denials. Not opening a phantom heredoc in the first place
+ * is `heredocsOpenedOn`'s job (Reviewer1).
+ */
+function stripHeredocBodies(cmd: string): string {
+  if (!cmd.includes("<<")) return cmd;
+  const lines = cmd.split("\n");
+  const kept: string[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    kept.push(lines[i]);
+    for (const doc of heredocsOpenedOn(lines[i])) {
+      let end = -1;
+      for (let j = i + 1; j < lines.length; j++) {
+        const line = doc.stripTabs ? lines[j].replace(/^\t+/, "") : lines[j];
+        if (line === doc.delimiter) {
+          end = j;
+          break;
+        }
+      }
+      const bodyEnd = end === -1 ? lines.length : end;
+      if (doc.expand) {
+        const live = extractSubstitutions(
+          lines.slice(i + 1, bodyEnd).join("\n"),
+        );
+        if (live) kept.push(live);
+      }
+      i = bodyEnd; // body and terminator both drop out
+      if (end === -1) break; // nothing after an unterminated body
+    }
+  }
+  return kept.join("\n");
+}
+
 /**
  * Strip quoted strings and heredocs from a command so that pattern matching
  * only applies to actual command structure, not to message content.
  * Replaces quoted content with empty strings to preserve command structure.
  */
 function stripQuotedStrings(cmd: string): string {
-  let result = cmd;
-  // Remove heredoc bodies: <<'EOF' ... EOF, <<"EOF" ... EOF, <<EOF ... EOF
-  result = result.replace(/<<-?\s*'([^']+)'\s*\n[\s\S]*?\n\s*\1/g, "");
-  result = result.replace(/<<-?\s*"([^"]+)"\s*\n[\s\S]*?\n\s*\1/g, "");
-  result = result.replace(/<<-?\s*(\w+)\s*\n[\s\S]*?\n\s*\1/g, "");
+  let result = stripHeredocBodies(cmd);
   // Remove double-quoted strings (handling escaped quotes)
   result = result.replace(/"(?:[^"\\]|\\.)*"/g, '""');
   // Remove single-quoted strings (no escaping in single quotes)
@@ -319,7 +501,12 @@ const FILE_READ_COMMANDS = [
 const SAFE_SUFFIXES = [".example", ".template", ".sample", ".dist"];
 
 function isSensitiveFile(filePath: string): boolean {
-  const name = basename(filePath);
+  // A glob arrives here too (Grep's `glob: "*.pem"` selects the same files a
+  // path would). A trailing wildcard is not part of any real name, so drop it
+  // and match what is left: `.env*` is a request for `.env`. This is still
+  // name matching and not glob analysis — a brace or character-class pattern
+  // can name a sensitive file without looking like one (Reviewer1).
+  const name = basename(filePath).replace(/\*+$/, "");
   // Allow .env.example, .env.template, etc.
   if (SAFE_SUFFIXES.some((s) => name.endsWith(s))) return false;
   if (SENSITIVE_EXACT.has(name)) return true;
@@ -563,14 +750,6 @@ function classifyFlag(
 const PATTERN_KILL_REASON =
   "Killing processes by name pattern also hits processes you don't own. " +
   "Target what you started instead: by port or PID.";
-
-/** Heredoc bodies are data and never reach command position. */
-function stripHeredocs(cmd: string): string {
-  return cmd
-    .replace(/<<-?\s*'([^']+)'\s*\n[\s\S]*?\n\s*\1/g, "")
-    .replace(/<<-?\s*"([^"]+)"\s*\n[\s\S]*?\n\s*\1/g, "")
-    .replace(/<<-?\s*(\w+)\s*\n[\s\S]*?\n\s*\1/g, "");
-}
 
 /** One shell word, plus whether any of it arrived inside quotes. */
 type ShellWord = { text: string; quoted: boolean };
@@ -846,7 +1025,7 @@ function killsOnlyLiteralPids(cmd: EffectiveCommand): boolean {
  * lines they execute. Depth-limited because a payload can nest.
  */
 function collectCommands(command: string, depth = 0): EffectiveCommand[] {
-  const commands = parseCommands(stripHeredocs(command)).flatMap(
+  const commands = parseCommands(stripHeredocBodies(command)).flatMap(
     commandCandidates,
   );
   if (depth >= 4) return commands;
@@ -889,7 +1068,8 @@ function checkProcessKill(command: string): string | null {
 // Tool input path extraction
 //
 // Tool inputs name their file under different keys: Read/Write/Edit use
-// `file_path`, NotebookEdit uses `notebook_path`. The published SDK types offer
+// `file_path`, NotebookEdit uses `notebook_path`, Grep uses `path` and `glob`.
+// The published SDK types offer
 // no tool-name -> input-shape registry (`ToolInputSchemas` is an untagged union
 // of shape-named interfaces), so the table below is maintained by hand — and
 // because a hand-maintained table goes stale, extraction falls back to a
@@ -897,13 +1077,30 @@ function checkProcessKill(command: string): string | null {
 // cannot find is denied, not waved through.
 // ---------------------------------------------------------------------------
 
-const TOOL_PATH_KEYS: Record<string, readonly string[]> = {
-  Read: ["file_path"],
-  Write: ["file_path"],
-  Edit: ["file_path"],
-  MultiEdit: ["file_path"],
-  NotebookRead: ["notebook_path"],
-  NotebookEdit: ["notebook_path"],
+type ToolPathSpec = {
+  /** Input keys naming what the call would touch, in check order. */
+  keys: readonly string[];
+  /**
+   * True for a tool whose target is optional and defaults to the working
+   * directory. An input with none of `keys` set is then "no particular file",
+   * which is a shape we DO recognize, so it is allowed rather than denied —
+   * fail-closed still covers every tool and every input we cannot read.
+   */
+  targetOptional?: boolean;
+};
+
+const TOOL_PATH_SPECS: Record<string, ToolPathSpec> = {
+  Read: { keys: ["file_path"] },
+  Write: { keys: ["file_path"] },
+  Edit: { keys: ["file_path"] },
+  MultiEdit: { keys: ["file_path"] },
+  NotebookRead: { keys: ["notebook_path"] },
+  NotebookEdit: { keys: ["notebook_path"] },
+  // Grep returns file contents, so it reads secrets as surely as Read does.
+  // `glob` counts alongside `path`: `glob: "*.pem"` picks out the same files.
+  // Both are optional — a Grep with neither is a search of the working
+  // directory, which this name-based rule has nothing to say about.
+  Grep: { keys: ["path", "glob"], targetOptional: true },
 };
 
 /** Key names that carry a filesystem path, for tools not in the table above */
@@ -911,7 +1108,8 @@ const PATH_KEY_PATTERN = /path|file|dir/i;
 
 /**
  * Every path a tool call would touch, or null when the input shape gives no
- * answer — callers must treat null as "cannot verify" and deny.
+ * answer — callers must treat null as "cannot verify" and deny. An empty array
+ * means the opposite: a recognized input that names no particular file.
  */
 function collectToolPaths(
   toolName: string,
@@ -919,21 +1117,26 @@ function collectToolPaths(
 ): string[] | null {
   if (!toolInput || typeof toolInput !== "object") return null;
   const record = toolInput as Record<string, unknown>;
+  const spec = TOOL_PATH_SPECS[toolName];
 
   const paths: string[] = [];
-  for (const key of TOOL_PATH_KEYS[toolName] ?? []) {
+  for (const key of spec?.keys ?? []) {
     const value = record[key];
     if (typeof value === "string" && value) paths.push(value);
   }
   if (paths.length > 0) return paths;
 
   // Unrecognized shape: take any string under a path-shaped key, so a tool that
-  // renames or adds a path field is still checked.
+  // renames or adds a path field is still checked. This runs for an
+  // optional-target tool too, so a renamed `path` is caught rather than read as
+  // "no target given".
   for (const [key, value] of Object.entries(record)) {
     if (typeof value !== "string" || !value) continue;
     if (PATH_KEY_PATTERN.test(key)) paths.push(value);
   }
-  return paths.length > 0 ? paths : null;
+  if (paths.length > 0) return paths;
+
+  return spec?.targetOptional ? [] : null;
 }
 
 /** Resolve ~ and relative paths to an absolute path. */
@@ -1072,6 +1275,7 @@ export function createSafetyHooks(): Partial<
       { matcher: "Bash", hooks: [checkBashSafety] },
       { matcher: "Read", hooks: [checkSensitiveFileRead] },
       { matcher: "NotebookRead", hooks: [checkSensitiveFileRead] },
+      { matcher: "Grep", hooks: [checkSensitiveFileRead] },
       { matcher: "Write", hooks: [checkWriteEditSafety] },
       { matcher: "Edit", hooks: [checkWriteEditSafety] },
       { matcher: "MultiEdit", hooks: [checkWriteEditSafety] },

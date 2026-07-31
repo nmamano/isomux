@@ -273,6 +273,178 @@ describe("process-kill guard", () => {
   });
 });
 
+describe("heredoc bodies are data, not commands", () => {
+  // The shape that regressed in practice: an agent posting a report through
+  // `jq -Rs … <<'EOF' | curl …`. The body starts on the NEXT line, so the
+  // operator is followed by the rest of the pipeline — and the report's prose
+  // was being read as commands and blocked.
+  const report = [
+    "jq -Rs '{text: .}' <<'EOF' | curl -s -X POST localhost:4000/api/agents/a1/messages -d @-",
+    "Report: I could not write ~/.isomux/agents.json, the guard blocked it.",
+    "It also blocked `rm -rf ~/.isomux/logs` and a tee into ~/.isomux/state.",
+    "Next: pkill -f bun was rejected too, so I killed the PID instead.",
+    "EOF",
+  ].join("\n");
+
+  it("allows a report whose body discusses ~/.isomux and write verbs", async () => {
+    expect(await bash(report)).toEqual({ denied: false, reason: "" });
+  });
+
+  it("allows the same body under a double-quoted delimiter", async () => {
+    expect((await bash(report.replace(/'EOF'/, '"EOF"'))).denied).toBe(false);
+  });
+
+  it("allows a bare-delimiter body that expands to nothing", async () => {
+    // `<<EOF` still expands its body, so this body carries no backticked line:
+    // in a bare heredoc that one really would run rm.
+    const command = [
+      "jq -Rs '{text: .}' <<EOF | curl -s -d @- localhost:4000/x",
+      "Report: I could not write ~/.isomux/agents.json, the guard blocked it.",
+      "Next: pkill -f bun was rejected too, so I killed the PID instead.",
+      "EOF",
+    ].join("\n");
+    expect((await bash(command)).denied).toBe(false);
+  });
+
+  it("denies a backticked command in a bare-delimiter body, which runs", async () => {
+    const command = ["cat <<EOF", "now: `pkill -f bun`", "EOF"].join("\n");
+    expect((await bash(command)).denied).toBe(true);
+  });
+
+  it("allows a tab-stripped heredoc with an indented terminator", async () => {
+    const command = [
+      "\tcat <<-'EOF' > /tmp/note.txt",
+      "\tI removed it with rm -rf and wrote ~/.isomux/agents.json.",
+      "\tEOF",
+    ].join("\n");
+    expect((await bash(command)).denied).toBe(false);
+  });
+
+  it("allows two heredocs opened on one line", async () => {
+    const command = [
+      "diff <(cat <<'A'",
+      "rm -rf ~/.isomux",
+      "A",
+      ") <(cat <<'B'",
+      "git reset --hard",
+      "B",
+      ")",
+    ].join("\n");
+    expect((await bash(command)).denied).toBe(false);
+  });
+
+  it("reads an unterminated body as data, the way bash does", async () => {
+    // Verified against bash: it warns, ends the heredoc at end of input, and
+    // runs the command — the last line is cat's input, not a command.
+    const command = ["cat <<'EOF'", "some prose", "pkill -f bun"].join("\n");
+    expect((await bash(command)).denied).toBe(false);
+  });
+
+  const notOperators = [
+    // A bit shift, in both arithmetic spellings.
+    ["echo $((1 << 20))", "pkill -f bun"],
+    ["(( total << 2 ))", "pkill -f bun"],
+    // A comment that mentions the operator.
+    ["echo hi # bodies are written <<EOF", "pkill -f bun"],
+    // A quoted mention of the operator.
+    ['echo "see <<EOF in the docs"', "pkill -f bun"],
+    // A here-string, which has no body.
+    ["cat <<< 'just prose'", "pkill -f bun"],
+  ];
+  for (const lines of notOperators) {
+    it(`does not let ${JSON.stringify(lines[0])} swallow the line below it`, async () => {
+      expect((await bash(lines.join("\n"))).denied).toBe(true);
+    });
+  }
+
+  const escaped = [
+    // Verified against bash: `\$(…)` and an escaped backtick are literal text
+    // in an unquoted body, which is how a report quotes a command.
+    ["cat <<EOF", "literal: \\$(pkill -f bun)", "EOF"],
+    ["cat <<EOF", "literal: \\`pkill -f bun\\`", "EOF"],
+  ];
+  for (const lines of escaped) {
+    it(`allows the escaped substitution in ${JSON.stringify(lines[1])}`, async () => {
+      expect((await bash(lines.join("\n"))).denied).toBe(false);
+    });
+  }
+
+  it("denies a substitution behind an escaped backslash, which still runs", async () => {
+    // `\\` is the escape consuming itself; the substitution after it is live.
+    const command = ["cat <<EOF", "path: \\\\$(pkill -f bun)", "EOF"].join(
+      "\n",
+    );
+    expect((await bash(command)).denied).toBe(true);
+  });
+
+  it("still denies a substitution inside an unquoted heredoc, which runs", async () => {
+    const command = ["cat <<EOF", "now: $(pkill -f bun)", "EOF"].join("\n");
+    expect((await bash(command)).denied).toBe(true);
+  });
+
+  it("does not let a quoted delimiter launder a substitution", async () => {
+    // `<<'EOF'` really is literal — the substitution below does not run, so
+    // there is nothing to deny.
+    const command = ["cat <<'EOF'", "now: $(pkill -f bun)", "EOF"].join("\n");
+    expect((await bash(command)).denied).toBe(false);
+  });
+
+  it("still checks the command the heredoc feeds", async () => {
+    const command = ["tee ~/.isomux/agents.json <<'EOF'", "{}", "EOF"].join(
+      "\n",
+    );
+    const { denied, reason } = await bash(command);
+    expect(denied).toBe(true);
+    expect(reason).toContain("Writing to ~/.isomux/ is not allowed");
+  });
+});
+
+describe("sensitive-read guard covers Grep", () => {
+  it("registers a matcher for Grep", () => {
+    expect(hooksFor("Grep").length).toBeGreaterThan(0);
+  });
+
+  const denied: Record<string, unknown>[] = [
+    { pattern: "KEY", path: "/tmp/isomux-safety-probe/.env" },
+    { pattern: "KEY", path: "~/.ssh/id_rsa" },
+    { pattern: "KEY", path: "/tmp/isomux-safety-probe/server.pem" },
+    { pattern: "KEY", glob: "*.pem" },
+    { pattern: "KEY", glob: ".env*" },
+    { pattern: "KEY", path: "/tmp/isomux-safety-probe", glob: "**/.env" },
+    // A renamed path field still gets checked rather than read as "no target".
+    { pattern: "KEY", search_path: "/tmp/isomux-safety-probe/.env" },
+  ];
+  for (const input of denied) {
+    it(`denies Grep ${JSON.stringify(input)}`, async () => {
+      const { denied: blocked, reason } = await decide("Grep", input);
+      expect(blocked).toBe(true);
+      expect(reason).toContain("may contain secrets");
+    });
+  }
+
+  const allowed: Record<string, unknown>[] = [
+    // No path and no glob: a search of the working directory, which a
+    // name-based rule cannot judge. Must not fail closed on it.
+    { pattern: "KEY" },
+    { pattern: "KEY", path: "/tmp/isomux-safety-probe/server" },
+    { pattern: "KEY", glob: "**/*.ts" },
+    { pattern: "KEY", path: "/tmp/isomux-safety-probe/.env.example" },
+    { pattern: "KEY", output_mode: "content", "-n": true },
+  ];
+  for (const input of allowed) {
+    it(`allows Grep ${JSON.stringify(input)}`, async () => {
+      expect(await decide("Grep", input)).toEqual({
+        denied: false,
+        reason: "",
+      });
+    });
+  }
+
+  it("still fails closed for a read tool with no optional-target rule", async () => {
+    expect((await decide("Read", { limit: 10 })).denied).toBe(true);
+  });
+});
+
 describe("NotebookEdit coverage", () => {
   it("registers a matcher for NotebookEdit", () => {
     expect(hooksFor("NotebookEdit").length).toBeGreaterThan(0);
