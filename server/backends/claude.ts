@@ -606,6 +606,11 @@ export class ClaudeSession implements BackendSession {
         };
         break;
       }
+      // The Claude backend never sets allowPrefixLabel, so the /resolve UX
+      // never offers this option here. Handled anyway so the switch stays
+      // exhaustive: a one-shot allow is the safe reading of "allow, and take
+      // this rule too" from a backend that has no rule to take.
+      case "allow_prefix":
       case "allow_once":
         result = { behavior: "allow", updatedInput: pending.input };
         break;

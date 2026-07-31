@@ -204,6 +204,24 @@ export interface ManagerDeps {
 // hand-written interface.)
 export type AgentManager = ReturnType<typeof createAgentManager>;
 
+// Read a reply to option 4 of the permission prompt: bare "4" (take the rule
+// the backend proposed) or "4 <prefix>" (cover this much of the command
+// instead). Anything else returns null and is handled by the other branches -
+// notably "4x" or "42", which are NOT option 4.
+//
+// The prefix is returned as the raw text the user typed. Splitting it into
+// command tokens is the backend's job: it owns what a token is, and it is the
+// one that checks the prefix against the command actually being approved.
+// Exported for tests.
+export function parsePrefixAllowReply(
+  trimmed: string,
+): { prefixText: string } | null {
+  if (trimmed === "4") return { prefixText: "" };
+  const m = /^4\s+(\S.*)$/.exec(trimmed);
+  if (!m) return null;
+  return { prefixText: m[1].trim() };
+}
+
 export function createAgentManager(deps: ManagerDeps) {
   const getBackend = deps.resolveBackend;
   const officeState = deps.officeState;
@@ -2684,8 +2702,15 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         // saw the terse SDK line with no context. Run the same detection +
         // login-instruction append the error / turn_completed paths use so
         // the chat has actionable next steps either way.
+        //
+        // Isomux-authored breadcrumbs skip the sniff: they quote commands and
+        // rules (a command containing `401` is not a sign-in problem), and
+        // being ours they can never BE a provider auth notice.
         const managedForAuth = agents.get(agentId);
-        if (detectAgentAuthError(managedForAuth, ev.text)) {
+        if (
+          !ev.isomuxAuthored &&
+          detectAgentAuthError(managedForAuth, ev.text)
+        ) {
           emitLoginInstructions(
             agentId,
             agentLoginInstructions(managedForAuth),
@@ -2961,6 +2986,31 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         );
         lines.push("  2. Allow - just this time");
         lines.push("  3. Deny");
+        // Offered only when the backend proposed a broader rule than "this
+        // exact call" (Codex attaches one to most command approvals). Last in
+        // the list on purpose: 1/2/3 have meant the same three things since
+        // the prompt shipped, and a habitual "3" must never turn into an allow.
+        //
+        // The follow-up line matters more than it looks: codex proposes the
+        // WHOLE command as its rule, so plain "4" mostly covers re-runs with
+        // extra arguments. Typing a shorter prefix is what actually ends the
+        // "approve `rg --files <dir>` again and again" loop.
+        if (ev.allowPrefixLabel) {
+          // "any command starting with", not "this command again": the rule
+          // really does cover every later command whose first tokens match,
+          // and a suggestion can be broad on its own (`sudo`, `env`, `sh -c`).
+          // The wording has to let the user see that before they accept it.
+          lines.push(
+            `  4. Allow - and don't ask again this session for any command starting with \`${ev.allowPrefixLabel}\``,
+          );
+          // The example comes ready-made from the backend; re-splitting the
+          // label here would be this layer guessing at command tokens.
+          if (ev.allowPrefixExample) {
+            lines.push(
+              `     Reply \`4 <prefix>\` to choose how much to allow, e.g. \`4 ${ev.allowPrefixExample}\`.`,
+            );
+          }
+        }
         lines.push("");
         lines.push(
           "Or type any other message to deny with that as the reason.",
@@ -2969,6 +3019,7 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         managed.pendingPermission = {
           approvalId: ev.approvalId,
           toolName: ev.toolName,
+          allowPrefixLabel: ev.allowPrefixLabel,
         };
         updateState(agentId, "waiting_for_response");
         break;
@@ -5030,6 +5081,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         );
         return;
       }
+      // "4", or "4 <prefix>" to say how much of the command to cover. Parsed
+      // before the branches below so a reply of "4 rg --files" isn't read as
+      // free text (which would deny with that as the reason).
+      const prefixReply = parsePrefixAllowReply(trimmed);
       let decision: ApprovalDecision;
       let resumeState: AgentState;
       if (trimmed === "1") {
@@ -5043,6 +5098,21 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       } else if (trimmed === "2") {
         emitEphemeralLog(agentId, "system", "Permission granted (once).");
         decision = { kind: "allow_once" };
+        resumeState = "tool_executing";
+      } else if (prefixReply && pending.allowPrefixLabel) {
+        // Guarded on allowPrefixLabel: when no 4th option was offered, "4" is
+        // not a choice the user could have read, so it falls through to the
+        // deny-with-reason branch like any other unrecognized reply.
+        //
+        // No confirmation line here on purpose - the backend owns the rule and
+        // emits one message saying what it actually remembered, including the
+        // case where a typed prefix is refused for not matching the command.
+        decision = {
+          kind: "allow_prefix",
+          ...(prefixReply.prefixText
+            ? { prefixText: prefixReply.prefixText }
+            : {}),
+        };
         resumeState = "tool_executing";
       } else if (trimmed === "3") {
         emitEphemeralLog(agentId, "system", "Permission denied.");

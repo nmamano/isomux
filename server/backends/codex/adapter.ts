@@ -31,6 +31,7 @@ import {
   formatAttachmentLines,
 } from "../../attachment-prompt.ts";
 import { mimeTypeForFilename } from "../../mime-types.ts";
+import { markdownInlineCode } from "../../format-human.ts";
 import { errMessage } from "../../../shared/errors.ts";
 import { BackendNotConfiguredError } from "../../internal-types.ts";
 
@@ -297,6 +298,19 @@ interface PendingApproval {
   // CommandExecutionApprovalDecision vs v2 FileChangeApprovalDecision); we
   // keep the method here so approve() can pick the right wire shape.
   method: string;
+  // The prefix rule codex suggested for this exec approval, if any (its
+  // `proposedExecpolicyAmendment`). Held here, never sent to the orchestrator:
+  // approve(id, {kind:"allow_prefix"}) reads it back and stores it in the
+  // session's in-memory allow list. Null for approvals with no suggestion.
+  suggestedPrefix: string[] | null;
+  // Tokens of the command this approval is about, when we could read them
+  // unambiguously (see commandTokensForPrefixMatch). A user-typed prefix is
+  // only accepted if it is the start of THESE tokens, so answering one
+  // approval can never grant a rule about some other command.
+  commandTokens: string[] | null;
+  // The directory this command would run in. Part of any rule granted from
+  // this approval - the same argv in another tree is another action.
+  cwd: string | null;
   // Settles the JsonRpcLiteClient handler-chain promise that's anchoring this
   // approval. Resolving it lets the client auto-respond with the payload and
   // releases the parked handler frame; rejecting unwinds the await. Without
@@ -384,6 +398,21 @@ export class CodexSession implements BackendSession {
   // jsonRpcId-keyed map of in-flight server-initiated approval requests. The
   // orchestrator references these by approvalId == jsonRpcId.
   private pendingApprovals = new Map<string, PendingApproval>();
+  // Command prefixes the user chose to stop being asked about, each pinned to
+  // the directory it was granted in (e.g. ["rg", "--files"] in /work).
+  // Populated only by an explicit `allow_prefix` decision; a later exec
+  // approval that starts the same way in the same directory is answered
+  // without bothering the user.
+  //
+  // DELIBERATELY in-memory and per-session: this field IS the whole store.
+  // It dies with the session object (/clear, resume, restart, session swap)
+  // and no other agent can see it. The tempting alternative - handing codex
+  // back its own `acceptWithExecpolicyAmendment` - was measured against codex
+  // 0.144.6 and rejected: codex writes the accepted rule to
+  // $CODEX_HOME/rules/default.rules, which is durable AND shared by every
+  // codex agent in the office (they share one CODEX_HOME). One user's
+  // "stop asking me" would silently become a permanent office-wide allow.
+  private sessionAllowPrefixes: AllowPrefixRule[] = [];
   // Running totals from Codex's cumulative tokenUsage notifications. We diff
   // against this when emitting usage_update so the orchestrator's accumulator
   // (which sums deltas) gets the right value.
@@ -619,11 +648,123 @@ export class CodexSession implements BackendSession {
     this.turnInFlight = true;
   }
 
+  // Resolve an "allow, and stop asking" decision into an actual rule, and say
+  // out loud what was remembered - this is the only report the user gets, so
+  // it has to name the real rule, including when their own prefix is refused.
+  //
+  // The orchestrator hands over the user's RAW TEXT, not tokens: splitting a
+  // command line and deciding what counts as a token is Codex-shaped knowledge
+  // and stays on this side of the boundary. What the text is checked against
+  // is the command being approved - a typed prefix must be its start. That
+  // single rule is what keeps this from being a way to grant arbitrary
+  // permissions: you can widen along the command in front of you, never
+  // sideways to a command you were never asked about.
+  private applyAllowPrefix(
+    pending: PendingApproval,
+    typedText: string | undefined,
+  ): void {
+    // Option 4 is only ever offered when this approval carried a rule that
+    // passed every gate in offerablePrefix, so an allow_prefix arriving
+    // without one (legacy exec approvals, file changes, a shell-shaped
+    // command, a stale client) has nothing to grant: it degrades to a plain
+    // one-shot allow, silently and with no rule stored. Its presence also
+    // means commandTokens is non-null - gate 2 of offerablePrefix.
+    if (!pending.suggestedPrefix || !pending.commandTokens) return;
+    const typed = typedText ? splitPlainArgv(typedText) : null;
+    if (typedText && typedText.trim()) {
+      if (!typed) {
+        // The user typed something that isn't a plain command, so there is no
+        // honest rule to store. Say which failure this is - otherwise they
+        // retype a prefix that looks obviously correct and it fails again.
+        this.enqueue({
+          kind: "system_text",
+          isomuxAuthored: true,
+          text: `No session rule was added: Isomux only matches rules against plain commands (no quoting, chaining, redirection, globbing or expansion). Allowed once.`,
+        });
+      } else if (tokensStartWith(pending.commandTokens, typed)) {
+        this.rememberAllowPrefix(typed, pending.cwd);
+        this.enqueue({
+          kind: "system_text",
+          isomuxAuthored: true,
+          text: this.grantedText(typed, pending.cwd),
+        });
+      } else {
+        this.enqueue({
+          kind: "system_text",
+          isomuxAuthored: true,
+          text: `\`${typed.join(" ")}\` is not the start of the command being approved, so no session rule was added - this command was allowed once.`,
+        });
+      }
+      return;
+    }
+    this.rememberAllowPrefix(pending.suggestedPrefix, pending.cwd);
+    this.enqueue({
+      kind: "system_text",
+      isomuxAuthored: true,
+      text: this.grantedText(pending.suggestedPrefix, pending.cwd),
+    });
+  }
+
+  // A rule names a directory as well as a command prefix: `rm -rf build` means
+  // a different thing in a different tree, and codex can run a command with a
+  // workdir of its choosing. Naming the directory in the confirmation is the
+  // point - the user should see the scope they just granted, not discover it.
+  //
+  // The prefix is safe to interpolate by construction (every token satisfies
+  // PLAIN_ARGV_TOKEN, which has no backticks in it). The cwd is not: it is
+  // whatever path codex sent, and a directory holding a backtick could close
+  // the code span early and forge the rest of the sentence.
+  private grantedText(prefix: string[], cwd: string | null): string {
+    const where = cwd ? ` in ${markdownInlineCode(cwd)}` : "";
+    return `Allowing any command starting with \`${prefix.join(" ")}\`${where} for the rest of this session.`;
+  }
+
+  // Store a prefix rule for the rest of this session. A rule already covered
+  // by a broader one is dropped, and adding a broader rule drops the narrower
+  // ones it swallows, so the list stays as small as the user's actual choices
+  // allow. (It still grows one entry per genuinely distinct choice - that is
+  // the user's own doing and is bounded by how many times they answer "4".)
+  private rememberAllowPrefix(prefix: string[], cwd: string | null): void {
+    if (prefix.length === 0) return;
+    // Copy: the caller's array is held elsewhere (pending approval state), and
+    // a stored rule must not change under us afterwards.
+    const rule: AllowPrefixRule = { tokens: [...prefix], cwd };
+    if (this.sessionAllowPrefixes.some((r) => ruleCovers(r, rule))) return;
+    this.sessionAllowPrefixes = this.sessionAllowPrefixes.filter(
+      (r) => !ruleCovers(rule, r),
+    );
+    this.sessionAllowPrefixes.push(rule);
+  }
+
+  // Does the command this approval is about start with a prefix the user
+  // already allowed for this session, in the same directory? False for
+  // anything that isn't a command execution, for requests we can't read a
+  // single unambiguous command out of, and for any command that isn't plain
+  // argv - see commandTokensForPrefixMatch, which fails closed.
+  private matchSessionPrefix(method: string, params: unknown): boolean {
+    if (this.sessionAllowPrefixes.length === 0) return false;
+    if (!isExecApprovalMethod(method)) return false;
+    const tokens = commandTokensForPrefixMatch(params);
+    if (!tokens) return false;
+    const cwd = approvalCwd(params);
+    return this.sessionAllowPrefixes.some(
+      (rule) => rule.cwd === cwd && tokensStartWith(tokens, rule.tokens),
+    );
+  }
+
   async approve(approvalId: string, decision: ApprovalDecision): Promise<void> {
     await this.bootstrapPromise;
     const pending = this.pendingApprovals.get(approvalId);
     if (!pending) return;
     this.pendingApprovals.delete(approvalId);
+    // "Allow, and stop asking about this prefix" is applied here rather than
+    // on the wire: we record the rule ourselves and answer codex with a plain
+    // one-shot allow. Handing codex its own `acceptWithExecpolicyAmendment`
+    // back would make it write the rule to $CODEX_HOME/rules/default.rules -
+    // permanent, and shared with every other codex agent on the box.
+    if (decision.kind === "allow_prefix") {
+      this.applyAllowPrefix(pending, decision.prefixText);
+    }
     const decisionWire = mapApprovalDecision(pending.method, decision);
     // Resolving the deferred releases the JsonRpcLiteClient's handler-chain
     // await; the client auto-responds with this payload. (Previously we
@@ -1280,6 +1421,37 @@ export class CodexSession implements BackendSession {
         const toolName = inferToolNameFromApproval(req.method, params);
         const title = inferApprovalTitle(req.method, params);
         const description = inferApprovalDescription(req.method, params);
+        const commandTokens = isExecApprovalMethod(req.method)
+          ? commandTokensForPrefixMatch(params)
+          : null;
+        const suggestedPrefix = offerablePrefix(
+          req.method,
+          params,
+          commandTokens,
+        );
+
+        // Already covered by a prefix the user allowed earlier this session?
+        // Answer codex directly and never surface a prompt. The match runs on
+        // the command text codex is about to execute, NOT on the suggestion
+        // attached to this request - codex's suggestion only describes the
+        // FIRST segment of a chained command (measured: `mkdir -p g && whoami`
+        // suggests just ["mkdir","-p","g"]), so trusting it here would let a
+        // chained command ride in on a rule the user set for its harmless head.
+        // The breadcrumb is deliberately generic. It fires once per matched
+        // command, and the command itself is right there in the tool call it
+        // precedes, so naming the rule adds nothing - while quoting rule text
+        // on a repeating line is exactly what we don't want in the log.
+        if (this.matchSessionPrefix(req.method, params)) {
+          this.enqueue({
+            kind: "system_text",
+            isomuxAuthored: true,
+            text: `Auto-approved by a command-prefix rule for this session.`,
+          });
+          return {
+            decision: mapApprovalDecision(req.method, { kind: "allow_once" }),
+          };
+        }
+
         // The promise we return is what the JsonRpcLiteClient's handler chain
         // awaits. session.approve() resolves it with the right enum-variant
         // response shape, the client auto-responds, and the handler frame
@@ -1289,6 +1461,9 @@ export class CodexSession implements BackendSession {
             jsonRpcId: req.id,
             toolName,
             method: req.method,
+            suggestedPrefix,
+            commandTokens,
+            cwd: approvalCwd(params),
             resolve,
             reject,
           });
@@ -1299,6 +1474,20 @@ export class CodexSession implements BackendSession {
             input: extractApprovalInput(req.method, params),
             title,
             description,
+            // Both labels are built here, already safe to display: the
+            // orchestrator renders them and never takes them apart again.
+            ...(suggestedPrefix
+              ? {
+                  allowPrefixLabel: suggestedPrefix.join(" "),
+                  ...(suggestedPrefix.length > 1
+                    ? {
+                        allowPrefixExample: suggestedPrefix
+                          .slice(0, -1)
+                          .join(" "),
+                      }
+                    : {}),
+                }
+              : {}),
           });
         });
       }
@@ -1464,10 +1653,16 @@ function formatPatchChangeKind(kind: unknown): string {
 //        | "decline" | "cancel"
 //   item/fileChange/requestApproval (v2):  FileChangeApprovalDecision
 //     -> "accept" | "acceptForSession" | "decline" | "cancel"
-// We map our 3-button /resolve UX to: allow_persistent -> acceptForSession,
+// We map our /resolve UX to: allow_persistent -> acceptForSession,
 // allow_once -> accept, deny -> decline. "cancel" is intentionally not used:
 // it interrupts the whole turn, which is harsher than the user typically
 // means by a single-tool deny.
+//
+// allow_prefix maps to the same one-shot allow as allow_once. The rule half
+// of that decision is applied inside approve(), in Isomux's own memory -
+// codex's "acceptWithExecpolicyAmendment" is NEVER sent, because codex
+// persists the amendment to $CODEX_HOME/rules/default.rules where it would
+// outlive the session and leak to every other codex agent sharing that home.
 function mapApprovalDecision(
   method: string,
   decision: ApprovalDecision,
@@ -1476,6 +1671,7 @@ function mapApprovalDecision(
     switch (decision.kind) {
       case "allow_persistent":
         return "approved_for_session";
+      case "allow_prefix":
       case "allow_once":
         return "approved";
       case "deny":
@@ -1486,11 +1682,129 @@ function mapApprovalDecision(
   switch (decision.kind) {
     case "allow_persistent":
       return "acceptForSession";
+    case "allow_prefix":
     case "allow_once":
       return "accept";
     case "deny":
       return "decline";
   }
+}
+
+function isExecApprovalMethod(method: string): boolean {
+  return (
+    method === "execCommandApproval" ||
+    method === "item/commandExecution/requestApproval"
+  );
+}
+
+// One session-scoped allow: a command prefix plus the directory it applies to.
+interface AllowPrefixRule {
+  tokens: string[];
+  cwd: string | null;
+}
+
+// Does rule `a` already cover everything rule `b` would allow?
+function ruleCovers(a: AllowPrefixRule, b: AllowPrefixRule): boolean {
+  return a.cwd === b.cwd && tokensStartWith(b.tokens, a.tokens);
+}
+
+// The directory a command approval would run in. Null when absent or not a
+// string, which simply makes it its own scope - rules granted from such an
+// approval only ever match other approvals that are equally cwd-less.
+function approvalCwd(params: unknown): string | null {
+  if (!params || typeof params !== "object") return null;
+  const cwd = (params as Record<string, unknown>).cwd;
+  return typeof cwd === "string" && cwd.length > 0 ? cwd : null;
+}
+
+// The prefix rule this approval may offer, or null for "no option 4 here".
+// Codex suggests one in `proposedExecpolicyAmendment` - its own idea of "the
+// rule that would stop this prompt coming back", e.g. ["rg", "--files"] - and
+// this is where that suggestion has to earn its place. Four gates, all
+// required:
+//
+//   1. The exact v2 method. Not "is this an exec approval": the legacy
+//      execCommandApproval has no such field today, and if some future codex
+//      grew one we would rather not have quietly sprouted a new option on a
+//      path nobody designed for it.
+//   2. The command itself must be plain argv. A chained or quoted command
+//      can't be covered by a rule at all, so offering the option would be
+//      offering something guaranteed to be refused.
+//   3. Every suggested token must be plain argv too. That is display safety
+//      as much as matching: the tokens are shown back inside backticks, and a
+//      token holding whitespace or a backtick would render an ambiguous - or
+//      forged - rule in the prompt.
+//   4. The suggestion must be the START of the command being approved. This
+//      is the one that matters: without it, a request could ask to run
+//      command A while suggesting a perfectly innocuous-looking rule B, and
+//      a user answering "4" about A would be storing a rule about B. The
+//      invariant is the same one typed prefixes obey - a rule can only ever
+//      describe the command in front of you.
+//
+// Exported for tests.
+export function offerablePrefix(
+  method: string,
+  params: unknown,
+  commandTokens: string[] | null,
+): string[] | null {
+  if (method !== "item/commandExecution/requestApproval") return null;
+  if (!commandTokens) return null;
+  if (!params || typeof params !== "object") return null;
+  const raw = (params as Record<string, unknown>).proposedExecpolicyAmendment;
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  if (!raw.every((t) => typeof t === "string" && PLAIN_ARGV_TOKEN.test(t)))
+    return null;
+  const suggestion = raw as string[];
+  if (!tokensStartWith(commandTokens, suggestion)) return null;
+  return suggestion;
+}
+
+// Split a plain-argv command line into tokens, or null if it isn't one. The
+// single place that decides what "a token" means; both the command codex sent
+// and any prefix the user typed go through it.
+function splitPlainArgv(text: string): string[] | null {
+  const tokens = text.split(" ").filter((t) => t.length > 0);
+  if (tokens.length === 0) return null;
+  if (!tokens.every((t) => PLAIN_ARGV_TOKEN.test(t))) return null;
+  return tokens;
+}
+
+// One token of a "plain argv" command line. This is an ALLOWLIST on purpose:
+// a denylist of shell metacharacters is one forgotten character (or one new
+// shell feature) away from matching a rule against something the user never
+// agreed to. Everything outside this set - quoting, escaping, expansion,
+// globbing, redirection, chaining, comments, braces, tildes, control
+// characters, anything non-ASCII - puts the command outside the matcher
+// entirely, and it gets a prompt like any other.
+const PLAIN_ARGV_TOKEN = /^[A-Za-z0-9_./:@%+=,-]+$/;
+
+// The tokens of the single command this approval is about, or null when we
+// can't be sure what "the command" is. Null means "ask the user", and every
+// uncertain case lands there:
+//   - not exactly one parsed command action (nothing unambiguous to match)
+//   - a missing or non-string command
+//   - a command that isn't plain argv by the grammar above
+// Note what this deliberately does NOT do: it reads `commandActions` only to
+// pick out the one command STRING codex is about to run, and re-derives the
+// tokens itself. Codex's own parse (the action `type`, its `path` field, its
+// suggested amendment) is never treated as authority over what will execute.
+//
+// Runs of spaces collapse - `rg  --files` and `rg --files` are the same
+// command line. Any other whitespace (tab, newline, CR) stays inside its
+// token and is rejected by the grammar.
+// Exported for tests.
+export function commandTokensForPrefixMatch(params: unknown): string[] | null {
+  if (!params || typeof params !== "object") return null;
+  const actions = (params as Record<string, unknown>).commandActions;
+  if (!Array.isArray(actions) || actions.length !== 1) return null;
+  const command = (actions[0] as { command?: unknown } | null)?.command;
+  if (typeof command !== "string") return null;
+  return splitPlainArgv(command);
+}
+
+function tokensStartWith(tokens: string[], prefix: string[]): boolean {
+  if (prefix.length === 0 || prefix.length > tokens.length) return false;
+  return prefix.every((token, i) => tokens[i] === token);
 }
 
 function inferToolNameFromApproval(method: string, _params: unknown): string {

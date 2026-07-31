@@ -24,6 +24,8 @@ import { expectRejection } from "../../test-support/expect-rejection.ts";
 import {
   buildCodexUserInput,
   CodexSession,
+  commandTokensForPrefixMatch,
+  offerablePrefix,
   type CodexSessionInitOpts,
   type CodexTransport,
 } from "./adapter.ts";
@@ -777,6 +779,720 @@ describe("CodexSession approvals", () => {
     expectKind(await nextEvent(it, "approval_request"), "approval_request");
     await session.approve("appr-2b", { kind: "deny" });
     expect(await denyResp).toEqual({ decision: "decline" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Session-scoped prefix allows ("stop asking me about `rg --files`").
+//
+// Shapes here mirror what codex 0.144.6 actually sends, captured off a live
+// app-server: an exec approval carries `proposedExecpolicyAmendment` (the rule
+// codex suggests) plus `commandActions` (the command as parsed for display).
+// Two behaviours are load-bearing and worth freezing:
+//   - we answer a granted prefix with a PLAIN accept. Sending codex's own
+//     acceptWithExecpolicyAmendment back would make codex write the rule to
+//     $CODEX_HOME/rules/default.rules - permanent, and shared by every codex
+//     agent using that home.
+//   - matching runs on the command text, not on the new request's suggestion.
+//     Codex suggests a rule for only the FIRST segment of a chained command
+//     (`mkdir -p g && whoami` suggests ["mkdir","-p","g"]), so matching on the
+//     suggestion would wave through whatever was chained on the end.
+// ---------------------------------------------------------------------------
+function execApprovalParams(
+  command: string,
+  suggestion: string[] | null,
+): Record<string, unknown> {
+  return {
+    threadId: FIXTURE_THREAD_ID,
+    turnId: "turn-1",
+    itemId: `item-${command}`,
+    environmentId: "local",
+    command: `/bin/bash -lc '${command}'`,
+    cwd: "/work",
+    commandActions: [{ type: "unknown", command }],
+    ...(suggestion ? { proposedExecpolicyAmendment: suggestion } : {}),
+  };
+}
+
+// Approvals a test deliberately never answers. Session teardown rejects the
+// parked handler promise, and an unobserved rejection fails the whole run.
+function ignoreUnanswered(p: Promise<unknown>): void {
+  p.catch(() => {});
+}
+
+function fireExecApproval(
+  fake: FakeCodexTransport,
+  id: string,
+  command: string,
+  suggestion: string[] | null,
+): Promise<unknown> {
+  return fake.fireServerRequest({
+    id,
+    method: "item/commandExecution/requestApproval",
+    params: execApprovalParams(command, suggestion),
+  });
+}
+
+// Grant "anything starting with `rg --files`" and return the live session.
+async function withGrantedPrefix() {
+  const ctx = await bootstrapped();
+  const resp = fireExecApproval(ctx.fake, "pfx-1", "rg --files .", [
+    "rg",
+    "--files",
+  ]);
+  const ev = expectKind(
+    await nextEvent(ctx.it, "approval_request"),
+    "approval_request",
+  );
+  expect(ev.allowPrefixLabel).toBe("rg --files");
+  await ctx.session.approve("pfx-1", { kind: "allow_prefix" });
+  // Plain accept: the rule lives in Isomux memory, never on codex's disk.
+  expect(await resp).toEqual({ decision: "accept" });
+  // The backend reports the rule it actually stored - the orchestrator says
+  // nothing about it, so this line is the user's only confirmation.
+  const stored = expectKind(
+    await nextEvent(ctx.it, "system_text"),
+    "system_text",
+  );
+  expect(stored.text).toBe(
+    "Allowing any command starting with `rg --files` in `/work` for the rest of this session.",
+  );
+  return ctx;
+}
+
+describe("CodexSession session-scoped prefix allows", () => {
+  it("exec approval surfaces codex's suggested rule as a label", async () => {
+    const { it: stream, fake } = await bootstrapped();
+    ignoreUnanswered(
+      fireExecApproval(fake, "pfx-a", "cargo test --lib", ["cargo", "test"]),
+    );
+    const ev = expectKind(
+      await nextEvent(stream, "approval_request"),
+      "approval_request",
+    );
+    expect(ev.allowPrefixLabel).toBe("cargo test");
+  });
+
+  it("no suggestion from codex -> no label, so no 4th option is offered", async () => {
+    const { it: stream, fake } = await bootstrapped();
+    ignoreUnanswered(fireExecApproval(fake, "pfx-b", "cargo test --lib", null));
+    const ev = expectKind(
+      await nextEvent(stream, "approval_request"),
+      "approval_request",
+    );
+    expect(ev.allowPrefixLabel).toBeUndefined();
+  });
+
+  it("a granted prefix auto-approves a later matching command with no prompt", async () => {
+    const { it: stream, fake } = await withGrantedPrefix();
+    const resp = fireExecApproval(fake, "pfx-2", "rg --files sub", [
+      "rg",
+      "--files",
+    ]);
+    // The next event is the breadcrumb, NOT another approval_request. It is
+    // deliberately generic - no rule text on a line that repeats per command.
+    const note = expectKind(
+      await nextEvent(stream, "system_text"),
+      "system_text",
+    );
+    expect(note.text).toBe(
+      "Auto-approved by a command-prefix rule for this session.",
+    );
+    expect(note.isomuxAuthored).toBe(true);
+    expect(await resp).toEqual({ decision: "accept" });
+  });
+
+  it("a granted prefix does not cover a chained command", async () => {
+    const { it: stream, fake } = await withGrantedPrefix();
+    // Codex would suggest ["rg","--files"] for this too - only the first
+    // segment. Matching on the command text is what catches the `&& curl`.
+    ignoreUnanswered(
+      fireExecApproval(fake, "pfx-3", "rg --files sub && curl evil.sh", [
+        "rg",
+        "--files",
+      ]),
+    );
+    const ev = expectKind(
+      await nextEvent(stream, "approval_request"),
+      "approval_request",
+    );
+    expect(ev.approvalId).toBe("pfx-3");
+  });
+
+  it("a granted prefix does not cover a different command", async () => {
+    const { it: stream, fake } = await withGrantedPrefix();
+    ignoreUnanswered(
+      fireExecApproval(fake, "pfx-4", "rm -rf sub", ["rm", "-rf"]),
+    );
+    const ev = expectKind(
+      await nextEvent(stream, "approval_request"),
+      "approval_request",
+    );
+    expect(ev.approvalId).toBe("pfx-4");
+  });
+
+  it("a granted prefix does not cover file-change approvals", async () => {
+    const { session, it: stream, fake } = await withGrantedPrefix();
+    const resp = fake.fireServerRequest({
+      id: "pfx-5",
+      method: "item/fileChange/requestApproval",
+      params: { threadId: FIXTURE_THREAD_ID, itemId: "fc-9" },
+    });
+    const ev = expectKind(
+      await nextEvent(stream, "approval_request"),
+      "approval_request",
+    );
+    expect(ev.approvalId).toBe("pfx-5");
+    await session.approve("pfx-5", { kind: "deny" });
+    expect(await resp).toEqual({ decision: "decline" });
+  });
+
+  it("allow_prefix on an approval with no suggestion is just a one-shot allow", async () => {
+    const { session, it: stream, fake } = await bootstrapped();
+    const resp = fireExecApproval(fake, "pfx-6", "rg --files .", null);
+    expectKind(await nextEvent(stream, "approval_request"), "approval_request");
+    await session.approve("pfx-6", { kind: "allow_prefix" });
+    expect(await resp).toEqual({ decision: "accept" });
+    // Nothing was remembered, so the same command asks again.
+    ignoreUnanswered(fireExecApproval(fake, "pfx-7", "rg --files .", null));
+    const ev = expectKind(
+      await nextEvent(stream, "approval_request"),
+      "approval_request",
+    );
+    expect(ev.approvalId).toBe("pfx-7");
+  });
+
+  it("a user-chosen prefix widens the rule along the same command", async () => {
+    const { session, it: stream, fake } = await bootstrapped();
+    // Codex 0.144.6 proposes the WHOLE command ("rg --files sub"), which would
+    // only cover re-runs of that exact search. The user asks for the family.
+    const resp = fireExecApproval(fake, "wide-1", "rg --files sub", [
+      "rg",
+      "--files",
+      "sub",
+    ]);
+    expectKind(await nextEvent(stream, "approval_request"), "approval_request");
+    await session.approve("wide-1", {
+      kind: "allow_prefix",
+      prefixText: "rg --files",
+    });
+    expect(await resp).toEqual({ decision: "accept" });
+    const stored = expectKind(
+      await nextEvent(stream, "system_text"),
+      "system_text",
+    );
+    expect(stored.text).toBe(
+      "Allowing any command starting with `rg --files` in `/work` for the rest of this session.",
+    );
+    // A different directory now runs without asking - the case that made this
+    // whole feature worth building.
+    const next = fireExecApproval(fake, "wide-2", "rg --files other/dir", [
+      "rg",
+      "--files",
+      "other/dir",
+    ]);
+    expectKind(await nextEvent(stream, "system_text"), "system_text");
+    expect(await next).toEqual({ decision: "accept" });
+  });
+
+  it("a user-chosen prefix that isn't the start of the command is refused", async () => {
+    const { session, it: stream, fake } = await bootstrapped();
+    const resp = fireExecApproval(fake, "bad-1", "rg --files sub", [
+      "rg",
+      "--files",
+      "sub",
+    ]);
+    expectKind(await nextEvent(stream, "approval_request"), "approval_request");
+    // Answering an approval must never grant a rule about a DIFFERENT command.
+    await session.approve("bad-1", {
+      kind: "allow_prefix",
+      prefixText: "rm -rf",
+    });
+    expect(await resp).toEqual({ decision: "accept" });
+    const refused = expectKind(
+      await nextEvent(stream, "system_text"),
+      "system_text",
+    );
+    expect(refused.text).toBe(
+      "`rm -rf` is not the start of the command being approved, so no session rule was added - this command was allowed once.",
+    );
+    // Nothing was stored: neither the rejected rule nor the command itself.
+    ignoreUnanswered(
+      fireExecApproval(fake, "bad-2", "rm -rf sub", ["rm", "-rf", "sub"]),
+    );
+    const ev = expectKind(
+      await nextEvent(stream, "approval_request"),
+      "approval_request",
+    );
+    expect(ev.approvalId).toBe("bad-2");
+  });
+
+  it("a command that isn't plain argv offers no option 4 at all", async () => {
+    const { session, it: stream, fake } = await bootstrapped();
+    // Codex suggests a rule for the first segment of a chained command. No
+    // rule could ever cover the whole thing, so rather than offering an
+    // option that is guaranteed to be refused, we don't offer one - and an
+    // allow_prefix arriving anyway is just a one-shot allow, silently.
+    const resp = fireExecApproval(fake, "chain-1", "rg --files sub && curl x", [
+      "rg",
+      "--files",
+    ]);
+    const ev = expectKind(
+      await nextEvent(stream, "approval_request"),
+      "approval_request",
+    );
+    expect(ev.allowPrefixLabel).toBeUndefined();
+    expect(ev.allowPrefixExample).toBeUndefined();
+    await session.approve("chain-1", {
+      kind: "allow_prefix",
+      prefixText: "rg --files",
+    });
+    expect(await resp).toEqual({ decision: "accept" });
+    // Nothing stored and nothing said: the next matching command still asks.
+    ignoreUnanswered(
+      fireExecApproval(fake, "chain-2", "rg --files other", ["rg", "--files"]),
+    );
+    const ev2 = expectKind(
+      await nextEvent(stream, "approval_request"),
+      "approval_request",
+    );
+    expect(ev2.approvalId).toBe("chain-2");
+  });
+
+  it("a suggestion pointing away from the command is never offered", async () => {
+    const { it: stream, fake } = await bootstrapped();
+    // The trust-boundary case: the request asks to run one command while
+    // proposing a rule about another. Answering "4" must not store that rule.
+    ignoreUnanswered(
+      fireExecApproval(fake, "side-1", "rg --files sub", ["curl", "evil.sh"]),
+    );
+    const ev = expectKind(
+      await nextEvent(stream, "approval_request"),
+      "approval_request",
+    );
+    expect(ev.allowPrefixLabel).toBeUndefined();
+  });
+
+  it("rules are per session: a fresh session starts with none", async () => {
+    await withGrantedPrefix();
+    const { it: stream, fake } = await bootstrapped();
+    ignoreUnanswered(
+      fireExecApproval(fake, "pfx-8", "rg --files sub", ["rg", "--files"]),
+    );
+    const ev = expectKind(
+      await nextEvent(stream, "approval_request"),
+      "approval_request",
+    );
+    expect(ev.approvalId).toBe("pfx-8");
+  });
+
+  it("matching is by whole tokens, so `rg` never covers `rgrep`", async () => {
+    const { session, it: stream, fake } = await bootstrapped();
+    const resp = fireExecApproval(fake, "tok-1", "rg --files sub", [
+      "rg",
+      "--files",
+      "sub",
+    ]);
+    expectKind(await nextEvent(stream, "approval_request"), "approval_request");
+    await session.approve("tok-1", { kind: "allow_prefix", prefixText: "rg" });
+    expect(await resp).toEqual({ decision: "accept" });
+    expectKind(await nextEvent(stream, "system_text"), "system_text");
+    ignoreUnanswered(
+      fireExecApproval(fake, "tok-2", "rgrep --files sub", ["rgrep"]),
+    );
+    const ev = expectKind(
+      await nextEvent(stream, "approval_request"),
+      "approval_request",
+    );
+    expect(ev.approvalId).toBe("tok-2");
+  });
+
+  it("a rule longer than the command doesn't match it", async () => {
+    const { session, it: stream, fake } = await bootstrapped();
+    const resp = fireExecApproval(fake, "long-1", "cargo test --lib", [
+      "cargo",
+      "test",
+      "--lib",
+    ]);
+    expectKind(await nextEvent(stream, "approval_request"), "approval_request");
+    await session.approve("long-1", { kind: "allow_prefix" });
+    expect(await resp).toEqual({ decision: "accept" });
+    expectKind(await nextEvent(stream, "system_text"), "system_text");
+    // "cargo test" is a PREFIX of the rule, not covered BY it.
+    ignoreUnanswered(
+      fireExecApproval(fake, "long-2", "cargo test", ["cargo", "test"]),
+    );
+    const ev = expectKind(
+      await nextEvent(stream, "approval_request"),
+      "approval_request",
+    );
+    expect(ev.approvalId).toBe("long-2");
+  });
+
+  it("several rules coexist, and a narrower one is dropped as redundant", async () => {
+    const { session, it: stream, fake } = await bootstrapped();
+    // Rule 1: cargo test
+    const r1 = fireExecApproval(fake, "many-1", "cargo test --lib", [
+      "cargo",
+      "test",
+    ]);
+    expectKind(await nextEvent(stream, "approval_request"), "approval_request");
+    await session.approve("many-1", { kind: "allow_prefix" });
+    await r1;
+    expectKind(await nextEvent(stream, "system_text"), "system_text");
+    // Rule 2: rg --files, a different family entirely.
+    const r2 = fireExecApproval(fake, "many-2", "rg --files sub", [
+      "rg",
+      "--files",
+    ]);
+    expectKind(await nextEvent(stream, "approval_request"), "approval_request");
+    await session.approve("many-2", { kind: "allow_prefix" });
+    await r2;
+    expectKind(await nextEvent(stream, "system_text"), "system_text");
+    // Both families now run unprompted.
+    const a = fireExecApproval(fake, "many-3", "cargo test --doc", null);
+    expectKind(await nextEvent(stream, "system_text"), "system_text");
+    expect(await a).toEqual({ decision: "accept" });
+    const b = fireExecApproval(fake, "many-4", "rg --files other", null);
+    expectKind(await nextEvent(stream, "system_text"), "system_text");
+    expect(await b).toEqual({ decision: "accept" });
+    // A narrower rule inside an existing one is redundant: the command it
+    // would cover is already auto-approved, so it never reaches a prompt.
+    const c = fireExecApproval(fake, "many-5", "rg --files sub deep", null);
+    expectKind(await nextEvent(stream, "system_text"), "system_text");
+    expect(await c).toEqual({ decision: "accept" });
+  });
+
+  it("legacy execCommandApproval gets no prefix behaviour at all", async () => {
+    const { session, it: stream, fake } = await bootstrapped();
+    // Legacy params carry argv + no suggestion, and codex 0.144 doesn't use
+    // this method at all - so no option 4, and allow_prefix stores nothing.
+    const resp = fake.fireServerRequest({
+      id: "leg-1",
+      method: "execCommandApproval",
+      params: { command: ["rg", "--files", "sub"], cwd: "/work" },
+    });
+    const ev = expectKind(
+      await nextEvent(stream, "approval_request"),
+      "approval_request",
+    );
+    expect(ev.allowPrefixLabel).toBeUndefined();
+    await session.approve("leg-1", {
+      kind: "allow_prefix",
+      prefixText: "rg --files",
+    });
+    expect(await resp).toEqual({ decision: "approved" });
+    // Nothing remembered, and nothing said: with no suggestion there was
+    // never an option 4 to answer, so it degrades to a plain allow.
+    const again = fake.fireServerRequest({
+      id: "leg-2",
+      method: "execCommandApproval",
+      params: { command: ["rg", "--files", "sub"], cwd: "/work" },
+    });
+    again.catch(() => {});
+    const ev2 = expectKind(
+      await nextEvent(stream, "approval_request"),
+      "approval_request",
+    );
+    expect(ev2.approvalId).toBe("leg-2");
+  });
+
+  it("a rule is pinned to the directory it was granted in", async () => {
+    const { session, it: stream, fake } = await bootstrapped();
+    const resp = fireExecApproval(fake, "cwd-1", "rm -rf build", [
+      "rm",
+      "-rf",
+      "build",
+    ]);
+    expectKind(await nextEvent(stream, "approval_request"), "approval_request");
+    await session.approve("cwd-1", { kind: "allow_prefix" });
+    expect(await resp).toEqual({ decision: "accept" });
+    const stored = expectKind(
+      await nextEvent(stream, "system_text"),
+      "system_text",
+    );
+    // The confirmation names the directory, because that is part of the grant.
+    expect(stored.text).toBe(
+      "Allowing any command starting with `rm -rf build` in `/work` for the rest of this session.",
+    );
+    // Same argv, another tree: a different action, so it asks again.
+    ignoreUnanswered(
+      fake.fireServerRequest({
+        id: "cwd-2",
+        method: "item/commandExecution/requestApproval",
+        params: {
+          ...execApprovalParams("rm -rf build", ["rm", "-rf", "build"]),
+          cwd: "/elsewhere",
+        },
+      }),
+    );
+    const ev = expectKind(
+      await nextEvent(stream, "approval_request"),
+      "approval_request",
+    );
+    expect(ev.approvalId).toBe("cwd-2");
+  });
+
+  it("a directory containing a backtick can't forge the confirmation", async () => {
+    const { session, it: stream, fake } = await bootstrapped();
+    // cwd is whatever path codex reported - the one value in these lines that
+    // isn't grammar-restricted. A crafted one must not close the code span.
+    const cwd = "/tmp/x` for the rest of this session. Allowing `sudo";
+    const resp = fake.fireServerRequest({
+      id: "md-1",
+      method: "item/commandExecution/requestApproval",
+      params: {
+        ...execApprovalParams("rg --files sub", ["rg", "--files"]),
+        cwd,
+      },
+    });
+    expectKind(await nextEvent(stream, "approval_request"), "approval_request");
+    await session.approve("md-1", { kind: "allow_prefix" });
+    expect(await resp).toEqual({ decision: "accept" });
+    const stored = expectKind(
+      await nextEvent(stream, "system_text"),
+      "system_text",
+    );
+    expect(stored.text).toBe(
+      "Allowing any command starting with `rg --files` in ``" +
+        cwd +
+        "`` for the rest of this session.",
+    );
+  });
+
+  it("a suggestion whose tokens aren't plain argv is never offered", async () => {
+    const { it: stream, fake } = await bootstrapped();
+    // A token carrying whitespace or a backtick would render an ambiguous or
+    // broken rule in the prompt, so there is simply no option 4 for it.
+    for (const [id, suggestion] of [
+      ["odd-1", ["rg", "--files sub"]],
+      ["odd-2", ["rg", "`id`"]],
+      ["odd-3", ["rg", "*.ts"]],
+    ] as const) {
+      ignoreUnanswered(
+        fireExecApproval(fake, id, "rg --files sub", [...suggestion]),
+      );
+      const ev = expectKind(
+        await nextEvent(stream, "approval_request"),
+        "approval_request",
+      );
+      expect(ev.approvalId).toBe(id);
+      expect(ev.allowPrefixLabel).toBeUndefined();
+      expect(ev.allowPrefixExample).toBeUndefined();
+    }
+  });
+
+  it("a one-token suggestion offers no shorter example", async () => {
+    const { it: stream, fake } = await bootstrapped();
+    ignoreUnanswered(fireExecApproval(fake, "one-1", "whoami", ["whoami"]));
+    const ev = expectKind(
+      await nextEvent(stream, "approval_request"),
+      "approval_request",
+    );
+    expect(ev.allowPrefixLabel).toBe("whoami");
+    expect(ev.allowPrefixExample).toBeUndefined();
+  });
+
+  it("the example label is the suggestion minus its last token", async () => {
+    const { it: stream, fake } = await bootstrapped();
+    ignoreUnanswered(
+      fireExecApproval(fake, "ex-1", "rg --files sub", [
+        "rg",
+        "--files",
+        "sub",
+      ]),
+    );
+    const ev = expectKind(
+      await nextEvent(stream, "approval_request"),
+      "approval_request",
+    );
+    expect(ev.allowPrefixLabel).toBe("rg --files sub");
+    expect(ev.allowPrefixExample).toBe("rg --files");
+  });
+
+  it("rule notices are marked Isomux-authored so they skip auth sniffing", async () => {
+    // The orchestrator scans system_text for provider auth trouble with a
+    // regex that includes 401/403. These lines quote commands and rules, so
+    // they must never be read that way - a rule about a 401 is not a login.
+    const { session, it: stream, fake } = await bootstrapped();
+    const resp = fireExecApproval(fake, "auth-1", "grep 401 authentication", [
+      "grep",
+      "401",
+    ]);
+    expectKind(await nextEvent(stream, "approval_request"), "approval_request");
+    await session.approve("auth-1", { kind: "allow_prefix" });
+    expect(await resp).toEqual({ decision: "accept" });
+    const granted = expectKind(
+      await nextEvent(stream, "system_text"),
+      "system_text",
+    );
+    expect(granted.text).toContain("401");
+    expect(granted.isomuxAuthored).toBe(true);
+    // And the auto-approval breadcrumb that follows.
+    const next = fireExecApproval(fake, "auth-2", "grep 401 403", null);
+    const note = expectKind(
+      await nextEvent(stream, "system_text"),
+      "system_text",
+    );
+    expect(note.isomuxAuthored).toBe(true);
+    expect(await next).toEqual({ decision: "accept" });
+    // The refusal path carries user text too.
+    const bad = fireExecApproval(fake, "auth-3", "curl unauthorized", [
+      "curl",
+      "unauthorized",
+    ]);
+    expectKind(await nextEvent(stream, "approval_request"), "approval_request");
+    await session.approve("auth-3", {
+      kind: "allow_prefix",
+      prefixText: "not authenticated",
+    });
+    await bad;
+    const refused = expectKind(
+      await nextEvent(stream, "system_text"),
+      "system_text",
+    );
+    expect(refused.isomuxAuthored).toBe(true);
+  });
+
+  it("an auto-approved request leaves nothing parked for close() to unwind", async () => {
+    const { session, it: stream, fake } = await withGrantedPrefix();
+    const resp = fireExecApproval(fake, "leak-1", "rg --files sub", null);
+    expectKind(await nextEvent(stream, "system_text"), "system_text");
+    expect(await resp).toEqual({ decision: "accept" });
+    // A leaked pendingApprovals entry would surface here: close() answers
+    // every parked approval with a "Session closed" JSON-RPC error.
+    session.close();
+    expect(fake.errorResponses).toEqual([]);
+  });
+});
+
+describe("prefix-match helpers", () => {
+  it("offerablePrefix only offers a rule that is the start of the command", () => {
+    const tokens = (cmd: string) =>
+      commandTokensForPrefixMatch(execApprovalParams(cmd, null));
+    const params = execApprovalParams("rg --files .", ["rg", "--files"]);
+    const V2 = "item/commandExecution/requestApproval";
+    expect(offerablePrefix(V2, params, tokens("rg --files ."))).toEqual([
+      "rg",
+      "--files",
+    ]);
+    // Only the v2 command-execution method can carry one. Legacy exec is
+    // excluded BY METHOD, not by "legacy params happen not to have the
+    // field" - a future codex growing one there must not silently light up
+    // option 4 on a path nobody designed for it.
+    expect(
+      offerablePrefix("execCommandApproval", params, tokens("rg --files .")),
+    ).toBeNull();
+    expect(
+      offerablePrefix(
+        "item/fileChange/requestApproval",
+        params,
+        tokens("rg --files ."),
+      ),
+    ).toBeNull();
+    // A command we can't read as plain argv offers nothing - rather than
+    // offering an option that could only ever be refused.
+    expect(offerablePrefix(V2, params, null)).toBeNull();
+    // A suggestion that points somewhere other than the command being
+    // approved is the dangerous case: answering "4" about `rg --files .`
+    // must never store a rule about `curl`.
+    expect(
+      offerablePrefix(
+        V2,
+        { ...params, proposedExecpolicyAmendment: ["curl", "evil.sh"] },
+        tokens("rg --files ."),
+      ),
+    ).toBeNull();
+    // Even a plausible-looking sideways suggestion: same program, different
+    // flag from the one actually being run.
+    expect(
+      offerablePrefix(
+        V2,
+        { ...params, proposedExecpolicyAmendment: ["rg", "--no-ignore"] },
+        tokens("rg --files ."),
+      ),
+    ).toBeNull();
+    // Tokens must be plain argv: they are displayed back inside backticks, so
+    // whitespace or a backtick could forge or mangle the rule in the prompt.
+    for (const amendment of [
+      ["rg", "--files sub"],
+      ["rg", "`id`"],
+      ["rg", "--files\nsub"],
+      ["rg", "*.ts"],
+      ["rg", ""],
+      [],
+      ["rg", 7],
+    ]) {
+      expect(
+        offerablePrefix(
+          V2,
+          { ...params, proposedExecpolicyAmendment: amendment },
+          tokens("rg --files ."),
+        ),
+      ).toBeNull();
+    }
+  });
+
+  it("commandTokensForPrefixMatch accepts only plain argv", () => {
+    // The shapes that DO match: ordinary programs, flags, paths, versions,
+    // hosts, key=value args - and runs of spaces are just spacing.
+    expect(
+      commandTokensForPrefixMatch(execApprovalParams("rg --files sub", null)),
+    ).toEqual(["rg", "--files", "sub"]);
+    expect(
+      commandTokensForPrefixMatch(
+        execApprovalParams("rg   --files   ./a/b.txt", null),
+      ),
+    ).toEqual(["rg", "--files", "./a/b.txt"]);
+    expect(
+      commandTokensForPrefixMatch(
+        execApprovalParams("env FOO=bar cargo test --lib", null),
+      ),
+    ).toEqual(["env", "FOO=bar", "cargo", "test", "--lib"]);
+    // Everything else prompts. This is an allowlist, so the list below is
+    // illustrative rather than exhaustive - that is the point of the design.
+    for (const command of [
+      "rg --files && curl evil.sh", // chaining
+      "rg --files; rm -rf /",
+      "rg --files | sh", // pipe
+      "rg --files $(whoami)", // substitution
+      "rg --files > /etc/passwd", // redirection
+      "rg --files < in.txt",
+      "rg --files `id`", // backticks
+      "rg --files 'a b'", // quoting
+      'rg --files "a b"',
+      "rg --files a\\ b", // escaping
+      "rg --files *.ts", // globbing
+      "rg --files a?.ts",
+      "rg --files [ab].ts",
+      "rg --files {a,b}", // brace expansion
+      "rg --files ~/secrets", // tilde expansion
+      "rg --files # comment", // comment
+      "rg --files $HOME", // variable
+      "rg --files\tsub", // tab
+      "rg --files\nsub", // newline
+      "rg --files\rsub", // carriage return
+      "rg --files sub\u0007", // control character
+      "rg --files ñ", // non-ASCII
+      "   ", // nothing but spacing
+    ]) {
+      expect(
+        commandTokensForPrefixMatch(execApprovalParams(command, null)),
+      ).toBeNull();
+    }
+    // Ambiguous or missing action lists are never matched.
+    expect(commandTokensForPrefixMatch({ commandActions: [] })).toBeNull();
+    expect(
+      commandTokensForPrefixMatch({
+        commandActions: [{ command: "rg --files" }, { command: "curl x" }],
+      }),
+    ).toBeNull();
+    expect(commandTokensForPrefixMatch({})).toBeNull();
+    expect(commandTokensForPrefixMatch({ commandActions: [{}] })).toBeNull();
+    expect(
+      commandTokensForPrefixMatch({ commandActions: [{ command: 7 }] }),
+    ).toBeNull();
+    expect(commandTokensForPrefixMatch(null)).toBeNull();
   });
 });
 

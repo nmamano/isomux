@@ -36,6 +36,36 @@ export function formatRelativeTime(timestamp: number): string {
   return date.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
+// Render an untrusted string as a markdown INLINE CODE SPAN, safely.
+//
+// Backslash escapes don't work inside code spans, so the usual trick is no
+// help here: the only thing that ends a span is a run of backticks at least as
+// long as the one that opened it. So we open with one backtick more than the
+// longest run in the content, which no content can close early. Content that
+// starts or ends with a backtick gets one space of padding, which CommonMark
+// strips back off when both sides have it.
+//
+// Control characters collapse to spaces for the same reason as the table-cell
+// escaper below: a newline ends an inline span outright and no escape can tame
+// it. Paths with newlines in them are pathological, but "pathological" is
+// exactly what a display helper has to survive.
+export function markdownInlineCode(text: string): string {
+  let body = "";
+  for (const ch of text) {
+    const code = ch.codePointAt(0)!;
+    body += code < 0x20 || code === 0x7f ? " " : ch;
+  }
+  let longestRun = 0;
+  let run = 0;
+  for (const ch of body) {
+    run = ch === "`" ? run + 1 : 0;
+    if (run > longestRun) longestRun = run;
+  }
+  const fence = "`".repeat(longestRun + 1);
+  const pad = body.startsWith("`") || body.endsWith("`") ? " " : "";
+  return `${fence}${pad}${body}${pad}${fence}`;
+}
+
 // Every ASCII punctuation character CommonMark lets a backslash escape. The
 // whole class is escapable and each one renders as itself, so escaping all of
 // them is both exhaustive and visually lossless - no need to reason about

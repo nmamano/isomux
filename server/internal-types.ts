@@ -190,13 +190,19 @@ export interface ManagedAgent {
   pendingModelPick: boolean;
   // /effort two-step state
   pendingEffortPick: boolean;
-  // Auto-mode permission prompt two-step state. Carries only the approvalId
-  // for routing; the backend holds the SDK-side resolver and the suggestion
-  // rules, applied automatically when session.approve() is called with
-  // "allow_persistent".
+  // Auto-mode permission prompt two-step state. Carries the approvalId for
+  // routing plus enough to interpret the reply; the backend holds the
+  // SDK-side resolver and the rules themselves, applied when session.approve()
+  // is called with "allow_persistent" or "allow_prefix".
   pendingPermission: {
     approvalId: string;
     toolName: string;
+    // Human-readable form of the broader session rule the backend offered as
+    // option 4, when it offered one. Display + gate only: the rule itself
+    // stays inside the backend, which applies it on an "allow_prefix"
+    // decision. Undefined means no 4th option was shown, and a "4" reply is
+    // treated as any other unrecognized text (deny with that as the reason).
+    allowPrefixLabel?: string;
   } | null;
   // Terminal PTY sidecar (spawned on demand via Node.js)
   ptySidecar: import("bun").Subprocess | null;
