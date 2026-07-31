@@ -146,6 +146,13 @@ export function connect(onMessage: MessageHandler, onConn?: ConnHandler) {
     // arrival, so we don't briefly claim "online" before any data hydrates.
   };
   ws.onmessage = (e) => {
+    // Same generation guard as onopen/onclose. A reconnect opens a new socket
+    // and hydrates from scratch; a message still buffered on the OLD socket can
+    // land after that and would be applied on top of fresh state. This used to
+    // self-heal for the task board (the next mutation re-sent the whole list),
+    // but the board takes per-task deltas now - a stale delta would simply stay
+    // wrong. Cheap and correct for every message type, so it guards them all.
+    if (myGen !== socketGen) return;
     const data = e.data as string;
     let msg: ServerMessage | null = null;
     try {

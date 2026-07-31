@@ -182,6 +182,8 @@ import type {
 import { createIdempotencyCache } from "./transport/idempotency.ts";
 import { emit, type EmitContext, type EmitDeps } from "./events/emit.ts";
 import type { EventId, EventPayloads } from "./events/registry.ts";
+import { taskDeltaFor } from "./events/task-delta.ts";
+import type { TaskChange } from "../shared/office-state.ts";
 import { planOwnerAccessMigration } from "./access-migration.ts";
 import { type Identity } from "./identity/index.ts";
 
@@ -2113,13 +2115,22 @@ function buildExecutorDeps(): ExecutorDeps {
         // NOTE (room-scoped board): the loop above stripped the closed roomId
         // from every user's allowedRooms, and owners project against LIVE rooms
         // - so this room's tasks are now inaccessible to EVERYONE and simply
-        // become orphans carrying a dead roomId. We deliberately do NOT re-push
-        // the board here (unlike the access-change invariant at setAccess):
-        // whether a close should reassign those tasks to global, delete them, or
-        // preserve them as inaccessible orphans is an unresolved product decision
-        // flagged to the Manager. Until it lands, orphans drop out of each board
-        // on the next task mutation or reload. Don't add a tasks re-push here
-        // without that decision.
+        // become orphans carrying a dead roomId. Whether a close should reassign
+        // those tasks to global, delete them, or preserve them as inaccessible
+        // orphans is an unresolved product decision flagged to the Manager, and
+        // this re-push does NOT settle it: the task RECORDS are untouched either
+        // way. It only makes live boards agree with what a reload already shows,
+        // which is the orphan semantics currently in force.
+        //
+        // Why it's needed at all (task b13445e2): this used to say orphans drop
+        // out "on the next task mutation or reload", and the mutation half was
+        // true only because a mutation re-sent the WHOLE board and incidentally
+        // swept them. Mutations are per-task deltas now, so nothing sweeps and a
+        // stale row would sit under a room the client was just told is gone,
+        // until reload. Re-projecting per recipient here converges the transport
+        // and leaks nothing (each socket re-projects against its OWN access).
+        // Rare event, so the whole-board cost is irrelevant.
+        pushTasksToEachWs();
         return true;
       },
       rename: (roomId, name) => agentManager.renameRoom(roomId, name),
@@ -3169,9 +3180,27 @@ function sendTasksTo(ws: ServerWebSocket<WsData>) {
   );
 }
 
-// Re-project the board to EVERY socket. Called on any task mutation - a single
-// task's room membership decides who sees it, so the whole list is re-pushed
-// per-recipient (same cost model as pushPresenceListToEachWs).
+// Push ONE task mutation to every socket as a per-recipient delta. Replaces the
+// old whole-board rebroadcast: at 535 tasks that was 635KB per mutation per
+// socket (68% of it done rows the default view hides), which is what made a
+// create take seconds to appear on a remote browser. taskDeltaFor decides what
+// each recipient is told - upsert, delete, or nothing at all - from their room
+// access; see server/events/task-delta.ts for the rule and why silence matters.
+function pushTaskDeltaToEachWs(change: TaskChange) {
+  for (const ws of browsers) {
+    const user = getUserById(ws.data.session.userId);
+    const accessible = user ? accessibleRoomIdsFor(user) : new Set<string>();
+    const delta = taskDeltaFor(change, accessible);
+    if (delta) ws.send(JSON.stringify(delta));
+  }
+}
+
+// Re-project the WHOLE board to every socket. Not a mutation path - a mutation
+// sends one delta (pushTaskDeltaToEachWs). This is for the rare change that
+// shifts what MANY recipients may see at once with no single task to point at:
+// today, a room close, which strips a room from every user's access and orphans
+// its tasks. Each socket re-projects against its own access, so this converges
+// live boards to the reload view without telling anyone anything new.
 function pushTasksToEachWs() {
   for (const ws of browsers) sendTasksTo(ws);
 }
@@ -3581,14 +3610,15 @@ function routeAgentEventToWs(ws: ServerWebSocket<WsData>, event: AgentEvent) {
 function wireEventSinks(): void {
   // Wire AgentManager events to WebSocket broadcasts
   agentManager.onEvent((event) => {
-    // Task mutations carry the full list as a domain event, but the board is
-    // ROOM-SCOPED: each socket gets its own `tasks` list projected to the rooms
-    // its user can access (∪ globals), so we re-push per-recipient rather than
-    // broadcasting one list. The domain event's `tasks` payload is ignored here -
-    // projectTasksForSession reads the live board per recipient. Same shape as
-    // the connect-time hydration, so a reload and a live push agree.
+    // Task mutations carry the full board as a domain event, but the WS layer
+    // sends only the ONE task that moved: the board is ROOM-SCOPED, so what a
+    // socket must be told depends on whether that task is visible to THAT
+    // recipient before and after the change. The event's `tasks` payload is
+    // ignored here (the persistence sink is its consumer); the whole list still
+    // rides the `tasks` event at connect and on a room-access change, so a
+    // reload and the accumulated deltas agree.
     if (event.type === "tasks_changed") {
-      pushTasksToEachWs();
+      pushTaskDeltaToEachWs(event.change);
       return;
     }
     // Office settings: envFile is owner-only and NEVER rides this all-audience

@@ -10,7 +10,7 @@
 
 import { describe, it, expect } from "bun:test";
 import { reducer, initialState } from "./store.tsx";
-import type { LogEntry, SlideRecord } from "../shared/types.ts";
+import type { LogEntry, SlideRecord, TaskItem } from "../shared/types.ts";
 
 function entry(id: string, agentId: string, timestamp: number): LogEntry {
   return { id, agentId, timestamp, kind: "text", content: `content-${id}` };
@@ -311,5 +311,73 @@ describe("reducer: slide failure marks", () => {
       rollback: true,
     });
     expect(after.slideFailed.get(A)?.has("u1")).toBe(true);
+  });
+});
+
+// --- Task board deltas (task b13445e2) --------------------------------------
+// A mutation used to re-send the whole board; it now arrives as one task. The
+// reducer is where "one task" becomes "the row the user sees", so the two arms
+// have to cover the cases the server can legitimately produce: an edit to a task
+// we hold, a task becoming visible for the FIRST time (a re-file into a room we
+// can access - there is no row to update yet), and a task going away.
+
+function boardTask(id: string, title: string, roomId?: string): TaskItem {
+  return {
+    id,
+    title,
+    status: "open",
+    createdBy: "Boss",
+    createdAt: 1,
+    ...(roomId ? { roomId } : {}),
+  };
+}
+
+describe("reducer: task deltas", () => {
+  const hydrated = () =>
+    reducer(initialState, {
+      type: "tasks",
+      tasks: [boardTask("t1", "first"), boardTask("t2", "second")],
+    });
+
+  it("task_upserted REPLACES a task we already hold, in place", () => {
+    const after = reducer(hydrated(), {
+      type: "task_upserted",
+      task: { ...boardTask("t1", "renamed"), status: "done" },
+    });
+    expect(after.tasks.map((t) => t.id)).toEqual(["t1", "t2"]);
+    expect(after.tasks[0].title).toBe("renamed");
+    expect(after.tasks[0].status).toBe("done");
+  });
+
+  it("task_upserted APPENDS a task we've never seen (first-time visibility)", () => {
+    const after = reducer(hydrated(), {
+      type: "task_upserted",
+      task: boardTask("t3", "newly visible", "room-a"),
+    });
+    expect(after.tasks.map((t) => t.id)).toEqual(["t1", "t2", "t3"]);
+  });
+
+  it("task_deleted drops the row", () => {
+    const after = reducer(hydrated(), { type: "task_deleted", taskId: "t1" });
+    expect(after.tasks.map((t) => t.id)).toEqual(["t2"]);
+  });
+
+  it("task_deleted for an id we don't hold is a no-op, same state object", () => {
+    const before = hydrated();
+    const after = reducer(before, { type: "task_deleted", taskId: "nope" });
+    expect(after).toBe(before);
+  });
+
+  it("a whole-board `tasks` push still replaces everything (hydration/reconnect)", () => {
+    const seeded = reducer(hydrated(), {
+      type: "task_upserted",
+      task: boardTask("t3", "delta-added"),
+    });
+    const rehydrated = reducer(seeded, {
+      type: "tasks",
+      tasks: [boardTask("t9", "only this")],
+    });
+    expect(rehydrated.tasks.map((t) => t.id)).toEqual(["t9"]);
+    expect(rehydrated.tasksLoaded).toBe(true);
   });
 });

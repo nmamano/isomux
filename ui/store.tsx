@@ -266,6 +266,8 @@ type Action =
       name: string | null;
     }
   | { type: "tasks"; tasks: TaskItem[] }
+  | { type: "task_upserted"; task: TaskItem }
+  | { type: "task_deleted"; taskId: string }
   | { type: "set_current_room"; roomId: string }
   | { type: "room_created"; room: RoomWire }
   | { type: "room_closed"; roomId: string }
@@ -660,8 +662,31 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         office: { ...state.office, prompt: action.prompt, name: action.name },
       };
+    // Whole-board hydration (connect, or this user's room access changed).
     case "tasks":
       return { ...state, tasks: action.tasks, tasksLoaded: true };
+    // One task arrived: replace it in place if we already hold it, otherwise
+    // append. Both cases are real - an update to a task we know, and a task
+    // becoming visible for the first time (a re-file into a room we can access,
+    // or a fresh create). Row order doesn't matter: the board sorts client-side.
+    case "task_upserted": {
+      const idx = state.tasks.findIndex((t) => t.id === action.task.id);
+      const tasks =
+        idx === -1
+          ? [...state.tasks, action.task]
+          : state.tasks.map((t) => (t.id === action.task.id ? action.task : t));
+      return { ...state, tasks };
+    }
+    // Drop a task: deleted, or re-filed out of our reach. Unknown ids are a
+    // no-op rather than an error - the server only sends this to recipients who
+    // could see the task, but a race against hydration shouldn't break the board.
+    case "task_deleted": {
+      if (!state.tasks.some((t) => t.id === action.taskId)) return state;
+      return {
+        ...state,
+        tasks: state.tasks.filter((t) => t.id !== action.taskId),
+      };
+    }
     case "set_current_room":
       return { ...state, currentRoomId: action.roomId };
     case "room_created":

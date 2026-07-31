@@ -41,6 +41,18 @@ async function waitUntil(
   }
 }
 
+// Delta helpers: a mutation pushes the ONE task that moved (task b13445e2), so
+// assertions read the deltas a socket received instead of scanning a whole list.
+// The whole board only arrives as `tasks` at connect / on a room-access change.
+const upsertsOf = (s: TestSocket): TaskItem[] =>
+  s.messages
+    .filter((m) => (m as { type?: string }).type === "task_upserted")
+    .map((m) => (m as { task: TaskItem }).task);
+const deletedIdsOf = (s: TestSocket): string[] =>
+  s.messages
+    .filter((m) => (m as { type?: string }).type === "task_deleted")
+    .map((m) => (m as { taskId: string }).taskId);
+
 interface Res {
   status: number;
   body: unknown;
@@ -395,11 +407,16 @@ describe("routes/tasks REST: idempotency + WS double-signal", () => {
     expect(srv.agentManager.getTasks().length).toBe(before + 1);
   });
 
-  it("a REST create fans out the `tasks` event to a connected socket (emit() path)", async () => {
+  it("a REST create fans out a `task_upserted` DELTA to a connected socket (emit() path)", async () => {
     const srv = await startTestServer();
     server = srv;
     const owner = await srv.seedOwner("Boss");
     const sock: TestSocket = await srv.connectWs(owner.rawSessionId);
+    const hydrationCount = () =>
+      sock.messages.filter((m) => (m as { type?: string }).type === "tasks")
+        .length;
+    await waitUntil(() => hydrationCount() > 0, 2000, "connect hydration");
+    const afterConnect = hydrationCount();
 
     const created = (
       await api(srv, "/api/tasks", {
@@ -410,17 +427,13 @@ describe("routes/tasks REST: idempotency + WS double-signal", () => {
     ).body as TaskItem;
 
     await waitUntil(
-      () =>
-        sock.messages.some(
-          (m) =>
-            (m as { type?: string }).type === "tasks" &&
-            ((m as { tasks?: TaskItem[] }).tasks ?? []).some(
-              (t) => t.id === created.id,
-            ),
-        ),
+      () => upsertsOf(sock).some((t) => t.id === created.id),
       2000,
-      "tasks event carrying the new task",
+      "task_upserted carrying the new task",
     );
+    // The whole board must NOT ride a mutation any more - that rebroadcast is
+    // the 635KB-per-mutation cost this delta replaced. Hydration stays put.
+    expect(hydrationCount()).toBe(afterConnect);
   });
 });
 
@@ -757,6 +770,164 @@ describe("routes/tasks REST: room scoping", () => {
     ).toBe(404);
   });
 
+  // The re-file pair. These are the cases a whole-board rebroadcast got right
+  // for free (the member's next projection simply lacked the task) and a delta
+  // has to handle deliberately: what a recipient is told depends on their access
+  // BEFORE and AFTER the change, not just after.
+  it("re-filing a task OUT of a member's rooms reaches them as task_deleted", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const member = await srv.seedMember("Mia");
+    const roomA = srv.agentManager.getRooms()[0].id;
+    const roomB = srv.agentManager.createRoom("Room B");
+    updateUserById(getUserByName("Mia")!.id, { allowedRooms: [roomA] });
+
+    const t = (await postTask(srv, owner.rawSessionId, "moves away", roomA))
+      .body as TaskItem;
+    const memberSock: TestSocket = await srv.connectWs(member.rawSessionId);
+    await waitUntil(
+      () =>
+        memberSock.messages.some(
+          (m) => (m as { type?: string }).type === "tasks",
+        ),
+      2000,
+      "member hydration",
+    );
+
+    // roomA → roomB: Mia can't access roomB, so from her seat the task is gone.
+    // Without this delete her board would keep showing a task she lost.
+    await api(srv, `/api/tasks/${t.id}`, {
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: { roomId: roomB },
+    });
+    await waitUntil(
+      () => deletedIdsOf(memberSock).includes(t.id),
+      2000,
+      "member told to drop the re-filed task",
+    );
+    // And she is NOT handed the task's new home in an upsert.
+    expect(upsertsOf(memberSock).some((x) => x.id === t.id)).toBe(false);
+  });
+
+  it("re-filing a task INTO a member's rooms reaches them as task_upserted", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const member = await srv.seedMember("Mia");
+    const roomA = srv.agentManager.getRooms()[0].id;
+    const roomB = srv.agentManager.createRoom("Room B");
+    updateUserById(getUserByName("Mia")!.id, { allowedRooms: [roomA] });
+
+    const t = (await postTask(srv, owner.rawSessionId, "moves in", roomB))
+      .body as TaskItem;
+    const memberSock: TestSocket = await srv.connectWs(member.rawSessionId);
+    await waitUntil(
+      () =>
+        memberSock.messages.some(
+          (m) => (m as { type?: string }).type === "tasks",
+        ),
+      2000,
+      "member hydration",
+    );
+    // She has never heard of this task - her hydration predates the move.
+    expect(upsertsOf(memberSock).some((x) => x.id === t.id)).toBe(false);
+
+    await api(srv, `/api/tasks/${t.id}`, {
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: { roomId: roomA },
+    });
+    // An upsert, even though this is an UPDATE: it's the first time she can see
+    // the task, so her board has no row to update - it appends.
+    await waitUntil(
+      () => upsertsOf(memberSock).some((x) => x.id === t.id),
+      2000,
+      "member gains the re-filed task",
+    );
+  });
+
+  // Closing a room changes who can see its tasks WITHOUT going through
+  // updateTask, so no delta describes it. Before the delta push, an unrelated
+  // mutation happened to sweep the orphans out (it re-sent the whole board);
+  // now nothing does, so the close itself has to re-project or the row sits on
+  // the board under a room the client was just told is gone.
+  it("closing a room re-projects the board, and an unrelated mutation doesn't bring the orphan back", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const roomB = srv.agentManager.createRoom("Room B");
+    const doomed = (
+      await postTask(srv, owner.rawSessionId, "in doomed room", roomB)
+    ).body as TaskItem;
+    const survivor = (await postTask(srv, owner.rawSessionId, "global", ""))
+      .body as TaskItem;
+
+    const sock: TestSocket = await srv.connectWs(owner.rawSessionId);
+    const lastBoard = (): TaskItem[] | null => {
+      const boards = sock.messages.filter(
+        (m) => (m as { type?: string }).type === "tasks",
+      );
+      return boards.length
+        ? ((boards[boards.length - 1] as { tasks: TaskItem[] }).tasks ?? [])
+        : null;
+    };
+    await waitUntil(() => lastBoard() !== null, 2000, "connect hydration");
+    // Hydration holds both: the room is still open and the owner accesses it.
+    expect(lastBoard()!.some((t) => t.id === doomed.id)).toBe(true);
+
+    await api(srv, `/api/rooms/${roomB}`, {
+      method: "DELETE",
+      rawSessionId: owner.rawSessionId,
+    });
+    await waitUntil(
+      () => lastBoard()!.every((t) => t.id !== doomed.id),
+      2000,
+      "post-close board drops the orphan",
+    );
+    expect(lastBoard()!.some((t) => t.id === survivor.id)).toBe(true);
+
+    // A later unrelated mutation is a delta about THAT task only - it must not
+    // resurrect the orphan (nor re-send a board that contains it).
+    await api(srv, `/api/tasks/${survivor.id}`, {
+      method: "PATCH",
+      rawSessionId: owner.rawSessionId,
+      body: { title: "global, edited" },
+    });
+    await waitUntil(
+      () => upsertsOf(sock).some((t) => t.title === "global, edited"),
+      2000,
+      "unrelated edit delta",
+    );
+    expect(upsertsOf(sock).some((t) => t.id === doomed.id)).toBe(false);
+    expect(lastBoard()!.every((t) => t.id !== doomed.id)).toBe(true);
+  });
+
+  it("deleting a task reaches a recipient who could see it as task_deleted", async () => {
+    const srv = await startTestServer();
+    server = srv;
+    const owner = await srv.seedOwner("Boss");
+    const sock: TestSocket = await srv.connectWs(owner.rawSessionId);
+    const t = (await postTask(srv, owner.rawSessionId, "delete me", ""))
+      .body as TaskItem;
+    await waitUntil(
+      () => upsertsOf(sock).some((x) => x.id === t.id),
+      2000,
+      "create delta",
+    );
+
+    await api(srv, `/api/tasks/${t.id}`, {
+      method: "DELETE",
+      rawSessionId: owner.rawSessionId,
+    });
+    await waitUntil(
+      () => deletedIdsOf(sock).includes(t.id),
+      2000,
+      "delete delta",
+    );
+  });
+
   it("a mutation fans out per-recipient: a member socket never receives a room task it can't see", async () => {
     const srv = await startTestServer();
     server = srv;
@@ -769,26 +940,17 @@ describe("routes/tasks REST: room scoping", () => {
     const inB = (await postTask(srv, owner.rawSessionId, "in B", roomB))
       .body as TaskItem;
 
-    const carries = (s: TestSocket) =>
-      s.messages.some(
-        (m) =>
-          (m as { type?: string }).type === "tasks" &&
-          ((m as { tasks?: TaskItem[] }).tasks ?? []).some(
-            (t) => t.id === inB.id,
-          ),
-      );
-    // Owner's projection carries the room task.
-    await waitUntil(() => carries(ownerSock), 2000, "owner sees room task");
-    // Member got a `tasks` push, but NONE of them carry the room-B task.
+    // Owner can access every room, so the create reaches them as an upsert.
     await waitUntil(
-      () =>
-        memberSock.messages.some(
-          (m) => (m as { type?: string }).type === "tasks",
-        ),
+      () => upsertsOf(ownerSock).some((t) => t.id === inB.id),
       2000,
-      "member got a tasks push",
+      "owner sees room task",
     );
-    expect(carries(memberSock)).toBe(false);
+    // Mia hears NOTHING about it - not an upsert, and not a delete either. A
+    // delete would name the id, which is the cross-room oracle the REST 404
+    // avoids; silence is the point.
+    expect(upsertsOf(memberSock).some((t) => t.id === inB.id)).toBe(false);
+    expect(deletedIdsOf(memberSock)).not.toContain(inB.id);
   });
 
   it("granting a member room access (setAccess) live-re-projects their board", async () => {

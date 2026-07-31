@@ -37,7 +37,21 @@ export type OfficeEvent =
       envFile: string | null;
       name: string | null;
     }
-  | { type: "tasks_changed"; tasks: TaskItem[] };
+  | { type: "tasks_changed"; tasks: TaskItem[]; change: TaskChange };
+
+// Which SINGLE task a tasks_changed event moved. The board is room-scoped and a
+// full board is large (hundreds of KB once done tasks accumulate), so the WS
+// layer pushes a per-recipient delta built from this instead of re-sending the
+// whole list on every mutation (task b13445e2). `tasks` stays on the event for
+// the persistence sink and the demo shim, which both want the whole board.
+export type TaskChange =
+  | { kind: "created"; task: TaskItem }
+  // prevRoomId is the room the task was in BEFORE the update (absent = it was
+  // office-global). A re-file needs it: recipients who could see the OLD room
+  // but not the new one must be told to DROP the task, and they are exactly the
+  // ones for whom "visible before" is true while "visible now" is false.
+  | { kind: "updated"; task: TaskItem; prevRoomId?: string }
+  | { kind: "deleted"; task: TaskItem };
 
 function pick<T>(arr: readonly T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
@@ -609,7 +623,13 @@ export class OfficeState {
     };
     this._tasks.push(task);
     const events: OfficeEvent[] = [
-      { type: "tasks_changed", tasks: [...this._tasks] },
+      {
+        type: "tasks_changed",
+        tasks: [...this._tasks],
+        // Copy: the delta is serialized onto the wire by a later listener, and
+        // the stored task keeps being mutated in place by updateTask.
+        change: { kind: "created", task: { ...task } },
+      },
     ];
     this.emitEvents(events);
     return events;
@@ -626,6 +646,9 @@ export class OfficeState {
   ): OfficeEvent[] {
     const task = this._tasks.find((t) => t.id === id);
     if (!task) return [];
+    // Captured BEFORE the assign: a re-file changes who may see this task, and
+    // the recipients who lose it are computed from where it used to live.
+    const prevRoomId = task.roomId;
     Object.assign(task, changes);
     // Canonical global shape is an ABSENT roomId (see addTask). A clear arrives
     // as `roomId: undefined` in `changes` - Object.assign leaves the key present
@@ -636,16 +659,31 @@ export class OfficeState {
     // `changes` must leave a task shaped like one that never had a priority.
     if ("priority" in changes && !task.priority) delete task.priority;
     const events: OfficeEvent[] = [
-      { type: "tasks_changed", tasks: [...this._tasks] },
+      {
+        type: "tasks_changed",
+        tasks: [...this._tasks],
+        change: { kind: "updated", task: { ...task }, prevRoomId },
+      },
     ];
     this.emitEvents(events);
     return events;
   }
 
   deleteTask(id: string): OfficeEvent[] {
+    const task = this._tasks.find((t) => t.id === id);
+    // Nothing was removed - no state changed, so no event. The AgentManager
+    // wrapper already treated this case as a no-op (it compares the length
+    // before/after and returns false), so callers see the same outcome.
+    if (!task) return [];
     this._tasks = this._tasks.filter((t) => t.id !== id);
     const events: OfficeEvent[] = [
-      { type: "tasks_changed", tasks: [...this._tasks] },
+      {
+        type: "tasks_changed",
+        tasks: [...this._tasks],
+        // The removed task, not just its id: its roomId is what decides which
+        // recipients ever knew about it and so must be told to drop the row.
+        change: { kind: "deleted", task: { ...task } },
+      },
     ];
     this.emitEvents(events);
     return events;

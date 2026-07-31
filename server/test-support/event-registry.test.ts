@@ -61,7 +61,11 @@ const SPEC_AUDIENCES: Record<string, AudienceStrategy> = {
   user_self_updated: "recipient-scoped",
   // Room-scoped board: per-recipient projected (accessible rooms ∪ globals),
   // delivered by a per-socket loop like presence_list - NOT an `all` broadcast.
+  // `tasks` is whole-board hydration; the two deltas carry a single mutation and
+  // are per-recipient for the same reason (task b13445e2).
   tasks: "recipient-scoped",
+  task_upserted: "recipient-scoped",
+  task_deleted: "recipient-scoped",
   cronjobs_state: "all",
   cronjob_added: "all",
   cronjob_updated: "all",

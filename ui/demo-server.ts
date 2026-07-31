@@ -811,7 +811,15 @@ function emitEvents(events: OfficeEvent[]) {
         });
         break;
       case "tasks_changed":
-        shimEmit({ type: "tasks", tasks: event.tasks });
+        // Delta, same as the live server, so the demo exercises the reducer
+        // arms the office actually uses. The demo has one user with access to
+        // everything, so every change is visible to it: an upsert unless the
+        // task is gone.
+        shimEmit(
+          event.change.kind === "deleted"
+            ? { type: "task_deleted", taskId: event.change.task.id }
+            : { type: "task_upserted", task: event.change.task },
+        );
         break;
     }
   }

@@ -1163,7 +1163,19 @@ export type ServerMessage =
       prompt: string | null;
       name: string | null;
     }
+  // Whole-board hydration: sent on connect and when a recipient's room ACCESS
+  // changes (both re-project from scratch). A single task mutation does NOT ride
+  // this - it arrives as one of the two deltas below, which is ~1KB instead of
+  // the whole board (task b13445e2).
   | { type: "tasks"; tasks: TaskItem[] }
+  // One task was created or changed, and the recipient can see it. Upsert, not
+  // separate created/updated: per recipient an update can be the FIRST time the
+  // task is visible (they just gained access to its room), so the client
+  // replaces-or-appends by id.
+  | { type: "task_upserted"; task: TaskItem }
+  // Drop this task from the board. Either it was deleted, or it was re-filed
+  // into a room this recipient cannot access - from their seat both are "gone".
+  | { type: "task_deleted"; taskId: string }
   | { type: "room_created"; room: RoomWire }
   | { type: "room_closed"; roomId: string }
   | { type: "room_renamed"; roomId: string; name: string }

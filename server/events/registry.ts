@@ -199,6 +199,11 @@ export interface EventPayloads {
   // the now-public users_list can no longer carry the caller's own grants/view.
   user_self_updated: { user: UserSelfWire; prevName?: string };
   tasks: { tasks: TaskItem[] };
+  // One task created/changed and visible to this recipient; one task gone from
+  // this recipient's board (deleted, or re-filed out of their rooms). Both are
+  // per-recipient decisions - see server/events/task-delta.ts.
+  task_upserted: { task: TaskItem };
+  task_deleted: { taskId: string };
   cronjobs_state: { cronjobs: Cronjob[]; cronjobsPrompt: string | null };
   cronjob_added: { cronjob: Cronjob };
   cronjob_updated: { cronjob: Cronjob };
@@ -341,9 +346,21 @@ export const EVENT_REGISTRY = {
   // Room-scoped board: each socket gets its OWN task list projected to the
   // rooms its user can access (∪ office-global tasks), so this is per-recipient,
   // NOT an all-audience broadcast. Delivered by an explicit per-socket loop
-  // (pushTasksToEachWs → sendTasksTo), same model as presence_list - never a
-  // uniform `all` payload. connectionId is the concrete recipient key.
+  // (sendTasksTo), same model as presence_list - never a uniform `all` payload.
+  // connectionId is the concrete recipient key. `tasks` is HYDRATION only now
+  // (connect + room-access change); a mutation rides the two deltas below.
   tasks: {
+    audience: "recipient-scoped",
+    projectionKey: { kind: "connectionId" },
+  },
+  // Also per-recipient, and for the same reason as `tasks`: one mutation can be
+  // an upsert for one socket, a delete for another, and nothing at all for a
+  // third. Delivered by pushTaskDeltaToEachWs.
+  task_upserted: {
+    audience: "recipient-scoped",
+    projectionKey: { kind: "connectionId" },
+  },
+  task_deleted: {
     audience: "recipient-scoped",
     projectionKey: { kind: "connectionId" },
   },
@@ -401,6 +418,14 @@ export const REGISTRY_RENAMED_FROM_WIRE: ReadonlyArray<{
   note: string;
 }> = [
   { event: "tasks", note: "domain tasks_changed → wire `tasks`" },
+  {
+    event: "task_upserted",
+    note: "NEW; domain tasks_changed → per-recipient delta (was a whole-board `tasks` rebroadcast)",
+  },
+  {
+    event: "task_deleted",
+    note: "NEW; domain tasks_changed → per-recipient delta, incl. a re-file out of the recipient's rooms",
+  },
   {
     event: "cron_run_log_entry",
     note: "NEW; no current ServerMessage member (live cron-run transcript stream)",

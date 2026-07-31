@@ -220,7 +220,7 @@ function TaskDetailPanel({
   function handleSave() {
     if (!title.trim()) return;
     if (mode === "create") {
-      // Fire-and-forget (parity with the old WS arm): the `tasks` broadcast
+      // Fire-and-forget (parity with the old WS arm): the server's task delta
       // applies the change echo-first, so the optimistic onClose() below stays.
       // `username` is dropped - the server derives createdBy + username from the
       // caller's token identity (attributionFor), never the request body.
@@ -265,7 +265,7 @@ function TaskDetailPanel({
       setConfirmDelete(true);
       return;
     }
-    // Fire-and-forget: the `tasks` broadcast removes the row; optimistic close.
+    // Fire-and-forget: the server's task_deleted removes the row; optimistic close.
     if (task) apiFetch<void>("DELETE", `/api/tasks/${task.id}`).catch(() => {});
     onClose();
   }
