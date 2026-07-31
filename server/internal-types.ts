@@ -6,6 +6,7 @@ import type {
   SkillInfo,
   SlideFailureReason,
   SlideRecord,
+  SubscriptionUsageWire,
 } from "../shared/types.ts";
 import type { BackendSession } from "./backends/types.ts";
 import type { OfficeEvent } from "../shared/office-state.ts";
@@ -178,6 +179,30 @@ export interface ManagedAgent {
   // (resetContextUsage); restored on edit-fork rollback; preserved on model
   // change.
   firedUiThresholds: Set<number>;
+  // --- Subscription-allowance usage (the pill next to the context battery).
+  // Latest committed reading for the ACCOUNT this agent's backend is signed in
+  // to, or null when there is none (Claude API-key/Bedrock/Vertex sessions,
+  // Codex before any rate-limit payload, backend call failed). Deliberately
+  // NOT tied to contextGen: quota is account-scoped, so /clear, fork and
+  // resume leave it alone. In-memory only; lost on server restart and
+  // repopulated at the end of the next turn.
+  subscriptionUsage: SubscriptionUsageWire | null;
+  // ACCOUNT-identity generation token. Bumped SYNCHRONOUSLY (never after an
+  // await) by every path that can change which account the agent's backend
+  // talks to - engine switch, cross-engine resume, and the rollback of a
+  // failed one. A refresh captures it at initiation and commits only if it
+  // still matches, so a Claude read started before a switch to Codex can't
+  // repopulate Claude figures afterwards. Deliberately NOT bumped by /clear,
+  // fork, same-engine resume, or a same-engine model change: none of those
+  // change the account, and the quota doesn't reset when a conversation does.
+  subscriptionGen: number;
+  // Monotonic sample-initiation counter plus the highest seq committed, so a
+  // slow older refresh can never overwrite a newer reading - in either
+  // direction: an authoritative CLEAR commits through the same guard. Same
+  // discipline as contextSampleSeq / contextUsageCommittedSeq above, minus the
+  // generation token (there's no conversation to belong to).
+  subscriptionSampleSeq: number;
+  subscriptionCommittedSeq: number;
   // /resume two-step state
   pendingResume: boolean;
   pendingResumeSessions: {

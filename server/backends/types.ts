@@ -279,6 +279,41 @@ export interface ContextUsage {
   autoCompactThreshold?: number;
 }
 
+// Backend-agnostic subscription-allowance reading. Same shape as
+// SubscriptionUsageWire minus `sampledAtMs` (the orchestrator stamps that at
+// commit time). Backends that can't report it return null from
+// getSubscriptionUsage - the UI then hides the pill.
+export interface SubscriptionUsageWindow {
+  label: string;
+  usedPercent: number;
+  resetsAtMs: number | null;
+}
+
+export interface SubscriptionUsage {
+  plan: string | null;
+  // Non-empty by construction: a backend with no usable window reports
+  // "unavailable" instead of an empty array. Order is the backend's stable
+  // DISPLAY order (most plan-shaped first), NOT a ranking - the orchestrator
+  // picks which window the pill shows.
+  windows: SubscriptionUsageWindow[];
+}
+
+// Three outcomes, not two. The difference matters because the reading is
+// long-lived: it survives /clear and only refreshes at turn boundaries, so
+// "the call blew up once" and "this account has no plan allowance" must not
+// be the same value.
+//   usage       - a reading; replaces whatever was displayed.
+//   unavailable - AUTHORITATIVE absence. The backend answered and there is no
+//                 plan allowance to report (Claude API-key / Bedrock / Vertex
+//                 sessions, a signed-out account). Clears the pill.
+//   unknown     - we learned nothing this time (RPC failed, nothing pushed
+//                 yet). Leaves the previous reading standing, so a transient
+//                 blip can't blank a valid number.
+export type SubscriptionUsageResult =
+  | { kind: "usage"; usage: SubscriptionUsage }
+  | { kind: "unavailable" }
+  | { kind: "unknown" };
+
 export interface BackendSession {
   // Stream of normalized events. The persistent consumer in agent-manager
   // iterates this for the session's lifetime; `close()` ends the iteration.
@@ -287,6 +322,18 @@ export interface BackendSession {
   // Per-session context usage breakdown for /context. Returns null when the
   // backend doesn't support it (Codex at v1) or the session isn't ready.
   getContextUsage(): Promise<ContextUsage | null>;
+
+  // How much of the signed-in account's subscription allowance is spent.
+  // Account-scoped, not conversation-scoped. See SubscriptionUsageResult for
+  // why "no plan limits apply" and "the call failed" are different answers.
+  // Implementations must swallow their own errors and resolve "unknown"
+  // rather than reject - the Claude side rides an explicitly experimental SDK
+  // API, and a future change there must degrade to a stale-or-hidden pill,
+  // never a crash. Backends are also free to serve a cached value here: this
+  // is called on every cumulative-usage event, so the COST policy lives with
+  // whoever pays it (Claude throttles its control RPC internally; Codex is
+  // reading rate limits the app-server already pushed).
+  getSubscriptionUsage(): Promise<SubscriptionUsageResult>;
 
   // Send a user turn. Attachments are never inlined: each becomes one
   // path-notice text line (shared convention in server/attachment-prompt.ts)

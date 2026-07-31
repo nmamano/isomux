@@ -38,6 +38,7 @@ import { SunIcon, MoonIcon } from "../components/ThemeIcons.tsx";
 import { ThemePicker } from "../components/ThemePicker.tsx";
 import { NavActions, type NavAction } from "../components/NavActions.tsx";
 import { ContextBattery } from "./ContextBattery.tsx";
+import { SubscriptionPill } from "./SubscriptionPill.tsx";
 import {
   TasksIcon,
   AgentIcon,
@@ -2003,6 +2004,14 @@ export function LogView({
               gap: 10,
             }}
           >
+            <SubscriptionPill
+              // Remount on agent/engine change so the pinned-limit state is
+              // re-read for the new identity instead of being synced.
+              key={`${agent.id}:${agent.agentType}`}
+              usage={agent.subscriptionUsage}
+              agentId={agent.id}
+              provider={agent.agentType}
+            />
             <ContextBattery usage={agent.contextUsage} />
             {/* Reads and flips the PREF, not the gated `slideView`: inside this
                 branch the gate is on so the two agree, but a toggle driven by
@@ -2108,6 +2117,13 @@ export function LogView({
                       stateChangedAt={stateChangedAt.get(agent.id)}
                     />
                   )}
+                  <SubscriptionPill
+                    key={`${agent.id}:${agent.agentType}`}
+                    usage={agent.subscriptionUsage}
+                    agentId={agent.id}
+                    provider={agent.agentType}
+                    isMobile
+                  />
                   <ContextBattery usage={agent.contextUsage} isMobile />
                   {slideModeEnabled && (
                     <SlideToggleButton

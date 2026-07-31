@@ -313,6 +313,39 @@ export interface ContextUsageWire {
   sampledAtMs: number;
 }
 
+// One plan-allowance window (Claude's five_hour / seven_day / per-model
+// windows, Codex's primary / secondary rate-limit windows). `usedPercent` is
+// the backend's raw float (0..100) - round only for display, same rule as
+// ContextUsageWire.percentage.
+export interface SubscriptionWindowWire {
+  // Display label already resolved server-side ("Weekly", "5-hour",
+  // "Weekly (Opus)"), so the UI never has to know per-backend window names.
+  label: string;
+  usedPercent: number;
+  resetsAtMs: number | null; // epoch ms, or null when the backend omits it
+}
+
+// How much of the BACKEND ACCOUNT's subscription allowance has been burned.
+// Account-scoped, NOT conversation-scoped: every agent signed in to the same
+// claude.ai account / CODEX_HOME reports the same figure, and it deliberately
+// survives /clear, fork and resume (the quota doesn't reset when a
+// conversation does). Absent/undefined => the pill is hidden entirely (API
+// key / Bedrock / Vertex Claude sessions, Codex before any rate-limit data
+// has arrived, right after a server restart).
+export interface SubscriptionUsageWire {
+  // Backend-reported plan name ("max", "pro", "plus", ...), or null.
+  plan: string | null;
+  // At least one entry whenever this object exists, in a stable display order
+  // (the plan-shaped window first). Every entry is a popover row.
+  windows: SubscriptionWindowWire[];
+  // Index into `windows` of the one the PILL shows: whichever is closest to
+  // its limit, picked server-side. Named explicitly rather than relying on
+  // windows[0], because display order and "the binding window" are different
+  // questions and the UI must not have to guess which it's being handed.
+  primaryIndex: number;
+  sampledAtMs: number;
+}
+
 // What the browser knows about an agent
 export interface AgentInfo {
   id: string;
@@ -413,6 +446,13 @@ export interface AgentInfo {
   // stale reading. In-memory server-side and NOT part of PersistedAgent, so
   // a restart clears it until the next completed turn repopulates it.
   contextUsage?: ContextUsageWire | null;
+  // Subscription-allowance usage of the account this agent's backend is signed
+  // in to, pushed over agent_updated. Absent or null when the backend can't
+  // report it - the UI hides the pill entirely (unlike the context battery,
+  // which has a visible "unknown" state). Clears go over the wire as EXPLICIT
+  // null for the same JSON.stringify reason as contextUsage above. In-memory
+  // server-side and NOT part of PersistedAgent.
+  subscriptionUsage?: SubscriptionUsageWire | null;
 }
 
 // File attachment metadata

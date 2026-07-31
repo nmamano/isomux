@@ -157,6 +157,7 @@ Setup:
 - All conversations are persisted forever in append-only JSONL logs
 - Kill removes agent and frees desk
 - Context self-check: every agent can ask how full its own context window is (an API documented in its system prompt), so instructions like "start wrapping up past 80% of context" have something real to check against. A reading is the latest backend sample and may lag the in-flight turn (roughly the last turn boundary); humans get the same view with /context, plus a battery-style meter in the conversation header that drains and shifts from dim to orange to red as the window fills. The server also nudges the agent as its window fills - a one-line notice on its next message the first time the conversation passes roughly 50% and then 75% - so wrap-up suggestions fire even when the agent never thinks to check
+- Plan usage at a glance: for subscriptions, a ring next to the context meter shows how much of the plan allowance the agent's account has burned. Hovering or tapping it lists every limit that can gate the agent, with when each resets and how old the reading is.
 - Update notice: the office header shows when a new release is out. On a VPS install the owner can apply it from there, and a failed update rolls back on its own. On a source checkout the notice shows what you're running, the latest release, and how far main is ahead; it stays quiet if you're ahead of main
 
 ### Mobile Support

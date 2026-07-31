@@ -174,6 +174,68 @@ export function setSlidePos(agentId: string, pos: SlidePos): void {
   } catch {}
 }
 
+// Which plan-allowance limit the usage pill's number tracks, per device per
+// agent (task df489513). The pill defaults to the most constrained window;
+// pinning overrides that for people who care about one specific limit. Stored
+// as one JSON object { [provider:agentId]: { label, index } }.
+//
+// Both halves are needed. The INDEX identifies the exact row that was clicked,
+// which matters because window labels are NOT guaranteed unique (two Codex
+// windows of equal duration render the same label; a server-supplied Claude
+// model_scoped name can collide with a fixed one). The LABEL is what keeps the
+// pin meaningful when the provider reorders its windows. resolveTrackedWindow
+// in SubscriptionPill.tsx spells out how the two are combined.
+//
+// The key includes the PROVIDER, not just the agent, so switching an agent
+// between engines can't leave it pinned to a window the new provider doesn't
+// have - Claude's "Weekly (Opus)" means nothing to Codex. A pin whose window
+// is simply absent from the current reading falls back to auto anyway (see
+// resolveTrackedWindow in SubscriptionPill.tsx), so this is belt and braces.
+const KEY_USAGE_PIN = "isomux-usage-pin";
+
+function usagePinKey(agentId: string, provider: string): string {
+  return `${provider}:${agentId}`;
+}
+
+export type UsagePin = { label: string; index: number };
+
+function readUsagePinMap(): Record<string, UsagePin> {
+  if (typeof localStorage === "undefined") return {};
+  try {
+    const raw = localStorage.getItem(KEY_USAGE_PIN);
+    const parsed = raw ? JSON.parse(raw) : null;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+export function getUsagePin(
+  agentId: string,
+  provider: string,
+): UsagePin | null {
+  const v = readUsagePinMap()[usagePinKey(agentId, provider)];
+  if (!v || typeof v !== "object") return null;
+  if (typeof v.label !== "string" || v.label.length === 0) return null;
+  if (typeof v.index !== "number" || !Number.isFinite(v.index)) return null;
+  return { label: v.label, index: v.index };
+}
+
+// `pin` null clears the pin, i.e. back to auto.
+export function setUsagePin(
+  agentId: string,
+  provider: string,
+  pin: UsagePin | null,
+): void {
+  if (typeof localStorage === "undefined") return;
+  try {
+    const map = readUsagePinMap();
+    if (pin === null) delete map[usagePinKey(agentId, provider)];
+    else map[usagePinKey(agentId, provider)] = pin;
+    localStorage.setItem(KEY_USAGE_PIN, JSON.stringify(map));
+  } catch {}
+}
+
 export function shouldNotifyRoom(
   roomId: string | null,
   setting: NotifRoomsSetting,

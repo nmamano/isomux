@@ -36,6 +36,8 @@ const {
   subscribeSlideModeEnabled,
   getSlideView,
   setSlideView,
+  getUsagePin,
+  setUsagePin,
 } = await import("./device-settings.ts");
 
 describe("slide mode gate", () => {
@@ -85,5 +87,65 @@ describe("slide mode gate", () => {
     setSlideModeEnabled(true);
     expect(calls).toBe(1);
     unsubscribe();
+  });
+});
+
+// The usage pill's pinned limit (task df489513). Stored per device per agent
+// AND per provider: an agent switched between engines must not stay pinned to a
+// window the new provider doesn't have.
+describe("usage pill pin", () => {
+  beforeEach(() => store.clear());
+
+  const weekly = { label: "Weekly", index: 0 };
+  const fiveHour = { label: "5-hour", index: 1 };
+
+  it("defaults to auto (no pin)", () => {
+    expect(getUsagePin("agent-1", "claude")).toBeNull();
+  });
+
+  it("round-trips a pinned window", () => {
+    setUsagePin("agent-1", "claude", fiveHour);
+    expect(getUsagePin("agent-1", "claude")).toEqual(fiveHour);
+  });
+
+  it("keeps agents and providers apart", () => {
+    setUsagePin("agent-1", "claude", { label: "Weekly (Opus)", index: 2 });
+    setUsagePin("agent-2", "claude", fiveHour);
+    // Same agent, other engine: a Claude window label means nothing to Codex.
+    expect(getUsagePin("agent-1", "codex")).toBeNull();
+    expect(getUsagePin("agent-2", "claude")).toEqual(fiveHour);
+    expect(getUsagePin("agent-1", "claude")).toEqual({
+      label: "Weekly (Opus)",
+      index: 2,
+    });
+  });
+
+  it("clears back to auto with null, leaving other pins alone", () => {
+    setUsagePin("agent-1", "claude", fiveHour);
+    setUsagePin("agent-2", "claude", weekly);
+    setUsagePin("agent-1", "claude", null);
+    expect(getUsagePin("agent-1", "claude")).toBeNull();
+    expect(getUsagePin("agent-2", "claude")).toEqual(weekly);
+  });
+
+  it("survives a corrupt stored value instead of throwing", () => {
+    store.set("isomux-usage-pin", "{not json");
+    expect(getUsagePin("agent-1", "claude")).toBeNull();
+    setUsagePin("agent-1", "claude", weekly);
+    expect(getUsagePin("agent-1", "claude")).toEqual(weekly);
+  });
+
+  it("rejects a stored entry of the wrong shape rather than half-trusting it", () => {
+    store.set(
+      "isomux-usage-pin",
+      JSON.stringify({
+        "claude:agent-1": "Weekly",
+        "claude:agent-2": { label: "Weekly" },
+        "claude:agent-3": { index: 1 },
+      }),
+    );
+    expect(getUsagePin("agent-1", "claude")).toBeNull();
+    expect(getUsagePin("agent-2", "claude")).toBeNull();
+    expect(getUsagePin("agent-3", "claude")).toBeNull();
   });
 });

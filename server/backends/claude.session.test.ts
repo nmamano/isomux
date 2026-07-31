@@ -15,7 +15,7 @@ import {
   type SdkConversation,
   type SdkOneShotOptions,
 } from "./claude";
-import type { ContextUsage } from "./types";
+import type { ContextUsage, SubscriptionUsageResult } from "./types";
 
 // ---------------------------------------------------------------------------
 // FakeSdkConversation - test double for SdkConversation
@@ -27,6 +27,7 @@ class FakeSdkConversation implements SdkConversation {
   sends: (string | SDKUserMessage)[] = [];
   closeCount = 0;
   contextUsage: ContextUsage | null = null;
+  subscriptionUsage: SubscriptionUsageResult = { kind: "unknown" };
 
   private queue: SDKMessage[] = [];
   private waiter: (() => void) | null = null;
@@ -63,6 +64,10 @@ class FakeSdkConversation implements SdkConversation {
 
   async getContextUsage(): Promise<ContextUsage | null> {
     return this.contextUsage;
+  }
+
+  async getSubscriptionUsage(): Promise<SubscriptionUsageResult> {
+    return this.subscriptionUsage;
   }
 
   // ----- Test driver helpers -----

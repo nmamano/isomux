@@ -31,6 +31,7 @@ import type {
   ListModelsOptions,
   OneShotOptions,
   ForkSessionBeforeMessageResult,
+  SubscriptionUsageResult,
   TokenUsage,
 } from "../backends/types.ts";
 import { DEFAULT_AGENT_CAPABILITIES } from "../../shared/types.ts";
@@ -53,6 +54,13 @@ export interface FakeSessionConfig {
   // function form is called per invocation and lets a test control resolution
   // timing/values (context-fullness commit-protocol races and ordering).
   contextUsage?: ContextUsage | null | (() => Promise<ContextUsage | null>);
+  // getSubscriptionUsage() return value. Default "unknown" (nothing learned),
+  // which is the Codex-before-any-rate-limit-data shape and leaves the pill
+  // untouched. Function form for tests that need per-call control over the
+  // value or its resolution timing.
+  subscriptionUsage?:
+    | SubscriptionUsageResult
+    | (() => Promise<SubscriptionUsageResult>);
   // Optional auto-responder invoked on each send() - lets a test script a
   // reply turn without reaching into the session mid-flight.
   onSend?: (
@@ -91,6 +99,7 @@ export class FakeSession implements BackendSession {
   private ended = false;
   private readonly abortInPlace: boolean;
   private readonly contextUsage: FakeSessionConfig["contextUsage"];
+  private readonly subscriptionUsage: FakeSessionConfig["subscriptionUsage"];
   private readonly onSend?: FakeSessionConfig["onSend"];
   private readonly manualSend: boolean;
   private readonly hangOnClose: boolean;
@@ -110,6 +119,7 @@ export class FakeSession implements BackendSession {
     this.isResume = isResume;
     this.abortInPlace = cfg.abortInPlace ?? false;
     this.contextUsage = cfg.contextUsage ?? null;
+    this.subscriptionUsage = cfg.subscriptionUsage ?? { kind: "unknown" };
     this.onSend = cfg.onSend;
     this.manualSend = cfg.manualSend ?? false;
     this.hangOnClose = cfg.hangOnClose ?? false;
@@ -225,6 +235,12 @@ export class FakeSession implements BackendSession {
   async getContextUsage(): Promise<ContextUsage | null> {
     const v = this.contextUsage;
     return typeof v === "function" ? v() : (v ?? null);
+  }
+
+  async getSubscriptionUsage(): Promise<SubscriptionUsageResult> {
+    const v = this.subscriptionUsage;
+    if (typeof v === "function") return v();
+    return v ?? { kind: "unknown" };
   }
 
   close(): void {

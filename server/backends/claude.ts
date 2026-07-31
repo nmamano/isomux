@@ -101,6 +101,8 @@ import type {
   NormalizedMessage,
   OneShotOptions,
   PermissionModeOption,
+  SubscriptionUsageResult,
+  SubscriptionUsageWindow,
   TokenUsage,
 } from "./types.ts";
 
@@ -182,6 +184,8 @@ export interface SdkConversation {
   close(): void;
   /** Per-session context-usage breakdown for /context, or null when unavailable. */
   getContextUsage(): Promise<ContextUsage | null>;
+  /** Plan-allowance usage of the signed-in claude.ai account (tri-state; see SubscriptionUsageResult). */
+  getSubscriptionUsage(): Promise<SubscriptionUsageResult>;
 }
 
 export interface SdkOneShotOptions {
@@ -287,6 +291,126 @@ export interface V1QueryLike extends AsyncIterable<SDKMessage> {
   // exact shape keeps the next widening from breaking the build.
   interrupt(): Promise<unknown>;
   getContextUsage(): Promise<unknown>;
+  // The structured data behind `/usage`. OPTIONAL and untyped on purpose:
+  // the SDK ships it under a name that shouts it may change or vanish in any
+  // release (usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET), so
+  // isomux treats its very existence as a runtime question - if a future SDK
+  // renames or drops it, the typeof check below turns the pill off instead of
+  // failing the build or throwing at runtime.
+  usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?: () => Promise<unknown>;
+}
+
+// Which claude.ai rate-limit windows isomux surfaces, in DISPLAY order (the
+// pill picks its number by usage, not by this order - see agent-manager).
+// seven_day leads because it's the one people mean by "my plan allowance";
+// the shorter and per-model windows follow.
+//
+// seven_day_oauth_apps is deliberately left out: it meters third-party OAuth
+// apps rather than this session. The SDK's own live gating signal
+// (SDKRateLimitInfo.rateLimitType, the field that says which limit actually
+// rejected a request) enumerates five_hour / seven_day / seven_day_opus /
+// seven_day_sonnet / overage and never oauth_apps, so surfacing it would put
+// a number on screen that can't explain anything the agent runs into.
+// extra_usage (overage credits) is a different currency and stays out too.
+const CLAUDE_RATE_LIMIT_WINDOWS: { key: string; label: string }[] = [
+  { key: "seven_day", label: "Weekly" },
+  { key: "five_hour", label: "5-hour" },
+  { key: "seven_day_opus", label: "Weekly (Opus)" },
+  { key: "seven_day_sonnet", label: "Weekly (Sonnet)" },
+];
+
+// Minimum gap between actual /usage control RPCs per conversation. The
+// orchestrator refreshes on every cumulative-usage event (many per turn) so a
+// runaway loop stays visible while it runs; for Codex that's a cache read of
+// pushed data, but for Claude it's a round trip to the CLI. Throttling HERE
+// rather than in the orchestrator keeps the cost policy with the backend that
+// pays it, and keeps Codex's cheap path unthrottled.
+const CLAUDE_USAGE_MIN_INTERVAL_MS = 60_000;
+
+// ISO 8601 -> epoch ms, null for anything unparseable. The SDK types resets_at
+// as `string | null`, but this whole path is defensive by design.
+function parseResetsAt(value: unknown): number | null {
+  if (typeof value !== "string") return null;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+// One window entry -> our shape, or null when there's nothing to show.
+// utilization is nullable in the SDK types (the window exists, the number
+// isn't in yet); clamping happens here, at the boundary with the unstable
+// API, so nothing downstream has to trust the range.
+function claudeWindow(
+  raw: unknown,
+  label: string,
+): SubscriptionUsageWindow | null {
+  if (!raw || typeof raw !== "object") return null;
+  const { utilization, resets_at } = raw as {
+    utilization?: unknown;
+    resets_at?: unknown;
+  };
+  if (typeof utilization !== "number" || !Number.isFinite(utilization))
+    return null;
+  return {
+    label,
+    usedPercent: Math.max(0, Math.min(100, utilization)),
+    resetsAtMs: parseResetsAt(resets_at),
+  };
+}
+
+// Shape the experimental /usage response into isomux's backend-agnostic form.
+// Exported for tests. Every field is validated at runtime because the source
+// API is explicitly unstable.
+//
+// The three outcomes are distinct on purpose (see SubscriptionUsageResult):
+// `rate_limits_available: false` is the AUTHORITATIVE "this account has no
+// plan allowance" (API key / Bedrock / Vertex), so it clears the pill; a
+// response we can't make sense of at all is "unknown" and leaves the previous
+// reading alone.
+export function normalizeClaudeSubscriptionUsage(
+  raw: unknown,
+): SubscriptionUsageResult {
+  if (!raw || typeof raw !== "object") return { kind: "unknown" };
+  const resp = raw as {
+    subscription_type?: unknown;
+    rate_limits_available?: unknown;
+    rate_limits?: unknown;
+  };
+  if (typeof resp.rate_limits_available !== "boolean")
+    return { kind: "unknown" };
+  if (!resp.rate_limits_available) return { kind: "unavailable" };
+  const limits = resp.rate_limits;
+  if (!limits || typeof limits !== "object") return { kind: "unavailable" };
+  const byKey = limits as Record<string, unknown>;
+  const windows: SubscriptionUsageWindow[] = [];
+  for (const { key, label } of CLAUDE_RATE_LIMIT_WINDOWS) {
+    const win = claudeWindow(byKey[key], label);
+    if (win) windows.push(win);
+  }
+  // Per-model weekly windows the server sends as a list. Additive and
+  // server-labelled ("Fable"), and they DO gate this session, so they belong
+  // on screen - the pill's number comes from whichever window is closest to
+  // its limit, and one of these can be it.
+  if (Array.isArray(byKey.model_scoped)) {
+    for (const entry of byKey.model_scoped) {
+      const name = (entry as { display_name?: unknown } | null)?.display_name;
+      if (typeof name !== "string" || name.length === 0) continue;
+      const win = claudeWindow(entry, `Weekly (${name})`);
+      if (win) windows.push(win);
+    }
+  }
+  // The account has plan limits, but the response carried no usable number:
+  // authoritative enough to clear rather than to freeze a stale figure.
+  if (windows.length === 0) return { kind: "unavailable" };
+  return {
+    kind: "usage",
+    usage: {
+      plan:
+        typeof resp.subscription_type === "string"
+          ? resp.subscription_type
+          : null,
+      windows,
+    },
+  };
 }
 
 export function wrapV1Query(
@@ -295,6 +419,14 @@ export function wrapV1Query(
   abortController?: AbortController,
 ): SdkConversation {
   let closed = false;
+  // Throttle state for the experimental /usage call (see
+  // CLAUDE_USAGE_MIN_INTERVAL_MS). Per conversation, which is the right scope:
+  // the answer describes the account, and every conversation on this box is
+  // asking about the same one, but a shared cache would need a lifetime story
+  // nobody has asked for.
+  let lastUsage: { atMs: number; result: SubscriptionUsageResult } | null =
+    null;
+  let usageInFlight: Promise<SubscriptionUsageResult> | null = null;
   return {
     messages(): AsyncIterable<SDKMessage> {
       return q;
@@ -348,6 +480,38 @@ export function wrapV1Query(
       } catch {
         return null;
       }
+    },
+    async getSubscriptionUsage(): Promise<SubscriptionUsageResult> {
+      const usage = q.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET;
+      // Absent method = the SDK renamed or dropped the experimental API. That
+      // is authoritative in its own way: we will never learn a number here, so
+      // clear the pill rather than freeze whatever it last showed.
+      if (typeof usage !== "function") return { kind: "unavailable" };
+      // Serve the recent answer instead of paying for a fresh RPC, and
+      // single-flight concurrent callers onto one request. The interval is
+      // measured INITIATION to initiation: `now` is captured before the call
+      // and stamped on the result, so a slow response can't stretch the gap to
+      // "RPC duration + 60s".
+      const now = Date.now();
+      if (lastUsage && now - lastUsage.atMs < CLAUDE_USAGE_MIN_INTERVAL_MS) {
+        return lastUsage.result;
+      }
+      if (usageInFlight) return usageInFlight;
+      const call: Promise<SubscriptionUsageResult> = (async () => {
+        try {
+          const result = normalizeClaudeSubscriptionUsage(await usage.call(q));
+          lastUsage = { atMs: now, result };
+          return result;
+        } catch {
+          // A failed call teaches us nothing - the caller keeps whatever it
+          // had. Deliberately NOT cached, so the next event retries.
+          return { kind: "unknown" as const };
+        }
+      })().finally(() => {
+        if (usageInFlight === call) usageInFlight = null;
+      });
+      usageInFlight = call;
+      return call;
     },
   };
 }
@@ -644,6 +808,10 @@ export class ClaudeSession implements BackendSession {
 
   async getContextUsage(): Promise<ContextUsage | null> {
     return this.conversation.getContextUsage();
+  }
+
+  async getSubscriptionUsage(): Promise<SubscriptionUsageResult> {
+    return this.conversation.getSubscriptionUsage();
   }
 
   close(): void {

@@ -23,8 +23,11 @@ import { STATE_ROOT } from "../../config.ts";
 import { expectRejection } from "../../test-support/expect-rejection.ts";
 import {
   buildCodexUserInput,
+  codexResetsAtMs,
+  codexWindowLabel,
   CodexSession,
   commandTokensForPrefixMatch,
+  normalizeCodexSubscriptionUsage,
   offerablePrefix,
   type CodexSessionInitOpts,
   type CodexTransport,
@@ -39,6 +42,7 @@ import type {
 import type { InitializeParams } from "./_generated/InitializeParams.ts";
 import type { InitializeResponse } from "./_generated/InitializeResponse.ts";
 import type { NormalizedEvent } from "../types.ts";
+import type { RateLimitSnapshot } from "./_generated/v2/RateLimitSnapshot.ts";
 
 const FIXTURE_THREAD_ID = "thread-fixture-1";
 
@@ -56,6 +60,14 @@ class FakeCodexTransport implements CodexTransport {
   // When set, request("thread/start") rejects so we can exercise the
   // bootstrap-failure deferral path.
   bootstrapError: Error | null = null;
+  // account/rateLimits/read: resolves with this payload, or rejects when the
+  // error is set (unauthenticated / API-key-only logins).
+  rateLimitsReadResponse: unknown = null;
+  rateLimitsReadError: Error | null = null;
+  // When set, the read parks until releaseRateLimitsRead() - lets a test slip
+  // a notification in while the request is in flight.
+  holdRateLimitsRead = false;
+  private rateLimitsReadGate: (() => void) | null = null;
   readonly requests: { method: string; params?: unknown }[] = [];
   readonly errorResponses: {
     id: JsonRpcId;
@@ -89,6 +101,17 @@ class FakeCodexTransport implements CodexTransport {
     if (method === "thread/start" || method === "thread/resume") {
       if (this.bootstrapError) return Promise.reject(this.bootstrapError);
       return Promise.resolve({ thread: { id: this.threadId } } as T);
+    }
+    if (method === "account/rateLimits/read") {
+      if (this.rateLimitsReadError)
+        return Promise.reject(this.rateLimitsReadError);
+      if (!this.holdRateLimitsRead) {
+        return Promise.resolve(this.rateLimitsReadResponse as T);
+      }
+      return new Promise<T>((resolve) => {
+        this.rateLimitsReadGate = () =>
+          resolve(this.rateLimitsReadResponse as T);
+      });
     }
     // turn/start, turn/interrupt, etc.: resolve with an empty payload.
     return Promise.resolve({} as T);
@@ -157,6 +180,16 @@ class FakeCodexTransport implements CodexTransport {
   fireExit(code: number | null, signal: NodeJS.Signals | null = null): void {
     if (!this.exitHandler) throw new Error("no exit handler");
     this.exitHandler(code, signal);
+  }
+
+  rateLimitsReadParked(): boolean {
+    return this.rateLimitsReadGate !== null;
+  }
+
+  releaseRateLimitsRead(): void {
+    const gate = this.rateLimitsReadGate;
+    this.rateLimitsReadGate = null;
+    gate?.();
   }
 
   interruptCount(): number {
@@ -1697,5 +1730,390 @@ describe("buildCodexUserInput", () => {
       AGENT_ID,
     );
     expect(inputs).toEqual([{ type: "text", text: "", text_elements: [] }]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Subscription rate limits (the usage pill)
+// ---------------------------------------------------------------------------
+
+describe("codex subscription usage", () => {
+  const week = { usedPercent: 34.5, windowDurationMins: 10080, resetsAt: null };
+  const fiveHour = { usedPercent: 80, windowDurationMins: 300, resetsAt: null };
+
+  // A full RateLimitSnapshot with the fields a test cares about overridden.
+  function snapshot(
+    over: Partial<Record<string, unknown>> = {},
+  ): RateLimitSnapshot {
+    return {
+      limitId: "codex",
+      limitName: null,
+      primary: week,
+      secondary: null,
+      credits: null,
+      individualLimit: null,
+      planType: "plus",
+      rateLimitReachedType: null,
+      ...over,
+    };
+  }
+
+  async function usageOf(session: CodexSession) {
+    const r = await session.getSubscriptionUsage();
+    if (r.kind !== "usage") throw new Error(`expected usage, got ${r.kind}`);
+    return r.usage;
+  }
+
+  it("labels windows by duration, not by which slot they arrived in", () => {
+    expect(codexWindowLabel(10080)).toBe("Weekly");
+    expect(codexWindowLabel(1440)).toBe("Daily");
+    expect(codexWindowLabel(300)).toBe("5-hour");
+    expect(codexWindowLabel(43200)).toBe("30-day");
+    expect(codexWindowLabel(90)).toBe("90-minute");
+    expect(codexWindowLabel(null)).toBe("Plan allowance");
+  });
+
+  it("reads resetsAt in either epoch unit", () => {
+    // Codex sends seconds today (the reference script feeds it straight to
+    // datetime.fromtimestamp) but the generated schema only promises a number.
+    expect(codexResetsAtMs(1785000000)).toBe(1785000000000);
+    expect(codexResetsAtMs(1785000000000)).toBe(1785000000000);
+    expect(codexResetsAtMs(null)).toBeNull();
+    expect(codexResetsAtMs(0)).toBeNull();
+    expect(codexResetsAtMs("soon")).toBeNull();
+  });
+
+  it("normalizes a snapshot into display order, longest window first", () => {
+    // primary/secondary slot meaning has moved across codex versions, so the
+    // ordering is derived from the durations, never from the slot.
+    const out = normalizeCodexSubscriptionUsage(
+      snapshot({ primary: fiveHour, secondary: week }),
+    );
+    expect(out).toEqual({
+      kind: "usage",
+      usage: {
+        plan: "plus",
+        windows: [
+          { label: "Weekly", usedPercent: 34.5, resetsAtMs: null },
+          { label: "5-hour", usedPercent: 80, resetsAtMs: null },
+        ],
+      },
+    });
+  });
+
+  it("clamps out-of-range percentages at the wire boundary", () => {
+    const out = normalizeCodexSubscriptionUsage(
+      snapshot({
+        primary: { ...week, usedPercent: 130 },
+        secondary: { ...fiveHour, usedPercent: -4 },
+      }),
+    );
+    expect(out).toEqual({
+      kind: "usage",
+      usage: {
+        plan: "plus",
+        windows: [
+          { label: "Weekly", usedPercent: 100, resetsAtMs: null },
+          { label: "5-hour", usedPercent: 0, resetsAtMs: null },
+        ],
+      },
+    });
+  });
+
+  it("separates 'nothing to report' from 'nothing asked yet'", () => {
+    // A snapshot with no usable window is an answer: clear the pill.
+    expect(
+      normalizeCodexSubscriptionUsage(
+        snapshot({ primary: null, secondary: null }),
+      ),
+    ).toEqual({ kind: "unavailable" });
+    // No snapshot at all is not an answer.
+    expect(normalizeCodexSubscriptionUsage(null)).toEqual({ kind: "unknown" });
+  });
+
+  it("serves pushed rate limits without issuing a read request", async () => {
+    const { session, fake } = await bootstrapped();
+    fake.fireNotification("account/rateLimits/updated", {
+      rateLimits: snapshot(),
+    });
+    const usage = await usageOf(session);
+    expect(usage.plan).toBe("plus");
+    expect(usage.windows[0]).toEqual({
+      label: "Weekly",
+      usedPercent: 34.5,
+      resetsAtMs: null,
+    });
+    expect(
+      fake.requests.some((r) => r.method === "account/rateLimits/read"),
+    ).toBe(false);
+  });
+
+  it("merges sparse updates instead of letting a null clear a known value", async () => {
+    const { session, fake } = await bootstrapped();
+    fake.fireNotification("account/rateLimits/updated", {
+      rateLimits: snapshot({ secondary: fiveHour }),
+    });
+    // A rolling update carrying only a fresher weekly number: the plan and the
+    // 5-hour window are "not included", NOT "gone".
+    fake.fireNotification("account/rateLimits/updated", {
+      rateLimits: snapshot({
+        limitId: "codex",
+        primary: { ...week, usedPercent: 41 },
+        secondary: null,
+        planType: null,
+      }),
+    });
+    const usage = await usageOf(session);
+    expect(usage.plan).toBe("plus");
+    expect(usage.windows.map((w) => w.usedPercent)).toEqual([41, 80]);
+  });
+
+  it("merges window FIELDS, so a percentage-only update keeps duration and reset", async () => {
+    // The sparse rule is recursive. Replacing the whole window on every push
+    // would drop windowDurationMins - and with it the label, which is derived
+    // from the duration - the first time codex sent a bare percentage.
+    const { session, fake } = await bootstrapped();
+    fake.fireNotification("account/rateLimits/updated", {
+      rateLimits: snapshot({
+        primary: {
+          usedPercent: 34.5,
+          windowDurationMins: 10080,
+          resetsAt: 1785000000,
+        },
+      }),
+    });
+    fake.fireNotification("account/rateLimits/updated", {
+      rateLimits: snapshot({
+        primary: { usedPercent: 41, windowDurationMins: null, resetsAt: null },
+      }),
+    });
+    const usage = await usageOf(session);
+    expect(usage.windows[0]).toEqual({
+      label: "Weekly",
+      usedPercent: 41,
+      resetsAtMs: 1785000000000,
+    });
+  });
+
+  it("keeps separate metered buckets apart and prefers the codex one", async () => {
+    // A business account can meter more than one thing; blending two meters
+    // would invent a number that describes neither.
+    const { session, fake } = await bootstrapped();
+    fake.fireNotification("account/rateLimits/updated", {
+      rateLimits: snapshot({
+        limitId: "some-other-meter",
+        primary: { ...week, usedPercent: 3 },
+        planType: "business",
+      }),
+    });
+    fake.fireNotification("account/rateLimits/updated", {
+      rateLimits: snapshot({ limitId: "codex", planType: "business" }),
+    });
+    const usage = await usageOf(session);
+    expect(usage.windows[0].usedPercent).toBe(34.5);
+  });
+
+  it("falls back to one account/rateLimits/read before anything was pushed", async () => {
+    const fake = new FakeCodexTransport();
+    fake.rateLimitsReadResponse = {
+      rateLimits: snapshot({ limitId: null, planType: "pro" }),
+      rateLimitsByLimitId: null,
+      rateLimitResetCredits: null,
+    };
+    const { session } = await bootstrapped(fake);
+    expect((await usageOf(session)).plan).toBe("pro");
+    // Cached now: a second call is served locally.
+    await session.getSubscriptionUsage();
+    expect(
+      fake.requests.filter((r) => r.method === "account/rateLimits/read")
+        .length,
+    ).toBe(1);
+  });
+
+  it("ingests the keyed buckets from a read, not just the legacy view", async () => {
+    const fake = new FakeCodexTransport();
+    fake.rateLimitsReadResponse = {
+      // Historical single-bucket view describes a different meter here.
+      rateLimits: snapshot({
+        limitId: "legacy-meter",
+        primary: { ...week, usedPercent: 2 },
+      }),
+      rateLimitsByLimitId: {
+        codex: snapshot({ primary: { ...week, usedPercent: 77 } }),
+      },
+      rateLimitResetCredits: null,
+    };
+    const { session } = await bootstrapped(fake);
+    expect((await usageOf(session)).windows[0].usedPercent).toBe(77);
+  });
+
+  it("lets a notification that lands mid-read win over the read's baseline", async () => {
+    const fake = new FakeCodexTransport();
+    fake.rateLimitsReadResponse = {
+      rateLimits: snapshot({ primary: { ...week, usedPercent: 10 } }),
+      rateLimitsByLimitId: null,
+      rateLimitResetCredits: null,
+    };
+    fake.holdRateLimitsRead = true;
+    const { session } = await bootstrapped(fake);
+    const pending = session.getSubscriptionUsage();
+    // The read is issued after bootstrap resolves, so wait for it to be in
+    // flight before racing a notification against it.
+    for (let i = 0; i < 200 && !fake.rateLimitsReadParked(); i++) {
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    expect(fake.rateLimitsReadParked()).toBe(true);
+    // Fresher data arrives while the read is still in flight.
+    fake.fireNotification("account/rateLimits/updated", {
+      rateLimits: snapshot({ primary: { ...week, usedPercent: 55 } }),
+    });
+    fake.releaseRateLimitsRead();
+    const result = await pending;
+    expect(result.kind).toBe("usage");
+    expect((await usageOf(session)).windows[0].usedPercent).toBe(55);
+  });
+
+  it("lets a late read fill metadata a sparse push left null, without undoing it", async () => {
+    // Sparse-first ordering: a percentage-only notification creates the bucket
+    // while the read is still out. Skipping the read wholesale for an existing
+    // key (the first version of this) meant the window's duration - and so its
+    // label and reset time - never arrived.
+    const fake = new FakeCodexTransport();
+    fake.rateLimitsReadResponse = {
+      rateLimits: snapshot({
+        primary: {
+          usedPercent: 10,
+          windowDurationMins: 10080,
+          resetsAt: 1785000000,
+        },
+      }),
+      rateLimitsByLimitId: null,
+      rateLimitResetCredits: null,
+    };
+    fake.holdRateLimitsRead = true;
+    const { session } = await bootstrapped(fake);
+    const pending = session.getSubscriptionUsage();
+    for (let i = 0; i < 200 && !fake.rateLimitsReadParked(); i++) {
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    fake.fireNotification("account/rateLimits/updated", {
+      rateLimits: snapshot({
+        planType: null,
+        primary: { usedPercent: 55, windowDurationMins: null, resetsAt: null },
+      }),
+    });
+    fake.releaseRateLimitsRead();
+    await pending;
+    const usage = await usageOf(session);
+    expect(usage.windows[0]).toEqual({
+      // Fresher number from the push, metadata from the older read.
+      label: "Weekly",
+      usedPercent: 55,
+      resetsAtMs: 1785000000000,
+    });
+    // Plan came from the baseline too - the push left it null.
+    expect(usage.plan).toBe("plus");
+  });
+
+  it("files a keyed read entry under its MAP key, not its nullable limitId", async () => {
+    // The response map key is the authoritative metered id; limitId inside the
+    // snapshot is nullable metadata. Filing by the latter would drop a
+    // { codex: {limitId: null} } entry into the legacy bucket, where it can
+    // lose selection to an unrelated meter.
+    const fake = new FakeCodexTransport();
+    fake.rateLimitsReadResponse = {
+      // Historical view, id-less: this is what occupies the legacy bucket.
+      rateLimits: snapshot({
+        limitId: null,
+        primary: { ...week, usedPercent: 4 },
+      }),
+      // Keyed entry whose own limitId is absent. Filing it by that null would
+      // land it on top of the legacy bucket above, and the pill would show 4.
+      rateLimitsByLimitId: {
+        codex: snapshot({
+          limitId: null,
+          primary: { ...week, usedPercent: 66 },
+        }),
+      },
+      rateLimitResetCredits: null,
+    };
+    const { session } = await bootstrapped(fake);
+    expect((await usageOf(session)).windows[0].usedPercent).toBe(66);
+  });
+
+  it("routes an id-less rolling update to the one bucket it can only mean", async () => {
+    // Rolling updates may omit limitId entirely. With a single known meter
+    // that is unambiguous, and filing it as a separate legacy bucket would
+    // strand the fresher number where nothing displays it.
+    const { session, fake } = await bootstrapped();
+    fake.fireNotification("account/rateLimits/updated", {
+      rateLimits: snapshot({
+        limitId: "codex",
+        primary: {
+          usedPercent: 20,
+          windowDurationMins: 10080,
+          resetsAt: 1785000000,
+        },
+      }),
+    });
+    fake.fireNotification("account/rateLimits/updated", {
+      rateLimits: snapshot({
+        limitId: null,
+        planType: null,
+        primary: { usedPercent: 47, windowDurationMins: null, resetsAt: null },
+      }),
+    });
+    const usage = await usageOf(session);
+    expect(usage.plan).toBe("plus");
+    expect(usage.windows[0]).toEqual({
+      label: "Weekly",
+      usedPercent: 47,
+      resetsAtMs: 1785000000000,
+    });
+  });
+
+  it("drops an id-less update when several meters make it ambiguous", async () => {
+    // Misfiling would show one meter's number under another meter's name; the
+    // next keyed push or read re-syncs, so dropping is the safe answer.
+    const { session, fake } = await bootstrapped();
+    fake.fireNotification("account/rateLimits/updated", {
+      rateLimits: snapshot({ limitId: "codex" }),
+    });
+    fake.fireNotification("account/rateLimits/updated", {
+      rateLimits: snapshot({
+        limitId: "other-meter",
+        primary: { ...week, usedPercent: 9 },
+      }),
+    });
+    fake.fireNotification("account/rateLimits/updated", {
+      rateLimits: snapshot({
+        limitId: null,
+        primary: { ...week, usedPercent: 99 },
+      }),
+    });
+    // codex bucket still reads its own last known value.
+    expect((await usageOf(session)).windows[0].usedPercent).toBe(34.5);
+  });
+
+  it("reports 'unknown', not a clear, when the read fails", async () => {
+    // An unreachable or unauthenticated read teaches us nothing, so a pill
+    // populated from an earlier reading must survive it.
+    const fake = new FakeCodexTransport();
+    fake.rateLimitsReadError = new Error("not signed in");
+    const { session } = await bootstrapped(fake);
+    expect(await session.getSubscriptionUsage()).toEqual({ kind: "unknown" });
+  });
+
+  it("reports 'unavailable' when a successful read has no rate limits at all", async () => {
+    const fake = new FakeCodexTransport();
+    fake.rateLimitsReadResponse = {
+      rateLimits: null,
+      rateLimitsByLimitId: null,
+      rateLimitResetCredits: null,
+    };
+    const { session } = await bootstrapped(fake);
+    expect(await session.getSubscriptionUsage()).toEqual({
+      kind: "unavailable",
+    });
   });
 });

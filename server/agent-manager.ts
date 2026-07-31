@@ -12,6 +12,8 @@ import type {
   QueuedMessage,
   RoomWire,
   SkillInfo,
+  SubscriptionUsageWire,
+  SubscriptionWindowWire,
   TaskItem,
 } from "../shared/types.ts";
 import {
@@ -141,6 +143,8 @@ import type {
   BackendSession,
   ContextUsage,
   NormalizedEvent,
+  SubscriptionUsage,
+  SubscriptionUsageResult,
 } from "./backends/types.ts";
 import type { AgentContextUsageResp } from "../shared/contract-shapes.ts";
 import { OfficeState } from "../shared/office-state.ts";
@@ -410,6 +414,9 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // every turn boundary + Codex usage_update, so persisting on each would
     // rewrite agents.json needlessly.
     "contextUsage",
+    // Same story for the subscription-allowance reading: in-memory only, and
+    // refreshed on the same high-frequency events.
+    "subscriptionUsage",
     // Pure runtime field: not in the persisted shape, and restore overrides it
     // (everyone lazy-restores dormant regardless). Without this, every dormant
     // toggle - demote, wake, swap, and now every lazy spawn + /clear release -
@@ -1339,6 +1346,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       contextSampleInFlight: null,
       firedAgentThresholds: new Set(),
       firedUiThresholds: new Set(),
+      subscriptionUsage: null,
+      subscriptionGen: 0,
+      subscriptionSampleSeq: 0,
+      subscriptionCommittedSeq: 0,
       pendingResume: false,
       pendingResumeSessions: [],
       pendingModelPick: false,
@@ -2508,6 +2519,172 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     managed.contextSampleInFlight = inFlight;
   }
 
+  // --- Subscription-allowance usage (the pill beside the context battery) ---
+  // A THIRD read path, distinct from both fullness and accounting: how much of
+  // the signed-in ACCOUNT's plan allowance is spent. Account-scoped, so unlike
+  // fullness it deliberately survives /clear, fork and resume - the quota
+  // doesn't reset when a conversation does.
+  //
+  // Refresh cadence is deliberately NOT policed here. Backends are asked on
+  // every turn boundary and every cumulative-usage event (many per turn, which
+  // is what makes a runaway retry loop visible while it's still running), and
+  // each backend decides what that costs it: Codex reads rate limits its
+  // app-server already pushed, Claude throttles its control RPC internally.
+
+  // Which window the pill's NUMBER comes from: the one closest to its limit.
+  // The alternative (always the weekly window) can read green while a 5-hour
+  // or per-model window sits at 95%, which is precisely the situation the pill
+  // exists to surface. Ties go to the earlier window in the backend's display
+  // order, so the choice is stable across samples. The popover still lists
+  // every window, and the pill's accessible name says which one it's showing.
+  function pickPrimaryWindow(windows: SubscriptionWindowWire[]): number {
+    let best = 0;
+    for (let i = 1; i < windows.length; i++) {
+      if (windows[i].usedPercent > windows[best].usedPercent) best = i;
+    }
+    return best;
+  }
+
+  // Whether two readings differ in anything the pill or its popover DISPLAY
+  // (plan, which window leads, labels, rounded percentages, reset times). Used
+  // to skip dead agent_updated events on the high-frequency usage_update path.
+  function displayedSubscriptionChanged(
+    prev: SubscriptionUsageWire | null | undefined,
+    next: SubscriptionUsageWire,
+  ): boolean {
+    if (!prev) return true;
+    if (prev.plan !== next.plan) return true;
+    if (prev.primaryIndex !== next.primaryIndex) return true;
+    if (prev.windows.length !== next.windows.length) return true;
+    return prev.windows.some((w, i) => {
+      const n = next.windows[i];
+      return (
+        w.label !== n.label ||
+        Math.round(w.usedPercent) !== Math.round(n.usedPercent) ||
+        w.resetsAtMs !== n.resetsAtMs
+      );
+    });
+  }
+
+  function broadcastSubscriptionUsage(managed: ManagedAgent): void {
+    const wire = managed.subscriptionUsage;
+    if (wire === null && managed.info.subscriptionUsage == null) return;
+    for (const event of officeState.updateAgent(managed.info.id, {
+      subscriptionUsage: wire,
+    }))
+      eventHandler(event);
+  }
+
+  // Drop the reading and orphan every in-flight read, because the agent's
+  // backend now talks to a DIFFERENT account: engine switch (Claude <-> Codex)
+  // and cross-engine resume. Must be called synchronously with the identity
+  // change, like resetContextUsage - the gen bump is what stops a read issued
+  // against the old account from landing on the new one.
+  //
+  // A same-engine model change deliberately does NOT call this: swapping Opus
+  // for Sonnet leaves the claude.ai account, and therefore the allowance,
+  // exactly where it was.
+  function resetSubscriptionUsage(managed: ManagedAgent): void {
+    managed.subscriptionGen++;
+    clearSubscriptionUsage(managed);
+  }
+
+  // Clear the displayed reading without touching the generation - used both by
+  // the identity reset above and by an authoritative "no allowance here"
+  // answer from a backend that is still the same account.
+  function clearSubscriptionUsage(managed: ManagedAgent): void {
+    managed.subscriptionUsage = null;
+    broadcastSubscriptionUsage(managed);
+  }
+
+  // Fire-and-forget refresh. A sample commits only if BOTH guards still hold:
+  // the account-identity generation and the monotonic seq. There is
+  // deliberately no session-identity guard - the reading belongs to the
+  // ACCOUNT, so a late resolution from a session that has since been replaced
+  // is still true; only a switch to a different account invalidates it, which
+  // is what the generation catches.
+  //
+  // The three backend answers are handled differently, which is the whole
+  // point of the tri-state (see SubscriptionUsageResult): a reading commits,
+  // an AUTHORITATIVE "no plan allowance here" clears the pill, and "we learned
+  // nothing this time" leaves the last reading standing so one failed RPC
+  // can't blank a valid number.
+  function refreshSubscriptionUsage(
+    managed: ManagedAgent,
+    source: "turn_completed" | "usage_update",
+  ): void {
+    const session = managed.session;
+    if (!session) return;
+    const token = {
+      gen: managed.subscriptionGen,
+      seq: ++managed.subscriptionSampleSeq,
+    };
+    void (async () => {
+      let result: SubscriptionUsageResult;
+      try {
+        result = await session.getSubscriptionUsage();
+      } catch {
+        // Backends are contracted to resolve rather than reject; this is
+        // belt-and-braces so a surprise can't reject an unawaited promise.
+        return;
+      }
+      if (result.kind === "unknown") return;
+      commitSubscriptionSample(
+        managed,
+        token,
+        result.kind === "usage" ? result.usage : null,
+        source,
+      );
+    })();
+  }
+
+  // Commit a reading, or an authoritative clear when `usage` is null. Both go
+  // through the same two guards, so neither an older in-flight sample nor one
+  // belonging to a previous ACCOUNT can undo a newer reading in either
+  // direction. There is deliberately NO session-identity guard: a reading that
+  // resolves after a session replacement is still true of the same account,
+  // which is the whole reason this value outlives conversations.
+  function commitSubscriptionSample(
+    managed: ManagedAgent,
+    token: { gen: number; seq: number },
+    usage: SubscriptionUsage | null,
+    source: "turn_completed" | "usage_update",
+  ): void {
+    if (managed.subscriptionGen !== token.gen) return;
+    if (token.seq <= managed.subscriptionCommittedSeq) return;
+    managed.subscriptionCommittedSeq = token.seq;
+    if (!usage || usage.windows.length === 0) {
+      // Authoritative absence. Skip the broadcast when nothing was shown.
+      if (managed.subscriptionUsage === null) return;
+      clearSubscriptionUsage(managed);
+      return;
+    }
+    const windows: SubscriptionWindowWire[] = usage.windows.map((w) => ({
+      label: w.label,
+      // Clamp again at the wire boundary: the adapters clamp too, but a
+      // malformed reading must never paint a negative or overflowing gauge.
+      usedPercent: Math.max(0, Math.min(100, w.usedPercent)),
+      resetsAtMs: w.resetsAtMs,
+    }));
+    const wire: SubscriptionUsageWire = {
+      plan: usage.plan,
+      windows,
+      primaryIndex: pickPrimaryWindow(windows),
+      sampledAtMs: Date.now(),
+    };
+    // Turn-boundary samples ALWAYS broadcast, even when every displayed value
+    // is unchanged: the popover tells the user how old the reading is, and a
+    // deduped broadcast would freeze that timestamp while the number quietly
+    // stayed fresh. Only the high-frequency usage_update path dedupes, and it
+    // can afford to - a turn boundary follows soon after. Same split the
+    // fullness sampler uses, for the same reason.
+    const shouldBroadcast =
+      source !== "usage_update" ||
+      displayedSubscriptionChanged(managed.info.subscriptionUsage, wire);
+    managed.subscriptionUsage = wire;
+    if (shouldBroadcast) broadcastSubscriptionUsage(managed);
+  }
+
   // GET /api/agents/:id/context - the agent-facing self-check op. Tries a live
   // reading first (also refreshing the stored snapshot through the same commit
   // protocol, so it loses cleanly to newer samples or a conversation swap that
@@ -2827,6 +3004,8 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         // synchronously, so turn semantics don't change; the commit protocol
         // inside makes the late resolution safe.
         if (managed) refreshContextUsage(managed, "turn_completed");
+        // Subscription-allowance reading at the same boundary.
+        if (managed) refreshSubscriptionUsage(managed, "turn_completed");
         if (ev.status !== "completed") {
           // Hot-abort path (Codex): the natural turn_completed with
           // status="interrupted" arrives after a user-initiated turn/interrupt.
@@ -2895,6 +3074,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
         // guaranteed by the event contract - the turn_completed sample above
         // is the correctness baseline; this only makes the reading fresher.
         if (managed) refreshContextUsage(managed, "usage_update");
+        // Mid-turn allowance refresh: what makes a runaway retry loop visible
+        // while it's still running instead of only after it ends. Cheap for
+        // Codex (pushed data) and internally throttled for Claude.
+        if (managed) refreshSubscriptionUsage(managed, "usage_update");
         if (managed?.sessionId) {
           const cumulative = accumulateSessionUsage(
             agentId,
@@ -4001,6 +4184,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       contextSampleInFlight: null,
       firedAgentThresholds: new Set(),
       firedUiThresholds: new Set(),
+      subscriptionUsage: null,
+      subscriptionGen: 0,
+      subscriptionSampleSeq: 0,
+      subscriptionCommittedSeq: 0,
       pendingResume: false,
       pendingResumeSessions: [],
       pendingModelPick: false,
@@ -5963,6 +6150,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     // capabilities so UI affordances follow. The fresh session is stamped with
     // this config at its system_init.
     if (targetAgentType && targetAgentType !== managed.info.agentType) {
+      // A different engine means a different provider account, so the
+      // allowance reading goes now - synchronously with the identity change,
+      // which also orphans any read already in flight against the old one.
+      resetSubscriptionUsage(managed);
       // Validate any provided override against the TARGET engine (undefined ->
       // that engine's default). Never coerce a source-engine value: e.g.
       // validateModelFamily(codex, "opus") would pass "opus" straight through.
@@ -6176,6 +6367,10 @@ Once complete, it takes effect immediately for all Isomux agents.`;
       permissionMode: cur.permissionMode,
       codexSandbox: cur.codexSandbox,
     };
+    // Resuming a session recorded under the OTHER engine repoints the agent at
+    // a different provider account. Same-engine resumes (model/effort/
+    // permission differences only) leave the account, and the reading, alone.
+    if (stored.agentType !== cur.agentType) resetSubscriptionUsage(managed);
     for (const event of officeState.updateAgent(agentId, {
       agentType: stored.agentType,
       modelFamily: stored.modelFamily ?? cur.modelFamily,
@@ -6195,6 +6390,13 @@ Once complete, it takes effect immediately for all Isomux agents.`;
     agentId: string,
     prevConfig: SessionEngineConfig,
   ) {
+    // Rolling the engine back is another account-identity change: bump again
+    // so a read issued during the failed switch can't land afterwards. The
+    // reading itself repopulates on the next turn.
+    const managed = agents.get(agentId);
+    if (managed && managed.info.agentType !== prevConfig.agentType) {
+      resetSubscriptionUsage(managed);
+    }
     for (const event of officeState.updateAgent(agentId, {
       agentType: prevConfig.agentType,
       modelFamily: prevConfig.modelFamily,
