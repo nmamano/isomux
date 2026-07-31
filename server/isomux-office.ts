@@ -3883,7 +3883,12 @@ function buildServer(startOpts: StartServerOpts): Server<WsData> {
           return new Response("unauthenticated", { status: 401 });
         }
         if (!checkOrigin(req)) {
-          return new Response("bad origin", { status: 403 });
+          // Caller already passed cookie auth, so naming the expected origin
+          // leaks nothing and saves an on-box debugging round (task 517fe4da).
+          const { origin: expectedOrigin } = buildPublicOrigin();
+          return new Response(`bad origin (expected ${expectedOrigin})`, {
+            status: 403,
+          });
         }
         const upgraded = server.upgrade(req, {
           data: { session: wsSession, connectionId: nextConnectionId() },

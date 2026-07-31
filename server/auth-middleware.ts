@@ -69,6 +69,12 @@ export function requestIsLoopback<T>(req: Request, server: Server<T>): boolean {
 // Origin check. Reverse proxies are configured by the operator setting
 // ISOMUX_PUBLIC_ORIGIN; we do not infer the origin from Host/X-Forwarded-Host
 // because that's how WebSocket-hijacking bugs happen.
+//
+// Exact match, no loopback exemption (task 517fe4da): the check exists to
+// stop a hostile page driving a browser that holds a live session cookie,
+// and on a Caddy-fronted box every public request arrives from 127.0.0.1,
+// so a "loopback peer" exemption would disable it for all external traffic.
+// On-box tooling must send the configured public origin verbatim.
 
 export function checkOrigin(req: Request): boolean {
   const origin = req.headers.get("origin");
