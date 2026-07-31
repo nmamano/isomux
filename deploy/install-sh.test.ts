@@ -119,14 +119,14 @@ describe("install.sh escalation: template unit + placement", () => {
   });
 
   it("polkitd is in the apt package list (minimal images may lack it)", () => {
-    expect(SRC).toMatch(/apt-get install -y[^\n]*\bpolkitd\b/);
+    expect(SRC).toMatch(/apt_install[^\n]*\bpolkitd\b/);
   });
 
   it("nodejs comes from NodeSource (the PTY sidecar needs current real Node)", () => {
     // Not Ubuntu's apt nodejs: v18 breaks node-gyp@latest, which the
     // node-pty rebuild runs under whatever real node is on PATH.
     expect(SRC).toContain("deb.nodesource.com/node_24.x");
-    expect(SRC).toMatch(/apt-get install -y[^\n]*\bnodejs\b/);
+    expect(SRC).toMatch(/apt_install[^\n]*\bnodejs\b/);
   });
 
   it("installs a browser from Chrome's .deb, never snap, and verifies a capture", () => {
@@ -315,7 +315,7 @@ describe("install.sh: the box cannot ship with agents able to reach root", () =>
   });
 
   it("installs the ssh client the check needs", () => {
-    expect(SRC).toMatch(/apt-get install -y[^\n]*\bopenssh-client\b/);
+    expect(SRC).toMatch(/apt_install[^\n]*\bopenssh-client\b/);
   });
 
   it("leaves the operator a command to re-run, and points at it", () => {

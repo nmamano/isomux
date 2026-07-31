@@ -29,6 +29,8 @@ curl -fsSL https://raw.githubusercontent.com/nmamano/isomux/main/deploy/install.
 
 After a few minutes it prints a single-use owner invite link, also saved on the server at `/var/lib/isomux-install/invite-url`. Open it on any device within 24 hours to sign in as the owner at `https://office.example.com`.
 
+When the output isn't going to a terminal - cloud-init, a piped log, an agent running the command for you - it names that file instead of printing the link, so a live credential doesn't end up sitting in a log.
+
 ## What it does
 
 - Installs bun, Node.js, git, Caddy, and Chrome (headless, for the agents' page-preview cards); fetches isomux and builds it.
@@ -113,7 +115,8 @@ Then open `http://localhost:5173`.
 
 ## Notes
 
-- The invite link is a credential until it's used or expires. It appears in the install output, so it also lands in logs that capture it (cloud-init writes stdout to `/var/log/cloud-init-output.log`).
+- The invite link is a credential until it's used or expires. It appears in the install output only when that output goes to a terminal; otherwise the output names `/var/lib/isomux-install/invite-url` and you read the link from there as root. That keeps it out of logs that capture stdout, like cloud-init's `/var/log/cloud-init-output.log`.
+- If you've hand-edited a package's config file - `/etc/caddy/Caddyfile` is the likely one - the installer and `isomux-update` keep your version when the package ships a new one, and name the files they kept. The package's version is parked beside each as `<file>.dpkg-dist`; reconciling the two is up to you.
 - The service is system-level: restart with `systemctl restart isomux` as root (the [self-hosted page](self-hosted.md) describes a user-level service instead, so its `systemctl --user` commands don't apply here).
 - SSH hardening is skipped, loudly, if the box has no SSH key on it yet: turning off password logins there would lock you out. Add your key, then run `sudo isomux-harden-ssh`.
 - Chrome backs only the page-preview cards. If it can't be installed - no amd64 build for the box, a failed download, or a test capture that comes back empty - the installer warns and carries on without it.

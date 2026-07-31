@@ -86,10 +86,15 @@ install_earlyoom() {
     return 0
   fi
   if [[ -n $DRY_RUN ]]; then
-    log "DRY-RUN: would apt-get install -y earlyoom"
+    log "DRY-RUN: would apt-get install -y -o Dpkg::Options::=--force-confold earlyoom"
     return 0
   fi
-  DEBIAN_FRONTEND=noninteractive apt-get install -y earlyoom >/dev/null 2>&1 || {
+  # --force-confold for the same reason as the installer's apt_install: a
+  # noninteractive frontend does not answer dpkg's conffile prompt, and a run
+  # with nothing on stdin dies at it. Keep whatever the operator has; this
+  # script drives earlyoom through a drop-in and never reads
+  # /etc/default/earlyoom anyway.
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -o Dpkg::Options::=--force-confold earlyoom >/dev/null 2>&1 || {
     warn "could not install earlyoom (it lives in Ubuntu's universe component). The kill order and swap settings below still apply, but nothing will step in early under memory pressure. Install it later with: apt-get install earlyoom"
     return 1
   }
@@ -125,16 +130,20 @@ EOF
 
 # --- kill order -------------------------------------------------------------
 
-# Lower score = killed later. Agent processes are left at the default: they are
-# the biggest and the cheapest to lose, which is exactly what should go first.
+# Lower score = killed later. A best-effort bias, not a guarantee: the kernel
+# combines it with its own "roughly biggest" heuristic.
 #
-#   -900  ssh, tailscaled — lose these and the box is unreachable
-#   -500  isomux, caddy   — lose these and the office is down
-#      0  everything else, agent processes included
+#   -900  ssh, tailscaled   keep the box reachable
+#   -500  isomux, caddy     keep the office up
 #
-# Agent processes inherit the office server's score when it spawns them, so the
-# server's -500 covers them too; within one score the kernel picks the largest
-# process, which is an agent, and earlyoom's --prefer decides it outright.
+# Two facts worth remembering. Descendants inherit the server's score, so
+# these tiers cannot tell the server apart from the agents and builds it
+# spawns - steering the kill toward an agent is earlyoom's job (--prefer
+# above), not theirs. And on a user-level office (systemctl --user) the -500
+# does not apply at all: Ubuntu's user manager lacks the privilege to lower
+# scores, the write fails silently, and everything runs at 100. `systemctl
+# show` echoes the configured value either way; only /proc/PID/oom_score_adj
+# tells the truth, which is why this script reads every write back.
 oom_tier() {
   local unit=$1 score=$2
   write_file "/etc/systemd/system/$unit.d/isomux-oom.conf" 644 <<EOF

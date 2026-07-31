@@ -7,9 +7,9 @@
 # firewall/SSH hardening + out-of-memory protection + unattended security
 # updates (a standard Ubuntu feature — it patches system packages, never
 # isomux itself). Ends by claiming the office owner, minting a single-use
-# owner invite link, printing it, saving it to
-# /var/lib/isomux-install/invite-url, and optionally POSTing it to a
-# callback URL.
+# owner invite link, saving it to /var/lib/isomux-install/invite-url,
+# printing it if a terminal is watching (naming that file instead if not),
+# and optionally POSTing it to a callback URL.
 #
 # Two checks can stop the install outright. Both ask the same question — can
 # the isomux service account become root on this box? — and both answer it by
@@ -95,6 +95,10 @@ BASE_URL=http://127.0.0.1:4000
 ADMIN_SOCK=$SERVICE_HOME/.isomux/admin.sock
 HEALTH_TIMEOUT_S=180
 CADDY_MARKER="# Managed by the isomux installer"
+# Where dpkg keeps package config files. A constant because apt_install scans
+# it to report the operator's files it kept, and the tests point that scan at a
+# temp tree instead.
+CONFFILE_ROOT=/etc
 
 CURRENT_STEP=preflight
 INVITE_URL=""
@@ -111,6 +115,15 @@ SSH_HARDENING_SKIPPED=""
 # --- Helpers ----------------------------------------------------------------
 
 log() { printf '[isomux-install] %s\n' "$*"; }
+
+# True when stdout is a terminal — the closest this script can get to asking
+# whether anyone is reading the run as it goes, rather than a file, a pipe or
+# an agent's transcript collecting it. The owner invite is a credential, so the
+# final report prints the link itself only then and names the file it was saved
+# to otherwise: cloud-init, `| tee install.log` and an agent running this over
+# ssh all end up with the output on disk, where a live invite has no business
+# being.
+output_is_watched() { [[ -t 1 ]]; }
 
 step() {
   CURRENT_STEP=$1
@@ -240,6 +253,73 @@ run() {
   else
     "$@"
   fi
+}
+
+# apt-get install, with any package config file the operator has edited by hand
+# left exactly as they left it.
+#
+# DEBIAN_FRONTEND=noninteractive does NOT cover this. When a package ships a new
+# version of a config file that has local edits, dpkg still stops to ask which
+# version to keep; with nothing on stdin the run dies with "end of file on stdin
+# at conffile prompt" and takes the install with it. Reproduced on a live box
+# with a hand-edited /etc/caddy/Caddyfile: it failed the updater's dependency
+# phase, which is the worst place for it, since that is where an operator who
+# has been tuning the box for months finally meets the behavior.
+#
+# --force-confold answers the prompt the only way an unattended run safely can:
+# keep what is on the box. The cost is that the kept file can now lag the
+# package's default, so kept files are named in the output rather than kept
+# quietly. Reconciling them is the operator's call; nothing here will do it.
+apt_install() {
+  if [[ -n $DRY_RUN ]]; then
+    log "DRY-RUN: apt-get install -y -o Dpkg::Options::=--force-confold $*"
+    return 0
+  fi
+  local before rc=0
+  before=$(mktemp /tmp/isomux-conffile.XXXXXXXXXX) || before=""
+  [[ -z $before ]] || conffile_markers >"$before"
+  DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    -o Dpkg::Options::=--force-confold "$@" || rc=$?
+  if [[ -n $before ]]; then
+    report_kept_conffiles "$before"
+    rm -f "$before"
+  fi
+  return "$rc"
+}
+
+# Every .dpkg-dist marker under $root, with the identity fields that change when
+# dpkg writes a fresh one: inode, mtime, size. dpkg's marker is its own record
+# of the decision — when it keeps the operator's file it parks the package's
+# version next to it as <file>.dpkg-dist — which makes this independent of apt's
+# wording and of the locale it prints in.
+#
+# What it deliberately does NOT do is ask whether a marker is newer than the
+# start of this run. dpkg unpacks the packaged conffile with the timestamp it
+# carries inside the .deb and then renames that file into place, so a marker
+# written seconds ago routinely holds a date from years ago: verified against
+# real dpkg, a 2020 archive member produced a 2020-dated .dpkg-dist while the
+# run itself was in 2026. A "newer than when we started" test would miss every
+# real package.
+conffile_markers() {
+  find "${1:-$CONFFILE_ROOT}" -name '*.dpkg-dist' \
+    -printf '%p\t%i\t%T@\t%s\n' 2>/dev/null | LC_ALL=C sort
+}
+
+# Name the config files dpkg kept during the apt run, by what changed against
+# the marker snapshot $before. A marker this run wrote is a different file from
+# the one that was there (dpkg renames a freshly unpacked file into place, so
+# the inode is new), which also catches a package overwriting a marker an
+# earlier run had left behind — path existence alone could not tell those apart.
+report_kept_conffiles() {
+  local before=$1 root=${2:-$CONFFILE_ROOT} line path
+  local -a kept=()
+  while IFS= read -r line; do
+    path=${line%%$'\t'*}
+    kept+=("${path%.dpkg-dist}")
+  done < <(comm -13 "$before" <(conffile_markers "$root"))
+  ((${#kept[@]} > 0)) || return 0
+  log "apt shipped a new version of ${#kept[@]} package config file(s) you had edited; your version was kept, so it may now lag the package's default. The packaged version sits next to each one as <file>.dpkg-dist; reconciling them is up to you:"
+  for dist in "${kept[@]}"; do log "  $dist"; done
 }
 
 # Run a command as the service user. runuser without --login preserves the
@@ -378,7 +458,7 @@ install_packages() {
   # during bun install; fresh server images ship without a toolchain.
   # openssh-client: the root-reachability check logs in to this box to find out
   # whether the service account can; server images ship sshd without the client.
-  run apt-get install -y curl ca-certificates gnupg git jq unzip ufw unattended-upgrades polkitd build-essential python3 openssh-client
+  apt_install curl ca-certificates gnupg git jq unzip ufw unattended-upgrades polkitd build-essential python3 openssh-client
   if [[ -n $DRY_RUN ]]; then
     log "DRY-RUN: would add the Caddy and NodeSource apt repositories and install caddy + nodejs"
   else
@@ -397,7 +477,7 @@ install_packages() {
     echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_24.x nodistro main" \
       >/etc/apt/sources.list.d/nodesource.list
     apt-get update -y
-    apt-get install -y caddy nodejs
+    apt_install caddy nodejs
   fi
   if [[ -z $caddy_safe ]]; then
     run systemctl unmask caddy
@@ -1526,10 +1606,15 @@ install_earlyoom() {
     return 0
   fi
   if [[ -n $DRY_RUN ]]; then
-    log "DRY-RUN: would apt-get install -y earlyoom"
+    log "DRY-RUN: would apt-get install -y -o Dpkg::Options::=--force-confold earlyoom"
     return 0
   fi
-  DEBIAN_FRONTEND=noninteractive apt-get install -y earlyoom >/dev/null 2>&1 || {
+  # --force-confold for the same reason as the installer's apt_install: a
+  # noninteractive frontend does not answer dpkg's conffile prompt, and a run
+  # with nothing on stdin dies at it. Keep whatever the operator has; this
+  # script drives earlyoom through a drop-in and never reads
+  # /etc/default/earlyoom anyway.
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -o Dpkg::Options::=--force-confold earlyoom >/dev/null 2>&1 || {
     warn "could not install earlyoom (it lives in Ubuntu's universe component). The kill order and swap settings below still apply, but nothing will step in early under memory pressure. Install it later with: apt-get install earlyoom"
     return 1
   }
@@ -1565,16 +1650,20 @@ EOF
 
 # --- kill order -------------------------------------------------------------
 
-# Lower score = killed later. Agent processes are left at the default: they are
-# the biggest and the cheapest to lose, which is exactly what should go first.
+# Lower score = killed later. A best-effort bias, not a guarantee: the kernel
+# combines it with its own "roughly biggest" heuristic.
 #
-#   -900  ssh, tailscaled — lose these and the box is unreachable
-#   -500  isomux, caddy   — lose these and the office is down
-#      0  everything else, agent processes included
+#   -900  ssh, tailscaled   keep the box reachable
+#   -500  isomux, caddy     keep the office up
 #
-# Agent processes inherit the office server's score when it spawns them, so the
-# server's -500 covers them too; within one score the kernel picks the largest
-# process, which is an agent, and earlyoom's --prefer decides it outright.
+# Two facts worth remembering. Descendants inherit the server's score, so
+# these tiers cannot tell the server apart from the agents and builds it
+# spawns - steering the kill toward an agent is earlyoom's job (--prefer
+# above), not theirs. And on a user-level office (systemctl --user) the -500
+# does not apply at all: Ubuntu's user manager lacks the privilege to lower
+# scores, the write fails silently, and everything runs at 100. `systemctl
+# show` echoes the configured value either way; only /proc/PID/oom_score_adj
+# tells the truth, which is why this script reads every write back.
 oom_tier() {
   local unit=$1 score=$2
   write_file "/etc/systemd/system/$unit.d/isomux-oom.conf" 644 <<EOF
@@ -1801,7 +1890,7 @@ install_browser() {
       log "warning: could not download Google Chrome from $CHROME_DEB_URL, so page previews (the preview-url card) will be unavailable. Re-run this installer to retry; nothing else is affected."
       return 0
     fi
-    if ! apt-get install -y "$deb"; then
+    if ! apt_install "$deb"; then
       rm -f "$deb"
       log "warning: installing the Google Chrome package failed, so page previews (the preview-url card) will be unavailable. Re-run this installer to retry; nothing else is affected."
       return 0
@@ -2068,10 +2157,11 @@ ExecStart=/usr/local/bin/bun run server/index.ts
 Restart=always
 RestartSec=2
 Environment=PORT=4000
-# Kill order under memory pressure: the office server goes after the daemons
-# that keep the box reachable and before nothing. Agents inherit this score
-# from the server, and within one score the kernel takes the largest process,
-# which is an agent. isomux-oom-protect sets the rest of the tiers.
+# Best-effort kill-order bias under memory pressure: killed after everything
+# ordinary on the box, before only ssh/tailscaled (-900). Agents and builds
+# inherit this score, so the directive cannot protect the server FROM its own
+# agents - earlyoom does that steering; isomux-oom-protect sets the other
+# tiers and configures it.
 OOMScoreAdjust=-500
 
 [Install]
@@ -2281,11 +2371,23 @@ report() {
   log "Isomux is installed."
   log ""
   log "  Office URL:   https://$DOMAIN"
-  log "  Owner invite: $INVITE_URL"
-  log ""
-  log "The invite link is single-use and valid for 24 hours; opening it"
-  log "signs you in as \"$RESOLVED_OWNER_NAME\" (changeable later). It is"
-  log "also saved on this server at $INVITE_FILE, readable only by root."
+  if output_is_watched; then
+    log "  Owner invite: $INVITE_URL"
+    log ""
+    log "The invite link is single-use and valid for 24 hours; opening it"
+    log "signs you in as \"$RESOLVED_OWNER_NAME\" (changeable later). It is"
+    log "also saved on this server at $INVITE_FILE, readable only by root."
+  else
+    log "  Owner invite: saved at $INVITE_FILE"
+    log ""
+    log "The invite link is not printed here so it does not end up in a log."
+    log "To read it on the server, as root:"
+    log ""
+    log "  cat $INVITE_FILE"
+    log ""
+    log "The link is single-use and valid for 24 hours; opening it signs you"
+    log "in as \"$RESOLVED_OWNER_NAME\" (changeable later)."
+  fi
   log "To mint a fresh one, re-run this installer."
   log ""
   SERVER_IPV4=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i == "src") { print $(i + 1); exit }}' || true)
