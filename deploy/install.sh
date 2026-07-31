@@ -491,7 +491,17 @@ set -Eeuo pipefail
 
 SERVICE_USER=isomux
 SERVICE_HOME=/home/isomux
-DROPIN=/etc/ssh/sshd_config.d/90-isomux-hardening.conf
+SSHD_CONFIG_D=/etc/ssh/sshd_config.d
+# sshd keeps the FIRST value it reads for a keyword and reads the drop-in
+# directory in name order, so the hardening file has to sort ahead of whatever
+# the provider image shipped. Contabo's cloud-init writes a 50-cloud-init.conf
+# that turns password logins back on, and a 90- file loses to it in silence.
+DROPIN=$SSHD_CONFIG_D/00-isomux-hardening.conf
+# Where the hardening used to live. Removed once the new file is in place and
+# proven effective, so a box installed before this converges on a re-run.
+LEGACY_DROPIN=$SSHD_CONFIG_D/90-isomux-hardening.conf
+# The keys an operator could still get back in with; see apply_hardening.
+AUTHORIZED_KEYS_FILES=(/root/.ssh/authorized_keys /home/*/.ssh/authorized_keys)
 TAG=isomux-harden-ssh
 
 log() { printf '[%s] %s\n' "$TAG" "$*"; }
@@ -532,6 +542,81 @@ sshd_setting() {
 
 # --- apply ------------------------------------------------------------------
 
+# What the hardening is supposed to achieve, checked against what sshd actually
+# resolves. Writing the drop-in proves nothing on its own: an earlier file can
+# already have decided the keyword, and that is exactly how the hardening used
+# to fail silently. Read from a single sshd -T snapshot, and a value that is
+# missing or unreadable counts as a failure, never as a pass.
+HARDENING_SHORTFALL=""
+hardening_is_effective() {
+  local resolved key accepted value entry
+  HARDENING_SHORTFALL=""
+  if ! resolved=$(sshd -T 2>/dev/null) || [[ -z $resolved ]]; then
+    HARDENING_SHORTFALL="sshd would not report its resolved configuration"
+    return 1
+  fi
+  # sshd renders PermitRootLogin prohibit-password as the older
+  # without-password on some versions, so both spellings are the same answer.
+  for entry in \
+    "passwordauthentication no" \
+    "kbdinteractiveauthentication no" \
+    "permitrootlogin prohibit-password|without-password"; do
+    key=${entry%% *}
+    accepted=${entry#* }
+    value=$(printf '%s\n' "$resolved" |
+      awk -v k="$key" '$1 == k { print $2; exit }')
+    if [[ -z $value ]]; then
+      HARDENING_SHORTFALL+="; sshd does not report $key at all"
+    elif [[ "|$accepted|" != *"|$value|"* ]]; then
+      HARDENING_SHORTFALL+="; $key is $value, not ${accepted%%|*}"
+    fi
+  done
+  HARDENING_SHORTFALL=${HARDENING_SHORTFALL#; }
+  [[ -z $HARDENING_SHORTFALL ]]
+}
+
+# Where a previous run's files are held while the candidate is validated. The
+# stash lives in $SSHD_CONFIG_D so every move is a rename inside one directory,
+# and mktemp's names carry no .conf suffix, so sshd's Include never reads them.
+BACKUP_DROPIN=""
+BACKUP_LEGACY=""
+# Set once the candidate may exist on disk, so a rollback that runs before then
+# cannot delete a file this run never replaced.
+CANDIDATE_WRITTEN=""
+
+# Move $2 aside, recording where it went in the variable named by $1. Assigns
+# in the CURRENT shell on purpose: through a command substitution this would
+# run in a subshell, where bash drops errexit, and a failed mv would report a
+# stash that does not hold the file. Fails without moving anything if it
+# cannot.
+stash_existing() {
+  local var=$1 file=$2 backup
+  printf -v "$var" '%s' ""
+  [[ -f $file ]] || return 0
+  backup=$(mktemp "$SSHD_CONFIG_D/isomux-hardening-prior.XXXXXXXX") || return 1
+  if ! mv "$file" "$backup"; then
+    rm -f "$backup"
+    return 1
+  fi
+  printf -v "$var" '%s' "$backup"
+}
+
+# Undo a failed apply: the candidate goes, and every file a previous run left
+# comes back as it was. A failed attempt must not leave the box less hardened
+# than it found it - which includes the case where what it found was this
+# script's own working drop-in. Idempotent: each file is forgotten as it is
+# restored, so a second call is a no-op.
+revert_hardening() {
+  [[ -z $CANDIDATE_WRITTEN ]] || rm -f "$DROPIN"
+  CANDIDATE_WRITTEN=""
+  if [[ -n $BACKUP_DROPIN ]] && mv "$BACKUP_DROPIN" "$DROPIN"; then
+    BACKUP_DROPIN=""
+  fi
+  if [[ -n $BACKUP_LEGACY ]] && mv "$BACKUP_LEGACY" "$LEGACY_DROPIN"; then
+    BACKUP_LEGACY=""
+  fi
+}
+
 apply_hardening() {
   if ! command -v sshd >/dev/null; then
     log "no SSH server is installed on this box; nothing to harden"
@@ -542,7 +627,7 @@ apply_hardening() {
   # the operator can log in with — true on a freshly provisioned VPS, where
   # those are the provider-created login accounts.
   local f has_keys=""
-  for f in /root/.ssh/authorized_keys /home/*/.ssh/authorized_keys; do
+  for f in "${AUTHORIZED_KEYS_FILES[@]}"; do
     [[ -s $f ]] && has_keys=1
   done
   if [[ -z $has_keys ]]; then
@@ -556,10 +641,29 @@ apply_hardening() {
     log ""
     return 10
   fi
-  install -d -m 755 "$(dirname "$DROPIN")"
+  install -d -m 755 "$SSHD_CONFIG_D"
+  # Both files a previous run could have left go aside BEFORE the candidate is
+  # written, and what gets validated below is therefore the exact set of files
+  # the box is left with. Writing first would truncate a working drop-in that a
+  # failure then has to put back.
+  stash_existing BACKUP_DROPIN "$DROPIN" ||
+    die "could not move the existing $DROPIN aside, so the hardening was not touched; nothing here changed."
+  # Armed the moment the box is without its own hardening file: from here an
+  # unexpected command failure has to put the stash back instead of exiting
+  # over it. Command failures only - an ERR trap does not run on a signal, and
+  # this makes no atomicity promise about one; what a kill leaves behind is a
+  # stash file next to the drop-in it came from. The failure paths below revert
+  # explicitly and then die, which exits without running this.
+  trap 'revert_hardening; die "applying the hardening failed partway; put back what was here and changed nothing else."' ERR
+  stash_existing BACKUP_LEGACY "$LEGACY_DROPIN" || {
+    revert_hardening
+    die "could not move $LEGACY_DROPIN aside; put back what was here and changed nothing else."
+  }
+  CANDIDATE_WRITTEN=1
   install -m 644 /dev/null "$DROPIN"
   cat >"$DROPIN" <<'EOF'
-# Installed by the isomux VPS installer: key-only SSH auth.
+# Installed by the isomux VPS installer: key-only SSH auth. Named to sort
+# first, because sshd keeps the first value it reads for a keyword.
 PasswordAuthentication no
 KbdInteractiveAuthentication no
 PermitRootLogin prohibit-password
@@ -568,9 +672,16 @@ EOF
   # validate the aggregate before it can take effect, and back out our file if
   # the result is broken.
   if ! sshd -t 2>/dev/null; then
-    rm -f "$DROPIN"
+    revert_hardening
     die "sshd rejected the configuration with the hardening drop-in; removed it again. Run sshd -t to inspect the preexisting config."
   fi
+  if ! hardening_is_effective; then
+    revert_hardening
+    die "the hardening did not take effect: $HARDENING_SHORTFALL. Something this box already had sets it first, and sshd keeps the first value it reads - look in /etc/ssh/sshd_config and $SSHD_CONFIG_D. Removed our file again; nothing here changed."
+  fi
+  trap - ERR
+  [[ -z $BACKUP_DROPIN ]] || rm -f "$BACKUP_DROPIN"
+  [[ -z $BACKUP_LEGACY ]] || rm -f "$BACKUP_LEGACY"
   # Ubuntu 24.04 socket-activates ssh; reload only applies if it's running.
   if systemctl is-active -q ssh; then
     systemctl reload ssh

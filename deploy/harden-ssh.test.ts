@@ -12,17 +12,26 @@
 // combination of transcript and exit code. The root guard is stripped from the
 // copy under test — a separate test pins that the real script has it.
 
-import { describe, it, expect, beforeAll, afterAll } from "bun:test";
+import {
+  describe,
+  it,
+  expect,
+  beforeAll,
+  beforeEach,
+  afterAll,
+} from "bun:test";
 import {
   readFileSync,
+  readdirSync,
   writeFileSync,
+  existsSync,
   mkdtempSync,
   mkdirSync,
   rmSync,
   chmodSync,
 } from "fs";
 import { tmpdir } from "os";
-import { join } from "path";
+import { basename, join } from "path";
 
 const SCRIPT = new URL("./harden-ssh.sh", import.meta.url).pathname;
 const SRC = readFileSync(SCRIPT, "utf8");
@@ -30,6 +39,8 @@ const SRC = readFileSync(SCRIPT, "utf8");
 let dir = "";
 let stubs = "";
 let testable = "";
+let configDir = "";
+let authorizedKeys = "";
 
 /** Write an executable stub that shadows a real binary during the test. */
 function stub(name: string, body: string) {
@@ -43,13 +54,28 @@ beforeAll(() => {
   stubs = join(dir, "bin");
   mkdirSync(stubs);
 
-  // The copy under test, minus the root guard (which is pinned separately).
+  // The copy under test, minus the root guard (which is pinned separately) and
+  // with the two absolute paths the apply path writes to and reads from moved
+  // into the temp tree.
   testable = join(dir, "harden-ssh.sh");
+  configDir = join(dir, "sshd_config.d");
+  authorizedKeys = join(dir, "authorized_keys");
+  writeFileSync(authorizedKeys, "ssh-ed25519 AAAAstub operator@laptop\n");
   const stripped = SRC.replace(
     /^\s*\[\[ \$EUID -eq 0 \]\] \|\| die .*$/m,
     "  :",
-  );
-  expect(stripped).not.toBe(SRC);
+  )
+    .replace(
+      "SSHD_CONFIG_D=/etc/ssh/sshd_config.d",
+      `SSHD_CONFIG_D=${configDir}`,
+    )
+    .replace(
+      "AUTHORIZED_KEYS_FILES=(/root/.ssh/authorized_keys /home/*/.ssh/authorized_keys)",
+      `AUTHORIZED_KEYS_FILES=(${authorizedKeys})`,
+    );
+  expect(stripped).not.toContain("$EUID -eq 0");
+  expect(stripped).toContain(`SSHD_CONFIG_D=${configDir}`);
+  expect(stripped).toContain(`AUTHORIZED_KEYS_FILES=(${authorizedKeys})`);
   writeFileSync(testable, stripped);
 
   // runuser -u <user> -- env -i VAR=... <cmd>  ->  just <cmd>, so the stubs on
@@ -90,10 +116,22 @@ else
 fi
 exit "\${STUB_SSH_RC:-0}"`,
   );
+  // -T is sshd's resolved configuration and -t its syntax check, which is the
+  // pair the apply path leans on. The three policy lines default to a box where
+  // the hardening wins; "omit" drops a line entirely, for the missing-value
+  // case.
   stub(
     "sshd",
     `case "\${1:-}" in
-  -T) printf 'port 22\\nlistenaddress 0.0.0.0:22\\nlistenaddress [::]:22\\nauthorizedkeysfile %s\\nauthorizedkeyscommand none\\n' "\${STUB_AK:-.ssh/authorized_keys}" ;;
+  -T)
+    [[ -z "\${STUB_SSHD_T_RC:-}" ]] || exit "$STUB_SSHD_T_RC"
+    [[ -z "\${STUB_SSHD_T_EMPTY:-}" ]] || exit 0
+    printf 'port 22\\nlistenaddress 0.0.0.0:22\\nlistenaddress [::]:22\\nauthorizedkeysfile %s\\nauthorizedkeyscommand none\\n' "\${STUB_AK:-.ssh/authorized_keys}"
+    [[ "\${STUB_PW:-no}" == omit ]] || printf 'passwordauthentication %s\\n' "\${STUB_PW:-no}"
+    [[ "\${STUB_KBD:-no}" == omit ]] || printf 'kbdinteractiveauthentication %s\\n' "\${STUB_KBD:-no}"
+    [[ "\${STUB_ROOTLOGIN:-prohibit-password}" == omit ]] || printf 'permitrootlogin %s\\n' "\${STUB_ROOTLOGIN:-prohibit-password}"
+    ;;
+  -t) exit "\${STUB_SSHD_SYNTAX_RC:-0}" ;;
   *) : ;;
 esac`,
   );
@@ -123,6 +161,16 @@ exit "\${STUB_SUDO_RC:-1}"`,
 printf 'ssh-ed25519 AAAAstubbedblob%s comment\\n' "\${5##*/}"`,
   );
   stub("timeout", `shift; exec "$@"`);
+  // Real mv, except that a test can make one specific source fail: the apply
+  // path's rollback turns on mv succeeding, and the failure is otherwise
+  // unreachable. Matched on the source's basename so a stash can be made to
+  // fail without also breaking the restore that puts it back.
+  stub(
+    "mv",
+    `src=\${1##*/}
+[[ -z "\${STUB_MV_FAIL_SRC:-}" || "$src" != "\${STUB_MV_FAIL_SRC}" ]] || exit 1
+exec /bin/mv "$@"`,
+  );
 });
 
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -145,6 +193,45 @@ async function check(env: Record<string, string>) {
   ]);
   return { code, output: out + err };
 }
+
+/** Run the apply job and return its exit status plus combined output. */
+async function apply(env: Record<string, string> = {}) {
+  const proc = Bun.spawn(["bash", testable, "--apply"], {
+    env: {
+      PATH: `${stubs}:${process.env.PATH}`,
+      HOME: process.env.HOME ?? "/tmp",
+      ...env,
+    },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  const [out, err, code] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  return { code, output: out + err };
+}
+
+const dropin = () => join(configDir, "00-isomux-hardening.conf");
+const legacy = () => join(configDir, "90-isomux-hardening.conf");
+
+/** A hardening file left by a version that applied it last of all. */
+function plantLegacy() {
+  mkdirSync(configDir, { recursive: true });
+  writeFileSync(legacy(), "PasswordAuthentication no\n");
+}
+
+/** A working drop-in from an earlier run of THIS version, distinctively marked. */
+const PRIOR = "# from the previous run\nPasswordAuthentication no\n";
+function plantPrior() {
+  mkdirSync(configDir, { recursive: true });
+  writeFileSync(dropin(), PRIOR);
+}
+
+/** Everything left in the drop-in directory, so a stray backup shows up. */
+const configFiles = () =>
+  existsSync(configDir) ? readdirSync(configDir).sort() : [];
 
 const AUTHENTICATED = `debug1: Authentication succeeded (publickey).
 Authenticated to localhost ([::1]:22) using "publickey".`;
@@ -548,5 +635,175 @@ describe("harden-ssh.sh source", () => {
     // Said on a PASS too, not only when something already went wrong.
     const pass = SRC.slice(SRC.indexOf("report_pass() {"));
     expect(pass).toContain("KEY_UNPROVEN");
+  });
+});
+
+// The apply path, against a stubbed sshd. What makes hardening real is not the
+// file being written but sshd resolving the policies it names — Contabo's image
+// ships a 50-cloud-init.conf that turns password logins back on, and the old
+// 90- file lost to it while reporting success.
+describe("harden-ssh.sh --apply", () => {
+  beforeEach(() => rmSync(configDir, { recursive: true, force: true }));
+
+  it("writes a drop-in that sorts ahead of the provider's own", async () => {
+    const { code, output } = await apply();
+    expect(code).toBe(0);
+    expect(existsSync(dropin())).toBe(true);
+    expect(output).toContain("key-only SSH auth is in place");
+    // The name is the mechanism: first value read wins, files are read in
+    // name order, and 50-cloud-init.conf is the one to beat.
+    expect(basename(dropin()) < "50-cloud-init.conf").toBe(true);
+  });
+
+  it("fails when an earlier file already turned password logins on", async () => {
+    const { code, output } = await apply({ STUB_PW: "yes" });
+    expect(code).toBe(3);
+    expect(existsSync(dropin())).toBe(false);
+    expect(output).toContain("passwordauthentication is yes, not no");
+    expect(output).not.toContain("key-only SSH auth is in place");
+  });
+
+  it("fails when keyboard-interactive survives", async () => {
+    const { code, output } = await apply({ STUB_KBD: "yes" });
+    expect(code).toBe(3);
+    expect(output).toContain("kbdinteractiveauthentication is yes, not no");
+    expect(output).not.toContain("key-only SSH auth is in place");
+  });
+
+  it("fails when root can still log in with a password", async () => {
+    const { code, output } = await apply({ STUB_ROOTLOGIN: "yes" });
+    expect(code).toBe(3);
+    expect(output).toContain("permitrootlogin is yes, not prohibit-password");
+  });
+
+  it("fails when sshd will not report its resolved configuration", async () => {
+    for (const env of [{ STUB_SSHD_T_RC: "1" }, { STUB_SSHD_T_EMPTY: "1" }]) {
+      const { code, output } = await apply(env);
+      expect(code).toBe(3);
+      expect(existsSync(dropin())).toBe(false);
+      expect(output).toContain("would not report its resolved configuration");
+      expect(output).not.toContain("key-only SSH auth is in place");
+    }
+  });
+
+  it("fails when a policy is missing from the resolved configuration", async () => {
+    const { code, output } = await apply({ STUB_ROOTLOGIN: "omit" });
+    expect(code).toBe(3);
+    expect(existsSync(dropin())).toBe(false);
+    expect(output).toContain("does not report permitrootlogin at all");
+  });
+
+  it("takes without-password as the same answer as prohibit-password", async () => {
+    // Some sshd versions render the policy under its older name.
+    const { code, output } = await apply({
+      STUB_ROOTLOGIN: "without-password",
+    });
+    expect(code).toBe(0);
+    expect(output).toContain("key-only SSH auth is in place");
+  });
+
+  it("retires the 90- file a previous version left behind", async () => {
+    plantLegacy();
+    const { code } = await apply();
+    expect(code).toBe(0);
+    expect(existsSync(dropin())).toBe(true);
+    expect(existsSync(legacy())).toBe(false);
+  });
+
+  it("puts the 90- file back when the new one does not take", async () => {
+    plantLegacy();
+    const { code } = await apply({ STUB_PW: "yes" });
+    expect(code).toBe(3);
+    expect(existsSync(dropin())).toBe(false);
+    expect(readFileSync(legacy(), "utf8")).toBe("PasswordAuthentication no\n");
+  });
+
+  it("backs out of a configuration sshd rejects", async () => {
+    plantLegacy();
+    const { code, output } = await apply({ STUB_SSHD_SYNTAX_RC: "1" });
+    expect(code).toBe(3);
+    expect(existsSync(dropin())).toBe(false);
+    expect(existsSync(legacy())).toBe(true);
+    expect(output).toContain("sshd rejected the configuration");
+  });
+
+  it("puts a working drop-in from an earlier run back when the new one does not take", async () => {
+    // The rerun case: there is no 90- file to fall back on any more, so
+    // removing the candidate without restoring this would leave the box less
+    // hardened than the run found it.
+    plantPrior();
+    const { code } = await apply({ STUB_PW: "yes" });
+    expect(code).toBe(3);
+    expect(readFileSync(dropin(), "utf8")).toBe(PRIOR);
+    expect(configFiles()).toEqual(["00-isomux-hardening.conf"]);
+  });
+
+  it("puts a working drop-in back when sshd rejects the configuration", async () => {
+    plantPrior();
+    plantLegacy();
+    const { code } = await apply({ STUB_SSHD_SYNTAX_RC: "1" });
+    expect(code).toBe(3);
+    expect(readFileSync(dropin(), "utf8")).toBe(PRIOR);
+    expect(readFileSync(legacy(), "utf8")).toBe("PasswordAuthentication no\n");
+    expect(configFiles()).toEqual([
+      "00-isomux-hardening.conf",
+      "90-isomux-hardening.conf",
+    ]);
+  });
+
+  it("touches nothing when the drop-in cannot be moved aside", async () => {
+    // The stash is the first thing that can fail, and it fails before the
+    // candidate exists: nothing may be deleted on the way out.
+    plantPrior();
+    plantLegacy();
+    const { code, output } = await apply({
+      STUB_MV_FAIL_SRC: "00-isomux-hardening.conf",
+    });
+    expect(code).toBe(3);
+    expect(output).toContain("could not move the existing");
+    expect(readFileSync(dropin(), "utf8")).toBe(PRIOR);
+    expect(configFiles()).toEqual([
+      "00-isomux-hardening.conf",
+      "90-isomux-hardening.conf",
+    ]);
+  });
+
+  it("puts the drop-in back when the second stash fails", async () => {
+    // Half-stashed is the dangerous state: the drop-in is already hidden and
+    // the box has no hardening of its own.
+    plantPrior();
+    plantLegacy();
+    const { code, output } = await apply({
+      STUB_MV_FAIL_SRC: "90-isomux-hardening.conf",
+    });
+    expect(code).toBe(3);
+    expect(output).toContain("could not move");
+    expect(readFileSync(dropin(), "utf8")).toBe(PRIOR);
+    expect(readFileSync(legacy(), "utf8")).toBe("PasswordAuthentication no\n");
+    expect(configFiles()).toEqual([
+      "00-isomux-hardening.conf",
+      "90-isomux-hardening.conf",
+    ]);
+  });
+
+  it("leaves no stash behind when it succeeds", async () => {
+    plantPrior();
+    plantLegacy();
+    const { code } = await apply();
+    expect(code).toBe(0);
+    expect(configFiles()).toEqual(["00-isomux-hardening.conf"]);
+    expect(readFileSync(dropin(), "utf8")).toContain("Named to sort");
+  });
+
+  it("writes nothing on a box with no key to get back in with", async () => {
+    writeFileSync(authorizedKeys, "");
+    try {
+      const { code, output } = await apply();
+      expect(code).toBe(10);
+      expect(existsSync(dropin())).toBe(false);
+      expect(output).toContain("SSH HARDENING SKIPPED");
+    } finally {
+      writeFileSync(authorizedKeys, "ssh-ed25519 AAAAstub operator@laptop\n");
+    }
   });
 });

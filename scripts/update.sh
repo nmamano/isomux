@@ -437,11 +437,33 @@ main() {
   # commit verified just above, never from whatever the fetch left behind. Ahead
   # of the already-on-target exit on purpose: re-running the updater with the
   # tag a box is already on then repairs a checkout updated before this fix.
+  local had_tag
+  had_tag=$(as_repo_user git -C "$REPO_DIR" rev-parse -q --verify "refs/tags/$TARGET_TAG^{commit}") || had_tag=""
   as_repo_user git -C "$REPO_DIR" update-ref "refs/tags/$TARGET_TAG" "$target_commit"
 
   if [[ $target_commit == "$OLD_COMMIT" ]]; then
-    log "already on $TARGET_TAG; nothing to do"
-    write_status ok "already on $TARGET_TAG"
+    if [[ $had_tag == "$target_commit" ]]; then
+      log "already on $TARGET_TAG; nothing to do"
+      write_status ok "already on $TARGET_TAG"
+      exit 0
+    fi
+    # The line above just repaired a checkout that was running this release
+    # without recording it. Nothing was built and nothing can be rolled back,
+    # so the ordinary recovery ladder does not apply - but server/version.ts
+    # reads the tag once per process, so the office goes on reporting
+    # release: null, and the banner on offering this release, until it
+    # restarts. That restart is the repair.
+    trap - ERR
+    log "already on $TARGET_TAG, which the checkout was not recording; restarting so the office reports it"
+    phase restart
+    svc stop "$SERVICE_NAME" && wait_inactive && svc start "$SERVICE_NAME" ||
+      die "recorded the release tag for $TARGET_TAG, but $SERVICE_NAME could not be restarted; the code is unchanged from before this run"
+    phase readiness
+    ready_poll "$READY_TIMEOUT_S" ||
+      die "recorded the release tag for $TARGET_TAG and restarted $SERVICE_NAME, but it did not answer within ${READY_TIMEOUT_S}s; the code is unchanged from before this run, so look at the service log"
+    phase finalize
+    write_status ok "recorded the release tag for $TARGET_TAG"
+    log "recorded the release tag for $TARGET_TAG"
     exit 0
   fi
   if as_repo_user git -C "$REPO_DIR" merge-base --is-ancestor "$target_commit" "$OLD_COMMIT"; then

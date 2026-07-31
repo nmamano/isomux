@@ -327,9 +327,13 @@ describe("update.sh happy path", () => {
     expect(sh(fx.repo, "git tag --points-at HEAD")).toBe("");
     const r = await runUpdate(["v2026.7.20"]);
     expect(r.code).toBe(0);
-    expect(r.out).toContain("already on");
+    expect(r.out).toContain("recorded the release tag");
     expect(sh(fx.repo, "git tag --points-at HEAD")).toBe("v2026.7.20");
-    expect(stubCalls().filter((l) => / stop /.test(l))).toEqual([]);
+    // The office reads its version once per process, so the tag alone changes
+    // nothing a user can see: the repair is only finished after a restart, and
+    // one is enough.
+    expect(stubCalls().filter((l) => / stop /.test(l)).length).toBe(1);
+    expect(stubCalls().filter((l) => / start /.test(l)).length).toBe(1);
   });
 });
 
